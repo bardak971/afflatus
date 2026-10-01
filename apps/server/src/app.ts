@@ -2,13 +2,18 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
 import { describeRecipe, fuzzyFilter, parseInput } from "@studai/core";
-import { readEmbedded, stemOf } from "./embedded";
+import { civitaiVersion, findOnCivitai } from "./civitai";
+import { findOnHuggingFace } from "./huggingface";
+import { readEmbedded } from "./embedded";
+import { resolveLink } from "./fromLink";
+import { fill, targetsFor } from "./fromPicture";
 import { newId, now, OWNER } from "./db";
 import { registerDesigner } from "./designer";
 import { registerDrafts } from "./drafts";
 import { compose, lookSchema, registerEntities } from "./entities";
 import { registerFolders } from "./folders";
 import { registerModelInfo } from "./modelInfo";
+import { registerModelPages } from "./modelPages";
 import { registerModelSettings } from "./modelSettings";
 import type { Services } from "./services";
 import { publicSettings, readSettings, writeSettings } from "./settings";
@@ -79,6 +84,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   registerDrafts(app, s);
   registerModelSettings(app, s);
   registerModelInfo(app, s);
+  registerModelPages(app, s);
   registerFolders(app, s);
   registerWorkflows(app, s);
   registerTimelines(app, s);
@@ -104,103 +110,66 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
    * Where a missing model file can be had: asked of Civitai by the file's name. Only when the user
    * turned this on in Setup; the file name is all that is sent.
    */
-  app.get<{ Querystring: { file?: string } }>("/api/civitai/find", async (req) => {
+  app.get<{ Querystring: { file?: string; folder?: string; hints?: string } }>("/api/civitai/find", async (req) => {
     const settings = await readSettings(s.db);
     if (!settings.civitaiLookups) throw Object.assign(new Error("Looking things up on Civitai is turned off. Turn it on in Setup."), { statusCode: 400 });
     const file = String(req.query.file ?? "").split(/[\\/]/).pop() ?? "";
-    const stem = file.replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft)$/i, "");
-    if (!stem) throw Object.assign(new Error("which file?"), { statusCode: 400 });
-    const base = (process.env.CIVITAI_URL ?? "https://civitai.com").replace(/\/+$/, "");
-    let res: Response;
-    try {
-      res = await fetch(`${base}/api/v1/models?${new URLSearchParams({ query: stem.replace(/[_-]+/g, " "), limit: "6" })}`, {
-        headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
-        signal: AbortSignal.timeout(20_000),
-      });
-    } catch (err) {
-      throw Object.assign(new Error(`Civitai did not answer: ${(err as Error).message}`), { statusCode: 502 });
+    if (!file.replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i, "")) throw Object.assign(new Error("which file?"), { statusCode: 400 });
+    // Hugging Face is asked for the file itself, by its exact name; Civitai for models whose names are close
+    const hints = String(req.query.hints ?? "").split("|").map((h) => h.trim()).filter(Boolean).slice(0, 3);
+    const [exact, civitai] = await Promise.all([
+      findOnHuggingFace(file, hints).catch(() => ({ items: [], answered: false })),
+      findOnCivitai(file, req.query.folder ? String(req.query.folder) : null, settings.civitaiKey).catch((err: Error) => err),
+    ]);
+    if (civitai instanceof Error && !exact.answered) throw civitai;
+    const found = civitai instanceof Error ? { items: [], asked: [] as string[], silent: ["civitai.com"] } : civitai;
+    const answer = { ...found, exact: exact.items, asked: [...(exact.answered ? ["huggingface.co"] : []), ...found.asked] };
+    // a model already on this ComfyUI under the name Civitai gives it is no download: it only has to be picked, or moved
+    const client = (await s.comfy()).client;
+    const folders = await client.folders().catch(() => [] as string[]);
+    const lists = await Promise.all(folders.map(async (folder) => ({ folder, files: await client.models(folder).catch(() => [] as string[]) })));
+    // the folder the loader looks in first: a file that is there too is simply picked
+    lists.sort((x, y) => Number(y.folder === req.query.folder) - Number(x.folder === req.query.folder));
+    const base = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
+    for (const item of found.items) {
+      if (!item.file) continue;
+      for (const l of lists) {
+        const here = l.files.find((f) => base(f) === item.file.toLowerCase());
+        if (here) {
+          item.have = { folder: l.folder, file: here };
+          break;
+        }
+      }
     }
-    if (!res.ok) throw Object.assign(new Error(`Civitai refused (${res.status}).`), { statusCode: 502 });
-    const data = (await res.json().catch(() => ({}))) as { items?: Array<{ id: number; name: string; type?: string; modelVersions?: Array<{ id?: number; name?: string; baseModel?: string; trainedWords?: string[]; files?: Array<{ name?: string; sizeKB?: number }> }> }> };
-    return {
-      items: (data.items ?? []).map((m) => {
-        const version = m.modelVersions?.find((v) => v.files?.some((f) => f.name?.toLowerCase() === file.toLowerCase())) ?? m.modelVersions?.[0];
-        return {
-          name: m.name, kind: m.type ?? "", url: `https://civitai.com/models/${m.id}`, version: version?.name ?? "", base: version?.baseModel ?? "",
-          words: (version?.trainedWords ?? []).slice(0, 12),
-          /** What a download of it would fetch: the version, and how large its file is. */
-          versionId: version?.id ?? null,
-          bytes: Math.round((((version?.files ?? []).find((f) => f.name?.toLowerCase() === file.toLowerCase()) ?? version?.files?.[0])?.sizeKB ?? 0) * 1024),
-          /** One of its versions has a file of exactly this name. */
-          exact: Boolean(m.modelVersions?.some((v) => v.files?.some((f) => f.name?.toLowerCase() === file.toLowerCase()))),
-        };
-      }).sort((a, b) => Number(b.exact) - Number(a.exact)),
-    };
+    return answer;
   });
 
   /**
-   * What a file from the computer says about how it was made: settings worked into the SDXL form (the
-   * model and the LoRAs looked up among this ComfyUI's files), and the workflow it carries when it has one.
+   * What a file from the computer says about how it was made: settings worked into a form (the one
+   * that uses the model it was made with, or the one asked for with ?recipe=), and the workflow it carries.
    * The file is read and forgotten: nothing is stored.
    */
-  app.post("/api/embedded", { bodyLimit: UPLOAD_LIMIT }, async (req) => {
-    const bytes = Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : null;
-    if (!bytes) throw Object.assign(new Error("send the file itself"), { statusCode: 400 });
+  const embeddedIn = async (bytes: Uint8Array, wanted: string | undefined) => {
     const found = await readEmbedded(bytes);
     if (!found.settings) return { settings: null, workflow: found.workflow, why: found.why ?? null };
-    const f = found.settings;
-    const recipe = "sdxl.text-to-picture";
     const scan = await (await s.comfy()).scan().catch(() => null);
-    const options = scan?.recipes.find((r) => r.id === recipe)?.options ?? {};
-    const online = Boolean(scan?.comfy.online);
-    /** The file of this ComfyUI that has that name, whatever folder it is in and however it is written. */
-    const fileFor = (name: string | undefined, list: string[] | undefined) => {
-      if (!name) return undefined;
-      const want = stemOf(name).toLowerCase();
-      return (list ?? []).find((o) => stemOf(o).toLowerCase() === want);
-    };
-    const notes = [...f.notes];
-    const missing: Array<{ file: string; folder: string; civitai?: number }> = [];
-    const clamp = (n: number | undefined, lo: number, hi: number) => (n === undefined ? undefined : Math.min(hi, Math.max(lo, n)));
-    const checkpoint = fileFor(f.checkpoint, options.checkpoint);
-    if (f.checkpoint && !checkpoint && online) missing.push({ file: `${f.checkpoint}.safetensors`, folder: "checkpoints", ...(f.checkpointCivitai ? { civitai: f.checkpointCivitai } : {}) });
-    const loras = f.loras.map((l) => ({ ...l, file: fileFor(l.name, options.loras) }));
-    for (const l of loras) if (!l.file && online) missing.push({ file: `${l.name}.safetensors`, folder: "loras", ...(l.civitai ? { civitai: l.civitai } : {}) });
-    if (!online) notes.push("ComfyUI is not answering, so its model and LoRAs could not be looked up: the form keeps the ones it has.");
-    const sampler = f.sampler && (!options.sampler?.length || options.sampler.includes(f.sampler)) ? f.sampler : undefined;
-    const scheduler = f.scheduler && (!options.scheduler?.length || options.scheduler.includes(f.scheduler)) ? f.scheduler : undefined;
-    if (f.sampler && !sampler) notes.push(`Its sampler (${f.sampler}) is not one ComfyUI has: the form keeps its own.`);
-    const grid = (n: number | undefined) => (n ? Math.round(Math.min(2048, Math.max(256, n)) / 8) * 8 : undefined);
-    const width = grid(f.width);
-    const height = grid(f.height);
-    const upscaler = f.hires ? fileFor(f.hires.upscaler, options.hiresUpscaler) ?? "latent" : undefined;
-    const input: Record<string, unknown> = {
-      prompt: f.prompt, negative: f.negative, quality: "",
-      ...(checkpoint ? { checkpoint } : {}),
-      loras: loras.filter((l) => l.file).slice(0, 8).map((l) => ({ file: l.file, weight: Math.min(4, Math.max(-4, l.weight)) })),
-      ...(width && height ? { size: { width, height } } : {}),
-      ...(f.steps ? { steps: clamp(Math.round(f.steps), 1, 100) } : {}),
-      ...(f.cfg ? { cfg: clamp(f.cfg, 1, 20) } : {}),
-      ...(sampler ? { sampler } : {}), ...(scheduler ? { scheduler } : {}),
-      ...(f.clipSkip ? { clipSkip: clamp(f.clipSkip, 1, 4) } : {}),
-      ...(f.seed !== undefined && f.seed >= 0 && f.seed < 2 ** 32 ? { seed: Math.floor(f.seed) } : {}),
-      hires: Boolean(f.hires),
-      ...(f.hires ? {
-        hiresUpscaler: upscaler,
-        ...(f.hires.scale ? { hiresScale: clamp(f.hires.scale, 1.1, 2) } : {}),
-        ...(f.hires.denoise ? { hiresDenoise: clamp(f.hires.denoise, 0.05, 0.9) } : {}),
-        ...(f.hires.steps ? { hiresSteps: clamp(Math.round(f.hires.steps), 1, 60) } : {}),
-      } : {}),
-    };
-    return {
-      settings: {
-        recipe, input, source: f.source, notes, missing,
-        /** What was read, to show before anything is done with it. */
-        model: f.checkpoint ? { name: f.checkpoint, found: Boolean(checkpoint) } : null,
-        loras: loras.map((l) => ({ name: l.name, weight: l.weight, found: Boolean(l.file) })),
-      },
-      workflow: found.workflow, why: null,
-    };
+    const optionsOf = (id: string) => scan?.recipes.find((r) => r.id === id)?.options ?? {};
+    // which form: the one asked for, else the one that uses the model the picture was made with
+    const targets = targetsFor(found.settings, s.registry.recipes(), optionsOf);
+    const recipe = s.registry.recipe(targets.find((t) => t.id === wanted)?.id ?? targets[0]?.id ?? "sdxl.text-to-picture");
+    if (!recipe) throw Object.assign(new Error("there is nothing to fill with these settings"), { statusCode: 400 });
+    return { settings: { ...fill(found.settings, recipe, optionsOf(recipe.id), Boolean(scan?.comfy.online)), targets }, workflow: found.workflow, why: null };
+  };
+  app.post<{ Querystring: { recipe?: string } }>("/api/embedded", { bodyLimit: UPLOAD_LIMIT }, async (req) => {
+    const bytes = Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : null;
+    if (!bytes) throw Object.assign(new Error("send the file itself"), { statusCode: 400 });
+    return embeddedIn(bytes, req.query.recipe);
+  });
+  /** The same for a picture or a video already in the library: what its file carries. */
+  app.get<{ Params: { id: string }; Querystring: { recipe?: string } }>("/api/assets/:id/embedded", async (req) => {
+    const a = await s.db.selectFrom("assets").select(["file_key"]).where("id", "=", req.params.id).executeTakeFirst();
+    if (!a) throw notFound("that item");
+    return embeddedIn(await s.storage.get(a.file_key), req.query.recipe);
   });
 
   /** Model files being fetched into ComfyUI, whether that is turned on, and whether this ComfyUI can do it. */
@@ -219,6 +188,10 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       // left empty for a Civitai version: the file keeps the name Civitai gives it
       file: z.string().max(400).default(""), folder: z.string().min(1).max(120),
       civitai: z.number().int().positive().optional(), url: z.string().url().max(2000).optional(),
+      // of a Civitai version with several files: the one to fetch, by the name Civitai gives it
+      pick: z.string().max(400).optional(),
+      // the page it comes from, kept for the file: its name then leads there
+      page: z.strictObject({ url: z.string().url().max(2000), title: z.string().max(300) }).optional(),
     }).parse(req.body);
     const settings = await readSettings(s.db);
     if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Setup."), { statusCode: 400 });
@@ -231,26 +204,57 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       throw Object.assign(new Error("ComfyUI runs on another machine and cannot reach studai at this address. Open studai by its network address, or set PUBLIC_URL to it."), { statusCode: 400 });
     }
     const name = b.file.split(/[\\/]/).pop()!;
+    const keepPage = async (saved: string) => {
+      if (!b.page || !/^[\w-]{1,64}$/.test(b.folder)) return;
+      const key = { folder: b.folder, name: (saved.split(/[\\/]/).pop() ?? saved).toLowerCase() };
+      await s.db.insertInto("model_pages").values({ ...key, url: b.page.url, title: b.page.title, found_at: new Date().toISOString() })
+        .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: b.page!.url, title: b.page!.title })).execute();
+    };
     if (b.url) {
       if (!name) throw Object.assign(new Error("under which name?"), { statusCode: 400 });
       if (!/^https:\/\//.test(b.url) && !process.env.CIVITAI_URL) throw Object.assign(new Error("only https addresses are fetched"), { statusCode: 400 });
-      return s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url });
+      const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url });
+      await keepPage(started.file);
+      return started;
     }
-    const base = (process.env.CIVITAI_URL ?? "https://civitai.com").replace(/\/+$/, "");
-    const auth = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
-    const res = await fetch(`${base}/api/v1/model-versions/${b.civitai}`, { headers: auth, signal: AbortSignal.timeout(20_000) }).catch((err) => {
-      throw Object.assign(new Error(`Civitai did not answer: ${(err as Error).message}`), { statusCode: 502 });
-    });
-    if (!res.ok) throw Object.assign(new Error(`Civitai refused (${res.status}).`), { statusCode: 502 });
-    const v = (await res.json()) as { name?: string; model?: { name?: string }; files?: Array<{ name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string }> };
-    const files = (v.files ?? []).filter((f) => f.downloadUrl && (f.type ?? "Model") === "Model");
-    // the file of that very name when the version has it, else its main file, saved under the name that is missing
-    const picked = files.find((f) => f.name?.toLowerCase() === name.toLowerCase()) ?? files.find((f) => f.primary) ?? files[0];
-    if (!picked?.downloadUrl) throw Object.assign(new Error("Civitai lists no file to download for that version."), { statusCode: 404 });
+    const found = await civitaiVersion(b.civitai!, b.pick ?? name, settings.civitaiKey);
+    if (!found?.file.downloadUrl) throw Object.assign(new Error("Civitai lists no file to download for that version."), { statusCode: 404 });
+    if (b.pick && found.file.name?.toLowerCase() !== b.pick.toLowerCase()) throw Object.assign(new Error(`That version has no file called ${b.pick}.`), { statusCode: 404 });
+    const saveAs = b.file || (found.file.name ?? "model.safetensors").replace(/[\\/:*?"<>|]/g, "_");
+    await keepPage(saveAs);
     return s.downloads.start(comfy, self, {
-      file: b.file || (picked.name ?? "model.safetensors").replace(/[\\/:*?"<>|]/g, "_"), folder: b.folder, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || name,
-      source: picked.downloadUrl, headers: auth, total: Math.round((picked.sizeKB ?? 0) * 1024),
+      file: saveAs, folder: b.folder, title: found.title || name,
+      source: found.file.downloadUrl, headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
+      total: Math.round((found.file.sizeKB ?? 0) * 1024),
     });
+  });
+
+  /**
+   * What a link leads to (a model's page on Civitai, a file on Hugging Face): its files and sizes, the
+   * folder it most likely belongs in, ComfyUI's folders to choose from, and whether ComfyUI has it already.
+   */
+  app.post("/api/downloads/resolve", async (req) => {
+    const { link } = z.strictObject({ link: z.string().min(8).max(2000) }).parse(req.body);
+    const settings = await readSettings(s.db);
+    if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Setup."), { statusCode: 400 });
+    const found = await resolveLink(link, settings.civitaiKey);
+    const client = (await s.comfy()).client;
+    const folders = await client.folders().catch(() => [] as string[]);
+    const lists = await Promise.all(folders.map(async (folder) => ({ folder, files: await client.models(folder).catch(() => [] as string[]) })));
+    const base = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
+    const have = Object.fromEntries(found.files.flatMap((f) => {
+      const where = lists.find((l) => l.files.some((x) => base(x) === f.name.toLowerCase()));
+      return where ? [[f.name, where.folder]] : [];
+    }));
+    return { ...found, folders: folders.sort(), have };
+  });
+
+  /** Stop a download that is under way (nothing is left behind), or take a finished one off the list. */
+  app.delete<{ Params: { id: string } }>("/api/downloads/:id", async (req) => {
+    const stopped = s.downloads.stop(req.params.id);
+    if (stopped === false) throw notFound("that download");
+    if (stopped === "late") throw Object.assign(new Error("All of it has arrived: ComfyUI is saving the file now."), { statusCode: 409 });
+    return { ok: true };
   });
 
   /** The one-time address ComfyUI-Manager fetches a file from. It works once, for the download it was made for. */
@@ -288,6 +292,12 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   app.post("/api/queue/resume", async () => {
     await s.queue.setPaused(false);
     return s.queue.status();
+  });
+
+  /** Unload ComfyUI's models now: the GPU's memory is wanted for something else. */
+  app.post("/api/comfy/free", async () => {
+    await s.queue.freeMemory();
+    return { ok: true };
   });
 
   /** The waiting jobs, in the order they should run. */

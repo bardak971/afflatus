@@ -76,7 +76,7 @@ describe("painting over a part of a picture", () => {
   it("is refused when nothing is painted, or when the paint belongs to another picture", async () => {
     const picture = await upload(await plain(400, 600));
     const empty = await upload(await painted(400, 600), "as=mask");
-    expect(await refusal("sdxl.paint-over", { source: picture.id, mask: empty.id, prompt: "a", checkpoint: CHECKPOINT })).toContain("Nothing is painted");
+    expect(await refusal("sdxl.paint-over", { source: picture.id, mask: empty.id, prompt: "a", checkpoint: CHECKPOINT })).toContain("The mask is empty");
     const other = await upload(await painted(300, 300, { left: 10, top: 10, width: 50, height: 50 }), "as=mask");
     expect(await refusal("sdxl.paint-over", { source: picture.id, mask: other.id, prompt: "a", checkpoint: CHECKPOINT })).toContain("painted on another picture");
   });
@@ -166,7 +166,7 @@ describe("the other things done to a picture", () => {
     const all = (await get(t.app, "/api/recipes")).json();
     const takesOne = all.recipes.filter((r: { output: string; inputs: Array<{ type: string; role?: string; optional?: boolean }> }) => r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
     expect(takesOne.map((r: { id: string }) => r.id)).toEqual([
-      "sdxl.redraw", "sdxl.paint-over", "sdxl.sharper", "sdxl.fix-face", "klein.edit", "klein.variation", "klein.paint-over", "klein.change-shape", "klein.sharper", "klein.fix-face", "tools.remove-background",
+      "sdxl.redraw", "sdxl.paint-over", "sdxl.sharper", "sdxl.fix-face", "klein.edit", "klein.variation", "klein.paint-over", "klein.change-shape", "klein.sharper", "klein.fix-face", "krea2.redraw", "krea2.paint-over", "krea2.sharper", "krea2.fix-face", "tools.remove-background",
     ]);
     const setup = (await get(t.app, "/api/setup")).json();
     const of = (id: string) => setup.recipes.find((r: { id: string }) => r.id === id);

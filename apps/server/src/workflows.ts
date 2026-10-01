@@ -37,7 +37,7 @@ function checkBindings(graph: Graph, b: Bindings): void {
     if (t && !(t.input in (graph[t.node]?.inputs ?? {}))) throw bad(`${what} points at node ${t.node}, input "${t.input}", which is not in the workflow`);
   };
   at("The prompt", b.prompt);
-  at("What to avoid", b.negative);
+  at("The negative prompt", b.negative);
   b.seeds.forEach((s) => at("A seed", s));
   at("The width", b.size?.width);
   at("The height", b.size?.height);
@@ -74,13 +74,27 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
       if (err instanceof ComfyUnreachable) throw bad("ComfyUI has to be running to read a workflow: its node list says what each setting is.", 503);
       throw err;
     }
+    /** For each file that is missing: the other model folders of ComfyUI that hold a file of that name. */
+    const withElsewhere = async <T extends ReturnType<typeof inspect>>(found: T) => {
+      if (!found.missingFiles.length) return { ...found, elsewhere: {} as Record<string, string[]> };
+      const client = (await s.comfy()).client;
+      const folders = await client.folders().catch(() => [] as string[]);
+      const lists = await Promise.all(folders.map(async (folder) => ({ folder, files: await client.models(folder).catch(() => [] as string[]) })));
+      const name = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
+      const elsewhere: Record<string, string[]> = {};
+      for (const m of found.missingFiles) {
+        const hits = lists.filter((l) => l.files.some((f) => name(f) === name(m.file))).map((l) => l.folder);
+        if (hits.length) elsewhere[m.file] = hits;
+      }
+      return { ...found, elsewhere };
+    };
     if (fromFile) {
       const read = fromEditor(body, catalog);
       if (!Object.keys(read.graph).length) throw bad("No node that ComfyUI can run was found in this file.");
-      return { ...inspect(read.graph, catalog, read.wiring, read.notes), graph: read.graph, wiring: read.wiring };
+      return { ...(await withElsewhere(inspect(read.graph, catalog, read.wiring, read.notes))), graph: read.graph, wiring: read.wiring };
     }
-    if (held?.success) return { ...inspect(held.data.graph as Graph, catalog, held.data.wiring), graph: held.data.graph, wiring: held.data.wiring };
-    return { ...inspect(exported!, catalog), graph: exported };
+    if (held?.success) return { ...(await withElsewhere(inspect(held.data.graph as Graph, catalog, held.data.wiring))), graph: held.data.graph, wiring: held.data.wiring };
+    return { ...(await withElsewhere(inspect(exported!, catalog))), graph: exported };
   });
 
   app.get("/api/workflows", async () => ({ items: s.registry.workflows().map(brief) }));

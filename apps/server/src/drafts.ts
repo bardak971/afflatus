@@ -25,6 +25,8 @@ const saveBody = z.strictObject({
   look: lookSchema.nullable().optional(),
   /** The conversation with the designer about this draft: kept as it is, the server does not read it. */
   chat: z.array(z.unknown()).max(200).optional(),
+  /** A name of one's own for it; an empty one goes back to the start of what was written. */
+  name: z.string().max(80).optional(),
 });
 
 /** A draft is a few fields of text; anything much larger is a mistake. */
@@ -43,7 +45,7 @@ function titleOf(recipe: Recipe<any> | undefined, all: Record<string, Record<str
   return "";
 }
 
-const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, target: d.target, updatedAt: d.updated_at });
+const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, updatedAt: d.updated_at });
 const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],
@@ -70,7 +72,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     const at = now();
     const row: Tables["drafts"] = {
       id: newId(), owner_id: OWNER, target: body.target, recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
-      forms: json, count: body.count, chat: null, look: body.look ? JSON.stringify(body.look) : null, created_at: at, updated_at: at,
+      name: null, forms: json, count: body.count, chat: null, look: body.look ? JSON.stringify(body.look) : null, created_at: at, updated_at: at,
     };
     await s.db.insertInto("drafts").values(row).execute();
     return full(row);
@@ -90,6 +92,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
       recipe_id: recipe, forms: json, count: body.count ?? current.count, title: titleOf(s.registry.recipe(recipe), all), updated_at: now(),
       ...(body.look !== undefined ? { look: body.look ? JSON.stringify(body.look) : null } : {}),
       ...(body.chat !== undefined ? { chat: body.chat.length ? JSON.stringify(body.chat).slice(0, MAX_BYTES) : null } : {}),
+      ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),
     };
     await s.db.updateTable("drafts").set(next).where("id", "=", current.id).execute();
     return full({ ...current, ...next });

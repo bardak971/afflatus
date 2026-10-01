@@ -65,7 +65,7 @@ function pretendClip(graph: Graph, seed: number): Uint8Array | undefined {
 }
 
 // the models the video workflows load are listed, so that one the demo does not have shows as missing and can be fetched
-catalog.UNETLoader!.input.required!.unet_name = [["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors"]];
+catalog.UNETLoader!.input.required!.unet_name = [["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors"]];
 
 const fake = await startFakeComfy({
   catalog,
@@ -75,7 +75,7 @@ const fake = await startFakeComfy({
     checkpoints, upscale_models: upscalers,
     loras: ["demo-watercolour.safetensors", "demo-film-grain.safetensors", "demo-detail.safetensors", "minimax_h3_turbo_demo.safetensors", "minimax_h3_ref2v_turbo_demo.safetensors"],
     // the built-in video recipe finds its files by name: these make it ready in the demo
-    diffusion_models: ["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors"],
+    diffusion_models: ["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors"],
     text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors", "qwen_3_4b_demo.safetensors"],
     vae: ["minimax_h3_video_vae_demo.safetensors", "minimax_h3_audio_vae_demo.safetensors", "flux2-vae-demo.safetensors"],
     frame_interpolation: ["rife_demo.pth"],

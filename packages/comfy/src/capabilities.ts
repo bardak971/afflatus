@@ -1,4 +1,4 @@
-import { choicesOf, folderOfFileInput, parseInput, type Family, type NodeCatalog, type Recipe } from "@studai/core";
+import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameFile, type Family, type NodeCatalog, type Recipe } from "@studai/core";
 import type { ComfyClient, ComfyStatus } from "./client";
 
 /**
@@ -15,6 +15,8 @@ export interface SlotStatus {
   file: string | null;
   optional: boolean;
   hint: string;
+  /** Where its usual file can be had, when the family says. */
+  get?: { file: string; url: string };
 }
 
 export interface RecipeStatus {
@@ -31,6 +33,8 @@ export interface RecipeStatus {
   missingFiles: string[];
   /** The same files with what is known about each: the folder it belongs in, and an address when its author gave one. */
   missing: Array<{ file: string; folder: string | null; url?: string }>;
+  /** What ComfyUI would refuse in its plain form, in the checker's words: a choice it does not offer, an input it does not know. */
+  problems: string[];
   /** Node classes only some options need: those options are off, the recipe still runs. */
   limitedBy: string[];
   /** What each model / choice input offers on this ComfyUI (input id → options). */
@@ -88,7 +92,7 @@ export async function scan(
           const list = await files(s.folder);
           const chosen = overrides[f.id]?.[s.id];
           return {
-            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint,
+            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(s.get ? { get: s.get } : {}),
             file: chosen && list.includes(chosen) ? chosen : detect(list, s.detect),
           };
         }),
@@ -112,8 +116,16 @@ export async function scan(
       const emptyInputs: string[] = [];
       for (const input of r.inputs) {
         if (input.type === "model") {
-          options[input.id] = await files(input.folder);
-          if (!options[input.id]!.length) emptyInputs.push(input.id);
+          const all = await files(input.folder);
+          // what a form starts on comes first: the family's own file when the input stands for a slot
+          const usual = input.slot ? slots.find((s) => s.id === input.slot)?.file : null;
+          const fits = input.match ? all.filter((f) => input.match!.some((p) => new RegExp(p, "i").test(f))) : [];
+          // a file that fills another slot of the family (H3's reference model) is used on its own when a clip
+          // needs it: it is not a choice for this one
+          const taken = input.slot ? slots.filter((s) => s.id !== input.slot && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
+          options[input.id] = [...new Set([...(usual ? [usual] : []), ...fits, ...all])].filter((f) => !taken.includes(f));
+          // with a slot, a missing file is the slot's to report
+          if (!options[input.id]!.length && !input.slot) emptyInputs.push(input.id);
         } else if (input.type === "loras") {
           // every LoRA for now: sorting them by the family they fit needs their metadata, which is read later
           options[input.id] = await files("loras");
@@ -128,17 +140,28 @@ export async function scan(
       const absent = (r.files ?? []).filter((f) => {
         const def = catalog[f.classType];
         const choices = choicesOf(def?.input.required?.[f.input] ?? def?.input.optional?.[f.input]);
-        // no list to compare with means it cannot be said to be missing
-        return choices !== null && choices.length > 0 && !choices.includes(f.file);
+        // no list to compare with means it cannot be said to be missing; the same file in another sub-folder is not missing
+        return choices !== null && choices.length > 0 && !sameFile(choices, f.file);
       });
       const missingFiles = [...new Set(absent.map((f) => f.file))];
       const missing = missingFiles.map((file) => {
         const f = absent.find((x) => x.file === file)!;
         return { file, folder: folderOfFileInput(f.classType, f.input), ...(f.url ? { url: f.url } : {}) };
       });
+      // its plainest form, built and checked like a render would be: a choice this ComfyUI does not offer shows here, not at render time
+      let problems: string[] = [];
+      const plain = r.variants[0];
+      if (plain && !missingNodes.length) {
+        try {
+          const built = r.build(parseInput(r, plain.input), dryContext({ slots: plain.slots ?? {}, uploads: plain.uploads ?? {}, media: plain.media ?? {}, canvas: plain.canvas, has }));
+          problems = checkGraph(built, catalog).slice(0, 4);
+        } catch (err) {
+          problems = [(err as Error).message.slice(0, 200)];
+        }
+      }
       return {
-        id: r.id, missingNodes, missingSlots, emptyInputs, missingFiles, missing, limitedBy, options,
-        ready: !missingNodes.length && !missingSlots.length && !emptyInputs.length && !missingFiles.length,
+        id: r.id, missingNodes, missingSlots, emptyInputs, missingFiles, missing, problems, limitedBy, options,
+        ready: !missingNodes.length && !missingSlots.length && !emptyInputs.length && !missingFiles.length && !problems.length,
       };
     }),
   );

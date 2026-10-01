@@ -12,9 +12,9 @@ export interface KleinBase {
 
 export const kleinInputs: InputSpec[] = [
   { id: "loras", type: "loras", label: "LoRAs", max: 4 },
-  { id: "negative", type: "prompt", label: "Avoid", style: "sentences", optional: true, default: KLEIN_NEGATIVE, advanced: true },
+  { id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: KLEIN_NEGATIVE, advanced: true },
   { id: "steps", type: "number", label: "Steps", note: "20 for the base model, 4 for a distilled one", min: 1, max: 60, step: 1, default: 20, advanced: true },
-  { id: "cfg", type: "number", label: "How closely it follows the words (CFG)", note: "5 for the base model, 1 for a distilled one", min: 1, max: 12, step: 0.5, default: 5, advanced: true },
+  { id: "cfg", type: "number", label: "CFG scale", note: "5 for the base model, 1 for a distilled one", min: 1, max: 12, step: 0.5, default: 5, advanced: true },
   { id: "seed", type: "seed", label: "Seed" },
 ];
 

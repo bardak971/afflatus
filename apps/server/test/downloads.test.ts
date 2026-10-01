@@ -39,9 +39,31 @@ beforeEach(async () => {
         ],
       }));
     }
-    if (req.url === "/files/soft" || req.url === "/files/plain.safetensors") {
+    // a model with two versions, each in two sizes
+    const version = (id: number, name: string) => ({
+      id, name, modelId: 9, baseModel: "MiniMax H3", model: { name: "Some H3", type: "Checkpoint" },
+      files: [
+        { name: `SomeH3_${name}_int4.safetensors`, type: "Model", sizeKB: 100, metadata: { fp: "int4", format: "SafeTensor" }, downloadUrl: `${siteUrl}/files/big4` },
+        { name: `SomeH3_${name}_int8.safetensors`, type: "Model", sizeKB: FILE.length / 1024, metadata: { fp: "int8", format: "SafeTensor" }, downloadUrl: `${siteUrl}/files/big8` },
+      ],
+    });
+    if (req.url === "/api/v1/models/9") {
+      res.setHeader("content-type", "application/json");
+      return res.end(JSON.stringify({ id: 9, name: "Some H3", type: "Checkpoint", modelVersions: [version(50, "v3"), version(49, "v2")] }));
+    }
+    if (req.url === "/api/v1/model-versions/50") {
+      res.setHeader("content-type", "application/json");
+      return res.end(JSON.stringify(version(50, "v3")));
+    }
+    if (req.url === "/files/soft" || req.url === "/files/plain.safetensors" || req.url === "/files/big8") {
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILE.length });
       return res.end(FILE);
+    }
+    if (req.url === "/files/slow.safetensors") {
+      // a first part, then nothing more for a long while: a download to stop
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILE.length });
+      res.write(FILE.subarray(0, 50_000));
+      return;
     }
     if (req.url === "/files/login") {
       res.writeHead(200, { "content-type": "text/html" });
@@ -130,6 +152,25 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect(await list()).toMatchObject({ manager: { found: false } });
   });
 
+  it("can be stopped while it runs: nothing reaches ComfyUI, and it can be started again", async () => {
+    await start(true);
+    await on();
+    const d = (await post(t.app, "/api/downloads", { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/slow.safetensors` })).json();
+    await until(async () => (await list()).items[0].bytes > 0);
+    expect((await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` })).statusCode).toBe(200);
+    expect((await list()).items[0]).toMatchObject({ status: "stopped" });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(fake.installed).toEqual([]);
+    // the same file can be asked for again, and a finished line can be taken off the list
+    const again = (await post(t.app, "/api/downloads", { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    expect(again.id).not.toBe(d.id);
+    await done(again.id);
+    expect(fake.installed).toEqual([{ folder: "loras", file: "slow.safetensors", bytes: FILE.length }]);
+    await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` });
+    expect((await list()).items.map((x: { id: string }) => x.id)).toEqual([again.id]);
+    expect((await t.app.inject({ method: "DELETE", url: "/api/downloads/nope" })).statusCode).toBe(404);
+  });
+
   it("refuses what is not a model file or not a folder", async () => {
     await start(true);
     await on();
@@ -149,5 +190,59 @@ describe("a workflow whose model file is missing", () => {
     fake.catalog.UNETLoader!.input.required!.unet_name = [["some-other-model.safetensors"]];
     const status = (await get(t.app, "/api/setup?fresh=1")).json().recipes.find((r: { id: string }) => r.id === id);
     expect(status.missing).toEqual([{ file: "wan2.2_i2v_14B.safetensors", folder: "diffusion_models" }]);
+  });
+});
+
+describe("a model from a link", () => {
+  const resolve = (link: string) => post(t.app, "/api/downloads/resolve", { link });
+
+  it("says what the link leads to: its versions, its files with their sizes, and the folder it most likely goes in", async () => {
+    await start(true);
+    expect((await resolve("https://civitai.red/models/9/some-h3?modelVersionId=50")).statusCode).toBe(400);
+    expect(asked).toEqual([]);
+    await on();
+
+    const found = (await resolve("https://civitai.red/models/9/some-h3?modelVersionId=50")).json();
+    expect(found).toMatchObject({
+      source: "civitai", title: "Some H3 · v3", about: "Checkpoint · MiniMax H3", page: "https://civitai.com/models/9?modelVersionId=50",
+      version: 50, versions: [{ id: 50, name: "v3" }, { id: 49, name: "v2" }],
+      // Civitai calls it a checkpoint; a model of this family is the diffusion model alone
+      folder: "diffusion_models", folders: ["checkpoints", "loras"], have: {},
+    });
+    expect(found.why).toMatch(/diffusion model alone/);
+    expect(found.files).toEqual([{ name: "SomeH3_v3_int4.safetensors", bytes: 102400, note: "int4" }, { name: "SomeH3_v3_int8.safetensors", bytes: FILE.length, note: "int8" }]);
+    // the page alone: its newest version; another version by its number
+    expect((await resolve("https://civitai.com/models/9")).json()).toMatchObject({ version: 50 });
+    expect((await resolve("https://civitai.com/models/9?modelVersionId=49")).json().files[0].name).toBe("SomeH3_v2_int4.safetensors");
+    expect((await resolve("https://civitai.com/model-versions/50")).json()).toMatchObject({ version: 50, versions: [{ id: 50 }, { id: 49 }] });
+
+    // a file on Hugging Face: its own address, and the folder its place there names
+    expect((await resolve("https://huggingface.co/Comfy-Org/Krea-2/blob/main/loras/krea2_style_reference.safetensors")).json()).toMatchObject({
+      source: "huggingface", title: "krea2_style_reference.safetensors", about: "Comfy-Org/Krea-2", folder: "loras",
+      url: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/loras/krea2_style_reference.safetensors",
+      files: [{ name: "krea2_style_reference.safetensors", bytes: 0, note: "" }],
+    });
+    for (const not of ["https://civitai.com/images/123", "https://huggingface.co/Comfy-Org/Krea-2", "https://example.com/a-page", "not an address"]) {
+      expect((await resolve(not)).statusCode, not).toBe(400);
+    }
+  });
+
+  it("fetches the file that was picked, under the name asked for, and remembers its page", async () => {
+    await start(true);
+    await on();
+    const found = (await resolve("https://civitai.com/models/9")).json();
+    const d = (await post(t.app, "/api/downloads", {
+      file: "My_H3.safetensors", folder: "checkpoints", civitai: found.version, pick: "SomeH3_v3_int8.safetensors", page: { url: found.page, title: found.title },
+    })).json();
+    expect(d).toMatchObject({ file: "My_H3.safetensors", folder: "checkpoints", title: "Some H3 · v3", total: FILE.length });
+    await done(d.id);
+    expect(fake.installed).toEqual([{ folder: "checkpoints", file: "My_H3.safetensors", bytes: FILE.length }]);
+    // the int8 file, not the int4 one
+    expect(asked.map((a) => a.url).filter((u) => u.startsWith("/files/"))).toEqual(["/files/big8"]);
+    expect((await get(t.app, "/api/models/checkpoints/pages")).json().items).toEqual({ "my_h3.safetensors": { url: "https://civitai.com/models/9?modelVersionId=50", title: "Some H3 · v3" } });
+    // once there, the link says so
+    expect((await resolve("https://civitai.com/models/9")).json().have).toEqual({});
+    const none = await post(t.app, "/api/downloads", { file: "x.safetensors", folder: "checkpoints", civitai: 50, pick: "no_such_file.safetensors" });
+    expect(none.statusCode).toBe(404);
   });
 });

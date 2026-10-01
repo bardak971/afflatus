@@ -28,7 +28,8 @@ const recipe = defineRecipe<ToyInput>({
   nodes: (i) => ["Loader", "Sampler", ...(i.sharp ? ["Sharpen"] : [])],
   build(i) {
     const g = new GraphBuilder();
-    const out = g.add("Sampler", { model: g.out("Loader", { file: i.model }), method: i.sampler });
+    // "auto" is the form's own word: the node is given one of its choices
+    const out = g.add("Sampler", { model: g.out("Loader", { file: i.model }), method: i.sampler === "auto" ? "euler" : i.sampler });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads: [] };
   },
   variants: [
@@ -66,7 +67,7 @@ describe("scan", () => {
     expect(s.comfy).toMatchObject({ online: true, device: "fake gpu", nodes: 3 });
     expect(s.families[0]!.slots.map((x) => [x.id, x.file])).toEqual([["vae", "toy_vae.safetensors"], ["turbo", null]]);
     expect(s.recipes[0]).toEqual({
-      id: "toy.make", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], limitedBy: [],
+      id: "toy.make", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [],
       options: { model: ["m.safetensors"], sampler: ["auto", "euler", "heun"] },
     });
   });
@@ -75,6 +76,13 @@ describe("scan", () => {
     const { Sampler: _gone, ...without } = catalog;
     const s = await run({ catalog: without, models: { vae: [], loras: [], checkpoints: [] } });
     expect(s.recipes[0]).toMatchObject({ ready: false, missingNodes: ["Sampler"], missingSlots: ["vae"], emptyInputs: ["model"] });
+  });
+
+  it("is not ready when ComfyUI would refuse its graph: a choice the node does not offer", async () => {
+    const other: NodeCatalog = { ...catalog, Sampler: { input: { required: { model: ["MODEL", {}], method: [["heun", "dpm"]] } }, output: ["IMAGE"] } };
+    const s = await run({ catalog: other, models: { vae: ["toy_vae.safetensors"], loras: [], checkpoints: ["m.safetensors"] } });
+    expect(s.recipes[0]).toMatchObject({ ready: false, missingNodes: [] });
+    expect(s.recipes[0]!.problems[0]).toMatch(/"euler" is not a choice of "method"/);
   });
 
   it("keeps a recipe ready when only an option's node is missing", async () => {

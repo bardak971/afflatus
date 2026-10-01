@@ -1,9 +1,12 @@
+import { crc32 } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
 import { parseA1111, readEmbedded } from "../src/embedded";
-import { CHECKPOINT, makeApp, referenceCatalog, type TestApp } from "./helpers";
+import { sameModel } from "../src/fromPicture";
+import { sdxl } from "../../../packages/workflows/test/fixtures";
+import { CHECKPOINT, makeApp, post, referenceCatalog, type TestApp } from "./helpers";
 
-/** A PNG with text chunks in it, the way A1111 and ComfyUI write them. (The reader does not check the checksums.) */
+/** A PNG with text chunks in it, the way A1111 and ComfyUI write them. */
 function pngWith(texts: Record<string, string>): Uint8Array {
   const png = Buffer.from(makePng(8, 8, [10, 20, 30], [40, 50, 60]));
   const end = png.length - 12;
@@ -12,7 +15,9 @@ function pngWith(texts: Record<string, string>): Uint8Array {
     const head = Buffer.alloc(8);
     head.writeUInt32BE(data.length, 0);
     head.write("tEXt", 4, "latin1");
-    return Buffer.concat([head, data, Buffer.alloc(4)]);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])));
+    return Buffer.concat([head, data, sum]);
   });
   return new Uint8Array(Buffer.concat([png.subarray(0, end), ...chunks, png.subarray(end)]));
 }
@@ -100,5 +105,65 @@ describe("a dropped picture's settings, as a form", () => {
   it("answers with why when the picture holds nothing", async () => {
     const out = await read(makePng(8, 8, [0, 0, 0], [0, 0, 0]));
     expect(out).toMatchObject({ settings: null, workflow: null, why: expect.stringContaining("Nothing about how it was made") });
+  });
+});
+
+describe("which form a picture's settings go to", () => {
+  let fake: FakeComfy;
+  let t: TestApp;
+  beforeEach(async () => {
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [CHECKPOINT], loras: [], upscale_models: [] } });
+    t = await makeApp({ comfyUrl: fake.url });
+  });
+  afterEach(async () => {
+    await t.close();
+    await fake.close().catch(() => {});
+  });
+  const made = (model: string) => pngWith({ parameters: `a lighthouse at dusk
+Negative prompt: blurry
+Steps: 12, Sampler: er_sde_beta, CFG scale: 3.5, Seed: 42, Size: 1088x1920, Model: ${model}` });
+
+  it("tells a model by its name, with or without what a site adds to it", () => {
+    expect(sameModel("someModel_v10Krea2", "Krea2\\someModel_v10Krea2_fp8.safetensors")).toBe(true);
+    expect(sameModel("someModel_v10Krea2", "someModel_v10Krea2.safetensors")).toBe(true);
+    expect(sameModel("someModel_v10Krea2", "someModel_v9.safetensors")).toBe(false);
+    // a short name is the start of too many others
+    expect(sameModel("model", "model_v2.safetensors")).toBe(false);
+  });
+
+  it("reads a sampler written with its scheduler behind it", () => {
+    expect(parseA1111("x\nSteps: 12, Sampler: er_sde_beta, CFG scale: 3")).toMatchObject({ sampler: "er_sde", scheduler: "beta" });
+    expect(parseA1111("x\nSteps: 12, Sampler: dpmpp_2m_sgm_uniform, CFG scale: 3")).toMatchObject({ sampler: "dpmpp_2m", scheduler: "sgm_uniform" });
+  });
+
+  it("is the workflow that loads that model, and another when asked; the same from a file and from the library", async () => {
+    const found = (await post(t.app, "/api/workflows/inspect", sdxl)).json();
+    const id = (await post(t.app, "/api/workflows", { title: "Mine", model: "SDXL", source: "x.json", graph: sdxl, bindings: found.suggested })).json().id as string;
+    const send = async (query = "") => (await t.app.inject({ method: "POST", url: `/api/embedded${query}`, headers: { "content-type": "image/png" }, payload: Buffer.from(made("sd_xl_base_1.0")) })).json();
+
+    const first = await send();
+    // the workflow names that very model in its loader: it comes first, and says why
+    expect(first.settings.targets[0]).toEqual({ id, why: "it uses this model" });
+    expect(first.settings).toMatchObject({ recipe: id, model: { name: "sd_xl_base_1.0", found: true } });
+    expect(first.settings.input).toMatchObject({ prompt: "a lighthouse at dusk", negative: "blurry", size: { width: 1088, height: 1920 }, seed: 42 });
+    // its settings are the node's own: the steps and cfg of its sampler
+    expect(Object.entries(first.settings.input).filter(([k]) => /steps|cfg/.test(k)).map(([, v]) => v).sort()).toEqual([12, 3.5]);
+
+    const asked = await send("?recipe=sdxl.text-to-picture");
+    expect(asked.settings).toMatchObject({ recipe: "sdxl.text-to-picture", model: { name: "sd_xl_base_1.0", found: false } });
+    expect(asked.settings.input).toMatchObject({ prompt: "a lighthouse at dusk", steps: 12, cfg: 3.5, seed: 42 });
+    expect(asked.settings.missing).toEqual([{ file: "sd_xl_base_1.0.safetensors", folder: "checkpoints" }]);
+
+    // once it is in the library, the same is read from the file that was kept
+    const kept = (await t.app.inject({ method: "POST", url: "/api/assets?name=found.png", headers: { "content-type": "image/png" }, payload: Buffer.from(made("sd_xl_base_1.0")) })).json();
+    const later = (await t.app.inject({ method: "GET", url: `/api/assets/${kept.id}/embedded` })).json();
+    expect(later.settings).toMatchObject({ recipe: id, input: { prompt: "a lighthouse at dusk" } });
+    expect((await t.app.inject({ method: "GET", url: "/api/assets/nope/embedded" })).statusCode).toBe(404);
+  });
+
+  it("falls back to txt2img when nothing is known to use that model", async () => {
+    const out = (await t.app.inject({ method: "POST", url: "/api/embedded", headers: { "content-type": "image/png" }, payload: Buffer.from(made("never_heard_of_it_v3")) })).json();
+    expect(out.settings.recipe).toBe("sdxl.text-to-picture");
+    expect(out.settings.targets[0]).toEqual({ id: "sdxl.text-to-picture" });
   });
 });

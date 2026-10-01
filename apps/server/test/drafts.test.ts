@@ -11,6 +11,18 @@ afterEach(() => t.close());
 const put = (url: string, payload: unknown) => t.app.inject({ method: "PUT", url, payload: payload as object });
 const RECIPE = "sdxl.text-to-picture";
 
+describe("a draft's name", () => {
+  it("can be given, stays when the draft is saved again, and goes back to what is written when emptied", async () => {
+    const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "a quiet harbour at dawn" } } })).json();
+    expect(d).toMatchObject({ name: null, title: "a quiet harbour at dawn" });
+    expect((await put(`/api/drafts/${d.id}`, { name: "  Harbour, version 2 " })).json()).toMatchObject({ name: "Harbour, version 2", title: "a quiet harbour at dawn" });
+    // saving the form (what typing does) leaves the name alone
+    expect((await put(`/api/drafts/${d.id}`, { forms: { [RECIPE]: { prompt: "a harbour at dusk" } } })).json()).toMatchObject({ name: "Harbour, version 2", title: "a harbour at dusk" });
+    expect((await get(t.app, "/api/drafts")).json().items[0]).toMatchObject({ name: "Harbour, version 2" });
+    expect((await put(`/api/drafts/${d.id}`, { name: "" })).json()).toMatchObject({ name: null });
+  });
+});
+
 describe("drafts", () => {
   it("are created, saved while typing, listed newest first and deleted", async () => {
     const a = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();

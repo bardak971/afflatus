@@ -20,16 +20,16 @@ export const round8 = (n: number) => Math.max(64, Math.round(n / 8) * 8);
 
 /** The model and the LoRAs: what is asked up front. */
 export const modelInputs: InputSpec[] = [
-  { id: "checkpoint", type: "model", label: "Model", folder: "checkpoints" },
+  { id: "checkpoint", type: "model", label: "Checkpoint", folder: "checkpoints" },
   { id: "loras", type: "loras", label: "LoRAs", max: 8 },
 ];
 
 /** How it samples: folded into "All settings", remembered per model. */
 export const samplingInputs = (steps = 28): InputSpec[] => [
-  { id: "negative", type: "prompt", label: "Avoid", style: "tags", optional: true, default: DEFAULT_NEGATIVE, advanced: true, perModel: true },
-  { id: "quality", type: "prompt", label: "Always put in front", note: "this model's quality tags", style: "tags", optional: true, default: "", advanced: true, perModel: true },
+  { id: "negative", type: "prompt", label: "Negative prompt", style: "tags", optional: true, default: DEFAULT_NEGATIVE, advanced: true, perModel: true },
+  { id: "quality", type: "prompt", label: "Quality tags", note: "put in front of the prompt on every render with this checkpoint", style: "tags", optional: true, default: "", advanced: true, perModel: true },
   { id: "steps", type: "number", label: "Steps", min: 1, max: 100, step: 1, default: steps, advanced: true, perModel: true },
-  { id: "cfg", type: "number", label: "How closely it follows the tags (CFG)", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
+  { id: "cfg", type: "number", label: "CFG scale", note: "how closely it follows the prompt", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
   { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler_ancestral", advanced: true, perModel: true },
   { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "normal", advanced: true, perModel: true },
   { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = the model's own setting", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },

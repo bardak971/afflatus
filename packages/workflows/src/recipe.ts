@@ -12,15 +12,49 @@ export function familyOf(def: WorkflowDef): Family {
     summary: "From your own workflow.",
     promptStyle: "sentences",
     slots: [],
-    loraMatch: [],
+    // "Krea2", "Krea 2" and "krea_2" are the same name
+    loraMatch: def.model.replace(/[^a-z0-9]/gi, "").length >= 3 ? [def.model.trim().split(/[^a-z0-9]+/i).filter(Boolean).map((w) => w.replace(/([a-z])(\d)/gi, "$1[\\s._-]*$2")).join("[\\s._-]*")] : [],
   };
 }
 
+const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const read = (graph: Graph, t: Target) => graph[t.node]?.inputs[t.input];
 const write = (graph: Graph, t: Target, value: unknown) => {
   const node = graph[t.node];
   if (node) node.inputs[t.input] = value;
 };
+
+/** How many times an upscale model enlarges, as its file name says ("4x_…", "…_x2plus"). Null when the name does not say. */
+export function factorOfUpscaler(file: string): number | null {
+  const m = /(?:^|[^a-z0-9])(?:([1248])x|x([1248]))(?![0-9])/i.exec(file.split(/[\\/]/).pop() ?? "");
+  return m ? Number(m[1] ?? m[2]) : null;
+}
+
+/**
+ * A "scale by" that comes after an upscale model. The model enlarges by its own factor first, so 0.3
+ * after a 4x model is 1.2 in all, and what one would type as A1111's "Upscale by" (1.5) is 6 times:
+ * a second pass over a picture 36 times the size, which no card holds. Returns the upscaling node and
+ * the factor of the model the workflow was saved with, when its name says it.
+ */
+export function scaleAfterModel(g: Graph, t: Target): { upscale: string; factor: number | null } | null {
+  const node = g[t.node];
+  if (!node || node.class_type !== "ImageScaleBy" || t.input !== "scale_by") return null;
+  let from = node.inputs.image;
+  // a preview on the way passes the picture on
+  for (let hops = 0; hops < 4 && isRef(from); hops++) {
+    const id = from[0];
+    const n = g[id];
+    if (!n) return null;
+    if (n.class_type === "ImageUpscaleWithModel") {
+      const loader = isRef(n.inputs.upscale_model) ? g[n.inputs.upscale_model[0]] : undefined;
+      const file = Object.values(loader?.inputs ?? {}).find((v): v is string => typeof v === "string" && MODEL_FILE.test(v));
+      return { upscale: id, factor: file ? factorOfUpscaler(file) : null };
+    }
+    if (!/^(PreviewImage|SaveImage)$/.test(n.class_type)) return null;
+    from = n.inputs.images;
+  }
+  return null;
+}
 
 /** What a control is shown under: another input that has to be on (or off) for it to matter. */
 type Under = InputSpec["showWhen"];
@@ -85,7 +119,6 @@ export function fillFileName(text: string, graph: Graph, at: Date = new Date()):
   });
 }
 
-const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const isLoraEntry = (name: string) => /^lora_\d+$/i.test(name);
 /** The LoRAs a "list of LoRAs" node came with, as studai's list has them. */
 function listedLoras(node: Graph[string] | undefined): LoraValue[] {
@@ -105,10 +138,14 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   const inputs: InputSpec[] = [];
   const video = b.result.kind === "video";
 
-  if (b.prompt) inputs.push({ id: "prompt", type: "prompt", label: video ? "What happens" : "Describe the picture", style: "sentences", default: String(read(g, b.prompt) ?? ""), optional: true });
-  if (b.negative) inputs.push({ id: "negative", type: "prompt", label: "Avoid", style: "sentences", optional: true, default: String(read(g, b.negative) ?? "") });
-  if (b.startImage) inputs.push({ id: "startImage", type: "image", role: "start", label: video ? "Opening picture" : "Picture", optional: !b.startImage.required });
-  if (b.endImage) inputs.push({ id: "endImage", type: "image", role: "end", label: "Ending picture", optional: !b.endImage.required });
+  // the prompt it was saved with is its author's, for one picture: the form starts empty and shows it as an example
+  const savedPrompt = b.prompt ? String(read(g, b.prompt) ?? "") : "";
+  if (b.prompt) inputs.push({ id: "prompt", type: "prompt", label: "Prompt", style: "sentences", default: savedPrompt, optional: true, example: true });
+  if (b.negative) inputs.push({ id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: String(read(g, b.negative) ?? "") });
+  // of a picture workflow, the picture it works from is its source: such a workflow is then offered wherever a picture can be changed
+  if (b.startImage) inputs.push({ id: "startImage", type: "image", role: video ? "start" : "source", label: video ? "Start image" : "Image", optional: !b.startImage.required });
+  if (b.endImage) inputs.push({ id: "endImage", type: "image", role: "end", label: "End image", optional: !b.endImage.required });
+  for (const p of b.pictures ?? []) if (g[p.target.node]) inputs.push({ id: p.id, type: "image", role: "source", label: p.label, optional: !p.required });
   // one list for the model, or one per loader when the workflow has several that were told apart (a high and a low model)
   const separate = b.loras.length > 1 && b.loras.every((p) => p.label);
   const loraInput = (i: number) => (separate && i > 0 ? `loras_${i + 1}` : "loras");
@@ -120,10 +157,10 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     const w = Number(read(g, b.size.width));
     const h = Number(read(g, b.size.height));
     inputs.push({
-      id: "size", type: "size", label: "Shape", default: "imported", grid: b.size.step, min: b.size.min, max: b.size.max,
+      id: "size", type: "size", label: "Size", default: "imported", grid: b.size.step, min: b.size.min, max: b.size.max,
       shapes: [
-        { id: "imported", label: w > h ? "Wide" : w < h ? "Tall" : "Square", width: w, height: h },
-        ...(w !== h ? [{ id: "turned", label: w > h ? "Tall" : "Wide", width: h, height: w }] : []),
+        { id: "imported", label: w > h ? "Landscape" : w < h ? "Portrait" : "Square", width: w, height: h },
+        ...(w !== h ? [{ id: "turned", label: w > h ? "Portrait" : "Landscape", width: h, height: w }] : []),
       ],
     });
   }
@@ -133,6 +170,61 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     inputs.push({ id: "seconds", type: "number", label: "Length", unit: " s", min: b.length.min, max: Math.max(b.length.max, seconds), step: 0.5, default: seconds });
   }
 
+  // a workflow that shows its picture at several points can stop at one of them: what comes after is not run
+  const stages = (b.stages ?? []).filter((s) => g[s.node]);
+  const staged = stages.length > 1 && stages.at(-1)!.node === b.result.node;
+  const hiresFix = staged && stages.length === 2 && stages[0]!.label === "Hires fix off";
+  if (staged) {
+    // a base pass, an upscale and a second pass is hires fix: a switch, as in A1111. Anything else is "how much of it runs".
+    if (hiresFix) {
+      inputs.push({ id: "stage", type: "toggle", label: "Hires fix", note: "the upscale and the second pass. Off: the base pass only, the quick way to try seeds", default: true });
+    } else {
+      inputs.push({
+        id: "stage", type: "choice", label: "Run", note: "the base pass alone is the quick way to try seeds; the full workflow is for the one worth finishing",
+        options: stages.map((s) => s.label), default: stages.at(-1)!.label,
+      });
+    }
+  }
+  /** The stages a node is part of: a setting of a later step is not shown when the form stops before it. */
+  const fromStage = (node: string): Under | undefined => {
+    if (!staged) return undefined;
+    const first = stages.findIndex((s) => ancestors(g, s.node).has(node));
+    if (first <= 0) return undefined;
+    // the switch is on, or the form goes at least that far
+    return hiresFix ? "stage" : { input: "stage", in: stages.slice(first).map((s) => s.label) };
+  };
+
+  // a scale after an upscale model is shown as what it comes to in all: from the base size to the final size.
+  // That needs the base size (the form's) and the factor of the model it was saved with (for where it starts).
+  const net = new Map<string, { id: string; default: number }>();
+  const after = new Map<string, { factor: number | null }>();
+  for (const c of b.controls) {
+    const found = c.kind === "number" ? scaleAfterModel(g, c.target) : null;
+    if (!found) continue;
+    after.set(c.id, found);
+    if (found.factor && b.size && ancestors(g, found.upscale).has(b.size.width.node)) {
+      // an id of its own: a value saved under the old one meant something else
+      net.set(c.id, { id: `${c.id}_net`, default: Math.round(found.factor * Number(c.default) * 100) / 100 });
+    }
+  }
+  const autoScaleLabel = (label: string) => label.replace(/^(scale by|upscale by|scale after the upscaler)/i, "").trim();
+  const controlInput = (c: Control, when: Under): InputSpec => {
+    const spec = controlSpec(c, when);
+    const whole = net.get(c.id);
+    const tail = autoScaleLabel(c.label);
+    const auto = tail !== c.label.trim() || /^(scale by|upscale by|scale after the upscaler)$/i.test(c.label.trim());
+    if (whole && spec.type === "number") {
+      return {
+        ...spec, id: whole.id, label: auto ? `Upscale by${tail ? ` ${tail}` : ""}` : c.label, min: Math.min(1, whole.default), max: 4, step: 0.05, default: whole.default,
+        note: `from the base size to the final size, as in A1111 (the workflow's own: ${c.default} after a ${after.get(c.id)!.factor}x upscaler)`,
+      };
+    }
+    if (after.has(c.id) && spec.type === "number") {
+      return { ...spec, label: auto ? `Scale after the upscaler${tail ? ` ${tail}` : ""}` : c.label, note: "the upscaler enlarges by its own factor first (often 4): the final size is that times this, so 0.3 after a 4x upscaler is 1.2 in all" };
+    }
+    return spec;
+  };
+
   // a setting of a part that a switch turns on shows only while that switch is on, right under it
   const under = (node: string): { toggle: Toggle; when: Under } | undefined => {
     for (const t of b.toggles) {
@@ -141,12 +233,12 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     }
     return undefined;
   };
-  for (const c of b.controls) if (!under(c.target.node)) inputs.push(controlSpec(c, undefined));
+  for (const c of b.controls) if (!under(c.target.node)) inputs.push(controlInput(c, fromStage(c.target.node)));
   for (const t of b.toggles) {
     inputs.push({ id: t.id, type: "toggle", label: t.label, default: t.default, advanced: !t.front, ...(t.captions ? { captions: t.captions } : {}) });
     for (const c of b.controls) {
       const u = under(c.target.node);
-      if (u?.toggle === t) inputs.push({ ...controlSpec(c, u.when), advanced: !t.front });
+      if (u?.toggle === t) inputs.push({ ...controlInput(c, u.when), advanced: !t.front });
     }
   }
   if (b.seeds.length) inputs.push({ id: "seed", type: "seed", label: "Seed" });
@@ -183,20 +275,38 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
       write(whole, b.size.height, size.height);
     }
     if (b.length && typeof input.seconds === "number") write(whole, b.length.target, framesFor(input.seconds));
-    for (const c of b.controls) if (input[c.id] !== undefined) for (const at of [c.target, ...(c.also ?? [])]) write(whole, at, input[c.id]);
+    for (const c of b.controls) if (input[c.id] !== undefined && !net.has(c.id)) for (const at of [c.target, ...(c.also ?? [])]) write(whole, at, input[c.id]);
+    // "Upscale by": the node is given the size itself, base size times the factor, whatever the upscale model's own factor
+    for (const c of b.controls) {
+      const by = net.has(c.id) ? input[net.get(c.id)!.id] : undefined;
+      const node = whole[c.target.node];
+      if (typeof by !== "number" || !node || !b.size) continue;
+      const { scale_by: _by, ...rest } = node.inputs;
+      whole[c.target.node] = {
+        ...node, class_type: "ImageScale",
+        inputs: { ...rest, width: Math.round(Number(read(whole, b.size.width)) * by), height: Math.round(Number(read(whole, b.size.height)) * by), crop: "disabled" },
+      };
+    }
     for (const t of b.toggles) for (const at of t.writes) write(whole, at, typeof input[t.id] === "boolean" ? input[t.id] : t.default);
     const pruned = prune(whole, def.wiring, modesFor(def.wiring, b.toggles, input));
     settle(pruned);
     const { graph } = pruned;
-    for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage]] as const) {
+    for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const)] as const) {
       if (!image) continue;
       const uploaded = ctx.uploads[id];
       if (uploaded) write(graph, image.target, uploaded);
       // no picture: take the loader out, with every link that read it
       else remove(pruned, image.target.node);
     }
+    // where it stops: the result, or an earlier point the form asked for. What comes after that point is taken out.
+    const stop = !staged ? b.result.node : hiresFix ? (input.stage === false ? stages[0]!.node : b.result.node) : stages.find((s) => s.label === input.stage)?.node ?? b.result.node;
+    if (stop !== b.result.node && graph[stop]) {
+      const kept = ancestors(graph, stop);
+      for (const id of Object.keys(graph)) if (!kept.has(id)) delete graph[id];
+    }
+    const end = graph[stop] ? stop : b.result.node;
     // what broke on the way and the result does not need is left out
-    trim(pruned, b.result.node, ctx.has);
+    trim(pruned, end, ctx.has);
     for (const n of Object.values(graph)) {
       if (typeof n.inputs.filename_prefix === "string") n.inputs.filename_prefix = fillFileName(n.inputs.filename_prefix, graph);
     }
@@ -225,7 +335,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
 
     // a workflow can hold more than the result needs (another way of making it, left unused): only what
     // the result is made from counts towards progress and memory
-    const used = ancestors(graph, b.result.node);
+    const used = ancestors(graph, end);
     const phases: Record<string, Phase> = {};
     const passes: Array<{ node: string; steps: number; after: number }> = [];
     let totalSteps = 0;
@@ -247,18 +357,21 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     return {
       graph,
       phases,
-      outputs: [{ node: b.result.node, kind: b.result.kind, role: "result" }],
+      outputs: [{ node: end, kind: b.result.kind, role: "result" }],
       totalSteps: Math.max(1, totalSteps),
       passes: passes.map(({ node, steps }) => ({ node, steps })),
       loads: [...used].flatMap((id) => Object.values(graph[id]!.inputs).filter((v): v is string => typeof v === "string" && /\.(safetensors|ckpt|gguf|sft|pt|pth)$/i.test(v))).sort(),
     };
   }
 
-  const everyPicture = { ...(b.startImage ? { startImage: "start.png" } : {}), ...(b.endImage ? { endImage: "end.png" } : {}) };
+  const everyPicture: Record<string, string> = {
+    ...(b.startImage ? { startImage: "start.png" } : {}), ...(b.endImage ? { endImage: "end.png" } : {}),
+    ...Object.fromEntries((b.pictures ?? []).map((p) => [p.id, `${p.id}.png`])),
+  };
   /** What the result is made from, for a given form. */
   const usedNodes = (input: Record<string, unknown>) => {
     const built = build(input, { seed: 1, uploads: everyPicture });
-    return [...ancestors(built.graph, b.result.node)].map((id) => built.graph[id]!);
+    return [...ancestors(built.graph, built.outputs[0]!.node)].map((id) => built.graph[id]!);
   };
   return {
     id: def.id,

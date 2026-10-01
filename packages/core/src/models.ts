@@ -85,3 +85,49 @@ export function loraFit(family: { name: string; loraMatch?: string[] }, file: st
   const told = baseLabel(named);
   return told !== named && baseGroup(told) === baseGroup(wanted) ? 1 : 0;
 }
+
+/**
+ * Lines of checkpoints within one family whose LoRAs do not carry over to each other: they are all
+ * SDXL, but a Pony LoRA does little on an Illustrious checkpoint. (NoobAI is built on Illustrious and
+ * shares its LoRAs.)
+ */
+const LINES: Array<[string, RegExp]> = [
+  ["Illustrious", /illustrious|noob|(^|[^a-z])(il[\s._-]?xl|illu|nai[\s._-]?xl)([^a-z]|$)/i],
+  ["Pony", /pony|(^|[^a-z])pdxl([^a-z]|$)/i],
+  ["Animagine", /animagine/i],
+];
+/** The line a model or a LoRA belongs to, as far as its names say. */
+export function lineOf(text: string): string | null {
+  return LINES.find(([, re]) => re.test(text))?.[0] ?? null;
+}
+
+/** Words any model file can have in its name: they say nothing about which model it is. */
+const GENERIC = /^(nsfw|sfw|checkpoint|checkpoints|model|models|pruned|turbo|hybrid|scaled|convrot|diffusion|realistic|realism|anime|base|final|version|sdxl|lora|loras|noise|high|low|safetensors|mix|merge|unet|vae|clip|main|default|other|misc|test|new|old|fp\d+.*|int\d+.*|bf\d+.*|q\d.*|v\d.*|\d+.*)$/;
+
+/**
+ * The words a model's file is known by: the folders it is kept in (the user's own sorting) and the
+ * words of its name, without the ones any model has ("pruned", "fp8", "v10").
+ */
+export function identityWords(file: string): string[] {
+  const parts = file.split(/[\\/]/);
+  const stem = (parts.pop() ?? "").replace(/\.[a-z0-9]+$/i, "");
+  const words = stem.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").split(/[^A-Za-z0-9]+/).map((w) => w.toLowerCase()).filter((w) => w.length >= 5 && !GENERIC.test(w));
+  const folders = parts.map((p) => p.toLowerCase().trim()).filter((p) => p.length >= 3 && !GENERIC.test(p));
+  return [...new Set([...folders, ...words])];
+}
+
+/**
+ * How well a LoRA suits the very model that is picked, beyond its family: 2 trained on that model,
+ * 1 made for the same line (Illustrious, Pony) or named or filed like it, 0 nothing says so, -1 made
+ * for another line of the same family.
+ */
+export function modelFit(model: string, lora: string, info?: ModelInfo): 2 | 1 | 0 | -1 {
+  const stem = (f: string) => (f.split(/[\\/]/).pop() ?? f).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+  if (info?.trainedOn && stem(info.trainedOn) === stem(model)) return 2;
+  const about = `${info?.trainedOn ?? ""} ${info?.title ?? ""} ${lora}`;
+  const mine = lineOf(model);
+  const its = lineOf(about);
+  if (mine && its) return mine === its ? 1 : -1;
+  const hay = about.toLowerCase();
+  return identityWords(model).some((w) => hay.includes(w)) ? 1 : 0;
+}

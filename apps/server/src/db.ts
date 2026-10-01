@@ -159,6 +159,8 @@ export interface Tables {
   workflows: { id: string; owner_id: string; def: string; created_at: string; updated_at: string };
   /** What a model file says about itself (read once from its header, through ComfyUI), as JSON. */
   model_info: { folder: string; file: string; info: string; read_at: string };
+  /** The page of a model file on the site it came from, by the file's name (lower case, without its sub-folder). */
+  model_pages: { folder: string; name: string; url: string; title: string; found_at: string };
   /** What suits one model file: the values that replace a recipe's defaults when that file is picked (JSON: input id → value). */
   model_settings: { owner_id: string; family: string; file: string; values: string; updated_at: string };
   /** Unfinished work, saved as it is typed. */
@@ -171,6 +173,8 @@ export interface Tables {
     recipe_id: string;
     /** For lists: the start of what was written. */
     title: string;
+    /** The name its owner gave it, when they gave one: shown instead of the start of what was written. */
+    name: string | null;
     /** The form of every recipe this draft has been on (JSON: recipe id → values), so switching model and back loses nothing. */
     forms: string;
     count: number;
@@ -504,6 +508,32 @@ migrations["0010_mood"] = {
   },
   async down(db) {
     await db.schema.alterTable("timelines").dropColumn("mood").execute();
+  },
+};
+
+migrations["0013_model_pages"] = {
+  async up(db) {
+    await db.schema
+      .createTable("model_pages")
+      .addColumn("folder", "text", (c) => c.notNull())
+      .addColumn("name", "text", (c) => c.notNull())
+      .addColumn("url", "text", (c) => c.notNull())
+      .addColumn("title", "text", (c) => c.notNull())
+      .addColumn("found_at", "text", (c) => c.notNull())
+      .addPrimaryKeyConstraint("model_pages_pk", ["folder", "name"])
+      .execute();
+  },
+  async down(db) {
+    await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0012_draft_name"] = {
+  async up(db) {
+    await db.schema.alterTable("drafts").addColumn("name", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("drafts").dropColumn("name").execute();
   },
 };
 

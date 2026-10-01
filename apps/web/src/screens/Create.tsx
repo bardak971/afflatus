@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, ChevronDown, ChevronUp, Minus, Plus, X } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronUp, Minus, Pencil, Plus, X } from "lucide-react";
 import { isShown, type InputSpec } from "@studai/core";
 import { api, ApiError, previewUrl, type Asset, type RecipeInfo, type RecipeStatus, type RunningJob } from "../api";
 import { useAssets, useEntities, useEstimates, useModelSettings, useQueue, useRecipes, useSetup } from "../data";
@@ -64,17 +64,20 @@ export function Form({ recipe, status, stored, onChange, onClear }: {
   const main = shown.filter((i) => !i.advanced);
   const advanced = shown.filter((i) => i.advanced);
   const changed = advanced.filter((i) => !sameValue(values[i.id], defaults[i.id]));
+  // the model in use: the one picked in the form, else the one an imported workflow loads. LoRAs made for it come first.
+  const picker = recipe.inputs.find((i) => i.type === "model");
+  const inUse = (picker ? String(values[picker.id] ?? "") : recipe.models?.[0]) || undefined;
   const render = (i: InputSpec) => {
     const a = word(i.id);
     return (
       <div key={i.id} className="flex flex-col gap-1">
-        <Field spec={i} value={values[i.id]} values={values} options={status?.options[i.id]} family={family} onChange={(v) => onChange(i.id, v)} />
+        <Field spec={i} value={values[i.id]} values={values} options={status?.options[i.id]} family={family} model={inUse} onChange={(v) => onChange(i.id, v)} />
         {a && <span className={cx("text-xs", a.level === "heavy" ? "font-semibold text-warn-ink" : "text-warn-ink")}>{a.level === "heavy" ? "Heavy: " : ""}{a.text}</span>}
       </div>
     );
   };
 
-  // what belongs to the model, whatever part of the form it is in (the shape and "Avoid" are up front)
+  // what belongs to the model, whatever part of the form it is in (the size and the negative prompt are up front)
   const perModel = recipe.inputs.filter((i) => i.perModel);
   const differs = perModel.filter((i) => !sameValue(values[i.id], defaults[i.id]));
   const refetch = () => client.invalidateQueries({ queryKey: ["model-settings"] });
@@ -173,9 +176,14 @@ export function Create() {
       // what is sent is the whole form: the starting values for what was never touched, plus the draft
       const stored = draft.forms[recipe.id];
       const input: Record<string, unknown> = { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored };
-      for (const i of recipe.inputs) if (input[i.id] === undefined) delete input[i.id];
+      // … minus what the form no longer has: a draft outlives a workflow whose settings were changed since
+      const has = new Set(recipe.inputs.map((i) => i.id));
+      for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
       const missing = recipe.inputs.find((i) => i.type === "image" && !i.optional && !input[i.id]);
       if (missing) throw new ApiError(`Choose the ${missing.label.toLowerCase()} first.`);
+      // a prompt shown as an example is not a prompt: nothing is made from somebody else's text by accident
+      const unwritten = recipe.inputs.find((i) => i.type === "prompt" && i.example && !String(input[i.id] ?? "").trim());
+      if (unwritten) throw new ApiError(`Write the ${unwritten.label.toLowerCase()} first.`);
       await api.enqueue(recipe.id, input, count, draft.look);
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }),
@@ -195,6 +203,15 @@ export function Create() {
   const entities = useEntities();
   const presets = (entities.data?.items ?? []).filter((e) => e.kind === "preset");
   const [presetName, setPresetName] = useState("");
+  // a draft being given a name of its own, instead of the start of what is written in it
+  const [naming, setNaming] = useState<{ id: string; text: string } | null>(null);
+  const rename = useMutation({
+    mutationFn: (v: { id: string; name: string }) => api.saveDraft(v.id, { name: v.name }),
+    onSettled: () => {
+      setNaming(null);
+      return client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+    },
+  });
   const [designing, setDesigning] = useState(false);
   const mainText = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt");
   const savePreset = useMutation({
@@ -208,7 +225,7 @@ export function Create() {
   const waiting = queue.data?.waiting.length ?? 0;
 
   return (
-    <div className="flex min-h-0 grow">
+    <div className="flex min-h-0 min-w-0 grow">
       <section className="flex w-[408px] shrink-0 flex-col border-r border-line bg-panel">
         <div className="flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4">
           <div className="flex flex-col gap-1.5">
@@ -355,15 +372,49 @@ export function Create() {
           <span className="text-xs font-semibold text-ink-2">Your drafts</span>
           {d.drafts.map((x) => {
             const on = x.id === draft?.id;
-            // the open draft shows what is on screen, before it is saved
+            // a name it was given; else the open draft shows what is on screen, before it is saved
             const main = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
-            const title = (on ? String(draft?.forms[draft.recipe]?.[main] ?? "").trim().slice(0, 60) : x.title) || "Empty draft";
+            const title = x.name || (on ? String(draft?.forms[draft.recipe]?.[main] ?? "").trim().slice(0, 60) : x.title) || "Empty draft";
+            if (naming?.id === x.id) {
+              return (
+                <form
+                  key={x.id}
+                  className="flex h-8 shrink-0 items-center rounded-full border border-accent bg-accent-wash pr-1 pl-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    rename.mutate({ id: x.id, name: naming.text });
+                  }}
+                >
+                  <input
+                    autoFocus
+                    aria-label="Name of the draft"
+                    placeholder="A name (empty: what is written in it)"
+                    value={naming.text}
+                    maxLength={80}
+                    onChange={(e) => setNaming({ id: x.id, text: e.target.value })}
+                    onBlur={() => naming && rename.mutate({ id: x.id, name: naming.text })}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Escape") return;
+                      // leaving the field without keeping what was typed: it must not be saved by the blur that follows
+                      e.currentTarget.onblur = null;
+                      setNaming(null);
+                    }}
+                    className="h-6 w-56 bg-transparent text-xs font-semibold placeholder:font-normal placeholder:text-ink-3 focus:outline-none"
+                  />
+                </form>
+              );
+            }
             return (
               <span key={x.id} className={cx("flex h-8 shrink-0 items-center rounded-full border", on ? "border-accent bg-accent-wash" : "border-line bg-panel")}>
-                <button type="button" aria-pressed={on} onClick={() => void d.switchTo(x.id)} className="flex h-full max-w-64 items-center gap-2 pr-2 pl-3 text-xs">
+                <button type="button" aria-pressed={on} title="Double-click to rename" onClick={() => void d.switchTo(x.id)} onDoubleClick={() => setNaming({ id: x.id, text: x.name ?? "" })} className="flex h-full max-w-64 items-center gap-2 pr-1 pl-3 text-xs">
                   <span className={cx("truncate", on ? "font-semibold" : "text-ink")}>{title}</span>
                   {!on && <span className="shrink-0 text-ink-3">{when(x.updatedAt)}</span>}
                 </button>
+                {on && (
+                  <button type="button" aria-label={`Rename the draft "${title}"`} title="Rename" onClick={() => setNaming({ id: x.id, text: x.name ?? "" })} className="flex h-6 w-6 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink">
+                    <Pencil size={11} />
+                  </button>
+                )}
                 <button type="button" aria-label={`Delete the draft "${title}"`} onClick={() => void d.remove(x.id)} className="mr-1 flex h-6 w-6 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink">
                   <X size={12} />
                 </button>

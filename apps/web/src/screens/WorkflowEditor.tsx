@@ -8,7 +8,7 @@ import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
 import { GetFile } from "../GetFile";
 import { Select } from "../Select";
-import { Button, cx, ErrorNote, SectionTitle } from "../ui";
+import { Button, cx, ErrorNote, SectionTitle, Toggle as Switch } from "../ui";
 
 /** A workflow being imported or changed: the file, what was found in it, and the mapping so far. */
 export interface Editing {
@@ -59,6 +59,17 @@ function rangeOf(c: Control): string {
 
 export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved: boolean): void }) {
   const found = start.inspection;
+  /** What says which model a missing file is for: its loader's "type", and the model the workflow is for. */
+  const hintsFor = (node: string) => [graph[node]?.inputs.type, model].filter((x): x is string => typeof x === "string" && x.trim().length > 2 && x !== "default");
+  /** Where ComfyUI looks for a file that is missing, and where else it has one of that name. */
+  const where = (f: { file: string; classType: string; input: string }) => {
+    const folder = folderOfFileInput(f.classType, f.input);
+    const others = ((found as { elsewhere?: Record<string, string[]> }).elsewhere?.[f.file] ?? []).filter((x) => x !== folder);
+    if (others.length) {
+      return `ComfyUI has a file of this name in its "${others.join('", "')}" folder, but this loader only looks in "${folder ?? "its own folder"}". Move the file there, or tell ComfyUI that the folder also holds that kind of model (its extra_model_paths.yaml), then restart ComfyUI.`;
+    }
+    return folder ? `This loader only looks in ComfyUI's "${folder}" folders: put the file there, then test again in Setup.` : "It goes in ComfyUI's models folder; then test again in Setup.";
+  };
   const client = useQueryClient();
   const [title, setTitle] = useState(start.title);
   const [model, setModel] = useState(start.model);
@@ -170,12 +181,12 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
           <SectionTitle>What studai found</SectionTitle>
 
-          <Found ok={Boolean(b.prompt)} role={video ? "What happens" : "The description"} note={b.prompt ? undefined : "No text to write in was found."}>
+          <Found ok={Boolean(b.prompt)} role="Prompt" note={b.prompt ? undefined : "No text to write in was found."}>
             {textOptions.length > 0 && (
               <Select size="sm" label="Where the description goes" value={keyOf(b.prompt)} onChange={pickText("prompt")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
             )}
           </Found>
-          <Found ok={Boolean(b.negative)} role="What to avoid" note={b.negative ? undefined : "optional"}>
+          <Found ok={Boolean(b.negative)} role="Negative prompt" note={b.negative ? undefined : "optional"}>
             {textOptions.length > 0 && (
               <Select size="sm" label="Where what to avoid goes" value={keyOf(b.negative)} onChange={pickText("negative")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
             )}
@@ -183,8 +194,8 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 
           {(["startImage", "endImage"] as const).map((key) => {
             const bound = b[key];
-            const role = key === "startImage" ? (video ? "Opening picture" : "Picture") : "Ending picture";
-            if (!found.images.length) return key === "startImage" ? <Found key={key} ok={false} role={role} note="This workflow loads no picture." /> : null;
+            const role = key === "startImage" ? (video ? "Start image" : "Image") : "End image";
+            if (!found.images.length) return key === "startImage" ? <Found key={key} ok={false} role={role} note="This workflow has no Load Image node." /> : null;
             return (
               <Found key={key} ok={Boolean(bound)} role={role} note={bound ? (bound.required ? "always needed" : "can be left empty") : undefined}>
                 <Select size="sm" label={role} value={bound?.target.node ?? ""} onChange={pickImage(key)} options={[{ value: "", label: "None" }, ...found.images.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
@@ -192,9 +203,43 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             );
           })}
 
+          {(() => {
+            // every other picture it loads: a slot each in the form, unless it is ticked off
+            const main = new Set([b.startImage?.target.node, b.endImage?.target.node]);
+            const rest = found.images.filter((i) => !main.has(i.node) && i.role !== "mask");
+            if (!rest.length) return null;
+            const idOf = (node: string) => `pic_${node}`.replace(/[^a-zA-Z0-9_]/g, "_");
+            const have = b.pictures ?? [];
+            return (
+              <Found ok={have.length > 0} role="Other images it loads" note={`${have.length} of ${rest.length} in the form`}>
+                {rest.map((i, n) => {
+                  const on = have.find((p) => p.target.node === i.node);
+                  return (
+                    <label key={i.node} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(on)}
+                        onChange={() => set({ pictures: on ? have.filter((p) => p !== on) : [...have, { ...i.binding, id: idOf(i.node), label: i.title && !/^Load ?Image/i.test(i.title) ? i.title : `Image ${n + 2}` }] })}
+                      />
+                      {on ? (
+                        <input
+                          aria-label={`Name of the picture slot for ${i.title}`}
+                          value={on.label}
+                          onChange={(e) => set({ pictures: have.map((p) => (p === on ? { ...p, label: e.target.value } : p)) })}
+                          className={cx(text, "h-8 min-w-0 grow")}
+                        />
+                      ) : <span className="text-ink-2">{i.title}</span>}
+                      <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · always needed" : " · can be left empty") : ""}</span>
+                    </label>
+                  );
+                })}
+              </Found>
+            );
+          })()}
+
           <Found
             ok={Boolean(b.size)}
-            role="Shape"
+            role="Size"
             note={b.size ? `width and height of node #${b.size.width.node}` : "The workflow works out its own size. Its size settings are in the list on the right."}
           />
           {video && (
@@ -275,6 +320,27 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
               <div className="pt-3" />
             </>
           )}
+          {(found.stages?.length ?? 0) > 1 && found.stages.at(-1)!.node === b.result.node && (() => {
+            // a workflow with a preview on the way can stop there: hires fix as a switch when that is what its second half is
+            const hires = found.stages.length === 2 && found.stages[0]!.label === "Hires fix off";
+            const on = (b.stages?.length ?? 0) > 1;
+            return (
+              <>
+                <SectionTitle>{hires ? "Hires fix" : "Running only part of it"}</SectionTitle>
+                <div className={cx("flex items-center gap-2.5 rounded-lg border px-3 py-2", on ? "border-accent/50 bg-accent-wash" : "border-line bg-panel")}>
+                  <input type="checkbox" aria-label={hires ? "Add a Hires fix switch" : "Add a Run choice"} checked={on} onChange={() => set({ stages: on ? [] : found.stages })} className="accent-accent" />
+                  <span className="min-w-0 grow font-semibold">{hires ? "Hires fix" : "Run"}</span>
+                  <span className="shrink-0 text-xs text-ink-2">{hires ? "a switch · on in the file" : `a choice of ${found.stages.length}`}</span>
+                </div>
+                <div className="text-ink-2">
+                  {hires
+                    ? "This workflow is a base pass, then an upscale and a second pass over the larger picture. Ticked, the form gets a Hires fix switch: off runs the base pass only, and the settings of the upscale and the second pass are hidden."
+                    : `This workflow has a preview at ${found.stages.length} points on the way. Ticked, the form gets a "Run" choice (${found.stages.map((st) => st.label).join(" / ")}): what comes after the chosen point is not run.`}
+                </div>
+                <div className="pt-3" />
+              </>
+            );
+          })()}
           <SectionTitle>Settings you can change from studai</SectionTitle>
           <div className="text-ink-2">Tick a setting to get a control for it. {b.controls.length} ticked. Everything else stays as it is in the file.</div>
           {groups.map(([node, items]) => (
@@ -356,13 +422,45 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                       {f.url
                         ? <a className={link} href={f.url} target="_blank" rel="noreferrer">Download it (the link is in the workflow)</a>
                         : <>Search for it on {searchLinks(f.file).map((l, i) => <span key={l.url}>{i > 0 && " or "}<a className={link} href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)}</>}
-                      . It goes in ComfyUI's models folder; then test again in Setup.
-                      <GetFile file={f.file} folder={folderOfFileInput(f.classType, f.input)} url={f.url} />
+                      . {where(f)}
+                      <GetFile file={f.file} folder={folderOfFileInput(f.classType, f.input)} url={f.url} hints={hintsFor(f.node)} />
                     </span>
                   )}
                 </div>
               );
             })}
+            {(found.missingChoices ?? []).map((c) => {
+              const now = String(graph[c.node]?.inputs[c.input] ?? c.value);
+              const replaced = now !== c.value;
+              const what = c.input.replace(/_/g, " ");
+              return (
+                <div key={keyOf(c)} className={cx("flex flex-col gap-1.5 rounded-lg px-3 py-2", replaced ? "border border-line text-ink-2" : "bg-warn-wash text-warn-ink")}>
+                  <span>
+                    {replaced ? <>Replaced: <span className="font-semibold">{c.value}</span> by <span className="font-semibold">{now}</span> as {what} ({c.title}).</> : (
+                      <>Your ComfyUI does not offer <span className="font-semibold">{c.value}</span> as {what} ({c.title} #{c.node}). It comes from a node pack this ComfyUI does not have, and the render would be refused. Use another:</>
+                    )}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!replaced && c.nearest && <Button size="sm" tone="primary" onClick={() => replaceFile(c, c.nearest!)}>Use {c.nearest}, the closest</Button>}
+                    <div className="min-w-48 grow">
+                      <Select
+                        size="sm"
+                        label={`What to use as ${what} instead of ${c.value}`}
+                        placeholder="Pick another…"
+                        value={replaced ? now : ""}
+                        onChange={(v) => replaceFile(c, v || c.value)}
+                        options={c.options.map((o) => ({ value: o, label: o }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {(found.relocated ?? []).map((r) => (
+              <div key={keyOf(r)} className="rounded-lg border border-line px-3 py-2 text-ink-2">
+                <span className="font-semibold break-all text-ink">{fileLabel(r.file)}</span> is on your ComfyUI in another folder ({r.found.split(/[\\/]/).slice(0, -1).join("/") || "the top one"}): it is used from there.
+              </div>
+            ))}
             {found.missingFiles.length > 0 && found.links.length > 0 && (
               <details className="rounded-lg border border-line px-3 py-2 text-ink-2">
                 <summary className="cursor-pointer">Links the workflow's author left in its notes ({found.links.length})</summary>
@@ -381,7 +479,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 
           <div className="flex flex-col gap-3.5 rounded-xl border border-line bg-ground p-3.5">
             {shown.map(({ spec, value }) => (
-              <Field key={spec.id} spec={spec} value={value} options={undefined} onChange={(v) => setValues((old) => ({ ...old, [spec.id]: v }))} />
+              <Field key={spec.id} spec={spec} value={value} options={found.candidates.find((c) => c.id === spec.id)?.offers} onChange={(v) => setValues((old) => ({ ...old, [spec.id]: v }))} />
             ))}
             {preview && !preview.inputs.length && <span className="text-ink-2">Nothing to fill in: it would always make the same thing.</span>}
             {!preview && <ErrorNote>This mapping cannot be shown. Check the parts on the left.</ErrorNote>}

@@ -99,7 +99,12 @@ describe("settings", () => {
   it("are saved, and secrets never come back", async () => {
     expect((await put({ comfyUrl: "http://10.0.0.5:8188", llm: { baseUrl: "http://llm/v1", model: "m", apiKey: "secret" }, civitaiKey: "k" })).statusCode).toBe(200);
     const res = await get(t.app, "/api/settings");
-    expect(res.json()).toEqual({ comfyUrl: "http://10.0.0.5:8188", llm: { baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false }, hasCivitaiKey: true, civitaiLookups: false, downloadModels: false });
+    expect(res.json()).toEqual({
+      comfyUrl: "http://10.0.0.5:8188", llm: { baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false },
+      llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000 }],
+      unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "",
+      hasCivitaiKey: true, civitaiLookups: false, downloadModels: false,
+    });
     expect(res.body).not.toContain("secret");
   });
 
@@ -119,5 +124,59 @@ describe("settings", () => {
     const res = await put({ comfyUrl: "not a url" });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("comfyUrl");
+  });
+});
+
+describe("the model of a recipe that has a usual one", () => {
+  it("is offered with the usual file first, then the others made for it, then the rest of the folder", async () => {
+    const { startFakeComfy } = await import("@studai/comfy/testing");
+    const { referenceCatalog } = await import("./helpers");
+    const fake = await startFakeComfy({
+      catalog: referenceCatalog(),
+      models: {
+        checkpoints: [CHECKPOINT], loras: [], upscale_models: [],
+        // the reference model is there too: it is used by itself for clips with references, and is not a choice here
+        diffusion_models: ["A_wan_model.safetensors", "SomeoneMinimaxH3_hybridTurboV3.safetensors", "minimax_h3_fl2va.safetensors", "minimax_h3_ref2va.safetensors", "zz_other.safetensors"],
+        text_encoders: ["qwen3vl_32b_minimax_h3.safetensors"], vae: ["minimax_h3_video_vae.safetensors", "minimax_h3_audio_vae.safetensors"],
+      },
+    });
+    const own = await makeApp({ comfyUrl: fake.url });
+    try {
+      const setup = (await get(own.app, "/api/setup")).json();
+      const h3 = setup.recipes.find((r: { id: string }) => r.id === "h3.video");
+      expect(h3.ready).toBe(true);
+      expect(h3.options.model).toEqual(["minimax_h3_fl2va.safetensors", "SomeoneMinimaxH3_hybridTurboV3.safetensors", "A_wan_model.safetensors", "zz_other.safetensors"]);
+    } finally {
+      await own.close();
+      await fake.close().catch(() => {});
+    }
+  });
+});
+
+describe("MiniMax H3 with a hybrid fine-tune and none of MiniMax's own model files", () => {
+  it("is ready: the one file is the usual model and the reference model", async () => {
+    const { startFakeComfy } = await import("@studai/comfy/testing");
+    const { referenceCatalog } = await import("./helpers");
+    const fake = await startFakeComfy({
+      catalog: referenceCatalog(),
+      models: {
+        checkpoints: [CHECKPOINT], loras: [], upscale_models: [],
+        diffusion_models: ["SomeoneMinimaxH3_hybridTurboV3.safetensors", "SomeoneMinimaxH3_hybridV3.safetensors", "zz_other.safetensors"],
+        text_encoders: ["qwen3vl_32b_minimax_h3.safetensors"], vae: ["minimax_h3_video_vae.safetensors", "minimax_h3_audio_vae.safetensors"],
+      },
+    });
+    const own = await makeApp({ comfyUrl: fake.url });
+    try {
+      const setup = (await get(own.app, "/api/setup")).json();
+      const slots = Object.fromEntries(setup.families.find((f: { id: string }) => f.id === "h3").slots.map((s: { id: string; file: string | null }) => [s.id, s.file]));
+      // the full-step one before the turbo one
+      expect(slots).toMatchObject({ unet: "SomeoneMinimaxH3_hybridV3.safetensors", refUnet: "SomeoneMinimaxH3_hybridV3.safetensors" });
+      const h3 = setup.recipes.find((r: { id: string }) => r.id === "h3.video");
+      expect(h3).toMatchObject({ ready: true, missingSlots: [], problems: [] });
+      expect(h3.options.model).toEqual(["SomeoneMinimaxH3_hybridV3.safetensors", "SomeoneMinimaxH3_hybridTurboV3.safetensors", "zz_other.safetensors"]);
+    } finally {
+      await own.close();
+      await fake.close().catch(() => {});
+    }
   });
 });

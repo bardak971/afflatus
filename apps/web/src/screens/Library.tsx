@@ -240,7 +240,7 @@ export function Library() {
   const filtered = Boolean(q || family || kept);
 
   return (
-    <div className="flex min-h-0 grow">
+    <div className="flex min-h-0 min-w-0 grow">
       <Folders place={place} onPlace={setPlace} />
       <div className="flex min-w-0 grow flex-col">
         <header className="flex h-[60px] shrink-0 items-center gap-2 px-5">

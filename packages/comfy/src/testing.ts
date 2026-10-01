@@ -121,7 +121,10 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const install = async (task: (typeof installs)[number]) => {
     const got = await fetch(task.url).catch(() => null);
     if (!got?.ok) return;
-    const bytes = (await got.arrayBuffer()).byteLength;
+    // a download cut off half way leaves nothing: the real one only writes a file it has all of
+    const whole = await got.arrayBuffer().catch(() => null);
+    if (!whole) return;
+    const bytes = whole.byteLength;
     const [folder, ...sub] = task.save_path === "default" ? [MANAGER_FOLDER[task.type.toLowerCase()] ?? "etc"] : task.save_path.split("/");
     const file = [...sub, task.filename].join("\\");
     (fake.models[folder!] ??= []).push(file);

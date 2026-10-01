@@ -1,5 +1,6 @@
 import type { BuiltGraph } from "./graph";
 import { schemaFor, type InputSpec } from "./inputs";
+import { folderOfFileInput } from "./models";
 
 /** A file a family needs, wherever the user keeps it: found by pattern, overridable on the setup page. */
 export interface ModelSlot {
@@ -12,6 +13,8 @@ export interface ModelSlot {
   /** Shown when nothing matches: what to download and where to put it. */
   hint: string;
   optional?: boolean;
+  /** Where its usual file can be had, when that is known: the name to save it under and its address. */
+  get?: { file: string; url: string };
 }
 
 /** One model architecture: what its files are and how its prompts are written. */
@@ -138,5 +141,7 @@ export function describeRecipe(r: Recipe<any>) {
   return {
     id: r.id, family: r.family, version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null,
+    // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
+    models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };
 }

@@ -7,6 +7,7 @@ import { useEntities, useRecipes, useSetup } from "../data";
 import { Field } from "../fields";
 import { fileLabel } from "../format";
 import { Picker, PictureField, SoundField } from "../PictureField";
+import { ModelLink } from "../ModelLink";
 import { Select } from "../Select";
 import { AutoText, Button, cx, Empty, ErrorNote, SectionTitle } from "../ui";
 
@@ -120,6 +121,7 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
                       <span className="w-8 font-mono">{m.weight.toFixed(2)}</span>
                     </label>
                   )}
+                  {m.lora && <span className="col-span-2 flex min-w-0 items-baseline gap-1.5 text-xs text-ink-2">Its page: <ModelLink folder="loras" file={m.lora} className="min-w-0" /></span>}
                   {can.tags && m.lora && <input aria-label={`Trigger word for ${f.name}`} placeholder="Its trigger word, if it has one" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "col-span-2 h-9 py-0")} />}
                 </div>
               ) : (
@@ -255,7 +257,7 @@ export function People() {
   });
 
   return (
-    <div className="flex min-h-0 grow">
+    <div className="flex min-h-0 min-w-0 grow">
       <aside className="flex w-[260px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-panel p-3">
         {KINDS.map((k) => (
           <div key={k.kind} className="flex flex-col gap-1">

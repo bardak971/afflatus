@@ -3,6 +3,9 @@ import { H3_FPS, h3Canvas, h3Frames } from "./family";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
 export interface H3Video {
+  model?: string;
+  turboIn: string;
+  hybrid: string;
   description: string;
   soundscape: string;
   music: string;
@@ -43,6 +46,22 @@ const guideFrames = (m: MediaFacts | undefined) => {
   return n;
 };
 
+/** What a model other than the usual one is, as far as its file name says: fine-tunes are named for it ("…HybridTurboV3"). */
+const namedFor = { turbo: /turbo|distill|lightning|(^|[^a-z0-9])\d+[ _-]?steps?/i, hybrid: /hybrid/i };
+
+/**
+ * The model the clip is made with, and what it is. The usual files are MiniMax's own: one model for
+ * first and last frames, another for references, and a turbo LoRA for few steps. A fine-tune can be all
+ * of that in one file: a hybrid follows references itself, a turbo (distilled) one needs no LoRA.
+ */
+const modelOf = (input: H3Video, slots: Record<string, string>) => {
+  // the usual file can itself be a fine-tune, where MiniMax's own is not installed: what a file is is read from its name either way
+  const file = input.model ?? slots.unet;
+  const name = file?.split(/[\\/]/).pop() ?? "";
+  const is = (said: string, named: RegExp) => said === "Yes" || (said !== "No" && named.test(name));
+  return { file, turbo: is(input.turboIn, namedFor.turbo), hybrid: is(input.hybrid, namedFor.hybrid) };
+};
+
 /**
  * Which way the clip is made. With reference pictures or a voice, the reference model is used: the
  * pictures say who and what is in the clip without being frames of it, and the voice is the one the
@@ -71,13 +90,17 @@ export const h3Video = defineRecipe<H3Video>({
   },
   inputs: [
     {
+      id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["minimax.?h3", "(^|[^a-z0-9])h3([^a-z0-9]|$)"],
+      note: "MiniMax's own, or a fine-tune of it",
+    },
+    {
       id: "description", type: "prompt", label: "What happens", style: "sentences",
       placeholder: "She walks to the railing and looks out at the sea. The camera follows her slowly. (S1) says <d>[English] What a view.</d> softly.",
     },
     { id: "soundscape", type: "prompt", label: "Sounds", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
     { id: "music", type: "prompt", label: "Music", style: "sentences", optional: true, placeholder: "none" },
-    { id: "start", type: "image", role: "start", label: "Opening picture", optional: true },
-    { id: "end", type: "image", role: "end", label: "Ending picture", optional: true },
+    { id: "start", type: "image", role: "start", label: "Start image", note: "the first frame", optional: true },
+    { id: "end", type: "image", role: "end", label: "End image", note: "the last frame", optional: true },
     { id: "mid", type: "image", role: "mid", at: "midAt", label: "A picture it passes through", optional: true, advanced: true },
     { id: "midAt", type: "number", label: "It passes through it at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
     {
@@ -99,7 +122,7 @@ export const h3Video = defineRecipe<H3Video>({
     },
     { id: "seconds", type: "number", label: "Length", min: 2, max: 15, step: 0.5, default: 5, unit: " s" },
     {
-      id: "shape", type: "size", label: "Shape", default: "tall", grid: 32, min: 256, max: 1344,
+      id: "shape", type: "size", label: "Aspect ratio", default: "tall", grid: 32, min: 256, max: 1344, ratioOnly: true,
       note: "an opening picture or a clip it joins decides the shape instead",
       shapes: [
         { id: "tall", label: "Tall", width: 576, height: 1024 },
@@ -108,8 +131,16 @@ export const h3Video = defineRecipe<H3Video>({
       ],
     },
     { id: "short", type: "number", label: "Size of the short side", note: "larger is sharper and slower", min: 384, max: 768, step: 96, default: 576, unit: " px", advanced: true },
-    { id: "fast", type: "toggle", label: "Fast", note: "8 steps, with the turbo LoRA", default: true, advanced: true },
-    { id: "steps", type: "number", label: "Steps", min: 4, max: 50, step: 1, default: 15, showWhen: { input: "fast", in: [false] }, advanced: true },
+    { id: "fast", type: "toggle", label: "Fast", note: "8 steps: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
+    { id: "steps", type: "number", label: "Steps", min: 4, max: 50, step: 1, default: 15, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
+    {
+      id: "turboIn", type: "choice", label: "Turbo model (distilled)", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
+      note: "made for 4 to 8 steps: no turbo LoRA is added. Auto reads it from the file name",
+    },
+    {
+      id: "hybrid", type: "choice", label: "Hybrid model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
+      note: "it follows reference pictures and voices itself; otherwise those clips use MiniMax's reference model. Auto reads it from the file name",
+    },
     { id: "smooth", type: "toggle", label: "Smooth motion", note: "48 pictures a second instead of 24", default: true, advanced: true },
     { id: "sharpRefs", type: "toggle", label: "Reference pictures at full size", note: "holds a face better, several times slower", default: false, advanced: true },
     { id: "quick", type: "toggle", label: "Quick attention", note: "Nvidia and AMD cards. Turn it off if renders fail on another machine.", default: true, advanced: true },
@@ -121,11 +152,14 @@ export const h3Video = defineRecipe<H3Video>({
   nodes(input) {
     const how = uses(input);
     const guided = Boolean(input.previous || input.next || input.mid) || (how.start && input.references.length > 0);
+    const picked = modelOf(input, {});
+    // a turbo model that makes the clip itself takes no turbo LoRA
+    const turboLora = input.fast && !(picked.turbo && (!how.reference || picked.hybrid));
     return [
       "UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
       "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "VHS_VideoCombine",
       ...(input.quick ? ["ModelAttentionBackend"] : []),
-      ...(input.fast || input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
+      ...(turboLora || input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
       ...(how.start || how.end || input.mid || input.references.length ? ["LoadImage"] : []),
       ...(input.voice ? ["LoadAudio"] : []),
       ...(input.previous || input.next ? ["LoadVideo", "GetVideoComponents"] : []),
@@ -137,8 +171,9 @@ export const h3Video = defineRecipe<H3Video>({
   build(input, ctx) {
     const { slots, uploads, media } = ctx;
     const how = uses(input);
-    if (how.reference && !slots.refUnet) {
-      throw new Error("Reference pictures and voices need MiniMax H3's reference model: put minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder.");
+    const picked = modelOf(input, slots);
+    if (how.reference && !picked.hybrid && !slots.refUnet) {
+      throw new Error("Reference pictures and voices need MiniMax H3's reference model (put minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder) or a hybrid model picked under Model.");
     }
     const head = input.previous ? guideFrames(media.previous) : 0;
     const tail = input.next ? guideFrames(media.next) : 0;
@@ -159,11 +194,16 @@ export const h3Video = defineRecipe<H3Video>({
     const g = new GraphBuilder();
     const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
     const vae = g.out("VAELoader", { vae_name: slots.videoVae });
-    const unet = how.reference ? slots.refUnet : slots.unet;
+    // references: a hybrid model follows them itself, any other hands those clips to MiniMax's reference model
+    const own = !how.reference || picked.hybrid;
+    const unet = own ? picked.file : slots.refUnet;
     // the reference model has a turbo LoRA of its own when one is installed; without it the usual one is
     // used, as the DaSiWa H3 workflow does (one turbo LoRA after whichever model the clip needs)
-    const turboFile = how.reference ? slots.refTurbo ?? slots.turbo : slots.turbo;
-    const turbo = input.fast && Boolean(turboFile);
+    const turboFile = how.reference && !picked.hybrid ? slots.refTurbo ?? slots.turbo : slots.turbo;
+    // a turbo model is made for few steps as it is: the LoRA on top of it would be the same thing twice
+    const distilled = own ? picked.turbo : namedFor.turbo.test(unet?.split(/[\\/]/).pop() ?? "");
+    const lora = input.fast && !distilled ? turboFile : undefined;
+    const turbo = distilled || Boolean(lora);
     let model = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
     // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
     if (input.cache && !turbo && ctx.has("MiniMaxH3Cache")) {
@@ -171,7 +211,7 @@ export const h3Video = defineRecipe<H3Video>({
     }
     if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
     if (ctx.has("ModelPatchTorchSettings")) model = g.out("ModelPatchTorchSettings", { model, enable_fp16_accumulation: true });
-    if (turbo) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboFile, strength_model: 1 });
+    if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: 1 });
     for (const l of input.loras) {
       if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     }
@@ -223,7 +263,8 @@ export const h3Video = defineRecipe<H3Video>({
       positive = g.out("MiniMaxH3AddGuide", { positive, vae, audio_vae: audioVae, latent, image: g.out("LoadImage", { image: uploads.mid }), frame_idx: at });
     }
 
-    const steps = turbo ? 8 : input.steps;
+    // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
+    const steps = lora || (distilled && input.fast) ? 8 : input.steps;
     g.phase("sampling");
     const sampled = g.add("SamplerCustomAdvanced", {
       noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
@@ -255,7 +296,7 @@ export const h3Video = defineRecipe<H3Video>({
       outputs: [{ node: out, kind: "video", role: "result" }],
       totalSteps: steps,
       passes: [{ node: sampled, steps }],
-      loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(turbo ? [`loras/${turboFile}`] : [])],
+      loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : [])],
       ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail) } } : {}),
     };
   },
@@ -310,6 +351,12 @@ export const h3Video = defineRecipe<H3Video>({
         name: "references, carrying on from a clip",
         input: { description: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "clothing" }], fast: false },
         slots: all, uploads: { previous: "a.mp4", "references.0": "r1.png" }, media: { previous: joined },
+      },
+      {
+        // one file that is all three: no reference model, no turbo LoRA
+        name: "a hybrid turbo fine-tune, with a reference picture",
+        input: { description: "a", model: "SomeoneH3_hybridTurboV3.safetensors", references: [{ asset: "r1", role: "person" }] },
+        slots: { ...slots, turbo: all.turbo }, uploads: { "references.0": "r1.png" },
       },
       {
         name: "passes through a picture half way",

@@ -14,6 +14,7 @@ export const useEntities = () => useQuery({ queryKey: ["entities"], queryFn: api
 export const useWorkflows = () => useQuery({ queryKey: ["workflows"], queryFn: api.workflows });
 // read once per file by the server, then kept: the "models" live event says when more has arrived
 export const useModelInfo = (folder: string | undefined) => useQuery({ queryKey: ["model-info", folder], queryFn: () => api.modelInfo(folder!), staleTime: Infinity, enabled: Boolean(folder) });
+export const useModelPages = (folder: string) => useQuery({ queryKey: ["model-pages", folder], queryFn: () => api.modelPages(folder), staleTime: Infinity });
 export const useModelSettings = () => useQuery({ queryKey: ["model-settings"], queryFn: api.modelSettings, staleTime: Infinity });
 // folders change with the library (counts), so they are refetched with it: the key starts with "assets"
 export const useFolders = () => useQuery({ queryKey: ["assets", "folders"], queryFn: api.folders });

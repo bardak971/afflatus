@@ -7,7 +7,7 @@ import { CHECKPOINT, get, makeApp, post, referenceCatalog, until, type TestApp }
 /** A stand-in for a language model's address: it answers what the test tells it to, and keeps what it was asked. */
 interface FakeLlm {
   url: string;
-  asked: Array<{ model: string; messages: Array<{ role: string; content: unknown }>; auth: string | undefined }>;
+  asked: Array<{ model: string; messages: Array<{ role: string; content: unknown }>; auth: string | undefined; maxTokens: number }>;
   answers: string[];
   close(): Promise<void>;
 }
@@ -16,10 +16,12 @@ async function startFakeLlm(): Promise<FakeLlm> {
   const server: Server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
-    const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as { model: string; messages: FakeLlm["asked"][number]["messages"] };
-    llm.asked.push({ model: body.model, messages: body.messages, auth: req.headers.authorization });
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as { model: string; max_tokens: number; messages: FakeLlm["asked"][number]["messages"] };
+    llm.asked.push({ model: body.model, messages: body.messages, auth: req.headers.authorization, maxTokens: body.max_tokens });
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ choices: [{ message: { content: llm.answers.shift() ?? "kind: proposal\nnote: nothing" } }] }));
+    const answer = llm.answers.shift() ?? "kind: proposal\nnote: nothing";
+    // "(cut)": it ran out of room before it wrote anything
+    res.end(JSON.stringify({ choices: [answer === "(cut)" ? { message: { content: "" }, finish_reason: "length" } : { message: { content: answer }, finish_reason: "stop" }] }));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   return Object.assign(llm, {
@@ -60,6 +62,106 @@ describe("the designer's language model", () => {
     expect((await post(t.app, "/api/designer/test")).json()).toEqual({ ok: true, model: "test-model", answer: "ready" });
     expect(llm.asked[0]).toMatchObject({ model: "test-model", auth: "Bearer secret" });
     expect((await get(t.app, "/api/settings")).json().llm).toMatchObject({ hasApiKey: true, vision: true });
+  });
+
+  it("can be one of several: each with its own key and sizes, one in use, changed without sending its key again", async () => {
+    await useLlm();
+    const first = (await get(t.app, "/api/settings")).json();
+    expect(first.llms).toEqual([{ id: "main", name: "", baseUrl: llm.url, model: "test-model", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000 }]);
+    expect(first.designerLlm).toBe("main");
+
+    // a second one; the first is sent back without its key, which stays
+    const { hasApiKey: _has, ...kept } = first.llms[0];
+    const saved = (await put("/api/settings", { llms: [kept, { id: "big", name: "The big one", baseUrl: llm.url, model: "big-model", apiKey: "other", contextSize: 131072, maxOutputTokens: 8000 }] })).json();
+    expect(saved.llms.map((l: { id: string; hasApiKey: boolean }) => [l.id, l.hasApiKey])).toEqual([["main", true], ["big", true]]);
+    expect(JSON.stringify(saved)).not.toContain("secret");
+    llm.answers.push("ready", "ready");
+    await post(t.app, "/api/designer/test");
+    expect(llm.asked.at(-1)).toMatchObject({ model: "test-model", auth: "Bearer secret" });
+    // a given one is tested without being put in use
+    expect((await post(t.app, "/api/designer/test", { id: "big" })).json()).toMatchObject({ model: "big-model" });
+    expect(llm.asked.at(-1)).toMatchObject({ model: "big-model", auth: "Bearer other" });
+
+    // the one in use writes, with the longest answer it was given
+    await put("/api/settings", { designerLlm: "big" });
+    llm.answers.push("kind: proposal\nnote: ok\nprompt: 1girl, terrace");
+    await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "" }, messages: [{ role: "user", content: "a girl on a terrace" }] });
+    expect(llm.asked.at(-1)).toMatchObject({ model: "big-model", maxTokens: 8000 });
+    expect((await get(t.app, "/api/settings")).json().llm).toMatchObject({ model: "big-model" });
+
+    // removed: the designer goes back to the first
+    await put("/api/settings", { llms: [kept] });
+    expect((await get(t.app, "/api/settings")).json()).toMatchObject({ designerLlm: "main", llm: { model: "test-model", hasApiKey: true } });
+    expect((await put("/api/settings", { llms: [kept, kept] })).statusCode).toBe(400);
+  });
+
+  it("is sent only as much of a long conversation as it can read, the latest part", async () => {
+    await useLlm({ contextSize: 4096, maxOutputTokens: 1000 });
+    const long = "word ".repeat(700); // about 1000 tokens each
+    const messages = Array.from({ length: 9 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `${i}: ${long}` }));
+    llm.answers.push("kind: proposal\nnote: ok\nprompt: 1girl");
+    await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "" }, messages });
+    const sent = llm.asked.at(-1)!.messages;
+    expect(sent[0]!.role).toBe("system");
+    // the last thing said is there, the start of the conversation is not, and what is sent starts with the user
+    expect(String(sent.at(-1)!.content)).toMatch(/^8: /);
+    expect(sent.length).toBeLessThan(6);
+    expect(sent[1]!.role).toBe("user");
+    expect(sent.some((m) => String(m.content).startsWith("0: "))).toBe(false);
+    expect(llm.asked.at(-1)!.maxTokens).toBe(1000);
+  });
+
+  it("is not blamed for thinking aloud, and says so when thinking used the whole answer", async () => {
+    await useLlm();
+    llm.answers.push("<think>The user wants a terrace.\nprompt: wrong, this is thinking</think>\nkind: proposal\nnote: ok\nprompt: 1girl, terrace");
+    const reply = (await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "" }, messages: [{ role: "user", content: "a terrace" }] })).json();
+    expect(reply.changes).toEqual({ prompt: "1girl, terrace" });
+    llm.answers.push("(cut)");
+    const cut = await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "" }, messages: [{ role: "user", content: "a terrace" }] });
+    expect(cut.json().error).toMatch(/Max output tokens/);
+  });
+});
+
+describe("the user's own instructions for the designer", () => {
+  it("are kept under names, and the ones picked are part of what the designer is told, plans included", async () => {
+    await useLlm();
+    const said = { recipe: "sdxl.text-to-picture", values: { prompt: "" }, messages: [{ role: "user", content: "a terrace" }] };
+    await post(t.app, "/api/designer", said);
+    expect(system()).not.toContain("STANDING INSTRUCTIONS");
+
+    await put("/api/settings", { designerInstructions: [{ id: "film", name: "Film", text: "Always name the lens." }, { id: "short", name: "Short", text: "Never more than ten tags." }], designerInstruction: "film" });
+    await post(t.app, "/api/designer", said);
+    expect(system()).toContain("THE USER'S STANDING INSTRUCTIONS");
+    expect(system()).toContain("Always name the lens.");
+    expect(system()).not.toContain("Never more than ten tags.");
+    // they come before the model's guide, and the reply format still closes what it is told
+    expect(system().indexOf("Always name the lens.")).toBeLessThan(system().indexOf("THE PARTS YOU WRITE"));
+    expect(system().trimEnd().endsWith("separated by |")).toBe(true);
+
+    await put("/api/settings", { designerInstruction: "short" });
+    await post(t.app, "/api/designer/plan", { recipe: "h3.video", idea: "a walk", clips: 2 }).catch(() => {});
+    expect(system(-1)).toContain("Never more than ten tags.");
+
+    // the ones in use are removed: none are in use
+    await put("/api/settings", { designerInstructions: [{ id: "film", name: "Film", text: "Always name the lens." }] });
+    expect((await get(t.app, "/api/settings")).json().designerInstruction).toBe("");
+    await post(t.app, "/api/designer", said);
+    expect(system()).not.toContain("STANDING INSTRUCTIONS");
+  });
+});
+
+describe("a fresh start", () => {
+  it("forgets every conversation, in drafts and on timelines, and leaves the forms alone", async () => {
+    const turns = [{ role: "user", content: "a terrace" }, { role: "assistant", content: "ok" }];
+    const draft = (await post(t.app, "/api/drafts", { recipe: "sdxl.text-to-picture", forms: { "sdxl.text-to-picture": { prompt: "1girl, terrace" } } })).json();
+    await put(`/api/drafts/${draft.id}`, { chat: turns });
+    expect((await get(t.app, `/api/drafts/${draft.id}`)).json().chat).toHaveLength(2);
+
+    expect((await t.app.inject({ method: "DELETE", url: "/api/designer/conversations" })).json()).toEqual({ forgotten: 1 });
+    const after = (await get(t.app, `/api/drafts/${draft.id}`)).json();
+    expect(after.chat).toEqual([]);
+    expect(after.forms["sdxl.text-to-picture"].prompt).toBe("1girl, terrace");
+    expect((await t.app.inject({ method: "DELETE", url: "/api/designer/conversations" })).json()).toEqual({ forgotten: 0 });
   });
 });
 

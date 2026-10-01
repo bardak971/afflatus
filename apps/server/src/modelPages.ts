@@ -1,0 +1,99 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { findOnCivitai } from "./civitai";
+import { now } from "./db";
+import { findOnHuggingFace } from "./huggingface";
+import type { Services } from "./services";
+import { readSettings } from "./settings";
+
+/**
+ * The page of a model file (a LoRA, a checkpoint) on the site it came from. A file does not say where
+ * it is from, so its page is looked for by its name: a model that has a file of exactly that name is
+ * taken as its page and remembered; otherwise the closest ones are offered and the one the user picks
+ * is remembered. A file is known by its name alone, so that moving it to another sub-folder keeps it.
+ */
+
+export interface ModelPage {
+  url: string;
+  /** What the page is called there ("Soft light · v2"). */
+  title: string;
+}
+
+/** A page that may be the file's: shown to choose from. */
+export interface PageCandidate extends ModelPage {
+  site: string;
+  /** What kind of thing it is there, and the model it is for ("LORA · SDXL"). */
+  about: string;
+}
+
+const FOLDER = /^[\w-]{1,64}$/;
+const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+const webUrl = z.string().max(2000).refine((u) => /^https?:\/\/[^\s]+$/i.test(u), "that is not a web address");
+
+export function registerModelPages(app: FastifyInstance, s: Services): void {
+  const folderOf = (folder: string) => {
+    if (!FOLDER.test(folder)) throw Object.assign(new Error("there is no such model folder"), { statusCode: 400 });
+    return folder;
+  };
+  const known = async (folder: string, name: string): Promise<ModelPage | null> =>
+    (await s.db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).executeTakeFirst()) ?? null;
+  const remember = async (folder: string, name: string, page: ModelPage) => {
+    await s.db
+      .insertInto("model_pages")
+      .values({ folder, name, url: page.url, title: page.title, found_at: now() })
+      .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: page.url, title: page.title, found_at: now() }))
+      .execute();
+  };
+
+  /** Every page known for the files of a folder, by file name (lower case, without its sub-folder). */
+  app.get<{ Params: { folder: string } }>("/api/models/:folder/pages", async (req) => {
+    const rows = await s.db.selectFrom("model_pages").select(["name", "url", "title"]).where("folder", "=", folderOf(req.params.folder)).execute();
+    return { items: Object.fromEntries(rows.map((r) => [r.name, { url: r.url, title: r.title }])) };
+  });
+
+  /**
+   * Look for a file's page. Known already: that one. Otherwise Civitai (both sites) and Hugging Face
+   * are asked, when looking things up is turned on in Setup: a model with a file of exactly this name
+   * is its page and is remembered; the others found are offered.
+   */
+  app.post<{ Params: { folder: string } }>("/api/models/:folder/page", async (req) => {
+    const folder = folderOf(req.params.folder);
+    const { file } = z.strictObject({ file: z.string().min(1).max(500) }).parse(req.body);
+    const name = nameOf(file);
+    const page = await known(folder, name);
+    if (page) return { page, candidates: [] as PageCandidate[], lookups: true };
+    const settings = await readSettings(s.db);
+    if (!settings.civitaiLookups) return { page: null, candidates: [] as PageCandidate[], lookups: false };
+
+    const [hf, civitai] = await Promise.all([
+      findOnHuggingFace(name).catch(() => ({ items: [], answered: false })),
+      findOnCivitai(name, folder, settings.civitaiKey).catch(() => ({ items: [], asked: [] as string[], silent: [] as string[] })),
+    ]);
+    const candidates: PageCandidate[] = [
+      ...civitai.items.map((i) => ({
+        url: i.versionId ? `${i.url}?modelVersionId=${i.versionId}` : i.url, title: [i.name, i.version].filter(Boolean).join(" · "),
+        site: i.site, about: [i.kind, i.base].filter(Boolean).join(" · "),
+      })),
+      ...hf.items.map((i) => ({ url: `${i.page}/blob/main/${i.path.split("/").map(encodeURIComponent).join("/")}`, title: i.repo, site: "huggingface.co", about: "has a file of this name" })),
+    ];
+    // a file of exactly this name: on Civitai that is the model it came from; Hugging Face only ever returns such files
+    const exact = civitai.items.findIndex((i) => i.exact);
+    const sure = exact >= 0 ? candidates[exact]! : !civitai.items.length && hf.items.length === 1 ? candidates[0]! : null;
+    if (sure) await remember(folder, name, { url: sure.url, title: sure.title });
+    return { page: sure ? { url: sure.url, title: sure.title } : null, candidates: sure ? [] : candidates.slice(0, 8), lookups: true };
+  });
+
+  /** The page the user says is the file's (one of those offered, or an address of their own); null forgets it. */
+  app.put<{ Params: { folder: string } }>("/api/models/:folder/page", async (req) => {
+    const folder = folderOf(req.params.folder);
+    const b = z.strictObject({ file: z.string().min(1).max(500), url: webUrl.nullable(), title: z.string().max(300).default("") }).parse(req.body);
+    const name = nameOf(b.file);
+    if (b.url === null) {
+      await s.db.deleteFrom("model_pages").where("folder", "=", folder).where("name", "=", name).execute();
+      return { page: null };
+    }
+    const page = { url: b.url, title: b.title.trim() || new URL(b.url).hostname };
+    await remember(folder, name, page);
+    return { page };
+  });
+}

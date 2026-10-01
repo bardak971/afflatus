@@ -4,7 +4,7 @@ import { defineFamily } from "@studai/core";
 export const sdxl = defineFamily({
   id: "sdxl",
   name: "SDXL",
-  summary: "Illustrious, NoobAI, Pony and other SDXL checkpoints. Pictures from tags.",
+  summary: "Illustrious, NoobAI, Pony and other SDXL checkpoints. Prompts are tags.",
   promptStyle: "tags",
   // the checkpoint is picked per generation, so it is an input of each recipe, not a slot
   slots: [],
@@ -23,7 +23,7 @@ RULES
 - No contradictions (sitting + standing, short hair + long hair) and no near-duplicates (smile + light smile + happy).
 - Weights only when needed, 0.8 to 1.3, written (tag:1.2). Never stack parentheses.
 - Counts matter: two people are 2girls, or 1boy, 1girl; describe each.
-- Quality tags (masterpiece, best quality, score_9…) are set per model in "Always put in front": do not put them in the tags.
+- Quality tags (masterpiece, best quality, score_9…) are set per checkpoint in "Quality tags": do not put them in the prompt.
 - The part to avoid lists what must NOT appear, kept short (bad hands, extra digits, text, watermark).`,
 });
 

@@ -64,6 +64,35 @@ describe("a job from start to finish", () => {
     expect(frees()).toBe(2);
   });
 
+  it("frees ComfyUI's memory when asked, but not under a render; and by itself after a while without one, when Setup says so", async () => {
+    const frees = () => fake.calls.filter((c) => c === "POST /free").length;
+    const id = await enqueue({});
+    await until(() => submitted().length === 1);
+    const before = frees();
+    // its model is in use
+    const refused = await post(t.app, "/api/comfy/free");
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toMatch(/render is under way/);
+    expect(frees()).toBe(before);
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(id)).status === "done");
+
+    expect((await post(t.app, "/api/comfy/free")).json()).toEqual({ ok: true });
+    expect(frees()).toBe(before + 1);
+
+    // a few hundredths of a second stand in for the minutes
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { unloadAfterMinutes: 0.002 } });
+    const again = await enqueue({ prompt: "a dog" });
+    await until(() => submitted().length === 2);
+    const loaded = frees();
+    complete(fake, submitted()[1]!);
+    await until(async () => (await statusOf(again)).status === "done");
+    await until(() => frees() === loaded + 1);
+    // once is enough: nothing is loaded any more
+    await new Promise((r) => setTimeout(r, 300));
+    expect(frees()).toBe(loaded + 1);
+  });
+
   it("makes several when asked, each with its own seed", async () => {
     const res = await post(t.app, "/api/jobs", { ...job(), count: 3 });
     expect(res.json().ids).toHaveLength(3);

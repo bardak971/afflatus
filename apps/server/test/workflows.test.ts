@@ -71,7 +71,7 @@ describe("an imported workflow", () => {
     const { id } = await importWan();
     expect(id).toBe("workflow.wan-2-2-picture-to-video");
     const { families, recipes } = (await get(t.app, "/api/recipes")).json();
-    expect(families.map((f: { name: string }) => f.name)).toEqual(["SDXL", "FLUX.2 Klein", "MiniMax H3", "Picture tools", "Wan 2.2"]);
+    expect(families.map((f: { name: string }) => f.name)).toEqual(["SDXL", "FLUX.2 Klein", "Krea 2", "MiniMax H3", "Picture tools", "Wan 2.2"]);
     const recipe = recipes.find((r: { id: string }) => r.id === id);
     expect(recipe).toMatchObject({ title: "Wan 2.2 · Picture to video", output: "video", family: "workflow-wan-2-2" });
     expect(recipe.inputs.map((i: { id: string }) => i.id)).toContain("seconds");
@@ -89,6 +89,17 @@ describe("an imported workflow", () => {
     fake.catalog.UNETLoader!.input.required!.unet_name = [["some-other-model.safetensors"]];
     const again = (await get(t.app, "/api/setup?fresh=1")).json().recipes.find((r: { id: string }) => r.id === id);
     expect(again).toMatchObject({ ready: false, missingFiles: ["wan2.2_i2v_14B.safetensors"] });
+  });
+
+  it("runs with a model this ComfyUI keeps in another sub-folder, named as ComfyUI lists it", async () => {
+    const { id } = await importWan();
+    fake.catalog.UNETLoader!.input.required!.unet_name = [["Wan\\wan2.2_i2v_14B.safetensors"]];
+    const status = (await get(t.app, "/api/setup?fresh=1")).json().recipes.find((r: { id: string }) => r.id === id);
+    expect(status).toMatchObject({ ready: true, missingFiles: [] });
+    expect((await post(t.app, "/api/jobs", { recipe: id, input: { prompt: "a cat walks" } })).statusCode).toBe(200);
+    await until(() => fake.prompts.size === 1);
+    const graph = [...fake.prompts.values()][0]!;
+    expect(Object.values(graph).find((n) => n.class_type === "UNETLoader")!.inputs.unet_name).toBe("Wan\\wan2.2_i2v_14B.safetensors");
   });
 
   it("gets a second id when the title is already taken, and survives a restart", async () => {

@@ -102,10 +102,11 @@ describe("reading the file ComfyUI's editor saves", () => {
 
     it("finds the parts in what runs, and ticks the author's panel in its order", () => {
       expect(s).toMatchObject({ prompt: { node: "3:6", input: "text" }, negative: { node: "3:7", input: "text" }, seeds: [{ node: "3:10", input: "seed" }], result: { node: "9", kind: "image" } });
-      expect(s.controls.map((c) => c.target.input)).toEqual(["steps", "cfg"]);
+      // the author's panel, and what an enlarging is tuned with, whoever put it where
+      expect(s.controls.map((c) => c.target.input)).toEqual(["steps", "cfg", "scale_by"]);
       expect(s.toggles.map((t) => t.label)).toEqual(["🆙 Upscale 2x"]);
-      // a setting of a part that is off is offered too, under the name its author gave it
-      expect(found.candidates.find((c) => c.target.input === "scale_by")).toMatchObject({ label: "How much larger", off: true, suggested: false });
+      // a setting of a part that is off is offered too, under the name its author gave it; how much it enlarges is ticked to begin with
+      expect(found.candidates.find((c) => c.target.input === "scale_by")).toMatchObject({ label: "How much larger", off: true, suggested: true });
     });
 
     it("takes the workflow's own list of LoRAs as the list, starting with the ones that were on", () => {

@@ -24,7 +24,7 @@ export interface DownloadView {
   bytes: number;
   /** 0 when the source does not say. */
   total: number;
-  status: "starting" | "downloading" | "saving" | "done" | "error";
+  status: "starting" | "downloading" | "saving" | "done" | "error" | "stopped";
   error?: string;
 }
 
@@ -34,6 +34,8 @@ interface Download extends DownloadView {
   headers: Record<string, string>;
   comfy: Comfy;
   finishedAt?: number;
+  /** Cuts the download off at its source. */
+  abort: AbortController;
 }
 
 /** The folders ComfyUI-Manager knows by a type name; any other folder is given to it as a path under models/. */
@@ -66,7 +68,7 @@ export class Downloads {
   }
 
   private fail(d: Download, error: string): void {
-    if (d.status === "done" || d.status === "error") return;
+    if (d.status === "done" || d.status === "error" || d.status === "stopped") return;
     d.status = "error";
     d.error = error;
     d.finishedAt = Date.now();
@@ -76,17 +78,42 @@ export class Downloads {
   /** Newest first. What finished is forgotten after an hour. */
   list(): DownloadView[] {
     for (const [id, d] of this.all) if (d.finishedAt && Date.now() - d.finishedAt > KEEP_MS) this.all.delete(id);
-    return [...this.all.values()].reverse().map(({ token: _t, source: _s, headers: _h, comfy: _c, finishedAt: _f, ...view }) => view);
+    return [...this.all.values()].reverse().map(({ token: _t, source: _s, headers: _h, comfy: _c, finishedAt: _f, abort: _a, ...view }) => view);
   }
 
-  /** Whether this ComfyUI has ComfyUI-Manager, and which. */
+  /**
+   * Stop a download that is under way, or take a finished one off the list. Nothing is left behind:
+   * ComfyUI-Manager only writes a file once it has all of it. False when there is no such download,
+   * "late" when every byte was already handed over and ComfyUI is saving it.
+   */
+  stop(id: string): boolean | "late" {
+    const d = this.all.get(id);
+    if (!d) return false;
+    if (d.status === "saving") return "late";
+    if (d.status === "starting" || d.status === "downloading") {
+      d.status = "stopped";
+      d.finishedAt = Date.now();
+      d.abort.abort();
+    } else this.all.delete(id);
+    this.tell(true);
+    return true;
+  }
+
+  private managerSeen: { url: string; at: number; value: { found: boolean; version?: string } } | null = null;
+
+  /** Whether this ComfyUI has ComfyUI-Manager, and which. Asked at most every half minute: the list of downloads is read often. */
   async manager(comfy: Comfy): Promise<{ found: boolean; version?: string }> {
+    const seen = this.managerSeen;
+    if (seen && seen.url === comfy.client.baseUrl && Date.now() - seen.at < 30_000) return seen.value;
+    let value: { found: boolean; version?: string };
     try {
       const res = await fetch(`${comfy.client.baseUrl}/v2/manager/version`, { signal: AbortSignal.timeout(5000) });
-      return res.ok ? { found: true, version: (await res.text()).trim().slice(0, 40) } : { found: false };
+      value = res.ok ? { found: true, version: (await res.text()).trim().slice(0, 40) } : { found: false };
     } catch {
-      return { found: false };
+      value = { found: false };
     }
+    this.managerSeen = { url: comfy.client.baseUrl, at: Date.now(), value };
+    return value;
   }
 
   /**
@@ -98,12 +125,12 @@ export class Downloads {
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw Object.assign(new Error(`"${name}" is not a model file studai can fetch.`), { statusCode: 400 });
     if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw Object.assign(new Error("that is not a model folder"), { statusCode: 400 });
-    const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && d.status !== "done" && d.status !== "error");
+    const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (d.status === "starting" || d.status === "downloading" || d.status === "saving"));
     if (busy) return this.list().find((v) => v.id === busy.id)!;
 
     const d: Download = {
       id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers: want.headers ?? {},
-      file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting",
+      file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting", abort: new AbortController(),
     };
     this.all.set(d.id, d);
     const post = (path: string, body: unknown) =>
@@ -145,7 +172,7 @@ export class Downloads {
     this.tell(true);
     let res: Response;
     try {
-      res = await fetch(d.source, { headers: { "User-Agent": "studai", Accept: "*/*", ...d.headers }, redirect: "follow" });
+      res = await fetch(d.source, { headers: { "User-Agent": "studai", Accept: "*/*", ...d.headers }, redirect: "follow", signal: d.abort.signal });
     } catch (err) {
       this.fail(d, `The download did not start: ${(err as Error).message}`);
       return { error: d.error! };
@@ -165,7 +192,10 @@ export class Downloads {
         done(null, chunk);
       },
     });
-    const stream = Readable.fromWeb(res.body as WebStream).pipe(counter);
+    // pipe() does not pass an error on: a source that breaks (the site drops it, or it is stopped) ends what Manager is reading
+    const source = Readable.fromWeb(res.body as WebStream);
+    source.on("error", (err) => counter.destroy(err));
+    const stream = source.pipe(counter);
     stream.on("error", (err) => this.fail(d, `The download was interrupted: ${err.message}`));
     stream.on("end", () => {
       if (d.status !== "downloading") return;

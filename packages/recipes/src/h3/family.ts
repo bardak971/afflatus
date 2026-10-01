@@ -11,8 +11,9 @@ export const h3 = defineFamily({
   promptStyle: "sections",
   slots: [
     {
-      id: "unet", label: "Video model", folder: "diffusion_models", detect: ["minimax_h3.*fl2va"],
-      hint: "Put minimax_h3_fl2va_*.safetensors in ComfyUI's models/diffusion_models folder.",
+      // MiniMax's own; without it a hybrid fine-tune (one file for both ways of making a clip), a full-step one before a turbo one
+      id: "unet", label: "Video model", folder: "diffusion_models", detect: ["minimax_h3.*fl2va", "minimax.?h3.*hybrid(?!.*turbo)", "minimax.?h3.*hybrid"],
+      hint: "Put minimax_h3_fl2va_*.safetensors, or a hybrid MiniMax H3 fine-tune, in ComfyUI's models/diffusion_models folder.",
     },
     {
       id: "clip", label: "Text reader", folder: "text_encoders", detect: ["qwen3vl.*minimax", "minimax.*h3"],
@@ -32,8 +33,8 @@ export const h3 = defineFamily({
       hint: "Without it, Fast is off and clips take the full number of steps. Put the MiniMax H3 turbo LoRA in ComfyUI's models/loras folder.",
     },
     {
-      id: "refUnet", label: "Reference model (people, places, voices)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va"], optional: true,
-      hint: "Without it, clips cannot follow reference pictures or a voice. Put minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder.",
+      id: "refUnet", label: "Reference model (people, places, voices)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", "minimax.?h3.*hybrid(?!.*turbo)", "minimax.?h3.*hybrid"], optional: true,
+      hint: "Without it, clips cannot follow reference pictures or a voice. Put minimax_h3_ref2va_*.safetensors, or a hybrid MiniMax H3 fine-tune, in ComfyUI's models/diffusion_models folder.",
     },
     {
       id: "refTurbo", label: "Fast mode for the reference model", folder: "loras", detect: ["minimax_h3.*ref2v.*turbo"], optional: true,

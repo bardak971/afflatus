@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
-import { Copy, Plus, X } from "lucide-react";
-import { baseGroup, baseLabel, loraFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@studai/core";
+import { ArrowLeftRight, Copy, Plus, X } from "lucide-react";
+import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@studai/core";
 import type { FamilyInfo, ModelInfo } from "./api";
 import { useModelInfo } from "./data";
 import { fileLabel } from "./format";
@@ -8,6 +8,7 @@ import { MaskField } from "./MaskField";
 import { ClipField, PictureField, ReferencesField, SoundField } from "./PictureField";
 import { Select, type Option } from "./Select";
 import { AutoText, cx, NumberBox, Segmented, Toggle } from "./ui";
+import { ModelLink } from "./ModelLink";
 
 /**
  * One control per input type. This file is the only place that knows how an input is drawn: a recipe
@@ -20,7 +21,8 @@ const field = "w-full rounded-lg border border-line bg-raised px-3 text-ink plac
 /** The value an input starts with, given what this ComfyUI offers for it. */
 export function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
   switch (spec.type) {
-    case "prompt": return spec.default ?? "";
+    // an example is shown, not filled in
+    case "prompt": return spec.example ? "" : spec.default ?? "";
     case "model": return options?.[0] ?? "";
     case "loras": return spec.default ?? [];
     case "size": {
@@ -59,18 +61,24 @@ const FOLDER_OF: Record<string, string> = {
 };
 
 /** A dropdown of model files, searched by what the files say about themselves when their folder is known. */
-function FileSelect({ id, label, value, files, folder, placeholder, onChange }: {
+function FileSelect({ id, label, value, files, folder, placeholder, match, onChange }: {
   id: string;
   label: string;
   value: string;
   files: string[];
   folder: string | undefined;
   placeholder?: string;
+  /** Names of the files made for this form, when the folder holds other kinds too: those are listed apart from the rest. */
+  match?: string[];
   onChange(value: string): void;
 }) {
   const known = useModelInfo(folder);
   const info = known.data?.items;
-  const options = useMemo(() => files.map((f) => fileOption(f, info?.[f])), [files, info]);
+  const options = useMemo(() => {
+    const made = match?.map((p) => new RegExp(p, "i"));
+    // the files arrive with the ones made for it first
+    return files.map((f) => ({ ...fileOption(f, info?.[f]), ...(made ? { group: made.some((re) => re.test(f)) ? "Made for this" : `Everything else in models/${folder}` } : {}) }));
+  }, [files, info, match, folder]);
   return <Select id={id} label={label} value={value} onChange={onChange} options={options} placeholder={placeholder} searchHint={info && files.length > 1 ? `Search ${files.length} by name or model` : undefined} />;
 }
 
@@ -85,7 +93,68 @@ function Label({ htmlFor, children, note }: { htmlFor?: string; children: string
   );
 }
 
-export function Field({ spec, value, values, options, family, onChange }: {
+/** Proportions to choose from beyond the ones a recipe names, tallest to widest. */
+const RATIOS: Array<{ label: string; w: number; h: number }> = [
+  { label: "Portrait 9:16", w: 9, h: 16 }, { label: "Portrait 2:3", w: 2, h: 3 }, { label: "Portrait 3:4", w: 3, h: 4 }, { label: "Portrait 4:5", w: 4, h: 5 },
+  { label: "Square 1:1", w: 1, h: 1 },
+  { label: "Landscape 5:4", w: 5, h: 4 }, { label: "Landscape 4:3", w: 4, h: 3 }, { label: "Landscape 3:2", w: 3, h: 2 }, { label: "Widescreen 16:9", w: 16, h: 9 }, { label: "Ultrawide 21:9", w: 21, h: 9 },
+];
+
+/**
+ * The shape and size of what is made: the recipe's own shapes as buttons, any other proportion from a
+ * list (at the same number of pixels, so the amount of detail and the time stay about the same), and the
+ * width and height themselves, typed. A recipe that only takes the proportions gets no pixels to type.
+ */
+function SizeField({ spec, value: size, onChange }: { spec: Extract<InputSpec, { type: "size" }>; value: SizeValue; onChange(value: SizeValue): void }) {
+  const shape = spec.shapes.find((s) => s.width === size.width && s.height === size.height);
+  const snap = (n: number) => Math.min(spec.max, Math.max(spec.min, Math.round(n / spec.grid) * spec.grid));
+  // the pixels to keep when the proportions change: those of the size now, or of the recipe's own shape before one is set
+  const first = spec.shapes.find((s) => s.id === spec.default) ?? spec.shapes[0]!;
+  const area = size.width && size.height ? size.width * size.height : first.width * first.height;
+  const sized = (r: { w: number; h: number }) => {
+    const height = Math.sqrt((area * r.h) / r.w);
+    return { width: snap((height * r.w) / r.h), height: snap(height) };
+  };
+  const others = RATIOS.map((r) => ({ ...r, ...sized(r) })).filter((r) => !spec.shapes.some((s) => s.width === r.width && s.height === r.height));
+  const picked = others.find((r) => r.width === size.width && r.height === size.height);
+  const megapixels = (size.width * size.height) / 1e6;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label note={spec.note ?? (spec.ratioOnly ? undefined : `${megapixels.toFixed(megapixels < 10 ? 1 : 0)} megapixels`)}>{spec.label}</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Segmented label={spec.label} value={shape?.id ?? ""} options={spec.shapes.map((s) => ({ value: s.id, label: s.label }))} onChange={(shapeId) => {
+          const s = spec.shapes.find((x) => x.id === shapeId)!;
+          onChange({ width: s.width, height: s.height });
+        }} />
+        <div className="min-w-40 grow">
+          <Select
+            size="sm"
+            label="Aspect ratio"
+            placeholder="Aspect ratio"
+            value={picked ? picked.label : ""}
+            onChange={(label) => {
+              const r = others.find((x) => x.label === label);
+              if (r) onChange({ width: r.width, height: r.height });
+            }}
+            options={others.map((r) => ({ value: r.label, label: r.label, note: spec.ratioOnly ? undefined : `${r.width} × ${r.height}` }))}
+          />
+        </div>
+      </div>
+      {!spec.ratioOnly && (
+        <div className="flex items-center gap-2 text-ink-2">
+          <NumberBox label="Width, in pixels" value={size.width} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(width) => onChange({ width: snap(width), height: size.height })} />
+          <button type="button" aria-label="Swap width and height" title="Swap width and height" onClick={() => onChange({ width: size.height, height: size.width })} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover">
+            <ArrowLeftRight size={14} />
+          </button>
+          <NumberBox label="Height, in pixels" value={size.height} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(height) => onChange({ width: size.width, height: snap(height) })} />
+          <span className="text-xs">wide × high</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Field({ spec, value, values, options, family, model, onChange }: {
   spec: InputSpec;
   value: unknown;
   /** The whole form, for a field that goes with another one (the part painted over a picture). */
@@ -94,6 +163,8 @@ export function Field({ spec, value, values, options, family, onChange }: {
   options: string[] | undefined;
   /** The model family the form is for: LoRAs made for it are listed first. */
   family?: FamilyInfo;
+  /** The model file in use: LoRAs made for that very model, or its line, come before the rest of the family's. */
+  model?: string;
   onChange(value: unknown): void;
 }) {
   const id = useId();
@@ -104,11 +175,11 @@ export function Field({ spec, value, values, options, family, onChange }: {
           <Label htmlFor={id} note={spec.note}>{spec.label}</Label>
           <AutoText
             id={id}
-            rows={spec.optional ? 2 : 4}
+            rows={spec.optional && !spec.example ? 2 : 4}
             value={String(value ?? "")}
             placeholder={spec.placeholder}
             onChange={(e) => onChange(e.target.value)}
-            className={cx(field, "py-2.5 leading-normal", spec.optional ? "text-[13px]" : "text-sm")}
+            className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-[13px]" : "text-sm")}
           />
         </div>
       );
@@ -116,32 +187,16 @@ export function Field({ spec, value, values, options, family, onChange }: {
     case "model":
       return (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={id} note={options?.length ? `${options.length} on your ComfyUI` : undefined}>{spec.label}</Label>
-          <FileSelect id={id} label={spec.label} value={String(value ?? "")} onChange={onChange} files={options ?? []} folder={spec.folder} placeholder={options?.length ? "Choose a model" : `Nothing found in models/${spec.folder}`} />
+          <Label htmlFor={id} note={spec.note ?? (options?.length ? `${options.length} on your ComfyUI` : undefined)}>{spec.label}</Label>
+          <FileSelect id={id} label={spec.label} value={String(value ?? "")} onChange={onChange} files={options ?? []} folder={spec.folder} match={spec.match} placeholder={options?.length ? "Choose a model" : `Nothing found in models/${spec.folder}`} />
         </div>
       );
 
     case "loras":
-      return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} onChange={onChange} />;
+      return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} model={model} onChange={onChange} />;
 
-    case "size": {
-      const size = (value as SizeValue | undefined) ?? { width: 0, height: 0 };
-      const shape = spec.shapes.find((s) => s.width === size.width && s.height === size.height);
-      return (
-        <div className="flex flex-col gap-1.5">
-          <Label note={spec.note ?? `${size.width} × ${size.height}`}>{spec.label}</Label>
-          <Segmented
-            label={spec.label}
-            value={shape?.id ?? ""}
-            options={spec.shapes.map((s) => ({ value: s.id, label: s.label }))}
-            onChange={(shapeId) => {
-              const s = spec.shapes.find((x) => x.id === shapeId)!;
-              onChange({ width: s.width, height: s.height });
-            }}
-          />
-        </div>
-      );
-    }
+    case "size":
+      return <SizeField spec={spec} value={(value as SizeValue | undefined) ?? { width: 0, height: 0 }} onChange={onChange} />;
 
     case "number": {
       const n = Number(value ?? spec.default);
@@ -200,7 +255,7 @@ export function Field({ spec, value, values, options, family, onChange }: {
           <Segmented
             label="Seed"
             value={random ? "random" : "fixed"}
-            options={[{ value: "random", label: "New each time" }, { value: "fixed", label: "Fixed" }]}
+            options={[{ value: "random", label: "Random" }, { value: "fixed", label: "Fixed" }]}
             onChange={(v) => onChange(v === "random" ? RANDOM_SEED : 0)}
           />
           {!random && (
@@ -211,7 +266,7 @@ export function Field({ spec, value, values, options, family, onChange }: {
               max={4294967295}
               value={seed}
               onChange={(e) => onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-              className={cx(field, "h-9 font-mono")}
+              className={cx(field, "h-9 min-w-0 grow font-mono")}
             />
           )}
         </div>
@@ -256,11 +311,12 @@ function LoraWords({ info }: { info: ModelInfo | undefined }) {
   );
 }
 
-function Loras({ spec, value, options, family, onChange }: {
+function Loras({ spec, value, options, family, model, onChange }: {
   spec: Extract<InputSpec, { type: "loras" }>;
   value: LoraValue[];
   options: string[];
   family: FamilyInfo | undefined;
+  model: string | undefined;
   onChange(value: LoraValue[]): void;
 }) {
   // what each file says about itself: read once by the server, arriving in the background the first time
@@ -269,30 +325,35 @@ function Loras({ spec, value, options, family, onChange }: {
   const free = options.filter((o) => !value.some((v) => v.file === o));
   const set = (i: number, weight: number) => onChange(value.map((v, j) => (j === i ? { ...v, weight } : v)));
   const choices = useMemo(() => {
-    const made = free.map((file, index) => ({ file, index, about: info[file], fit: family ? loraFit(family, file, info[file]) : 0 }));
+    const made = free.map((file, index) => ({ file, index, about: info[file], fit: family ? loraFit(family, file, info[file]) : 0, near: model ? modelFit(model, file, info[file]) : 0 }));
     // sections only when the files tell enough to make them: otherwise the list stays as ComfyUI gives it
-    const sorted = made.some((m) => m.fit > 0);
+    const sorted = made.some((m) => m.fit > 0 || m.near > 0);
     const wanted = family ? baseGroup(baseLabel(family.name)) : "";
     // a list for one half of a model pair ("High", "Low") puts the files of that half first
     // (as a word of its own in the file's name or folder: "Low_noise", "LowNoise", "Wan/Low", not "blow")
     const half = /\bhigh\b/i.test(spec.label) ? /(^|[^A-Za-z])(high|High|HIGH)(?![a-z])/ : /\blow\b/i.test(spec.label) ? /(^|[^A-Za-z])(low|Low|LOW)(?![a-z])/ : null;
-    const rank = (fit: number) => (fit > 0 ? 0 : fit === 0 ? 1 : 2);
-    const titles = [`Made for ${wanted}`, "Do not say which model they are for", "Made for other models"];
-    if (sorted) made.sort((a, b) => rank(a.fit) - rank(b.fit) || (half ? Number(half.test(b.file)) - Number(half.test(a.file)) : 0) || b.fit - a.fit || a.index - b.index);
-    return made.map(({ file, about, fit }): Option => ({
-      ...fileOption(file, about),
-      detail: wordsOf(about) || undefined,
-      ...(sorted ? { group: titles[rank(fit)] } : {}),
+    // made for the very model in use (or its line) first; then the rest of its family; a LoRA of another line of the family after those
+    const line = model ? lineOf(model) : null;
+    const rank = (m: { fit: number; near: number }) => (m.near > 0 && m.fit >= 0 ? 0 : m.fit > 0 ? (m.near < 0 ? 2 : 1) : m.fit === 0 ? 3 : 4);
+    const titles = [
+      line ? `Made for ${line}` : "Made for the model in use", `Made for ${wanted || "this model"}`,
+      `Made for another kind of ${wanted || "model"}`, "Do not say which model they are for", "Made for other models",
+    ];
+    if (sorted) made.sort((a, b) => rank(a) - rank(b) || (half ? Number(half.test(b.file)) - Number(half.test(a.file)) : 0) || b.near - a.near || b.fit - a.fit || a.index - b.index);
+    return made.map((m): Option => ({
+      ...fileOption(m.file, m.about),
+      detail: wordsOf(m.about) || undefined,
+      ...(sorted ? { group: titles[rank(m)] } : {}),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [free.join("|"), known.data, family?.id, spec.label]);
+  }, [free.join("|"), known.data, family?.id, spec.label, model]);
   return (
     <div className="flex flex-col gap-1.5">
       <Label note={`${value.length} of ${spec.max}`}>{spec.label}</Label>
       {value.map((l, i) => (
         <div key={l.file} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">
           <div className="flex items-center gap-2">
-            <span title={l.file} className="min-w-0 grow truncate font-semibold">{fileLabel(l.file)}</span>
+            <ModelLink folder="loras" file={l.file} className="min-w-0 grow font-semibold" />
             <input type="range" aria-label={`Strength of ${fileLabel(l.file)}`} min={0} max={1.5} step={0.05} value={l.weight} onChange={(e) => set(i, Number(e.target.value))} className="w-24 shrink-0" />
             <span className="w-9 shrink-0 text-right font-mono text-xs">{l.weight.toFixed(2)}</span>
             <button type="button" aria-label={`Remove ${fileLabel(l.file)}`} onClick={() => onChange(value.filter((_, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover">

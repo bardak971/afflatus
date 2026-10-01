@@ -118,6 +118,11 @@ export const bindings = z.object({
   length: z.object({ target, fps: z.number(), step: z.number(), offset: z.number(), min: z.number(), max: z.number() }).optional(),
   startImage: image.optional(),
   endImage: image.optional(),
+  /**
+   * Every other picture the workflow loads (reference pictures, a second picture to edit with): each
+   * is a slot of its own in the form, under the name its loader was given.
+   */
+  pictures: z.array(image.extend({ id: z.string(), label: z.string() })).default([]),
   /** Outputs of model loaders after which the user's LoRAs are chained. */
   loras: z.array(z.object({
     node: z.string(),
@@ -131,6 +136,12 @@ export const bindings = z.object({
   /** The node whose files are the result. */
   result: z.object({ node: z.string(), kind: z.enum(["image", "video", "audio"]), sound: z.boolean().default(false) }),
   controls: z.array(control).default([]),
+  /**
+   * Places along the way to the result where the workflow also shows a picture: the first picture,
+   * the enlarged one, the one gone over again. The form can stop at one of them, and what comes after
+   * is not run. In the order they are made; the last one is the result itself. Empty: it always runs whole.
+   */
+  stages: z.array(z.object({ node: z.string(), label: z.string() })).default([]),
 });
 export type Bindings = z.infer<typeof bindings>;
 

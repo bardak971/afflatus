@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkGraph, choicesOf, GraphBuilder, type BuiltGraph, type NodeCatalog } from "../src";
+import { checkGraph, choicesOf, GraphBuilder, relocateFiles, sameFile, type BuiltGraph, type NodeCatalog } from "../src";
 
 const catalog: NodeCatalog = {
   Loader: { input: { required: { file: [["a.safetensors", "b.safetensors"]] } }, output: ["MODEL"] },
@@ -85,5 +85,28 @@ describe("checkGraph", () => {
     const b = built((g) => g.add("Loader", { file: "a.safetensors" }));
     b.outputs[0]!.node = "99";
     expect(checkGraph(b, catalog)).toEqual(["output result: node 99 is not in the graph"]);
+  });
+});
+
+describe("a model kept in another sub-folder than the one a graph names", () => {
+  it("is the same file: found by its name, whatever the folder and the capitals", () => {
+    const offered = ["Wan\\wan_2.1_vae.safetensors", "flux2-vae.safetensors"];
+    expect(sameFile(offered, "wan_2.1_vae.safetensors")).toBe("Wan\\wan_2.1_vae.safetensors");
+    expect(sameFile(offered, "vae/WAN_2.1_VAE.safetensors")).toBe("Wan\\wan_2.1_vae.safetensors");
+    expect(sameFile(offered, "flux2-vae.safetensors")).toBe("flux2-vae.safetensors");
+    expect(sameFile(offered, "wan_2.2_vae.safetensors")).toBeUndefined();
+  });
+
+  it("is named in the graph as this ComfyUI lists it, and nothing else is touched", () => {
+    const listed: NodeCatalog = { ...catalog, Loader: { input: { required: { file: [["sub\\a.safetensors", "b.safetensors"]] } }, output: ["MODEL"] } };
+    const graph = {
+      "1": { class_type: "Loader", inputs: { file: "a.safetensors" } },
+      "2": { class_type: "Loader", inputs: { file: "b.safetensors" } },
+      "3": { class_type: "Loader", inputs: { file: "gone.safetensors" } },
+      "4": { class_type: "Sampler", inputs: { model: ["1", 0], steps: 20, method: "euler", mode: "fast" } },
+    };
+    expect(relocateFiles(graph, listed)).toEqual([{ node: "1", input: "file", from: "a.safetensors", to: "sub\\a.safetensors" }]);
+    expect(graph["1"].inputs.file).toBe("sub\\a.safetensors");
+    expect(graph["3"].inputs.file).toBe("gone.safetensors");
   });
 });

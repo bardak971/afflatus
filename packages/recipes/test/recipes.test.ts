@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, schemaFor, type ChoiceInput, type NodeCatalog } from "@studai/core";
-import { familyById, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture } from "../src";
+import { familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture } from "../src";
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8"),
@@ -220,6 +220,80 @@ describe("h3.video with references", () => {
   });
 });
 
+describe("h3.video with another H3 model", () => {
+  const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", turbo: "t.safetensors", refUnet: "ref.safetensors" };
+  const refs = { references: [{ asset: "r", role: "person" }] };
+  const build = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) =>
+    h3Video.build(parseInput(h3Video, { description: "She waves.", ...over }), dryContext({ seed: 7, slots, uploads: { "references.0": "r.png" }, ...ctx }));
+  const one = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const unet = (b: ReturnType<typeof build>) => one(b, "UNETLoader")[0]!.inputs.unet_name;
+  const loras = (b: ReturnType<typeof build>) => one(b, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name);
+
+  it("is the usual one when none is picked, or when the usual one is picked", () => {
+    expect(unet(build())).toBe("u.safetensors");
+    const same = build({ model: "u.safetensors" });
+    expect(unet(same)).toBe("u.safetensors");
+    expect(loras(same)).toEqual(["t.safetensors"]);
+    expect(unet(build({ model: "u.safetensors", ...refs }))).toBe("ref.safetensors");
+  });
+
+  it("a fine-tune is loaded in its place: Fast still adds the turbo LoRA, references still go to MiniMax's reference model", () => {
+    const b = build({ model: "sub\\SomeoneH3_v3.safetensors" });
+    expect(unet(b)).toBe("sub\\SomeoneH3_v3.safetensors");
+    expect(loras(b)).toEqual(["t.safetensors"]);
+    expect(b.totalSteps).toBe(8);
+    expect(b.loads).toContain("diffusion_models/sub\\SomeoneH3_v3.safetensors");
+    expect(unet(build({ model: "SomeoneH3_v3.safetensors", ...refs }))).toBe("ref.safetensors");
+  });
+
+  it("a turbo one gets no turbo LoRA and few steps: 8 with Fast, the steps typed without", () => {
+    const b = build({ model: "SomeoneH3_TurboV3.safetensors" });
+    expect(loras(b)).toEqual([]);
+    expect(b.totalSteps).toBe(8);
+    expect(one(b, "KSamplerSelect")[0]!.inputs.sampler_name).toBe("euler");
+    expect(one(b, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 7, shift_audio: 4.5 });
+    expect(b.loads.some((l) => l.startsWith("loras/"))).toBe(false);
+    expect(build({ model: "SomeoneH3_TurboV3.safetensors", fast: false, steps: 4 }).totalSteps).toBe(4);
+    // the step cache is for full renders
+    expect(one(build({ model: "SomeoneH3_TurboV3.safetensors", fast: false, steps: 6, cache: true }), "MiniMaxH3Cache")).toHaveLength(0);
+    // the user's own LoRAs still go on it
+    expect(loras(build({ model: "SomeoneH3_TurboV3.safetensors", loras: [{ file: "mine.safetensors", weight: 0.7 }] }))).toEqual(["mine.safetensors"]);
+  });
+
+  it("a hybrid one follows references itself, with no reference model installed", () => {
+    const { refUnet: _none, ...without } = slots;
+    const b = build({ model: "SomeoneH3_hybridV3.safetensors", ...refs }, { slots: without });
+    expect(unet(b)).toBe("SomeoneH3_hybridV3.safetensors");
+    expect(one(b, "MiniMaxH3ReferenceToVideo")).toHaveLength(1);
+    expect(loras(b)).toEqual(["t.safetensors"]);
+    // a hybrid turbo one: one file, no LoRA at all
+    expect(loras(build({ model: "SomeoneH3_hybridTurboV3.safetensors", ...refs }, { slots: without }))).toEqual([]);
+    expect(() => build({ model: "SomeoneH3_v3.safetensors", ...refs }, { slots: without })).toThrow(/hybrid model/);
+  });
+
+  it("is read from its name too when it is the usual model itself: MiniMax's own files are not installed", () => {
+    const only = { ...slots, unet: "SomeoneH3_hybridTurboV3.safetensors", refUnet: "SomeoneH3_hybridTurboV3.safetensors" };
+    const plain = build({}, { slots: only });
+    expect(unet(plain)).toBe("SomeoneH3_hybridTurboV3.safetensors");
+    expect(loras(plain)).toEqual([]);
+    expect(loras(build(refs, { slots: only }))).toEqual([]);
+    // told it is no hybrid, the clip goes to the reference slot, which is that same turbo file: still no LoRA
+    expect(loras(build({ ...refs, hybrid: "No" }, { slots: only }))).toEqual([]);
+  });
+
+  it("what the name says can be overruled, and saved for the model", () => {
+    // named like nothing, said to be both
+    const said = build({ model: "mystery.safetensors", turboIn: "Yes", hybrid: "Yes", ...refs });
+    expect(unet(said)).toBe("mystery.safetensors");
+    expect(loras(said)).toEqual([]);
+    // named turbo and hybrid, said to be neither
+    const not = build({ model: "SomeoneH3_hybridTurboV3.safetensors", turboIn: "No", hybrid: "No", ...refs });
+    expect(unet(not)).toBe("ref.safetensors");
+    expect(loras(not)).toEqual(["t.safetensors"]);
+    expect(h3Video.inputs.filter((i) => i.perModel).map((i) => i.id)).toEqual(["fast", "steps", "turboIn", "hybrid"]);
+  });
+});
+
 describe("things done to a picture", () => {
   it("start on a file that is there when the preferred one is not", () => {
     const upscaler = recipeById("sdxl.sharper")!.inputs.find((i) => i.id === "upscaler") as ChoiceInput;
@@ -299,5 +373,71 @@ describe("fixing faces with FLUX.2 Klein", () => {
       expect(graph.filter((n) => n.class_type === "FaceDetailer")).toHaveLength(1);
       expect(graph.filter((n) => n.class_type === "LoadImage").map((n) => n.inputs.image)).toEqual(["s.png", "one.png"]);
     }
+  });
+});
+
+describe("krea2: built the way ComfyUI's own templates build it", () => {
+  const slots = { unet: "krea2_turbo.safetensors", clip: "qwen3vl_4b.safetensors", vae: "qwen_image_vae.safetensors", styleRef: "krea2_style_reference.safetensors" };
+  const build = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) =>
+    krea2Picture.build(parseInput(krea2Picture, { prompt: "A lighthouse.", ...over }), dryContext({ seed: 7, slots, uploads: { "references.0": "a.png", "references.1": "b.png" }, ...ctx }));
+  const of = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+
+  it("txt2img is Turbo's plain recipe: 8 steps at CFG 1, euler / simple, the negative side emptied, the model's own shift", () => {
+    const b = build();
+    expect(of(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 8, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1, seed: 7 });
+    expect(of(b, "CLIPLoader")[0]!.inputs).toMatchObject({ type: "krea2" });
+    expect(of(b, "EmptyLatentImage")[0]!.inputs).toMatchObject({ width: 896, height: 1152 });
+    expect(of(b, "ConditioningZeroOut")).toHaveLength(1);
+    expect(of(b, "ModelSamplingAuraFlow")).toHaveLength(0);
+    expect(of(b, "ModelSamplingFlux")).toHaveLength(0);
+    expect(b.totalSteps).toBe(8);
+    expect(b.loads).toEqual(["diffusion_models/krea2_turbo.safetensors", "text_encoders/qwen3vl_4b.safetensors", "vae/qwen_image_vae.safetensors"]);
+  });
+
+  it("a fine-tune is picked under Model, with the shift, steps and CFG it asks for; a negative prompt is read once it is written", () => {
+    const b = build({ model: "Krea2\someone_v1.safetensors", shift: 4, steps: 25, cfg: 3, negative: "blurry" });
+    expect(of(b, "UNETLoader")[0]!.inputs.unet_name).toBe("Krea2\someone_v1.safetensors");
+    expect(of(b, "ModelSamplingAuraFlow")[0]!.inputs).toMatchObject({ shift: 4 });
+    expect(of(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 25, cfg: 3 });
+    expect(of(b, "ConditioningZeroOut")).toHaveLength(0);
+    expect(of(b, "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(["A lighthouse.", "blurry"]);
+  });
+
+  it("hires fix upscales with a model to the size asked for, whatever the model's own factor, then goes over it", () => {
+    const b = build({ hires: true, hiresUpscaler: "4x.pth", hiresScale: 1.25, size: { width: 1152, height: 1536 } });
+    expect(of(b, "ImageScale")[0]!.inputs).toMatchObject({ width: 1440, height: 1920, upscale_method: "lanczos" });
+    const passes = of(b, "KSampler").map((n) => [n.inputs.steps, n.inputs.denoise]);
+    expect(passes).toEqual([[8, 1], [4, 0.5]]);
+    // the second pass gets the shift that suits its size
+    expect(of(b, "ModelSamplingFlux")[0]!.inputs).toMatchObject({ width: 1440, height: 1920, max_shift: 1.15, base_shift: 0.5 });
+    expect(b.totalSteps).toBe(12);
+    expect(b.loads).toContain("upscale_models/4x.pth");
+  });
+
+  it("style reference images are read next to the prompt, with the style-reference LoRA on the model", () => {
+    const b = build({ references: [{ asset: "a", role: "style" }, { asset: "b", role: "style" }] });
+    expect(Object.keys(of(b, "TextEncodeQwenImageEditPlus")[0]!.inputs).sort()).toEqual(["clip", "image1", "image2", "prompt", "vae"]);
+    expect(of(b, "FluxKontextMultiReferenceLatentMethod")[0]!.inputs.reference_latents_method).toBe("index_timestep_zero");
+    expect(of(b, "LoraLoaderModelOnly").map((n) => [n.inputs.lora_name, n.inputs.strength_model])).toEqual([["krea2_style_reference.safetensors", 1]]);
+    expect(of(b, "ModelSamplingFlux")[0]!.inputs).toMatchObject({ width: 896, height: 1152 });
+    expect(b.loads).toContain("loras/krea2_style_reference.safetensors");
+    // without the LoRA it is said in words, with where it goes
+    const { styleRef: _none, ...without } = slots;
+    expect(() => build({ references: [{ asset: "a", role: "style" }] }, { slots: without })).toThrow(/krea2_style_reference/);
+    // it takes pictures of a style, not of a person
+    expect(() => parseInput(krea2Picture, { prompt: "a", references: [{ asset: "a", role: "person" }] })).toThrow();
+  });
+
+  it("img2img and inpaint work at sizes the model draws well, both edges multiples of 16", () => {
+    const redraw = recipeById("krea2.redraw")!;
+    const r = redraw.build(parseInput(redraw, { source: "p", prompt: "a", strength: 0.4 }), dryContext({ seed: 1, slots, uploads: { source: "s.png" }, media: { source: { width: 3000, height: 2000 } } }));
+    const scale = Object.values(r.graph).find((n) => n.class_type === "ImageScale")!.inputs as { width: number; height: number };
+    expect([scale.width % 16, scale.height % 16]).toEqual([0, 0]);
+    expect(scale.width * scale.height).toBeLessThan(1.7 * 1024 * 1024);
+    expect(Object.values(r.graph).find((n) => n.class_type === "KSampler")!.inputs).toMatchObject({ denoise: 0.4, steps: 8 });
+    const paint = recipeById("krea2.paint-over")!;
+    const p = paint.build(parseInput(paint, { source: "p", mask: "m", prompt: "a" }), dryContext({ seed: 1, slots, uploads: { source: "s.png", mask: "m.png" }, media: { source: { width: 1536, height: 2048 }, mask: { width: 1536, height: 2048, box: { x: 300, y: 500, width: 400, height: 300 } } } }));
+    expect(Object.values(p.graph).filter((n) => n.class_type === "SetLatentNoiseMask")).toHaveLength(1);
+    expect(Object.values(p.graph).find((n) => n.class_type === "ImageCompositeMasked")!.inputs).toMatchObject({ x: 300, y: 500 });
   });
 });

@@ -1,5 +1,6 @@
-import { choicesOf, isRef, type Graph, type NodeCatalog, type Ref } from "@studai/core";
+import { choicesOf, isRef, sameFile, type Graph, type NodeCatalog, type Ref } from "@studai/core";
 import { optsOf, specOf, typeOf } from "./catalog";
+import { scaleAfterModel } from "./recipe";
 import { splitCaptions, type Bindings, type Control, type ImageBinding, type Target, type Toggle, type Wiring } from "./types";
 import { ancestors, prune, settle } from "./wiring";
 
@@ -25,6 +26,13 @@ export interface Inspection {
   missingWhenOn: string[];
   /** Files the workflow names that this ComfyUI does not list, with the files it does have for that input, and where to download it when the workflow says. */
   missingFiles: Array<Target & { classType: string; file: string; label: string; options: string[]; url?: string }>;
+  /**
+   * Choices the workflow makes that this ComfyUI does not offer: a sampler or a scheduler that a node
+   * pack adds on its author's machine. With the choices there are, and the one whose name is closest.
+   */
+  missingChoices: Array<Target & { classType: string; title: string; value: string; options: string[]; nearest?: string }>;
+  /** Files the workflow names that this ComfyUI keeps in another sub-folder: they are used from there. */
+  relocated: Array<Target & { file: string; found: string }>;
   /** For the kinds of node that are missing: the pack each comes from, when the workflow says. */
   packs: Record<string, string>;
   /** The links the workflow's author wrote in its notes (where to get models, mostly). */
@@ -42,7 +50,9 @@ export interface Inspection {
   /** The mapping studai would use if the user changed nothing. Null when the workflow has no output node. */
   suggested: Bindings | null;
   /** Every other setting that could be a control; `suggested` ones are ticked to begin with. `off`: its node is switched off as saved. */
-  candidates: Array<Control & { classType: string; title: string; suggested: boolean; off?: boolean }>;
+  candidates: Array<Control & { classType: string; title: string; suggested: boolean; off?: boolean; /** What ComfyUI offers for a choice, for showing it before it is saved. */ offers?: string[] }>;
+  /** The places the workflow can stop at, when it shows its picture at several points on the way (see Bindings.stages). */
+  stages: Array<{ node: string; label: string }>;
   /** What could not be read with certainty, for the person importing. */
   notes: string[];
 }
@@ -304,6 +314,9 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
   const images: Inspection["images"] = loaded.map((id) => ({ node: id, title: titleOf(id), role: imageRole(id) as Inspection["images"][number]["role"], binding: binding(id) }));
   const endId = loaded.find((id) => imageRole(id) === "end");
   const startId = loaded.find((id) => id !== endId && imageRole(id) === "start") ?? loaded.find((id) => id !== endId && imageRole(id) !== "mask");
+  // the other pictures it loads (references, more pictures to work from): a slot each, named after their loader
+  const others = loaded.filter((id) => id !== startId && id !== endId && imageRole(id) !== "mask");
+  const pictures = others.map((id, i) => ({ ...binding(id), id: `pic_${id}`.replace(/[^a-zA-Z0-9_]/g, "_"), label: givenName(id) ?? `Image ${i + 2}` }));
 
   // ---- where LoRAs can go
   const loraPoints: Inspection["loraPoints"] = [];
@@ -337,6 +350,7 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
   const onPanel = (t: Target) => editor?.panel.findIndex((p) => p.node === t.node && p.input === t.input) ?? -1;
   const candidates: Inspection["candidates"] = [];
   const missingFiles: Inspection["missingFiles"] = [];
+  const relocated: Inspection["relocated"] = [];
   for (const id of Object.keys(source)) {
     const n = source[id]!;
     if (!catalog[n.class_type] || id === result?.node || n.class_type === POWER_LORAS) continue;
@@ -348,7 +362,9 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       if (c.file && graph[id]) {
         const choices = choicesOf(specOf(catalog, n.class_type, input)) ?? [];
         // an empty list is a catalog saved without file names: nothing can be said
-        if (choices.length && !choices.includes(String(c.default))) {
+        const elsewhere = choices.length && !choices.includes(String(c.default)) ? sameFile(choices, String(c.default)) : undefined;
+        if (elsewhere) relocated.push({ node: id, input, file: String(c.default), found: elsewhere });
+        else if (choices.length && !choices.includes(String(c.default))) {
           const url = editor?.downloads[String(c.default).split(/[\\/]/).pop() ?? ""];
           missingFiles.push({ node: id, input, classType: n.class_type, file: String(c.default), label: c.label, options: choices, ...(url ? { url } : {}) });
         }
@@ -357,16 +373,116 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       const isDuration = duration?.node === id && duration.input === input;
       // ticked to begin with: the author's panel when there is one; otherwise what people change most on a
       // sampler and the controls the author named. And the size preset, when the size is not typed in.
-      const suggested = isResolution || isDuration || (editor?.panel.length
+      // … and, panel or not, what every pass of sampling and every enlarging is tuned with
+      const tuned = c.kind === "number" && (/^(steps(_total)?|scale_by|upscale_by)$/.test(input) || (input === "denoise" && Number(c.default) < 1));
+      const upscaler = c.kind === "choice" && input === "model_name" && /upscale/i.test(n.class_type);
+      const suggested = isResolution || isDuration || tuned || upscaler || (editor?.panel.length
         ? onPanel(c.target) >= 0
         : (c.kind === "number" && /^(steps(_total)?|cfg|guidance|shift)$/.test(input)) || (primitive && givenName(id) !== null && c.kind !== "text"));
       const named = isResolution ? { ...c, front: true, label: givenLabel(id, input) ?? "Resolution" }
         : isDuration ? { ...c, front: true, label: givenLabel(id, input) ?? "Seconds" }
         : c;
-      candidates.push({ ...tame(named, isDuration ? "seconds" : primitive ? (givenName(id) ?? "") : ""), classType: n.class_type, title: titleOf(id), suggested, ...(graph[id] ? {} : { off: true }) });
+      const offers = c.kind === "choice" ? choicesOf(specOf(catalog, n.class_type, input)) ?? undefined : undefined;
+      candidates.push({ ...tame(named, isDuration ? "seconds" : primitive ? (givenName(id) ?? "") : ""), classType: n.class_type, title: titleOf(id), suggested, ...(graph[id] ? {} : { off: true }), ...(offers?.length ? { offers } : {}) });
     }
   }
-  const ticked = candidates.filter((c) => c.suggested).map(({ classType: _c, title: _t, suggested: _s, off: _o, ...c }) => c);
+  // ---- settings of the same name on several nodes are told apart: by the pass of sampling they belong to, else by their node
+  const samplerIds = ids.filter((id) => /KSampler|SamplerCustom/.test(graph[id]!.class_type)).sort((a, z) => ancestors(graph, a).size - ancestors(graph, z).size);
+  const ORDINAL = ["first", "second", "third", "fourth", "fifth"];
+  const passOf = (node: string): string | null => {
+    // the pass a node works for: the first sampler that is made from it (or is it)
+    const at = samplerIds.findIndex((s) => s === node || ancestors(graph, s).has(node));
+    const own = samplerIds.filter((s) => s === node || ancestors(graph, s).has(node)).length;
+    // what every pass reads (the text, the model) belongs to none of them
+    return samplerIds.length > 1 && at >= 0 && (own === 1 || samplerIds[at] === node) ? `${ORDINAL[at] ?? `${at + 1}th`} pass` : null;
+  };
+  const sameLabel = new Map<string, number>();
+  for (const c of candidates) if (!c.front) sameLabel.set(c.label, (sameLabel.get(c.label) ?? 0) + 1);
+  for (const c of candidates) {
+    if (c.front || (sameLabel.get(c.label) ?? 0) < 2) continue;
+    c.label = `${c.label} · ${passOf(c.target.node) ?? `${c.title} #${c.target.node}`}`;
+  }
+
+  // ---- the places it can stop at: outputs of the result's kind that lie on the way to the result
+  const stages: Inspection["stages"] = [];
+  if (result) {
+    const whole = ancestors(graph, result.node);
+    const isOutput = (id: string) => outputs.some((o) => o.node === id);
+    /** What an output is made from, leaving out the nodes that only show or save. */
+    const madeFrom = (id: string) => [...ancestors(graph, id)].filter((x) => !isOutput(x)).sort().join(",");
+    const count = (id: string, what: RegExp) => [...ancestors(graph, id)].filter((x) => what.test(graph[x]!.class_type)).length;
+    const onTheWay = outputs.filter((o) => o.kind === result.kind && (o.node === result.node || whole.has(o.node)));
+    // several outputs can show the same picture (a preview, then a save): one stage, the result when it is among them
+    const byMake = new Map<string, string>();
+    for (const o of onTheWay) if (!byMake.has(madeFrom(o.node)) || o.node === result.node) byMake.set(madeFrom(o.node), o.node);
+    byMake.set(madeFrom(result.node), result.node);
+    const nodes = [...byMake.values()].sort((a, z) => ancestors(graph, a).size - ancestors(graph, z).size);
+    if (nodes.length > 1) {
+      let passes = 0;
+      let enlargings = 0;
+      const SAMPLER = /KSampler|SamplerCustom/;
+      const ENLARGE = /Upscale|ImageScale/;
+      // one pass, then an enlarging, then another pass over the larger picture: what A1111 calls hires fix.
+      // Stopping after the first pass is that switched off, and the stages are named so.
+      const hires = count(nodes[0]!, SAMPLER) === 1 && count(nodes[0]!, ENLARGE) === 0 && count(nodes.at(-1)!, SAMPLER) > 1 && count(nodes.at(-1)!, ENLARGE) > 0;
+      nodes.forEach((node, i) => {
+        const p = count(node, SAMPLER);
+        const e = count(node, ENLARGE);
+        const label = i === nodes.length - 1 ? "Full workflow"
+          : i === 0 ? "Base pass only"
+            : p > passes ? `Through pass ${p}` : e > enlargings ? "Base + upscale, no second pass" : `Up to ${titleOf(node)} #${node}`;
+        passes = p;
+        enlargings = e;
+        stages.push({ node, label });
+      });
+      // a switch has two ends: off is the base pass, on is the whole workflow. The point between them is left out.
+      if (hires) {
+        stages.splice(1, stages.length - 2);
+        stages[0]!.label = "Hires fix off";
+        stages[1]!.label = "Hires fix on";
+        // and what the second half is tuned with gets the names it has in A1111
+        const second = samplerIds.at(-1)!;
+        const rename = (node: string, input: string, label: string) => {
+          const c = candidates.find((x) => x.target.node === node && x.target.input === input && !x.front);
+          if (c) c.label = label;
+        };
+        // with the second half named for what it is, the first needs no "first pass" after its settings
+        for (const c of candidates) if (!c.front) c.label = c.label.replace(/ · first pass$/, "");
+        rename(second, "steps", "Hires steps");
+        rename(second, "denoise", "Denoising strength (hires)");
+        for (const c of candidates) {
+          if (c.front || !ancestors(graph, second).has(c.target.node) || ancestors(graph, stages[0]!.node).has(c.target.node)) continue;
+          if (c.target.input === "scale_by" || c.target.input === "upscale_by") c.label = "Upscale by";
+          // after an upscale model whose factor is not known, it is not the whole factor: it must not be named as if it were
+          const afterModel = scaleAfterModel(graph, c.target);
+          if (afterModel && !(afterModel.factor && size && ancestors(graph, afterModel.upscale).has(size.width.node))) c.label = "Scale after the upscaler";
+          if (c.target.input === "model_name" && /upscale/i.test(c.classType)) c.label = "Upscaler";
+        }
+      }
+    }
+  }
+
+  // every fixed choice of what runs, whether or not it is a control: one ComfyUI refuses stops the render
+  const missingChoices: Inspection["missingChoices"] = [];
+  for (const id of ids) {
+    const n = graph[id]!;
+    if (!catalog[n.class_type]) continue;
+    for (const [input, value] of Object.entries(n.inputs)) {
+      if (typeof value !== "string" || FILE.test(value)) continue;
+      const options = choicesOf(specOf(catalog, n.class_type, input));
+      if (!options?.length || options.includes(value) || options.some((o) => FILE.test(o))) continue;
+      // the closest name: the longest common start ("beta57" → "beta")
+      const shared = (o: string) => {
+        let i = 0;
+        while (i < o.length && i < value.length && o[i]!.toLowerCase() === value[i]!.toLowerCase()) i++;
+        return i;
+      };
+      const best = [...options].sort((x, y) => shared(y) - shared(x) || x.length - y.length)[0];
+      missingChoices.push({ node: id, input, classType: n.class_type, title: titleOf(id), value, options, ...(best && shared(best) >= 3 ? { nearest: best } : {}) });
+    }
+  }
+
+  const ticked = candidates.filter((c) => c.suggested).map(({ classType: _c, title: _t, suggested: _s, off: _o, offers: _f, ...c }) => c);
   const place = (c: Control) => (onPanel(c.target) < 0 ? Number.MAX_SAFE_INTEGER : onPanel(c.target));
   ticked.sort((a, b) => place(a) - place(b));
 
@@ -379,13 +495,15 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
         ...(length && result.kind === "video" ? { length } : {}),
         ...(startId ? { startImage: binding(startId) } : {}),
         ...(endId ? { endImage: binding(endId) } : {}),
+        pictures,
         loras: chosen.map((p) => ({ node: p.node, output: p.output, label: chosen.length > 1 ? p.label : "", ...(p.power ? { power: true } : {}) })),
         toggles,
         result: { node: result.node, kind: result.kind, sound: result.sound },
         controls: ticked,
+        stages,
       }
     : null;
 
   const packs = Object.fromEntries([...missingNodes, ...missingWhenOn].flatMap((c) => (editor?.packs[c] ? [[c, editor.packs[c]!]] : [])));
-  return { nodeCount: Object.keys(source).length, missingNodes, missingWhenOn, missingFiles, packs, links: editor?.links ?? [], outputs, texts, images, loraPoints, toggles, suggested, candidates, notes };
+  return { nodeCount: Object.keys(source).length, missingNodes, missingWhenOn, missingFiles, missingChoices, relocated, stages, packs, links: editor?.links ?? [], outputs, texts, images, loraPoints, toggles, suggested, candidates, notes };
 }

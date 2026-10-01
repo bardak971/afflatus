@@ -115,7 +115,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       const before = at > 0 ? clips[at - 1] : undefined;
       const carries = Boolean(before) && c.joined === "continue";
       for (const i of recipe.inputs) {
-        if (i.type === "prompt" && !i.optional && i.default === undefined && !String(input[i.id] ?? "").trim()) return { why: `Write ${i.label.toLowerCase()} first.` };
+        if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(input[i.id] ?? "").trim()) return { why: `Write ${i.label.toLowerCase()} first.` };
         // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture of its own
         const given = carries && i.type === "image" && i.role === "start" && (recipe.traits?.continues === "frame" || before?.kind === "still");
         if (i.type === "image" && !i.optional && !input[i.id] && !given) return { why: `Choose the ${i.label.toLowerCase()} first.` };

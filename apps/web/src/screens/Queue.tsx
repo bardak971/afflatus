@@ -54,6 +54,7 @@ export function Queue() {
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: ["queue"] });
   const pause = useMutation({ mutationFn: (paused: boolean) => (paused ? api.pause() : api.resume()), onSuccess: refresh });
+  const free = useMutation({ mutationFn: api.freeMemory });
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh });
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q) });
   const again = useMutation({ mutationFn: (v: { id: string; input?: Record<string, unknown> }) => api.retryJob(v.id, v.input), onSuccess: refresh });
@@ -63,7 +64,7 @@ export function Queue() {
   const [refused, setRefused] = useState(false);
   const q = queue.data;
   const m = meters(load);
-  const error = queue.error ?? pause.error ?? cancel.error ?? order.error ?? again.error ?? dismiss.error;
+  const error = queue.error ?? free.error ?? pause.error ?? cancel.error ?? order.error ?? again.error ?? dismiss.error;
 
   const drop = (index: number) => {
     if (!q || !dragged) return;
@@ -88,6 +89,16 @@ export function Queue() {
           </div>
         </div>
         {q && !q.paused && <span className="max-w-72 text-right text-xs text-ink-2">Pause when you want to use ComfyUI yourself. Waiting jobs stay in line.</span>}
+        {q?.online && (
+          <Button
+            className="h-12 px-5 text-sm"
+            disabled={free.isPending || Boolean(q.running && q.running.recipe !== "studai.export")}
+            title="Unloads ComfyUI's models from the graphics card and from memory, for a game or another program. The next render loads what it needs again. Not while a render is under way."
+            onClick={() => free.mutate()}
+          >
+            {free.isPending ? "Freeing…" : free.isSuccess ? "Memory freed" : "Free the GPU memory"}
+          </Button>
+        )}
         {q && (
           <Button tone={q.paused ? "primary" : "plain"} className="h-12 px-5 text-sm" onClick={() => pause.mutate(!q.paused)}>
             {q.paused ? "Resume the queue" : "Pause: I need the GPU"}

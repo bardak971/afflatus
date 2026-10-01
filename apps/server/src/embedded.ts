@@ -223,8 +223,14 @@ function samplerOf(name: string | undefined, schedule: string | undefined): { sa
       s = s.slice(0, -tail.length - 1);
     }
   }
+  // ComfyUI's own names, written by Civitai as "<sampler>_<scheduler>": the end that is a scheduler is one
+  let tail: string | undefined;
+  if (!SAMPLERS[s] && /^[a-z0-9_]+$/.test(s)) {
+    tail = ["sgm_uniform", "ddim_uniform", "linear_quadratic", "kl_optimal", "exponential", "karras", "simple", "normal", "beta"].find((x) => s.endsWith(`_${x}`));
+    if (tail) s = s.slice(0, -tail.length - 1);
+  }
   const sampler = SAMPLERS[s] ?? (/^[a-z0-9_]+$/.test(s) ? s : undefined);
-  const scheduler = SCHEDULES[(schedule ?? "").trim().toLowerCase()] ?? (from ? SCHEDULES[from] : undefined);
+  const scheduler = SCHEDULES[(schedule ?? "").trim().toLowerCase()] ?? (from ? SCHEDULES[from] : undefined) ?? tail;
   return { sampler, scheduler };
 }
 
@@ -267,9 +273,9 @@ export function parseA1111(infotext: string): FoundSettings {
   const neg = splitLoras(negative);
   const notes: string[] = [];
   if (kv.VAE && !/automatic|none/i.test(kv.VAE)) notes.push(`It was made with the VAE "${kv.VAE}": the model's own is used here.`);
-  if (Object.keys(kv).some((k) => k.startsWith("ADetailer"))) notes.push('It had a face pass: use "Fix the faces" on the result.');
+  if (Object.keys(kv).some((k) => k.startsWith("ADetailer"))) notes.push('It had a face detailer pass: use "Face detailer" on the result.');
   const hires = kv["Hires upscale"] || kv["Hires upscaler"];
-  if (kv["Denoising strength"] && !hires) notes.push("It was made from another picture: here it is made from words only.");
+  if (kv["Denoising strength"] && !hires) notes.push("It was made with img2img: here it is txt2img.");
 
   const loras: FoundSettings["loras"] = pos.loras;
   let checkpointCivitai: number | undefined;
@@ -361,8 +367,8 @@ export function parseComfy(graph: Graph): FoundSettings | null {
       scale: up?.inputs.scale_by ? Number(up.inputs.scale_by) : w2 && width ? Math.round((w2 / width) * 100) / 100 : undefined,
     };
   }
-  if (Object.values(graph).some((n) => n.class_type === "LoadImage") && !second && Number(i.denoise ?? 1) < 1) notes.push("It was made from another picture: here it is made from words only.");
-  if (Object.values(graph).some((n) => /Detailer/.test(n.class_type))) notes.push('It had a face pass: use "Fix the faces" on the result.');
+  if (Object.values(graph).some((n) => n.class_type === "LoadImage") && !second && Number(i.denoise ?? 1) < 1) notes.push("It was made with img2img: here it is txt2img.");
+  if (Object.values(graph).some((n) => /Detailer/.test(n.class_type))) notes.push('It had a face detailer pass: use "Face detailer" on the result.');
   const pos = splitLoras(encoderText(i.positive));
   const neg = splitLoras(encoderText(i.negative));
   if (!pos.text) notes.push("The text it was made from could not be found in its workflow.");

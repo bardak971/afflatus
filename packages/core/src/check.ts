@@ -24,6 +24,41 @@ export function choicesOf(spec: unknown): string[] | null {
 }
 
 /**
+ * The file among those a loader offers that is the one asked for: itself, or the same file kept in
+ * another sub-folder ("wan_2.1_vae.safetensors" asked for, "Wan\\wan_2.1_vae.safetensors" there). People
+ * sort their models into folders of their own, and a workflow made on another machine names them as
+ * they were kept there.
+ */
+export function sameFile(offered: string[], file: string): string | undefined {
+  if (offered.includes(file)) return file;
+  const name = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
+  const want = name(file);
+  return offered.find((o) => name(o) === want);
+}
+
+/**
+ * Model files a graph names that are not where it says but are in another sub-folder of the same
+ * loader: the graph is made to name them as this ComfyUI lists them. Returns what was changed.
+ */
+export function relocateFiles(graph: Record<string, { class_type: string; inputs: Record<string, unknown> }>, catalog: NodeCatalog): Array<{ node: string; input: string; from: string; to: string }> {
+  const moved: Array<{ node: string; input: string; from: string; to: string }> = [];
+  for (const [id, node] of Object.entries(graph)) {
+    const def = catalog[node.class_type];
+    if (!def) continue;
+    for (const [input, value] of Object.entries(node.inputs)) {
+      if (typeof value !== "string" || !/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i.test(value)) continue;
+      const offered = choicesOf(def.input.required?.[input] ?? def.input.optional?.[input]);
+      if (!offered?.length || offered.includes(value)) continue;
+      const found = sameFile(offered, value);
+      if (!found) continue;
+      node.inputs[input] = found;
+      moved.push({ node: id, input, from: value, to: found });
+    }
+  }
+  return moved;
+}
+
+/**
  * Choices that are files on someone's disk differ per install: never check a graph against them.
  * An empty list is one of those too: the saved reference catalog has its file lists emptied.
  */

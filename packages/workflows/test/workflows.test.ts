@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkGraph, dryContext, parseInput, schemaFor, type Graph, type NodeCatalog } from "@studai/core";
-import { inspect, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
+import { factorOfUpscaler, inspect, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
 import { catalog, flux, panel, sdxl, wan } from "./fixtures";
 
 const defOf = (graph: Graph, title: string, model: string): WorkflowDef =>
@@ -134,7 +134,7 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
 
     it("has a form with the author's controls and two LoRA lists", () => {
       expect(recipe.inputs.map((i) => i.label)).toEqual([
-        "What happens", "Avoid", "Opening picture", "Ending picture", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High",
+        "Prompt", "Negative prompt", "Start image", "End image", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High",
         "Seconds", "FPS", "Sampling · steps total", "Sampling · cfg", "Sigma Shift High · shift", "Sigma Shift Low · shift", "Resolution", "Seed",
       ]);
     });
@@ -214,6 +214,15 @@ describe("inspect: a model file this ComfyUI does not have", () => {
     expect(inspect(wan, listed).missingFiles).toEqual([
       { node: "37", input: "unet_name", classType: "UNETLoader", file: "wan2.2_i2v_14B.safetensors", label: "unet name", options: ["wan-a.safetensors", "wan-b.safetensors"] },
     ]);
+  });
+});
+
+describe("inspect: a model file kept in another sub-folder", () => {
+  it("is not missing: it is found by its name and used from where it is", () => {
+    const listed: NodeCatalog = { ...catalog, UNETLoader: { ...catalog.UNETLoader!, input: { required: { ...catalog.UNETLoader!.input.required, unet_name: [["other.safetensors", "Wan\\WAN2.2_i2v_14B.safetensors"]] } } } };
+    const found = inspect(wan, listed);
+    expect(found.missingFiles).toEqual([]);
+    expect(found.relocated).toEqual([{ node: "37", input: "unet_name", file: "wan2.2_i2v_14B.safetensors", found: "Wan\\WAN2.2_i2v_14B.safetensors" }]);
   });
 });
 
@@ -301,5 +310,153 @@ describe("a recipe made from a workflow", () => {
   it("survives being saved and read back as plain data", () => {
     const again = recipeFromWorkflow(workflowDef.parse(JSON.parse(JSON.stringify(def))));
     expect(again.inputs).toEqual(recipe.inputs);
+  });
+});
+
+/** A picture, shown; then enlarged, shown; then gone over by a second sampler and saved. Made up for the test. */
+const twoPass: Graph = {
+  "4": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "model.safetensors" } },
+  "5": { class_type: "EmptyLatentImage", inputs: { width: 1024, height: 1024, batch_size: 1 } },
+  "6": { class_type: "CLIPTextEncode", inputs: { text: "a harbour", clip: ["4", 1] } },
+  "7": { class_type: "CLIPTextEncode", inputs: { text: "", clip: ["4", 1] } },
+  "3": { class_type: "KSampler", inputs: { seed: 1, steps: 8, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1, model: ["4", 0], positive: ["6", 0], negative: ["7", 0], latent_image: ["5", 0] } },
+  "8": { class_type: "VAEDecode", inputs: { samples: ["3", 0], vae: ["4", 2] } },
+  "10": { class_type: "PreviewImage", inputs: { images: ["8", 0] } },
+  "20": { class_type: "UpscaleModelLoader", inputs: { model_name: "4x.pth" } },
+  "21": { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: ["20", 0], image: ["10", 0] } },
+  "22": { class_type: "ImageScaleBy", inputs: { upscale_method: "lanczos", scale_by: 0.3, image: ["21", 0] } },
+  "23": { class_type: "PreviewImage", inputs: { images: ["22", 0] } },
+  "30": { class_type: "VAEEncode", inputs: { pixels: ["23", 0], vae: ["4", 2] } },
+  "31": { class_type: "KSampler", inputs: { seed: 2, steps: 3, cfg: 1, sampler_name: "euler", scheduler: "beta57", denoise: 0.6, model: ["4", 0], positive: ["6", 0], negative: ["7", 0], latent_image: ["30", 0] } },
+  "32": { class_type: "VAEDecode", inputs: { samples: ["31", 0], vae: ["4", 2] } },
+  "33": { class_type: "PreviewImage", inputs: { images: ["32", 0] } },
+  "34": { class_type: "SaveImage", inputs: { filename_prefix: "x", images: ["33", 0] } },
+};
+
+describe("a workflow that shows its picture on the way", () => {
+  const found = inspect(twoPass, catalog);
+  const def = workflowDef.parse({ id: "workflow.two-pass", title: "Two pass", model: "X", source: "t.json", graph: twoPass, bindings: found.suggested });
+  const recipe = recipeFromWorkflow(def);
+  const build = (input: Record<string, unknown>) => recipe.build(parseInput(recipe, input), dryContext());
+  const classes = (input: Record<string, unknown>) => Object.values(build(input).graph).map((n) => n.class_type);
+
+  it("is hires fix when it is a base pass, an upscale and a second pass: a switch, and off runs the base pass only", () => {
+    // the point between the two (upscaled, not gone over) is not an end of a switch
+    expect(found.stages).toEqual([{ node: "10", label: "Hires fix off" }, { node: "34", label: "Hires fix on" }]);
+    expect(recipe.inputs.find((i) => i.id === "stage")).toMatchObject({ type: "toggle", label: "Hires fix", default: true });
+
+    const off = build({ stage: false });
+    expect(off.outputs).toEqual([{ node: "10", kind: "image", role: "result" }]);
+    expect(off.totalSteps).toBe(8);
+    expect(classes({ stage: false })).not.toContain("ImageUpscaleWithModel");
+    expect(classes({ stage: false }).filter((c) => c === "KSampler")).toHaveLength(1);
+    // as the workflow was saved: on
+    const whole = build({});
+    expect(whole.outputs[0]!.node).toBe("34");
+    expect(whole.totalSteps).toBe(11);
+    // the model file is all the base pass loads; the upscale model comes with hires fix
+    expect(off.loads).toEqual(["model.safetensors"]);
+    expect(whole.loads).toEqual(["4x.pth", "model.safetensors"]);
+  });
+
+  it("names its settings as A1111 does, ticks what each pass is tuned with, and hides those of hires fix while it is off", () => {
+    const labels = found.suggested!.controls.map((c) => c.label);
+    expect(labels).toEqual(expect.arrayContaining(["steps", "Hires steps", "Denoising strength (hires)", "Upscale by", "Upscaler"]));
+    // the first pass redraws everything: how much it redraws is not a thing to tune
+    expect(labels).not.toContain("denoise");
+    const when = (id: string) => recipe.inputs.find((i) => i.id === id)?.showWhen;
+    expect(when("ctl_3_steps")).toBeUndefined();
+    expect(when("ctl_22_scale_by_net")).toBe("stage");
+    expect(when("ctl_31_steps")).toBe("stage");
+  });
+
+  it("offers the scale after a 4x upscale model as what it comes to in all, and gives the node the size itself", () => {
+    // 0.3 after a 4x model is 1.2: typed as "Upscale by 1.5", the node's own value would be 6 times
+    expect(factorOfUpscaler("4x_NMKD-Superscale.pth")).toBe(4);
+    expect(factorOfUpscaler("sub\\RealESRGAN_x2plus.pth")).toBe(2);
+    expect(factorOfUpscaler("BSRGAN.pth")).toBeNull();
+    const by = recipe.inputs.find((i) => i.id === "ctl_22_scale_by_net");
+    expect(by).toMatchObject({ type: "number", label: "Upscale by", default: 1.2, min: 1, max: 4 });
+    // the old id is gone: a value saved under it meant the node's own 0.3
+    expect(recipe.inputs.some((i) => i.id === "ctl_22_scale_by")).toBe(false);
+
+    const sized = (input: Record<string, unknown>) => build(input).graph["22"]!;
+    expect(sized({})).toMatchObject({ class_type: "ImageScale", inputs: { width: 1229, height: 1229, upscale_method: "lanczos", crop: "disabled", image: ["21", 0] } });
+    expect(sized({}).inputs).not.toHaveProperty("scale_by");
+    // from the size of the form, whatever the upscale model's factor
+    expect(sized({ ctl_22_scale_by_net: 1.5, size: { width: 1152, height: 1536 } }).inputs).toMatchObject({ width: 1728, height: 2304 });
+    // what 1.26 typed into the node itself would have been: 4 x 1.26, five times the size
+    expect(sized({ ctl_22_scale_by_net: 1.26 }).inputs).toMatchObject({ width: 1290, height: 1290 });
+  });
+
+  it("says so when the upscale model's factor is not in its name: the setting is then the node's own", () => {
+    const unnamed: Graph = { ...twoPass, "20": { class_type: "UpscaleModelLoader", inputs: { model_name: "BSRGAN.pth" } } };
+    const seen = inspect(unnamed, catalog);
+    expect(seen.suggested!.controls.map((c) => c.label)).toContain("Scale after the upscaler");
+    const r = recipeFromWorkflow(workflowDef.parse({ id: "workflow.unnamed", title: "U", model: "X", source: "t.json", graph: unnamed, bindings: seen.suggested }));
+    expect(r.inputs.find((i) => i.id === "ctl_22_scale_by")).toMatchObject({ label: "Scale after the upscaler", default: 0.3 });
+    expect(r.build(parseInput(r, {}), dryContext()).graph["22"]).toMatchObject({ class_type: "ImageScaleBy", inputs: { scale_by: 0.3 } });
+  });
+
+  it("says which choices this ComfyUI does not offer, with the closest one", () => {
+    expect(found.missingChoices).toEqual([expect.objectContaining({ node: "31", input: "scheduler", value: "beta57", nearest: "beta" })]);
+    expect(found.missingChoices[0]!.options).toContain("simple");
+    // a choice this ComfyUI offers is offered to the preview too
+    expect(found.candidates.find((c) => c.target.node === "3" && c.target.input === "scheduler")!.offers).toContain("karras");
+  });
+
+  it("runs whole when it has only one place to stop", () => {
+    expect(inspect(sdxl, catalog).stages).toEqual([]);
+    expect(recipeFromWorkflow(defOf(sdxl, "Plain", "SDXL")).inputs.some((i) => i.id === "stage")).toBe(false);
+  });
+});
+
+/** A picture changed with the help of two more pictures. Made up for the test. */
+const withReferences: Graph = {
+  "4": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "model.safetensors" } },
+  "6": { class_type: "CLIPTextEncode", inputs: { text: "put her on the terrace", clip: ["4", 1] } },
+  "7": { class_type: "CLIPTextEncode", inputs: { text: "", clip: ["4", 1] } },
+  "10": { class_type: "LoadImage", inputs: { image: "a.png" } },
+  "11": { class_type: "LoadImage", inputs: { image: "b.png" }, _meta: { title: "The place" } } as Graph[string],
+  "12": { class_type: "LoadImage", inputs: { image: "c.png" } },
+  "13": { class_type: "ImageBatch", inputs: { image1: ["10", 0], image2: ["11", 0] } },
+  "14": { class_type: "ImageBatch", inputs: { image1: ["13", 0], image2: ["12", 0] } },
+  "15": { class_type: "VAEEncode", inputs: { pixels: ["14", 0], vae: ["4", 2] } },
+  "3": { class_type: "KSampler", inputs: { seed: 1, steps: 20, cfg: 5, sampler_name: "euler", scheduler: "simple", denoise: 0.8, model: ["4", 0], positive: ["6", 0], negative: ["7", 0], latent_image: ["15", 0] } },
+  "8": { class_type: "VAEDecode", inputs: { samples: ["3", 0], vae: ["4", 2] } },
+  "9": { class_type: "SaveImage", inputs: { filename_prefix: "x", images: ["8", 0] } },
+};
+
+describe("a workflow that loads several pictures", () => {
+  const found = inspect(withReferences, catalog);
+  const recipe = recipeFromWorkflow(workflowDef.parse({ id: "workflow.refs", title: "Refs", model: "X", source: "t.json", graph: withReferences, bindings: found.suggested }));
+
+  it("gets a slot for each of them: the one it works from, then the others under the names of their loaders", () => {
+    expect(found.suggested!.startImage!.target.node).toBe("10");
+    expect(found.suggested!.pictures.map((p) => [p.id, p.label, p.target.node])).toEqual([["pic_11", "The place", "11"], ["pic_12", "Image 3", "12"]]);
+    const pictures = recipe.inputs.filter((i) => i.type === "image");
+    // a picture workflow's own picture is its source: it is then offered wherever a picture can be changed
+    expect(pictures.map((i) => [i.id, i.label, i.type === "image" && i.role])).toEqual([["startImage", "Image", "source"], ["pic_11", "The place", "source"], ["pic_12", "Image 3", "source"]]);
+  });
+
+  it("puts each picture given in its own loader", () => {
+    const built = recipe.build(parseInput(recipe, { startImage: "a", pic_11: "b", pic_12: "c" }), dryContext({ uploads: { startImage: "one.png", pic_11: "two.png", pic_12: "three.png" } }));
+    expect(["10", "11", "12"].map((id) => built.graph[id]!.inputs.image)).toEqual(["one.png", "two.png", "three.png"]);
+  });
+});
+
+describe("a workflow with previews on the way that is not hires fix", () => {
+  // two passes with no upscale between them: nothing A1111 has a name for
+  const { "20": _a, "21": _b, "22": _c, "23": _d, ...rest } = twoPass;
+  const plainTwo: Graph = { ...rest, "30": { class_type: "VAEEncode", inputs: { pixels: ["10", 0], vae: ["4", 2] } } };
+  const found = inspect(plainTwo, catalog);
+  const recipe = recipeFromWorkflow(workflowDef.parse({ id: "workflow.two", title: "Two", model: "X", source: "t.json", graph: plainTwo, bindings: found.suggested }));
+
+  it("gets a choice of how much of it runs", () => {
+    expect(found.stages).toEqual([{ node: "10", label: "Base pass only" }, { node: "34", label: "Full workflow" }]);
+    expect(recipe.inputs.find((i) => i.id === "stage")).toMatchObject({ type: "choice", label: "Run", options: ["Base pass only", "Full workflow"], default: "Full workflow" });
+    const first = recipe.build(parseInput(recipe, { stage: "Base pass only" }), dryContext());
+    expect(first.outputs[0]!.node).toBe("10");
+    expect(recipe.inputs.find((i) => i.id === "ctl_31_steps")?.showWhen).toEqual({ input: "stage", in: ["Full workflow"] });
   });
 });

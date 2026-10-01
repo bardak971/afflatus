@@ -12,15 +12,15 @@ export const klein = defineFamily({
   slots: [
     {
       // the base model first, then any fine-tune of it; never one of H3's files
-      id: "unet", label: "Picture model", folder: "diffusion_models", detect: ["^(?!.*(minimax|h3)).*flux-?2.*klein.*base", "^(?!.*(minimax|h3)).*(klein|f2k)"],
+      id: "unet", label: "Diffusion model", folder: "diffusion_models", detect: ["^(?!.*(minimax|h3)).*flux-?2.*klein.*base", "^(?!.*(minimax|h3)).*(klein|f2k)"],
       hint: "Put a FLUX.2 Klein model (flux-2-klein-base-4b.safetensors, or a fine-tune of it) in ComfyUI's models/diffusion_models folder.",
     },
     {
-      id: "clip", label: "Text reader", folder: "text_encoders", detect: ["qwen_?3_?4b"],
+      id: "clip", label: "Text encoder", folder: "text_encoders", detect: ["qwen_?3_?4b"],
       hint: "Put qwen_3_4b.safetensors in ComfyUI's models/text_encoders folder.",
     },
     {
-      id: "vae", label: "Picture decoder", folder: "vae", detect: ["flux-?2.*vae", "flux2"],
+      id: "vae", label: "VAE", folder: "vae", detect: ["flux-?2.*vae", "flux2"],
       hint: "Put flux2-vae.safetensors in ComfyUI's models/vae folder.",
     },
   ],

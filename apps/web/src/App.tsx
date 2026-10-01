@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
 import { Film, LayoutGrid, ListOrdered, Plus, Settings2, Users, Workflow } from "lucide-react";
 import { useQueue } from "./data";
+import { Banners } from "./Banners";
 import { DropTray } from "./DropTray";
+import { useDownloads } from "./GetFile";
 import { about, phaseLabel } from "./format";
 import { useLiveEvents } from "./live";
 import { Create } from "./screens/Create";
@@ -32,6 +34,8 @@ function Strip() {
   const load = useSystem((s) => s.load);
   const gpu = load?.gpus[0];
   const run = queue.data?.running;
+  // a model being fetched into ComfyUI goes on whatever screen is open: it is said here, with the way to it
+  const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   return (
     <footer className="flex h-10 shrink-0 items-center gap-3.5 border-t border-line bg-panel px-4 text-xs">
       <span className={cx("h-2 w-2 rounded-full", run ? "bg-accent" : queue.data?.online === false ? "bg-warn" : "bg-ink-3")} />
@@ -47,6 +51,12 @@ function Strip() {
         </span>
       )}
       <span className="grow" />
+      {fetching.length > 0 && (
+        <Link href="/setup" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being fetched into ComfyUI. It goes on if this page is closed. Open Setup to see it or stop it.">
+          {fetching.length === 1 ? `Downloading ${fetching[0]!.file.split(/[\\/]/).pop()}` : `Downloading ${fetching.length} files`}
+          {fetching.length === 1 && fetching[0]!.total > 0 && ` · ${Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100)}%`}
+        </Link>
+      )}
       {gpu && (
         <span className="font-mono text-ink-2">
           {gpu.load !== undefined && `GPU ${Math.round(gpu.load)}% · `}memory {Math.round(gpu.vramPercent)}%
@@ -98,6 +108,7 @@ export function App() {
       </div>
       <Strip />
       <DropTray />
+      <Banners />
     </div>
   );
 }

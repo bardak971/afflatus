@@ -35,11 +35,26 @@ export interface PromptInput extends Base {
    * such a place; the words of the cast go there instead of in front of the main text.
    */
   holds?: "subject";
+  /**
+   * The default is somebody else's text (the prompt an imported workflow was saved with): a form starts
+   * empty, shows it greyed as an example, and asks for a prompt before anything is made.
+   */
+  example?: boolean;
 }
 export interface ModelInput extends Base {
   type: "model";
   /** ComfyUI model folder the file is picked from ("checkpoints", "diffusion_models", …). */
   folder: string;
+  /**
+   * The family's slot this picks a file for (its usual model, found by name): the form starts on that
+   * file, and an input left out means that file. Without it the input is required.
+   */
+  slot?: string;
+  /**
+   * Regex sources for the names of the files made for this recipe, when the folder also holds models of
+   * other kinds: those are listed first, apart from the rest. Nothing is hidden: a fine-tune can be named anything.
+   */
+  match?: string[];
 }
 export interface LorasInput extends Base {
   type: "loras";
@@ -55,6 +70,11 @@ export interface SizeInput extends Base {
   grid: number;
   min: number;
   max: number;
+  /**
+   * The recipe only takes the proportions from it, and another input says how large (H3's "size of the
+   * short side"). The form then offers shapes, not pixels to type.
+   */
+  ratioOnly?: boolean;
 }
 export interface NumberInput extends Base {
   type: "number";
@@ -167,7 +187,8 @@ function schemaOf(spec: InputSpec): z.ZodType {
       return spec.optional ? s.default(spec.default ?? "") : spec.default !== undefined ? s.default(spec.default) : s.min(1);
     }
     case "model":
-      return z.string().min(1);
+      // with a slot behind it, leaving it out means the slot's file
+      return spec.slot ? z.string().min(1).optional() : z.string().min(1);
     case "loras":
       return z
         .array(z.object({ file: z.string().min(1), weight: z.number().min(-4).max(4) }))

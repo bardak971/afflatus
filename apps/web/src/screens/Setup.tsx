@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, type LlmInfo, type Settings } from "../api";
 import { useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { Link } from "wouter";
-import { fileLabel, gb, recipeLabel, size } from "../format";
+import { fileLabel, gb, problemSaid, recipeLabel, size } from "../format";
 import { allowNotifications, useNotify } from "../store";
 import { DownloadRow, GetFile, useDownloads } from "../GetFile";
-import { Button, cx, ErrorNote, Toggle } from "../ui";
+import { Select } from "../Select";
+import { AutoText, Button, cx, ErrorNote, NumberBox, Toggle } from "../ui";
 
 /** Where the space goes, and the two ways to get some back. */
 function StorageCard() {
@@ -78,65 +79,238 @@ function StorageCard() {
   );
 }
 
-/** The language model the designer writes with: any address that speaks the OpenAI way. */
-function DesignerCard() {
-  const settings = useSettings();
-  const client = useQueryClient();
-  const [form, setForm] = useState<{ baseUrl: string; model: string; apiKey: string } | null>(null);
-  useEffect(() => {
-    if (settings.data && !form) setForm({ baseUrl: settings.data.llm.baseUrl, model: settings.data.llm.model, apiKey: "" });
-  }, [settings.data, form]);
-  const llm = settings.data?.llm;
-  const dirty = form && llm ? form.baseUrl !== llm.baseUrl || form.model !== llm.model || form.apiKey !== "" : false;
-  const save = async (patch: Record<string, unknown>) => {
-    await api.saveSettings({ llm: patch });
-    await client.invalidateQueries({ queryKey: ["settings"] });
+const shortId = () => Math.random().toString(36).slice(2, 10);
+const field = "h-10 min-w-0 rounded-lg border border-line bg-raised px-3 font-mono text-xs placeholder:font-sans placeholder:text-ink-3";
+
+/** One language model: its address, name and key, how much it reads and writes, whether it reads pictures. */
+function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
+  llm: LlmInfo;
+  inUse: boolean;
+  /** The only one: there is nothing to choose between. */
+  only: boolean;
+  /** Not saved yet. */
+  fresh: boolean;
+  /** Saves it; the key only when one was typed. */
+  onSave(next: Omit<LlmInfo, "hasApiKey"> & { apiKey?: string }): Promise<unknown>;
+  onUse(): void;
+  onRemove(): void;
+}) {
+  const [form, setForm] = useState({ name: llm.name, baseUrl: llm.baseUrl, model: llm.model, apiKey: "", contextSize: llm.contextSize, maxOutputTokens: llm.maxOutputTokens, vision: llm.vision });
+  const [open, setOpen] = useState(fresh);
+  const dirty = fresh || form.name !== llm.name || form.baseUrl !== llm.baseUrl || form.model !== llm.model || form.apiKey !== "" || form.contextSize !== llm.contextSize || form.maxOutputTokens !== llm.maxOutputTokens || form.vision !== llm.vision;
+  const save = async () => {
+    const { apiKey, ...rest } = form;
+    await onSave({ id: llm.id, ...rest, name: rest.name.trim(), baseUrl: rest.baseUrl.trim(), model: rest.model.trim(), ...(apiKey ? { apiKey } : {}) });
+    setForm((f) => ({ ...f, apiKey: "" }));
   };
   const test = useMutation({
     mutationFn: async () => {
-      if (form && dirty) await save({ baseUrl: form.baseUrl.trim(), model: form.model.trim(), ...(form.apiKey ? { apiKey: form.apiKey } : {}) });
-      setForm((f) => (f ? { ...f, apiKey: "" } : f));
-      return api.designerTest();
+      if (dirty) await save();
+      return api.designerTest(llm.id);
     },
   });
-  const vision = useMutation({ mutationFn: (on: boolean) => save({ vision: on }) });
-  const input = "h-10 min-w-0 rounded-lg border border-line bg-raised px-3 font-mono text-xs placeholder:font-sans placeholder:text-ink-3";
+  const usable = Boolean(form.baseUrl.trim() && form.model.trim());
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-bold">The designer</h2>
-        {test.isSuccess && !dirty && <span className="flex items-center gap-1.5 font-semibold text-good"><span className="h-2 w-2 rounded-full bg-good" /> Answering</span>}
+    <div className={cx("flex flex-col gap-3 rounded-lg border p-3", inUse && !only ? "border-accent/60" : "border-line")}>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 grow flex-col text-left" aria-expanded={open}>
+          <span className="truncate font-semibold">{form.name.trim() || form.model.trim() || "A new language model"}</span>
+          <span className="truncate font-mono text-xs text-ink-2">{[form.name.trim() ? form.model : "", form.baseUrl].filter(Boolean).join(" · ") || "no address yet"}</span>
+        </button>
+        {test.isSuccess && !dirty && <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-good"><span className="h-2 w-2 rounded-full bg-good" /> Answering</span>}
+        {!only && (inUse
+          ? <span className="shrink-0 rounded-full bg-accent-wash px-2 py-0.5 text-xs font-semibold text-accent">In use</span>
+          : <Button size="sm" disabled={fresh} onClick={onUse}>Use this one</Button>)}
+        <Button size="sm" tone="quiet" onClick={() => setOpen(!open)}>{open ? "Close" : "Change"}</Button>
       </div>
-      <div className="text-ink-2">Any language model with an OpenAI-style address: one on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. It writes and improves your prompts. Without one, everything else works.</div>
-      {form && (
+      {open && (
         <>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs text-ink-2">Address of the language model</span>
-            <input value={form.baseUrl} placeholder="http://127.0.0.1:1234/v1" spellCheck={false} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className={input} />
-          </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-2">Model name</span>
-              <input value={form.model} placeholder="as the address lists it" spellCheck={false} onChange={(e) => setForm({ ...form, model: e.target.value })} className={input} />
+              <span className="text-xs text-ink-2">Your name for it (optional)</span>
+              <input value={form.name} placeholder="Local Qwen, the fast one…" onChange={(e) => setForm({ ...form, name: e.target.value })} className={cx(field, "font-sans text-sm")} />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-2">Key {llm?.hasApiKey ? "(one is saved)" : "(if it asks for one)"}</span>
-              <input type="password" value={form.apiKey} placeholder={llm?.hasApiKey ? "leave empty to keep it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={input} />
+              <span className="text-xs text-ink-2">Address</span>
+              <input value={form.baseUrl} placeholder="http://127.0.0.1:1234/v1" spellCheck={false} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className={field} />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-2">Model name</span>
+              <input value={form.model} placeholder="as the address lists it" spellCheck={false} onChange={(e) => setForm({ ...form, model: e.target.value })} className={field} />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-2">Key {llm.hasApiKey ? "(one is saved)" : "(if it asks for one)"}</span>
+              <input type="password" value={form.apiKey} placeholder={llm.hasApiKey ? "leave empty to keep it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={field} />
             </label>
           </div>
-          <div className="flex items-center gap-3">
-            <Button onClick={() => test.mutate()} disabled={test.isPending || !form.baseUrl.trim() || !form.model.trim()}>{test.isPending ? "Asking…" : dirty ? "Save and test" : "Test it"}</Button>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-ink-2">Context size</span>
+              <NumberBox label="Context size, in tokens" value={form.contextSize} min={2048} max={2000000} unit="tokens" onCommit={(v) => setForm({ ...form, contextSize: v })} className="[&_input]:w-24" />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-ink-2">Max output tokens</span>
+              <NumberBox label="Max output tokens" value={form.maxOutputTokens} min={256} max={65536} unit="tokens" onCommit={(v) => setForm({ ...form, maxOutputTokens: v })} className="[&_input]:w-24" />
+            </div>
+            <span className="text-xs text-ink-3">How much the model can read at once. A long conversation is cut to what fits, oldest part first.</span>
+            <span className="text-xs text-ink-3">The longest answer it may write. A model that thinks before it answers spends these on thinking too: give it more.</span>
+          </div>
+          <Toggle
+            on={form.vision}
+            onChange={(on) => setForm({ ...form, vision: on })}
+            label="It can read pictures"
+            note={form.vision ? "The designer is shown the picture a form opens on before it writes. Turn this off if the model answers with an error about pictures." : "It works from your text only, and says so."}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button tone={dirty ? "primary" : "plain"} onClick={() => test.mutate()} disabled={test.isPending || !usable}>{test.isPending ? "Asking…" : dirty ? "Save and test" : "Test it"}</Button>
             {test.isSuccess && <span className="text-ink-2">It answered: "{test.data.answer}"</span>}
+            <span className="grow" />
+            <Button tone="quiet" onClick={onRemove}>Remove</Button>
           </div>
           {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
-          <Toggle on={Boolean(llm?.vision)} onChange={(on) => vision.mutate(on)} label="It can read pictures" />
-          <div className="text-xs text-ink-3">
-            {llm?.vision
-              ? "The designer is shown the picture a form opens on before it writes. Turn this off if the model answers with an error about pictures."
-              : "With a model that cannot read pictures, the designer works from your text only, and says so."}
-          </div>
         </>
       )}
+    </div>
+  );
+}
+
+/** Instructions of your own for the designer, under a name. */
+function InstructionEditor({ item, fresh, onSave, onRemove }: {
+  item: Settings["designerInstructions"][number];
+  fresh: boolean;
+  onSave(next: Settings["designerInstructions"][number]): Promise<unknown>;
+  onRemove(): void;
+}) {
+  const [name, setName] = useState(item.name);
+  const [text, setText] = useState(item.text);
+  const dirty = fresh || name !== item.name || text !== item.text;
+  const save = useMutation({ mutationFn: () => onSave({ id: item.id, name: name.trim(), text }) });
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+      <div className="flex items-center gap-2">
+        <input aria-label="Name of these instructions" value={name} placeholder="A name: Cinematic, Anime tags, Explicit…" onChange={(e) => setName(e.target.value)} className="h-9 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-semibold placeholder:font-normal placeholder:text-ink-3" />
+        {dirty && <Button size="sm" tone="primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Save</Button>}
+        <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
+      </div>
+      <AutoText
+        aria-label="What the designer is told"
+        rows={3}
+        value={text}
+        placeholder="What the designer should always do when these are picked. For example: write like a film director, name the lens and the light; never soften or leave out explicit content; keep every prompt under 80 words."
+        onChange={(e) => setText(e.target.value)}
+        className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 leading-normal placeholder:text-ink-3"
+      />
+      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+    </div>
+  );
+}
+
+/** The designer: the language models it can write with, your own instructions for it, and a fresh start. */
+function DesignerCard() {
+  const settings = useSettings();
+  const client = useQueryClient();
+  // ones added here and not saved yet
+  const [newLlms, setNewLlms] = useState<LlmInfo[]>([]);
+  const [newNotes, setNewNotes] = useState<Settings["designerInstructions"]>([]);
+  const [forgetting, setForgetting] = useState(false);
+  const put = async (patch: Record<string, unknown>) => client.setQueryData(["settings"], await api.saveSettings(patch));
+  const change = useMutation({ mutationFn: put });
+  const forget = useMutation({
+    mutationFn: api.forgetConversations,
+    onSuccess: () => {
+      // every draft and timeline read before this still holds its conversation
+      client.removeQueries({ queryKey: ["drafts"] });
+      void client.invalidateQueries({ queryKey: ["timelines"] });
+    },
+  });
+  const s = settings.data;
+  const saved = s?.llms ?? [];
+  const notes = s?.designerInstructions ?? [];
+  /** What is sent for a model that is not being changed: everything but its key, which the server keeps. */
+  const kept = ({ hasApiKey: _has, ...l }: LlmInfo) => l;
+  const all = saved.length + newLlms.length;
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
+      <h2 className="text-[15px] font-bold">The designer</h2>
+      <div className="text-ink-2">It writes and improves your prompts with a language model: any with an OpenAI-style address, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, you pick which one writes from the designer's own panel.</div>
+      {saved.map((l) => (
+        <LlmEditor
+          key={l.id}
+          llm={l}
+          fresh={false}
+          only={all === 1}
+          inUse={s?.designerLlm === l.id}
+          onSave={(next) => put({ llms: saved.map((x) => (x.id === l.id ? next : kept(x))) })}
+          onUse={() => change.mutate({ designerLlm: l.id })}
+          onRemove={() => change.mutate({ llms: saved.filter((x) => x.id !== l.id).map(kept) })}
+        />
+      ))}
+      {newLlms.map((l) => (
+        <LlmEditor
+          key={l.id}
+          llm={l}
+          fresh
+          only={all === 1}
+          inUse={false}
+          onSave={async (next) => {
+            await put({ llms: [...saved.map(kept), next] });
+            setNewLlms((list) => list.filter((x) => x.id !== l.id));
+          }}
+          onUse={() => {}}
+          onRemove={() => setNewLlms((list) => list.filter((x) => x.id !== l.id))}
+        />
+      ))}
+      <div>
+        <Button onClick={() => setNewLlms((list) => [...list, { id: shortId(), name: "", baseUrl: "", model: "", hasApiKey: false, vision: false, contextSize: 16384, maxOutputTokens: 3000 }])}>
+          {all ? "Add another language model" : "Add a language model"}
+        </Button>
+      </div>
+
+      <h3 className="mt-2 font-bold">Your instructions for it</h3>
+      <div className="text-ink-2">Standing instructions of your own, each under a name: one for film-like realism, one for anime tags, one for explicit content, whatever you want it held to. You pick one in the designer's panel; it then holds for every answer, on top of what the designer knows about the model you are writing for.</div>
+      {notes.map((n) => (
+        <InstructionEditor
+          key={n.id}
+          item={n}
+          fresh={false}
+          onSave={(next) => put({ designerInstructions: notes.map((x) => (x.id === n.id ? next : x)) })}
+          onRemove={() => change.mutate({ designerInstructions: notes.filter((x) => x.id !== n.id) })}
+        />
+      ))}
+      {newNotes.map((n) => (
+        <InstructionEditor
+          key={n.id}
+          item={n}
+          fresh
+          onSave={async (next) => {
+            await put({ designerInstructions: [...notes, next] });
+            setNewNotes((list) => list.filter((x) => x.id !== n.id));
+          }}
+          onRemove={() => setNewNotes((list) => list.filter((x) => x.id !== n.id))}
+        />
+      ))}
+      <div>
+        <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add instructions</Button>
+      </div>
+      {change.isError && <ErrorNote>{change.error.message}</ErrorNote>}
+
+      <h3 className="mt-2 font-bold">A fresh start</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2.5">
+        <span className="min-w-0 grow basis-64 text-ink-2">
+          {forget.isSuccess
+            ? `Forgotten: ${forget.data.forgotten} conversation${forget.data.forgotten === 1 ? "" : "s"}.`
+            : "Forget every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is forgotten with \"Start over\" in the designer's panel."}
+        </span>
+        {forgetting ? (
+          <span className="flex items-center gap-1.5">
+            <Button size="sm" tone="danger" disabled={forget.isPending} onClick={() => { forget.mutate(); setForgetting(false); }}>Forget them all</Button>
+            <Button size="sm" tone="quiet" onClick={() => setForgetting(false)}>Cancel</Button>
+          </span>
+        ) : (
+          <Button size="sm" onClick={() => { forget.reset(); setForgetting(true); }}>Forget every conversation</Button>
+        )}
+      </div>
+      {forget.isError && <ErrorNote>{forget.error.message}</ErrorNote>}
     </section>
   );
 }
@@ -179,11 +353,11 @@ function CivitaiCard() {
           {downloads.data!.items.map((d) => <DownloadRow key={d.id} d={d} named />)}
         </div>
       )}
-      <Toggle on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Look for missing files on Civitai" />
+      <Toggle on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Look for missing files on Hugging Face and Civitai" />
       <div className="text-xs text-ink-3">
         {on
-          ? "When a model file is missing, \"Find it\" asks Civitai for it by its file name. Only that name is sent, and only when you press the button. What it finds is shown with a link, and with a Download button when downloading is turned on above."
-          : "Off: studai never contacts Civitai. Missing files still get a link that opens a search in your browser."}
+          ? "When a model file is missing, \"Find it\" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. Only the name is sent, and only when you press the button. What is found is shown with a link, and with a Download button when downloading is turned on above."
+          : "Off: studai never contacts Hugging Face or Civitai. Missing files still get links that open a search in your browser."}
       </div>
       {on && (
         <div className="flex items-end gap-2">
@@ -196,6 +370,110 @@ function CivitaiCard() {
         </div>
       )}
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+    </section>
+  );
+}
+
+/**
+ * A model from a link: the address of a model's page on Civitai or of a file on Hugging Face is pasted,
+ * what it leads to is shown (its files, their sizes, the folder it most likely belongs in), and the file
+ * picked is fetched into ComfyUI like any other download.
+ */
+function LinkCard() {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const [link, setLink] = useState("");
+  const [file, setFile] = useState("");
+  const [folder, setFolder] = useState("");
+  const [saveAs, setSaveAs] = useState("");
+  const look = useMutation({
+    mutationFn: (address: string) => api.resolveLink(address),
+    onSuccess: (found) => {
+      // the largest file first: of the same model, it is the least compressed one
+      const first = [...found.files].sort((a, b) => b.bytes - a.bytes)[0]!;
+      setFile(first.name);
+      setSaveAs(first.name);
+      setFolder(found.folder && found.folders.includes(found.folder) ? found.folder : "");
+    },
+  });
+  const found = look.data;
+  const start = useMutation({
+    mutationFn: () => {
+      const page = { url: found!.page, title: found!.title };
+      const name = saveAs.trim() || file;
+      return found!.source === "civitai"
+        ? api.startDownload({ file: name, folder, civitai: found!.version!, pick: file, page })
+        : api.startDownload({ file: name, folder, url: found!.url!, page });
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
+  });
+  if (!settings.data?.downloadModels) return null;
+  const chosen = found?.files.find((f) => f.name === file);
+  const already = found?.have[file];
+  const field = "h-10 min-w-0 rounded-lg border border-line bg-raised px-3 text-xs placeholder:text-ink-3";
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
+      <h2 className="text-[15px] font-bold">Get a model from a link</h2>
+      <div className="text-ink-2">Paste the address of a model's page on Civitai (civitai.com or civitai.red), or of a file on Hugging Face. studai shows what it is and downloads the file you pick into the ComfyUI folder you choose.</div>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          start.reset();
+          if (link.trim()) look.mutate(link.trim());
+        }}
+      >
+        <input aria-label="The address of the model" value={link} placeholder="https://civitai.com/models/…  or  https://huggingface.co/…/resolve/main/….safetensors" spellCheck={false} onChange={(e) => setLink(e.target.value)} className={cx(field, "grow font-mono")} />
+        <Button type="submit" disabled={!link.trim() || look.isPending}>{look.isPending ? "Looking…" : "Look it up"}</Button>
+      </form>
+      {look.isError && <ErrorNote>{look.error.message}</ErrorNote>}
+      {found && (
+        <div className="flex flex-col gap-2.5 rounded-lg border border-line p-3">
+          <div className="flex flex-col">
+            <a href={found.page} target="_blank" rel="noreferrer" className="font-semibold break-words hover:underline">{found.title}</a>
+            <span className="text-xs text-ink-2">{found.about}</span>
+          </div>
+          {(found.versions?.length ?? 0) > 1 && (
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-2">Version</span>
+              <Select
+                label="Version"
+                value={String(found.version)}
+                onChange={(id) => look.mutate(`${found.page.split("?")[0]}?modelVersionId=${id}`)}
+                options={found.versions!.map((v) => ({ value: String(v.id), label: v.name }))}
+              />
+            </label>
+          )}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-ink-2">File{found.files.length > 1 ? ` (${found.files.length} to choose from)` : ""}</span>
+            <Select
+              label="File"
+              value={file}
+              onChange={(name) => { setFile(name); setSaveAs(name); }}
+              options={found.files.map((f) => ({ value: f.name, label: f.name, note: [f.note, f.bytes ? size(f.bytes) : ""].filter(Boolean).join(" · "), detail: found.have[f.name] ? `ComfyUI already has a file of this name, in ${found.have[f.name]}` : undefined }))}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex min-w-0 flex-col gap-1.5">
+              <span className="text-xs text-ink-2">Into ComfyUI's folder</span>
+              <Select label="The ComfyUI folder it goes into" placeholder="Choose a folder" value={folder} onChange={setFolder} options={found.folders.map((f) => ({ value: f, label: f, note: f === found.folder ? "suggested" : undefined }))} />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1.5">
+              <span className="text-xs text-ink-2">Saved as</span>
+              <input aria-label="The name it is saved under" value={saveAs} spellCheck={false} onChange={(e) => setSaveAs(e.target.value)} className={cx(field, "font-mono")} />
+            </label>
+          </div>
+          {found.why && <div className="text-xs text-ink-2">{found.why}</div>}
+          {already && <div className="text-xs text-warn-ink">ComfyUI already has a file called {file}, in {already}.</div>}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button tone="primary" disabled={!folder || !file || start.isPending} onClick={() => start.mutate()}>
+              {start.isPending ? "Starting…" : `Download into ComfyUI${chosen?.bytes ? ` · ${size(chosen.bytes)}` : ""}`}
+            </Button>
+            {start.isSuccess && <span className="text-ink-2">Started: it shows under "Finding missing files" above, and at the bottom of every screen.</span>}
+          </div>
+          {start.isError && <ErrorNote>{start.error.message}</ErrorNote>}
+        </div>
+      )}
     </section>
   );
 }
@@ -288,12 +566,29 @@ export function Setup() {
             </dl>
           )}
           <div className="text-xs text-ink-3">Testing only reads what ComfyUI has. It never starts a render or loads a model.</div>
+          {settings.data && (
+            <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+              <span className="min-w-0">
+                Unload its models after
+                <span className="block text-xs text-ink-2">{settings.data.unloadAfterMinutes > 0 ? "minutes without a render: the graphics card's memory is given back. The next render loads them again." : "0 = never: they stay loaded until something else needs the room. \"Free the GPU memory\" in the Queue does it by hand."}</span>
+              </span>
+              <NumberBox
+                label="Minutes without a render before ComfyUI's models are unloaded"
+                value={settings.data.unloadAfterMinutes}
+                min={0}
+                max={1440}
+                unit="min"
+                onCommit={(v) => void api.saveSettings({ unloadAfterMinutes: v }).then((saved) => client.setQueryData(["settings"], saved))}
+              />
+            </div>
+          )}
         </section>
 
         <div className="col-start-1 flex flex-col gap-5">
           <DesignerCard />
           <StorageCard />
           <CivitaiCard />
+          <LinkCard />
           <NotifyCard />
         </div>
 
@@ -307,13 +602,18 @@ export function Setup() {
             const family = recipes.data.families.find((f) => f.id === r.family);
             const problems = [
               ...(s?.missingNodes.length ? [`Missing nodes: ${s.missingNodes.join(", ")}`] : []),
-              ...(s?.missingSlots.length ? [`Missing files: ${s.missingSlots.join(", ")}`] : []),
+
+              ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.id.startsWith("workflow.") ? " Fix it in Workflows, with Change." : ""}`),
               ...(s?.emptyInputs ?? []).map((id) => {
                 const input = r.inputs.find((i) => i.id === id);
                 return `ComfyUI has no file to pick for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
               }),
             ];
             const find = (file: string) => encodeURIComponent(fileLabel(file));
+            // the family's own files: the ones it cannot run without, and the ones only some of its options need
+            const slots = setup.data?.families.find((f) => f.id === r.family)?.slots ?? [];
+            const needed = slots.filter((x) => s?.missingSlots.includes(x.id));
+            const extra = s?.ready ? slots.filter((x) => x.optional && !x.file && x.get) : [];
             return (
               <div key={r.id} className="flex flex-col gap-1 rounded-lg border border-line px-3 py-2.5">
                 <div className="flex items-center justify-between gap-3">
@@ -321,13 +621,25 @@ export function Setup() {
                   <span className={cx("shrink-0 font-semibold", s?.ready ? "text-good" : "text-warn-ink")}>{s ? (s.ready ? "Ready" : "Not ready") : "Unknown"}</span>
                 </div>
                 {problems.map((p) => <div key={p} className="text-warn-ink">{p}</div>)}
+                {needed.map((x) => (
+                  <div key={x.id} className="text-warn-ink">
+                    <span className="font-semibold">{x.label}</span> is missing. {x.hint}
+                    {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
+                  </div>
+                ))}
+                {extra.map((x) => (
+                  <div key={x.id} className="text-ink-2">
+                    <span className="font-semibold">{x.label}</span>: not there. {x.hint}
+                    {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
+                  </div>
+                ))}
                 {(s?.missing ?? []).map(({ file, folder, url }) => (
                   <div key={file} className="text-warn-ink">
                     Your ComfyUI does not have <span className="font-semibold break-all">{fileLabel(file)}</span>. Search for it on{" "}
                     <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a> or{" "}
                     <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
                     {r.id.startsWith("workflow.") && <>, or pick another file for it: <Link href="/workflows" className="font-semibold underline">Workflows</Link>, then Change</>}.
-                    <GetFile file={file} folder={folder} url={url} />
+                    <GetFile file={file} folder={folder} url={url} hints={family?.name ? [family.name] : []} />
                   </div>
                 ))}
                 {s?.limitedBy.length ? <div className="text-ink-2">Some options are off, missing nodes: {s.limitedBy.join(", ")}</div> : null}

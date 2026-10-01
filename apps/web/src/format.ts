@@ -53,6 +53,13 @@ export function when(iso: string): string {
 }
 
 /** Why a recipe cannot run on this ComfyUI, in one sentence. */
+/** The graph checker's words, said plainly: `49:43 KSampler: "beta57" is not a choice of "scheduler"`. */
+export function problemSaid(problem: string): string {
+  const choice = /^(\S+) (.+?): "(.*)" is not a choice of "(.+)"$/.exec(problem);
+  if (choice) return `It asks for "${choice[3]}" as ${choice[4]!.replace(/_/g, " ")} (${choice[2]}), which your ComfyUI does not offer.`;
+  return `ComfyUI would refuse it: ${problem}.`;
+}
+
 export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean): string | null {
   if (!comfyOnline) return "ComfyUI is not answering.";
   if (!status || status.ready) return null;
@@ -60,5 +67,6 @@ export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean)
   if (status.missingSlots.length) return "A model file it needs was not found.";
   if (status.emptyInputs.length) return "There is no model to pick on your ComfyUI.";
   if (status.missingFiles.length) return `ComfyUI does not have ${status.missingFiles.join(", ")}.`;
+  if (status.problems?.length) return problemSaid(status.problems[0]!);
   return "Not ready.";
 }

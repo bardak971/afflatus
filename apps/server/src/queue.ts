@@ -1,8 +1,9 @@
 import { EventEmitter } from "node:events";
 import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type OutputFile, type WaitOptions } from "@studai/comfy";
-import { checkGraph, choicesOf, parseInput, pickChoice, RANDOM_SEED, type BuiltGraph, type ClipValue, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
+import { checkGraph, choicesOf, parseInput, pickChoice, RANDOM_SEED, relocateFiles, type BuiltGraph, type ClipValue, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
 import { cutFrames, frameAt } from "./cut";
 import type { Registry } from "./registry";
+import { readSettings } from "./settings";
 import type { Comfy } from "./comfy";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { extOf, mimeOfFile, pngSize } from "./media";
@@ -67,7 +68,10 @@ export class Queue {
   readonly events = new EventEmitter();
   private busy = false;
   private paused = false;
-  private running: { id: string; abort: AbortController; promptId?: string } | null = null;
+  private running: { id: string; abort: AbortController; promptId?: string; gpu: boolean } | null = null;
+  /** ComfyUI holds a model this app had it load. Unknown after a restart: taken as not. */
+  private holds = false;
+  private unloadTimer: NodeJS.Timeout | null = null;
   private offlineSince: number | null = null;
   private retry: NodeJS.Timeout | null = null;
   /** What the last job loaded. A different list frees ComfyUI's memory first; unknown after a restart. */
@@ -98,6 +102,7 @@ export class Queue {
   stop(): void {
     this.stopped = true;
     if (this.retry) clearTimeout(this.retry);
+    if (this.unloadTimer) clearTimeout(this.unloadTimer);
     this.running?.abort.abort();
   }
 
@@ -180,12 +185,45 @@ export class Queue {
     this.events.emit("queue");
   }
 
+  /**
+   * Unload ComfyUI's models now: the GPU's memory is wanted for something else. Not while a render is
+   * under way (its model is in use); the next render loads what it needs again.
+   */
+  async freeMemory(): Promise<void> {
+    if (this.running?.gpu) throw new UserError("A render is under way and its model is in use. Wait for it, or stop it first.");
+    await (await this.comfy()).client.free();
+    this.lastLoads = null;
+    this.holds = false;
+    if (this.unloadTimer) clearTimeout(this.unloadTimer);
+    this.unloadTimer = null;
+  }
+
+  /** After a render: when Setup says so, the models are unloaded once nothing has rendered for that long. */
+  private async armIdle(): Promise<void> {
+    if (this.unloadTimer) clearTimeout(this.unloadTimer);
+    this.unloadTimer = null;
+    if (this.stopped || !this.holds) return;
+    const minutes = (await readSettings(this.db).catch(() => null))?.unloadAfterMinutes ?? 0;
+    if (!(minutes > 0)) return;
+    this.unloadTimer = setTimeout(() => {
+      this.unloadTimer = null;
+      // a render that started in the meantime keeps its model
+      if (this.running?.gpu || this.stopped) return;
+      void this.freeMemory().then(() => this.events.emit("queue"), () => {});
+    }, minutes * 60_000);
+    // a timer that is only waiting to free memory never keeps the process alive
+    this.unloadTimer.unref();
+  }
+
   /** The same job again (after a failure, or because it was stopped), with some inputs changed if asked. */
   async again(id: string, change: Record<string, unknown> = {}): Promise<string> {
     const row = await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
     if (!row) throw new UserError("this job was not found");
     if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label);
-    return this.enqueue(row.recipe_id, { ...(JSON.parse(row.inputs) as Record<string, unknown>), ...change }, {
+    // a workflow whose settings were changed since no longer has some of what the job was sent with
+    const has = new Set(this.registry.recipe(row.recipe_id)?.inputs.map((i) => i.id));
+    const was = Object.fromEntries(Object.entries(JSON.parse(row.inputs) as Record<string, unknown>).filter(([k]) => !has.size || has.has(k)));
+    return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
       clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit) } : undefined,
     });
@@ -358,7 +396,7 @@ export class Queue {
       .executeTakeFirst();
     if (Number(claimed.numUpdatedRows) === 0) return;
     const abort = new AbortController();
-    this.running = { id: row.id, abort };
+    this.running = { id: row.id, abort, gpu: false };
     this.events.emit("queue");
     try {
       const opts = JSON.parse(row.inputs) as ExportOptions;
@@ -391,7 +429,10 @@ export class Queue {
     if (Number(claimed.numUpdatedRows) === 0) return;
 
     const abort = new AbortController();
-    this.running = { id: row.id, abort, promptId: resume?.promptId };
+    this.running = { id: row.id, abort, promptId: resume?.promptId, gpu: true };
+    if (this.unloadTimer) clearTimeout(this.unloadTimer);
+    this.unloadTimer = null;
+    this.holds = true;
     this.events.emit("queue");
     try {
       const input = JSON.parse(row.inputs) as Record<string, unknown>;
@@ -433,6 +474,7 @@ export class Queue {
       }
     } finally {
       this.running = null;
+      void this.armIdle();
     }
   }
 
@@ -477,7 +519,7 @@ export class Queue {
         if (spec.role === "mask") {
           // only the part that was painted is redone: where it is comes from the mask itself
           const painted = await maskBox(bytes);
-          if (painted && !painted.box) throw new Error("Nothing is painted on the picture yet. Paint over the part to redo.");
+          if (painted && !painted.box) throw new Error("The mask is empty. Paint over the part to redo.");
           if (painted?.box) media[spec.id] = { width: painted.width, height: painted.height, box: painted.box };
         }
       } else if (spec.type === "clip" && value) {
@@ -515,13 +557,18 @@ export class Queue {
       if (spec.type !== "image" || spec.role !== "mask" || !spec.of) continue;
       const mask = media[spec.id];
       const picture = media[spec.of];
-      if (mask && picture?.width && (mask.width !== picture.width || mask.height !== picture.height)) throw new Error("The part to redo was painted on another picture. Paint it again on this one.");
+      if (mask && picture?.width && (mask.width !== picture.width || mask.height !== picture.height)) throw new Error("The mask was painted on another picture. Paint it again on this one.");
     }
 
     const seed = typeof input.seed === "number" && input.seed !== RANDOM_SEED ? input.seed : randomSeed();
     const built = recipe.build(chosen, { seed, slots, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
+    // a model kept in another sub-folder than the one the graph names is used from where it is
+    relocateFiles(built.graph, catalog);
     const problems = checkGraph(built, catalog, { files: true, uploaded: Object.values(uploads) });
-    if (problems.length) throw new Error(`this cannot run on your ComfyUI: ${problems.slice(0, 3).join("; ")}`);
+    if (problems.length) {
+      const fix = recipe.id.startsWith("workflow.") ? " To fix it: Workflows, then Change on this workflow." : "";
+      throw new Error(`this cannot run on your ComfyUI: ${problems.slice(0, 3).join("; ")}.${fix}`);
+    }
 
     const loads = [...built.loads].sort().join("|");
     if (this.lastLoads !== loads) await comfy.client.free().catch(() => {});

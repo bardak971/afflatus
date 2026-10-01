@@ -27,9 +27,9 @@ export const removeBackground = defineRecipe<RemoveBackground>({
   summary: "Keeps what is in front and makes the rest see-through. The result is a PNG.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Picture" },
+    { id: "source", type: "image", role: "source", label: "Image" },
     {
-      id: "model", type: "choice", label: "Model that finds the background", note: "from ComfyUI's models/background_removal folder",
+      id: "model", type: "choice", label: "Background removal model", note: "from ComfyUI's models/background_removal folder",
       options: { node: "LoadBackgroundRemovalModel", input: "bg_removal_name" }, default: "birefnet.safetensors", prefer: ["birefnet", "rmbg", "u2net"],
     },
   ],

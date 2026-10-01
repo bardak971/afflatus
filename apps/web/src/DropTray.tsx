@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import { Film, FileDown, ImagePlus, Music, Workflow, X } from "lucide-react";
+import { Film, FileDown, ImagePlus, Music, Workflow } from "lucide-react";
 import { api, type Asset, type Embedded } from "./api";
-import { fileLabel } from "./format";
-import { GetFile } from "./GetFile";
-import { useHandover, useOpenDraft } from "./store";
-import { Button, cx } from "./ui";
+import { PngInfo, workflowFile } from "./PngInfo";
+import { useHandover } from "./store";
+import { cx } from "./ui";
 
 type Kind = "image" | "video" | "audio" | "json" | "other";
 type Zone = "library" | "settings" | "workflow" | "timeline";
@@ -35,9 +34,7 @@ export function DropTray() {
   const [path, go] = useLocation();
   const client = useQueryClient();
   const hand = useHandover((h) => h.set);
-  const openDraft = useOpenDraft((s) => s.open);
   const timeline = /^\/timelines\/([^/]+)/.exec(path)?.[1] ?? null;
-
   useEffect(() => {
     const files = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes("Files"));
     const enter = (e: DragEvent) => {
@@ -83,8 +80,6 @@ export function DropTray() {
     await client.invalidateQueries({ queryKey: ["assets"] });
     return added;
   };
-  /** The workflow a file carries, as a file the import screen can read. */
-  const workflowFile = (name: string, workflow: unknown) => new File([JSON.stringify(workflow)], `${name.replace(/\.[^.]+$/, "")}.json`, { type: "application/json" });
 
   const act = async (zone: Zone, files: File[]) => {
     const first = files[0];
@@ -130,23 +125,6 @@ export function DropTray() {
     }
   };
 
-  /** Fill a new form with what was read. The file is read again, so that a model fetched in the meantime is used. */
-  const fillForm = async () => {
-    if (!found) return;
-    try {
-      const fresh = (await api.embedded(found.file)).settings ?? found.data.settings;
-      if (!fresh) return;
-      const d = await api.createDraft({ recipe: fresh.recipe, forms: { [fresh.recipe]: fresh.input } });
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
-      setFound(null);
-      go("/create");
-    } catch (err) {
-      fail(err);
-    }
-  };
-
   const zones: Array<{ id: Zone; icon: ReactNode; label: string; hint: string }> = [];
   if (kind && kind !== "json") {
     zones.push({
@@ -160,7 +138,7 @@ export function DropTray() {
       hint: kind === "audio" ? "it plays under every clip" : kind === "video" ? "at the end, as it is" : "at the end, held on screen. Drop it on a clip instead to make the clip open or end on it",
     });
   }
-  if (kind === "image" || kind === "other") zones.push({ id: "settings", icon: <FileDown size={22} />, label: "Use its settings", hint: "the words, the model and the LoRAs it was made with fill a new form" });
+  if (kind === "image" || kind === "other") zones.push({ id: "settings", icon: <FileDown size={22} />, label: "Use its settings", hint: "PNG info: its prompt, checkpoint, LoRAs and settings fill a new form" });
   if (kind && kind !== "audio") {
     zones.push({
       id: "workflow", icon: <Workflow size={22} />, label: kind === "json" ? "Import this workflow" : "Import its workflow",
@@ -168,7 +146,6 @@ export function DropTray() {
     });
   }
 
-  const s = found?.data.settings;
   return (
     <>
       {kind && zones.length > 0 && (
@@ -201,69 +178,7 @@ export function DropTray() {
       {said && !kind && (
         <div role="status" className={cx("fixed bottom-14 left-1/2 z-[70] max-w-xl -translate-x-1/2 rounded-xl border px-4 py-2.5 shadow-2xl", said.bad ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>{said.text}</div>
       )}
-      {found && (
-        <div role="dialog" aria-modal="true" aria-label="What it was made with" className="fixed inset-0 z-[60] flex items-center justify-center bg-ground/85 p-8" onClick={() => setFound(null)}>
-          <div className="flex max-h-full w-full max-w-2xl flex-col rounded-2xl border border-line-strong bg-panel" onClick={(e) => e.stopPropagation()}>
-            <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line pr-3 pl-5">
-              <h2 className="text-base font-semibold">What {found.file.name} was made with</h2>
-              <span className="grow" />
-              <button type="button" aria-label="Close" onClick={() => setFound(null)} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
-            </header>
-            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
-              {!s && <div className="text-ink-2">{found.data.why}</div>}
-              {s && (
-                <>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold text-ink-2">The words</span>
-                    <div className="max-h-40 overflow-y-auto rounded-lg bg-raised px-3 py-2 whitespace-pre-wrap">{String(s.input.prompt ?? "") || "(none found)"}</div>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold text-ink-2">The model</span>
-                    {s.model
-                      ? <Line found={s.model.found} name={s.model.name} missing={s.missing.find((m) => m.folder === "checkpoints")} instead="The model picked in the form is used instead." />
-                      : <span className="text-ink-2">It does not say which.</span>}
-                  </div>
-                  {s.loras.length > 0 && (
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-xs font-semibold text-ink-2">LoRAs</span>
-                      {s.loras.map((l) => (
-                        <Line key={l.name} found={l.found} name={`${l.name} · ${l.weight}`} missing={s.missing.find((m) => m.folder === "loras" && fileLabel(m.file) === l.name)} instead="It is left out." />
-                      ))}
-                    </div>
-                  )}
-                  <div className="text-xs text-ink-2">
-                    {[
-                      s.input.size ? `${(s.input.size as { width: number }).width} × ${(s.input.size as { height: number }).height}` : "",
-                      s.input.steps ? `${s.input.steps} steps` : "", s.input.cfg ? `CFG ${s.input.cfg}` : "", s.input.sampler ? String(s.input.sampler) : "",
-                      s.input.seed !== undefined ? `seed ${s.input.seed}` : "", s.input.hires ? "with a hi-res pass" : "",
-                    ].filter(Boolean).join(" · ")}
-                  </div>
-                  {s.notes.map((n) => <div key={n} className="text-ink-2">{n}</div>)}
-                  <div className="text-xs text-ink-3">This fills the SDXL form. If the picture was made with another kind of model, the result will differ.</div>
-                </>
-              )}
-            </div>
-            <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3">
-              {found.data.workflow ? (
-                <Button onClick={() => { hand({ workflow: workflowFile(found.file.name, found.data.workflow) }); setFound(null); go("/workflows"); }}>Import its workflow instead</Button>
-              ) : null}
-              <span className="grow" />
-              <Button onClick={() => setFound(null)}>Close</Button>
-              {s && <Button tone="primary" onClick={() => void fillForm()}>Open it in Create</Button>}
-            </footer>
-          </div>
-        </div>
-      )}
+      {found && <PngInfo name={found.file.name} first={found.data} read={(recipe) => api.embedded(found.file, recipe)} onClose={() => setFound(null)} />}
     </>
-  );
-}
-
-/** One thing the picture was made with: there on this ComfyUI, or not, with how to get it. */
-function Line({ found, name, missing, instead }: { found: boolean; name: string; missing?: { file: string; folder: string; civitai?: number }; instead: string }) {
-  return (
-    <div className={cx("flex flex-col rounded-lg border px-3 py-2", found ? "border-line" : "border-warn/50 bg-warn-wash text-warn-ink")}>
-      <span><span className="font-semibold break-all">{name}</span> {found ? <span className="text-good">· on your ComfyUI</span> : <>· not on your ComfyUI. {instead}</>}</span>
-      {!found && missing && <GetFile file={missing.file} folder={missing.folder} civitai={missing.civitai} />}
-    </div>
   );
 }

@@ -15,6 +15,8 @@ export interface RecipeInfo {
   inputs: InputSpec[];
   /** Of a video recipe: what it can do on a timeline. */
   traits: VideoTraits | null;
+  /** The model files it names itself (an imported workflow's). */
+  models?: string[];
 }
 export interface FamilyInfo {
   id: string;
@@ -33,6 +35,8 @@ export interface RecipeStatus {
   missingFiles: string[];
   /** The same files with the folder each belongs in and, when its author gave one, where it can be had. */
   missing: Array<{ file: string; folder: string | null; url?: string }>;
+  /** What ComfyUI would refuse in it, in the checker's words. */
+  problems: string[];
   limitedBy: string[];
   options: Record<string, string[]>;
 }
@@ -41,7 +45,7 @@ export interface Scan {
   comfy:
     | { online: true; url: string; version: string; device: string; vramTotal: number; vramFree: number; nodes: number }
     | { online: false; url: string; error: string };
-  families: Array<{ id: string; slots: Array<{ id: string; label: string; file: string | null; optional: boolean; hint: string }> }>;
+  families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; optional: boolean; hint: string; get?: { file: string; url: string } }> }>;
   recipes: RecipeStatus[];
 }
 
@@ -126,7 +130,10 @@ export interface AssetDetail extends Asset {
 export interface DraftBrief {
   id: string;
   recipe: string;
+  /** The start of what was written in it. */
   title: string;
+  /** The name it was given, when it was given one. */
+  name: string | null;
   target: string;
   updatedAt: string;
 }
@@ -338,9 +345,58 @@ export interface Storage {
   bin: { count: number; bytes: number };
   unkept: { count: number; bytes: number };
 }
+/** What a pasted link to a model leads to. */
+export interface LinkFound {
+  source: "civitai" | "huggingface" | "address";
+  title: string;
+  about: string;
+  page: string;
+  version?: number;
+  versions?: Array<{ id: number; name: string }>;
+  url?: string;
+  files: Array<{ name: string; bytes: number; note: string }>;
+  folder: string | null;
+  why?: string;
+  /** ComfyUI's model folders. */
+  folders: string[];
+  /** Files ComfyUI already has under the same name: file name to the folder it is in. */
+  have: Record<string, string>;
+}
+/** The page of a model file on the site it came from. */
+export interface ModelPage {
+  url: string;
+  title: string;
+}
+export interface PageCandidate extends ModelPage {
+  site: string;
+  about: string;
+}
+/** One language model the designer can write with. Its key never comes back: only whether one is saved. */
+export interface LlmInfo {
+  id: string;
+  name: string;
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+  vision: boolean;
+  /** How much it can read at once, in tokens. */
+  contextSize: number;
+  /** The longest answer it may write, in tokens. */
+  maxOutputTokens: number;
+}
 export interface Settings {
   comfyUrl: string;
+  /** ComfyUI's models are unloaded after this many minutes without a render; 0 for never. */
+  unloadAfterMinutes: number;
+  /** The model in use, the short way. */
   llm: { baseUrl: string; model: string; hasApiKey: boolean; vision: boolean };
+  llms: LlmInfo[];
+  /** The one the designer writes with. */
+  designerLlm: string;
+  /** The user's own instructions for the designer, each under a name. */
+  designerInstructions: Array<{ id: string; name: string; text: string }>;
+  /** The ones in use; empty for none. */
+  designerInstruction: string;
   hasCivitaiKey: boolean;
   /** Missing model files may be looked for on Civitai. */
   civitaiLookups: boolean;
@@ -358,6 +414,8 @@ export interface Embedded {
     missing: Array<{ file: string; folder: string; civitai?: number }>;
     model: { name: string; found: boolean } | null;
     loras: Array<{ name: string; weight: number; found: boolean }>;
+    /** The forms these settings can fill, the likeliest first, with why when there is a reason. */
+    targets: Array<{ id: string; why?: string }>;
   };
   /** A ComfyUI workflow, when the file has one. */
   workflow: unknown | null;
@@ -371,7 +429,7 @@ export interface Download {
   title: string;
   bytes: number;
   total: number;
-  status: "starting" | "downloading" | "saving" | "done" | "error";
+  status: "starting" | "downloading" | "saving" | "done" | "error" | "stopped";
   error?: string;
 }
 /** A word about one choice of a form: slow, or probably too much, on the card it will run on. */
@@ -379,6 +437,15 @@ export interface Advice {
   input: string;
   level: "slow" | "heavy";
   text: string;
+}
+/** A file of exactly the name that is missing, found in a repository on Hugging Face. */
+export interface HuggingFaceFind {
+  repo: string;
+  path: string;
+  url: string;
+  page: string;
+  downloads: number;
+  gated: boolean;
 }
 /** A model found on Civitai for a file that is missing. */
 export interface CivitaiFind {
@@ -389,9 +456,19 @@ export interface CivitaiFind {
   base: string;
   words: string[];
   exact: boolean;
-  /** What a download of it fetches: the version, and how large its file is (0 when Civitai does not say). */
+  /** What a download of it fetches: the version, the file's own name, and how large it is (0 when Civitai does not say). */
   versionId: number | null;
+  file: string;
   bytes: number;
+  /** The site that has it: civitai.com, or civitai.red. */
+  site: string;
+  /** It is the kind of model the folder holds (a workflow found by the same words is not). */
+  fits: boolean;
+  /** The words of the name asked for that are in its own names, and how many words that name has. */
+  hits: string[];
+  of: number;
+  /** This ComfyUI already has the file a download of it would fetch: in which kind of folder, under which name. */
+  have?: { folder: string; file: string };
 }
 
 /** The server always answers errors as { error }, written for a person to read. */
@@ -432,16 +509,24 @@ export const api = {
   dismissJob: (id: string) => call<{ ok: true }>("DELETE", `/jobs/${id}`),
   estimates: () => call<{ rates: Record<string, Rate> }>("GET", "/estimates"),
   advice: (recipe: string, input: Record<string, unknown>) => call<{ items: Advice[] }>("POST", "/advice", { recipe, input }),
-  civitaiFind: (file: string) => call<{ items: CivitaiFind[] }>("GET", `/civitai/find?${new URLSearchParams({ file })}`),
+  civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
+    call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
+      "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,
+    ),
   /** What a file from the computer says about how it was made. The file is the request body; nothing is stored. */
-  embedded: async (file: File) => {
-    const res = await fetch("/api/embedded", { method: "POST", headers: { "Content-Type": /^(image|video|audio)\//.test(file.type) ? file.type : "application/octet-stream" }, body: file });
+  embedded: async (file: File, recipe?: string) => {
+    const res = await fetch(`/api/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`, { method: "POST", headers: { "Content-Type": /^(image|video|audio)\//.test(file.type) ? file.type : "application/octet-stream" }, body: file });
     const data = (await res.json().catch(() => ({}))) as Embedded & { error?: string };
     if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`);
     return data;
   },
+  /** The same for a picture or a video already in the library. */
+  assetEmbedded: (id: string, recipe?: string) => call<Embedded>("GET", `/assets/${id}/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`),
   downloads: () => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string } }>("GET", "/downloads"),
-  startDownload: (body: { file: string; folder: string } & ({ civitai: number } | { url: string })) => call<Download>("POST", "/downloads", body),
+  stopDownload: (id: string) => call<{ ok: true }>("DELETE", `/downloads/${id}`),
+  startDownload: (body: { file: string; folder: string; page?: ModelPage } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
+  /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
+  resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
   storage: () => call<Storage>("GET", "/storage"),
   binIdleTakes: () => call<{ moved: number }>("POST", "/storage/bin-idle-takes"),
   emptyBin: () => call<{ erased: number }>("POST", "/storage/empty-bin"),
@@ -466,14 +551,24 @@ export const api = {
   drafts: () => call<{ items: DraftBrief[] }>("GET", "/drafts"),
   draft: (id: string) => call<Draft>("GET", `/drafts/${id}`),
   createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null }) => call<Draft>("POST", "/drafts", body),
-  saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[] }) => call<Draft>("PUT", `/drafts/${id}`, patch),
+  saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
   /** One turn of the conversation with the designer about a form. */
   designer: (body: { recipe: string; values: Record<string, unknown>; messages: Array<{ role: "user" | "assistant"; content: string }>; mode: "chat" | "enhance"; previous?: string; story?: { clips: string[]; index: number }; look?: Look | null; mood?: string }) =>
     call<DesignerReply>("POST", "/designer", body),
   /** A scene written as several clips: the text of each. */
   designerPlan: (body: { recipe: string; idea: string; clips: number; values?: Record<string, unknown>; look?: Look | null; mood?: string }) =>
     call<{ note: string; clips: Array<Record<string, string>> }>("POST", "/designer/plan", body),
-  designerTest: () => call<{ ok: true; model: string; answer: string }>("POST", "/designer/test"),
+  /** The pages known for the files of a model folder, by file name (lower case, without sub-folder). */
+  modelPages: (folder: string) => call<{ items: Record<string, ModelPage> }>("GET", `/models/${folder}/pages`),
+  /** Look for a file's page: the one known, or the one found for sure, or the ones it may be. */
+  findModelPage: (folder: string, file: string) => call<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }>("POST", `/models/${folder}/page`, { file }),
+  /** Say which page is the file's; null forgets it. */
+  setModelPage: (folder: string, file: string, url: string | null, title = "") => call<{ page: ModelPage | null }>("PUT", `/models/${folder}/page`, { file, url, title }),
+  /** Unload ComfyUI's models now. */
+  freeMemory: () => call<{ ok: true }>("POST", "/comfy/free"),
+  designerTest: (id?: string) => call<{ ok: true; model: string; answer: string }>("POST", "/designer/test", id ? { id } : {}),
+  /** Every conversation with the designer, in drafts and on timelines, is forgotten. */
+  forgetConversations: () => call<{ forgotten: number }>("DELETE", "/designer/conversations"),
   /** New clips at the end of a timeline, one per planned text, each flowing on from the one before. */
   planTimeline: (id: string, recipe: string, clips: Array<Record<string, string>>) => call<{ clips: string[]; timeline: Timeline }>("POST", `/timelines/${id}/plan`, { recipe, clips }),
   deleteDraft: (id: string) => call<{ ok: true }>("DELETE", `/drafts/${id}`),

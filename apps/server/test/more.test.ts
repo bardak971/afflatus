@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@studai/comfy/testing";
 import { now } from "../src/db";
+import { forgetHuggingFace } from "../src/huggingface";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -122,6 +123,7 @@ describe("looking for a missing file on Civitai", () => {
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({
         items: [
+          { id: 5, name: "Soft light workflow", type: "Workflows", modelVersions: [{ name: "v1", files: [{ name: "soft light v2.json" }] }] },
           { id: 7, name: "Something close", type: "LORA", modelVersions: [{ name: "v1", baseModel: "SDXL 1.0", trainedWords: ["close"], files: [{ name: "close.safetensors" }] }] },
           { id: 9, name: "Soft Light", type: "LORA", modelVersions: [{ name: "v3" , files: [{ name: "other.safetensors" }] }, { name: "v2", baseModel: "SDXL 1.0", trainedWords: ["softlight"], files: [{ name: "Soft_Light-v2.safetensors" }] }] },
         ],
@@ -141,16 +143,103 @@ describe("looking for a missing file on Civitai", () => {
     expect(asked).toEqual([]);
 
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true, civitaiKey: "k-123" } });
-    const found = (await get(t.app, "/api/civitai/find?file=loras/soft_light-v2.safetensors")).json().items;
+    const answer = (await get(t.app, "/api/civitai/find?file=loras/soft_light-v2.safetensors&folder=loras")).json();
+    const found = answer.items;
     expect(asked).toHaveLength(1);
-    expect(asked[0]!.url).toBe("/api/v1/models?query=soft+light+v2&limit=6");
+    // everything is asked for, mature models included, and only the kind the folder holds
+    expect(asked[0]!.url).toBe("/api/v1/models?query=soft+light+v2&limit=20&nsfw=true&types=LORA&types=LoCon&types=DoRA");
     expect(asked[0]!.auth).toBe("Bearer k-123");
     // the one with a file of exactly this name comes first, with the version that has it
-    expect(found[0]).toEqual({ name: "Soft Light", kind: "LORA", url: "https://civitai.com/models/9", version: "v2", base: "SDXL 1.0", words: ["softlight"], exact: true, versionId: null, bytes: 0 });
-    expect(found[1]).toMatchObject({ name: "Something close", exact: false });
+    expect(found[0]).toMatchObject({
+      name: "Soft Light", kind: "LORA", url: "https://civitai.com/models/9", version: "v2", base: "SDXL 1.0", words: ["softlight"],
+      exact: true, fits: true, file: "Soft_Light-v2.safetensors", hits: ["soft", "light", "v2"], of: 3,
+    });
+    expect(found[1]).toMatchObject({ name: "Something close", exact: false, fits: true, hits: [] });
+    // a workflow found by the same words is not a LoRA: it is left out
+    expect(found.map((f: { name: string }) => f.name)).toEqual(["Soft Light", "Something close"]);
     // the key never comes back to the browser
     expect((await get(t.app, "/api/settings")).json()).toMatchObject({ civitaiLookups: true, hasCivitaiKey: true });
     expect((await get(t.app, "/api/settings")).body).not.toContain("k-123");
+  });
+
+  it("finds the page a LoRA came from by its name, remembers it, and takes the user's word when the name does not settle it", async () => {
+    const find = async (file: string) => (await post(t.app, "/api/models/loras/page", { file })).json();
+    const pages = async () => (await get(t.app, "/api/models/loras/pages")).json().items;
+    const say = (payload: unknown) => t.app.inject({ method: "PUT", url: "/api/models/loras/page", payload: payload as object });
+
+    // not turned on: nothing is asked, and the answer says why
+    expect(await find("styles\\Soft_Light-v2.safetensors")).toEqual({ page: null, candidates: [], lookups: false });
+    expect(asked).toEqual([]);
+
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true } });
+    // a model with a file of exactly this name is its page: remembered under the file's name, whatever its sub-folder
+    expect(await find("styles\\Soft_Light-v2.safetensors")).toEqual({ page: { url: "https://civitai.com/models/9", title: "Soft Light · v2" }, candidates: [], lookups: true });
+    expect(await pages()).toEqual({ "soft_light-v2.safetensors": { url: "https://civitai.com/models/9", title: "Soft Light · v2" } });
+    const before = asked.length;
+    expect((await find("Soft_Light-v2.safetensors")).page.url).toBe("https://civitai.com/models/9");
+    expect(asked).toHaveLength(before);
+
+    // no file of that name anywhere: the closest are offered, nothing is remembered until one is picked
+    const unsure = await find("mystery_style.safetensors");
+    expect(unsure.page).toBeNull();
+    // (the site named is the pretend one of this test; the pages themselves are on the real one)
+    expect(unsure.candidates.map((c: { title: string; url: string; about: string }) => [c.title, c.url, c.about])).toEqual([["Something close · v1", "https://civitai.com/models/7", "LORA · SDXL 1.0"], ["Soft Light · v3", "https://civitai.com/models/9", "LORA"]]);
+    expect(Object.keys(await pages())).toEqual(["soft_light-v2.safetensors"]);
+    expect((await say({ file: "mystery_style.safetensors", url: "https://civitai.red/models/7", title: "Something close · v1" })).json()).toEqual({ page: { url: "https://civitai.red/models/7", title: "Something close · v1" } });
+    expect((await find("other\\Mystery_Style.safetensors")).page.url).toBe("https://civitai.red/models/7");
+    // an address of the user's own, then "that is not its page"
+    expect((await say({ file: "mystery_style.safetensors", url: "https://huggingface.co/someone/mystery" })).json().page).toEqual({ url: "https://huggingface.co/someone/mystery", title: "huggingface.co" });
+    expect((await say({ file: "mystery_style.safetensors", url: "javascript:alert(1)" })).statusCode).toBe(400);
+    expect((await say({ file: "mystery_style.safetensors", url: null })).json()).toEqual({ page: null });
+    expect(Object.keys(await pages())).toEqual(["soft_light-v2.safetensors"]);
+  });
+});
+
+describe("looking for a missing file on Hugging Face", () => {
+  let asked: string[];
+  let server: Server;
+  beforeEach(async () => {
+    asked = [];
+    forgetHuggingFace();
+    server = createServer((req, res) => {
+      asked.push(req.url ?? "");
+      res.setHeader("content-type", "application/json");
+      const url = new URL(req.url ?? "/", "http://x");
+      if (url.pathname === "/api/v1/models") return res.end(JSON.stringify({ items: [] }));
+      // ComfyUI's own repositories, then what a search by words finds
+      if (url.searchParams.get("author") === "Comfy-Org") {
+        return res.end(JSON.stringify([
+          { id: "Comfy-Org/Some-Model", downloads: 5000, siblings: [{ rfilename: "text_encoders/reader_4b_fp8_scaled.safetensors" }, { rfilename: "vae/its_vae.safetensors" }] },
+        ]));
+      }
+      res.end(JSON.stringify([
+        { id: "someone/a-copy", downloads: 90000, siblings: [{ rfilename: "READER_4b_fp8_scaled.safetensors" }] },
+        { id: "someone/close-but-not-it", downloads: 1e6, siblings: [{ rfilename: "reader_4b_int8.safetensors" }] },
+        { id: "locked/behind-terms", downloads: 10, gated: "manual", siblings: [{ rfilename: "reader_4b_fp8_scaled.safetensors" }] },
+      ]));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const at = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    process.env.CIVITAI_URL = at;
+    process.env.HUGGINGFACE_URL = at;
+  });
+  afterEach(async () => {
+    delete process.env.CIVITAI_URL;
+    delete process.env.HUGGINGFACE_URL;
+    await new Promise((r) => server.close(r));
+  });
+
+  it("finds the file by its exact name only, ComfyUI's own repository first, with the address to fetch it from", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true } });
+    const answer = (await get(t.app, "/api/civitai/find?file=reader_4b_fp8_scaled.safetensors&folder=text_encoders&hints=Some%20Model")).json();
+    expect(answer.exact.map((h: { repo: string }) => h.repo)).toEqual(["Comfy-Org/Some-Model", "someone/a-copy", "locked/behind-terms"]);
+    expect(answer.exact[0]).toMatchObject({ path: "text_encoders/reader_4b_fp8_scaled.safetensors", downloads: 5000, gated: false });
+    expect(answer.exact[0].url).toMatch(/\/Comfy-Org\/Some-Model\/resolve\/main\/text_encoders\/reader_4b_fp8_scaled\.safetensors$/);
+    expect(answer.exact[2]).toMatchObject({ gated: true });
+    expect(answer.asked).toContain("huggingface.co");
+    // what was sent: the first words of the name, and the word that says which model it is for
+    const searched = asked.filter((u) => u.startsWith("/api/models") && u.includes("search=")).map((u) => new URL(u, "http://x").searchParams.get("search"));
+    expect(searched).toEqual(["reader 4b", "reader", "some model"]);
   });
 });
 

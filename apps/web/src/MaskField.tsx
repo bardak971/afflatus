@@ -63,14 +63,14 @@ export function MaskField({ label, note, picture, value, onChange }: {
             <img src={thumbUrl(value!)} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70 mix-blend-screen" />
           </span>
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs text-ink-2">Only the painted part is redone.</span>
-            <Button size="sm" onClick={() => setPainting(true)}><Brush size={13} /> Paint it again</Button>
+            <span className="text-xs text-ink-2">Only the masked part is redone.</span>
+            <Button size="sm" onClick={() => setPainting(true)}><Brush size={13} /> Repaint the mask</Button>
           </div>
         </div>
       ) : (
         <button type="button" onClick={() => setPainting(true)} className="flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink">
           <Brush size={17} />
-          <span>Paint over the part to redo</span>
+          <span>Paint the mask</span>
         </button>
       )}
       {painting && picture && (
@@ -292,7 +292,7 @@ function Painter({ picture, mask, onDone, onClose }: { picture: string; mask: st
       const d = ctxOf().getImageData(0, 0, c.width, c.height).data;
       let any = false;
       for (let i = 3; i < d.length; i += 4) if (d[i]! > 127) { any = true; break; }
-      if (!any) throw new Error("Nothing is painted yet. Paint over the part to redo.");
+      if (!any) throw new Error("The mask is empty. Paint over the part to redo.");
       // the size of the picture itself, black, the painted part in white
       const white = document.createElement("canvas");
       white.width = img!.naturalWidth;
@@ -317,9 +317,9 @@ function Painter({ picture, mask, onDone, onClose }: { picture: string; mask: st
   });
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Paint over the part to redo" className="fixed inset-0 z-50 flex flex-col bg-ground/95">
+    <div role="dialog" aria-modal="true" aria-label="Paint the mask" className="fixed inset-0 z-50 flex flex-col bg-ground/95">
       <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line bg-panel px-5">
-        <h2 className="text-base font-semibold">Paint over the part to redo</h2>
+        <h2 className="text-base font-semibold">Paint the mask</h2>
         <Segmented<"paint" | "erase" | "move"> label="Tool" value={tool} options={[{ value: "paint", label: "Paint" }, { value: "erase", label: "Rub out" }, { value: "move", label: "Move" }]} onChange={setTool} />
         <label className="flex items-center gap-2 text-ink-2">
           Brush

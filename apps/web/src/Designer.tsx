@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Check, Send, Sparkles, WandSparkles, X } from "lucide-react";
+import { Bookmark, Check, RotateCcw, Send, Sparkles, WandSparkles, X } from "lucide-react";
 import { api, type DesignerReply, type Look, type RecipeInfo } from "./api";
 import { useEntities, useSettings } from "./data";
 import { Select } from "./Select";
@@ -41,6 +41,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
   onClose(): void;
 }) {
   const settings = useSettings();
+  const client = useQueryClient();
   const [text, setText] = useState("");
   const end = useRef<HTMLDivElement>(null);
   const boxes = recipe.inputs.filter((i) => i.type === "prompt");
@@ -51,7 +52,8 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
       onTurns(mine);
       const reply = await api.designer({
         recipe: recipe.id, values, mode: v.mode, previous, story, look: look ?? null, mood,
-        messages: mine.slice(-16).map((t) => ({ role: t.role, content: t.reply ? asText(t.reply) : t.content })),
+        // the server keeps as much of it as the language model can read
+        messages: mine.slice(-40).map((t) => ({ role: t.role, content: (t.reply ? asText(t.reply) : t.content).slice(0, 8000) })),
       });
       onTurns([...mine, { role: "assistant", content: reply.note, reply }]);
     },
@@ -70,6 +72,13 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
     setText("");
     say.mutate({ words: words.trim(), mode });
   };
+  /** Which language model writes, and under which instructions of the user's own: kept in Setup, changed from here. */
+  const choose = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch),
+    onSuccess: (saved) => client.setQueryData(["settings"], saved),
+  });
+  const llms = settings.data?.llms ?? [];
+  const instructions = settings.data?.designerInstructions ?? [];
   const last = [...turns].reverse().find((t) => t.role === "assistant")?.reply;
   const sees = last?.sawPicture;
 
@@ -82,7 +91,42 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
         <span className="grow" />
         <button type="button" aria-label="Close the designer" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
       </div>
+      {ready && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-line px-3 py-2">
+          <Select
+            size="sm"
+            className="min-w-0 grow basis-0"
+            label="The language model that writes"
+            searchHint="Search your language models"
+            value={settings.data?.designerLlm ?? ""}
+            onChange={(id) => choose.mutate({ designerLlm: id })}
+            options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "reads pictures · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
+            footer={() => <Link href="/setup" className="text-xs text-ink-2 underline">Add or change language models in Setup</Link>}
+          />
+          <Select
+            size="sm"
+            className="min-w-0 grow basis-0"
+            label="Your instructions for the designer"
+            searchHint="Search your instructions"
+            value={settings.data?.designerInstruction || "none"}
+            onChange={(id) => choose.mutate({ designerInstruction: id === "none" ? "" : id })}
+            options={[{ value: "none", label: "No instructions", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
+            footer={() => <Link href="/setup" className="text-xs text-ink-2 underline">Write your own instructions in Setup</Link>}
+          />
+          <Button
+            size="sm"
+            tone="quiet"
+            className="shrink-0"
+            disabled={!turns.length || say.isPending}
+            title="Forget this conversation and start again. What is in your form stays."
+            onClick={() => { onTurns([]); say.reset(); }}
+          >
+            <RotateCcw size={13} /> Start over
+          </Button>
+        </div>
+      )}
       <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
+        {choose.isError && <ErrorNote>{choose.error.message}</ErrorNote>}
         {!ready && settings.isSuccess && (
           <ErrorNote>The designer has no language model yet. <Link href="/setup" className="font-semibold underline">Give it one in Setup</Link>: any address that speaks the OpenAI way works, on your computer or elsewhere.</ErrorNote>
         )}

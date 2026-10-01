@@ -21,21 +21,21 @@ export const kleinPicture = defineRecipe<KleinPicture>({
   id: "klein.picture",
   family: "klein",
   version: 1,
-  title: "Words to picture",
-  summary: "A picture from plain sentences. Give it pictures of a person, a place or clothes and it keeps them.",
+  title: "txt2img",
+  summary: "Text to image, from a prompt in plain sentences. With reference images of a person, a place or clothes, it keeps them.",
   output: "image",
   inputs: [
-    { id: "prompt", type: "prompt", label: "What the picture shows", style: "sentences", placeholder: "A woman in a linen shirt drinks coffee on a terrace at sunrise, soft light, waist up." },
+    { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A woman in a linen shirt drinks coffee on a terrace at sunrise, soft light, waist up." },
     {
-      id: "references", type: "references", label: "Pictures to follow", max: 6, roles: [...ALL_ROLES],
+      id: "references", type: "references", label: "Reference images", max: 6, roles: [...ALL_ROLES],
       note: "a person, a place, clothes, an object or a look: the picture keeps them. They are not changed themselves.",
     },
     {
-      id: "size", type: "size", label: "Shape", default: "tall", grid: 16, min: 256, max: 2048,
+      id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048,
       shapes: [
-        { id: "tall", label: "Tall", width: 832, height: 1216 },
+        { id: "tall", label: "Portrait", width: 832, height: 1216 },
         { id: "square", label: "Square", width: 1024, height: 1024 },
-        { id: "wide", label: "Wide", width: 1216, height: 832 },
+        { id: "wide", label: "Landscape", width: 1216, height: 832 },
       ],
     },
     ...kleinInputs,
@@ -75,14 +75,14 @@ export const kleinEdit = defineRecipe<KleinEdit>({
   id: "klein.edit",
   family: "klein",
   version: 1,
-  title: "Change a picture with words",
-  summary: "Say what to change (the clothes, the place, the light, the pose) and what stays. The picture is drawn again with that change.",
+  title: "Edit (instruction)",
+  summary: "Instruction editing: prompt what to change (the clothes, the place, the light, the pose) and what stays.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Picture" },
-    { id: "prompt", type: "prompt", label: "What to change", style: "sentences", placeholder: "Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same." },
+    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "prompt", type: "prompt", label: "Prompt", note: "an instruction: what to change, and what stays", style: "sentences", placeholder: "Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same." },
     {
-      id: "references", type: "references", label: "Pictures to take from", max: 5, roles: [...ALL_ROLES],
+      id: "references", type: "references", label: "Reference images", max: 5, roles: [...ALL_ROLES],
       note: "optional: a place to put the person in, clothes to wear, more pictures of the same person",
     },
     ...kleinInputs,
@@ -133,15 +133,15 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
   id: "klein.paint-over",
   family: "klein",
   version: 1,
-  title: "Paint over a part",
-  summary: "Paint over a part of a picture and say what changes there. The rest of the picture is not touched.",
+  title: "Inpaint",
+  summary: "Paint a mask over a part of a picture and prompt what changes there. Only the masked part is redrawn.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Picture" },
-    { id: "mask", type: "image", role: "mask", of: "source", label: "The part to redo" },
-    { id: "prompt", type: "prompt", label: "What changes there", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
-    { id: "strength", type: "number", label: "How much it may change", note: "1 redoes the part from your words; lower only touches it up", min: 0.1, max: 1, step: 0.05, default: 1 },
-    { id: "references", type: "references", label: "Pictures to take from", max: 4, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
+    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
+    { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
+    { id: "strength", type: "number", label: "Denoising strength", note: "1 redoes the masked part from the prompt; lower only touches it up", min: 0.1, max: 1, step: 0.05, default: 1 },
+    { id: "references", type: "references", label: "Reference images", max: 4, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
     ...kleinInputs,
   ],
   nodes: (input) => [
@@ -187,7 +187,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
 
 // ---------------------------------------------------------------- another shape
 
-const SHAPES = ["Tall 2:3", "Square 1:1", "Wide 3:2", "Widescreen 16:9", "Phone 9:16"];
+const SHAPES = ["Portrait 2:3", "Square 1:1", "Landscape 3:2", "Widescreen 16:9", "Portrait 9:16"];
 const EXTEND = "The plain grey areas at the edges of this picture are empty. Fill them by continuing the scene naturally beyond its edges: the same place, the same light, the same style. Everything already in the picture stays exactly the same.";
 
 /** The room to add around a picture to bring it to a shape, the picture staying in the middle. */
@@ -220,13 +220,13 @@ export const kleinReshape = defineRecipe<KleinReshape>({
   id: "klein.change-shape",
   family: "klein",
   version: 2,
-  title: "Change its shape",
-  summary: "Brings a picture to another shape by drawing what is beyond its edges. Nothing is cut off and what was there stays.",
+  title: "Outpaint",
+  summary: "Extends a picture to another aspect ratio by drawing what is beyond its edges. Nothing is cropped and what was there stays.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Picture" },
-    { id: "shape", type: "choice", label: "New shape", options: SHAPES, default: "Widescreen 16:9" },
-    { id: "prompt", type: "prompt", label: "What is around it", note: "optional: left empty, the surroundings simply continue", style: "sentences", optional: true, default: "" },
+    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "shape", type: "choice", label: "Aspect ratio", options: SHAPES, default: "Widescreen 16:9" },
+    { id: "prompt", type: "prompt", label: "Prompt", note: "optional: what is around it. Left empty, the surroundings simply continue", style: "sentences", optional: true, default: "" },
     ...kleinInputs,
   ],
   nodes: (input) => [
@@ -255,7 +255,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
   },
   variants: [
     { name: "a tall picture made wide", input: { source: "p" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
-    { name: "a wide picture made tall, with words", input: { source: "p", shape: "Phone 9:16", prompt: "a", loras: [{ file: "l.safetensors", weight: 1 }] }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 1600, height: 900 } } },
+    { name: "a wide picture made tall, with words", input: { source: "p", shape: "Portrait 9:16", prompt: "a", loras: [{ file: "l.safetensors", weight: 1 }] }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 1600, height: 900 } } },
   ],
 });
 
@@ -274,13 +274,13 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   id: "klein.sharper",
   family: "klein",
   version: 1,
-  title: "Twice as large, sharper",
-  summary: "For photos: enlarges a picture to twice its size with an upscale model, then goes over it lightly so it looks photographed, not smeared.",
+  title: "Upscale 2x",
+  summary: "For photos: upscales to twice the size with an upscale model, then a light img2img pass so it looks photographed, not smeared.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Picture" },
-    { id: "upscaler", type: "choice", label: "Upscale model", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER] },
-    { id: "refine", type: "toggle", label: "Go over it afterwards", note: "a light second pass with the model; skipped when the result is larger than about 2.5 megapixels", default: true },
+    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER] },
+    { id: "refine", type: "toggle", label: "img2img pass after upscaling", note: "a light pass with the model; skipped when the result is larger than about 2.5 megapixels", default: true },
     ...kleinInputs,
   ],
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
@@ -344,21 +344,21 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
   id: "klein.fix-face",
   family: "klein",
   version: 1,
-  title: "Fix the face",
-  summary: "For photos: finds the face and redraws it sharper, from pictures of the same person so that it stays them. Needs the Impact Pack nodes in ComfyUI.",
+  title: "Face detailer",
+  summary: "For photos, like ADetailer: detects the face and inpaints it sharper, from reference images of the same person so that it stays them. Needs the Impact Pack nodes.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Picture" },
+    { id: "source", type: "image", role: "source", label: "Image" },
     {
-      id: "references", type: "references", label: "Pictures of the person", max: 4, roles: ["person"],
+      id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"],
       note: "clear pictures of their face. Without any, the face is redrawn from the picture itself. With two people, this is the one on the LEFT.",
     },
     {
-      id: "second", type: "references", label: "Pictures of the second person", max: 4, roles: ["person"],
+      id: "second", type: "references", label: "Reference images of the second person", max: 4, roles: ["person"],
       note: "only with two people in the picture: the one on the RIGHT. Each face is then redrawn from its own person's pictures.",
     },
-    { id: "strength", type: "number", label: "How much the face may change", note: "0.5 pulls it back to the pictures of the person", min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
-    { id: "detector", type: "choice", label: "Face finder", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+    { id: "strength", type: "number", label: "Denoising strength", note: "0.5 pulls the face back to the reference images", min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
+    { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
     ...kleinInputs,
   ],
   nodes: (input) => [
@@ -432,14 +432,14 @@ export const kleinVariation = defineRecipe<KleinVariation>({
   id: "klein.variation",
   family: "klein",
   version: 1,
-  title: "A variation of a picture",
+  title: "Variation",
   summary: "The same picture taken again: the same people, place, clothes and light, with a slightly different pose, expression and angle. Make several and keep the best.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Picture" },
-    { id: "prompt", type: "prompt", label: "What is different", note: `optional: left empty, ${DIFFERS}`, style: "sentences", optional: true, default: "", placeholder: "she looks over her shoulder and laughs" },
+    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "prompt", type: "prompt", label: "Prompt", note: `optional: left empty, ${DIFFERS}`, style: "sentences", optional: true, default: "", placeholder: "she looks over her shoulder and laughs" },
     { id: "photo", type: "toggle", label: "It is a photo", note: "off for a drawing or a painting: its style is kept instead", default: true },
-    { id: "references", type: "references", label: "Pictures of the person", max: 4, roles: ["person"], note: "optional: more pictures of who is in it help the face stay the same", advanced: true },
+    { id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"], note: "optional: more pictures of who is in it help the face stay the same", advanced: true },
     ...kleinInputs,
   ],
   nodes: (input) => [...LOAD_NODES(input), ...SAMPLE_NODES, ...REFERENCE_NODES, "EmptyFlux2LatentImage", "PreviewImage"],

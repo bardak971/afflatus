@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronLeft, Clapperboard, Copy, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
 import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo } from "./api";
 import { useAsset, useAssetAction, useFolders, useRecipes, useSetup, useTimelines } from "./data";
 import { fileLabel, notReady, recipeLabel, took, when } from "./format";
 import { Select } from "./Select";
+import { PngInfo } from "./PngInfo";
 import { useOpenDraft } from "./store";
 import { Button, cx, SectionTitle } from "./ui";
+import { ModelLink } from "./ModelLink";
 
-const ROLES: Record<string, string> = { start: "Opening picture", end: "Ending picture", source: "Picture", previous: "The clip it continues", next: "The clip it flows into",
-  mid: "Picture it passes through", mask: "The part that was redone", person: "Reference: a person", place: "Reference: a place", clothing: "Reference: clothes", object: "Reference: an object", style: "Reference: a look", voice: "Voice", sound: "Sound",
+const ROLES: Record<string, string> = { start: "Start image", end: "End image", source: "Image", previous: "The clip it continues", next: "The clip it flows into",
+  mid: "Mid image", mask: "Mask", person: "Reference: a person", place: "Reference: a place", clothing: "Reference: clothes", object: "Reference: an object", style: "Reference: a look", voice: "Voice", sound: "Sound",
 };
 const mb = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
 const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP", "video/mp4": "MP4", "video/webm": "WebM", "audio/wav": "WAV", "audio/mpeg": "MP3", "audio/flac": "FLAC", "audio/mp4": "M4A", "audio/ogg": "OGG" };
@@ -32,7 +34,7 @@ function valueOf(spec: InputSpec, value: unknown): ReactNode {
       if (!list.length) return "None";
       return (
         <span className="flex flex-col gap-0.5">
-          {list.map((l) => <span key={l.file} title={l.file}>{fileLabel(l.file)} <span className="text-ink-2">at {l.weight.toFixed(2)}</span></span>)}
+          {list.map((l) => <span key={l.file} className="flex min-w-0 items-baseline gap-1"><ModelLink folder="loras" file={l.file} className="min-w-0" /> <span className="shrink-0 text-ink-2">at {l.weight.toFixed(2)}</span></span>)}
         </span>
       );
     }
@@ -213,6 +215,49 @@ function TimelinePicker({ asset }: { asset: Asset }) {
   );
 }
 
+/** A picture as a reference image: in which recipe is chosen, none is assumed. Every recipe that takes reference images is listed. */
+function ReferencePicker({ asset }: { asset: Asset }) {
+  const recipes = useRecipes();
+  const client = useQueryClient();
+  const [, go] = useLocation();
+  const openDraft = useOpenDraft((s) => s.open);
+  const ways = (recipes.data?.recipes ?? []).filter((r) => r.inputs.some((i) => i.type === "references"));
+  const start = useMutation({
+    mutationFn: (id: string) => {
+      const recipe = ways.find((r) => r.id === id)!;
+      const slot = recipe.inputs.find((i) => i.type === "references")!;
+      const role = slot.type === "references" && slot.roles.includes("person") ? "person" : slot.type === "references" ? slot.roles[0]! : "person";
+      return api.createDraft({ recipe: recipe.id, forms: { [recipe.id]: { [slot.id]: [{ asset: asset.id, role }] } } });
+    },
+    onSuccess: (d) => {
+      client.setQueryData(["drafts", d.id], d);
+      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      openDraft(d.id);
+      go("/create");
+    },
+  });
+  if (!ways.length) return null;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Select
+        dashed
+        icon={<Star size={15} className="shrink-0" />}
+        label="Use as a reference image"
+        placeholder={start.isPending ? "Opening…" : "Use as a reference image"}
+        searchHint="the model to use it with"
+        value=""
+        onChange={(id) => start.mutate(id)}
+        options={ways.map((r) => {
+          const family = recipes.data?.families.find((f) => f.id === r.family);
+          return { value: r.id, label: r.title, detail: r.summary, group: r.id.startsWith("workflow.") ? "Your workflows" : family?.name, search: family?.name };
+        })}
+      />
+      <span className="text-xs text-ink-3">Only models and workflows that take reference images are listed.</span>
+      {start.isError && <span className="text-warn-ink">{start.error.message}</span>}
+    </div>
+  );
+}
+
 /**
  * What can be done to a picture: every way of making things that takes one picture and gives a picture
  * back (redraw it, paint over a part, enlarge it, fix a face, another shape, no background…), the
@@ -265,6 +310,7 @@ function ChangePicker({ asset }: { asset: Asset }) {
 export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): void }) {
   // "made from" and "used to make" lead to other items without leaving the viewer
   const [trail, setTrail] = useState<Asset[]>([]);
+  const [info, setInfo] = useState(false);
   const asset = trail.at(-1) ?? first;
   const detail = useAsset(asset.id);
   const recipes = useRecipes();
@@ -423,6 +469,7 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
           {!a.inBin && <FolderPicker asset={a} />}
           {!a.inBin && a.kind !== "audio" && <TimelinePicker asset={a} />}
           {!a.inBin && a.kind === "image" && <ChangePicker asset={a} />}
+          {!a.inBin && a.kind === "image" && <ReferencePicker asset={a} />}
 
           <div className="flex flex-col gap-2">
             {g && recipe && (
@@ -433,9 +480,14 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
                 <Clapperboard size={15} /> Make a video from it
               </Button>
             )}
-            {(a.kind === "image" || a.kind === "audio") && !a.inBin && follower && (
-              <Button onClick={() => follow.mutate()} disabled={follow.isPending} title={a.kind === "image" ? "A new video that follows this picture (who is in it, a place, clothes) without it being a frame of it." : "A new video in which the person speaks with this voice."}>
-                {a.kind === "image" ? <Star size={15} /> : <Music size={15} />} {a.kind === "image" ? "Use as a reference" : "Use as a voice"}
+            {a.kind === "audio" && !a.inBin && follower && (
+              <Button onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice.">
+                <Music size={15} /> Use as a voice
+              </Button>
+            )}
+            {a.kind !== "audio" && !a.inBin && !g && (
+              <Button onClick={() => setInfo(true)} title="What this file says about how it was made: its prompt, checkpoint, LoRAs and settings, whether your ComfyUI has them, and sending them to a form.">
+                <FileSearch size={15} /> PNG info
               </Button>
             )}
             {a.kind === "video" && !a.inBin && (
@@ -472,6 +524,7 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
           </div>
         </div>
       </aside>
+      {info && <PngInfo name={asset.name || "This file"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} />}
     </div>
   );
 }

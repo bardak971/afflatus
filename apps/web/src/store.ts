@@ -24,6 +24,23 @@ export async function allowNotifications(): Promise<boolean> {
   return (await Notification.requestPermission()) === "granted";
 }
 
+/** A banner shown over whatever screen is open: something failed, or finished. Clicking it goes to where it is. */
+export interface Banner {
+  id: string;
+  tone: "bad" | "good";
+  title: string;
+  text?: string;
+  /** Where a click on it leads. */
+  href: string;
+  /** What the link is called. */
+  go: string;
+}
+export const useBanners = create<{ items: Banner[]; push(b: Banner): void; dismiss(id: string): void }>((set) => ({
+  items: [],
+  push: (b) => set((s) => (s.items.some((x) => x.id === b.id) ? s : { items: [...s.items.slice(-4), b] })),
+  dismiss: (id) => set((s) => ({ items: s.items.filter((x) => x.id !== id) })),
+}));
+
 /**
  * Things handed from one screen to another when a file is dropped: a workflow for the import screen
  * to open, a library item for the library to show. Each is taken once.

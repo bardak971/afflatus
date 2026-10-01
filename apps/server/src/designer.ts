@@ -3,7 +3,7 @@ import { z } from "zod";
 import { secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@studai/core";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
-import { readSettings, type Settings } from "./settings";
+import { instructionsInUse, llmInUse, readSettings, type Llm } from "./settings";
 
 /**
  * The prompt designer: a conversation with a language model (any OpenAI-style address, set in Setup)
@@ -22,14 +22,35 @@ export class DesignerError extends Error {
 
 type Message = { role: "system" | "user" | "assistant"; content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> };
 
+/** Roughly how many tokens a text is: enough to know what fits, with room to spare. */
+export const tokensOf = (content: Message["content"]): number =>
+  typeof content === "string" ? Math.ceil(content.length / 3.5) : content.reduce((n, part) => n + (part.type === "text" ? Math.ceil(part.text.length / 3.5) : 1200), 0);
+
+/**
+ * The end of a conversation that fits in what the model can read: its context, less the answer it may
+ * write and what it is told first. The oldest turns go; the last thing said always stays.
+ */
+export function fitting(cfg: Llm, system: string, history: Message[]): Message[] {
+  let room = cfg.contextSize - cfg.maxOutputTokens - tokensOf(system) - 200;
+  const kept: Message[] = [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    room -= tokensOf(history[i]!.content);
+    if (room < 0 && kept.length) break;
+    kept.unshift(history[i]!);
+  }
+  // a conversation starts with what the user said
+  while (kept.length > 1 && kept[0]!.role !== "user") kept.shift();
+  return kept;
+}
+
 /** One plain exchange with the language model. A busy server is asked a second time. */
-export async function chat(cfg: Settings["llm"], messages: Message[], opts: { temperature?: number; maxTokens?: number } = {}): Promise<string> {
-  if (!cfg.baseUrl.trim() || !cfg.model.trim()) throw new DesignerError("The designer has no language model yet. Give it one in Setup.");
+export async function chat(cfg: Llm | undefined, messages: Message[], opts: { temperature?: number; maxTokens?: number } = {}): Promise<string> {
+  if (!cfg || !cfg.baseUrl.trim() || !cfg.model.trim()) throw new DesignerError("The designer has no language model yet. Give it one in Setup.");
   const ask = () =>
     fetch(`${cfg.baseUrl.trim().replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}) },
-      body: JSON.stringify({ model: cfg.model, messages, stream: false, max_tokens: opts.maxTokens ?? 1500, temperature: opts.temperature ?? 0.6 }),
+      body: JSON.stringify({ model: cfg.model, messages, stream: false, max_tokens: opts.maxTokens ?? cfg.maxOutputTokens, temperature: opts.temperature ?? 0.6 }),
       signal: AbortSignal.timeout(120_000),
     });
   let res: Response;
@@ -43,8 +64,13 @@ export async function chat(cfg: Settings["llm"], messages: Message[], opts: { te
     throw new DesignerError(`The language model did not answer at ${cfg.baseUrl}: ${(err as Error).message}`);
   }
   if (!res.ok) throw new DesignerError(`The language model refused (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}`);
-  const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string } }> };
-  return data.choices?.[0]?.message?.content ?? "";
+  const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }> };
+  // a model that thinks before it answers may leave its thinking in the answer: it is not part of it
+  const said = (data.choices?.[0]?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*<\/think>/i, "").trim();
+  if (!said && data.choices?.[0]?.finish_reason === "length") {
+    throw new DesignerError(`The language model used its whole answer (${opts.maxTokens ?? cfg.maxOutputTokens} tokens) before it wrote anything, as a model that thinks first can. Raise "Max output tokens" for it in Setup.`);
+  }
+  return said;
 }
 
 /** How a family's prompts are written, when the family does not say itself. */
@@ -75,7 +101,7 @@ export interface DesignerContext {
   seesPicture?: boolean;
 }
 
-export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mode: "chat" | "enhance" | "plan", ctx: DesignerContext, plan?: { clips: number }): string {
+export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mode: "chat" | "enhance" | "plan", ctx: DesignerContext, plan?: { clips: number }, own = ""): string {
   const boxes = boxesOf(recipe);
   const main = boxes.find((b) => !b.optional) ?? boxes[0];
   const video = recipe.output === "video";
@@ -109,7 +135,7 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
           : `Nothing is written yet: write it all from the user's idea. If the idea is too vague to picture, ask ONE question instead.`;
 
   return `You are the prompt designer of studai, working on "${recipe.title}"${family ? ` for ${family.name}` : ""}, which makes ${recipe.output === "image" ? "a picture" : recipe.output === "video" ? "a video" : "a sound"}. You shape the prompt with the user in a conversation: your notes are brief, your prompts rich and precise. The user's explicit wishes (length, detail, tone, content) win over every guideline here.
-
+${own.trim() ? `\nTHE USER'S STANDING INSTRUCTIONS FOR YOU (they hold for the whole conversation and win over the guidelines below; the reply format at the end still holds):\n${own.trim()}\n` : ""}
 ${guide}
 
 THE PARTS YOU WRITE
@@ -261,13 +287,15 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     if (!boxesOf(recipe).length) throw new DesignerError("This model has no text to write.");
     if (!b.messages.length || b.messages.at(-1)!.role !== "user") throw new DesignerError("Say what you want first.");
     const settings = await readSettings(s.db);
-    const picture = settings.llm.vision ? await pictureOf(recipe, b.values) : null;
+    const llm = llmInUse(settings);
+    const picture = llm?.vision ? await pictureOf(recipe, b.values) : null;
     const ctx = await context(recipe, b.values, b, Boolean(picture));
-    const system = systemPrompt(recipe, s.registry.family(recipe.family), b.mode, ctx);
-    const history: Message[] = b.messages.slice(-20).map((m) => ({ role: m.role, content: m.content }));
+    const system = systemPrompt(recipe, s.registry.family(recipe.family), b.mode, ctx, undefined, instructionsInUse(settings));
+    const history: Message[] = b.messages.map((m) => ({ role: m.role, content: m.content }));
     // the picture rides with the last thing the user said
     if (picture) history[history.length - 1] = { role: "user", content: [{ type: "text", text: b.messages.at(-1)!.content }, { type: "image_url", image_url: { url: picture } }] };
-    const raw = await chat(settings.llm, [{ role: "system", content: system }, ...history], { maxTokens: 3000 });
+    // as much of the conversation as the model can read, the latest first
+    const raw = await chat(llm, [{ role: "system", content: system }, ...(llm ? fitting(llm, system, history) : history)]);
     return { ...parseReply(raw, recipe, ctx.values), sawPicture: Boolean(picture) };
   });
 
@@ -279,23 +307,36 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     }).parse(req.body);
     const recipe = recipeOf(b.recipe);
     const settings = await readSettings(s.db);
-    const picture = settings.llm.vision ? await pictureOf(recipe, b.values) : null;
+    const llm = llmInUse(settings);
+    const picture = llm?.vision ? await pictureOf(recipe, b.values) : null;
     const ctx = await context(recipe, b.values, b, Boolean(picture));
-    const system = systemPrompt(recipe, s.registry.family(recipe.family), "plan", ctx, { clips: b.clips });
+    const system = systemPrompt(recipe, s.registry.family(recipe.family), "plan", ctx, { clips: b.clips }, instructionsInUse(settings));
+    // a plan is one answer holding every clip: it needs room for each, within what the model can hold
+    const room = llm ? Math.max(llm.maxOutputTokens, Math.min(700 * b.clips + 500, Math.floor(llm.contextSize / 2))) : undefined;
     const ask: Message = { role: "user", content: picture ? [{ type: "text", text: b.idea }, { type: "image_url", image_url: { url: picture } }] : b.idea };
     // a model that ignores the format once usually follows it the second time
     for (let attempt = 0; attempt < 2; attempt++) {
-      const reply = parseReply(await chat(settings.llm, [{ role: "system", content: system }, ask], { maxTokens: 8000 }), recipe, {});
+      const reply = parseReply(await chat(llm, [{ role: "system", content: system }, ask], { maxTokens: room }), recipe, {});
       if (reply.kind === "plan") return { note: reply.note, clips: reply.clips.slice(0, b.clips) };
       if (reply.kind === "question") return { note: reply.question, clips: [] };
     }
     throw new DesignerError("The language model did not return a usable plan. Try again, or say it another way.");
   });
 
-  /** Ask the language model one word, to see that the address, the model and the key work. */
-  app.post("/api/designer/test", async () => {
+  /** Ask a language model one word, to see that the address, the model and the key work: the one named, else the one in use. */
+  app.post("/api/designer/test", async (req) => {
+    const { id } = z.strictObject({ id: z.string().optional() }).parse(req.body ?? {});
     const settings = await readSettings(s.db);
-    const answer = await chat(settings.llm, [{ role: "user", content: "Answer with the single word: ready" }], { maxTokens: 20, temperature: 0 });
-    return { ok: true, model: settings.llm.model, answer: answer.trim().slice(0, 80) };
+    const llm = id ? settings.llms.find((l) => l.id === id) : llmInUse(settings);
+    // room for a model that thinks before it says its one word
+    const answer = await chat(llm, [{ role: "user", content: "Answer with the single word: ready" }], { maxTokens: Math.min(llm?.maxOutputTokens ?? 400, 400), temperature: 0 });
+    return { ok: true, model: llm!.model, answer: answer.slice(0, 80) };
+  });
+
+  /** A fresh start everywhere: every conversation with the designer is forgotten, in drafts and on timelines. What it wrote into forms stays. */
+  app.delete("/api/designer/conversations", async () => {
+    const drafts = await s.db.updateTable("drafts").set({ chat: null }).where("chat", "is not", null).executeTakeFirst();
+    const clips = await s.db.updateTable("clips").set({ chat: null }).where("chat", "is not", null).executeTakeFirst();
+    return { forgotten: Number(drafts.numUpdatedRows ?? 0) + Number(clips.numUpdatedRows ?? 0) };
   });
 }
