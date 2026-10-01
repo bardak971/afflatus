@@ -1,0 +1,122 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { ComfyUnreachable } from "@studai/comfy";
+import { isRef, type Graph } from "@studai/core";
+import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, wiring as wiringSchema, workflowDef, type Bindings, type WorkflowDef } from "@studai/workflows";
+import type { Services } from "./services";
+
+/**
+ * Importing a ComfyUI workflow: read it, show what was found, save it with the mapping the user
+ * confirmed. From then on it is a recipe like any other.
+ */
+
+const saveBody = z.strictObject({
+  title: z.string().trim().min(1).max(120),
+  model: z.string().trim().min(1).max(60),
+  source: z.string().max(200).default(""),
+  graph: graphSchema,
+  wiring: wiringSchema.optional(),
+  bindings,
+});
+
+/** A workflow studai already holds (saved, or shared as a file): its nodes, and what its editor file knew. */
+const heldBody = z.object({ graph: graphSchema, wiring: wiringSchema.optional() });
+
+const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+
+/** An exported workflow: nodes by id, each with its type and inputs. */
+function mustBeWorkflow(body: unknown): Graph {
+  const parsed = graphSchema.safeParse(body);
+  if (!parsed.success || !Object.keys(parsed.data).length) throw bad("This does not look like a ComfyUI workflow. Use the file ComfyUI saves, or one saved with Export (API).");
+  return parsed.data as Graph;
+}
+
+/** Every place the mapping points at must exist in the workflow. */
+function checkBindings(graph: Graph, b: Bindings): void {
+  const at = (what: string, t: { node: string; input: string } | undefined) => {
+    if (t && !(t.input in (graph[t.node]?.inputs ?? {}))) throw bad(`${what} points at node ${t.node}, input "${t.input}", which is not in the workflow`);
+  };
+  at("The prompt", b.prompt);
+  at("What to avoid", b.negative);
+  b.seeds.forEach((s) => at("A seed", s));
+  at("The width", b.size?.width);
+  at("The height", b.size?.height);
+  at("The length", b.length?.target);
+  at("The opening picture", b.startImage?.target);
+  at("The ending picture", b.endImage?.target);
+  b.controls.forEach((c) => at(`The control "${c.label}"`, c.target));
+  if (!graph[b.result.node]) throw bad(`the result points at node ${b.result.node}, which is not in the workflow`);
+  for (const p of b.loras) if (!graph[p.node]) throw bad(`LoRAs point at node ${p.node}, which is not in the workflow`);
+  for (const t of b.toggles) for (const e of t.effects) for (const n of e.nodes) if (!graph[n]) throw bad(`the switch "${t.label}" points at node ${n}, which is not in the workflow`);
+  for (const c of b.controls) if (isRef(graph[c.target.node]!.inputs[c.target.input])) throw bad(`the control "${c.label}" points at an input that is linked, not typed in`);
+  const ids = [...b.controls.map((c) => c.id), ...b.toggles.map((t) => t.id)];
+  if (new Set(ids).size !== ids.length) throw bad("two controls have the same id");
+}
+
+const brief = (d: WorkflowDef) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length });
+
+export function registerWorkflows(app: FastifyInstance, s: Services): void {
+  /**
+   * What studai finds in a workflow, before anything is saved. Takes the file ComfyUI's editor saves, a
+   * workflow saved with Export (API), or one studai already holds. Reads ComfyUI's node list, nothing else.
+   * The answer carries the workflow in the form studai keeps: that is what gets saved.
+   */
+  app.post("/api/workflows/inspect", async (req) => {
+    const body = req.body;
+    // what the file is gets settled first: a file that is no workflow is refused without asking ComfyUI
+    const fromFile = isEditorFormat(body);
+    const held = !fromFile && body && typeof body === "object" && "graph" in body ? heldBody.safeParse(body) : null;
+    const exported = fromFile || held?.success ? null : mustBeWorkflow(body);
+    let catalog;
+    try {
+      catalog = await (await s.comfy()).catalog();
+    } catch (err) {
+      if (err instanceof ComfyUnreachable) throw bad("ComfyUI has to be running to read a workflow: its node list says what each setting is.", 503);
+      throw err;
+    }
+    if (fromFile) {
+      const read = fromEditor(body, catalog);
+      if (!Object.keys(read.graph).length) throw bad("No node that ComfyUI can run was found in this file.");
+      return { ...inspect(read.graph, catalog, read.wiring, read.notes), graph: read.graph, wiring: read.wiring };
+    }
+    if (held?.success) return { ...inspect(held.data.graph as Graph, catalog, held.data.wiring), graph: held.data.graph, wiring: held.data.wiring };
+    return { ...inspect(exported!, catalog), graph: exported };
+  });
+
+  app.get("/api/workflows", async () => ({ items: s.registry.workflows().map(brief) }));
+
+  /** The whole thing: for editing, and for sharing as a file. */
+  app.get<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
+    const def = s.registry.workflow(req.params.id);
+    if (!def) throw bad("this workflow was not found", 404);
+    return def;
+  });
+
+  app.post("/api/workflows", async (req) => {
+    const body = saveBody.parse(req.body);
+    checkBindings(body.graph as Graph, body.bindings);
+    // the id comes from the title and stays: generations and drafts refer to it
+    const base = `workflow.${slug(body.title)}`;
+    let id = base;
+    for (let n = 2; s.registry.recipe(id); n++) id = `${base}-${n}`;
+    const def = workflowDef.parse({ id, ...body });
+    await s.registry.save(def);
+    return brief(def);
+  });
+
+  app.put<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
+    const current = s.registry.workflow(req.params.id);
+    if (!current) throw bad("this workflow was not found", 404);
+    const body = saveBody.parse(req.body);
+    checkBindings(body.graph as Graph, body.bindings);
+    const def = workflowDef.parse({ id: current.id, ...body });
+    await s.registry.save(def);
+    return brief(def);
+  });
+
+  /** What was made with it stays in the library; drafts on it stay too, and say the workflow is gone. */
+  app.delete<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
+    if (!(await s.registry.remove(req.params.id))) throw bad("this workflow was not found", 404);
+    return { ok: true };
+  });
+}

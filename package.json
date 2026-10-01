@@ -1,0 +1,40 @@
+{
+  "name": "studai",
+  "private": true,
+  "version": "0.0.1",
+  "description": "A self-hosted studio for pictures, videos and timelines, in front of your own ComfyUI.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "packageManager": "pnpm@10.6.2",
+  "engines": {
+    "node": ">=22.16"
+  },
+  "scripts": {
+    "dev": "tsx watch apps/server/src/index.ts",
+    "dev:web": "vite apps/web",
+    "build": "vite build apps/web",
+    "start": "tsx apps/server/src/index.ts",
+    "demo": "tsx scripts/demo.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "check:graphs": "tsx scripts/check-graphs.ts",
+    "comfy:scan": "tsx scripts/comfy-scan.ts",
+    "comfy:load": "tsx scripts/comfy-load.ts",
+    "catalog:save": "tsx scripts/save-node-catalog.ts"
+  },
+  "devDependencies": {
+    "@studai/comfy": "workspace:*",
+    "@studai/core": "workspace:*",
+    "@studai/recipes": "workspace:*",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

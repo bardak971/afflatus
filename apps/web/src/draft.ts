@@ -1,0 +1,120 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type Draft } from "./api";
+import { useOpenDraft } from "./store";
+
+const SAVE_AFTER_MS = 500;
+
+/**
+ * The draft being worked on. Edits apply at once on screen and are saved to the server half a second
+ * after the last one; leaving the page or switching draft saves right away.
+ */
+export function useDraft(firstRecipe: string | undefined) {
+  const client = useQueryClient();
+  const { id: openId, open } = useOpenDraft();
+  const list = useQuery({ queryKey: ["drafts"], queryFn: api.drafts });
+  const loaded = useQuery({ queryKey: ["drafts", openId], queryFn: () => api.draft(openId!), enabled: Boolean(openId), retry: false, staleTime: Infinity });
+
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState<"saved" | "saving" | "failed">("saved");
+  const unsaved = useRef<Draft | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flush = useCallback(async () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    const d = unsaved.current;
+    if (!d) return;
+    unsaved.current = null;
+    try {
+      const saved = await api.saveDraft(d.id, { recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat });
+      client.setQueryData(["drafts", d.id], saved);
+      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      if (!unsaved.current) setSaving("saved");
+    } catch {
+      setSaving("failed");
+    }
+  }, [client]);
+
+  // what the server has replaces what is on screen only when another draft is opened
+  useEffect(() => {
+    if (loaded.data && loaded.data.id !== draft?.id) setDraft(loaded.data);
+  }, [loaded.data, draft?.id]);
+
+  // nothing open, or the open one is gone: take the most recent, or start the first one
+  const creating = useRef(false);
+  useEffect(() => {
+    if (!list.data) return;
+    if (openId && !loaded.isError) return;
+    const newest = list.data.items.find((d) => d.id !== openId);
+    if (newest) open(newest.id);
+    else if (firstRecipe && !creating.current) {
+      creating.current = true;
+      void api.createDraft({ recipe: firstRecipe }).then((d) => {
+        client.setQueryData(["drafts", d.id], d);
+        void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+        open(d.id);
+        creating.current = false;
+      });
+    }
+  }, [list.data, openId, loaded.isError, firstRecipe, open, client]);
+
+  // leaving the screen saves what is pending
+  useEffect(() => () => void flush(), [flush]);
+
+  const change = useCallback(
+    (edit: (d: Draft) => Draft) => {
+      setDraft((d) => {
+        if (!d) return d;
+        const next = edit(d);
+        unsaved.current = next;
+        return next;
+      });
+      setSaving("saving");
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => void flush(), SAVE_AFTER_MS);
+    },
+    [flush],
+  );
+
+  return {
+    draft,
+    drafts: list.data?.items ?? [],
+    saving,
+    setValue: (recipe: string, input: string, value: unknown) =>
+      change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], [input]: value } } })),
+    /** Drop what the draft holds for these inputs: they follow the defaults again. */
+    clearValues: (recipe: string, inputs: string[]) =>
+      change((d) => ({ ...d, forms: { ...d.forms, [recipe]: Object.fromEntries(Object.entries(d.forms[recipe] ?? {}).filter(([id]) => !inputs.includes(id))) } })),
+    setRecipe: (recipe: string) => change((d) => ({ ...d, recipe })),
+    setLook: (look: Draft["look"]) => change((d) => ({ ...d, look })),
+    setChat: (chat: unknown[]) => change((d) => ({ ...d, chat })),
+    /** Several inputs of one form at once (what the designer proposed). */
+    setValues: (recipe: string, values: Record<string, unknown>) => change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], ...values } } })),
+    /** A whole setup at once: the model, its form, who is in it. */
+    apply: (recipe: string, form: Record<string, unknown>, look: Draft["look"]) => change((d) => ({ ...d, recipe, forms: { ...d.forms, [recipe]: form }, look })),
+    setCount: (count: number) => change((d) => ({ ...d, count: Math.max(1, Math.min(8, count)) })),
+    async switchTo(id: string) {
+      await flush();
+      open(id);
+    },
+    async startNew() {
+      await flush();
+      const d = await api.createDraft({ recipe: draft?.recipe ?? firstRecipe! });
+      client.setQueryData(["drafts", d.id], d);
+      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      open(d.id);
+    },
+    async remove(id: string) {
+      if (unsaved.current?.id === id) unsaved.current = null;
+      await api.deleteDraft(id);
+      client.removeQueries({ queryKey: ["drafts", id] });
+      // the list first, so that what opens next is chosen among drafts that still exist
+      await client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      if (id === openId) {
+        setDraft(null);
+        open(null);
+      }
+    },
+  };
+}

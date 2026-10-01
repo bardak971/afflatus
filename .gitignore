@@ -1,0 +1,12 @@
+# session notes with a LAN address, disk paths and personal details: never published
+HANDOVER.md
+
+node_modules/
+dist/
+dist-demo/
+data/
+data-demo/
+*.log
+.env
+.env.*
+!.env.example

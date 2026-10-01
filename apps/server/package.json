@@ -1,0 +1,26 @@
+{
+  "name": "@studai/server",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.5",
+    "@studai/comfy": "workspace:*",
+    "@studai/core": "workspace:*",
+    "@studai/recipes": "workspace:*",
+    "@studai/workflows": "workspace:*",
+    "fastify": "^5.12.5",
+    "kysely": "^0.29.6",
+    "pg": "^8.23.1",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10"
+  }
+}

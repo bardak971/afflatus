@@ -1,0 +1,100 @@
+import { secondsOf } from "@studai/core";
+import type { Clip, RecipeInfo } from "../api";
+
+/** What the editor's parts share: how clips are laid out along the track, and a few words about them. */
+
+export const DRAG_CLIP = "application/x-studai-clip";
+
+/** The track is drawn to scale: this many pixels a second, within these limits. */
+export const ZOOM = { least: 12, most: 110, start: 40 };
+/** Space before the first clip, and the width of the "New clip" button after the last one. */
+export const PAD = 10;
+export const NEW_CLIP = 116;
+
+/** "0:03.4": a moment, to the tenth of a second. */
+export const stamp = (ms: number) => {
+  const t = Math.max(0, ms);
+  return `${Math.floor(t / 60000)}:${String(Math.floor((t % 60000) / 1000)).padStart(2, "0")}.${Math.floor((t % 1000) / 100)}`;
+};
+
+/** One clip as it is drawn: where it starts and how long it is, in time and in pixels. */
+export interface Slot {
+  clip: Clip;
+  index: number;
+  startMs: number;
+  lengthMs: number;
+  left: number;
+  width: number;
+  /** Nothing to play yet: it is drawn at the length it will have. */
+  planned: boolean;
+}
+
+/** How long a clip that is not rendered yet will be: the length its form asks for, or five seconds. */
+export function plannedMs(clip: Clip, recipe: RecipeInfo | undefined): number {
+  return Math.max(1000, ((recipe ? secondsOf(recipe.inputs, clip.inputs) : null) ?? 5) * 1000);
+}
+
+/**
+ * The clips side by side, each as wide as it is long. `stretch` replaces the length of one clip while
+ * its edge is being dragged.
+ */
+export function layout(clips: Clip[], pps: number, recipes: RecipeInfo[], stretch?: { clip: string; lengthMs: number }): Slot[] {
+  let at = 0;
+  return clips.map((clip, index) => {
+    const planned = clip.lengthMs <= 0;
+    const lengthMs = stretch?.clip === clip.id ? stretch.lengthMs : planned ? plannedMs(clip, recipes.find((r) => r.id === clip.recipe)) : clip.lengthMs;
+    const slot = { clip, index, startMs: at, lengthMs, left: PAD + (at / 1000) * pps, width: (lengthMs / 1000) * pps, planned };
+    at += lengthMs;
+    return slot;
+  });
+}
+
+/** Where the playhead is drawn for a moment of what plays, and which clip it is in. */
+export function placeOf(slots: Slot[], playMs: number): { slot: Slot; x: number; layoutMs: number } | null {
+  const playable = slots.filter((s) => !s.planned);
+  const slot = playable.find((s) => playMs >= s.clip.atMs && playMs < s.clip.atMs + s.clip.lengthMs) ?? playable.at(-1);
+  if (!slot) return null;
+  const local = Math.max(0, Math.min(slot.clip.lengthMs, playMs - slot.clip.atMs));
+  const part = slot.clip.lengthMs ? local / slot.clip.lengthMs : 0;
+  return { slot, x: slot.left + part * slot.width, layoutMs: slot.startMs + part * slot.lengthMs };
+}
+
+/** The moment of what plays under a point of the track. Over a clip that is not rendered: where it would start. */
+export function playAt(slots: Slot[], x: number): number {
+  const slot = slots.find((s) => x < s.left + s.width) ?? slots.at(-1);
+  if (!slot) return 0;
+  if (slot.planned) return slot.clip.atMs;
+  const part = Math.max(0, Math.min(1, (x - slot.left) / Math.max(1, slot.width)));
+  return slot.clip.atMs + part * slot.clip.lengthMs;
+}
+
+/** A clip's name on the track: the start of what happens in it, or what it is. */
+export function titleOf(clip: Clip, recipe: RecipeInfo | undefined): string {
+  if (clip.kind === "still") return clip.still?.name || "Picture";
+  const main = recipe?.inputs.find((i) => i.type === "prompt");
+  const text = main ? String(clip.inputs[main.id] ?? "").trim() : "";
+  return text || (recipe ? "New clip" : clip.take?.asset.name || "Your video");
+}
+
+export type Shape = "tall" | "wide" | "square";
+export const shapeOf = (width: number, height: number): Shape => (Math.abs(width / height - 1) < 0.04 ? "square" : width > height ? "wide" : "tall");
+/** The frames a timeline can be given by name. A model fits its own size inside them. */
+export const SHAPES: Record<Shape, { label: string; width: number; height: number }> = {
+  tall: { label: "Tall", width: 576, height: 1024 },
+  wide: { label: "Wide", width: 1024, height: 576 },
+  square: { label: "Square", width: 768, height: 768 },
+};
+
+/** Whether what a clip shows has another shape than the timeline's frame (it is then shown with bars, or fills it). */
+export function otherShape(clip: Clip, frame: { width: number | null; height: number | null }): boolean {
+  const a = clip.kind === "still" ? clip.still : clip.take?.asset;
+  if (!a?.width || !a.height || !frame.width || !frame.height) return false;
+  return Math.abs(a.width / a.height - frame.width / frame.height) > 0.03;
+}
+
+/** The recipe inputs that hold a clip's pictures: the one it opens on, the one it ends on, one it passes through (with the input that says when). */
+export function pinInputs(recipe: RecipeInfo | undefined) {
+  const find = (role: "start" | "end" | "mid") => recipe?.inputs.find((i) => i.type === "image" && i.role === role);
+  const mid = find("mid");
+  return { start: find("start")?.id, end: find("end")?.id, mid: mid?.type === "image" && mid.at ? mid.id : undefined, midAt: mid?.type === "image" ? mid.at : undefined };
+}

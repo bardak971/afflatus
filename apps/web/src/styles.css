@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@import "@fontsource-variable/instrument-sans";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* The palette of the mockups. One dark theme: this is a media tool. */
+@theme {
+  --font-sans: "Instrument Sans Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --color-ground: #0f1114;
+  --color-panel: #16191e;
+  --color-raised: #1d2127;
+  --color-hover: #262b33;
+  --color-line: #2a3038;
+  --color-line-strong: #3a424e;
+  --color-ink: #e9ecf1;
+  --color-ink-2: #a3acb9;
+  --color-ink-3: #7d8794;
+  --color-accent: #f5c451;
+  --color-accent-ink: #1b1503;
+  --color-accent-wash: #211d10;
+  --color-good: #5ad6bd;
+  --color-warn: #ff8a5c;
+  --color-warn-wash: #2a1a12;
+  --color-warn-ink: #ffb79c;
+  --color-picture: #86aeff;
+}
+
+html {
+  color-scheme: dark;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.35;
+}
+button,
+a {
+  cursor: pointer;
+}
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+input[type="range"] {
+  accent-color: var(--color-accent);
+}
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}

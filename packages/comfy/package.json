@@ -1,0 +1,18 @@
+{
+  "name": "@studai/comfy",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "dependencies": {
+    "@studai/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "ws": "^8.18.0"
+  }
+}

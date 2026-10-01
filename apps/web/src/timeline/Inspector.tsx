@@ -1,0 +1,423 @@
+import { useMemo, useState } from "react";
+import { Link } from "wouter";
+import { ImagePlus, Link2, Music, Repeat, Scissors, Trash2, X } from "lucide-react";
+import { thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
+import { useEntities, useRecipes, useSetup } from "../data";
+import { WritingHelp } from "../Designer";
+import { LookBar, lookWords } from "../LookBar";
+import { about, clock, phaseLabel, recipeLabel } from "../format";
+import { Picker } from "../PictureField";
+import { Form } from "../screens/Create";
+import { Select } from "../Select";
+import { Bar, Button, cx, ErrorNote, NumberBox, SectionTitle, Segmented, Toggle } from "../ui";
+import { otherShape, pinInputs, shapeOf } from "./model";
+
+/** A slider that says its value while it moves and saves it when it is let go. */
+function Slide({ label, value, min = 0, max, step = 1, show, onCommit }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void }) {
+  const [local, setLocal] = useState<number | null>(null);
+  const shown = local ?? value;
+  const commit = () => {
+    if (local !== null && local !== value) onCommit(local);
+    setLocal(null);
+  };
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="flex items-baseline justify-between">
+        <span>{label}</span>
+        <span className="font-mono text-ink-2">{show(shown)}</span>
+      </span>
+      <input type="range" min={min} max={max} step={step} value={shown} onChange={(e) => setLocal(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} onBlur={commit} className="w-full" />
+    </label>
+  );
+}
+
+/** The music's own panel: one sound under the whole video. */
+export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(patch: TimelinePatch): void }) {
+  const m = timeline.music;
+  const [picking, setPicking] = useState(false);
+  if (!m) return null;
+  return (
+    <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
+        <Music size={15} className="text-accent" />
+        <span className="font-semibold">Music</span>
+        <span className="min-w-0 truncate text-ink-2">{m.asset.name || "a sound"}{m.asset.durationMs ? ` · ${clock(m.asset.durationMs)}` : ""}</span>
+      </div>
+      <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
+        <span className="text-ink-2">Plays under the whole video. Drop another sound on the music row to replace it.</span>
+        <Slide label="Volume" value={m.volume} max={100} show={(v) => `${v}%`} onCommit={(volume) => onEdit({ music: { volume } })} />
+        <Slide label="Fades in over" value={m.fadeInMs} max={10_000} step={500} show={(v) => `${(v / 1000).toFixed(1)} s`} onCommit={(fadeInMs) => onEdit({ music: { fadeInMs } })} />
+        <Slide label="Fades out over" value={m.fadeOutMs} max={10_000} step={500} show={(v) => `${(v / 1000).toFixed(1)} s`} onCommit={(fadeOutMs) => onEdit({ music: { fadeOutMs } })} />
+        <Toggle on={m.duck} onChange={(duck) => onEdit({ music: { duck } })} label="Quieter while people talk" note="heard in the exported video" />
+        {m.asset.durationMs && m.asset.durationMs < timeline.durationMs ? <span className="text-xs text-ink-2">It is shorter than the video: it stops at {clock(m.asset.durationMs)}.</span> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => setPicking(true)}>Choose another sound</Button>
+          <Button size="sm" onClick={() => onEdit({ music: { asset: null } })}><Trash2 size={13} /> Remove the music</Button>
+        </div>
+      </div>
+      {picking && <Picker title="Music" kind="audio" onClose={() => setPicking(false)} onPick={(asset) => { onEdit({ music: { asset } }); setPicking(false); }} />}
+    </aside>
+  );
+}
+
+/** The selected clip: how it starts, its takes, its sound, its pictures and its form. */
+export function Inspector({ timeline, clip, index, recipes, stored, why, takes, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onLoop, onPreview, onDesigner }: {
+  timeline: Timeline;
+  clip: Clip;
+  index: number;
+  recipes: RecipeInfo[];
+  /** The clip's form: what was touched. */
+  stored: Record<string, unknown>;
+  /** Why it cannot be rendered right now, in a sentence. */
+  why: string | null;
+  /** About how long a render of it takes, in words ("about 40 s"); empty when nothing like it was rendered yet. */
+  takes: string;
+  running: RunningJob | null;
+  busy: boolean;
+  error: string | null;
+  onInputs(next: Record<string, unknown>): void;
+  onRecipe(id: string): void;
+  onPatch(patch: ClipPatch): void;
+  onRender(fit: boolean): void;
+  onRemove(): void;
+  onRemoveTake(id: string): void;
+  /** Make the clip end where it begins: on its opening picture, or on the first frame of its take. */
+  onLoop(): void;
+  /** A take is hovered: show it in the player without choosing it. */
+  onPreview(take: Take | null): void;
+  /** Open the designer for this clip. */
+  onDesigner(): void;
+}) {
+  const all = useRecipes();
+  const setup = useSetup();
+  const entities = useEntities();
+  const [fit, setFit] = useState(true);
+  const [removing, setRemoving] = useState(false);
+  const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
+  const recipe = recipes.find((r) => r.id === clip.recipe) ?? all.data?.recipes.find((r) => r.id === clip.recipe);
+  const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
+  const before = index > 0 ? timeline.clips[index - 1] : undefined;
+  const after = timeline.clips[index + 1];
+  const still = clip.kind === "still";
+  const carries = Boolean(before) && clip.joined === "continue" && !still;
+  const canCarry = Boolean(recipe?.traits?.continues) || (before?.kind === "still" && Boolean(pinInputs(recipe).start));
+  const pins = pinInputs(recipe);
+  const opens = !carries && pins.start && typeof stored[pins.start] === "string" ? (stored[pins.start] as string) : null;
+  const ends = pins.end && typeof stored[pins.end] === "string" ? (stored[pins.end] as string) : null;
+  const through = pins.mid && typeof stored[pins.mid] === "string" ? (stored[pins.mid] as string) : null;
+  const midSpec = recipe?.inputs.find((i) => i.id === pins.midAt);
+  // what the timeline fills in itself is not asked for in the form: the clips it joins onto, and its pinned pictures (shown above it)
+  const form = useMemo(
+    () => (recipe ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && !(i.type === "image" && (i.role === "start" || i.role === "end" || i.role === "mid")) && i.id !== pins.midAt) } : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [recipe],
+  );
+  const canFit = Boolean(recipe?.traits?.endAnchor && after?.take && after.joined === "continue");
+  const take = clip.take;
+  const loops = Boolean(ends && (ends === opens));
+  /** How much of the take can play at most: its video without the parts it shares with its neighbours. */
+  const room = take ? (take.asset.durationMs ?? 0) - take.headMs - take.tailMs : 0;
+  const without = (id: string | undefined) => Object.fromEntries(Object.entries(stored).filter(([k]) => k !== id));
+  const shapes = { tall: "tall", wide: "wide", square: "square" } as const;
+  const shown = still ? clip.still : take?.asset;
+  const misfit = otherShape(clip, timeline) && shown?.width && shown.height && timeline.width && timeline.height
+    ? `This ${still ? "picture" : "clip"} is ${shapes[shapeOf(shown.width, shown.height)]}, the video is ${shapes[shapeOf(timeline.width, timeline.height)]}.`
+    : null;
+  const hasOwn = Boolean(take?.asset.hasSound);
+  const heard = clip.sound === "file" ? "file" : clip.sound === "muted" && hasOwn ? "muted" : "own";
+
+  return (
+    <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
+        <span className="font-semibold">{still ? "Picture" : "Clip"} {index + 1}</span>
+        <span className="text-ink-2">{clip.lengthMs ? `${(clip.lengthMs / 1000).toFixed(1)} s` : "not rendered yet"}</span>
+        <span className="grow" />
+        {removing ? (
+          <>
+            <span className="text-xs text-ink-2">{still ? "The picture stays in your library." : "Its videos stay in your library."}</span>
+            <button type="button" onClick={onRemove} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-[#2a0e00]">Remove</button>
+            <button type="button" onClick={() => setRemoving(false)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
+          </>
+        ) : (
+          <button type="button" aria-label="Remove it from the timeline" title="Remove it from the timeline" onClick={() => setRemoving(true)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+            <Trash2 size={15} />
+          </button>
+        )}
+      </div>
+
+      <div className="flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4">
+        {still && clip.still && (
+          <>
+            <img src={thumbUrl(clip.still.id)} alt={clip.still.name} className="max-h-56 self-start rounded-lg" />
+            <span className="text-ink-2">A picture held on screen.</span>
+            <span><Button onClick={() => onPatch({ animate: true })}>Turn this picture into a video clip</Button></span>
+          </>
+        )}
+
+        {before && !still && (
+          <div className={cx("flex flex-col gap-2 rounded-lg border p-3", clip.join === "stale" ? "border-warn bg-warn-wash" : "border-line")}>
+            {clip.join === "stale" ? (
+              <>
+                <span className="font-semibold text-warn-ink">This clip no longer follows clip {index}</span>
+                <span className="text-xs text-ink-2">Clip {index} changed after this one was made, so {before.kind === "still" ? "it does not open on that picture" : "the motion jumps between them"}.</span>
+                <span className="flex flex-wrap gap-1.5">
+                  {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(fit)}>Redo it{takes ? ` · ${takes}` : ""}</Button>}
+                  <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
+                </span>
+              </>
+            ) : carries ? (
+              <>
+                <span className="flex items-center gap-2 font-semibold"><Link2 size={14} className="text-accent" /> {take ? "Flows on" : "Will flow on"} from clip {index}</span>
+                <span className="text-xs text-ink-2">
+                  {!canCarry
+                    ? "The model of this clip cannot continue another clip: it will start on its own."
+                    : before.kind === "still"
+                      ? `It opens on the picture of clip ${index}.`
+                      : recipe?.traits?.continues === "clip"
+                        ? `It opens on the last moments of clip ${index}: the motion and the voices continue across the join.`
+                        : `It opens on the last frame of clip ${index}.`}
+                </span>
+                <span><Button size="sm" onClick={() => onPatch({ joined: "cut" })}><Scissors size={13} /> Make it start on its own</Button></span>
+              </>
+            ) : (
+              <>
+                <span className="flex items-center gap-2 font-semibold"><Scissors size={14} className="text-ink-2" /> Starts on its own</span>
+                <span className="text-xs text-ink-2">A cut: nothing ties it to clip {index}.</span>
+                {canCarry && <span><Button size="sm" onClick={() => onPatch({ joined: "continue" })}><Link2 size={13} /> Make it flow on from clip {index}</Button></span>}
+              </>
+            )}
+          </div>
+        )}
+
+        {clip.failed && !clip.job && <ErrorNote>The last render gave nothing: {clip.failed}</ErrorNote>}
+
+        {misfit && (
+          <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+            <span>{misfit} {clip.fill ? "It fills the frame: its edges are cut off." : "It is shown whole, with bars."}</span>
+            <Toggle on={clip.fill} onChange={(fill) => onPatch({ fill })} label="Fill the frame" />
+          </div>
+        )}
+
+        {clip.takes.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <SectionTitle>Takes</SectionTitle>
+            <div className="flex flex-wrap gap-2">
+              {clip.takes.map((t, i) => {
+                const on = t.id === take?.id;
+                return (
+                  <div key={t.id} className="relative" onMouseEnter={() => !on && onPreview(t)} onMouseLeave={() => onPreview(null)}>
+                    <button
+                      type="button"
+                      aria-pressed={on}
+                      aria-label={on ? `Take ${i + 1}, the one that plays` : `Play take ${i + 1} instead`}
+                      onFocus={() => !on && onPreview(t)}
+                      onBlur={() => onPreview(null)}
+                      onClick={() => {
+                        onPreview(null);
+                        if (!on) onPatch({ take: t.id });
+                      }}
+                      className="flex w-[68px] flex-col gap-1 text-left"
+                    >
+                      <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
+                      <span className={cx("text-[11px]", on ? "font-semibold text-accent" : "text-ink-2")}>{on ? "plays" : `take ${i + 1}`}</span>
+                    </button>
+                    <button type="button" aria-label={`Remove take ${i + 1}`} title="Remove this take. Its video stays in your library." onClick={() => onRemoveTake(t.id)} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/80 text-ink-2 hover:text-ink">
+                      <X size={11} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <span className="text-xs text-ink-3">{clip.takes.length > 1 ? "Hover a take to preview it, click to make it play." : "Each render adds a take. The one you pick plays."}</span>
+          </div>
+        )}
+
+        {(still || take) && (
+          <div className="flex flex-col gap-2">
+            <SectionTitle>Length</SectionTitle>
+            {still ? (
+              <div className="flex items-center justify-between gap-3">
+                <span>Held on screen for</span>
+                <NumberBox label="How long the picture is held, in seconds" value={clip.lengthMs / 1000} min={0.5} max={60} step={0.1} unit="s" onCommit={(v) => onPatch({ stillMs: Math.round(v * 1000) })} />
+              </div>
+            ) : take ? (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Plays <span className="text-ink-2">of {(room / 1000).toFixed(1)} s</span></span>
+                  <NumberBox label="How long the clip plays, in seconds" value={clip.lengthMs / 1000} min={0.3} max={Math.max(0.3, (room - take.trimStartMs) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ trimEndMs: Math.max(0, room - take.trimStartMs - Math.round(v * 1000)) })} />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Skips its first</span>
+                  <NumberBox label="How much is cut from the start, in seconds" value={take.trimStartMs / 1000} min={0} max={Math.max(0, (room - take.trimEndMs - 300) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ trimStartMs: Math.round(v * 1000) })} />
+                </div>
+                {(take.trimStartMs > 0 || take.trimEndMs > 0) && <span><Button size="sm" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Put the whole clip back</Button></span>}
+              </>
+            ) : null}
+            <span className="text-xs text-ink-3">
+              {still ? "Or drag its edge on the timeline." : `Or drag the clip's edges on the timeline. This shortens what plays${recipe ? "; to make the clip itself longer, change Length below and make a new take" : ""}.`}
+            </span>
+          </div>
+        )}
+
+        {recipe && !still && (pins.start || pins.end) && (
+          <div className="flex flex-col gap-2">
+            <SectionTitle>Pictures pinned to a moment</SectionTitle>
+            {[{ where: "start" as const, id: opens, input: pins.start, text: "Opens on this picture" }, { where: "end" as const, id: ends, input: pins.end, text: loops ? "Ends on the same picture: it loops" : "Ends on this picture" }].map((p) =>
+              p.id ? (
+                <div key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
+                  <img src={thumbUrl(p.id)} alt="" className="h-11 w-11 rounded-md object-cover" />
+                  <span className="grow">{p.text}</span>
+                  <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
+                  <button type="button" aria-label="Remove this pinned picture" onClick={() => onInputs(without(p.input))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+                </div>
+              ) : null,
+            )}
+            {through && pins.mid && pins.midAt && (
+              <div className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
+                <img src={thumbUrl(through)} alt="" className="h-11 w-11 rounded-md object-cover" />
+                <span className="grow">Passes through it at</span>
+                <NumberBox label="When the clip passes through this picture, in seconds" value={Number(stored[pins.midAt] ?? (midSpec?.type === "number" ? midSpec.default : 2.5))} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
+                <button type="button" aria-label="Remove this pinned picture" onClick={() => onInputs(without(pins.mid))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-1.5">
+              {pins.start && !carries && !opens && <Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> Opening picture</Button>}
+              {pins.mid && !through && <Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> A picture on the way</Button>}
+              {pins.end && !ends && <Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Ending picture</Button>}
+              {pins.end && !loops && (
+                <Button
+                  size="sm"
+                  disabled={!opens && !take}
+                  title={opens ? "The clip will end on the picture it opens on, so it can be played round and round." : take ? "The clip will end on its own first frame, so it can be played round and round." : "Give the clip an opening picture first, or render it once: a loop ends where the clip begins."}
+                  onClick={onLoop}
+                >
+                  <Repeat size={13} /> Make it loop
+                </Button>
+              )}
+            </div>
+            <span className="text-xs text-ink-3">
+              {carries && pins.start ? `It flows on from clip ${index}, so it needs no opening picture. ` : ""}
+              Or drop a picture on the clip: near its start to open on it, near its end to end on it{pins.mid ? ", in the middle to pass through it" : ""}.
+              {take ? " A pinned picture counts from the next take." : ""}
+            </span>
+          </div>
+        )}
+
+        {!still && (
+          <>
+            {!recipe && take && (
+              <div className="rounded-lg bg-raised px-3 py-2.5 text-ink-2">
+                A video file you added. It can be shortened, and a new clip can continue from any of its frames. It cannot be rendered again, unless you choose what to render in its place:
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5">
+              <div className="text-xs font-semibold">Made with</div>
+              <Select
+                label="Made with"
+                value={recipe?.id ?? ""}
+                onChange={onRecipe}
+                placeholder={recipes.length ? "Choose what renders this clip" : "No video model yet: import a workflow"}
+                options={recipes.map((r) => ({ value: r.id, label: recipeLabel(all.data?.families.find((f) => f.id === r.family)?.name, r.title), detail: r.summary }))}
+              />
+            </div>
+            {recipe && (
+              <div className="flex flex-col gap-1.5">
+                {clip.look === null ? (
+                  <>
+                    <div className="text-xs font-semibold">Cast and places</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{lookWords(timeline.look, entities.data?.items ?? []) || "Nobody yet"}</span>
+                      <span className="text-xs text-ink-2">from the timeline</span>
+                      <Button size="sm" onClick={() => onPatch({ look: timeline.look ?? { cast: [], style: null } })}>Change for this clip</Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <LookBar title="Cast and places, for this clip only" look={clip.look} onChange={(look) => onPatch({ look })} recipe={recipe} input={stored} />
+                    <span><Button size="sm" onClick={() => onPatch({ look: null })}>Use the timeline's again</Button></span>
+                  </>
+                )}
+              </div>
+            )}
+            {form && (() => {
+              const main = form.inputs.find((i) => i.type === "prompt" && !i.optional) ?? form.inputs.find((i) => i.type === "prompt");
+              const written = main ? String(stored[main.id] ?? "") : "";
+              return (
+                <WritingHelp
+                  recipe={form}
+                  text={written}
+                  onDesigner={onDesigner}
+                  onInsert={(snippet) => main && onInputs({ ...stored, [main.id]: written.trim() ? `${written.trim()}${main.type === "prompt" && main.style === "tags" ? ", " : " "}${snippet}` : snippet })}
+                />
+              );
+            })()}
+            {form && (
+              <Form
+                key={`${clip.id}:${form.id}`}
+                recipe={form}
+                status={status}
+                stored={stored}
+                onChange={(input, value) => onInputs({ ...stored, [input]: value })}
+                onClear={(inputs) => onInputs(Object.fromEntries(Object.entries(stored).filter(([k]) => !inputs.includes(k))))}
+              />
+            )}
+          </>
+        )}
+        {(take || still) && (
+          <div className="flex flex-col gap-2">
+            <SectionTitle>Sound</SectionTitle>
+            <Segmented
+              label="What is heard"
+              value={heard}
+              options={[{ value: "own", label: still ? "Silent" : hasOwn ? "Its own" : "Silent" }, { value: "file", label: "A sound file" }, ...(hasOwn ? [{ value: "muted" as const, label: "Muted" }] : [])]}
+              onChange={(v) => (v === "file" ? (clip.soundAsset ? onPatch({ sound: "file" }) : setPicking("sound")) : onPatch({ sound: v }))}
+            />
+            {heard === "file" && clip.soundAsset && (
+              <div className="flex items-center gap-2 rounded-lg border border-line bg-raised py-1.5 pr-1.5 pl-3">
+                <Music size={13} className="shrink-0 text-ink-2" />
+                <span className="min-w-0 grow truncate">{clip.soundAsset.name || "A sound"}</span>
+                <Button size="sm" onClick={() => setPicking("sound")}>Change</Button>
+              </div>
+            )}
+            {(heard === "file" || (heard === "own" && hasOwn)) && <Slide label="Volume" value={clip.volume} max={100} show={(v) => `${v}%`} onCommit={(volume) => onPatch({ volume })} />}
+            {!still && !hasOwn && heard !== "file" && <span className="text-xs text-ink-2">This clip has no sound of its own. Drop a sound on it, or choose a sound file.</span>}
+          </div>
+        )}
+
+      </div>
+
+      {recipe && !still && (
+        <div className="flex shrink-0 flex-col gap-2 border-t border-line p-4">
+          {error && <ErrorNote>{error}</ErrorNote>}
+          {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href="/setup" className="font-semibold underline">Open Setup</Link> : null}</div>}
+          {canFit && <Toggle on={fit} onChange={setFit} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />}
+          {clip.job ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between">
+                <span className="font-semibold">{running ? phaseLabel(running.phase) : "Waiting for its turn"}</span>
+                <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${about(running.eta)}` : ""}</span>
+              </div>
+              <Bar value={(running?.progress ?? 0) * 100} />
+            </div>
+          ) : (
+            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit)}>
+              {busy ? "Sending…" : `${take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {picking === "sound" && <Picker title={`Sound of clip ${index + 1}`} kind="audio" onClose={() => setPicking(null)} onPick={(soundAsset) => { onPatch({ soundAsset }); setPicking(null); }} />}
+      {(picking === "start" || picking === "end" || picking === "mid") && (
+        <Picker
+          title={picking === "start" ? "Opening picture" : picking === "end" ? "Ending picture" : "A picture the clip passes through"}
+          onClose={() => setPicking(null)}
+          onPick={(asset) => {
+            onInputs({ ...stored, [pins[picking]!]: asset });
+            setPicking(null);
+          }}
+        />
+      )}
+    </aside>
+  );
+}

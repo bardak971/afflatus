@@ -1,0 +1,103 @@
+import type { ReactNode } from "react";
+import { Link, Route, Switch, useLocation } from "wouter";
+import { Film, LayoutGrid, ListOrdered, Plus, Settings2, Users, Workflow } from "lucide-react";
+import { useQueue } from "./data";
+import { DropTray } from "./DropTray";
+import { about, phaseLabel } from "./format";
+import { useLiveEvents } from "./live";
+import { Create } from "./screens/Create";
+import { Library } from "./screens/Library";
+import { People } from "./screens/People";
+import { Queue } from "./screens/Queue";
+import { Setup } from "./screens/Setup";
+import { TimelineEditor } from "./screens/TimelineEditor";
+import { Timelines } from "./screens/Timelines";
+import { Workflows } from "./screens/Workflows";
+import { useSystem } from "./store";
+import { Bar, cx } from "./ui";
+
+const NAV: Array<{ href: string; label: string; icon: ReactNode }> = [
+  { href: "/", label: "Library", icon: <LayoutGrid size={18} /> },
+  { href: "/create", label: "Create", icon: <Plus size={18} /> },
+  { href: "/timelines", label: "Timelines", icon: <Film size={18} /> },
+  { href: "/people", label: "People", icon: <Users size={18} /> },
+  { href: "/workflows", label: "Workflows", icon: <Workflow size={18} /> },
+  { href: "/queue", label: "Queue", icon: <ListOrdered size={18} /> },
+  { href: "/setup", label: "Setup", icon: <Settings2 size={18} /> },
+];
+
+/** The strip at the bottom of every screen: what is rendering, and how the GPU is doing. */
+function Strip() {
+  const queue = useQueue();
+  const load = useSystem((s) => s.load);
+  const gpu = load?.gpus[0];
+  const run = queue.data?.running;
+  return (
+    <footer className="flex h-10 shrink-0 items-center gap-3.5 border-t border-line bg-panel px-4 text-xs">
+      <span className={cx("h-2 w-2 rounded-full", run ? "bg-accent" : queue.data?.online === false ? "bg-warn" : "bg-ink-3")} />
+      {run ? (
+        <>
+          <span className="font-semibold">{run.label}</span>
+          <span className="text-ink-2">{phaseLabel(run.phase)}{run.steps ? ` · step ${run.step} of ${run.steps}` : ""}{run.eta ? ` · ${about(run.eta)}` : ""}</span>
+          <span className="w-44"><Bar value={run.progress * 100} /></span>
+        </>
+      ) : (
+        <span className="text-ink-2">
+          {queue.data?.online === false ? "ComfyUI is not answering" : queue.data?.paused ? "The queue is paused" : "Nothing rendering"}
+        </span>
+      )}
+      <span className="grow" />
+      {gpu && (
+        <span className="font-mono text-ink-2">
+          {gpu.load !== undefined && `GPU ${Math.round(gpu.load)}% · `}memory {Math.round(gpu.vramPercent)}%
+          {gpu.temperature !== undefined && <> · <span className={cx(gpu.temperature >= 80 && "text-warn-ink")}>{Math.round(gpu.temperature)}°</span></>}
+        </span>
+      )}
+      {queue.data && queue.data.waiting.length > 0 && <span className="text-ink-2">{queue.data.waiting.length} waiting</span>}
+      <Link href="/queue" className="inline-flex h-7 items-center rounded-md border border-line-strong px-2.5 font-semibold">Open the queue</Link>
+    </footer>
+  );
+}
+
+export function App() {
+  useLiveEvents();
+  const [path] = useLocation();
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex min-h-0 grow">
+        <nav aria-label="Main" className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-3">
+          <div className="flex h-9 items-center text-[15px] font-bold tracking-tight">studai</div>
+          {NAV.map((n) => {
+            const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                aria-current={on ? "page" : undefined}
+                className={cx("flex h-14 w-16 flex-col items-center justify-center gap-1 rounded-[10px] text-[11px] font-semibold", on ? "bg-hover text-white" : "text-ink-2 hover:text-ink")}
+              >
+                {n.icon}
+                {n.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <Switch>
+          <Route path="/" component={Library} />
+          <Route path="/create" component={Create} />
+          <Route path="/people" component={People} />
+          <Route path="/timelines" component={Timelines} />
+          <Route path="/timelines/:id" component={TimelineEditor} />
+          <Route path="/workflows" component={Workflows} />
+          <Route path="/queue" component={Queue} />
+          <Route path="/setup" component={Setup} />
+          <Route>
+            <div className="p-8 text-ink-2">There is no such page. <Link href="/" className="underline">Back to the library</Link></div>
+          </Route>
+        </Switch>
+      </div>
+      <Strip />
+      <DropTray />
+    </div>
+  );
+}

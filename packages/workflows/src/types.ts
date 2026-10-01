@@ -1,0 +1,156 @@
+import { z } from "zod";
+
+/**
+ * A workflow recipe: a ComfyUI workflow in API format, plus a mapping that says which of its node
+ * inputs studai fills in. It is plain data (two things a user can export and share), with no code.
+ */
+
+/** One input of one node of the workflow. */
+export const target = z.object({ node: z.string(), input: z.string() });
+export type Target = z.infer<typeof target>;
+
+/** What the two positions of a switch are called, when it chooses between two things ("I2V" or "FLF2V"). */
+export const captions = z.object({ on: z.string(), off: z.string() });
+
+/**
+ * Workflow authors name such a switch "X: True = A | False = B". That reads badly on a form: the name
+ * and the two captions are taken apart.
+ */
+export function splitCaptions(label: string): { label: string; captions?: { on: string; off: string } } {
+  const m = /^(.*?)[\s:–-]*\btrue\s*=\s*(.+?)\s*\|\s*false\s*=\s*(.+)$/i.exec(label);
+  return m ? { label: m[1]!.trim() || "Mode", captions: { on: m[2]!.trim(), off: m[3]!.trim() } } : { label };
+}
+
+/** A setting of the workflow shown as a control. Its kind and range were read from ComfyUI when it was imported. */
+export const control = z.object({
+  /** Stable within the recipe: used as the input id ("ctl_<node>_<input>"). */
+  id: z.string(),
+  label: z.string(),
+  target,
+  kind: z.enum(["number", "toggle", "choice", "text"]),
+  /** The value the workflow was exported with: the control's default. */
+  default: z.union([z.number(), z.boolean(), z.string()]),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().optional(),
+  /** A choice among files or names offered by this node input on the user's ComfyUI. */
+  choices: z.object({ node: z.string(), input: z.string() }).optional(),
+  /** A file on disk (a model): its availability is part of the setup check. */
+  file: z.boolean().optional(),
+  /** For a yes/no control that is a choice between two named things. */
+  captions: captions.optional(),
+  /** Other inputs that hold the same setting: they get the same value. */
+  also: z.array(target).optional(),
+  /** Shown with the main inputs instead of under "All settings": a control the workflow's author made on purpose. */
+  front: z.boolean().optional(),
+});
+export type Control = z.infer<typeof control>;
+
+/** How a node is switched off: bypassed (what goes in comes straight out) or muted (nothing comes out). */
+export const mode = z.enum(["bypass", "mute"]);
+export type Mode = z.infer<typeof mode>;
+
+/**
+ * An on/off switch for parts of the workflow. ComfyUI only has these in its editor: an exported
+ * workflow has them frozen. They exist here when the workflow was imported from the editor's own file.
+ */
+export const toggle = z.object({
+  /** Stable within the recipe: used as the input id ("sw_<node>"). */
+  id: z.string(),
+  label: z.string(),
+  /** How the switch was set in the file. */
+  default: z.boolean(),
+  captions: captions.optional(),
+  /** The nodes it switches: active when the switch has the value `activeWhen`, otherwise off in the given way. */
+  effects: z.array(z.object({ nodes: z.array(z.string()), activeWhen: z.boolean(), mode })),
+  /** Places in the workflow that read the same on/off value. */
+  writes: z.array(target).default([]),
+  front: z.boolean().optional(),
+});
+export type Toggle = z.infer<typeof toggle>;
+
+/**
+ * What the editor's file knows and an exported workflow has lost: which nodes are switched off, enough
+ * about each node's sockets to work out where a link leads when a node on its way is off, and what the
+ * author set up for whoever uses the workflow (names, a control panel, switches).
+ */
+export const wiring = z.object({
+  /** Nodes that are off in the file. Switches override this for the nodes they control. */
+  modes: z.record(z.string(), mode),
+  /** Per node: its input sockets in the editor's order, as [name, type], and the types of its outputs. */
+  slots: z.record(z.string(), z.object({ in: z.array(z.tuple([z.string(), z.string()])), out: z.array(z.string()) })),
+  /** The typed-in value of an input that is also linked: used when the link leads to a node that is off. */
+  fallback: z.record(z.string(), z.record(z.string(), z.unknown())),
+  /** Names the author gave to single settings: "node.input" to the name. */
+  labels: z.record(z.string(), z.string()).default({}),
+  /** The author's own control panel (settings shown on the front of a group node), in its order. */
+  panel: z.array(target).default([]),
+  /** Every switch found in the file, whether or not the recipe offers it. */
+  toggles: z.array(toggle).default([]),
+  /** A setting read by several inputs (one field on the front of a group node): "node.input" of the first, to the others. */
+  shared: z.record(z.string(), z.array(target)).default({}),
+  /** Where the workflow says its things come from, for when one is missing: */
+  /** the pack each kind of node belongs to (its id in ComfyUI's registry), */
+  packs: z.record(z.string(), z.string()).default({}),
+  /** where a model file can be downloaded, by file name, */
+  downloads: z.record(z.string(), z.string()).default({}),
+  /** and the links its author wrote in its notes. */
+  links: z.array(z.object({ label: z.string(), url: z.string() })).default([]),
+});
+export type Wiring = z.infer<typeof wiring>;
+
+const image = z.object({
+  /** The loader node whose file is replaced by the picture the user picks. */
+  target,
+  /** Without a picture, these links to the loader are removed (only when every one of them is optional). */
+  detach: z.array(target),
+  required: z.boolean(),
+});
+export type ImageBinding = z.infer<typeof image>;
+
+export const bindings = z.object({
+  prompt: target.optional(),
+  negative: target.optional(),
+  /** Every seed in the workflow gets the same value. */
+  seeds: z.array(target).default([]),
+  size: z.object({ width: target, height: target, step: z.number(), min: z.number(), max: z.number() }).optional(),
+  /** Video length: seconds on the form, frames in the graph (frames = step × k + offset). */
+  length: z.object({ target, fps: z.number(), step: z.number(), offset: z.number(), min: z.number(), max: z.number() }).optional(),
+  startImage: image.optional(),
+  endImage: image.optional(),
+  /** Outputs of model loaders after which the user's LoRAs are chained. */
+  loras: z.array(z.object({
+    node: z.string(),
+    output: z.number(),
+    /** Says which loader it is when there are several (a high and a low model). */
+    label: z.string().default(""),
+    /** The node is itself a list of LoRAs (rgthree's Power Lora Loader): the user's list replaces its own. */
+    power: z.boolean().optional(),
+  })).default([]),
+  toggles: z.array(toggle).default([]),
+  /** The node whose files are the result. */
+  result: z.object({ node: z.string(), kind: z.enum(["image", "video", "audio"]), sound: z.boolean().default(false) }),
+  controls: z.array(control).default([]),
+});
+export type Bindings = z.infer<typeof bindings>;
+
+const graphNode = z.looseObject({ class_type: z.string(), inputs: z.record(z.string(), z.unknown()) });
+export const graph = z.record(z.string(), graphNode);
+
+export const workflowDef = z.object({
+  /** "workflow.<slug>": the recipe id. */
+  id: z.string().regex(/^workflow\.[a-z0-9][a-z0-9-]*$/),
+  title: z.string().min(1).max(120),
+  /** What the user calls the model ("Wan 2.2"): shown under "Made with" and used to group LoRAs and saved settings. */
+  model: z.string().min(1).max(60),
+  /** Where it came from, for the list ("my workflow.json"). */
+  source: z.string().max(200).default(""),
+  /** Every node of the workflow. With `wiring`, that includes the ones that are switched off. */
+  graph,
+  /** Present when the workflow came from the editor's own file. */
+  wiring: wiring.optional(),
+  bindings,
+});
+export type WorkflowDef = z.infer<typeof workflowDef>;
+
+export const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "workflow";
