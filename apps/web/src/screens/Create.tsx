@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, ChevronDown, ChevronUp, Minus, Pencil, Plus, X } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronUp, Minus, Pencil, Plus, Workflow, X } from "lucide-react";
 import { isShown, type InputSpec } from "@studai/core";
 import { api, ApiError, previewUrl, type Asset, type RecipeInfo, type RecipeStatus, type RunningJob } from "../api";
 import { useAssets, useEntities, useEstimates, useModelSettings, useQueue, useRecipes, useSetup } from "../data";
@@ -12,6 +12,7 @@ import { estimateFor } from "../estimate";
 import { useDraft } from "../draft";
 import { Field, sameValue } from "../fields";
 import { formDefaults } from "../form";
+import { carryOver, modelGroups } from "../picker";
 import { about, aboutMs, fileLabel, notReady, phaseLabel, recipeLabel, when } from "../format";
 import { Bar, Button, cx, Empty, ErrorNote, Segmented } from "../ui";
 import { Viewer } from "../Viewer";
@@ -193,11 +194,27 @@ export function Create() {
   // pictures or videos: the models of the other kind are out of the way; the last one used of each kind is remembered
   const kinds = [...new Set(all.map((r) => r.output))];
   const [lastOf, setLastOf] = useState<Record<string, string>>({});
-  const listed = all.filter((r) => r.output === (recipe?.output ?? "image"));
+  // a model first, then what to do with it: the models that make this kind of thing, each with its operations
+  const groups = useMemo(() => modelGroups(all.filter((r) => r.output === (recipe?.output ?? "image")), recipes.data?.families ?? []), [all, recipe?.output, recipes.data?.families]);
+  const group = groups.find((g) => g.recipes.some((r) => r.id === recipe?.id));
+  const why = (r: RecipeInfo) => (setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), comfyOnline) : null);
+  /** The operation last used with each model: going back to a model goes back to it. */
+  const [lastIn, setLastIn] = useState<Record<string, string>>({});
   const pick = (id: string) => {
     const r = all.find((x) => x.id === id);
-    if (r) setLastOf((l) => ({ ...l, [r.output]: id }));
-    d.setRecipe(id);
+    if (!r) return;
+    setLastOf((l) => ({ ...l, [r.output]: id }));
+    const to = groups.find((g) => g.recipes.includes(r));
+    if (to) setLastIn((l) => ({ ...l, [to.key]: id }));
+    // another operation of the same model takes along what was set: the prompt, the model, the LoRAs, how it samples
+    const carried = recipe && draft && to && to === group ? carryOver(recipe, r, draft.forms[recipe.id], draft.forms[r.id]) : {};
+    d.setRecipe(id, carried);
+  };
+  const pickModel = (key: string) => {
+    const to = groups.find((g) => g.key === key);
+    if (!to) return;
+    const back = to.recipes.find((r) => r.id === lastIn[key]);
+    pick((back ?? to.recipes.find((r) => !why(r)) ?? to.recipes[0]!).id);
   };
   // a preset is a whole setup, kept under a name: the model, its form, who is in it
   const entities = useEntities();
@@ -237,47 +254,63 @@ export function Create() {
                 onChange={(k) => pick(lastOf[k] ?? all.find((r) => r.output === k)!.id)}
               />
             )}
-            <div className="text-xs font-semibold">Made with</div>
-            {/* a handful are shown side by side to choose from; more than that go in a list, by model */}
-            {listed.length > 4 && (
+            {group && recipe && (
               <>
-                <Select
-                  label="Made with"
-                  searchHint="what it does, or the model"
-                  value={recipe?.id ?? ""}
-                  onChange={pick}
-                  options={listed.map((r) => {
-                    const family = recipes.data?.families.find((f) => f.id === r.family);
-                    const why = setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), comfyOnline) : null;
-                    return { value: r.id, label: recipeLabel(family?.name, r.title), note: why ? "not ready" : undefined, detail: r.summary, group: r.id.startsWith("workflow.") ? "Your workflows" : family?.name, search: family?.name };
-                  })}
-                />
-                {recipe && (() => {
-                  const why = setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === recipe.id), comfyOnline) : null;
-                  return <span className={cx("text-xs", why ? "text-warn-ink" : "text-ink-2")}>{why ?? recipe.summary}</span>;
-                })()}
+                <div className="flex items-center gap-2.5">
+                  <label htmlFor="create-model" className="w-16 shrink-0 text-xs font-semibold">Model</label>
+                  <Select
+                    id="create-model"
+                    label="Model"
+                    searchHint="Search your models and workflows"
+                    className="min-w-0 grow"
+                    value={group.key}
+                    onChange={pickModel}
+                    options={groups.map((g) => ({
+                      value: g.key, label: g.name, group: g.builtIn ? "Models" : "Only from your workflows",
+                      note: g.recipes.some((r) => !why(r)) ? `${g.recipes.length} operation${g.recipes.length === 1 ? "" : "s"}` : "not ready",
+                      detail: g.builtIn ? g.summary : g.recipes.map((r) => r.title).join(" · "), search: g.recipes.map((r) => r.title).join(" "),
+                    }))}
+                  />
+                </div>
+                {/* its operations: what is built in, then your workflows for it. A few are tabs; many go in a list */}
+                {group.recipes.length > 1 && group.recipes.length <= 8 && (
+                  <div role="radiogroup" aria-label="Operation" className="flex flex-wrap gap-1 rounded-[9px] bg-raised p-[3px]">
+                    {group.recipes.map((r) => {
+                      const on = r.id === recipe.id;
+                      const own = r.id.startsWith("workflow.");
+                      return (
+                        <button
+                          key={r.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          title={`${why(r) ? `${why(r)} ` : ""}${r.summary}`}
+                          onClick={() => pick(r.id)}
+                          className={cx("flex h-7 min-w-0 grow items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", own ? "basis-[45%]" : "basis-[30%]", on ? "bg-line-strong text-white" : why(r) ? "text-ink-3" : "text-ink-2 hover:text-ink")}
+                        >
+                          {own && <Workflow size={12} className="shrink-0" />}
+                          <span className="truncate">{r.title}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {group.recipes.length > 8 && (
+                  <div className="flex items-center gap-2.5">
+                    <label htmlFor="create-operation" className="w-16 shrink-0 text-xs font-semibold">Operation</label>
+                    <Select
+                      id="create-operation"
+                      label="Operation"
+                      className="min-w-0 grow"
+                      value={recipe.id}
+                      onChange={pick}
+                      options={group.recipes.map((r) => ({ value: r.id, label: r.title, detail: r.summary, note: why(r) ? "not ready" : undefined, group: r.id.startsWith("workflow.") ? "Your workflows" : "Built in" }))}
+                    />
+                  </div>
+                )}
+                <span className={cx("text-xs", why(recipe) ? "text-warn-ink" : "text-ink-2")}>{why(recipe) ?? (group.recipes.length > 1 ? recipe.summary : `${recipe.title}. ${recipe.summary}`)}</span>
               </>
             )}
-            {listed.length <= 4 && listed.map((r) => {
-              const on = r.id === recipe?.id;
-              const family = recipes.data?.families.find((f) => f.id === r.family);
-              const why = setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), comfyOnline) : null;
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => pick(r.id)}
-                  className={cx("flex min-h-12 items-center gap-2.5 rounded-[10px] border px-3 py-1.5 text-left", on ? "border-accent bg-accent-wash" : "border-line bg-raised")}
-                >
-                  <span className={cx("h-4 w-4 shrink-0 rounded-full", on ? "border-[5px] border-accent" : "border-[1.5px] border-ink-3")} />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="font-semibold">{recipeLabel(family?.name, r.title)}</span>
-                    <span className={cx("text-xs", why ? "text-warn-ink" : "text-ink-2")}>{why ?? r.summary}</span>
-                  </span>
-                </button>
-              );
-            })}
             {recipes.isError && <ErrorNote>{recipes.error.message}</ErrorNote>}
           </div>
           {recipe && draft && (

@@ -86,7 +86,9 @@ export function useDraft(firstRecipe: string | undefined) {
     /** Drop what the draft holds for these inputs: they follow the defaults again. */
     clearValues: (recipe: string, inputs: string[]) =>
       change((d) => ({ ...d, forms: { ...d.forms, [recipe]: Object.fromEntries(Object.entries(d.forms[recipe] ?? {}).filter(([id]) => !inputs.includes(id))) } })),
-    setRecipe: (recipe: string) => change((d) => ({ ...d, recipe })),
+    /** Another recipe's form. `carried` is what it takes along from the form that is left, where it holds nothing itself. */
+    setRecipe: (recipe: string, carried: Record<string, unknown> = {}) =>
+      change((d) => ({ ...d, recipe, ...(Object.keys(carried).length ? { forms: { ...d.forms, [recipe]: { ...carried, ...d.forms[recipe] } } } : {}) })),
     setLook: (look: Draft["look"]) => change((d) => ({ ...d, look })),
     setChat: (chat: unknown[]) => change((d) => ({ ...d, chat })),
     /** Several inputs of one form at once (what the designer proposed). */
