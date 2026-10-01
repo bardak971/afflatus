@@ -143,6 +143,8 @@ export interface ReferencesInput extends Base {
   type: "references";
   max: number;
   roles: ReferenceRole[];
+  /** They are videos from the library, not pictures: a short clip of each is what the model is given. */
+  media?: "video";
 }
 export interface ReferenceValue {
   /** The picture's id in the library. */

@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GripVertical, X } from "lucide-react";
 import { secondsInput } from "@studai/core";
-import { api, previewUrl, type Job, type RecipeInfo, type SystemLoad } from "../api";
+import { api, type Job, type RecipeInfo, type SystemLoad } from "../api";
 import { useQueue, useRecipes } from "../data";
 import { about, aboutMs, phaseLabel, took, when } from "../format";
 import { allowNotifications, useNotify, useSystem } from "../store";
 import { Bar, Button, cx, Empty, ErrorNote, SectionTitle, Toggle } from "../ui";
+import { LivePreview } from "../LivePreview";
 
 /** The numbers of the machine ComfyUI runs on. Shows what is known: a meter with no source is left out. */
 export function meters(load: SystemLoad | null): Array<{ label: string; value: string; percent: number; hot: boolean }> {
@@ -134,8 +135,9 @@ export function Queue() {
               <SectionTitle>{q.running?.kind === "export" ? "Exporting now" : "Rendering now"}</SectionTitle>
               {q.running ? (
                 <div className="flex gap-4 rounded-xl border border-line-strong bg-panel p-3.5">
-                  <div className="flex h-[150px] w-[112px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-raised text-[11px] text-ink-2">
-                    {q.running.previewSeq > 0 ? <img src={previewUrl(q.running.id, q.running.previewSeq)} alt="" className="h-full w-full object-cover" /> : q.running.kind === "export" ? "no preview" : "no preview yet"}
+                  {/* large enough to judge a render by, and to stop one that is not going where it should; a clip plays with its sound */}
+                  <div className="flex h-[280px] min-w-[158px] max-w-[420px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-raised text-[11px] text-ink-2">
+                    {q.running.previewSeq > 0 ? <LivePreview job={q.running} sound className="h-full w-auto max-w-full object-contain" /> : q.running.kind === "export" ? "no preview" : "no preview yet"}
                   </div>
                   <div className="flex min-w-0 grow flex-col gap-2">
                     <div className="text-[15px] font-semibold">{q.running.label}</div>

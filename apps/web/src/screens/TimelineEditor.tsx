@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Camera, Download, ImagePlus, Link2, Pause, Play, Plus, SkipBack, SkipForward, Undo2, Users } from "lucide-react";
-import { api, fileUrl, type Asset, type Clip, type ClipPatch, type RecipeInfo, type Take, type TimelinePatch } from "../api";
+import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
 import { LookBar, lookWords } from "../LookBar";
@@ -48,6 +48,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** The clip the designer is open for, and what was said about each clip (kept while the editor is open). */
   const [designing, setDesigning] = useState<string | null>(null);
   const [talks, setTalks] = useState<Record<string, DesignerTurn[]>>({});
+  // the language model and instructions each clip's conversation is held with, as picked here before the timeline is read again
+  const [sessions, setSessions] = useState<Record<string, DesignerSession>>({});
   /** What a clip says happens, in a few words, for the designer: its main text, or what it is. */
   const sayOf = (c: Clip) => {
     if (c.kind === "still") return `(a picture held on screen for ${(c.lengthMs / 1000).toFixed(1)} s${c.still?.name ? `: ${c.still.name}` : ""})`;
@@ -562,6 +564,11 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
               setTalks((all) => ({ ...all, [c.id]: turns }));
               // kept with the clip, so that it is there the next time the timeline is opened
               void api.editClip(c.id, { chat: turns }).catch(() => {});
+            }}
+            session={sessions[c.id] ?? c.designer}
+            onSession={(session) => {
+              setSessions((all) => ({ ...all, [c.id]: session }));
+              void api.editClip(c.id, { designer: session }).catch(() => {});
             }}
             onApply={(changes) => editInputs(c, { ...inputsOf(c), ...changes })}
             onClose={() => setDesigning(null)}

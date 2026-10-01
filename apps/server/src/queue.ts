@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type OutputFile, type WaitOptions } from "@studai/comfy";
 import { checkGraph, choicesOf, parseInput, pickChoice, RANDOM_SEED, relocateFiles, type BuiltGraph, type ClipValue, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
-import { cutFrames, frameAt } from "./cut";
+import { cutFrames, referenceClip, frameAt } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
 import type { Comfy } from "./comfy";
@@ -294,6 +294,7 @@ export class Queue {
         ...brief(run),
         ...(promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : ("waiting" as const), step: 0, steps: 0 }),
         previewSeq: promptId ? monitor.preview(promptId).seq : 0,
+        previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
       };
     }
     return {
@@ -539,6 +540,14 @@ export class Queue {
         // each reference picture goes up under "<input>.<n>", in the order they were given
         for (const [i, ref] of (value as ReferenceValue[]).entries()) {
           const asset = await this.db.selectFrom("assets").select(["file_key", "mime", "width", "height", "kind"]).where("id", "=", ref.asset).executeTakeFirst();
+          if (spec.media === "video") {
+            // a reference video: its first three seconds, small, with its sound when it has one
+            if (!asset || asset.kind !== "video") throw new Error("a reference video is no longer in your library");
+            const clip = await referenceClip(await this.storage.get(asset.file_key), extOf(asset.mime), { seconds: 3, fps: 24, short: 384 });
+            uploads[`${spec.id}.${i}`] = await comfy.client.upload(clip.bytes, "mp4");
+            media[`${spec.id}.${i}`] = { width: clip.width, height: clip.height, frames: clip.frames, fps: 24, hasSound: clip.hasSound };
+            continue;
+          }
           if (!asset || asset.kind !== "image") throw new Error("a reference picture is no longer in your library");
           const bytes = await this.storage.get(asset.file_key);
           uploads[`${spec.id}.${i}`] = await comfy.client.upload(bytes, extOf(asset.mime));

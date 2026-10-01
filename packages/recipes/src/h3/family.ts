@@ -1,5 +1,8 @@
 import { defineFamily } from "@studai/core";
 
+/** Where ComfyUI's own templates fetch MiniMax H3's files from. */
+const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";
+
 /**
  * MiniMax H3: video with sound, from text, from a first and a last picture, or carrying on from another
  * clip. Its files are found by name; any of them can be set by hand on the setup page.
@@ -14,31 +17,42 @@ export const h3 = defineFamily({
       // MiniMax's own; without it a hybrid fine-tune (one file for both ways of making a clip), a full-step one before a turbo one
       id: "unet", label: "Video model", folder: "diffusion_models", detect: ["minimax_h3.*fl2va", "minimax.?h3.*hybrid(?!.*turbo)", "minimax.?h3.*hybrid"],
       hint: "Put minimax_h3_fl2va_*.safetensors, or a hybrid MiniMax H3 fine-tune, in ComfyUI's models/diffusion_models folder.",
+      get: { file: "minimax_h3_fl2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors` },
     },
     {
       id: "clip", label: "Text reader", folder: "text_encoders", detect: ["qwen3vl.*minimax", "minimax.*h3"],
       hint: "Put qwen3vl_32b_minimax_h3_*.safetensors in ComfyUI's models/text_encoders folder.",
+      get: { file: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", url: `${HF}/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` },
     },
     {
       id: "videoVae", label: "Picture decoder", folder: "vae", detect: ["minimax_h3_video_vae.*fp16", "minimax_h3_video_vae"],
       hint: "Put minimax_h3_video_vae_*.safetensors in ComfyUI's models/vae folder.",
+      get: { file: "minimax_h3_video_vae_int8_convrot.safetensors", url: `${HF}/vae/minimax_h3_video_vae_int8_convrot.safetensors` },
     },
     {
       id: "audioVae", label: "Sound decoder", folder: "vae", detect: ["minimax_h3_audio_vae"],
       hint: "Put minimax_h3_audio_vae_*.safetensors in ComfyUI's models/vae folder.",
+      get: { file: "minimax_h3_audio_vae_fp32.safetensors", url: `${HF}/vae/minimax_h3_audio_vae_fp32.safetensors` },
     },
     {
       // the turbo LoRA of the reference model is another file and does not fit this one
       id: "turbo", label: "Fast mode (turbo LoRA)", folder: "loras", detect: ["^(?!.*ref2v).*minimax_h3.*turbo"], optional: true,
       hint: "Without it, Fast is off and clips take the full number of steps. Put the MiniMax H3 turbo LoRA in ComfyUI's models/loras folder.",
+      get: { file: "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", url: "https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" },
     },
     {
       id: "refUnet", label: "Reference model (people, places, voices)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", "minimax.?h3.*hybrid(?!.*turbo)", "minimax.?h3.*hybrid"], optional: true,
       hint: "Without it, clips cannot follow reference pictures or a voice. Put minimax_h3_ref2va_*.safetensors, or a hybrid MiniMax H3 fine-tune, in ComfyUI's models/diffusion_models folder.",
+      get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
     },
     {
       id: "refTurbo", label: "Fast mode for the reference model", folder: "loras", detect: ["minimax_h3.*ref2v.*turbo"], optional: true,
       hint: "Optional: a turbo LoRA made for the reference model. Without it, the usual turbo LoRA is used for clips with references too.",
+      get: { file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", url: `${HF}/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` },
+    },
+    {
+      id: "tinyVae", label: "Tiny VAE for the live preview", folder: "vae_approx", detect: ["^taeh3\\.safetensors$"], optional: true,
+      hint: "Optional: with taeh3.safetensors in ComfyUI's models/vae_approx folder, the animated live preview is sharper. Without it, it is a rough colour preview.",
     },
     {
       id: "rife", label: "Smooth motion (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,

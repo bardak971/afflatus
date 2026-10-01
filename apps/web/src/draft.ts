@@ -27,7 +27,7 @@ export function useDraft(firstRecipe: string | undefined) {
     if (!d) return;
     unsaved.current = null;
     try {
-      const saved = await api.saveDraft(d.id, { recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat });
+      const saved = await api.saveDraft(d.id, { recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer });
       client.setQueryData(["drafts", d.id], saved);
       void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
       if (!unsaved.current) setSaving("saved");
@@ -91,6 +91,8 @@ export function useDraft(firstRecipe: string | undefined) {
       change((d) => ({ ...d, recipe, ...(Object.keys(carried).length ? { forms: { ...d.forms, [recipe]: { ...carried, ...d.forms[recipe] } } } : {}) })),
     setLook: (look: Draft["look"]) => change((d) => ({ ...d, look })),
     setChat: (chat: unknown[]) => change((d) => ({ ...d, chat })),
+    /** Which language model and instructions this draft's conversation with the designer is held with. */
+    setDesigner: (designer: Draft["designer"]) => change((d) => ({ ...d, designer })),
     /** Several inputs of one form at once (what the designer proposed). */
     setValues: (recipe: string, values: Record<string, unknown>) => change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], ...values } } })),
     /** A whole setup at once: the model, its form, who is in it. */

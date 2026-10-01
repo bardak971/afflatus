@@ -17,7 +17,15 @@ export interface ModelInfo {
   tags?: string[];
   /** What its author wrote about it. */
   about?: string;
+  /**
+   * The hash of its weights, as the trainer wrote it in the file (12 letters and digits): the same for
+   * the same LoRA under any file name, and the one Civitai knows its versions by.
+   */
+  fingerprint?: string;
 }
+
+/** The reading of a file's header that is current: raised when more is read from it, so that what was read before is read again. */
+export const MODEL_INFO_VERSION = 2;
 
 /**
  * The ComfyUI model folder a node's file input reads from, told from the input's name (and the node's,

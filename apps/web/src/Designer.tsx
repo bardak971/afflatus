@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Check, RotateCcw, Send, Sparkles, WandSparkles, X } from "lucide-react";
-import { api, type DesignerReply, type Look, type RecipeInfo } from "./api";
+import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
 import { useEntities, useSettings } from "./data";
 import { Select } from "./Select";
 import { AutoText, Button, cx, ErrorNote } from "./ui";
@@ -25,13 +25,16 @@ const asText = (r: DesignerReply) =>
  * demand, over the right side of the screen. What it proposes is shown whole and goes in the form only
  * when "Use it" is pressed.
  */
-export function Designer({ recipe, values, onApply, turns, onTurns, previous, story, look, mood, onClose }: {
+export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose }: {
   recipe: RecipeInfo;
   /** The whole form as it is now. */
   values: Record<string, unknown>;
   onApply(changes: Record<string, string>): void;
   turns: DesignerTurn[];
   onTurns(turns: DesignerTurn[]): void;
+  /** The language model and instructions this conversation is held with: its own, kept with the draft or the clip. */
+  session: DesignerSession | null;
+  onSession(session: DesignerSession): void;
   /** What the clip before says happens, when this one flows on from it. */
   previous?: string;
   /** The whole video the clip is part of: what every clip says happens, in order, and which one this is. */
@@ -50,8 +53,10 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
     mutationFn: async (v: { words: string; mode: "chat" | "enhance" }) => {
       const mine: DesignerTurn[] = [...turns, { role: "user", content: v.words }];
       onTurns(mine);
+      // a conversation keeps what it was started with, whatever is picked elsewhere afterwards
+      if (!session) onSession(using);
       const reply = await api.designer({
-        recipe: recipe.id, values, mode: v.mode, previous, story, look: look ?? null, mood,
+        recipe: recipe.id, values, mode: v.mode, previous, story, look: look ?? null, mood, llm: using.llm, instruction: using.instruction,
         // the server keeps as much of it as the language model can read
         messages: mine.slice(-40).map((t) => ({ role: t.role, content: (t.reply ? asText(t.reply) : t.content).slice(0, 8000) })),
       });
@@ -72,13 +77,25 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
     setText("");
     say.mutate({ words: words.trim(), mode });
   };
-  /** Which language model writes, and under which instructions of the user's own: kept in Setup, changed from here. */
-  const choose = useMutation({
+  const llms = settings.data?.llms ?? [];
+  const instructions = settings.data?.designerInstructions ?? [];
+  /**
+   * What this conversation is held with: its own choice, else what the last choice made anywhere was
+   * (a new conversation starts the way the last one was set up). One that is gone from Setup falls back.
+   */
+  const using: DesignerSession = {
+    llm: llms.some((l) => l.id === session?.llm) ? session!.llm : settings.data?.designerLlm,
+    instruction: session?.instruction !== undefined && (session.instruction === "" || instructions.some((i) => i.id === session.instruction)) ? session.instruction : settings.data?.designerInstruction ?? "",
+  };
+  /** A choice belongs to this conversation; it is also what the next new conversation starts with. */
+  const remember = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch),
     onSuccess: (saved) => client.setQueryData(["settings"], saved),
   });
-  const llms = settings.data?.llms ?? [];
-  const instructions = settings.data?.designerInstructions ?? [];
+  const choose = (change: DesignerSession) => {
+    onSession({ ...using, ...change });
+    remember.mutate({ ...(change.llm !== undefined ? { designerLlm: change.llm } : {}), ...(change.instruction !== undefined ? { designerInstruction: change.instruction } : {}) });
+  };
   const last = [...turns].reverse().find((t) => t.role === "assistant")?.reply;
   const sees = last?.sawPicture;
 
@@ -98,8 +115,8 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
             className="min-w-0 grow basis-0"
             label="The language model that writes"
             searchHint="Search your language models"
-            value={settings.data?.designerLlm ?? ""}
-            onChange={(id) => choose.mutate({ designerLlm: id })}
+            value={using.llm ?? ""}
+            onChange={(id) => choose({ llm: id })}
             options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "reads pictures · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
             footer={() => <Link href="/setup" className="text-xs text-ink-2 underline">Add or change language models in Setup</Link>}
           />
@@ -108,8 +125,8 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
             className="min-w-0 grow basis-0"
             label="Your instructions for the designer"
             searchHint="Search your instructions"
-            value={settings.data?.designerInstruction || "none"}
-            onChange={(id) => choose.mutate({ designerInstruction: id === "none" ? "" : id })}
+            value={using.instruction || "none"}
+            onChange={(id) => choose({ instruction: id === "none" ? "" : id })}
             options={[{ value: "none", label: "No instructions", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
             footer={() => <Link href="/setup" className="text-xs text-ink-2 underline">Write your own instructions in Setup</Link>}
           />
@@ -126,7 +143,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, previous, st
         </div>
       )}
       <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
-        {choose.isError && <ErrorNote>{choose.error.message}</ErrorNote>}
+        {remember.isError && <ErrorNote>{remember.error.message}</ErrorNote>}
         {!ready && settings.isSuccess && (
           <ErrorNote>The designer has no language model yet. <Link href="/setup" className="font-semibold underline">Give it one in Setup</Link>: any address that speaks the OpenAI way works, on your computer or elsewhere.</ErrorNote>
         )}

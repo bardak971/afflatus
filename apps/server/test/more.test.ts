@@ -121,6 +121,12 @@ describe("looking for a missing file on Civitai", () => {
     server = createServer((req, res) => {
       asked.push({ url: req.url ?? "", auth: req.headers.authorization });
       res.setHeader("content-type", "application/json");
+      // one version is known by the fingerprint of its file
+      if (req.url?.startsWith("/api/v1/model-versions/by-hash/")) {
+        if (req.url.endsWith("/AB12CD34EF56")) return res.end(JSON.stringify({ id: 77, name: "v4", modelId: 12, model: { name: "Its real name" } }));
+        res.writeHead(404);
+        return res.end("{}");
+      }
       res.end(JSON.stringify({
         items: [
           { id: 5, name: "Soft light workflow", type: "Workflows", modelVersions: [{ name: "v1", files: [{ name: "soft light v2.json" }] }] },
@@ -192,6 +198,22 @@ describe("looking for a missing file on Civitai", () => {
     expect((await say({ file: "mystery_style.safetensors", url: "javascript:alert(1)" })).statusCode).toBe(400);
     expect((await say({ file: "mystery_style.safetensors", url: null })).json()).toEqual({ page: null });
     expect(Object.keys(await pages())).toEqual(["soft_light-v2.safetensors"]);
+  });
+
+  it("finds a renamed LoRA by its fingerprint: the name is not needed, and not asked about", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true } });
+    const kept = (file: string, print: string) => t.db.insertInto("model_info").values({ folder: "loras", file, info: JSON.stringify({ fingerprint: print, v: 2 }), read_at: new Date().toISOString() }).execute();
+    await kept("mine/renamed_by_me.safetensors", "AB12CD34EF56");
+    await kept("unknown_there.safetensors", "000000000000");
+    const find = async (file: string) => (await post(t.app, "/api/models/loras/page", { file })).json();
+
+    expect(await find("mine/renamed_by_me.safetensors")).toEqual({ page: { url: "https://civitai.com/models/12?modelVersionId=77", title: "Its real name · v4" }, candidates: [], lookups: true });
+    expect(asked.map((a) => a.url)).toEqual(["/api/v1/model-versions/by-hash/AB12CD34EF56"]);
+    // a fingerprint Civitai does not know: the name is tried, as before
+    const other = await find("unknown_there.safetensors");
+    expect(other.page).toBeNull();
+    expect(other.candidates.length).toBeGreaterThan(0);
+    expect(asked.map((a) => a.url.split("?")[0])).toEqual(["/api/v1/model-versions/by-hash/AB12CD34EF56", "/api/v1/model-versions/by-hash/000000000000", "/api/v1/models"]);
   });
 });
 

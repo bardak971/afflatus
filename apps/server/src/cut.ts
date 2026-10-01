@@ -68,6 +68,38 @@ export async function probeMedia(bytes: Uint8Array): Promise<{ kind: "video" | "
   });
 }
 
+/**
+ * A video of a person as a reference for a video model: its first seconds at the model's speed, small
+ * (a reference is read at every step: a small one costs less), and whether its sound is more than
+ * silence, in which case it can stand for the person's voice.
+ */
+export async function referenceClip(source: Uint8Array, ext: string, opts: { seconds: number; fps: number; short: number }): Promise<{ bytes: Uint8Array; hasSound: boolean; width: number; height: number; frames: number }> {
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    const out = join(dir, "ref.mp4");
+    await writeFile(input, source);
+    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]);
+    const audio = /audio/.test(streams);
+    await must(tools.ffmpeg, [
+      "-y", "-loglevel", "error", "-i", input, "-t", String(opts.seconds),
+      "-vf", `fps=${opts.fps},scale='if(lt(iw,ih),min(${opts.short},iw),-2)':'if(lt(iw,ih),-2,min(${opts.short},ih))',setsar=1`,
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+      ...(audio ? ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"] : ["-an"]),
+      out,
+    ]);
+    // a sound track that is silence is no voice: how loud it gets is read from ffmpeg's own report
+    let hasSound = false;
+    if (audio) {
+      const report = await new Promise<string>((done) => {
+        execFile(tools.ffmpeg, ["-hide_banner", "-i", out, "-af", "volumedetect", "-f", "null", "-"], { encoding: "utf8", timeout: 60_000, windowsHide: true }, (_err, _stdout, stderr) => done(String(stderr)));
+      });
+      hasSound = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(report)?.[1] ?? -99) > -45;
+    }
+    const size = (await must(tools.ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", out])).trim().split(",").map(Number);
+    return { bytes: new Uint8Array(await readFile(out)), hasSound, width: size[0] || 0, height: size[1] || 0, frames: await countFrames(out) };
+  });
+}
+
 export interface FramesWanted {
   /** How many frames, best first: the first count the video is long enough for is cut. */
   counts: number[];

@@ -220,6 +220,53 @@ describe("h3.video with references", () => {
   });
 });
 
+describe("h3.video: watching it form, and videos of the person", () => {
+  const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", turbo: "t.safetensors", refUnet: "ref.safetensors" };
+  const build = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) =>
+    h3Video.build(parseInput(h3Video, { description: "She waves.", ...over }), dryContext({ seed: 7, slots, ...ctx }));
+  const one = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+
+  it("sends an animated preview each step when the node for it is there, with the tiny VAE when that is there too", () => {
+    const b = build();
+    const node = one(b, "ModelPreviewOverrideKJ")[0]!;
+    expect(node.inputs).toMatchObject({ preview_frames: 16, preview_fps: 12, max_resolution: 512, suppress_default_preview: true, tiny_vae: "none" });
+    // it sits on the model the sampler runs, and is given the sound decoder for the sound so far
+    expect(one(b, "BasicGuider")[0]!.inputs.model).toEqual([Object.entries(b.graph).find(([, n]) => n === node)![0], 0]);
+    expect(node.inputs.audio_vae).toBeDefined();
+    expect(one(build({}, { slots: { ...slots, tinyVae: "taeh3.safetensors" } }), "ModelPreviewOverrideKJ")[0]!.inputs.tiny_vae).toBe("taeh3.safetensors");
+    // turned off, or without the node: the render is the same without it
+    expect(one(build({ livePreview: false }), "ModelPreviewOverrideKJ")).toHaveLength(0);
+    expect(one(build({}, { has: (c: string) => c !== "ModelPreviewOverrideKJ" }), "ModelPreviewOverrideKJ")).toHaveLength(0);
+  });
+
+  it("takes videos of the person next to the pictures: their frames, and their sound as the voice", () => {
+    const media = { "refVideos.0": { width: 384, height: 682, frames: 72, fps: 24, hasSound: true }, "refVideos.1": { width: 384, height: 682, frames: 72, fps: 24, hasSound: false } };
+    const uploads = { "refVideos.0": "a.mp4", "refVideos.1": "b.mp4", "references.0": "p.png", voice: "v.wav" };
+    const b = build({ refVideos: [{ asset: "v1", role: "person" }, { asset: "v2", role: "person" }], references: [{ asset: "r", role: "place" }] }, { uploads, media });
+    expect(one(b, "UNETLoader")[0]!.inputs.unet_name).toBe("ref.safetensors");
+    const node = one(b, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(Object.keys(node.inputs).filter((k) => /^ref_(videos|images|video_audios)\./.test(k)).sort()).toEqual(["ref_images.ref_image_0", "ref_video_audios.ref_video_audio_0", "ref_videos.ref_video_0", "ref_videos.ref_video_1"]);
+    expect(one(b, "LoadVideo").map((n) => n.inputs.file)).toEqual(["a.mp4", "b.mp4"]);
+    const prompt = String(node.inputs.prompt);
+    // the videos are who the person is; the first one's sound is their voice; the picture is the place
+    expect(prompt).toContain("<Subject 1> is the character in <Video 1> and <Video 2>.");
+    expect(prompt).toContain("<Audio 1> is the soundtrack of <Video 1>: the voice of <Subject 1> (S1).");
+    expect(prompt).toContain("<Subject 2> is the location shown in <Picture 1>.");
+    expect(prompt).toContain("[reference generation + video reference + audio reference]");
+    expect(prompt).toContain("<Audio 1>: reference - the voice timbre is followed without copying the signal.");
+
+    // with a voice sample, that is the voice: the videos' sound is left out, and the sample is the only <Audio>
+    const voiced = build({ refVideos: [{ asset: "v1", role: "person" }], voice: "s" }, { uploads, media });
+    const v = one(voiced, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(Object.keys(v.inputs).filter((k) => /audio_\d/.test(k))).toEqual(["ref_audios.ref_audio_0"]);
+    expect(String(v.inputs.prompt)).toContain("<Audio 1> is the voice-timbre reference for <Subject 1> (S1).");
+    expect(String(v.inputs.prompt)).not.toContain("soundtrack");
+    // only pictures of a person are refused as videos
+    expect(() => parseInput(h3Video, { description: "a", refVideos: [{ asset: "v", role: "place" }] })).toThrow();
+    expect(() => parseInput(h3Video, { description: "a", refVideos: [1, 2, 3, 4].map((n) => ({ asset: `v${n}`, role: "person" })) })).toThrow();
+  });
+});
+
 describe("h3.video with another H3 model", () => {
   const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", turbo: "t.safetensors", refUnet: "ref.safetensors" };
   const refs = { references: [{ asset: "r", role: "person" }] };

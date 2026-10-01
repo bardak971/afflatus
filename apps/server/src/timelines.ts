@@ -106,6 +106,7 @@ export interface ClipPatch {
   look?: Look | null;
   /** The conversation with the designer about this clip: kept as it is. */
   chat?: unknown[];
+  designer?: { llm?: string; instruction?: string } | null;
 }
 export interface TimelinePatch {
   name?: string;
@@ -225,6 +226,7 @@ export class Timelines {
         /** Its own cast and style; null = the timeline's. */
         look: p.clip.look ? (JSON.parse(p.clip.look) as Look) : null,
         chat: p.clip.chat ? (JSON.parse(p.clip.chat) as unknown[]) : [],
+        designer: p.clip.designer ? (JSON.parse(p.clip.designer) as { llm?: string; instruction?: string }) : null,
         /** Where it starts on the timeline, and how long it plays. */
         atMs: at, lengthMs: length,
         job: live ? { id: live.id, status: live.status } : null,
@@ -302,6 +304,8 @@ export class Timelines {
         .where("id", "=", timelineId)
         .execute();
       await tx.deleteFrom("timeline_history").where("id", "=", last.id).execute();
+      // a take that is back has its video back: removing it had sent the video to the bin
+      if (kept.length) await tx.updateTable("assets").set({ deleted_at: null }).where("id", "in", kept.map((t) => t.asset_id)).where("deleted_at", "is not", null).execute();
     });
     this.changed();
     return last.label;
@@ -368,6 +372,20 @@ export class Timelines {
   private async touch(timelineId: string) {
     await this.db.updateTable("timelines").set({ updated_at: now() }).where("id", "=", timelineId).execute();
     this.changed();
+  }
+
+  /** The video was rendered as a clip's take, as opposed to made in Create or brought in from the computer. */
+  private async madeForATimeline(assetId: string): Promise<boolean> {
+    const asset = await this.db.selectFrom("assets").select("generation_id").where("id", "=", assetId).executeTakeFirst();
+    if (!asset?.generation_id) return false;
+    return Boolean(await this.db.selectFrom("jobs").select("id").where("generation_id", "=", asset.generation_id).where("clip_id", "is not", null).executeTakeFirst());
+  }
+
+  /** Something on a timeline still plays or uses it: another take, a clip's sound or still, a timeline's music. */
+  private async stillUsed(assetId: string): Promise<boolean> {
+    if (await this.db.selectFrom("takes").select("id").where("asset_id", "=", assetId).executeTakeFirst()) return true;
+    if (await this.db.selectFrom("clips").select("id").where((eb) => eb.or([eb("sound_asset_id", "=", assetId), eb("still_asset_id", "=", assetId)])).executeTakeFirst()) return true;
+    return Boolean(await this.db.selectFrom("timelines").select("id").where("music_asset_id", "=", assetId).executeTakeFirst());
   }
 
   /** What is on a timeline is wanted: it never goes to the bin on its own. */
@@ -485,9 +503,12 @@ export class Timelines {
     if ((patch.stillMs !== undefined || patch.animate) && clip.kind !== "still") throw refused("This clip is not a picture.");
 
     const keys = Object.keys(patch).filter((k) => patch[k as keyof ClipPatch] !== undefined);
-    if (keys.length === 1 && keys[0] === "chat") {
-      // what was said to the designer is not a change to the timeline: nothing to undo, nothing to redraw
-      await this.db.updateTable("clips").set({ chat: patch.chat!.length ? JSON.stringify(patch.chat).slice(0, 256 * 1024) : null }).where("id", "=", id).execute();
+    if (keys.length && keys.every((k) => k === "chat" || k === "designer")) {
+      // what was said to the designer, and with which language model, is not a change to the timeline: nothing to undo, nothing to redraw
+      await this.db.updateTable("clips").set({
+        ...(patch.chat !== undefined ? { chat: patch.chat.length ? JSON.stringify(patch.chat).slice(0, 256 * 1024) : null } : {}),
+        ...(patch.designer !== undefined ? { designer: patch.designer ? JSON.stringify(patch.designer) : null } : {}),
+      }).where("id", "=", id).execute();
       return;
     }
     if (keys.length === 1 && keys[0] === "inputs") {
@@ -565,13 +586,21 @@ export class Timelines {
     await this.touch(clip.timeline_id);
   }
 
-  /** A take goes; its video stays in the library. The newest of the others plays instead. */
+  /**
+   * A take goes, and the video that was rendered for it goes to the bin with it (it comes back with
+   * Undo, or from the bin for a week). A video that was brought in from the library stays there, and so
+   * does one that something else still uses. The newest of the other takes plays instead.
+   */
   async removeTake(id: string) {
     const take = await this.db.selectFrom("takes").selectAll().where("id", "=", id).executeTakeFirst();
     if (!take) throw missing("this take");
     const clip = await this.clipRow(take.clip_id);
     await this.remember(clip.timeline_id, "the take removed");
     await this.db.deleteFrom("takes").where("id", "=", id).execute();
+    if ((await this.madeForATimeline(take.asset_id)) && !(await this.stillUsed(take.asset_id))) {
+      await this.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", take.asset_id).where("deleted_at", "is", null).execute();
+      this.events.emit("library");
+    }
     if (clip.take_id === id) {
       const left = await this.db.selectFrom("takes").select("id").where("clip_id", "=", clip.id).orderBy("created_at", "desc").executeTakeFirst();
       await this.db.updateTable("clips").set({ take_id: left?.id ?? null }).where("id", "=", clip.id).execute();

@@ -45,6 +45,8 @@ export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields): string {
 export interface H3References {
   /** What each reference picture shows, in the order they are given. */
   roles: string[];
+  /** Videos of the person, given after the pictures: for each, whether its sound comes with it (it is then the person's voice). */
+  videos?: boolean[];
   /** A voice sample comes with them. */
   voice: boolean;
   /** The clip carries on from another one: its first frames are given. */
@@ -68,10 +70,14 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const who = f.subject?.trim() ? `, ${f.subject.trim().replace(/^[,\s]+|[.\s]+$/g, "")}` : "";
   const list = (a: string[]) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a.at(-1)}` : (a[0] ?? ""));
   const pics = ref.roles.map((_r, i) => `<Picture ${i + 1}>`);
-  const people = pics.filter((_p, i) => ref.roles[i] === "person");
+  // the model's order: the pictures, then the videos (a video's sound is an <Audio> of its own), then the voice
+  let audios = 0;
+  const vids = (ref.videos ?? []).map((sound, k) => ({ tag: `<Video ${k + 1}>`, audio: sound ? `<Audio ${++audios}>` : "" }));
+  const soundtracks = vids.filter((v) => v.audio);
+  const people = [...pics.filter((_p, i) => ref.roles[i] === "person"), ...vids.map((v) => v.tag)];
   const hasPerson = people.length > 0;
   const who1 = hasPerson ? "<Subject 1>" : "the character";
-  const voiceTag = ref.voice ? "<Audio 1>" : "";
+  const voiceTag = ref.voice ? `<Audio ${audios + 1}>` : "";
   // the opening picture is the last picture too: its place, outfit and pose are references
   const opening = ref.opening && !ref.continues ? `<Picture ${pics.length + 1}>` : "";
   const opens = ref.continues
@@ -79,7 +85,7 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
     : opening
       ? ` ${opening} is the first frame of [Shot 1]: the video opens exactly on it, then the action follows the description.`
       : "";
-  const kinds = [opening ? "keyframe completion" : "", "reference generation", ref.continues ? "video continuation" : "", voiceTag ? "audio reference" : ""].filter(Boolean);
+  const kinds = [opening ? "keyframe completion" : "", "reference generation", vids.length ? "video reference" : "", ref.continues ? "video continuation" : "", voiceTag || soundtracks.length ? "audio reference" : ""].filter(Boolean);
   const defs: string[] = [];
   const uses: string[] = [];
   const keeps: string[] = [];
@@ -118,11 +124,13 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   });
   return [
     `subject_definitions:\n${defs.join("\n")}` +
+      soundtracks.map((v) => `\n${v.audio} is the soundtrack of ${v.tag}: the voice of ${who1} (S1).`).join("") +
       (voiceTag ? `\n${voiceTag} is the voice-timbre reference for ${who1} (S1).` : "") +
       (opening ? `\n${opening} is the opening-frame anchor for [Shot 1].` : ""),
     `summary:\n[${kinds.join(" + ")}] Use ${list(uses) || "the description"}${voiceTag ? ` and the voice character of ${voiceTag}` : ""}.${opens}`,
     `retention_analysis:\n${keeps.join("\n")}` +
       (opening ? `\n${opening} ([Shot 1] first frame): fully_preserved - opening composition anchor.` : "") +
+      soundtracks.map((v) => `\n${v.audio}: reference - the voice timbre is followed without copying the signal.`).join("") +
       (voiceTag ? `\n${voiceTag}: reference - timbre and delivery are followed without copying the signal.` : ""),
     `detailed_description: ${description}`,
     `overall_soundscape: ${soundscape}`,

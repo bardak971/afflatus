@@ -281,11 +281,13 @@ export const ROLE_WORDS: Record<ReferenceRole, { label: string; note: string }> 
  * Several pictures the result follows without them being frames of it. Each says what it shows: a
  * person (two or three angles hold a face better than one), a place, clothes, an object, a look.
  */
-export function ReferencesField({ label, note, max, roles, value, onChange }: {
+export function ReferencesField({ label, note, max, roles, video, value, onChange }: {
   label: string;
   note?: string;
   max: number;
   roles: ReferenceRole[];
+  /** They are videos, not pictures. */
+  video?: boolean;
   value: ReferenceValue[];
   onChange(value: ReferenceValue[]): void;
 }) {
@@ -302,15 +304,16 @@ export function ReferencesField({ label, note, max, roles, value, onChange }: {
         <div key={ref.asset} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
           <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
           <div className="min-w-0 grow">
-            <Select
+            {roles.length === 1 && <span className="text-ink-2">{video ? `Video ${i + 1}` : `Picture ${i + 1}`}: {ROLE_WORDS[ref.role].label.toLowerCase()}</span>}
+            {roles.length > 1 && <Select
               size="sm"
               label={`What picture ${i + 1} shows`}
               value={ref.role}
               onChange={(role) => onChange(value.map((v, j) => (j === i ? { ...v, role: role as ReferenceRole } : v)))}
               options={roles.map((r) => ({ value: r, label: ROLE_WORDS[r].label, note: ROLE_WORDS[r].note }))}
-            />
+            />}
           </div>
-          <button type="button" aria-label={`Remove reference picture ${i + 1}`} onClick={() => onChange(value.filter((_v, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+          <button type="button" aria-label={`Remove reference ${video ? "video" : "picture"} ${i + 1}`} onClick={() => onChange(value.filter((_v, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
         </div>
       ))}
       {value.length < max && (
@@ -318,7 +321,7 @@ export function ReferencesField({ label, note, max, roles, value, onChange }: {
           type="button"
           onClick={() => setPicking(true)}
           onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes(DRAG_PICTURE)) return;
+            if (video || !e.dataTransfer.types.includes(DRAG_PICTURE)) return;
             e.preventDefault();
             setOver(true);
           }}
@@ -332,13 +335,14 @@ export function ReferencesField({ label, note, max, roles, value, onChange }: {
           className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", over ? "border-accent bg-accent-wash text-ink" : "border-line-strong")}
         >
           <ImagePlus size={15} />
-          <span>Add a reference picture</span>
+          <span>{video ? "Add a reference video" : "Add a reference picture"}</span>
         </button>
       )}
       {note && <span className="text-xs text-ink-2">{note}</span>}
       {picking && (
         <Picker
           title={label}
+          kind={video ? "video" : "image"}
           onClose={() => setPicking(false)}
           onPick={(id) => {
             add(id);

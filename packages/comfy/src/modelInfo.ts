@@ -41,7 +41,11 @@ export function modelInfoFrom(header: Record<string, unknown>, file = ""): Model
   const tags = [...new Set([...own, ...tagsFrom(header.ss_tag_frequency)])].slice(0, KEPT_TAGS);
   const about = text(header["modelspec.description"]) ?? text(header.ss_training_comment);
   const trigger = text(header["modelspec.trigger_phrase"]);
+  // kohya's trainer writes the hash of the weights: its first 12 characters are what Civitai calls AutoV3
+  const hash = text(header.sshs_model_hash);
+  const fingerprint = hash && /^[0-9a-f]{12,}$/i.test(hash) ? hash.slice(0, 12).toUpperCase() : undefined;
   return {
+    ...(fingerprint ? { fingerprint } : {}),
     ...(title && title !== stem(file) ? { title } : {}),
     ...(base ? { base: baseLabel(base) } : {}),
     ...(trainedOn ? { trainedOn: stem(trainedOn) } : {}),

@@ -119,8 +119,8 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
         </button>
         {test.isSuccess && !dirty && <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-good"><span className="h-2 w-2 rounded-full bg-good" /> Answering</span>}
         {!only && (inUse
-          ? <span className="shrink-0 rounded-full bg-accent-wash px-2 py-0.5 text-xs font-semibold text-accent">In use</span>
-          : <Button size="sm" disabled={fresh} onClick={onUse}>Use this one</Button>)}
+          ? <span className="shrink-0 rounded-full bg-accent-wash px-2 py-0.5 text-xs font-semibold text-accent" title="A new conversation with the designer starts with this one. Each conversation keeps the one it was given.">New conversations</span>
+          : <Button size="sm" disabled={fresh} onClick={onUse} title="New conversations with the designer start with this one">Start with this one</Button>)}
         <Button size="sm" tone="quiet" onClick={() => setOpen(!open)}>{open ? "Close" : "Change"}</Button>
       </div>
       {open && (
@@ -232,7 +232,7 @@ function DesignerCard() {
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
       <h2 className="text-[15px] font-bold">The designer</h2>
-      <div className="text-ink-2">It writes and improves your prompts with a language model: any with an OpenAI-style address, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, you pick which one writes from the designer's own panel.</div>
+      <div className="text-ink-2">It writes and improves your prompts with a language model: any with an OpenAI-style address, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, each conversation has its own: you pick it in the designer's panel, and it stays with that draft or clip.</div>
       {saved.map((l) => (
         <LlmEditor
           key={l.id}
@@ -267,7 +267,7 @@ function DesignerCard() {
       </div>
 
       <h3 className="mt-2 font-bold">Your instructions for it</h3>
-      <div className="text-ink-2">Standing instructions of your own, each under a name: one for film-like realism, one for anime tags, one for explicit content, whatever you want it held to. You pick one in the designer's panel; it then holds for every answer, on top of what the designer knows about the model you are writing for.</div>
+      <div className="text-ink-2">Standing instructions of your own, each under a name: one for film-like realism, one for anime tags, one for explicit content, whatever you want it held to. You pick one in the designer's panel, for that draft or clip: it then holds for every answer of that conversation, on top of what the designer knows about the model you are writing for.</div>
       {notes.map((n) => (
         <InstructionEditor
           key={n.id}

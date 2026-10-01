@@ -221,6 +221,9 @@ const body = z.strictObject({
   story: z.strictObject({ clips: z.array(z.string().max(8000)).max(60), index: z.number().int().min(0) }).optional(),
   look: lookSchema.nullable().optional(),
   mood: z.string().max(2000).optional(),
+  /** The session's own language model and instructions (ids from Setup; "" = no instructions). Left out: the usual ones. */
+  llm: z.string().max(40).optional(),
+  instruction: z.string().max(40).optional(),
 });
 
 export function registerDesigner(app: FastifyInstance, s: Services): void {
@@ -287,10 +290,12 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     if (!boxesOf(recipe).length) throw new DesignerError("This model has no text to write.");
     if (!b.messages.length || b.messages.at(-1)!.role !== "user") throw new DesignerError("Say what you want first.");
     const settings = await readSettings(s.db);
-    const llm = llmInUse(settings);
+    // the conversation's own choice; one that is gone from Setup falls back to the usual one
+    const llm = settings.llms.find((l) => l.id === b.llm) ?? llmInUse(settings);
+    const own = b.instruction === undefined ? instructionsInUse(settings) : settings.designerInstructions.find((i) => i.id === b.instruction)?.text.trim() ?? "";
     const picture = llm?.vision ? await pictureOf(recipe, b.values) : null;
     const ctx = await context(recipe, b.values, b, Boolean(picture));
-    const system = systemPrompt(recipe, s.registry.family(recipe.family), b.mode, ctx, undefined, instructionsInUse(settings));
+    const system = systemPrompt(recipe, s.registry.family(recipe.family), b.mode, ctx, undefined, own);
     const history: Message[] = b.messages.map((m) => ({ role: m.role, content: m.content }));
     // the picture rides with the last thing the user said
     if (picture) history[history.length - 1] = { role: "user", content: [{ type: "text", text: b.messages.at(-1)!.content }, { type: "image_url", image_url: { url: picture } }] };

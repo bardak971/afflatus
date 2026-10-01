@@ -3,9 +3,10 @@ import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, ChevronDown, ChevronUp, Minus, Pencil, Plus, Workflow, X } from "lucide-react";
 import { isShown, type InputSpec } from "@studai/core";
-import { api, ApiError, previewUrl, type Asset, type RecipeInfo, type RecipeStatus, type RunningJob } from "../api";
+import { api, ApiError, type Asset, type RecipeInfo, type RecipeStatus, type RunningJob } from "../api";
 import { useAssets, useEntities, useEstimates, useModelSettings, useQueue, useRecipes, useSetup } from "../data";
 import { Designer, WritingHelp, type DesignerTurn } from "../Designer";
+import { LivePreview } from "../LivePreview";
 import { LookBar } from "../LookBar";
 import { Select } from "../Select";
 import { estimateFor } from "../estimate";
@@ -21,7 +22,7 @@ import { Tile } from "./Library";
 function LiveTile({ job }: { job: RunningJob }) {
   return (
     <div className="relative flex aspect-[3/4] flex-col items-center justify-center gap-2 overflow-hidden rounded-[10px] border border-line-strong bg-panel">
-      {job.previewSeq > 0 && <img src={previewUrl(job.id, job.previewSeq)} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />}
+      <LivePreview job={job} className="absolute inset-0 h-full w-full object-cover opacity-80" />
       <div className="relative flex w-full flex-col items-center gap-2 bg-ground/60 px-3 py-2 text-center">
         <div className="font-semibold">{phaseLabel(job.phase)}</div>
         <div className="text-xs text-ink-2">{job.steps ? `step ${job.step} of ${job.steps}` : "starting"}{job.eta ? ` · ${about(job.eta)}` : ""}</div>
@@ -477,6 +478,8 @@ export function Create() {
           look={draft.look}
           turns={draft.chat as DesignerTurn[]}
           onTurns={d.setChat}
+          session={draft.designer}
+          onSession={d.setDesigner}
           onApply={(changes) => d.setValues(recipe.id, changes)}
           onClose={() => setDesigning(false)}
         />

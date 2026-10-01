@@ -53,6 +53,7 @@ const clipPatch = z.strictObject({
   animate: z.boolean().optional(),
   look: lookSchema.nullable().optional(),
   chat: z.array(z.unknown()).max(200).optional(),
+  designer: z.strictObject({ llm: z.string().max(40).optional(), instruction: z.string().max(40).optional() }).nullable().optional(),
 });
 
 const renderBody = z.strictObject({

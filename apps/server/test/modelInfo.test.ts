@@ -50,6 +50,19 @@ describe("what model files say about themselves", () => {
     expect(fake.calls.filter((c) => c.includes("/view_metadata/")).length).toBe(4);
   });
 
+  it("keeps a LoRA's fingerprint, and reads again what was read before fingerprints were kept", async () => {
+    fake.metadata["loras/plain.safetensors"] = { sshs_model_hash: "ab12cd34ef567890aaaa", ss_output_name: "plain" };
+    // as an older studai left it: read, but with nothing said about which reading it was
+    await t.db.insertInto("model_info").values({ folder: "loras", file: "plain.safetensors", info: "{}", read_at: new Date().toISOString() }).execute();
+    expect((await info()).pending).toBe(3);
+    await until(async () => (await info()).pending === 0);
+    // the first twelve characters, in capitals: what Civitai knows a version by
+    expect((await info()).items["plain.safetensors"]).toEqual({ fingerprint: "AB12CD34EF56" });
+    const asked = fake.calls.filter((c) => c.includes("/view_metadata/")).length;
+    await info();
+    expect(fake.calls.filter((c) => c.includes("/view_metadata/")).length).toBe(asked);
+  });
+
   it("still answers with what it knows when ComfyUI is away", async () => {
     await info();
     await until(async () => (await info()).pending === 0);

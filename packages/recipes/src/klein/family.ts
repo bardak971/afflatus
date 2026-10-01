@@ -14,14 +14,17 @@ export const klein = defineFamily({
       // the base model first, then any fine-tune of it; never one of H3's files
       id: "unet", label: "Diffusion model", folder: "diffusion_models", detect: ["^(?!.*(minimax|h3)).*flux-?2.*klein.*base", "^(?!.*(minimax|h3)).*(klein|f2k)"],
       hint: "Put a FLUX.2 Klein model (flux-2-klein-base-4b.safetensors, or a fine-tune of it) in ComfyUI's models/diffusion_models folder.",
+      get: { file: "flux-2-klein-base-4b.safetensors", url: "https://huggingface.co/Comfy-Org/flux2-klein/resolve/main/split_files/diffusion_models/flux-2-klein-base-4b.safetensors" },
     },
     {
       id: "clip", label: "Text encoder", folder: "text_encoders", detect: ["qwen_?3_?4b"],
       hint: "Put qwen_3_4b.safetensors in ComfyUI's models/text_encoders folder.",
+      get: { file: "qwen_3_4b.safetensors", url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" },
     },
     {
       id: "vae", label: "VAE", folder: "vae", detect: ["flux-?2.*vae", "flux2"],
       hint: "Put flux2-vae.safetensors in ComfyUI's models/vae folder.",
+      get: { file: "flux2-vae.safetensors", url: "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" },
     },
   ],
   loraMatch: ["flux-?2", "klein"],

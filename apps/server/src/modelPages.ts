@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { findOnCivitai } from "./civitai";
+import type { ModelInfo } from "@studai/core";
+import { civitaiGet, findOnCivitai } from "./civitai";
 import { now } from "./db";
 import { findOnHuggingFace } from "./huggingface";
 import type { Services } from "./services";
@@ -45,6 +46,13 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
       .execute();
   };
 
+  /** What the file's header gave as its fingerprint, when it was read and has one. The file is found by its path, else by its name. */
+  const fingerprintOf = async (folder: string, file: string): Promise<string | null> => {
+    const rows = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
+    const row = rows.find((r) => r.file === file) ?? rows.find((r) => nameOf(r.file) === nameOf(file));
+    return row ? (JSON.parse(row.info) as ModelInfo).fingerprint ?? null : null;
+  };
+
   /** Every page known for the files of a folder, by file name (lower case, without its sub-folder). */
   app.get<{ Params: { folder: string } }>("/api/models/:folder/pages", async (req) => {
     const rows = await s.db.selectFrom("model_pages").select(["name", "url", "title"]).where("folder", "=", folderOf(req.params.folder)).execute();
@@ -64,6 +72,17 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
     if (page) return { page, candidates: [] as PageCandidate[], lookups: true };
     const settings = await readSettings(s.db);
     if (!settings.civitaiLookups) return { page: null, candidates: [] as PageCandidate[], lookups: false };
+
+    // by its fingerprint first: the same file under any name is the same version there
+    const print = await fingerprintOf(folder, file);
+    if (print) {
+      const v = await civitaiGet<{ id: number; name?: string; modelId?: number; model?: { name?: string } }>(`/api/v1/model-versions/by-hash/${print}`, settings.civitaiKey).catch(() => null);
+      if (v?.modelId) {
+        const found = { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" };
+        await remember(folder, name, found);
+        return { page: found, candidates: [] as PageCandidate[], lookups: true };
+      }
+    }
 
     const [hf, civitai] = await Promise.all([
       findOnHuggingFace(name).catch(() => ({ items: [], answered: false })),

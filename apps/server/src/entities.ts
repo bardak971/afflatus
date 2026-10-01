@@ -104,7 +104,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const main = specs.find((i) => i.type === "prompt" && !i.optional) ?? specs.find((i) => i.type === "prompt");
   const tags = main?.type === "prompt" && main.style === "tags";
   const subjectSpec = specs.find((i) => i.type === "prompt" && i.holds === "subject");
-  const refSpec = specs.find((i) => i.type === "references");
+  const refSpec = specs.find((i) => i.type === "references" && !i.media);
   const voiceSpec = specs.find((i) => i.type === "audio" && i.role === "voice");
   const loraSpec = specs.find((i) => i.type === "loras");
 

@@ -5,6 +5,7 @@ import { phaseLabel } from "../format";
 import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../screens/Library";
 import { Bar, cx } from "../ui";
 import { DRAG_CLIP, layout, NEW_CLIP, otherShape, PAD, pinInputs, placeOf, playAt, stamp, titleOf, ZOOM, type Slot } from "./model";
+import { LivePreview } from "../LivePreview";
 
 /** Where the rows sit, top to bottom. */
 const RULER = 20;
@@ -292,6 +293,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                       </span>
                     )}
                     {c.kind === "still" && c.still && <img src={thumbUrl(c.still.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
+                    {live && <LivePreview job={live} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
                     <span className="absolute inset-x-0 top-0 flex items-center gap-1 bg-gradient-to-b from-ground/85 to-transparent px-1.5 pt-1 pb-3">
                       <span className="shrink-0 rounded bg-ground/85 px-1.5 py-px text-[11px] font-bold">{s.index + 1}</span>
                       {s.width > 86 && <span className="min-w-0 truncate text-[11px] font-semibold">{titleOf(c, recipe)}</span>}

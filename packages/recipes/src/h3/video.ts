@@ -16,6 +16,7 @@ export interface H3Video {
   previous?: ClipValue;
   next?: ClipValue;
   references: ReferenceValue[];
+  refVideos: ReferenceValue[];
   voice?: string;
   subject: string;
   sharpRefs: boolean;
@@ -27,6 +28,7 @@ export interface H3Video {
   smooth: boolean;
   quick: boolean;
   cache: boolean;
+  livePreview: boolean;
   loras: LoraValue[];
   seed: number;
 }
@@ -39,6 +41,8 @@ export interface H3Video {
 export const H3_JOIN_FRAMES = [22, 5];
 /** How many reference pictures the reference model is given at most (it takes 9; the opening picture is one of them). */
 export const H3_REFERENCES = 6;
+/** How many reference videos it takes. */
+export const H3_REFERENCE_VIDEOS = 3;
 
 const guideFrames = (m: MediaFacts | undefined) => {
   const n = m?.frames ?? 0;
@@ -68,7 +72,7 @@ const modelOf = (input: H3Video, slots: Record<string, string>) => {
  * person speaks with. Otherwise the pictures are the clip's first and last frame.
  */
 const uses = (input: H3Video) => {
-  const reference = input.references.length > 0 || Boolean(input.voice);
+  const reference = input.references.length > 0 || input.refVideos.length > 0 || Boolean(input.voice);
   return {
     reference,
     start: Boolean(input.start && !input.previous),
@@ -115,6 +119,10 @@ export const h3Video = defineRecipe<H3Video>({
       id: "references", type: "references", label: "Who and what is in it", max: H3_REFERENCES, roles: [...REFERENCE_ROLES],
       note: "pictures of a person, a place, clothes, an object or a look: they are followed, they are not frames of the clip",
     },
+    {
+      id: "refVideos", type: "references", media: "video", label: "Reference videos", max: H3_REFERENCE_VIDEOS, roles: ["person"],
+      note: "short videos of the person: how they look, move and sound. The first 3 seconds of each are used; a video's own sound is taken as their voice unless a voice sample is given",
+    },
     { id: "voice", type: "audio", role: "voice", label: "Voice", optional: true, note: "a few seconds of someone speaking: the person in the clip speaks with that voice" },
     {
       id: "subject", type: "prompt", label: "How the person looks", style: "sentences", optional: true, showWhen: "references", holds: "subject",
@@ -130,8 +138,8 @@ export const h3Video = defineRecipe<H3Video>({
         { id: "wide", label: "Wide", width: 1024, height: 576 },
       ],
     },
-    { id: "short", type: "number", label: "Size of the short side", note: "larger is sharper and slower", min: 384, max: 768, step: 96, default: 576, unit: " px", advanced: true },
-    { id: "fast", type: "toggle", label: "Fast", note: "8 steps: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
+    { id: "short", type: "number", label: "Resolution", note: "the short side: 480p, 576p (the usual one), 768p. Larger is sharper and slower", min: 384, max: 768, step: 96, default: 576, unit: "p" },
+    { id: "fast", type: "toggle", label: "Turbo", note: "8 steps, about twice as fast: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
     { id: "steps", type: "number", label: "Steps", min: 4, max: 50, step: 1, default: 15, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
       id: "turboIn", type: "choice", label: "Turbo model (distilled)", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
@@ -141,17 +149,24 @@ export const h3Video = defineRecipe<H3Video>({
       id: "hybrid", type: "choice", label: "Hybrid model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "it follows reference pictures and voices itself; otherwise those clips use MiniMax's reference model. Auto reads it from the file name",
     },
-    { id: "smooth", type: "toggle", label: "Smooth motion", note: "48 pictures a second instead of 24", default: true, advanced: true },
+    { id: "smooth", type: "toggle", label: "Smooth: 48 fps", note: "frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
     { id: "sharpRefs", type: "toggle", label: "Reference pictures at full size", note: "holds a face better, several times slower", default: false, advanced: true },
-    { id: "quick", type: "toggle", label: "Quick attention", note: "Nvidia and AMD cards. Turn it off if renders fail on another machine.", default: true, advanced: true },
-    { id: "cache", type: "toggle", label: "Skip steps that barely change", note: "faster, can soften details; only without Fast", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
+    { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
+    {
+      id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
+      note: "while it renders, a short clip of what is forming, each step, with its sound so far. A small cost per step. Needs the KJNodes pack",
+    },
+    {
+      id: "quick", type: "toggle", label: "Comfy Kitchen attention", default: true, advanced: true,
+      note: "a faster attention for INT8 models (ModelAttentionBackend), on Nvidia and AMD cards. Turn it off if renders fail on another machine",
+    },
     { id: "loras", type: "loras", label: "LoRAs", max: 6 },
     { id: "seed", type: "seed", label: "Seed" },
   ],
 
   nodes(input) {
     const how = uses(input);
-    const guided = Boolean(input.previous || input.next || input.mid) || (how.start && input.references.length > 0);
+    const guided = Boolean(input.previous || input.next || input.mid) || (how.start && (input.references.length > 0 || input.refVideos.length > 0));
     const picked = modelOf(input, {});
     // a turbo model that makes the clip itself takes no turbo LoRA
     const turboLora = input.fast && !(picked.turbo && (!how.reference || picked.hybrid));
@@ -162,11 +177,11 @@ export const h3Video = defineRecipe<H3Video>({
       ...(turboLora || input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
       ...(how.start || how.end || input.mid || input.references.length ? ["LoadImage"] : []),
       ...(input.voice ? ["LoadAudio"] : []),
-      ...(input.previous || input.next ? ["LoadVideo", "GetVideoComponents"] : []),
+      ...(input.previous || input.next || input.refVideos.length ? ["LoadVideo", "GetVideoComponents"] : []),
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: ["MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate"],
+  optionalNodes: ["MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
 
   build(input, ctx) {
     const { slots, uploads, media } = ctx;
@@ -216,22 +231,38 @@ export const h3Video = defineRecipe<H3Video>({
       if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     }
     model = g.out("MiniMaxH3SigmaShift", { model, shift_video: turbo ? 7 : 11, shift_audio: turbo ? 4.5 : 4 });
+    // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is there)
+    // and the sound so far, sent as a short clip to whoever queued the prompt: what ComfyUI itself shows
+    if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
+      model = g.out("ModelPreviewOverrideKJ", {
+        model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12,
+        tiny_vae: slots.tinyVae ?? "none", audio_vae: audioVae,
+      });
+    }
 
     const clip = g.out("CLIPLoader", { clip_name: slots.clip, type: "minimax", device: "default" });
     let start: string;
     let positive: Ref;
     if (how.reference) {
       // a voice with a picture to open on and nothing else: that picture is who speaks, not a frame
-      const voiceOnly = input.references.length === 0;
+      const voiceOnly = input.references.length === 0 && input.refVideos.length === 0;
+      // videos of the person: their frames, and their sound as the voice when no voice sample is given
+      const videos = input.refVideos.map((_, i) => ({
+        parts: g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: uploads[`refVideos.${i}`] }) }),
+        sound: Boolean(media[`refVideos.${i}`]?.hasSound) && !input.voice,
+      }));
       const pictures = voiceOnly ? (how.start ? [{ file: uploads.start, role: "person" }] : []) : input.references.map((r, i) => ({ file: uploads[`references.${i}`], role: r.role }));
       // with references, the clip can still open on its picture: it is given as one more picture and pinned at the first frame
       const opening = !voiceOnly && how.start;
       const files = [...pictures.map((p) => p.file), ...(opening ? [uploads.start] : [])];
-      const prompt = h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), voice: Boolean(input.voice), continues: Boolean(input.previous), opening, voiceOnly });
+      const prompt = h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map((v) => v.sound), voice: Boolean(input.voice), continues: Boolean(input.previous), opening, voiceOnly });
       start = g.add("MiniMaxH3ReferenceToVideo", {
         clip, vae, audio_vae: audioVae, prompt, width, height, length: frames, ref_image_size: input.sharpRefs ? "max" : "match",
         // inputs of a group that grows are named "<group>.<prefix><n>", counting from 0
         ...Object.fromEntries(files.map((file, i) => [`ref_images.ref_image_${i}`, g.out("LoadImage", { image: file })])),
+        ...Object.fromEntries(videos.map((v, i) => [`ref_videos.ref_video_${i}`, [v.parts, 0]])),
+        // the sound goes with the video of the same number
+        ...Object.fromEntries(videos.flatMap((v, i) => (v.sound ? [[`ref_video_audios.ref_video_audio_${i}`, [v.parts, 1]]] : []))),
         ...(input.voice ? { "ref_audios.ref_audio_0": g.out("LoadAudio", { audio: uploads.voice }) } : {}),
       });
       positive = [start, 0];
@@ -357,6 +388,12 @@ export const h3Video = defineRecipe<H3Video>({
         name: "a hybrid turbo fine-tune, with a reference picture",
         input: { description: "a", model: "SomeoneH3_hybridTurboV3.safetensors", references: [{ asset: "r1", role: "person" }] },
         slots: { ...slots, turbo: all.turbo }, uploads: { "references.0": "r1.png" },
+      },
+      {
+        name: "a video of the person with its sound, and a picture of the place",
+        input: { description: "a", refVideos: [{ asset: "v1", role: "person" }, { asset: "v2", role: "person" }], references: [{ asset: "r1", role: "place" }] },
+        slots: all, uploads: { "refVideos.0": "a.mp4", "refVideos.1": "b.mp4", "references.0": "r1.png" },
+        media: { "refVideos.0": { width: 384, height: 682, frames: 72, fps: 24, hasSound: true }, "refVideos.1": { width: 384, height: 682, frames: 72, fps: 24, hasSound: false } },
       },
       {
         name: "passes through a picture half way",

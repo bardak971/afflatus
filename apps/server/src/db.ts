@@ -134,6 +134,8 @@ export interface Tables {
     look: string | null;
     /** The conversation with the designer about this clip (JSON). */
     chat: string | null;
+    /** Which language model and which instructions that conversation is held with (JSON); null = the usual ones. */
+    designer?: string | null;
     created_at: string;
     updated_at: string;
   };
@@ -180,6 +182,8 @@ export interface Tables {
     count: number;
     /** The prompt designer's conversation about this draft (JSON), when there is one. */
     chat: string | null;
+    /** Which language model and which instructions that conversation is held with (JSON); null = the usual ones. */
+    designer?: string | null;
     /** Who is in it and how it looks (JSON): people, places, a style. */
     look: string | null;
     created_at: string;
@@ -508,6 +512,17 @@ migrations["0010_mood"] = {
   },
   async down(db) {
     await db.schema.alterTable("timelines").dropColumn("mood").execute();
+  },
+};
+
+migrations["0014_designer_session"] = {
+  async up(db) {
+    await db.schema.alterTable("drafts").addColumn("designer", "text").execute();
+    await db.schema.alterTable("clips").addColumn("designer", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("drafts").dropColumn("designer").execute();
+    await db.schema.alterTable("clips").dropColumn("designer").execute();
   },
 };
 

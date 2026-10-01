@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
 import type { Graph } from "@studai/core";
 import { wan } from "../../../packages/workflows/test/fixtures";
-import { cutFrames, frameAt } from "../src/cut";
+import { cutFrames, frameAt, referenceClip } from "../src/cut";
 import { pngSize } from "../src/media";
 import { readVideo } from "../src/video";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -423,8 +423,46 @@ describe.skipIf(!three)("a timeline", () => {
     expect((await call("PATCH", `/api/timelines/${id}`, { name: "Night" })).name).toBe("Night");
     await call("DELETE", `/api/timelines/${id}`);
     expect((await get(t.app, `/api/timelines/${id}`)).statusCode).toBe(404);
-    // the videos stay in the library
-    expect((await get(t.app, "/api/assets?kind=video")).json().items).toHaveLength(2);
+    // the video of the take that was removed went to the bin with it; the one of the clip that was removed stays in the library
+    expect((await get(t.app, "/api/assets?kind=video")).json().items).toHaveLength(1);
+  });
+
+  it("keeps a clip's conversation with the designer and what it is held with, without that being a change to undo", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "Talk" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    const before = (await view(tl.id)).undo;
+    await call("PATCH", `/api/clips/${clip}`, { designer: { llm: "big", instruction: "film" }, chat: [{ role: "user", content: "a walk" }] });
+    expect((await view(tl.id)).clips[0]).toMatchObject({ designer: { llm: "big", instruction: "film" }, chat: [{ role: "user", content: "a walk" }] });
+    // starting over empties the conversation and keeps what it is held with
+    await call("PATCH", `/api/clips/${clip}`, { chat: [] });
+    expect((await view(tl.id)).clips[0]).toMatchObject({ designer: { llm: "big", instruction: "film" }, chat: [] });
+    expect((await view(tl.id)).undo).toBe(before);
+  });
+
+  it("sends the video of a removed take to the bin, brings both back with Undo, and leaves alone a video brought in from the library", async () => {
+    const { id } = await twoClips();
+    const videos = async () => ((await get(t.app, "/api/assets?kind=video")).json().items as Array<{ id: string }>).map((v) => v.id);
+    const inBin = async (asset: string) => (await get(t.app, `/api/assets/${asset}`)).json().inBin as boolean;
+    const take = (await view(id)).clips[1].take as { id: string; asset: { id: string } };
+    expect(await videos()).toHaveLength(2);
+
+    await call("DELETE", `/api/takes/${take.id}`);
+    expect((await view(id)).clips[1].take).toBeNull();
+    expect(await videos()).not.toContain(take.asset.id);
+    expect(await inBin(take.asset.id)).toBe(true);
+
+    // Undo: the take plays again, and its video is back in the library
+    expect((await call("POST", `/api/timelines/${id}/undo`)).undone).toBe("the take removed");
+    expect((await view(id)).clips[1].take.id).toBe(take.id);
+    expect(await inBin(take.asset.id)).toBe(false);
+    expect(await videos()).toContain(take.asset.id);
+
+    // a video of one's own, put on the timeline: taking it off the timeline does not take it out of the library
+    const own = await upload(three!, "video/mp4", "holiday.mp4");
+    const mine = (await call("POST", `/api/timelines/${id}/clips`, { asset: own.id })).timeline.clips[2].take as { id: string };
+    await call("DELETE", `/api/takes/${mine.id}`);
+    expect(await inBin(own.id)).toBe(false);
+    expect(await videos()).toContain(own.id);
   });
 
   it("lets a workflow that opens on a picture pick up from the last frame that plays", async () => {
@@ -461,5 +499,44 @@ describe.skipIf(!three)("a clip made outside a timeline", () => {
     expect(nodes(graph, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 192, height: 320 });
     const made = (await get(t.app, "/api/assets?kind=video")).json().items[0];
     expect((await get(t.app, `/api/assets/${made.id}`)).json().sources).toMatchObject([{ role: "previous", asset: { id: source } }]);
+  });
+});
+
+describe.skipIf(!three || !silent)("a video of a person as a reference", () => {
+  it("is its first seconds, small, at the model's speed; a silent one is no voice", async () => {
+    const big = makeClip(5, { size: "640x1136" })!;
+    const clip = await referenceClip(big, "mp4", { seconds: 3, fps: 24, short: 384 });
+    expect(clip).toMatchObject({ width: 384, frames: 72, hasSound: true });
+    expect(clip.height).toBeGreaterThan(600);
+    expect((await readVideo(clip.bytes, "mp4")).facts).toMatchObject({ fps: 24, hasSound: true });
+    // already small: it is not enlarged
+    expect(await referenceClip(three!, "mp4", { seconds: 3, fps: 24, short: 384 })).toMatchObject({ width: 192, height: 320 });
+    expect((await referenceClip(silent!, "mp4", { seconds: 3, fps: 24, short: 384 })).hasSound).toBe(false);
+  });
+
+  it("goes up to ComfyUI as that short clip when a render names it, and is part of how the result was made", async () => {
+    await t.close();
+    await fake.close().catch(() => {});
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { ...H3_FILES, diffusion_models: [...H3_FILES.diffusion_models, "minimax_h3_ref2va_fp8.safetensors"] } });
+    t = await makeApp({ comfyUrl: fake.url });
+    await t.services.queue.start();
+    const video = (await t.app.inject({ method: "POST", url: "/api/assets?name=her.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(makeClip(5, { size: "640x1136" })!) })).json();
+    const picture = (await t.app.inject({ method: "POST", url: "/api/assets?name=p.png", headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(64, 64, [1, 2, 3], [4, 5, 6])) })).json();
+    // a picture is not a video
+    await post(t.app, "/api/jobs", { recipe: "h3.video", input: { description: "She waves.", refVideos: [{ asset: picture.id, role: "person" }] } });
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("status", "=", "failed").execute()).length === 1);
+    expect((await t.db.selectFrom("jobs").select("error").where("status", "=", "failed").executeTakeFirstOrThrow()).error).toMatch(/reference video is no longer/);
+
+    await post(t.app, "/api/jobs", { recipe: "h3.video", input: { description: "She waves.", refVideos: [{ asset: video.id, role: "person" }] } });
+    const graph = await finish(three!, 1);
+    const node = nodes(graph, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(Object.keys(node.inputs)).toEqual(expect.arrayContaining(["ref_videos.ref_video_0", "ref_video_audios.ref_video_audio_0"]));
+    expect(String(node.inputs.prompt)).toContain("<Subject 1> is the character in <Video 1>.");
+    // it went up as a video of its own (the short clip that was cut from it)
+    const sent = String(nodes(graph, "LoadVideo")[0]!.inputs.file).replace(" [temp]", "");
+    expect(sent).toMatch(/\.mp4$/);
+    expect(fake.uploads).toContain(sent);
+    const made = (await get(t.app, "/api/assets?kind=video")).json().items.find((a: { id: string }) => a.id !== video.id);
+    expect((await get(t.app, `/api/assets/${made.id}`)).json().sources).toMatchObject([{ role: "person", asset: { id: video.id } }]);
   });
 });

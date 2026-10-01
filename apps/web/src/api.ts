@@ -84,6 +84,8 @@ export interface RunningJob extends Job {
   step: number;
   steps: number;
   previewSeq: number;
+  /** What the preview is: a picture, or (video/…) a short clip of what is forming. */
+  previewMime?: string | null;
 }
 export interface QueueStatus {
   paused: boolean;
@@ -145,8 +147,15 @@ export interface Draft extends DraftBrief {
   look: Look | null;
   /** The conversation with the designer about it. */
   chat: unknown[];
+  /** The language model and instructions that conversation is held with; null = the usual ones. */
+  designer: DesignerSession | null;
 }
 
+/** Which language model and which instructions a conversation with the designer is held with ("" = no instructions). */
+export interface DesignerSession {
+  llm?: string;
+  instruction?: string;
+}
 /** What the designer answers: the full new text of the boxes it changes, or one question, or a plan of clips. */
 export interface DesignerReply {
   kind: "proposal" | "question" | "plan";
@@ -261,6 +270,8 @@ export interface Clip {
   look: Look | null;
   /** The conversation with the designer about this clip. */
   chat: unknown[];
+  /** The language model and instructions that conversation is held with; null = the usual ones. */
+  designer: DesignerSession | null;
   /** How it starts: carrying on from the clip before, or on its own. */
   joined: "continue" | "cut";
   /** Whether it still follows the clip before: null when there is nothing to compare yet. */
@@ -320,6 +331,7 @@ export interface ClipPatch {
   animate?: boolean;
   look?: Look | null;
   chat?: unknown[];
+  designer?: DesignerSession | null;
 }
 export interface TimelinePatch {
   name?: string;
@@ -551,9 +563,9 @@ export const api = {
   drafts: () => call<{ items: DraftBrief[] }>("GET", "/drafts"),
   draft: (id: string) => call<Draft>("GET", `/drafts/${id}`),
   createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null }) => call<Draft>("POST", "/drafts", body),
-  saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
+  saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; designer?: DesignerSession | null; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
   /** One turn of the conversation with the designer about a form. */
-  designer: (body: { recipe: string; values: Record<string, unknown>; messages: Array<{ role: "user" | "assistant"; content: string }>; mode: "chat" | "enhance"; previous?: string; story?: { clips: string[]; index: number }; look?: Look | null; mood?: string }) =>
+  designer: (body: { recipe: string; values: Record<string, unknown>; messages: Array<{ role: "user" | "assistant"; content: string }>; mode: "chat" | "enhance"; llm?: string; instruction?: string; previous?: string; story?: { clips: string[]; index: number }; look?: Look | null; mood?: string }) =>
     call<DesignerReply>("POST", "/designer", body),
   /** A scene written as several clips: the text of each. */
   designerPlan: (body: { recipe: string; idea: string; clips: number; values?: Record<string, unknown>; look?: Look | null; mood?: string }) =>

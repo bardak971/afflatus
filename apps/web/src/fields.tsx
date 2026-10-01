@@ -281,7 +281,7 @@ export function Field({ spec, value, values, options, family, model, onChange }:
       return <PictureField label={spec.label} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange} />;
 
     case "references":
-      return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} />;
+      return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} video={spec.media === "video"} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} />;
 
     case "audio":
       return <SoundField label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange} />;

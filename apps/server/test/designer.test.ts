@@ -150,6 +150,46 @@ describe("the user's own instructions for the designer", () => {
   });
 });
 
+describe("a conversation's own language model and instructions", () => {
+  it("are the ones it says, whatever is the usual choice; one that is gone falls back to the usual", async () => {
+    await useLlm();
+    const { hasApiKey: _has, ...kept } = (await get(t.app, "/api/settings")).json().llms[0];
+    await put("/api/settings", {
+      llms: [kept, { id: "big", baseUrl: llm.url, model: "big-model" }],
+      designerInstructions: [{ id: "film", name: "Film", text: "Always name the lens." }, { id: "short", name: "Short", text: "Never more than ten tags." }],
+      designerInstruction: "film",
+    });
+    const say = (session: Record<string, unknown>) => post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "" }, messages: [{ role: "user", content: "a terrace" }], ...session });
+
+    // nothing said: the usual model, the usual instructions
+    await say({});
+    expect(llm.asked.at(-1)!.model).toBe("test-model");
+    expect(system()).toContain("Always name the lens.");
+    // its own: another model, other instructions
+    await say({ llm: "big", instruction: "short" });
+    expect(llm.asked.at(-1)!.model).toBe("big-model");
+    expect(system()).toContain("Never more than ten tags.");
+    expect(system()).not.toContain("Always name the lens.");
+    // "no instructions" on purpose is not "the usual ones"
+    await say({ instruction: "" });
+    expect(system()).not.toContain("STANDING INSTRUCTIONS");
+    // a model or instructions removed from Setup since: the usual model, and no instructions rather than someone else's
+    await say({ llm: "gone", instruction: "gone" });
+    expect(llm.asked.at(-1)!.model).toBe("test-model");
+    expect(system()).not.toContain("STANDING INSTRUCTIONS");
+  });
+
+  it("are kept with the draft", async () => {
+    const draft = (await post(t.app, "/api/drafts", { recipe: "sdxl.text-to-picture" })).json();
+    expect(draft.designer).toBeNull();
+    const saved = (await put(`/api/drafts/${draft.id}`, { designer: { llm: "big", instruction: "" } })).json();
+    expect(saved.designer).toEqual({ llm: "big", instruction: "" });
+    // saving something else leaves it; null goes back to the usual ones
+    expect((await put(`/api/drafts/${draft.id}`, { count: 2 })).json().designer).toEqual({ llm: "big", instruction: "" });
+    expect((await put(`/api/drafts/${draft.id}`, { designer: null })).json().designer).toBeNull();
+  });
+});
+
 describe("a fresh start", () => {
   it("forgets every conversation, in drafts and on timelines, and leaves the forms alone", async () => {
     const turns = [{ role: "user", content: "a terrace" }, { role: "assistant", content: "ok" }];
