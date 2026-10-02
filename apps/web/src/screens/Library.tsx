@@ -53,6 +53,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: 
         else onOpen();
       }}
       aria-label={`Open ${asset.kind === "image" ? "picture" : asset.kind}`}
+      data-stage
       className={cx("group relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
     >
       {onSelect && (
@@ -90,7 +91,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: 
         </span>
       )}
       {!asset.kept && !asset.inBin && (
-        <span title="Deleted then unless you keep it." className="absolute top-2 right-2 rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold text-[#2a0e00]">{left(asset)}</span>
+        <span title="Deleted then unless you keep it." className="absolute top-2 right-2 rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold text-warn-on">{left(asset)}</span>
       )}
     </button>
   );
@@ -167,7 +168,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     },
   });
   const row = (on: boolean, key: string) =>
-    cx("flex h-[34px] w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left", on ? "bg-hover font-semibold text-white" : "text-ink hover:bg-raised", over === key && "outline outline-2 outline-accent");
+    cx("flex h-[34px] w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left", on ? "bg-hover font-semibold text-ink-strong" : "text-ink hover:bg-raised", over === key && "outline outline-2 outline-accent");
 
   const submit = (then: (name: string) => void) => (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,7 +207,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
                   {deleting === f.id ? (
                     <>
                       <span className="text-xs text-ink-2">Nothing on your disk is touched.</span>
-                      <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-[#2a0e00]">Unlink</button>
+                      <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Unlink</button>
                       <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
                     </>
                   ) : (
@@ -224,7 +225,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
                 {deleting === f.id ? (
                   <>
                     <span className="text-xs text-ink-2">Its items move up.</span>
-                    <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-[#2a0e00]">Delete</button>
+                    <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Delete</button>
                     <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
                   </>
                 ) : (

@@ -20,6 +20,8 @@ import { Timelines } from "./screens/Timelines";
 import { Workflows } from "./screens/Workflows";
 import { useSystem } from "./store";
 import { StripModel, StripPlace } from "./ModelLoad";
+import { ThemeFlip } from "./theme/Appearance";
+import { useTheme } from "./theme/store";
 import { Bar, cx } from "./ui";
 
 const NAV: Array<{ href: string; label: string; icon: ReactNode }> = [
@@ -81,6 +83,7 @@ function Strip() {
 
 export function App() {
   useLiveEvents();
+  useTheme();
   const [path] = useLocation();
   return (
     <div className="flex h-full flex-col">
@@ -94,13 +97,15 @@ export function App() {
                 key={n.href}
                 href={n.href}
                 aria-current={on ? "page" : undefined}
-                className={cx("flex h-14 w-16 flex-col items-center justify-center gap-1 rounded-[10px] text-[11px] font-semibold", on ? "bg-hover text-white" : "text-ink-2 hover:text-ink")}
+                className={cx("flex h-14 w-16 flex-col items-center justify-center gap-1 rounded-[10px] text-[11px] font-semibold", on ? "bg-hover text-ink-strong" : "text-ink-2 hover:text-ink")}
               >
                 {n.icon}
                 {n.label}
               </Link>
             );
           })}
+          <span className="grow" />
+          <ThemeFlip />
         </nav>
         <Switch>
           <Route path="/"><Studio /></Route>

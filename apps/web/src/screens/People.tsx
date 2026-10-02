@@ -254,7 +254,7 @@ function DeleteButton({ label, onDelete, className }: { label: string; onDelete(
     return () => clearTimeout(back);
   }, [sure]);
   return sure ? (
-    <button type="button" onClick={onDelete} className={cx("flex h-8 shrink-0 items-center rounded-md bg-warn px-2 text-xs font-semibold text-[#2a0e00]", className)}>Delete?</button>
+    <button type="button" onClick={onDelete} className={cx("flex h-8 shrink-0 items-center rounded-md bg-warn px-2 text-xs font-semibold text-warn-on", className)}>Delete?</button>
   ) : (
     <button type="button" aria-label={label} title={label} onClick={() => setSure(true)} className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink", className)}><Trash2 size={14} /></button>
   );
@@ -570,7 +570,7 @@ export function People() {
           {TABS.map((t) => {
             const on = t.id === tab;
             return (
-              <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => setTab(t.id)} className={cx("flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold whitespace-nowrap", on ? "bg-line-strong text-white" : "text-ink-2 hover:text-ink")}>
+              <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => setTab(t.id)} className={cx("flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold whitespace-nowrap", on ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:text-ink")}>
                 {t.title} <span className={cx("font-normal", on ? "text-ink-2" : "text-ink-3")}>{all.filter((e) => e.kind === t.id).length}</span>
               </button>
             );

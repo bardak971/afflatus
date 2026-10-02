@@ -2,7 +2,7 @@
 @import "@fontsource-variable/instrument-sans";
 @import "@fontsource-variable/jetbrains-mono";
 
-/* The palette of the mockups. One dark theme: this is a media tool. */
+/* The palette the app was drawn in. The themes (src/theme) give every one of these tokens another value. */
 @theme {
   --font-sans: "Instrument Sans Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
@@ -16,6 +16,8 @@
   --color-ink: #e9ecf1;
   --color-ink-2: #a3acb9;
   --color-ink-3: #7d8794;
+  /* what is picked or on: the brightest ink */
+  --color-ink-strong: #ffffff;
   --color-accent: #f5c451;
   --color-accent-ink: #1b1503;
   --color-accent-wash: #211d10;
@@ -23,11 +25,19 @@
   --color-warn: #ff8a5c;
   --color-warn-wash: #2a1a12;
   --color-warn-ink: #ffb79c;
+  /* what is written on a fill of the warning colour */
+  --color-warn-on: #2a0e00;
+  /* the knob of a switch that is on, over the accent */
+  --color-knob: #ffffff;
+  /* the colour of shadows */
+  --color-shade: #000000;
   --color-picture: #86aeff;
 }
 
 html {
   color-scheme: dark;
+  /* room around a picture where it is shown on a dark stage inside a light theme */
+  --stage-pad: 0px;
 }
 html,
 body,
@@ -59,5 +69,40 @@ input[type="range"] {
   }
   to {
     transform: translateX(250%);
+  }
+}
+
+/*
+ * Scroll bars in the theme's own colours: thin, rounded, no arrows, and no track of another colour
+ * beside a panel. The browser's own ones only know "light" and "dark".
+ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-thumb {
+  /* a thumb narrower than its lane: the border is see-through */
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-color: var(--color-line-strong);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  border-width: 2px;
+  background-color: var(--color-ink-3);
+}
+/* browsers without those (Firefox): the two colours, and thin */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
   }
 }

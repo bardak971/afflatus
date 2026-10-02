@@ -156,7 +156,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
           ref={panel}
           data-floating
           style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height }}
-          className="fixed z-[70] flex flex-col overflow-hidden rounded-xl border border-line-strong bg-panel shadow-2xl shadow-black/60"
+          className="fixed z-[70] flex flex-col overflow-hidden rounded-xl border border-line-strong bg-panel shadow-2xl shadow-shade/60"
         >
           <div className="flex shrink-0 items-center gap-2 border-b border-line px-3">
             <Search size={14} className="shrink-0 text-ink-3" />

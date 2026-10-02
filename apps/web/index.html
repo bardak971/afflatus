@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>studai</title>
+    <script>
+      // the theme's own colours before the app has loaded, so that the page does not flash dark then light
+      try {
+        var p = JSON.parse(localStorage.getItem("studai.theme.paint") || "null");
+        if (p) {
+          document.documentElement.style.background = p.ground;
+          document.documentElement.style.color = p.ink;
+          document.querySelector('meta[name="color-scheme"]').setAttribute("content", p.light ? "light" : "dark");
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

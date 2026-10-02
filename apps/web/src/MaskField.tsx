@@ -317,7 +317,7 @@ function Painter({ picture, mask, onDone, onClose }: { picture: string; mask: st
   });
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Paint the mask" className="fixed inset-0 z-50 flex flex-col bg-ground/95">
+    <div data-stage role="dialog" aria-modal="true" aria-label="Paint the mask" className="fixed inset-0 z-50 flex flex-col bg-ground/95">
       <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line bg-panel px-5">
         <h2 className="text-base font-semibold">Paint the mask</h2>
         <Segmented<"paint" | "erase" | "move"> label="Tool" value={tool} options={[{ value: "paint", label: "Paint" }, { value: "erase", label: "Rub out" }, { value: "move", label: "Move" }]} onChange={setTool} />

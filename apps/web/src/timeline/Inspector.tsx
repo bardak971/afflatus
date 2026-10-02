@@ -141,7 +141,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         {removing ? (
           <>
             <span className="text-xs text-ink-2">{still ? "The picture stays in your library." : "Its videos stay in your library."}</span>
-            <button type="button" onClick={onRemove} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-[#2a0e00]">Remove</button>
+            <button type="button" onClick={onRemove} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Remove</button>
             <button type="button" onClick={() => setRemoving(false)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
           </>
         ) : (

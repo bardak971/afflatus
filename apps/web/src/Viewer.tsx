@@ -561,7 +561,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
+    <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
       <div className="flex min-w-0 grow items-center justify-center p-6" onClick={onClose}>
         {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Picture"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls className="max-h-full max-w-full rounded-lg" onClick={(e) => e.stopPropagation()} />}

@@ -168,7 +168,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
               {categories.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {categories.map((c) => (
-                    <button key={c} type="button" onClick={() => setAdding({ ...adding, category: c })} className={cx("rounded-full px-2 py-0.5 text-[11px]", adding.category.trim().toLowerCase() === c.toLowerCase() ? "bg-line-strong text-white" : "bg-hover text-ink-2 hover:text-ink")}>{c}</button>
+                    <button key={c} type="button" onClick={() => setAdding({ ...adding, category: c })} className={cx("rounded-full px-2 py-0.5 text-[11px]", adding.category.trim().toLowerCase() === c.toLowerCase() ? "bg-line-strong text-ink-strong" : "bg-hover text-ink-2 hover:text-ink")}>{c}</button>
                   ))}
                 </div>
               )}

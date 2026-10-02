@@ -56,7 +56,7 @@ export function Timelines() {
                 </Link>
                 {deleting === t.id ? (
                   <>
-                    <button type="button" onClick={() => { remove.mutate(t.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-[#2a0e00]">Delete</button>
+                    <button type="button" onClick={() => { remove.mutate(t.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Delete</button>
                     <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
                   </>
                 ) : (

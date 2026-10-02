@@ -133,7 +133,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   const sees = last?.sawPicture;
 
   return (
-    <div ref={panel} role="dialog" aria-label="Designer" style={floor !== null ? { bottom: floor } : undefined} className={cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-black/60", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}>
+    <div ref={panel} role="dialog" aria-label="Designer" style={floor !== null ? { bottom: floor } : undefined} className={cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <WandSparkles size={15} className="text-accent" />
         <span className="font-semibold">Designer</span>

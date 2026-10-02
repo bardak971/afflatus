@@ -188,7 +188,7 @@ export const Player = forwardRef<PlayerHandle, {
   const h = ratio ? w / ratio : 0;
 
   return (
-    <div ref={box} className="relative flex min-h-0 grow items-center justify-center bg-[#08090b]">
+    <div ref={box} data-stage className="relative flex min-h-0 grow items-center justify-center bg-[#08090b]">
       {!now && !live && (
         <div className="flex flex-col items-center gap-2 text-ink-3">
           <Film size={28} />

@@ -279,6 +279,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                       onSeek(playAt(slots, x), Math.max(0, Math.min(totalMs, ((x - PAD) / pps) * 1000)));
                     }}
                     aria-pressed={on}
+                    // a clip that has its picture is read over it: the colours of the dark stage
+                    data-stage={s.planned ? undefined : ""}
                     aria-label={`Clip ${s.index + 1}, ${titleOf(c, recipe)}${s.planned ? ", not rendered yet" : `, ${(c.lengthMs / 1000).toFixed(1)} seconds`}`}
                     style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }}
                     className={cx(
@@ -362,7 +364,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                       style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
                       className={cx(
                         "absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
-                        c.join === "stale" ? "border-warn bg-warn text-[#2a0e00]" : c.joined === "continue" ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
+                        c.join === "stale" ? "border-warn bg-warn text-warn-on" : c.joined === "continue" ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
                       )}
                     >
                       {c.join === "stale" ? <TriangleAlert size={11} /> : c.joined === "continue" ? <Link2 size={11} /> : <Scissors size={10} />}
@@ -424,8 +426,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
             {head && (
               <div aria-hidden className="pointer-events-none absolute top-0 z-20" style={{ left: head.x - 1, height: HEIGHT - 4 }}>
-                <div className="h-full w-0.5 bg-white" />
-                <div className="absolute -top-px -left-[5px] h-2.5 w-3 rounded-b bg-white" />
+                <div className="h-full w-0.5 bg-ink-strong" />
+                <div className="absolute -top-px -left-[5px] h-2.5 w-3 rounded-b bg-ink-strong" />
               </div>
             )}
           </div>

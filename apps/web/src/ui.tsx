@@ -18,7 +18,7 @@ export function Button({ tone = "plain", size = "md", className, ...rest }: Butt
         tone === "primary" && "bg-accent text-accent-ink",
         tone === "plain" && "border border-line-strong text-ink hover:bg-hover",
         tone === "quiet" && "bg-hover text-ink",
-        tone === "danger" && "bg-warn text-[#2a0e00]",
+        tone === "danger" && "bg-warn text-warn-on",
         className,
       )}
     />
@@ -106,7 +106,7 @@ export function Toggle({ on, onChange, label, note, bare }: { on: boolean; onCha
         onClick={() => onChange(!on)}
         className={cx("h-[22px] w-[38px] shrink-0 rounded-full p-[3px]", on ? "bg-accent" : "bg-line-strong")}
       >
-        <span className={cx("block h-4 w-4 rounded-full bg-white transition-[margin]", on && "ml-4")} />
+        <span className={cx("block h-4 w-4 rounded-full transition-[margin]", on ? "ml-4 bg-knob" : "bg-white")} />
       </button>
       {!bare && <span>{label}</span>}
       {!bare && note && <span className="text-xs text-ink-2">{note}</span>}
@@ -130,7 +130,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
           role="radio"
           aria-checked={o.value === value}
           onClick={() => onChange(o.value)}
-          className={cx("h-7 grow rounded-md px-2 text-xs font-semibold whitespace-nowrap", o.value === value ? "bg-line-strong text-white" : "text-ink-2")}
+          className={cx("h-7 grow rounded-md px-2 text-xs font-semibold whitespace-nowrap", o.value === value ? "bg-line-strong text-ink-strong" : "text-ink-2")}
         >
           {o.label}
         </button>

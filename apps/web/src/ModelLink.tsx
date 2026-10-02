@@ -104,7 +104,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
           role="menu"
           aria-label={`The page of ${label}`}
           style={{ left: place.left, top: place.top, bottom: place.bottom }}
-          className="fixed z-[75] flex max-h-[min(420px,80vh)] w-[340px] flex-col gap-0.5 overflow-y-auto rounded-xl border border-line-strong bg-panel p-1.5 text-sm shadow-2xl shadow-black/60"
+          className="fixed z-[75] flex max-h-[min(420px,80vh)] w-[340px] flex-col gap-0.5 overflow-y-auto rounded-xl border border-line-strong bg-panel p-1.5 text-sm shadow-2xl shadow-shade/60"
         >
           {page ? (
             <>

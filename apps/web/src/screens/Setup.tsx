@@ -8,6 +8,7 @@ import { fileLabel, gb, problemSaid, recipeLabel, size } from "../format";
 import { allowNotifications, useNotify } from "../store";
 import { DownloadRow, GetFile, useDownloads } from "../GetFile";
 import { Select } from "../Select";
+import { AppearanceCard } from "../theme/Appearance";
 import { AutoText, Button, cx, ErrorNote, NumberBox, Toggle } from "../ui";
 
 /** Where the space goes, and the two ways to get some back. */
@@ -689,6 +690,7 @@ export function Setup() {
         </section>
 
         <div className="col-start-1 flex flex-col gap-5">
+          <AppearanceCard />
           <DesignerCard />
           <WritingCard />
           <StorageCard />

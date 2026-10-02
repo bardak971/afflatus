@@ -75,7 +75,7 @@ export function FolderImportNote() {
   const dismiss = useFolderImport((s) => s.dismiss);
   if (!run) return null;
   return (
-    <div role="status" className="fixed bottom-14 left-24 z-[60] flex w-80 flex-col gap-1.5 rounded-xl border border-line-strong bg-panel px-3.5 py-2.5 shadow-2xl shadow-black/60">
+    <div role="status" className="fixed bottom-14 left-24 z-[60] flex w-80 flex-col gap-1.5 rounded-xl border border-line-strong bg-panel px-3.5 py-2.5 shadow-2xl shadow-shade/60">
       <div className="flex items-center gap-2">
         <FolderUp size={14} className="shrink-0 text-ink-2" />
         <span className="min-w-0 grow truncate font-semibold">{run.over ? `"${run.name}" is in your library` : `Bringing in "${run.name}"`}</span>

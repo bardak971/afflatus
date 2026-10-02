@@ -55,7 +55,7 @@ const TILE = { S: "minmax(120px,1fr)", M: "minmax(170px,1fr)", L: "minmax(250px,
 function LiveTile({ job, onClick, on, title }: { job: RunningJob; onClick?(): void; on?: boolean; title?: string }) {
   const stop = useStop();
   return (
-    <div className={cx("relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", on ? "border-2 border-accent" : "border-line-strong")}>
+    <div data-stage className={cx("relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", on ? "border-2 border-accent" : "border-line-strong")}>
       <button type="button" onClick={onClick} disabled={!onClick} aria-label={title ?? "What is being made now"} title={title} className="absolute inset-0 flex flex-col items-center justify-center gap-2">
         <LivePreview job={job} className="absolute inset-0 h-full w-full object-cover opacity-80" />
         <div className="relative flex w-full flex-col items-center gap-1.5 bg-ground/60 px-2 py-2 text-center">
@@ -227,7 +227,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
                 aria-checked={on}
                 title={`${why(r) ? `${why(r)} ` : ""}${r.summary}`}
                 onClick={() => pick(r.id)}
-                className={cx("flex h-7 min-w-0 grow items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", own ? "basis-[45%]" : "basis-[30%]", on ? "bg-line-strong text-white" : why(r) ? "text-ink-3" : "text-ink-2 hover:text-ink")}
+                className={cx("flex h-7 min-w-0 grow items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", own ? "basis-[45%]" : "basis-[30%]", on ? "bg-line-strong text-ink-strong" : why(r) ? "text-ink-3" : "text-ink-2 hover:text-ink")}
               >
                 {own && <Workflow size={12} className="shrink-0" />}
                 <span className="truncate">{r.title}</span>
@@ -427,7 +427,7 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
   }
   return (
     <div className="flex h-full min-h-0 gap-4">
-      <div className="flex min-h-0 min-w-0 grow flex-col">
+      <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-ground p-[var(--stage-pad)]">
         {live && running && (
           <div className="flex min-h-0 grow flex-col items-center justify-center gap-3 pb-4">
             <LivePreview job={running} sound className="max-h-[calc(100%-70px)] max-w-full rounded-lg object-contain" />
