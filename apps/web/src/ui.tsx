@@ -138,6 +138,54 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
   );
 }
 
+/**
+ * A column that scrolls. While there is more under what is shown, its bottom fades out and an arrow
+ * says so: a list cut at the edge of its box otherwise looks like it ends there.
+ */
+export function ScrollColumn({ className, children }: { className?: string; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  const look = () => {
+    const el = box.current;
+    if (el) setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 12);
+  };
+  // what it holds changes height with every setting that shows or hides another: looked at whenever its size changes
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    look();
+    const watch = new ResizeObserver(look);
+    watch.observe(el);
+    for (const child of el.children) watch.observe(child);
+    const added = new MutationObserver(() => {
+      for (const child of el.children) watch.observe(child);
+      look();
+    });
+    added.observe(el, { childList: true });
+    return () => {
+      watch.disconnect();
+      added.disconnect();
+    };
+  }, []);
+  return (
+    <div className="relative flex min-h-0 grow flex-col">
+      <div ref={box} onScroll={look} className={cx("min-h-0 grow overflow-y-auto", className)}>{children}</div>
+      {more && (
+        <button
+          type="button"
+          aria-label="There is more below: go down"
+          title="There is more below"
+          onClick={() => box.current?.scrollBy({ top: box.current.clientHeight * 0.8, behavior: "smooth" })}
+          style={{ background: "linear-gradient(to top, var(--color-panel) 35%, transparent)" }}
+          className="absolute inset-x-0 bottom-0 flex h-12 items-end justify-center pb-1 text-ink-2 hover:text-ink"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function SectionTitle({ children }: { children: ReactNode }) {
   return <div className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{children}</div>;
 }

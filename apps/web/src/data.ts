@@ -15,6 +15,7 @@ export const useWorkflows = () => useQuery({ queryKey: ["workflows"], queryFn: a
 // read once per file by the server, then kept: the "models" live event says when more has arrived
 export const useModelInfo = (folder: string | undefined) => useQuery({ queryKey: ["model-info", folder], queryFn: () => api.modelInfo(folder!), staleTime: Infinity, enabled: Boolean(folder) });
 export const useModelPages = (folder: string) => useQuery({ queryKey: ["model-pages", folder], queryFn: () => api.modelPages(folder), staleTime: Infinity });
+export const useModelWords = (folder: string) => useQuery({ queryKey: ["model-words", folder], queryFn: () => api.modelWords(folder), staleTime: Infinity });
 export const useModelSettings = () => useQuery({ queryKey: ["model-settings"], queryFn: api.modelSettings, staleTime: Infinity });
 // folders change with the library (counts), so they are refetched with it: the key starts with "assets"
 export const useFolders = () => useQuery({ queryKey: ["assets", "folders"], queryFn: api.folders });
@@ -23,8 +24,9 @@ export const useFolders = () => useQuery({ queryKey: ["assets", "folders"], quer
 export const useEstimates = () => useQuery({ queryKey: ["assets", "estimates"], queryFn: api.estimates, staleTime: 60_000 });
 export const useStorage = () => useQuery({ queryKey: ["assets", "storage"], queryFn: api.storage });
 export const useAssetFamilies = () => useQuery({ queryKey: ["assets", "families"], queryFn: api.assetFamilies });
+export const useAssetModels = () => useQuery({ queryKey: ["assets", "models"], queryFn: api.assetModels });
 
-export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean }) {
+export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string }) {
   return useInfiniteQuery({
     queryKey: ["assets", filter],
     queryFn: ({ pageParam }) => api.assets({ ...filter, after: pageParam || undefined }),

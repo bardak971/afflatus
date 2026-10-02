@@ -40,6 +40,11 @@ export interface PromptInput extends Base {
    * empty, shows it greyed as an example, and asks for a prompt before anything is made.
    */
   example?: boolean;
+  /**
+   * False when the model does not read `(words:1.2)` as a weight (a text that goes to a model of its own
+   * kind, not through ComfyUI's text encoders): the form then offers no key to write one.
+   */
+  weights?: boolean;
 }
 export interface ModelInput extends Base {
   type: "model";
@@ -157,6 +162,11 @@ export interface AudioInput extends Base {
   type: "audio";
   role: "voice" | "sound";
   optional?: boolean;
+  /**
+   * Only a part of the sound is used: the ids of the two number inputs that say where it starts and how
+   * long it is, in seconds. The recipe is handed that part alone. The form shows them with the sound.
+   */
+  window?: { start: string; seconds: string };
 }
 
 export type InputSpec =

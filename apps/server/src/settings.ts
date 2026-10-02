@@ -31,6 +31,8 @@ export const settingsSchema = z.object({
   designerInstructions: z.array(instructionSchema).max(30).default([]),
   /** The instructions in use (an id of `designerInstructions`); empty for none. */
   designerInstruction: z.string().default(""),
+  /** Tags written for an anime model are compared with danbooru's list, under the prompt and in what the designer writes. */
+  tagCheck: z.boolean().default(true),
   civitaiKey: z.string().default(""),
   /** Missing model files may be looked for on Civitai. Off: studai never contacts Civitai. */
   civitaiLookups: z.boolean().default(false),
@@ -107,6 +109,7 @@ export function publicSettings(s: Settings) {
     designerLlm: used?.id ?? "",
     designerInstructions: s.designerInstructions,
     designerInstruction: s.designerInstructions.some((i) => i.id === s.designerInstruction) ? s.designerInstruction : "",
+    tagCheck: s.tagCheck,
     hasCivitaiKey: Boolean(s.civitaiKey),
     civitaiLookups: s.civitaiLookups,
     downloadModels: s.downloadModels,

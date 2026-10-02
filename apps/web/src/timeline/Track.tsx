@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Link2, Minus, Music, Plus, Scissors, TriangleAlert, VolumeX } from "lucide-react";
+import { Link2, Minus, Music, Plus, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Timeline } from "../api";
 import { phaseLabel } from "../format";
 import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../screens/Library";
@@ -28,7 +28,7 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -42,6 +42,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   cursorMs: number | null;
   running: RunningJob | null;
   busy: boolean;
+  /** Stop a clip's render, or take it out of the queue. */
+  onStop(job: string): void;
   onSelect(clip: string): void;
   onSelectMusic(): void;
   /** The playhead was moved: the moment of what plays, and where it stands on the track. */
@@ -301,7 +303,22 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">
                       {c.job ? (
                         <span className="flex min-w-0 grow flex-col gap-1 rounded bg-ground/85 px-1.5 py-1 text-[11px]">
-                          <span className="truncate font-semibold">{live ? phaseLabel(live.phase) : "Waiting"}</span>
+                          <span className="flex items-center gap-1">
+                            <span className="min-w-0 grow truncate font-semibold">{live ? phaseLabel(live.phase) : "Waiting"}</span>
+                            <button
+                              type="button"
+                              aria-label={live ? `Stop the render of clip ${s.index + 1}` : `Take clip ${s.index + 1} out of the queue`}
+                              title={live ? "Stop this render" : "Take it out of the queue"}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onStop(c.job!.id);
+                              }}
+                              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"
+                            >
+                              <X size={10} />
+                            </button>
+                          </span>
                           <Bar value={(live?.progress ?? 0) * 100} />
                         </span>
                       ) : (

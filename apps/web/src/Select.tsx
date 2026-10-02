@@ -154,6 +154,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
       {open && place && createPortal(
         <div
           ref={panel}
+          data-floating
           style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height }}
           className="fixed z-[70] flex flex-col overflow-hidden rounded-xl border border-line-strong bg-panel shadow-2xl shadow-black/60"
         >

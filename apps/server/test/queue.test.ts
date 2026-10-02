@@ -64,7 +64,7 @@ describe("a job from start to finish", () => {
     expect(frees()).toBe(2);
   });
 
-  it("frees ComfyUI's memory when asked, but not under a render; and by itself after a while without one, when Setup says so", async () => {
+  it("frees ComfyUI's memory when asked, but not under a render; and by itself after a while without one, when Settings asks for it", async () => {
     const frees = () => fake.calls.filter((c) => c === "POST /free").length;
     const id = await enqueue({});
     await until(() => submitted().length === 1);

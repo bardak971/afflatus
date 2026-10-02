@@ -8,11 +8,11 @@ import { fileLabel } from "./format";
 import { Select } from "./Select";
 import { cx } from "./ui";
 
-const none: Look = { cast: [], style: null };
+const none: Look = { cast: [], style: null, snippets: [] };
 
 /**
  * Who is in it and how it looks: people and places as chips (a person with the outfit picked), and one
- * style. They are written once, on the People page; here they are only picked. "See what is sent"
+ * style. They are written once, in the Prompt kit; here they are only picked. "See what is sent"
  * shows what they add for the model in use: words, LoRAs, reference pictures, a voice.
  */
 export function LookBar({ look, onChange, recipe, input, title = "Characters and styles" }: {
@@ -29,7 +29,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   const now = look ?? none;
   const castable = all.filter((e) => (e.kind === "person" || e.kind === "place") && !now.cast.some((c) => c.id === e.id)).sort((a, b) => a.kind.localeCompare(b.kind));
   const styles = all.filter((e) => e.kind === "style");
-  const active = now.cast.length > 0 || Boolean(now.style);
+  const active = now.cast.length > 0 || Boolean(now.style) || Boolean(now.snippets?.length);
   const sent = useQuery({
     queryKey: ["compose", recipe?.id, input, now],
     queryFn: () => api.compose(recipe!.id, input ?? {}, now),
@@ -42,7 +42,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between">
         <span className="text-xs font-semibold">{title}</span>
-        <Link href="/people" className="text-xs text-ink-2 underline hover:text-ink">{all.some((e) => e.kind !== "preset") ? "Change them" : "Add people, places and styles"}</Link>
+        <Link href="/kit#people" className="text-xs text-ink-2 underline hover:text-ink">{all.some((e) => e.kind !== "preset") ? "Change them" : "Add people, places and styles"}</Link>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {now.cast.map((member) => {

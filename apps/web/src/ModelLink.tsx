@@ -119,7 +119,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
               {(find.isPending || pages.isPending) && <span className="px-2 py-1.5 text-ink-2">Looking for its page…</span>}
               {find.isError && <span className="px-2 py-1.5 text-warn-ink">{find.error.message}</span>}
               {find.data && !find.data.lookups && (
-                <span className="px-2 py-1.5 text-ink-2">Looking files up on Civitai is turned off. <Link href="/setup" className="underline" onClick={() => setOpen(false)}>Turn it on in Setup</Link>, or search by hand below.</span>
+                <span className="px-2 py-1.5 text-ink-2">Looking files up on Civitai is turned off. <Link href="/settings" className="underline" onClick={() => setOpen(false)}>Turn it on in Settings</Link>, or search by hand below.</span>
               )}
               {find.data?.lookups && !candidates.length && <span className="px-2 py-1.5 text-ink-2">Nothing was found under this name. Search by hand below, then paste its address to keep it.</span>}
               {candidates.length > 0 && <span className="px-2 pt-1 text-xs font-semibold text-ink-2">No file of exactly this name was found. It may be one of these:</span>}

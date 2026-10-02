@@ -3,8 +3,8 @@ import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, FolderPlus, Music, Pencil, Play, Plus, Search, Star, Trash2, VolumeX, X } from "lucide-react";
 import { api, thumbUrl, type Asset, type Folder } from "../api";
-import { useAssetFamilies, useAssets, useFolders, useRecipes, useStorage, useTimelines } from "../data";
-import { clock, size, when } from "../format";
+import { useAssetFamilies, useAssetModels, useAssets, useFolders, useRecipes, useStorage, useTimelines } from "../data";
+import { clock, fileLabel, size, when } from "../format";
 import { Select } from "../Select";
 import { useHandover } from "../store";
 import { Button, cx, Empty, ErrorNote, SectionTitle } from "../ui";
@@ -192,7 +192,7 @@ function Folders({ place, onPlace }: { place: Place; onPlace(p: Place): void }) 
         {storage.data && storage.data.bin.count > 0 && <span className="shrink-0 font-normal text-ink-2">{storage.data.bin.count}</span>}
       </button>
       {storage.data && (
-        <Link href="/setup" title="Where the space goes, and how to get some back: in Setup." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
+        <Link href="/settings" title="Where the space goes, and how to get some back: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
           {size(storage.data.total)} used
           {storage.data.idleTakes.bytes + storage.data.bin.bytes > 0 ? ` · ${size(storage.data.idleTakes.bytes + storage.data.bin.bytes)} could be freed` : ""}
         </Link>
@@ -216,7 +216,11 @@ export function Library() {
   }, [shown, hand]);
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
-  const [family, setFamily] = useState("");
+  // made with: a model family ("f:sdxl"), or one model file ("m:<file>"); and with one LoRA
+  const [made, setMade] = useState("");
+  const [lora, setLora] = useState("");
+  const family = made.startsWith("f:") ? made.slice(2) : "";
+  const model = made.startsWith("m:") ? made.slice(2) : "";
   const [kept, setKept] = useState(false);
   // what is typed is looked for once the typing stops
   useEffect(() => {
@@ -230,14 +234,17 @@ export function Library() {
     folder: place.type === "folder" ? place.id : place.type === "unfiled" ? "none" : undefined,
     q: q || undefined,
     family: family || undefined,
+    model: model || undefined,
+    lora: lora || undefined,
     kept: kept || undefined,
   });
+  const usedModels = useAssetModels();
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
   const timelines = useTimelines();
   const families = useAssetFamilies();
   const recipes = useRecipes();
   const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
-  const filtered = Boolean(q || family || kept);
+  const filtered = Boolean(q || made || lora || kept);
 
   return (
     <div className="flex min-h-0 min-w-0 grow">
@@ -257,22 +264,34 @@ export function Library() {
             </button>
           ))}
           <span className="grow" />
-          <label className="flex h-9 w-72 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
+          <label className="flex h-9 w-64 min-w-32 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
             <Search size={14} className="shrink-0 text-ink-3" />
             <input aria-label="Search your library" placeholder="Search by what you wrote, or by name" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
             {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
           </label>
           {(families.data?.items.length ?? 0) > 0 && (
-            <div className="w-40">
-              <Select size="sm" className="h-9" label="Made with" value={family} onChange={setFamily} options={[{ value: "", label: "Any model" }, ...families.data!.items.map((f) => ({ value: f, label: familyName(f) }))]} />
+            <div className="w-40 shrink-0">
+              <Select
+                size="sm" className={cx("h-9", made && "border-accent")} label="Made with this model" searchHint="Search the models your library was made with" value={made} onChange={setMade}
+                options={[
+                  { value: "", label: "Any model" },
+                  ...families.data!.items.map((f) => ({ value: `f:${f}`, label: familyName(f), group: "Model family" })),
+                  ...(usedModels.data?.models ?? []).map((m) => ({ value: `m:${m.file}`, label: fileLabel(m.file), note: String(m.count), search: m.file, group: "Checkpoint or model file" })),
+                ]}
+              />
+            </div>
+          )}
+          {(usedModels.data?.loras.length ?? 0) > 0 && (
+            <div className="w-36 shrink-0">
+              <Select
+                size="sm" className={cx("h-9", lora && "border-accent")} label="Made with this LoRA" searchHint="Search the LoRAs your library was made with" value={lora} onChange={setLora}
+                options={[{ value: "", label: "Any LoRA" }, ...usedModels.data!.loras.map((l) => ({ value: l.file, label: fileLabel(l.file), note: String(l.count), search: l.file }))]}
+              />
             </div>
           )}
           <button type="button" aria-pressed={kept} onClick={() => setKept(!kept)} className={cx("flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
             <Star size={13} fill={kept ? "currentColor" : "none"} /> Kept only
           </button>
-          <Link href="/create" className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 font-bold text-accent-ink">
-            <Plus size={15} strokeWidth={2.6} /> New
-          </Link>
         </header>
 
         <div className="min-h-0 grow overflow-y-auto px-5 pb-6">
@@ -298,7 +317,7 @@ export function Library() {
           {!showTimelines && assets.isSuccess && !items.length && (
             <Empty title={filtered ? "Nothing matches" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}>
               {filtered
-                ? "Nothing here was made with these words, this model or was kept. Change the search or the filters."
+                ? "Nothing here was made with these words, this model, this LoRA or was kept. Change the search or the filters."
                 : place.type === "bin"
                   ? "Things you delete wait here a week before they are removed for good."
                   : place.type === "folder"
@@ -317,7 +336,7 @@ export function Library() {
         </div>
       </div>
 
-      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} onClose={() => setOpen(null)} />}
+      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={items} onOpen={setOpen} onClose={() => setOpen(null)} />}
     </div>
   );
 }

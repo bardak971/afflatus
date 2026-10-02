@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, MapPin, Plus, Sparkles, Trash2, User, X } from "lucide-react";
-import type { InputSpec } from "@studai/core";
+import { ArrowLeft, Bookmark, ChevronDown, ChevronRight, MapPin, Plus, Search, Sparkles, Trash2, User, X } from "lucide-react";
+import { fuzzyFilter, type InputSpec } from "@studai/core";
 import { api, thumbUrl, type Entity, type FamilyInfo, type Outfit, type PersonDef, type PlaceDef, type RecipeInfo, type StyleDef } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
-import { Field } from "../fields";
+import { Field, useLoraWordsOf } from "../fields";
 import { fileLabel } from "../format";
 import { Picker, PictureField, SoundField } from "../PictureField";
 import { ModelLink } from "../ModelLink";
@@ -12,11 +12,6 @@ import { Select } from "../Select";
 import { AutoText, Button, cx, Empty, ErrorNote, SectionTitle } from "../ui";
 
 const field = "w-full rounded-lg border border-line bg-raised px-3 py-2 text-ink placeholder:text-ink-3";
-const KINDS = [
-  { kind: "person" as const, title: "People", add: "New person", icon: <User size={14} /> },
-  { kind: "place" as const, title: "Places", add: "New place", icon: <MapPin size={14} /> },
-  { kind: "style" as const, title: "Styles", add: "New style", icon: <Sparkles size={14} /> },
-];
 
 /** What one model can take of a person, read from its recipes: words (tags or a sentence), a LoRA, pictures, a voice. */
 function takes(family: FamilyInfo, recipes: RecipeInfo[]) {
@@ -75,6 +70,8 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
   const families = recipes.data?.families ?? [];
   const lorasOf = (family: string) => setup.data?.recipes.find((s) => recipes.data?.recipes.find((r) => r.id === s.id)?.family === family && s.options.loras)?.options.loras ?? [];
   const setOutfit = (id: string, patch: Partial<Outfit>) => onChange({ ...def, outfits: def.outfits.map((o) => (o.id === id ? { ...o, ...patch } : o)) });
+  // the words that call the person's LoRAs up, as their files or their pages give them: offered where none is written
+  const words = useLoraWordsOf(Object.values(def.models).flatMap((m) => (m.lora ? [m.lora] : [])));
   return (
     <>
       <div className="flex flex-col gap-2">
@@ -123,6 +120,14 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
                   )}
                   {m.lora && <span className="col-span-2 flex min-w-0 items-baseline gap-1.5 text-xs text-ink-2">Its page: <ModelLink folder="loras" file={m.lora} className="min-w-0" /></span>}
                   {can.tags && m.lora && <input aria-label={`Trigger word for ${f.name}`} placeholder="Its trigger word, if it has one" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "col-span-2 h-9 py-0")} />}
+                  {can.tags && m.lora && !m.trigger.trim() && (() => {
+                    const known = words.of(m.lora);
+                    return known.words && known.from !== "training" ? (
+                      <button type="button" onClick={() => set({ trigger: known.words.slice(0, 200) })} className="col-span-2 truncate text-left text-xs text-accent hover:underline" title={known.words}>
+                        Use its own: {known.words}
+                      </button>
+                    ) : null;
+                  })()}
                 </div>
               ) : (
                 <span className="text-xs text-ink-3">This model takes no LoRA.</span>
@@ -195,15 +200,292 @@ function StyleEditor({ def, onChange }: { def: StyleDef; onChange(def: StyleDef)
   );
 }
 
-/** People, places and styles: written once, used with every model. */
+type Tab = "person" | "place" | "style" | "snippet" | "preset";
+type Snippet = Extract<Entity, { kind: "snippet" }>;
+const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode }> = [
+  { id: "person", title: "People", add: "New person", icon: <User size={22} /> },
+  { id: "place", title: "Places", add: "New place", icon: <MapPin size={22} /> },
+  { id: "style", title: "Styles", add: "New style", icon: <Sparkles size={22} /> },
+  { id: "snippet", title: "Snippets", add: "New snippet", icon: <Bookmark size={22} /> },
+  { id: "preset", title: "Presets", add: "", icon: <Bookmark size={22} /> },
+];
+const TAB_KEY = "studai.kit.tab";
+const OPEN_KEY = "studai.kit.categories";
+const remembered = <T,>(key: string, otherwise: T): T => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : otherwise;
+  } catch {
+    return otherwise;
+  }
+};
+const remember = (key: string, value: unknown) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // nowhere to remember it: it holds for this visit
+  }
+};
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+/** One line about an item, under its name. */
+function summaryOf(e: Entity, recipes: RecipeInfo[]): string {
+  if (e.kind === "person") return `${plural(e.def.pictures.length, "picture")}, ${e.def.voice ? "a voice" : "no voice"}, ${plural(e.def.outfits.length, "outfit")}`;
+  if (e.kind === "place") return plural(e.def.pictures.length, "picture");
+  if (e.kind === "style") return `set up for ${plural(Object.values(e.def.models).filter((m) => m.loras.length || m.words.trim()).length, "model")}`;
+  if (e.kind === "preset") return `${recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here"} · ${plural(Object.keys(e.def.inputs).length, "setting")} kept`;
+  return e.def.text;
+}
+/** Everything an item is found by. */
+function textOf(e: Entity): string {
+  if (e.kind === "person") return `${e.name} ${e.def.tags} ${e.def.sentence} ${e.def.outfits.map((o) => o.name).join(" ")}`;
+  if (e.kind === "place") return `${e.name} ${e.def.tags} ${e.def.sentence}`;
+  if (e.kind === "style") return `${e.name} ${Object.values(e.def.models).map((m) => m.words).join(" ")}`;
+  if (e.kind === "snippet") return `${e.name} ${e.def.category} ${e.def.text}`;
+  return e.name;
+}
+
+/** A button that asks once more before it deletes: the second click, within a few seconds, does it. */
+function DeleteButton({ label, onDelete, className }: { label: string; onDelete(): void; className?: string }) {
+  const [sure, setSure] = useState(false);
+  useEffect(() => {
+    if (!sure) return;
+    const back = setTimeout(() => setSure(false), 4000);
+    return () => clearTimeout(back);
+  }, [sure]);
+  return sure ? (
+    <button type="button" onClick={onDelete} className={cx("flex h-8 shrink-0 items-center rounded-md bg-warn px-2 text-xs font-semibold text-[#2a0e00]", className)}>Delete?</button>
+  ) : (
+    <button type="button" aria-label={label} title={label} onClick={() => setSure(true)} className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink", className)}><Trash2 size={14} /></button>
+  );
+}
+
+const cell = "w-full rounded-md border border-transparent bg-transparent px-2 text-ink placeholder:text-ink-3 hover:border-line focus:border-accent focus:bg-raised";
+const STYLE_WORDS = { any: "Any prompt", tags: "Tags", sentences: "Sentences" } as const;
+
+/**
+ * One snippet as a row that is changed where it stands. Its name and its category are kept when the
+ * field is left (a row does not jump to another place while it is typed in); its text also a moment
+ * after the typing stops.
+ */
+function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; ticked: boolean; onTick(on: boolean): void; fresh: boolean }) {
+  const client = useQueryClient();
+  const [name, setName] = useState(snippet.name);
+  const [category, setCategory] = useState(snippet.def.category);
+  const [text, setText] = useState(snippet.def.text);
+  // moved to another category from the bar above, or renamed elsewhere: the row follows
+  useEffect(() => setCategory(snippet.def.category), [snippet.def.category]);
+  useEffect(() => setName(snippet.name), [snippet.name]);
+  const save = useMutation({
+    mutationFn: (next: { name: string; def: Snippet["def"] }) => api.saveEntity(snippet.id, next),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["entities"] }),
+  });
+  const remove = useMutation({ mutationFn: () => api.deleteEntity(snippet.id), onSuccess: () => client.invalidateQueries({ queryKey: ["entities"] }) });
+  const commit = (over: { name?: string; category?: string; text?: string; style?: Snippet["def"]["style"] } = {}) => {
+    const next = {
+      name: (over.name ?? name).trim() || "Unnamed",
+      def: { text: over.text ?? text, category: (over.category ?? category).trim(), style: over.style !== undefined ? over.style : snippet.def.style },
+    };
+    if (next.name === snippet.name && next.def.text === snippet.def.text && next.def.category === snippet.def.category && next.def.style === snippet.def.style) return;
+    save.mutate(next);
+  };
+  // the latest of it, for the save that waits for the typing to stop
+  const latest = useRef(commit);
+  latest.current = commit;
+  const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (wait.current) clearTimeout(wait.current);
+  }, []);
+  const leaveOnEnter = (e: KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && e.currentTarget.blur();
+  return (
+    <div className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
+      <label className="flex h-8 w-7 items-center justify-center">
+        <input type="checkbox" aria-label={`Tick ${snippet.name}`} checked={ticked} onChange={(e) => onTick(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+      </label>
+      <input
+        aria-label="Name of the snippet" value={name} maxLength={120} autoFocus={fresh}
+        onFocus={(e) => fresh && e.currentTarget.select()}
+        onChange={(e) => setName(e.target.value)} onBlur={() => commit()} onKeyDown={leaveOnEnter}
+        className={cx(cell, "h-8 font-semibold")}
+      />
+      <input
+        aria-label={`Category of ${snippet.name}`} value={category} maxLength={40} placeholder="No category"
+        onChange={(e) => setCategory(e.target.value)} onBlur={() => commit()} onKeyDown={leaveOnEnter}
+        className={cx(cell, "h-8 text-ink-2")}
+      />
+      <AutoText
+        aria-label={`Text of ${snippet.name}`} rows={1} value={text} placeholder="Its text. {a|b|c} picks one each time"
+        onChange={(e) => {
+          const value = e.target.value;
+          setText(value);
+          if (wait.current) clearTimeout(wait.current);
+          wait.current = setTimeout(() => latest.current({ text: value }), 800);
+        }}
+        onBlur={() => {
+          if (wait.current) clearTimeout(wait.current);
+          commit();
+        }}
+        className={cx(cell, "py-1.5 leading-normal")}
+      />
+      <Select
+        size="sm" className="h-8" label={`The kind of prompt ${snippet.name} is written for`}
+        value={snippet.def.style ?? "any"}
+        onChange={(v) => commit({ style: v === "any" ? null : (v as "tags" | "sentences") })}
+        options={(["any", "tags", "sentences"] as const).map((v) => ({ value: v, label: STYLE_WORDS[v] }))}
+      />
+      <DeleteButton label={`Delete the snippet ${snippet.name}`} onDelete={() => remove.mutate()} />
+      {(save.isError || remove.isError) && <div className="col-span-6"><ErrorNote>{(save.error ?? remove.error)?.message}</ErrorNote></div>}
+    </div>
+  );
+}
+
+/**
+ * Every snippet as a list that is changed in place: by category (each folds away), narrowed to one
+ * category or by the search, several ticked at once to move them to another category or delete them.
+ */
+function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: string }) {
+  const client = useQueryClient();
+  const [only, setOnly] = useState<string | null>(null);
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [folds, setFolds] = useState<Record<string, boolean>>(() => remembered(OPEN_KEY, {}));
+  const [fresh, setFresh] = useState<string | null>(null);
+  const [newCategory, setNewCategory] = useState("");
+  const categories = [...new Set(snippets.map((s) => s.def.category))].sort((a, b) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b));
+  const narrowed = only === null ? snippets : snippets.filter((s) => s.def.category === only);
+  const found = query.trim() ? fuzzyFilter(narrowed, query, textOf) : narrowed;
+  // a category that is gone (its last snippet moved away) is no filter any more
+  useEffect(() => {
+    if (only !== null && !snippets.some((s) => s.def.category === only)) setOnly(null);
+  }, [only, snippets]);
+  const refresh = () => client.invalidateQueries({ queryKey: ["entities"] });
+  const create = useMutation({
+    mutationFn: () => api.createEntity("snippet", "New snippet", { text: "", category: only ?? "", style: null }),
+    onSuccess: async (made) => {
+      await refresh();
+      setFresh(made.id);
+    },
+  });
+  const chosen = snippets.filter((s) => ticked.has(s.id));
+  const move = useMutation({
+    mutationFn: (category: string) => Promise.all(chosen.map((s) => api.saveEntity(s.id, { def: { ...s.def, category } }))),
+    onSuccess: () => {
+      setTicked(new Set());
+      return refresh();
+    },
+  });
+  const removeAll = useMutation({
+    mutationFn: () => Promise.all(chosen.map((s) => api.deleteEntity(s.id))),
+    onSuccess: () => {
+      setTicked(new Set());
+      return refresh();
+    },
+  });
+  // a long list starts folded; a search, one category or a short list shows everything
+  const narrow = Boolean(query.trim()) || only !== null || snippets.length <= 40;
+  const isOpen = (c: string) => narrow || (folds[c] ?? false) || found.some((s) => s.id === fresh && s.def.category === c);
+  const fold = (c: string, open: boolean) => {
+    const next = { ...folds, [c]: open };
+    setFolds(next);
+    remember(OPEN_KEY, next);
+  };
+  const tick = (ids: string[], on: boolean) => setTicked((old) => {
+    const next = new Set(old);
+    for (const id of ids) (on ? next.add(id) : next.delete(id));
+    return next;
+  });
+  const chip = (label: string, count: number, value: string | null) => (
+    <button key={label} type="button" aria-pressed={only === value} onClick={() => setOnly(value)} className={cx("flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs", only === value ? "border-ink bg-ink font-semibold text-ground" : "border-line text-ink-2 hover:text-ink")}>
+      {label} <span className={only === value ? "" : "text-ink-3"}>{count}</span>
+    </button>
+  );
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {chip("All", snippets.length, null)}
+        {categories.map((c) => chip(c || "No category", snippets.filter((s) => s.def.category === c).length, c))}
+        <span className="grow" />
+        <Button size="sm" tone="primary" disabled={create.isPending} onClick={() => create.mutate()}><Plus size={13} /> New snippet{only ? ` in ${only}` : ""}</Button>
+      </div>
+      {chosen.length > 0 && (
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-accent bg-panel px-3 py-2">
+          <span className="font-semibold">{chosen.length} ticked</span>
+          <div className="w-52">
+            <Select
+              size="sm" label="Move the ticked snippets to a category" placeholder="Move to a category" value=""
+              onChange={(c) => move.mutate(c === "__none__" ? "" : c)}
+              options={[...categories.filter(Boolean).map((c) => ({ value: c, label: c })), { value: "__none__", label: "No category" }]}
+              footer={(close) => (
+                <form
+                  className="flex items-center gap-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newCategory.trim()) return;
+                    move.mutate(newCategory.trim());
+                    setNewCategory("");
+                    close();
+                  }}
+                >
+                  <input aria-label="A new category" placeholder="A new category" maxLength={40} value={newCategory} onChange={(e) => setNewCategory(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 placeholder:text-ink-3" />
+                  <Button size="sm" tone="quiet" type="submit" disabled={!newCategory.trim()}>Move</Button>
+                </form>
+              )}
+            />
+          </div>
+          <DeleteButton label={`Delete the ${chosen.length} ticked snippets`} onDelete={() => removeAll.mutate()} />
+          <span className="grow" />
+          <Button size="sm" tone="quiet" onClick={() => setTicked(new Set())}>Untick all</Button>
+        </div>
+      )}
+      {(create.isError || move.isError || removeAll.isError) && <ErrorNote>{(create.error ?? move.error ?? removeAll.error)?.message}</ErrorNote>}
+      {snippets.length === 0 && (
+        <Empty title="No snippets yet">A snippet is a bit of text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is added after what you write each time something is made; the dice ticks one of each category at random.</Empty>
+      )}
+      {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches">No snippet has these words in its name, its category or its text.</Empty>}
+      {found.length > 0 && (
+        <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] gap-1.5 px-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">
+          <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Written for</span><span className="w-8" />
+        </div>
+      )}
+      {categories.filter((c) => found.some((s) => s.def.category === c)).map((c) => {
+        const rows = found.filter((s) => s.def.category === c);
+        const open = isOpen(c);
+        const all = rows.every((s) => ticked.has(s.id));
+        return (
+          <section key={c || "none"} className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5 border-b border-line pb-1">
+              <label className="flex h-7 w-7 items-center justify-center pl-1.5" title={`Tick every snippet of ${c || "no category"}`}>
+                <input type="checkbox" aria-label={`Tick every snippet of ${c || "no category"}`} checked={all} onChange={(e) => tick(rows.map((s) => s.id), e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+              </label>
+              <button type="button" aria-expanded={open} disabled={narrow} onClick={() => fold(c, !open)} className="flex grow items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs font-bold tracking-[0.06em] text-ink-2 uppercase enabled:hover:text-ink">
+                {!narrow && (open ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
+                {c || "No category"}
+                <span className="font-normal text-ink-3">{rows.length}</span>
+              </button>
+            </div>
+            {open && rows.map((s) => <SnippetRow key={s.id} snippet={s} ticked={ticked.has(s.id)} onTick={(on) => tick([s.id], on)} fresh={fresh === s.id} />)}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The prompt kit: everything written once and added to prompts afterwards. The kinds are tabs across
+ * the top (people, places, styles, snippets, presets), with a search; under them, what there is of
+ * the chosen kind. People and places are cards with their picture, styles and presets a list: each
+ * opens over the whole page to be changed. Snippets are changed in the list itself.
+ */
 export function People() {
   const entities = useEntities();
   const client = useQueryClient();
+  const recipes = useRecipes();
+  const all = entities.data?.items ?? [];
+  // the tab named in the address ("/kit#snippets") when there is one, else the one last looked at
+  const [tab, setTabNow] = useState<Tab>(() => TABS.find((t) => `#${t.title.toLowerCase()}` === window.location.hash)?.id ?? remembered<Tab>(TAB_KEY, "person"));
+  const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
-  const all = entities.data?.items ?? [];
-  const presets = all.filter((e) => e.kind === "preset" || e.kind === "snippet");
-  const recipes = useRecipes();
   const stored = all.find((e) => e.id === open) ?? null;
 
   // what is on screen is saved half a second after the last change
@@ -219,7 +501,7 @@ export function People() {
     pending.current = null;
     try {
       await api.saveEntity(e.id, { name: e.name.trim() || "Unnamed", def: e.def });
-      void client.invalidateQueries({ queryKey: ["entities"] });
+      await client.invalidateQueries({ queryKey: ["entities"] });
       if (!pending.current) setSaved("saved");
     } catch {
       setSaved("failed");
@@ -237,11 +519,24 @@ export function People() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 500);
   };
+  /** Back to the list, with what was changed kept. */
+  const close = () => void flush().then(() => {
+    setOpen(null);
+    setRemoving(false);
+  });
+  const setTab = (next: Tab) => {
+    remember(TAB_KEY, next);
+    setQuery("");
+    void flush().then(() => {
+      setOpen(null);
+      setRemoving(false);
+      setTabNow(next);
+    });
+  };
 
   const create = useMutation({
     mutationFn: (kind: "person" | "place" | "style") => api.createEntity(kind, kind === "person" ? "New person" : kind === "place" ? "New place" : "New style"),
     onSuccess: async (e) => {
-      await flush();
       await client.invalidateQueries({ queryKey: ["entities"] });
       setOpen(e.id);
     },
@@ -256,87 +551,118 @@ export function People() {
     },
   });
 
-  return (
-    <div className="flex min-h-0 min-w-0 grow">
-      <aside className="flex w-[260px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-panel p-3">
-        {KINDS.map((k) => (
-          <div key={k.kind} className="flex flex-col gap-1">
-            <div className="px-1.5 pb-1"><SectionTitle>{k.title}</SectionTitle></div>
-            {all.filter((e) => e.kind === k.kind).map((e) => {
-              const shown = edit?.id === e.id ? edit : e;
-              const face = shown.kind === "person" || shown.kind === "place" ? shown.def.pictures[0] : undefined;
-              return (
-                <button key={e.id} type="button" aria-pressed={open === e.id} onClick={() => void flush().then(() => setOpen(e.id))} className={cx("flex h-12 items-center gap-2.5 rounded-lg px-1.5 text-left", open === e.id ? "bg-hover text-white" : "hover:bg-raised")}>
-                  {face ? <img src={thumbUrl(face)} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" /> : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-raised text-ink-2">{k.icon}</span>}
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate font-semibold">{shown.name}</span>
-                    <span className="truncate text-xs text-ink-2">
-                      {shown.kind === "person" ? `${shown.def.pictures.length} picture${shown.def.pictures.length === 1 ? "" : "s"}, ${shown.def.voice ? "1 voice" : "no voice"}, ${shown.def.outfits.length} outfit${shown.def.outfits.length === 1 ? "" : "s"}`
-                        : shown.kind === "place" ? `${shown.def.pictures.length} picture${shown.def.pictures.length === 1 ? "" : "s"}`
-                        : shown.kind === "style" ? `set up for ${Object.values(shown.def.models).filter((m) => m.loras.length || m.words.trim()).length} model${Object.values(shown.def.models).filter((m) => m.loras.length || m.words.trim()).length === 1 ? "" : "s"}` : ""}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-            <button type="button" onClick={() => create.mutate(k.kind)} disabled={create.isPending} className="flex h-9 items-center gap-2 rounded-lg px-2.5 text-ink-2 hover:bg-raised hover:text-ink">
-              <Plus size={14} /> {k.add}
-            </button>
-          </div>
-        ))}
-        {presets.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <div className="px-1.5 pb-1"><SectionTitle>Presets and snippets</SectionTitle></div>
-            {presets.map((e) => (
-              <button key={e.id} type="button" aria-pressed={open === e.id} onClick={() => void flush().then(() => setOpen(e.id))} className={cx("flex h-10 items-center gap-2.5 rounded-lg px-2.5 text-left", open === e.id ? "bg-hover text-white" : "hover:bg-raised")}>
-                <Bookmark size={14} className="shrink-0 text-ink-2" />
-                <span className="truncate font-semibold">{edit?.id === e.id ? edit.name : e.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {(entities.isError || create.isError) && <ErrorNote>{(entities.error ?? create.error)?.message}</ErrorNote>}
-      </aside>
+  const here = TABS.find((t) => t.id === tab)!;
+  const mine = all.filter((e) => e.kind === tab);
+  const found = query.trim() ? fuzzyFilter(mine, query, textOf) : mine;
+  const editing = edit && open === edit.id && edit.kind !== "snippet" ? edit : null;
+  const newTile = (className: string) =>
+    tab !== "snippet" && tab !== "preset" && (
+      <button type="button" disabled={create.isPending} onClick={() => create.mutate(tab)} className={cx("flex items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed border-line-strong text-ink-2 hover:border-accent hover:text-ink", className)}>
+        <Plus size={16} /> {here.add}
+      </button>
+    );
 
-      <main className="min-w-0 grow overflow-y-auto">
-        {!edit ? (
-          <div className="p-8">
-            <Empty title={all.length ? "Pick one on the left" : "People, places and styles"}>
-              Written once, used with every model. A person is some pictures, a voice and a few words; studai gives each model what it can take: tags or a sentence, a LoRA, reference pictures, the voice. Add them to a picture, a video or a whole timeline with one click.
-            </Empty>
-          </div>
-        ) : (
-          <div className="flex max-w-3xl flex-col gap-5 p-6">
+  return (
+    <div className="flex min-h-0 min-w-0 grow flex-col">
+      <header className="grid h-[60px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 px-6">
+        <h1 className="text-base font-semibold">Prompt kit</h1>
+        <div role="tablist" aria-label="What to show" className="flex gap-1 rounded-[10px] bg-raised p-[3px]">
+          {TABS.map((t) => {
+            const on = t.id === tab;
+            return (
+              <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => setTab(t.id)} className={cx("flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold whitespace-nowrap", on ? "bg-line-strong text-white" : "text-ink-2 hover:text-ink")}>
+                {t.title} <span className={cx("font-normal", on ? "text-ink-2" : "text-ink-3")}>{all.filter((e) => e.kind === t.id).length}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center justify-end">
+          {!editing && (
+            <label className="flex h-9 w-64 min-w-0 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
+              <Search size={14} className="shrink-0 text-ink-3" />
+              <input aria-label={`Search your ${here.title.toLowerCase()}`} placeholder={`Search your ${here.title.toLowerCase()}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+              {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+            </label>
+          )}
+        </div>
+      </header>
+
+      <main className="min-h-0 grow overflow-y-auto px-6 pb-8">
+        {(entities.isError || create.isError || remove.isError) && <div className="pb-3"><ErrorNote>{(entities.error ?? create.error ?? remove.error)?.message}</ErrorNote></div>}
+        {editing ? (
+          <div className="mx-auto flex max-w-3xl flex-col gap-5">
             <div className="flex items-center gap-3">
-              <input aria-label="Name" value={edit.name} onChange={(e) => change({ ...edit, name: e.target.value })} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
+              <Button size="sm" onClick={close}><ArrowLeft size={14} /> {here.title}</Button>
+              <input aria-label="Name" value={editing.name} onChange={(e) => change({ ...editing, name: e.target.value })} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
               <span className={cx("shrink-0 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>{saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : "Could not save"}</span>
               {removing ? (
                 <>
-                  <span className="text-xs text-ink-2">Its pictures stay in your library.</span>
-                  <Button size="sm" tone="danger" onClick={() => remove.mutate(edit.id)}>Delete</Button>
+                  <span className="text-xs text-ink-2">{editing.kind === "person" || editing.kind === "place" ? "Its pictures stay in your library." : "It cannot be brought back."}</span>
+                  <Button size="sm" tone="danger" onClick={() => remove.mutate(editing.id)}>Delete</Button>
                   <Button size="sm" tone="quiet" onClick={() => setRemoving(false)}>Cancel</Button>
                 </>
               ) : (
-                <button type="button" aria-label={`Delete ${edit.name}`} onClick={() => setRemoving(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={15} /></button>
+                <button type="button" aria-label={`Delete ${editing.name}`} onClick={() => setRemoving(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={15} /></button>
               )}
             </div>
-            {edit.kind === "person" && <PersonEditor def={edit.def} name={edit.name || "this person"} onChange={(def) => change({ ...edit, def })} />}
-            {edit.kind === "place" && <PlaceEditor def={edit.def} name={edit.name || "this place"} onChange={(def) => change({ ...edit, def })} />}
-            {edit.kind === "style" && <StyleEditor def={edit.def} onChange={(def) => change({ ...edit, def })} />}
-            {edit.kind === "snippet" && (
-              <label className="flex flex-col gap-1.5">
-                <span className="text-ink-2">A bit of text kept to drop into what you write, from "Snippets" above a form.</span>
-                <AutoText rows={3} value={edit.def.text} onChange={(e) => change({ ...edit, def: { text: e.target.value } })} className={field} />
-              </label>
-            )}
-            {edit.kind === "preset" && (
+            {editing.kind === "person" && <PersonEditor def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
+            {editing.kind === "place" && <PlaceEditor def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
+            {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
+            {editing.kind === "preset" && (
               <div className="flex flex-col gap-2 text-ink-2">
-                <span>A whole setup kept under a name: the model, its form, and who is in it. Use it from Create, under "Made with".</span>
-                <span>Model: <span className="text-ink">{recipes.data?.recipes.find((r) => r.id === edit.def.recipe)?.title ?? "a model that is no longer here"}</span></span>
-                <span>Settings kept: <span className="text-ink">{Object.keys(edit.def.inputs).length}</span></span>
+                <span>A whole setup kept under a name: the model, its form, and who is in it. Use it from Create, under "Presets".</span>
+                <span>Model: <span className="text-ink">{recipes.data?.recipes.find((r) => r.id === editing.def.recipe)?.title ?? "a model that is no longer here"}</span></span>
+                <span>Settings kept: <span className="text-ink">{Object.keys(editing.def.inputs).length}</span></span>
               </div>
             )}
           </div>
+        ) : tab === "snippet" ? (
+          <SnippetTable snippets={all.filter((e): e is Snippet => e.kind === "snippet")} query={query} />
+        ) : (
+          <>
+            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is a whole setup kept under a name: the model, its form, and who is in it. Save one from Create, under "Presets".</Empty>}
+            {mine.length > 0 && found.length === 0 && <Empty title="Nothing matches">None of your {here.title.toLowerCase()} has these words.</Empty>}
+            {(tab === "person" || tab === "place") && (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3.5">
+                {found.map((e) => {
+                  const face = e.kind === "person" || e.kind === "place" ? e.def.pictures[0] : undefined;
+                  return (
+                    <button key={e.id} type="button" onClick={() => setOpen(e.id)} className="flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel text-left hover:border-accent">
+                      <span className="flex aspect-[4/5] items-center justify-center overflow-hidden bg-raised text-ink-3">
+                        {face ? <img src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : here.icon}
+                      </span>
+                      <span className="flex min-w-0 flex-col px-3 py-2">
+                        <span className="truncate font-semibold">{e.name}</span>
+                        <span className="truncate text-xs text-ink-2">{summaryOf(e, recipes.data?.recipes ?? [])}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                {!query.trim() && newTile("aspect-[4/5] flex-col")}
+              </div>
+            )}
+            {(tab === "style" || tab === "preset") && (
+              <div className="mx-auto flex max-w-3xl flex-col gap-2">
+                {found.map((e) => (
+                  <button key={e.id} type="button" onClick={() => setOpen(e.id)} className="flex h-14 items-center gap-3 rounded-[10px] border border-line bg-panel px-4 text-left hover:border-accent">
+                    <span className="shrink-0 text-ink-3">{tab === "style" ? <Sparkles size={16} /> : <Bookmark size={16} />}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate font-semibold">{e.name}</span>
+                      <span className="truncate text-xs text-ink-2">{summaryOf(e, recipes.data?.recipes ?? [])}</span>
+                    </span>
+                  </button>
+                ))}
+                {!query.trim() && newTile("h-12")}
+              </div>
+            )}
+            {mine.length === 0 && tab !== "preset" && (
+              <div className="pt-4 text-center text-ink-2">
+                {tab === "person" ? "A person is some pictures, a voice and a few words. studai gives each model what it can take: tags or a sentence, a LoRA, reference pictures, the voice."
+                  : tab === "place" ? "A place is some pictures and a few words: the clip or the picture happens there."
+                  : "A style is LoRAs and words, set up for the models you use it with."}
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

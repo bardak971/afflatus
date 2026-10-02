@@ -143,7 +143,7 @@ describe("people, places and styles", () => {
   it("are remembered with a draft", async () => {
     const c = await cast();
     const d = (await post(t.app, "/api/drafts", { recipe: "h3.video", look: { cast: [{ id: c.her, outfit: "dress" }], style: c.style } })).json();
-    expect(d.look).toEqual({ cast: [{ id: c.her, outfit: "dress" }], style: c.style });
+    expect(d.look).toEqual({ cast: [{ id: c.her, outfit: "dress" }], style: c.style, snippets: [] });
     expect((await put(`/api/drafts/${d.id}`, { look: null })).look).toBeNull();
   });
 });

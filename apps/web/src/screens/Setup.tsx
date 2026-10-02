@@ -478,6 +478,26 @@ function LinkCard() {
   );
 }
 
+/** Help while a prompt is written. */
+function WritingCard() {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const save = useMutation({ mutationFn: api.saveSettings, onSuccess: (saved) => client.setQueryData(["settings"], saved) });
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
+      <h2 className="text-[15px] font-bold">Writing prompts</h2>
+      <Toggle on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against danbooru's list" />
+      <div className="text-xs text-ink-3">
+        For prompts written in tags (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of studai's: nothing is sent anywhere.
+      </div>
+      <div className="text-xs text-ink-3">
+        In every prompt: <span className="font-mono text-ink-2">{"{red|black|white}"}</span> picks one of the choices for each result, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no weights).
+      </div>
+      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+    </section>
+  );
+}
+
 /** What this browser tells you about. */
 function NotifyCard() {
   const notify = useNotify();
@@ -527,7 +547,7 @@ export function Setup() {
   return (
     <div className="flex min-h-0 grow flex-col overflow-y-auto px-8 pb-8">
       <header className="flex h-20 shrink-0 flex-col justify-center">
-        <h1 className="text-xl font-semibold">Setup</h1>
+        <h1 className="text-xl font-semibold">Settings</h1>
         <div className="text-ink-2">What studai is connected to, and what is ready.</div>
       </header>
 
@@ -586,6 +606,7 @@ export function Setup() {
 
         <div className="col-start-1 flex flex-col gap-5">
           <DesignerCard />
+          <WritingCard />
           <StorageCard />
           <CivitaiCard />
           <LinkCard />

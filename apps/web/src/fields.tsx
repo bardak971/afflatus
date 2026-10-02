@@ -1,11 +1,14 @@
-import { useId, useMemo, useState } from "react";
-import { ArrowLeftRight, Copy, Plus, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeftRight, Check, ChevronDown, Copy, Minus, Pencil, Plus, X } from "lucide-react";
 import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@studai/core";
-import type { FamilyInfo, ModelInfo } from "./api";
-import { useModelInfo } from "./data";
+import { api, type FamilyInfo, type ModelInfo, type ModelWords, type TagIssue } from "./api";
+import { useModelInfo, useModelWords, useSettings } from "./data";
 import { fileLabel } from "./format";
 import { MaskField } from "./MaskField";
 import { ClipField, PictureField, ReferencesField, SoundField } from "./PictureField";
+import { Popover } from "./Popover";
+import { appendTo, nudgeWeight, removeFrom, replaceTag, wordsIn } from "./promptText";
 import { Select, type Option } from "./Select";
 import { AutoText, cx, NumberBox, Segmented, Toggle } from "./ui";
 import { ModelLink } from "./ModelLink";
@@ -41,8 +44,148 @@ export function defaultOf(spec: InputSpec, options: string[] | undefined): unkno
   }
 }
 
-/** The words that call a LoRA up: what its author wrote, or else the words it was trained with most. */
-const wordsOf = (info: ModelInfo | undefined) => info?.trigger ?? info?.tags?.slice(0, 8).join(", ") ?? "";
+/** A file's name as the words kept for it are filed under: lower case, without its sub-folder. */
+const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+
+/**
+ * The words that call a LoRA up, and where they are from: the user's own first, then what its author
+ * wrote in the file, then what its page on Civitai gives, or else the words it was trained with most.
+ */
+function wordsOf(info: ModelInfo | undefined, more?: ModelWords): { words: string; from: "own" | "file" | "page" | "training" | null } {
+  if (more?.own) return { words: more.own, from: "own" };
+  if (info?.trigger) return { words: info.trigger, from: "file" };
+  if (more?.found) return { words: more.found, from: "page" };
+  const trained = info?.tags?.slice(0, 8).join(", ") ?? "";
+  return { words: trained, from: trained ? "training" : null };
+}
+const FROM = { own: "Your words for it", file: "Its trigger words", page: "Its trigger words, from its page on Civitai", training: "The words it was trained with most" };
+
+/** The trigger words of the LoRAs a form has in use: words that are no danbooru tags and are right all the same. */
+function useLoraWords(values: Record<string, unknown> | undefined): string[] {
+  const info = useModelInfo("loras").data?.items;
+  const more = useModelWords("loras").data?.items;
+  return useMemo(() => {
+    const loras = Object.values(values ?? {}).filter((v): v is LoraValue[] => Array.isArray(v) && v.length > 0 && v.every((x) => x && typeof (x as LoraValue).file === "string" && typeof (x as LoraValue).weight === "number")).flat();
+    return loras.map((l) => wordsOf(info?.[l.file], more?.[nameOf(l.file)])).filter((w) => w.from && w.from !== "training").map((w) => w.words);
+  }, [values, info, more]);
+}
+
+/**
+ * Under a prompt written in tags: one short line when some of its tags are not danbooru tags (what anime
+ * models learned). It opens a list: another name of a tag and a typo are put right with a click, the
+ * rest are only named. Looked at a moment after the typing stops; nothing when every tag is known.
+ */
+function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; onChange(text: string): void }) {
+  const [issues, setIssues] = useState<TagIssue[]>([]);
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const ignoreKey = ignore.join("|");
+  useEffect(() => {
+    if (!text.trim()) return setIssues([]);
+    let alive = true;
+    const wait = setTimeout(() => {
+      api.checkTags(text, ignoreKey ? ignoreKey.split("|") : []).then((r) => alive && setIssues(r.issues), () => {});
+    }, 700);
+    return () => {
+      alive = false;
+      clearTimeout(wait);
+    };
+  }, [text, ignoreKey]);
+  if (!issues.length) return null;
+  const fixable = issues.filter((i) => i.suggestion);
+  const plain = issues.filter((i) => !i.suggestion);
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        title="Anime models learned danbooru's tags: another word does little, a typo nothing"
+        className="flex items-center gap-1 self-start rounded-md text-xs text-warn-ink hover:underline"
+      >
+        {issues.length} tag{issues.length > 1 ? "s are" : " is"} not on danbooru's list{fixable.length ? ` · ${fixable.length} to fix` : ""}
+        <ChevronDown size={12} />
+      </button>
+      {open && (
+        <Popover anchor={button} onClose={() => setOpen(false)} label="Tags that are not danbooru tags" width={340} height={320}>
+          <div className="flex flex-col gap-2 overflow-y-auto p-3">
+            {fixable.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-ink-2">Written another way on danbooru</span>
+                  {fixable.length > 1 && (
+                    <button type="button" className="text-xs text-accent hover:underline" onClick={() => onChange(fixable.reduce((t, i) => replaceTag(t, i.tag, i.suggestion!), text))}>Fix all {fixable.length}</button>
+                  )}
+                </div>
+                {fixable.map((i) => (
+                  <button
+                    key={i.tag}
+                    type="button"
+                    title={i.status === "alias" ? `"${i.tag}" is another name of the tag "${i.suggestion}"` : `Did you mean "${i.suggestion}"?`}
+                    onClick={() => onChange(replaceTag(text, i.tag, i.suggestion!))}
+                    className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-hover"
+                  >
+                    <span className="min-w-0 truncate text-ink-2 line-through">{i.tag}</span>
+                    <span className="shrink-0 text-ink-3">→</span>
+                    <span className="min-w-0 grow truncate font-semibold">{i.suggestion}</span>
+                    <span className="shrink-0 text-xs text-accent">{i.status === "alias" ? "Use it" : "Fix"}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {plain.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-ink-2">Not danbooru tags: the model may mostly ignore them</span>
+                <div className="flex flex-wrap gap-1">
+                  {plain.map((i) => <span key={i.tag} className="rounded bg-raised px-1.5 py-0.5 text-xs text-ink-2">{i.tag}</span>)}
+                </div>
+              </div>
+            )}
+            <span className="text-xs text-ink-3">A LoRA's trigger words and plain sentences are left alone. The check can be turned off in Settings.</span>
+          </div>
+        </Popover>
+      )}
+    </>
+  );
+}
+
+/**
+ * A text box of a prompt. Ctrl + ↑ / ↓ changes the weight of the tag the cursor is in, or of what is
+ * selected: (red dress:1.1). In a prompt of sentences only a selection is weighed.
+ */
+function PromptField({ spec, id, value, values, onChange }: { spec: Extract<InputSpec, { type: "prompt" }>; id: string; value: string; values?: Record<string, unknown>; onChange(value: string): void }) {
+  const settings = useSettings();
+  const checked = spec.style === "tags" && !spec.optional && Boolean(settings.data?.tagCheck);
+  const ignore = useLoraWords(checked ? values : undefined);
+  const weighs = spec.weights !== false;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id} note={spec.note}>{spec.label}</Label>
+      <AutoText
+        id={id}
+        rows={spec.optional && !spec.example ? 2 : 4}
+        value={value}
+        placeholder={spec.placeholder}
+        title={weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. {a|b|c}: one is picked for each result.` : "{a|b|c}: one is picked for each result."}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (!weighs || !(e.ctrlKey || e.metaKey) || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+          const el = e.currentTarget;
+          const next = nudgeWeight(el.value, el.selectionStart, el.selectionEnd, e.key === "ArrowUp" ? 0.1 : -0.1, spec.style === "tags");
+          if (!next) return;
+          e.preventDefault();
+          onChange(next.text);
+          // once the new text is in the box, the tag is selected again: the next press goes on from it
+          requestAnimationFrame(() => el.setSelectionRange(next.start, next.end));
+        }}
+        className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-[13px]" : "text-sm")}
+      />
+      {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
+    </div>
+  );
+}
 
 /**
  * A file as a choice: its name to read, beside it the model it is for and the folder it is in. It is
@@ -87,8 +230,8 @@ export const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.
 function Label({ htmlFor, children, note }: { htmlFor?: string; children: string; note?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <label htmlFor={htmlFor} className="text-xs font-semibold">{children}</label>
-      {note && <span className="text-xs text-ink-2">{note}</span>}
+      <label htmlFor={htmlFor} className="shrink-0 text-xs font-semibold">{children}</label>
+      {note && <span className="text-right text-xs text-ink-2">{note}</span>}
     </div>
   );
 }
@@ -154,7 +297,14 @@ function SizeField({ spec, value: size, onChange }: { spec: Extract<InputSpec, {
   );
 }
 
-export function Field({ spec, value, values, options, family, model, onChange }: {
+/** The form's main text, for a field that puts words into it or takes them out (a LoRA's trigger words). */
+export interface MainText {
+  text: string;
+  style: "tags" | "sentences";
+  set(text: string): void;
+}
+
+export function Field({ spec, value, values, options, family, model, onChange, onValue, main }: {
   spec: InputSpec;
   value: unknown;
   /** The whole form, for a field that goes with another one (the part painted over a picture). */
@@ -166,23 +316,14 @@ export function Field({ spec, value, values, options, family, model, onChange }:
   /** The model file in use: LoRAs made for that very model, or its line, come before the rest of the family's. */
   model?: string;
   onChange(value: unknown): void;
+  /** Set another input of the form (the part of a sound that is used is two numbers of their own). */
+  onValue?(input: string, value: unknown): void;
+  main?: MainText;
 }) {
   const id = useId();
   switch (spec.type) {
     case "prompt":
-      return (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={id} note={spec.note}>{spec.label}</Label>
-          <AutoText
-            id={id}
-            rows={spec.optional && !spec.example ? 2 : 4}
-            value={String(value ?? "")}
-            placeholder={spec.placeholder}
-            onChange={(e) => onChange(e.target.value)}
-            className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-[13px]" : "text-sm")}
-          />
-        </div>
-      );
+      return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} />;
 
     case "model":
       return (
@@ -193,7 +334,7 @@ export function Field({ spec, value, values, options, family, model, onChange }:
       );
 
     case "loras":
-      return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} model={model} onChange={onChange} />;
+      return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} model={model} onChange={onChange} main={main} />;
 
     case "size":
       return <SizeField spec={spec} value={(value as SizeValue | undefined) ?? { width: 0, height: 0 }} onChange={onChange} />;
@@ -284,44 +425,129 @@ export function Field({ spec, value, values, options, family, model, onChange }:
       return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} video={spec.media === "video"} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} />;
 
     case "audio":
-      return <SoundField label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange} />;
+      return (
+        <SoundField
+          label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange}
+          part={spec.window && onValue ? {
+            start: Number(values?.[spec.window.start] ?? 0), seconds: Number(values?.[spec.window.seconds] ?? 8),
+            onStart: (v) => onValue(spec.window!.start, v), onSeconds: (v) => onValue(spec.window!.seconds, v),
+          } : undefined}
+        />
+      );
 
     case "clip":
       return <ClipField label={spec.label} note={spec.note} role={spec.role} optional={Boolean(spec.optional)} value={(value as ClipValue | undefined) ?? null} onChange={onChange} />;
   }
 }
 
-/** What a LoRA's file says about it, under its name: the model it is for and the words that call it up. Click to copy the words. */
-function LoraWords({ info }: { info: ModelInfo | undefined }) {
+/**
+ * Under a LoRA's name: the model it is for and the words that call it up. "+" puts the words in the
+ * prompt and "−" takes them out again; a click on them copies them; the pencil replaces them by the
+ * user's own.
+ */
+function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo | undefined; more: ModelWords | undefined; main?: MainText }) {
+  const client = useQueryClient();
   const [copied, setCopied] = useState(false);
-  const words = wordsOf(info);
-  if (!info?.base && !words) return null;
+  const [typing, setTyping] = useState<string | null>(null);
+  const { words, from } = wordsOf(info, more);
+  const save = useMutation({
+    mutationFn: (own: string) => api.setModelWords("loras", file, own.trim() || null),
+    onSuccess: (r) => client.setQueryData<{ items: Record<string, ModelWords> }>(["model-words", "loras"], (old) => ({ items: { ...(old?.items ?? {}), ...r.items } })),
+  });
+  const small = "flex h-5 shrink-0 items-center gap-1 rounded px-1 text-[11px] text-ink-2 enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-35";
+  // which of them the prompt holds already: "+" has nothing to add when all are there, "−" nothing to take when none is
+  const there = main && words ? wordsIn(main.text, words, main.style) : { any: false, all: false };
+  if (typing !== null) {
+    return (
+      <form
+        className="flex items-center gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate(typing);
+          setTyping(null);
+        }}
+      >
+        <input
+          autoFocus
+          aria-label={`Your trigger words for ${fileLabel(file)}`}
+          placeholder="Your words for it (empty: back to its own)"
+          value={typing}
+          maxLength={600}
+          onChange={(e) => setTyping(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && setTyping(null)}
+          className="h-7 min-w-0 grow rounded-md border border-line bg-ground px-2 text-xs placeholder:text-ink-3"
+        />
+        <button type="submit" aria-label="Keep these words" className={small}><Check size={12} /></button>
+      </form>
+    );
+  }
   return (
-    <button
-      type="button"
-      disabled={!words}
-      title={words ? `${info?.trigger ? "Its trigger words" : "The words it was trained with most"}: ${words}\nClick to copy them.` : undefined}
-      onClick={() => void navigator.clipboard.writeText(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
-      className="flex min-w-0 items-center gap-1.5 text-left text-xs text-ink-2 enabled:hover:text-ink"
-    >
+    <div className="flex min-w-0 items-center gap-1 text-xs text-ink-2">
       {info?.base && <span className="shrink-0 rounded bg-hover px-1.5 py-px text-[10px] font-semibold text-ink-2">{info.base}</span>}
-      <span className="min-w-0 truncate">{copied ? "Copied" : words}</span>
-      {words && !copied && <Copy size={11} className="shrink-0" />}
-    </button>
+      <button
+        type="button"
+        disabled={!words}
+        title={words && from ? `${FROM[from]}: ${words}\nClick to copy them.` : undefined}
+        onClick={() => void navigator.clipboard.writeText(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
+        className="flex min-w-0 grow items-center gap-1.5 text-left enabled:hover:text-ink"
+      >
+        <span className={cx("min-w-0 truncate", !words && "text-ink-3", there.all && "text-ink")}>{copied ? "Copied" : words || "No trigger words known"}</span>
+        {words && !copied && <Copy size={11} className="shrink-0" />}
+      </button>
+      {main && words && from !== "training" && (
+        <span className="flex shrink-0 items-center rounded border border-line">
+          <button type="button" disabled={there.all} aria-label={`Put the trigger words of ${fileLabel(file)} in the prompt`} title={there.all ? "They are in the prompt" : "Put these words in the prompt"} onClick={() => main.set(appendTo(main.text, words, main.style))} className={small}><Plus size={12} /></button>
+          <button type="button" disabled={!there.any} aria-label={`Take the trigger words of ${fileLabel(file)} out of the prompt`} title={there.any ? "Take these words out of the prompt" : "They are not in the prompt"} onClick={() => main.set(removeFrom(main.text, words, main.style))} className={small}><Minus size={12} /></button>
+        </span>
+      )}
+      <button type="button" aria-label={`Your own trigger words for ${fileLabel(file)}`} title="Write your own words for this LoRA: they replace the ones shown" onClick={() => setTyping(more?.own ?? "")} className={small}><Pencil size={11} /></button>
+    </div>
   );
 }
 
-function Loras({ spec, value, options, family, model, onChange }: {
+/** Files whose words were asked of Civitai while this page is open: each is asked once. */
+const askedWords = new Set<string>();
+
+/**
+ * The words that call LoRAs up, for the ones in use: what each file says, what is kept beside it, and,
+ * for a file that gives none, what its page on Civitai gives. That page is asked by the file's
+ * fingerprint, once (the server asks nothing unless looking things up is on in Settings).
+ */
+export function useLoraWordsOf(files: string[]) {
+  const known = useModelInfo("loras");
+  const info = known.data?.items ?? {};
+  const extra = useModelWords("loras");
+  const more = extra.data?.items ?? {};
+  const client = useQueryClient();
+  const silent = files.filter((f) => info[f] && !info[f]!.trigger && !more[nameOf(f)] && !askedWords.has(f));
+  const silentKey = silent.join("|");
+  useEffect(() => {
+    if (!silentKey || !extra.isSuccess) return;
+    const asked = silentKey.split("|");
+    for (const f of asked) askedWords.add(f);
+    api.findModelWords("loras", asked).then(
+      (r) => {
+        client.setQueryData<{ items: Record<string, ModelWords> }>(["model-words", "loras"], (old) => ({ items: { ...(old?.items ?? {}), ...r.items } }));
+        // a page came with the words
+        void client.invalidateQueries({ queryKey: ["model-pages", "loras"] });
+      },
+      () => {},
+    );
+  }, [silentKey, extra.isSuccess, client]);
+  return { known, extra, info, more, of: (file: string) => wordsOf(info[file], more[nameOf(file)]) };
+}
+
+function Loras({ spec, value, options, family, model, onChange, main }: {
   spec: Extract<InputSpec, { type: "loras" }>;
   value: LoraValue[];
   options: string[];
   family: FamilyInfo | undefined;
   model: string | undefined;
   onChange(value: LoraValue[]): void;
+  main?: MainText;
 }) {
-  // what each file says about itself: read once by the server, arriving in the background the first time
-  const known = useModelInfo("loras");
-  const info = known.data?.items ?? {};
+  // what each file says about itself (read once by the server, arriving in the background the first time), and the words kept beside it
+  const { known, extra, info, more } = useLoraWordsOf(value.map((v) => v.file));
   const free = options.filter((o) => !value.some((v) => v.file === o));
   const set = (i: number, weight: number) => onChange(value.map((v, j) => (j === i ? { ...v, weight } : v)));
   const choices = useMemo(() => {
@@ -342,11 +568,12 @@ function Loras({ spec, value, options, family, model, onChange }: {
     if (sorted) made.sort((a, b) => rank(a) - rank(b) || (half ? Number(half.test(b.file)) - Number(half.test(a.file)) : 0) || b.near - a.near || b.fit - a.fit || a.index - b.index);
     return made.map((m): Option => ({
       ...fileOption(m.file, m.about),
-      detail: wordsOf(m.about) || undefined,
+      detail: wordsOf(m.about, more[nameOf(m.file)]).words || undefined,
+      ...(more[nameOf(m.file)] ? { search: [fileOption(m.file, m.about).search, more[nameOf(m.file)]!.own, more[nameOf(m.file)]!.found].filter(Boolean).join(" ") } : {}),
       ...(sorted ? { group: titles[rank(m)] } : {}),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [free.join("|"), known.data, family?.id, spec.label, model]);
+  }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model]);
   return (
     <div className="flex flex-col gap-1.5">
       <Label note={`${value.length} of ${spec.max}`}>{spec.label}</Label>
@@ -360,7 +587,7 @@ function Loras({ spec, value, options, family, model, onChange }: {
               <X size={14} />
             </button>
           </div>
-          <LoraWords info={info[l.file]} />
+          <LoraWords file={l.file} info={info[l.file]} more={more[nameOf(l.file)]} main={main} />
         </div>
       ))}
       {value.length < spec.max && (

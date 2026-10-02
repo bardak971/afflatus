@@ -22,7 +22,7 @@ export class Comfy {
 
   /** What this ComfyUI can do. The node catalog is large, so the answer is kept for a while. */
   async scan(fresh = false): Promise<Scan> {
-    // asked to look again ("Test" in Setup): the node list is read again too, it is what says which files there are
+    // asked to look again ("Test" in Settings): the node list is read again too, it is what says which files there are
     if (fresh) this.lastCatalog = null;
     if (fresh || !this.lastScan || Date.now() - this.lastScan.at > SCAN_TTL_MS) {
       this.lastScan = { at: Date.now(), value: scan(this.client, this.registry.families(), this.registry.recipes()) };

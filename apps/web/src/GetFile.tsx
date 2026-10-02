@@ -68,7 +68,7 @@ const link = "font-semibold underline";
 /**
  * What can be done about a model file ComfyUI does not have: fetch it into ComfyUI from the address
  * its author gave, or look for it on Civitai and fetch it from there. Both only show when they were
- * turned on in Setup; without them this renders nothing and the plain links around it stay.
+ * turned on in Settings; without them this renders nothing and the plain links around it stay.
  */
 export function GetFile({ file, folder, url, civitai, hints }: {
   file: string;

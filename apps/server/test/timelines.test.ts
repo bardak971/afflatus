@@ -427,6 +427,23 @@ describe.skipIf(!three)("a timeline", () => {
     expect((await get(t.app, "/api/assets?kind=video")).json().items).toHaveLength(1);
   });
 
+  it("stops a clip's render from the timeline: nothing is added, the take it had still plays, and it is not called a failure", async () => {
+    const { id, a } = await twoClips();
+    const before = (await view(id)).clips[0].take.id as string;
+    await render(id, [{ id: a }], "She turns round.");
+    await until(() => fake.prompts.size === 3);
+    const job = (await view(id)).clips[0].job as { id: string; status: string };
+    expect(job.status).toBe("running");
+    await call("POST", `/api/jobs/${job.id}/cancel`);
+    await until(async () => (await view(id)).clips[0].job === null);
+    const clip = (await view(id)).clips[0];
+    expect(clip).toMatchObject({ job: null, failed: null });
+    expect(clip.take.id).toBe(before);
+    expect(clip.takes).toHaveLength(1);
+    // ComfyUI was told to stop
+    expect(fake.calls.some((c) => c.startsWith("POST /interrupt"))).toBe(true);
+  });
+
   it("keeps a clip's conversation with the designer and what it is held with, without that being a change to undo", async () => {
     const tl = await call("POST", "/api/timelines", { name: "Talk" });
     const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;

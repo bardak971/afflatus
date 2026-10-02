@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
-import { Link, Route, Switch, useLocation } from "wouter";
+import { Link, Redirect, Route, Switch, useLocation } from "wouter";
 import { Film, LayoutGrid, ListOrdered, Plus, Settings2, Users, Workflow } from "lucide-react";
 import { useQueue } from "./data";
 import { Banners } from "./Banners";
+import { KeysHelp } from "./Keys";
+import { TabProgress } from "./TabProgress";
 import { DropTray } from "./DropTray";
 import { useDownloads } from "./GetFile";
 import { about, phaseLabel } from "./format";
@@ -22,10 +24,10 @@ const NAV: Array<{ href: string; label: string; icon: ReactNode }> = [
   { href: "/", label: "Library", icon: <LayoutGrid size={18} /> },
   { href: "/create", label: "Create", icon: <Plus size={18} /> },
   { href: "/timelines", label: "Timelines", icon: <Film size={18} /> },
-  { href: "/people", label: "People", icon: <Users size={18} /> },
+  { href: "/kit", label: "Prompt kit", icon: <Users size={18} /> },
   { href: "/workflows", label: "Workflows", icon: <Workflow size={18} /> },
   { href: "/queue", label: "Queue", icon: <ListOrdered size={18} /> },
-  { href: "/setup", label: "Setup", icon: <Settings2 size={18} /> },
+  { href: "/settings", label: "Settings", icon: <Settings2 size={18} /> },
 ];
 
 /** The strip at the bottom of every screen: what is rendering, and how the GPU is doing. */
@@ -52,7 +54,7 @@ function Strip() {
       )}
       <span className="grow" />
       {fetching.length > 0 && (
-        <Link href="/setup" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being fetched into ComfyUI. It goes on if this page is closed. Open Setup to see it or stop it.">
+        <Link href="/settings" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being fetched into ComfyUI. It goes on if this page is closed. Open Settings to see it or stop it.">
           {fetching.length === 1 ? `Downloading ${fetching[0]!.file.split(/[\\/]/).pop()}` : `Downloading ${fetching.length} files`}
           {fetching.length === 1 && fetching[0]!.total > 0 && ` · ${Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100)}%`}
         </Link>
@@ -64,6 +66,7 @@ function Strip() {
         </span>
       )}
       {queue.data && queue.data.waiting.length > 0 && <span className="text-ink-2">{queue.data.waiting.length} waiting</span>}
+      <button type="button" title="Every key the app answers to" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Keys <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
       <Link href="/queue" className="inline-flex h-7 items-center rounded-md border border-line-strong px-2.5 font-semibold">Open the queue</Link>
     </footer>
   );
@@ -95,12 +98,16 @@ export function App() {
         <Switch>
           <Route path="/" component={Library} />
           <Route path="/create" component={Create} />
-          <Route path="/people" component={People} />
+          <Route path="/kit" component={People} />
+          {/* the screen's old address still leads to it */}
+          <Route path="/people"><Redirect to="/kit" /></Route>
           <Route path="/timelines" component={Timelines} />
           <Route path="/timelines/:id" component={TimelineEditor} />
           <Route path="/workflows" component={Workflows} />
           <Route path="/queue" component={Queue} />
-          <Route path="/setup" component={Setup} />
+          <Route path="/settings" component={Setup} />
+          {/* the screen's old address still leads to it */}
+          <Route path="/setup"><Redirect to="/settings" /></Route>
           <Route>
             <div className="p-8 text-ink-2">There is no such page. <Link href="/" className="underline">Back to the library</Link></div>
           </Route>
@@ -109,6 +116,8 @@ export function App() {
       <Strip />
       <DropTray />
       <Banners />
+      <KeysHelp />
+      <TabProgress />
     </div>
   );
 }

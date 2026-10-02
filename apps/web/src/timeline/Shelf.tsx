@@ -1,18 +1,18 @@
-import { useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Music, Play, Plus, Upload } from "lucide-react";
-import { api, thumbUrl, type Asset } from "../api";
+import { useState } from "react";
+import { Music, Play, Plus } from "lucide-react";
+import { thumbUrl, type Asset } from "../api";
 import { useAssets, useFolders } from "../data";
 import { clock } from "../format";
 import { DRAG_TYPE, dragKind } from "../screens/Library";
 import { Select } from "../Select";
-import { Button, ErrorNote, SectionTitle, Segmented } from "../ui";
+import { Button, SectionTitle, Segmented } from "../ui";
 
 type Tab = "image" | "video" | "audio";
+/** Where each kind can be dragged, said once and short. Files from the computer are dropped on the window itself. */
 const HINT: Record<Tab, string> = {
-  image: "Drag a picture onto a clip to make the clip open or end on it, or between clips to hold it on screen. + adds it at the end.",
-  video: "Drag a video onto the timeline, or press + to add it at the end.",
-  audio: "Drag a sound onto a clip to replace its sound, or onto the music row.",
+  image: "Drag onto a clip (it opens or ends on it) or between clips. Files from your computer: drop them anywhere.",
+  video: "Drag onto the timeline. Files from your computer: drop them anywhere.",
+  audio: "Drag onto a clip or the music row. Files from your computer: drop them anywhere.",
 };
 
 /** Your library, beside the timeline: what can be dragged onto it. */
@@ -26,14 +26,6 @@ export function Shelf({ onAdd, selected }: {
   const [folder, setFolder] = useState("");
   const assets = useAssets({ kind: tab, folder: folder || undefined });
   const folders = useFolders();
-  const client = useQueryClient();
-  const file = useRef<HTMLInputElement>(null);
-  const upload = useMutation({
-    mutationFn: async (files: File[]) => {
-      for (const f of files) await api.upload(f);
-    },
-    onSettled: () => client.invalidateQueries({ queryKey: ["assets"] }),
-  });
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
   const all = folders.data?.items ?? [];
   const drag = (a: Asset) => (e: React.DragEvent) => {
@@ -53,7 +45,6 @@ export function Shelf({ onAdd, selected }: {
         )}
       </div>
       <div className="min-h-0 grow overflow-y-auto px-3 pb-3">
-        {upload.isError && <ErrorNote>{upload.error.message}</ErrorNote>}
         {assets.isSuccess && !items.length && (
           <div className="py-6 text-center text-xs text-ink-3">{tab === "audio" ? "No sounds yet. Bring one in from your computer." : `No ${tab === "image" ? "pictures" : "videos"} here yet.`}</div>
         )}
@@ -91,22 +82,7 @@ export function Shelf({ onAdd, selected }: {
           </div>
         )}
       </div>
-      <div className="flex flex-col gap-2 border-t border-line px-3 py-2.5">
-        <Button size="sm" onClick={() => file.current?.click()} disabled={upload.isPending}>
-          <Upload size={13} /> {upload.isPending ? "Adding…" : "From your computer"}
-        </Button>
-        <input
-          ref={file}
-          type="file"
-          multiple
-          accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,audio/*"
-          className="hidden"
-          onChange={(e) => {
-            const files = [...(e.target.files ?? [])];
-            if (files.length) upload.mutate(files);
-            e.target.value = "";
-          }}
-        />
+      <div className="border-t border-line px-3 py-2">
         <span className="text-xs text-ink-3">{HINT[tab]}</span>
       </div>
     </aside>

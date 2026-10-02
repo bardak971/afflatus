@@ -4,11 +4,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
 import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo } from "./api";
-import { useAsset, useAssetAction, useFolders, useRecipes, useSetup, useTimelines } from "./data";
+import { useAsset, useAssetAction, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
+import { formDefaults } from "./form";
+import { Kbd, plainKey } from "./Keys";
+import { carryOver, modelGroups } from "./picker";
 import { fileLabel, notReady, recipeLabel, took, when } from "./format";
 import { Select } from "./Select";
 import { PngInfo } from "./PngInfo";
-import { useOpenDraft } from "./store";
+import { useBanners, useOpenDraft } from "./store";
 import { Button, cx, SectionTitle } from "./ui";
 import { ModelLink } from "./ModelLink";
 
@@ -258,31 +261,25 @@ function ReferencePicker({ asset }: { asset: Asset }) {
   );
 }
 
+/** What a tool is handed along with a picture: what the picture was made with (its prompt, model, LoRAs…), where the tool has a place for it. */
+function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeInfo | undefined, to: RecipeInfo): Record<string, unknown> {
+  if (!g || !from) return {};
+  // the picture is the new source; its own source, mask and seed stay behind
+  const taken = carryOver(from, to, g.inputs, undefined);
+  for (const i of to.inputs) if (i.type === "image" || i.type === "seed") delete taken[i.id];
+  return taken;
+}
+
 /**
  * What can be done to a picture: every way of making things that takes one picture and gives a picture
  * back (redraw it, paint over a part, enlarge it, fix a face, another shape, no background…), the
  * built-in ones and the imported workflows alike. Picking one opens a new draft with the picture in place.
  */
-function ChangePicker({ asset }: { asset: Asset }) {
+function ChangePicker({ asset, start }: { asset: Asset; start: { mutate(id: string): void; isPending: boolean; isError: boolean; error: Error | null } }) {
   const recipes = useRecipes();
   const setup = useSetup();
-  const client = useQueryClient();
-  const [, go] = useLocation();
-  const openDraft = useOpenDraft((s) => s.open);
   const ways = (recipes.data?.recipes ?? []).filter((r) => r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
-  const start = useMutation({
-    mutationFn: (id: string) => {
-      const recipe = ways.find((r) => r.id === id)!;
-      const slot = recipe.inputs.find((i) => i.type === "image" && i.role === "source")!;
-      return api.createDraft({ recipe: recipe.id, forms: { [recipe.id]: { [slot.id]: asset.id } } });
-    },
-    onSuccess: (d) => {
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
-      go("/create");
-    },
-  });
+  void asset;
   if (!ways.length) return null;
   const online = setup.data?.comfy.online ?? false;
   return (
@@ -301,13 +298,29 @@ function ChangePicker({ asset }: { asset: Asset }) {
           return { value: r.id, label: r.title, note: why ? "not ready" : undefined, detail: r.summary, group: family?.name ?? "Your workflows", search: family?.name };
         })}
       />
-      {start.isError && <span className="text-warn-ink">{start.error.message}</span>}
+      {start.isError && <span className="text-warn-ink">{start.error?.message}</span>}
     </div>
   );
 }
 
 /** One item, large, with how it was made and what can be done with it. */
-export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): void }) {
+/** The operations that have a key, by how their recipes are named. */
+const OPS: Record<string, { ends: string[]; label: string }> = {
+  u: { ends: [".sharper"], label: "Upscale 2x" },
+  f: { ends: [".fix-face"], label: "Face detailer" },
+  b: { ends: ["tools.remove-background"], label: "Remove the background" },
+  i: { ends: [".paint-over"], label: "Inpaint" },
+  e: { ends: [".edit", ".redraw"], label: "Edit" },
+  r: { ends: [".change-shape"], label: "Outpaint" },
+};
+
+export function Viewer({ asset: first, items, onOpen, onClose }: {
+  asset: Asset;
+  /** The list it was opened from: the arrow keys go to the item before and after. */
+  items?: Asset[];
+  onOpen?(asset: Asset): void;
+  onClose(): void;
+}) {
   // "made from" and "used to make" lead to other items without leaving the viewer
   const [trail, setTrail] = useState<Asset[]>([]);
   const [info, setInfo] = useState(false);
@@ -383,15 +396,112 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
   const saveFrame = useMutation({ mutationFn: () => api.frame(asset.id, Math.round((player.current?.currentTime ?? 0) * 1000)), onSuccess: opened });
   const takeSound = useMutation({ mutationFn: () => api.takeSound(asset.id), onSuccess: opened });
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const g = detail.data?.id === asset.id ? detail.data.generation : null;
   const a: Asset = detail.data?.id === asset.id ? detail.data : asset;
   const recipe = recipes.data?.recipes.find((r) => r.id === g?.recipe);
+
+  // ---- what the keys do
+  const setup = useSetup();
+  const modelSettings = useModelSettings();
+  const say = useBanners((b) => b.push);
+  const all = recipes.data?.recipes ?? [];
+  /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
+  const toolFor = (key: string): RecipeInfo | undefined => {
+    const ends = OPS[key]?.ends ?? [];
+    const fits = (r: RecipeInfo) => r.output === "image" && ends.some((e) => r.id.endsWith(e));
+    const mine = modelGroups(all.filter((r) => r.output === "image"), recipes.data?.families ?? []).find((group) => group.recipes.some((r) => r.id === recipe?.id));
+    const ready = (r: RecipeInfo) => setup.data?.recipes.find((x) => x.id === r.id)?.ready;
+    return mine?.recipes.find(fits) ?? all.find((r) => fits(r) && ready(r)) ?? all.find(fits);
+  };
+  /** A tool's form in Create, with the picture in place and what it was made with. */
+  const openTool = useMutation({
+    mutationFn: (id: string) => {
+      const tool = all.find((r) => r.id === id)!;
+      const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
+      return api.createDraft({ recipe: tool.id, forms: { [tool.id]: { ...carried(g, recipe, tool), [slot.id]: asset.id } } });
+    },
+    onSuccess: (d) => {
+      client.setQueryData(["drafts", d.id], d);
+      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      openDraft(d.id);
+      go("/create");
+    },
+  });
+  /** Queue something at once, and say so. */
+  const queued = useMutation({
+    mutationFn: async (job: { recipe: RecipeInfo; stored: Record<string, unknown>; label: string }) => {
+      const status = setup.data?.recipes.find((x) => x.id === job.recipe.id);
+      const why = setup.isSuccess ? notReady(status, setup.data.comfy.online) : null;
+      if (why) throw new Error(why);
+      const input: Record<string, unknown> = { ...formDefaults(job.recipe, status?.options, modelSettings.data?.items ?? [], job.stored).defaults, ...job.stored };
+      const has = new Set(job.recipe.inputs.map((i) => i.id));
+      for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
+      await api.enqueue(job.recipe.id, input, 1, null);
+      return job.label;
+    },
+    onSuccess: (label) => {
+      void client.invalidateQueries({ queryKey: ["queue"] });
+      say({ id: `key:${Date.now()}`, tone: "good", title: `${label} is queued`, href: "/queue", go: "Open the queue" });
+    },
+    onError: (err, job) => say({ id: `key:${Date.now()}`, tone: "bad", title: `${job.label} could not be queued`, text: err.message, href: "/settings", go: "Open Settings" }),
+  });
+  const quick = (key: string) => {
+    const tool = toolFor(key);
+    if (!tool) return;
+    const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
+    queued.mutate({ recipe: tool, stored: { ...carried(g, recipe, tool), [slot.id]: asset.id }, label: OPS[key]!.label });
+  };
+  /** The item before or after in the list it was opened from. */
+  const at = trail.length === 0 && items ? items.findIndex((x) => x.id === first.id) : -1;
+  const move = (by: -1 | 1) => {
+    const next = at >= 0 ? items![at + by] : undefined;
+    if (next) onOpen?.(next);
+    return Boolean(next);
+  };
+  const toBin = () => {
+    bin.mutate(undefined);
+    // on to the next one: sorting a batch is keep, bin, keep, bin
+    if (!(move(1) || move(-1))) onClose();
+  };
+  const download = () => {
+    const link = document.createElement("a");
+    link.href = fileUrl(asset.id);
+    link.download = a.name || `${asset.id}.${(FORMATS[a.mime] ?? "bin").toLowerCase()}`;
+    link.click();
+  };
+
+  const act = useRef<(e: KeyboardEvent) => void>(() => {});
+  act.current = (e) => {
+    if (e.key === "Escape") {
+      if (!document.querySelector("[data-keys-help], [role=listbox], [role=menu]") && !info) onClose();
+      return;
+    }
+    if (info || !plainKey(e, { over: "[data-keys-help]" })) return;
+    const k = e.key.toLowerCase();
+    // a video that has the focus keeps its own arrow keys
+    const inPlayer = (e.target as HTMLElement | null)?.tagName === "VIDEO";
+    if (e.key === "ArrowLeft" && !inPlayer) move(-1);
+    else if (e.key === "ArrowRight" && !inPlayer) move(1);
+    else if (a.inBin) return;
+    else if (k === "s") keep.mutate(!a.kept);
+    else if (e.key === "Delete") toBin();
+    else if (k === "d") download();
+    else if (k === "l" && g && recipe) again.mutate(g);
+    else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" });
+    else if (a.kind === "image" && (k === "u" || k === "f" || k === "b")) quick(k);
+    else if (a.kind === "image" && (k === "i" || k === "e" || k === "r") && toolFor(k)) openTool.mutate(toolFor(k)!.id);
+    else if (a.kind === "image" && k === "m" && opener) animate.mutate();
+    else if (a.kind !== "audio" && k === "p" && !g) setInfo(true);
+    else if (a.kind === "video" && k === "c" && carrier) carryOn.mutate();
+    else if (a.kind === "video" && k === "g") saveFrame.mutate();
+    else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => act.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const mainText = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
   const prompt = typeof g?.inputs[mainText] === "string" ? (g.inputs[mainText] as string) : "";
@@ -414,6 +524,8 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
             <button type="button" aria-label="Back to the item before" onClick={() => setTrail(trail.slice(0, -1))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><ChevronLeft size={16} /></button>
           )}
           <span className={cx("min-w-0 grow font-semibold", trail.length === 0 && "pl-2")}>{title}</span>
+          {at >= 0 && items!.length > 1 && <span className="shrink-0 text-xs text-ink-2" title="The arrow keys go to the item before and after">{at + 1} of {items!.length} <Kbd>←</Kbd> <Kbd>→</Kbd></span>}
+          <button type="button" aria-label="Keys" title="Every key (?)" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">?</button>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </div>
         <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
@@ -468,16 +580,33 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
 
           {!a.inBin && <FolderPicker asset={a} />}
           {!a.inBin && a.kind !== "audio" && <TimelinePicker asset={a} />}
-          {!a.inBin && a.kind === "image" && <ChangePicker asset={a} />}
+          {!a.inBin && a.kind === "image" && <ChangePicker asset={a} start={openTool} />}
+          {!a.inBin && a.kind === "image" && (
+            <div className="flex flex-wrap gap-1.5">
+              {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
+                <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}, queued at once with what the picture was made with.`} onClick={() => quick(k)}>
+                  {OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd>
+                </Button>
+              ))}
+              {(["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
+                <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: opens its form in Create with this picture.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>
+                  {OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd>
+                </Button>
+              ))}
+            </div>
+          )}
           {!a.inBin && a.kind === "image" && <ReferencePicker asset={a} />}
 
           <div className="flex flex-col gap-2">
             {g && recipe && (
-              <Button onClick={() => again.mutate(g)} disabled={again.isPending}>Make more like it</Button>
+              <div className="flex gap-2">
+                <Button className="grow" onClick={() => again.mutate(g)} disabled={again.isPending} title="Its settings in a new draft in Create.">Make more like it <Kbd>L</Kbd></Button>
+                <Button onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" })} disabled={queued.isPending} title="The same settings with a new seed, queued at once.">Variation <Kbd>V</Kbd></Button>
+              </div>
             )}
             {a.kind === "image" && !a.inBin && opener && (
               <Button onClick={() => animate.mutate()} disabled={animate.isPending} title="A new video that opens on this picture.">
-                <Clapperboard size={15} /> Make a video from it
+                <Clapperboard size={15} /> Make a video from it <Kbd>M</Kbd>
               </Button>
             )}
             {a.kind === "audio" && !a.inBin && follower && (
@@ -487,12 +616,12 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
             )}
             {a.kind !== "audio" && !a.inBin && !g && (
               <Button onClick={() => setInfo(true)} title="What this file says about how it was made: its prompt, checkpoint, LoRAs and settings, whether your ComfyUI has them, and sending them to a form.">
-                <FileSearch size={15} /> PNG info
+                <FileSearch size={15} /> PNG info <Kbd>P</Kbd>
               </Button>
             )}
             {a.kind === "video" && !a.inBin && (
               <Button onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video where you want, then save that frame as a picture in your library.">
-                <Camera size={15} /> {saveFrame.isPending ? "Saving…" : "Save the frame shown"}
+                <Camera size={15} /> {saveFrame.isPending ? "Saving…" : "Save the frame shown"} <Kbd>G</Kbd>
               </Button>
             )}
             {a.kind === "video" && !a.inBin && a.hasSound && (
@@ -503,23 +632,21 @@ export function Viewer({ asset: first, onClose }: { asset: Asset; onClose(): voi
             {(saveFrame.isError || takeSound.isError || animate.isError) && <span className="text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error)?.message}</span>}
             {a.kind === "video" && !a.inBin && carrier && (
               <Button onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title="A new clip whose first moments are the last moments of this one. You can pick the frame it starts from.">
-                <Link2 size={15} /> Continue it
+                <Link2 size={15} /> Continue it <Kbd>C</Kbd>
               </Button>
             )}
             {!a.inBin && (
               <Button onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")}>
-                <Star size={15} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"}
+                <Star size={15} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
               </Button>
             )}
             {!a.inBin && (
-              <Button
-                onClick={() => {
-                  bin.mutate(undefined);
-                  onClose();
-                }}
-              >
-                <Trash2 size={15} /> Move to the bin
-              </Button>
+              <div className="flex gap-2">
+                <Button className="grow" onClick={toBin}>
+                  <Trash2 size={15} /> Move to the bin <Kbd>Del</Kbd>
+                </Button>
+                <Button onClick={download} title="Download the file">Download <Kbd>D</Kbd></Button>
+              </div>
             )}
           </div>
         </div>

@@ -303,3 +303,26 @@ export async function soundOf(source: Uint8Array, ext: string): Promise<Uint8Arr
     return new Uint8Array(await readFile(out));
   });
 }
+
+/** The part of a sound that is used, given how long the sound is: see soundPart. */
+export function partOf(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
+  if (total === null) return { start: Math.max(0, start), seconds };
+  const from = Math.max(0, Math.min(start, total - 2));
+  return { start: from, seconds: Math.max(0.1, Math.min(seconds, total - from)) };
+}
+
+/**
+ * A part of a sound (or of a video's sound) as a sound of its own: from `start` seconds, `seconds` long.
+ * The start is where it was asked, as long as two seconds are left after it; the part ends where the
+ * sound ends when that comes first.
+ */
+export async function soundPart(source: Uint8Array, ext: string, opts: { start: number; seconds: number; durationMs?: number | null }): Promise<Uint8Array> {
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    const out = join(dir, "part.wav");
+    await writeFile(input, source);
+    const { start, seconds } = partOf(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", start.toFixed(3), "-t", seconds.toFixed(3), "-i", input, "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", out]);
+    return new Uint8Array(await readFile(out));
+  });
+}

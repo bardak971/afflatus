@@ -71,7 +71,7 @@ async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
   if (!versionId && !modelId) throw bad("That Civitai address does not name a model. Open the model's page and copy its address.");
   let model: ApiModel | null = modelId ? await civitaiGet<ApiModel>(`/api/v1/models/${modelId}`, key) : null;
   let version: ApiVersion | null | undefined = versionId ? model?.modelVersions?.find((v) => v.id === versionId) ?? (await civitaiGet<ApiVersion>(`/api/v1/model-versions/${versionId}`, key)) : model?.modelVersions?.[0];
-  if (!version) throw Object.assign(new Error("Civitai does not show that model (it may be removed, or need an account: a Civitai key in Setup helps)."), { statusCode: 404 });
+  if (!version) throw Object.assign(new Error("Civitai does not show that model (it may be removed, or need an account: a Civitai key in Settings helps)."), { statusCode: 404 });
   // an address of a version alone: its model says what the other versions are
   if (!model && version.modelId) model = await civitaiGet<ApiModel>(`/api/v1/models/${version.modelId}`, key).catch(() => null);
   const kind = model?.type ?? version.model?.type ?? "";

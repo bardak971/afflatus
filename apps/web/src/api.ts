@@ -138,6 +138,8 @@ export interface DraftBrief {
   name: string | null;
   target: string;
   updatedAt: string;
+  /** Nothing was done in it yet. */
+  empty: boolean;
 }
 export interface Draft extends DraftBrief {
   /** Recipe id → the values of its form. */
@@ -166,13 +168,39 @@ export interface DesignerReply {
   clips: Array<Record<string, string>>;
   /** Whether the language model was shown the picture the form opens on. */
   sawPicture?: boolean;
+  /** What the tag check did to what was written: tags put right, and tags danbooru does not have. */
+  tags?: { fixed: Array<{ from: string; to: string }>; unknown: string[] };
+}
+
+/** A tag of a prompt that danbooru does not have, with what to write instead when that is known. */
+export interface TagIssue {
+  tag: string;
+  status: "alias" | "unknown";
+  suggestion?: string;
+}
+
+/** The words that call a model file up beyond what the file says: the user's own, and the ones its page gave. */
+export interface ModelWords {
+  own: string | null;
+  found: string | null;
+}
+
+/** A bit of text kept for prompts, in a category of the user's own, for one kind of prompt when that is known. */
+export interface SnippetDef {
+  text: string;
+  category: string;
+  style: "tags" | "sentences" | null;
 }
 
 /** Who is in it and how it looks: people and places (a person with the outfit picked), and one style. */
 export interface Look {
   cast: Array<{ id: string; outfit?: string | null }>;
   style?: string | null;
+  /** Snippets that are ticked: their text is added after what is written. */
+  snippets?: string[];
 }
+/** Whether a look adds anything to a form. */
+export const lookAdds = (look: Look | null | undefined): look is Look => Boolean(look && (look.cast.length || look.style || look.snippets?.length));
 export interface Outfit {
   id: string;
   name: string;
@@ -207,7 +235,7 @@ export type Entity =
   | { id: string; kind: "place"; name: string; def: PlaceDef; updatedAt: string }
   | { id: string; kind: "style"; name: string; def: StyleDef; updatedAt: string }
   | { id: string; kind: "preset"; name: string; def: PresetDef; updatedAt: string }
-  | { id: string; kind: "snippet"; name: string; def: { text: string }; updatedAt: string };
+  | { id: string; kind: "snippet"; name: string; def: SnippetDef; updatedAt: string };
 /** What a form becomes once its cast and style are worked in. */
 export interface Composed {
   input: Record<string, unknown>;
@@ -409,6 +437,8 @@ export interface Settings {
   designerInstructions: Array<{ id: string; name: string; text: string }>;
   /** The ones in use; empty for none. */
   designerInstruction: string;
+  /** Tags written for an anime model are compared with danbooru's list. */
+  tagCheck: boolean;
   hasCivitaiKey: boolean;
   /** Missing model files may be looked for on Civitai. */
   civitaiLookups: boolean;
@@ -506,7 +536,7 @@ export const api = {
   pause: () => call<QueueStatus>("POST", "/queue/pause"),
   resume: () => call<QueueStatus>("POST", "/queue/resume"),
   enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null) =>
-    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(look && (look.cast.length || look.style) ? { look } : {}) }),
+    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}) }),
   entities: () => call<{ items: Entity[] }>("GET", "/entities"),
   createEntity: (kind: Entity["kind"], name: string, def?: unknown) => call<Entity>("POST", "/entities", def === undefined ? { kind, name } : { kind, name, def }),
   saveEntity: (id: string, patch: { name?: string; def?: unknown }) => call<Entity>("PUT", `/entities/${id}`, patch),
@@ -543,9 +573,19 @@ export const api = {
   binIdleTakes: () => call<{ moved: number }>("POST", "/storage/bin-idle-takes"),
   emptyBin: () => call<{ erased: number }>("POST", "/storage/empty-bin"),
   assetFamilies: () => call<{ items: string[] }>("GET", "/assets/families"),
+  /** The model files and the LoRAs things in the library were made with, the most used first. */
+  assetModels: () => call<{ models: Array<{ file: string; count: number }>; loras: Array<{ file: string; count: number }> }>("GET", "/assets/models"),
+  /** Which tags of a prompt danbooru does not have. */
+  checkTags: (text: string, ignore: string[]) => call<{ issues: TagIssue[] }>("POST", "/tags/check", { text, ignore }),
+  /** The words known for the files of a model folder beyond what the files say, by file name (lower case, without sub-folder). */
+  modelWords: (folder: string) => call<{ items: Record<string, ModelWords> }>("GET", `/models/${folder}/words`),
+  /** The user's own words for a file; empty takes them away. */
+  setModelWords: (folder: string, file: string, words: string | null) => call<{ items: Record<string, ModelWords> }>("PUT", `/models/${folder}/words`, { file, words }),
+  /** Ask Civitai, by fingerprint, for the words of files that say none: once per file, and only when lookups are on. */
+  findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean }) => {
+  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string }) => {
     const q = new URLSearchParams({ limit: "40" });
     if (opts.kind) q.set("kind", opts.kind);
     if (opts.bin) q.set("bin", "1");
@@ -554,6 +594,8 @@ export const api = {
     if (opts.q?.trim()) q.set("q", opts.q.trim());
     if (opts.family) q.set("family", opts.family);
     if (opts.kept) q.set("kept", "1");
+    if (opts.model) q.set("model", opts.model);
+    if (opts.lora) q.set("lora", opts.lora);
     return call<{ items: Asset[]; next: string | null }>("GET", `/assets?${q}`);
   },
   asset: (id: string) => call<AssetDetail>("GET", `/assets/${id}`),

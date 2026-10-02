@@ -208,7 +208,7 @@ export function Workflows() {
                   <span className={cx("shrink-0 font-semibold", problems.length ? "text-warn-ink" : "text-good")}>{setup.isSuccess ? (problems.length ? "Not ready" : "Ready") : ""}</span>
                 </div>
                 <span className="text-ink-2">{f.summary}</span>
-                {problems[0] && <span className="text-warn-ink">{problems[0]} <Link href="/setup" className="font-semibold underline">Open Setup</Link></span>}
+                {problems[0] && <span className="text-warn-ink">{problems[0]} <Link href="/settings" className="font-semibold underline">Open Settings</Link></span>}
               </div>
             );
           })}

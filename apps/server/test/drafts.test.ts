@@ -129,3 +129,23 @@ describe("thumbnails", () => {
     expect([...res.rawPayload]).toEqual([1, 2, 3]);
   });
 });
+
+describe("a draft nothing was done in", () => {
+  it("says so in the list, until something is set, someone is in it, or it is named", async () => {
+    const t = await makeApp();
+    try {
+      const made = (await post(t.app, "/api/drafts", { recipe: "sdxl.text-to-picture" })).json();
+      const listed = async () => (await get(t.app, "/api/drafts")).json().items.find((d: { id: string }) => d.id === made.id);
+      const put = (payload: unknown) => t.app.inject({ method: "PUT", url: `/api/drafts/${made.id}`, payload: payload as object });
+      expect((await listed()).empty).toBe(true);
+      await put({ forms: { "sdxl.text-to-picture": {} } });
+      expect((await listed()).empty).toBe(true);
+      await put({ forms: { "sdxl.text-to-picture": { steps: 30 } } });
+      expect((await listed()).empty).toBe(false);
+      await put({ forms: { "sdxl.text-to-picture": {} }, name: "Kept for later" });
+      expect((await listed()).empty).toBe(false);
+    } finally {
+      await t.close();
+    }
+  });
+});

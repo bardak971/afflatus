@@ -1,4 +1,14 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { previewUrl, type RunningJob } from "./api";
+
+/**
+ * Whether the sound of a live preview is on, and how loud: each step brings a new clip, and the choice
+ * made on one of them holds for the ones after it (and for the next render).
+ */
+const useLiveSound = create<{ muted: boolean; volume: number; set(muted: boolean, volume: number): void }>()(
+  persist((set) => ({ muted: false, volume: 1, set: (muted, volume) => set({ muted, volume }) }), { name: "studai.live-sound" }),
+);
 
 /**
  * The latest preview of the job that is rendering: a picture, or (a video model with the animated
@@ -10,9 +20,33 @@ export function LivePreview({ job, className, sound }: {
   /** With its sound and the player's controls, where there is room to watch it. */
   sound?: boolean;
 }) {
+  const heard = useLiveSound();
   if (job.previewSeq <= 0) return null;
   const src = previewUrl(job.id, job.previewSeq);
-  // a new clip each step: the key starts the player again from its first frame
-  if (job.previewMime?.startsWith("video/")) return <video key={job.previewSeq} src={src} autoPlay loop muted={!sound} playsInline controls={sound} className={className} />;
+  if (job.previewMime?.startsWith("video/")) {
+    return (
+      <video
+        // a new clip each step: the key starts the player again from its first frame
+        key={job.previewSeq}
+        // the new player takes the sound as it was left on the one before it
+        ref={(el) => {
+          if (!el || !sound) return;
+          el.muted = heard.muted;
+          el.volume = heard.volume;
+        }}
+        src={src}
+        autoPlay
+        loop
+        muted={!sound || heard.muted}
+        playsInline
+        controls={sound}
+        onVolumeChange={(e) => {
+          const el = e.currentTarget;
+          if (sound && (el.muted !== heard.muted || el.volume !== heard.volume)) heard.set(el.muted, el.volume);
+        }}
+        className={className}
+      />
+    );
+  }
   return <img src={src} alt="" className={className} />;
 }

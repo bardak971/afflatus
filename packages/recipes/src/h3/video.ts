@@ -18,6 +18,8 @@ export interface H3Video {
   references: ReferenceValue[];
   refVideos: ReferenceValue[];
   voice?: string;
+  voiceStart: number;
+  voiceSeconds: number;
   subject: string;
   sharpRefs: boolean;
   seconds: number;
@@ -98,11 +100,11 @@ export const h3Video = defineRecipe<H3Video>({
       note: "MiniMax's own, or a fine-tune of it",
     },
     {
-      id: "description", type: "prompt", label: "What happens", style: "sentences",
+      id: "description", type: "prompt", weights: false, label: "What happens", style: "sentences",
       placeholder: "She walks to the railing and looks out at the sea. The camera follows her slowly. (S1) says <d>[English] What a view.</d> softly.",
     },
-    { id: "soundscape", type: "prompt", label: "Sounds", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
-    { id: "music", type: "prompt", label: "Music", style: "sentences", optional: true, placeholder: "none" },
+    { id: "soundscape", type: "prompt", weights: false, label: "Sounds", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
+    { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, placeholder: "none" },
     { id: "start", type: "image", role: "start", label: "Start image", note: "the first frame", optional: true },
     { id: "end", type: "image", role: "end", label: "End image", note: "the last frame", optional: true },
     { id: "mid", type: "image", role: "mid", at: "midAt", label: "A picture it passes through", optional: true, advanced: true },
@@ -123,9 +125,14 @@ export const h3Video = defineRecipe<H3Video>({
       id: "refVideos", type: "references", media: "video", label: "Reference videos", max: H3_REFERENCE_VIDEOS, roles: ["person"],
       note: "short videos of the person: how they look, move and sound. The first 3 seconds of each are used; a video's own sound is taken as their voice unless a voice sample is given",
     },
-    { id: "voice", type: "audio", role: "voice", label: "Voice", optional: true, note: "a few seconds of someone speaking: the person in the clip speaks with that voice" },
     {
-      id: "subject", type: "prompt", label: "How the person looks", style: "sentences", optional: true, showWhen: "references", holds: "subject",
+      id: "voice", type: "audio", role: "voice", label: "Voice", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds" },
+      note: "someone speaking: the person in the clip speaks with that voice. Only the part you set is used: 5 to 10 seconds of clean speech carry a voice best",
+    },
+    { id: "voiceStart", type: "number", label: "The voice sample starts at", min: 0, max: 600, step: 0.5, default: 0, unit: " s", showWhen: "voice" },
+    { id: "voiceSeconds", type: "number", label: "The voice sample lasts", min: 2, max: 15, step: 0.5, default: 8, unit: " s", showWhen: "voice" },
+    {
+      id: "subject", type: "prompt", weights: false, label: "How the person looks", style: "sentences", optional: true, showWhen: "references", holds: "subject",
       placeholder: "brown hair, green eyes, freckles", note: "in a few words, to help the pictures",
     },
     { id: "seconds", type: "number", label: "Length", min: 2, max: 15, step: 0.5, default: 5, unit: " s" },

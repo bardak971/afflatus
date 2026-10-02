@@ -68,7 +68,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     if (others.length) {
       return `ComfyUI has a file of this name in its "${others.join('", "')}" folder, but this loader only looks in "${folder ?? "its own folder"}". Move the file there, or tell ComfyUI that the folder also holds that kind of model (its extra_model_paths.yaml), then restart ComfyUI.`;
     }
-    return folder ? `This loader only looks in ComfyUI's "${folder}" folders: put the file there, then test again in Setup.` : "It goes in ComfyUI's models folder; then test again in Setup.";
+    return folder ? `This loader only looks in ComfyUI's "${folder}" folders: put the file there, then test again in Settings.` : "It goes in ComfyUI's models folder; then test again in Settings.";
   };
   const client = useQueryClient();
   const [title, setTitle] = useState(start.title);

@@ -53,7 +53,7 @@ const useLlm = (over: Record<string, unknown> = {}) => put("/api/settings", { ll
 const system = (n = -1) => String(llm.asked.at(n)!.messages[0]!.content);
 
 describe("the designer's language model", () => {
-  it("is asked for in Setup, and its key is never handed back nor lost", async () => {
+  it("is asked for in Settings, and its key is never handed back nor lost", async () => {
     expect((await post(t.app, "/api/designer/test")).json().error).toMatch(/no language model yet/);
     expect((await useLlm()).json().llm).toEqual({ baseUrl: llm.url, model: "test-model", hasApiKey: true, vision: false });
     // the address changes; the key is not sent again and stays
@@ -173,7 +173,7 @@ describe("a conversation's own language model and instructions", () => {
     // "no instructions" on purpose is not "the usual ones"
     await say({ instruction: "" });
     expect(system()).not.toContain("STANDING INSTRUCTIONS");
-    // a model or instructions removed from Setup since: the usual model, and no instructions rather than someone else's
+    // a model or instructions removed from Settings since: the usual model, and no instructions rather than someone else's
     await say({ llm: "gone", instruction: "gone" });
     expect(llm.asked.at(-1)!.model).toBe("test-model");
     expect(system()).not.toContain("STANDING INSTRUCTIONS");
@@ -360,5 +360,46 @@ describe("snippets", () => {
     const s = (await post(t.app, "/api/entities", { kind: "snippet", name: "Evening light", def: { text: "warm evening light, long shadows" } })).json();
     expect(s).toMatchObject({ kind: "snippet", name: "Evening light", def: { text: "warm evening light, long shadows" } });
     expect((await get(t.app, "/api/entities?kind=snippet")).json().items).toHaveLength(1);
+  });
+});
+
+describe("what the designer is told about writing", () => {
+  it("is told how many words can be spoken in the clip, as room to use and not only a limit", async () => {
+    await useLlm();
+    await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "She waves.", seconds: 8 }, messages: [{ role: "user", content: "she says something" }] });
+    const s = system();
+    expect(s).toContain("SPOKEN LINES: about 20 words fit in this clip");
+    expect(s).toContain("14 to 20 words in all");
+    // a model that makes no sound is told nothing about speech
+    await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "1girl" }, messages: [{ role: "user", content: "more" }] });
+    expect(system()).not.toContain("SPOKEN LINES");
+  });
+
+  it("keeps the user's choices in braces, and knows the snippets that are ticked", async () => {
+    await useLlm();
+    const snippet = (await post(t.app, "/api/entities", { kind: "snippet", name: "Sitting", def: { text: "sitting, crossed legs" } })).json();
+    await post(t.app, "/api/designer", {
+      recipe: "sdxl.text-to-picture", values: { prompt: "1girl, {red|black} dress" }, messages: [{ role: "user", content: "more" }], look: { cast: [], snippets: [snippet.id] },
+    });
+    const s = system();
+    expect(s).toContain("Choices in braces like {red|black|white} are the user's");
+    expect(s).toContain("- Sitting: sitting, crossed legs");
+  });
+
+  it("has its tags put right against danbooru's list, unless that is turned off", async () => {
+    await useLlm();
+    const ask = async () => (await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "1girl" }, messages: [{ role: "user", content: "happier" }] })).json();
+    llm.answers.push("kind: proposal\nnote: Happier.\nprompt: 1girl, (grinning:1.2), zzqqxx thing\nnegative: grinning");
+    const reply = await ask();
+    expect(reply.changes.prompt).toBe("1girl, (grin:1.2), zzqqxx thing");
+    // the negative prompt is left as written
+    expect(reply.changes.negative).toBe("grinning");
+    expect(reply.tags).toEqual({ fixed: [{ from: "(grinning:1.2)", to: "(grin:1.2)" }], unknown: ["zzqqxx thing"] });
+
+    await put("/api/settings", { tagCheck: false });
+    llm.answers.push("kind: proposal\nnote: Happier.\nprompt: 1girl, (grinning:1.2)");
+    const plain = await ask();
+    expect(plain.changes.prompt).toBe("1girl, (grinning:1.2)");
+    expect(plain.tags).toBeUndefined();
   });
 });

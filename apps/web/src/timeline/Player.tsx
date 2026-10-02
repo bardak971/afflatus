@@ -1,6 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Film } from "lucide-react";
-import { fileUrl, type Clip, type Take, type Timeline } from "../api";
+import { fileUrl, type Clip, type RunningJob, type Take, type Timeline } from "../api";
+import { phaseLabel } from "../format";
+import { LivePreview } from "../LivePreview";
 import { cx } from "../ui";
 
 export interface PlayerHandle {
@@ -26,7 +28,10 @@ export const Player = forwardRef<PlayerHandle, {
   onTime(ms: number): void;
   /** A take being looked at before it is chosen. */
   preview: Take | null;
-}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview }, ref) {
+  /** The clip that is rendering, when what is forming is to be watched here, and which clip it is. */
+  live?: { job: RunningJob; clip: number } | null;
+  onStop?(job: string): void;
+}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop }, ref) {
   const seq = useMemo(() => clips.filter((c) => c.lengthMs > 0 && (c.take || c.still)), [clips]);
   const total = seq.reduce((sum, c) => sum + c.lengthMs, 0);
   const [cur, setCur] = useState(0);
@@ -184,7 +189,7 @@ export const Player = forwardRef<PlayerHandle, {
 
   return (
     <div ref={box} className="relative flex min-h-0 grow items-center justify-center bg-[#08090b]">
-      {!now && (
+      {!now && !live && (
         <div className="flex flex-col items-center gap-2 text-ink-3">
           <Film size={28} />
           <span>The video plays here once a clip is rendered.</span>
@@ -244,6 +249,18 @@ export const Player = forwardRef<PlayerHandle, {
       )}
       {now?.sound === "file" && now.soundAsset && <audio key={`${now.id}:${now.soundAsset.id}`} ref={clipSound} src={fileUrl(now.soundAsset.id)} preload="auto" onLoadedMetadata={(e) => (e.currentTarget.currentTime = (pos.current.key === nowKey ? pos.current.local : 0) / 1000)} />}
       {music && <audio key={music.asset.id} ref={musicEl} src={fileUrl(music.asset.id)} preload="auto" />}
+      {/* the clip that is rendering, watched large: what is forming each step, with its sound. Playing the timeline puts it away */}
+      {live && !playing && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#08090b]">
+          {live.job.previewSeq > 0
+            ? <LivePreview job={live.job} sound className="max-h-full max-w-full object-contain" />
+            : <span className="text-ink-2">Clip {live.clip} is rendering. What is forming shows here from its first step.</span>}
+          <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 py-1 pr-1 pl-3 text-xs font-semibold whitespace-nowrap">
+            Clip {live.clip} · {phaseLabel(live.job.phase)}{live.job.steps ? ` · step ${live.job.step} of ${live.job.steps}` : ""}
+            {onStop && <button type="button" onClick={() => onStop(live.job.id)} title="Stop this render. Nothing is added; the clip keeps the takes it has." className="rounded-full border border-line-strong px-2.5 py-0.5 hover:bg-hover">Stop</button>}
+          </span>
+        </div>
+      )}
     </div>
   );
 });

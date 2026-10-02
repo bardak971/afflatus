@@ -275,7 +275,7 @@ Three workspaces and two utilities:
 | **Composer** | A panel that docks beside the library or the timeline. Recipe picker on top, the recipe's form, the reference tray, the prompt designer and snippets as a side sheet of the same panel, one Generate button. Results appear next to it as they render |
 | **Timeline editor** | Its own workspace. Player on top; below it one track of clips drawn at their real length; the selected clip's takes directly under it; pick, redo, quick redo, delete, import and export all here. The composer docks at the side for the selected clip. A plan from the designer lands as empty clip slots you can edit before "Render all", which replaces the separate long-video panel |
 | **Viewer** | One asset, large. Its settings, its lineage ("made from", "used in") and its actions |
-| **Queue** and **Setup** | The job strip described above; the per-recipe readiness page from section 2.4 |
+| **Queue** and **Settings** | The job strip described above; the per-recipe readiness page from section 2.4 |
 
 ### 7.4 Timeline editor: decided on 2026-10-01
 
@@ -307,7 +307,7 @@ Agreed after the first mockup (2026-10-01):
 Agreed on 2026-10-01 after the full set of screens ("very nice"):
 
 - **Queue screen** with a Pause button ("I need the GPU"): the running job finishes, nothing new is sent to ComfyUI until resumed. Failures say why in plain words and offer a retry that fixes the cause (for example "Try again at 576p").
-- **Setup screen:** ComfyUI address and card, what is ready and what is missing with install buttons, the designer's language model, storage, notifications, password.
+- **Settings screen:** ComfyUI address and card, what is ready and what is missing with install buttons, the designer's language model, storage, notifications, password.
 - **A timeline has one shape** (wide, tall, square). A clip of another shape is marked and shown with bars, with "Fill the frame" as the alternative.
 - **Volume** per clip and for the music; **fade in and out** and "quieter while people talk" for the music.
 - **Loop:** one click makes a clip end on its own opening picture.
@@ -364,7 +364,7 @@ In the recipe contract this is a `cast` input and a `styles` input. Each recipe 
 
 ### 7.6 The designer (built 2026-10-01)
 
-A conversation with any language model that has an OpenAI-style address (set in Setup; on the user's computer or elsewhere). It writes the text inputs of whatever recipe is in use and answers with the full new text of the boxes it changes, or one question, or a plan of clips; in labelled lines, not JSON. Each family can say how its prompts are written (`Family.guide`); without one, a general guide for tags or for sentences is used. It is told the clip's length, the clip it continues, who is in it, the look and mood, the LoRAs' trigger words, and it is shown the opening picture when the language model can read pictures. Nothing it proposes goes into a form until "Use it" is pressed. Snippets (bits of text kept under a name) sit next to it.
+A conversation with any language model that has an OpenAI-style address (set in Settings; on the user's computer or elsewhere). It writes the text inputs of whatever recipe is in use and answers with the full new text of the boxes it changes, or one question, or a plan of clips; in labelled lines, not JSON. Each family can say how its prompts are written (`Family.guide`); without one, a general guide for tags or for sentences is used. It is told the clip's length, the clip it continues, who is in it, the look and mood, the LoRAs' trigger words, and it is shown the opening picture when the language model can read pictures. Nothing it proposes goes into a form until "Use it" is pressed. Snippets (bits of text kept under a name) sit next to it.
 
 ### 7.7 Carried over because it works
 
@@ -396,7 +396,7 @@ Scene maker, mid-clip keyframes and the vision pass for designers fit after mile
 - **`Recipe.advice(input, card)`** says what is slow or probably too much on the card ComfyUI runs on, next to the choice that makes it so. It never removes an option.
 - **Families `klein` and `tools`**: FLUX.2 Klein's files are found by name like H3's; `tools` holds what needs no picture model (removing a background).
 - **Every recipe that takes one picture and gives a picture back** is offered by the viewer's "Change this picture", built-in or imported: nothing there is listed by hand.
-- **Civitai lookups** are off unless turned on in Setup; then only a file name is sent, on a click.
+- **Civitai lookups** are off unless turned on in Settings; then only a file name is sent, on a click.
 - **Downloads into ComfyUI** are a second switch, also off. ComfyUI-Manager does the saving; it is handed a one-time address on studai, which streams the file through and counts the bytes. studai stores nothing and a Civitai key never reaches ComfyUI. ComfyUI has to be able to reach studai (`PUBLIC_URL` when the address the page was opened at is not it).
 - Dropped by the owner: a password, starting ComfyUI, waking the GPU computer.
 

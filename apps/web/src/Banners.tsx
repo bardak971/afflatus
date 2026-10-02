@@ -43,8 +43,8 @@ export function Banners() {
       for (const d of list) {
         if (seenDownloads.current.get(d.id) === d.status) continue;
         const name = d.file.split(/[\\/]/).pop() ?? d.file;
-        if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} is in ComfyUI now`, href: "/setup", go: "Open Setup" });
-        if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `The download of ${name} failed`, text: d.error, href: "/setup", go: "Open Setup" });
+        if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} is in ComfyUI now`, href: "/settings", go: "Open Settings" });
+        if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `The download of ${name} failed`, text: d.error, href: "/settings", go: "Open Settings" });
       }
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));

@@ -163,6 +163,11 @@ export interface Tables {
   model_info: { folder: string; file: string; info: string; read_at: string };
   /** The page of a model file on the site it came from, by the file's name (lower case, without its sub-folder). */
   model_pages: { folder: string; name: string; url: string; title: string; found_at: string };
+  /**
+   * The words that call a model file up, beyond what the file says itself, by the file's name: the user's
+   * own, and the ones its page gives. `asked_at` is set once its page was asked, found or not.
+   */
+  model_words: { folder: string; name: string; own: string | null; found: string | null; asked_at: string | null };
   /** What suits one model file: the values that replace a recipe's defaults when that file is picked (JSON: input id → value). */
   model_settings: { owner_id: string; family: string; file: string; values: string; updated_at: string };
   /** Unfinished work, saved as it is typed. */
@@ -540,6 +545,23 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0015_model_words"] = {
+  async up(db) {
+    await db.schema
+      .createTable("model_words")
+      .addColumn("folder", "text", (c) => c.notNull())
+      .addColumn("name", "text", (c) => c.notNull())
+      .addColumn("own", "text")
+      .addColumn("found", "text")
+      .addColumn("asked_at", "text")
+      .addPrimaryKeyConstraint("model_words_pk", ["folder", "name"])
+      .execute();
+  },
+  async down(db) {
+    await db.schema.dropTable("model_words").execute();
   },
 };
 

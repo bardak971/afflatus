@@ -7,7 +7,7 @@ import { api, fileUrl, thumbUrl, type Asset } from "./api";
 import { useAsset, useAssets } from "./data";
 import { clock } from "./format";
 import { DRAG_PICTURE } from "./screens/Library";
-import { Button, cx, Empty, ErrorNote } from "./ui";
+import { Button, cx, Empty, ErrorNote, NumberBox } from "./ui";
 
 /** Send a picture from this computer to the library, then hand it over. */
 function useUpload(onDone: (asset: Asset) => void) {
@@ -355,15 +355,21 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
 }
 
 /** A slot for one sound (a voice to speak with): pick it from the library, or bring one in. */
-export function SoundField({ label, note, optional, value, onChange }: {
+export function SoundField({ label, note, optional, value, onChange, part }: {
   label: string;
   note?: string;
   optional: boolean;
   value: string | null;
   onChange(value: string | undefined): void;
+  /** Only a part of the sound is used: where it starts and how long it is, in seconds. */
+  part?: { start: number; seconds: number; onStart(seconds: number): void; onSeconds(seconds: number): void };
 }) {
   const [picking, setPicking] = useState(false);
   const asset = useAsset(value);
+  const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
+  // the part as it will be cut: from where it was asked as long as two seconds are left, ending where the sound ends
+  const from = part ? (total === null ? part.start : Math.max(0, Math.min(part.start, total - 2))) : 0;
+  const lasts = part ? (total === null ? part.seconds : Math.max(0.1, Math.min(part.seconds, total - from))) : 0;
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -378,7 +384,17 @@ export function SoundField({ label, note, optional, value, onChange }: {
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
             {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
           </div>
-          <audio key={value} src={fileUrl(value)} controls preload="none" className="h-8 w-full" />
+          {/* with a part set, the player plays that part: the address says from where to where */}
+          <audio key={part ? `${value}:${from}:${lasts}` : value} src={part ? `${fileUrl(value)}#t=${from},${from + lasts}` : fileUrl(value)} controls preload="none" className="h-8 w-full" />
+          {part && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
+              <span>Use it from</span>
+              <NumberBox label={`${label}: the part used starts at, in seconds`} value={part.start} min={0} max={total ? Math.max(0, Math.floor((total - 2) * 2) / 2) : 600} step={0.5} unit="s" onCommit={part.onStart} />
+              <span>for</span>
+              <NumberBox label={`${label}: the part used lasts, in seconds`} value={part.seconds} min={2} max={15} step={0.5} unit="s" onCommit={part.onSeconds} />
+              {total !== null && lasts < part.seconds && <span>(the sound ends at {total.toFixed(1)} s: {lasts.toFixed(1)} s are used)</span>}
+            </div>
+          )}
         </div>
       ) : (
         <button type="button" onClick={() => setPicking(true)} className="flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink">

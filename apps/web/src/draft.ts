@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Draft } from "./api";
+import { api, lookAdds, type Draft } from "./api";
 import { useOpenDraft } from "./store";
 
 const SAVE_AFTER_MS = 500;
+
+/** Nothing was done in it: no value set, nobody in it, no conversation, no name. Such a draft is not worth keeping. */
+const holdsNothing = (d: Draft) =>
+  !d.name && !d.chat.length && !lookAdds(d.look) && Object.values(d.forms).every((form) => Object.keys(form).length === 0);
 
 /**
  * The draft being worked on. Edits apply at once on screen and are saved to the server half a second
@@ -62,6 +66,16 @@ export function useDraft(firstRecipe: string | undefined) {
   // leaving the screen saves what is pending
   useEffect(() => () => void flush(), [flush]);
 
+  // drafts nothing was ever done in pile up (a "New draft" that was left at once): they are thrown away, the open one aside
+  const swept = useRef(new Set<string>());
+  useEffect(() => {
+    if (!list.data || !openId) return;
+    const idle = list.data.items.filter((d) => d.empty && d.target === "new" && d.id !== openId && !swept.current.has(d.id));
+    if (!idle.length) return;
+    for (const d of idle) swept.current.add(d.id);
+    void Promise.all(idle.map((d) => api.deleteDraft(d.id).catch(() => {}))).then(() => client.invalidateQueries({ queryKey: ["drafts"], exact: true }));
+  }, [list.data, openId, client]);
+
   const change = useCallback(
     (edit: (d: Draft) => Draft) => {
       setDraft((d) => {
@@ -79,7 +93,8 @@ export function useDraft(firstRecipe: string | undefined) {
 
   return {
     draft,
-    drafts: list.data?.items ?? [],
+    // (an empty one that is not the open one is on its way out: it is not shown)
+    drafts: (list.data?.items ?? []).filter((d) => !d.empty || d.id === openId),
     saving,
     setValue: (recipe: string, input: string, value: unknown) =>
       change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], [input]: value } } })),
@@ -103,6 +118,8 @@ export function useDraft(firstRecipe: string | undefined) {
       open(id);
     },
     async startNew() {
+      // the open one is still empty: it is the new draft
+      if (draft && holdsNothing(draft)) return;
       await flush();
       const d = await api.createDraft({ recipe: draft?.recipe ?? firstRecipe! });
       client.setQueryData(["drafts", d.id], d);

@@ -47,7 +47,15 @@ function titleOf(recipe: Recipe<any> | undefined, all: Record<string, Record<str
   return "";
 }
 
-const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, updatedAt: d.updated_at });
+/** Nothing was done in it: no value set in any form, nobody in it, no conversation, no name. */
+function holdsNothing(d: Tables["drafts"]): boolean {
+  if (d.name || (d.chat && d.chat !== "[]")) return false;
+  const look = d.look ? (JSON.parse(d.look) as Look) : null;
+  if (look && (look.cast.length || look.style || look.snippets?.length)) return false;
+  return Object.values(JSON.parse(d.forms) as Record<string, Record<string, unknown>>).every((form) => Object.keys(form).length === 0);
+}
+
+const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, updatedAt: d.updated_at, empty: holdsNothing(d) });
 const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],

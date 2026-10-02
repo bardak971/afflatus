@@ -47,8 +47,16 @@ const defs = {
     inputs: z.record(z.string(), z.unknown()).default({}),
     look: z.unknown().optional(),
   }),
-  /** A bit of text kept to drop into a prompt. */
-  snippet: z.strictObject({ text: z.string().max(4000).default("") }),
+  /**
+   * A bit of text kept for prompts: ticked, it is added to what is written when something is made; or it
+   * is written into the text. `category` is the user's own word for what it is about ("pose", "light").
+   * `style` is the kind of prompt it was written for, when that is known: it is offered there first.
+   */
+  snippet: z.strictObject({
+    text: z.string().max(4000).default(""),
+    category: z.string().trim().max(40).default(""),
+    style: z.enum(["tags", "sentences"]).nullable().default(null),
+  }),
 };
 export type EntityKind = keyof typeof defs;
 type PersonDef = z.infer<typeof defs.person>;
@@ -59,11 +67,14 @@ type StyleDef = z.infer<typeof defs.style>;
 export const lookSchema = z.strictObject({
   cast: z.array(z.strictObject({ id: z.string().min(1), outfit: z.string().nullable().optional() })).max(8).default([]),
   style: z.string().nullable().optional(),
+  /** Snippets that are ticked: their text is added after what is written. */
+  snippets: z.array(z.string().min(1)).max(30).default([]),
 });
 export type Look = z.infer<typeof lookSchema>;
-export const emptyLook = (look: Look | null | undefined) => !look || (!look.cast.length && !look.style);
+export const emptyLook = (look: Look | null | undefined) => !look || (!look.cast.length && !look.style && !look.snippets?.length);
 
-const view = (e: Tables["entities"]) => ({ id: e.id, kind: e.kind, name: e.name, def: JSON.parse(e.def) as unknown, updatedAt: e.updated_at });
+// (a snippet kept before there were categories has none: it reads as one without)
+const view = (e: Tables["entities"]) => ({ id: e.id, kind: e.kind, name: e.name, def: (e.kind === "snippet" ? defs.snippet.parse(JSON.parse(e.def)) : JSON.parse(e.def)) as unknown, updatedAt: e.updated_at });
 
 /** What was added to a form for its cast and its style, to show before it is sent. */
 export interface Composed {
@@ -96,7 +107,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const input = { ...raw };
   const added: Composed["added"] = { words: [], loras: [], references: 0, voice: null, skipped: [] };
   if (emptyLook(look)) return { input, added };
-  const ids = [...look!.cast.map((c) => c.id), ...(look!.style ? [look!.style] : [])];
+  const ids = [...look!.cast.map((c) => c.id), ...(look!.style ? [look!.style] : []), ...(look!.snippets ?? [])];
   const rows = ids.length ? await db.selectFrom("entities").selectAll().where("id", "in", ids).execute() : [];
   const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -111,6 +122,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const people: string[] = [];
   const places: string[] = [];
   const looks: string[] = [];
+  const bits: string[] = [];
   const refs: ReferenceValue[] = [];
   const loras: Array<LoraValue & { from: string }> = [];
   let voice: { asset: string; from: string } | null = null;
@@ -140,6 +152,15 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
       }
       for (const asset of p.pictures.slice(0, PICTURES.place)) refs.push({ asset, role: "place" });
     }
+  }
+  // the ticked snippets, in the order they were ticked
+  for (const id of look!.snippets ?? []) {
+    const row = byId.get(id);
+    if (row?.kind !== "snippet") continue;
+    const text = defs.snippet.parse(JSON.parse(row.def)).text.trim();
+    if (!text) continue;
+    bits.push(text);
+    added.words.push({ from: row.name, text });
   }
   const styleRow = look!.style ? byId.get(look!.style) : undefined;
   if (styleRow?.kind === "style") {
@@ -175,12 +196,12 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   // ---- the words
   if (main) {
     const own = String(input[main.id] ?? "");
-    if (tags) input[main.id] = join([...people, own, ...places, ...looks], ", ");
+    if (tags) input[main.id] = join([...people, own, ...bits, ...places, ...looks], ", ");
     else if (subjectSpec && withRefs) {
       // a recipe that follows reference pictures has a place of its own for how the people look
       input[subjectSpec.id] = join([String(input[subjectSpec.id] ?? ""), ...people], " ");
-      input[main.id] = join([...places, own, ...looks], " ");
-    } else input[main.id] = join([...people, ...places, own, ...looks], " ");
+      input[main.id] = join([...places, own, ...bits, ...looks], " ");
+    } else input[main.id] = join([...people, ...places, own, ...bits, ...looks], " ");
   }
 
   // ---- the LoRAs

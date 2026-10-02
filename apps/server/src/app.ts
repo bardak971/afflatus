@@ -18,6 +18,7 @@ import { registerModelSettings } from "./modelSettings";
 import type { Services } from "./services";
 import { publicSettings, readSettings, writeSettings } from "./settings";
 import { assetView, extOf } from "./media";
+import { registerTags } from "./tags";
 import { registerTimelines } from "./timelines-api";
 import { makeThumb, readPicture, thumbKey } from "./thumbs";
 import { probeMedia, soundOf } from "./cut";
@@ -91,6 +92,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   registerUsage(app, s);
   registerEntities(app, s);
   registerDesigner(app, s);
+  registerTags(app);
 
   /** What is heavy for the card ComfyUI runs on, for one form: a word next to the choice that makes it so. */
   app.post("/api/advice", async (req) => {
@@ -108,11 +110,11 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
 
   /**
    * Where a missing model file can be had: asked of Civitai by the file's name. Only when the user
-   * turned this on in Setup; the file name is all that is sent.
+   * turned this on in Settings; the file name is all that is sent.
    */
   app.get<{ Querystring: { file?: string; folder?: string; hints?: string } }>("/api/civitai/find", async (req) => {
     const settings = await readSettings(s.db);
-    if (!settings.civitaiLookups) throw Object.assign(new Error("Looking things up on Civitai is turned off. Turn it on in Setup."), { statusCode: 400 });
+    if (!settings.civitaiLookups) throw Object.assign(new Error("Looking things up on Civitai is turned off. Turn it on in Settings."), { statusCode: 400 });
     const file = String(req.query.file ?? "").split(/[\\/]/).pop() ?? "";
     if (!file.replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i, "")) throw Object.assign(new Error("which file?"), { statusCode: 400 });
     // Hugging Face is asked for the file itself, by its exact name; Civitai for models whose names are close
@@ -181,7 +183,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   /**
    * Fetch a missing model file into ComfyUI: from Civitai (a version found by "Find it on Civitai"),
    * or from the address the workflow's author gave. ComfyUI-Manager does the saving; studai passes the
-   * bytes through. Only when the user turned this on in Setup.
+   * bytes through. Only when the user turned this on in Settings.
    */
   app.post("/api/downloads", async (req) => {
     const b = z.strictObject({
@@ -194,7 +196,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       page: z.strictObject({ url: z.string().url().max(2000), title: z.string().max(300) }).optional(),
     }).parse(req.body);
     const settings = await readSettings(s.db);
-    if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Setup."), { statusCode: 400 });
+    if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Settings."), { statusCode: 400 });
     if (!b.civitai === !b.url) throw Object.assign(new Error("say where from: a Civitai version or an address"), { statusCode: 400 });
     const comfy = await s.comfy();
     // the address ComfyUI will fetch from: the one this page was opened at, unless one is set
@@ -236,7 +238,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   app.post("/api/downloads/resolve", async (req) => {
     const { link } = z.strictObject({ link: z.string().min(8).max(2000) }).parse(req.body);
     const settings = await readSettings(s.db);
-    if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Setup."), { statusCode: 400 });
+    if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Settings."), { statusCode: 400 });
     const found = await resolveLink(link, settings.civitaiKey);
     const client = (await s.comfy()).client;
     const folders = await client.folders().catch(() => [] as string[]);
@@ -373,7 +375,25 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     family: z.string().optional(),
     /** Only what was kept. */
     kept: z.string().optional(),
+    /** Only what was made with this model file (a checkpoint, a diffusion model), or with this LoRA. */
+    model: z.string().max(500).optional(),
+    lora: z.string().max(500).optional(),
   });
+
+  /** The model files and the LoRAs a generation was made with. */
+  const madeWith = (g: { recipe_id: string; inputs: string; resolved: string }) => {
+    const inputs = JSON.parse(g.inputs) as Record<string, unknown>;
+    const loads = ((JSON.parse(g.resolved) as { loads?: string[] }).loads ?? []);
+    const loras = Object.values(inputs)
+      .filter((v): v is Array<{ file: string; weight: number }> => Array.isArray(v) && v.every((x) => x && typeof x === "object" && typeof (x as { file?: unknown }).file === "string" && typeof (x as { weight?: unknown }).weight === "number"))
+      .flat().filter((l) => l.weight !== 0).map((l) => l.file);
+    const recipe = s.registry.recipe(g.recipe_id);
+    const models = new Set(loads.filter((f) => /^(checkpoints|diffusion_models)\//.test(f)).map((f) => f.replace(/^[^/]+\//, "")));
+    for (const spec of recipe?.inputs ?? []) if (spec.type === "model" && typeof inputs[spec.id] === "string") models.add(inputs[spec.id] as string);
+    // an imported workflow names its model itself
+    if (!models.size && recipe) for (const f of describeRecipe(recipe).models) models.add(f);
+    return { models: [...models], loras: [...new Set(loras)] };
+  };
 
   /** How many items a search looks through at most: the most recent ones. */
   const SEARCHED = 4000;
@@ -386,14 +406,22 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     else if (q.folder) query = query.where("folder_id", "=", q.folder);
     if (q.kept) query = query.where("kept_at", "is not", null);
     if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
-    if (q.q?.trim()) {
-      // found by its name and by every text of the form it was made with
-      const rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(SEARCHED).execute();
+    if (q.q?.trim() || q.model || q.lora) {
+      // found by its name and by every text of the form it was made with; and by the files it was made with
+      if (q.model || q.lora) query = query.where("generation_id", "is not", null);
+      let rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(SEARCHED).execute();
       const made = rows.some((r) => r.generation_id)
-        ? await s.db.selectFrom("generations").select(["id", "inputs"]).where("id", "in", rows.map((r) => r.generation_id).filter((x): x is string => Boolean(x))).execute()
+        ? await s.db.selectFrom("generations").select(["id", "recipe_id", "inputs", "resolved"]).where("id", "in", [...new Set(rows.map((r) => r.generation_id).filter((x): x is string => Boolean(x)))]).execute()
         : [];
+      if (q.model || q.lora) {
+        const fits = new Set(made.filter((g) => {
+          const w = madeWith(g);
+          return (!q.model || w.models.includes(q.model)) && (!q.lora || w.loras.includes(q.lora));
+        }).map((g) => g.id));
+        rows = rows.filter((r) => r.generation_id && fits.has(r.generation_id));
+      }
       const words = new Map(made.map((g) => [g.id, Object.values(JSON.parse(g.inputs) as Record<string, unknown>).filter((v): v is string => typeof v === "string").join(" ")]));
-      const found = fuzzyFilter(rows, q.q, (a) => `${a.name} ${a.generation_id ? words.get(a.generation_id) ?? "" : ""}`);
+      const found = q.q?.trim() ? fuzzyFilter(rows, q.q, (a) => `${a.name} ${a.generation_id ? words.get(a.generation_id) ?? "" : ""}`) : rows;
       const from = Number(q.after) || 0;
       return { items: found.slice(from, from + q.limit).map(assetView), next: from + q.limit < found.length ? String(from + q.limit) : null };
     }
@@ -413,6 +441,27 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       await s.db.selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id").select("generations.family").where("assets.deleted_at", "is", null).distinct().execute()
     ).map((r) => r.family),
   }));
+
+  /** The model files and the LoRAs things in the library were made with, the most used first, for the filters. */
+  app.get("/api/assets/models", async () => {
+    const rows = await s.db
+      .selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id")
+      .select(["generations.id", "generations.recipe_id", "generations.inputs", "generations.resolved"])
+      .where("assets.deleted_at", "is", null).where("assets.origin", "!=", "mask")
+      .execute();
+    const models = new Map<string, number>();
+    const loras = new Map<string, number>();
+    const with_ = new Map<string, ReturnType<typeof madeWith>>();
+    for (const g of rows) {
+      // one generation can have made several things: each counts
+      const w = with_.get(g.id) ?? madeWith(g);
+      with_.set(g.id, w);
+      for (const f of w.models) models.set(f, (models.get(f) ?? 0) + 1);
+      for (const f of w.loras) loras.set(f, (loras.get(f) ?? 0) + 1);
+    }
+    const sorted = (m: Map<string, number>) => [...m.entries()].map(([file, count]) => ({ file, count })).sort((a, b) => b.count - a.count || a.file.localeCompare(b.file));
+    return { models: sorted(models), loras: sorted(loras) };
+  });
 
   const asset = async (id: string) => {
     const a = await s.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirst();

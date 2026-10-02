@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type OutputFile, type WaitOptions } from "@studai/comfy";
-import { checkGraph, choicesOf, parseInput, pickChoice, RANDOM_SEED, relocateFiles, type BuiltGraph, type ClipValue, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
-import { cutFrames, referenceClip, frameAt } from "./cut";
+import { checkGraph, choicesOf, expandWildcards, parseInput, pickChoice, RANDOM_SEED, relocateFiles, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
+import { cutFrames, referenceClip, frameAt, soundPart } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
 import type { Comfy } from "./comfy";
@@ -116,7 +116,11 @@ export class Queue {
   async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean } } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw new UserError(`there is no recipe called ${recipeId}`);
-    const input = parseInput(recipe, rawInput); // throws a ZodError the API turns into a 400
+    const input = parseInput(recipe, rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
+    // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
+    for (const spec of recipe.inputs as InputSpec[]) {
+      if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);
+    }
     const id = newId();
     const at = now();
     await this.db
@@ -198,7 +202,7 @@ export class Queue {
     this.unloadTimer = null;
   }
 
-  /** After a render: when Setup says so, the models are unloaded once nothing has rendered for that long. */
+  /** After a render: when it is set in Settings, the models are unloaded once nothing has rendered for that long. */
   private async armIdle(): Promise<void> {
     if (this.unloadTimer) clearTimeout(this.unloadTimer);
     this.unloadTimer = null;
@@ -555,9 +559,18 @@ export class Queue {
         }
       } else if (spec.type === "audio" && typeof value === "string") {
         // a sound, or a video whose sound is used: ComfyUI's loader reads the sound track of either
-        const asset = await this.db.selectFrom("assets").select(["file_key", "mime", "kind", "has_sound"]).where("id", "=", value).executeTakeFirst();
+        const asset = await this.db.selectFrom("assets").select(["file_key", "mime", "kind", "has_sound", "duration_ms"]).where("id", "=", value).executeTakeFirst();
         if (!asset || (asset.kind !== "audio" && !(asset.kind === "video" && asset.has_sound))) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
-        uploads[spec.id] = await comfy.client.upload(await this.storage.get(asset.file_key), extOf(asset.mime));
+        const whole = await this.storage.get(asset.file_key);
+        if (spec.window) {
+          // only the chosen part of it is handed over: a few clean seconds carry a voice better than a long take
+          // (a sound ffmpeg cannot cut, or no ffmpeg at all: the whole of it is used, as before there was a part to set)
+          const part = await soundPart(whole, extOf(asset.mime), { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8), durationMs: asset.duration_ms }).catch((err) => {
+            console.warn(`[queue] the part of the ${spec.label.toLowerCase()} could not be cut, the whole sound is used: ${(err as Error).message}`);
+            return null;
+          });
+          uploads[spec.id] = part ? await comfy.client.upload(part, "wav") : await comfy.client.upload(whole, extOf(asset.mime));
+        } else uploads[spec.id] = await comfy.client.upload(whole, extOf(asset.mime));
       }
     }
 

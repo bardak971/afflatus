@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, ChevronDown, ChevronUp, Minus, Pencil, Plus, Workflow, X } from "lucide-react";
-import { isShown, type InputSpec } from "@studai/core";
+import { hasWildcards, isShown, type InputSpec } from "@studai/core";
 import { api, ApiError, type Asset, type RecipeInfo, type RecipeStatus, type RunningJob } from "../api";
 import { useAssets, useEntities, useEstimates, useModelSettings, useQueue, useRecipes, useSetup } from "../data";
 import { Designer, WritingHelp, type DesignerTurn } from "../Designer";
@@ -14,8 +14,9 @@ import { useDraft } from "../draft";
 import { Field, sameValue } from "../fields";
 import { formDefaults } from "../form";
 import { carryOver, modelGroups } from "../picker";
+import { appendTo } from "../promptText";
 import { about, aboutMs, fileLabel, notReady, phaseLabel, recipeLabel, when } from "../format";
-import { Bar, Button, cx, Empty, ErrorNote, Segmented } from "../ui";
+import { Bar, Button, cx, Empty, ErrorNote, ScrollColumn, Segmented } from "../ui";
 import { Viewer } from "../Viewer";
 import { Tile } from "./Library";
 
@@ -32,6 +33,8 @@ function LiveTile({ job }: { job: RunningJob }) {
   );
 }
 
+const ALL_SETTINGS_KEY = "studai.all-settings";
+
 export function Form({ recipe, status, stored, onChange, onClear }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
@@ -41,7 +44,22 @@ export function Form({ recipe, status, stored, onChange, onClear }: {
   /** Let these inputs follow the defaults again. */
   onClear(inputs: string[]): void;
 }) {
-  const [more, setMore] = useState(false);
+  // once opened, "All settings" stays open: in the next draft and the next visit too
+  const [more, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(ALL_SETTINGS_KEY) === "open";
+    } catch {
+      return false;
+    }
+  });
+  const setMore = (open: boolean) => {
+    setOpen(open);
+    try {
+      localStorage.setItem(ALL_SETTINGS_KEY, open ? "open" : "closed");
+    } catch {
+      // nowhere to remember it: it holds for this visit
+    }
+  };
   const client = useQueryClient();
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
@@ -50,7 +68,11 @@ export function Form({ recipe, status, stored, onChange, onClear }: {
     [recipe, status, settings.data, stored],
   );
   const values = useMemo(() => ({ ...defaults, ...stored }), [defaults, stored]);
-  const shown = recipe.inputs.filter((i) => isShown(i, values));
+  // the two numbers that say which part of a sound is used are drawn with the sound, not as fields of their own
+  const tucked = new Set(recipe.inputs.flatMap((i) => (i.type === "audio" && i.window ? [i.window.start, i.window.seconds] : [])));
+  const shown = recipe.inputs.filter((i) => isShown(i, values) && !tucked.has(i.id));
+  // where a LoRA's trigger words go
+  const mainText = recipe.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe.inputs.find((i) => i.type === "prompt");
   // what is heavy for the card: asked again only when a setting changes, not while text is typed
   const settingsOnly = useMemo(() => {
     const texts = new Set(recipe.inputs.filter((i) => i.type === "prompt").map((i) => i.id));
@@ -73,7 +95,12 @@ export function Form({ recipe, status, stored, onChange, onClear }: {
     const a = word(i.id);
     return (
       <div key={i.id} className="flex flex-col gap-1">
-        <Field spec={i} value={values[i.id]} values={values} options={status?.options[i.id]} family={family} model={inUse} onChange={(v) => onChange(i.id, v)} />
+        <Field
+          spec={i} value={values[i.id]} values={values} options={status?.options[i.id]} family={family} model={inUse}
+          onChange={(v) => onChange(i.id, v)}
+          onValue={onChange}
+          main={mainText?.type === "prompt" ? { text: String(values[mainText.id] ?? ""), style: mainText.style, set: (text) => onChange(mainText.id, text) } : undefined}
+        />
         {a && <span className={cx("text-xs", a.level === "heavy" ? "font-semibold text-warn-ink" : "text-warn-ink")}>{a.level === "heavy" ? "Heavy: " : ""}{a.text}</span>}
       </div>
     );
@@ -191,6 +218,21 @@ export function Create() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }),
   });
 
+  // Ctrl + Enter makes it, from anywhere on the screen, a text box included
+  const make = useRef(() => {});
+  make.current = () => {
+    if (recipe && draft && !blocked && !send.isPending && !open) send.mutate();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        make.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const noun = recipe?.output === "image" ? "picture" : recipe?.output === "video" ? "video" : "sound";
   // pictures or videos: the models of the other kind are out of the way; the last one used of each kind is remembered
   const kinds = [...new Set(all.map((r) => r.output))];
@@ -240,12 +282,17 @@ export function Create() {
   const whole = recipe && draft ? { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], draft.forms[recipe.id]).defaults, ...draft.forms[recipe.id] } : {};
   const each = estimateFor(estimates.data?.rates, recipe, whole);
   const items = latest.data?.pages[0]?.items ?? [];
+  // the open draft first, then the latest few; the rest wait in a list
+  const DRAFTS_SHOWN = 4;
+  const ordered = [...d.drafts.filter((x) => x.id === draft?.id), ...d.drafts.filter((x) => x.id !== draft?.id)];
+  const shownDrafts = ordered.slice(0, DRAFTS_SHOWN);
+  const moreDrafts = ordered.slice(DRAFTS_SHOWN);
   const waiting = queue.data?.waiting.length ?? 0;
 
   return (
     <div className="flex min-h-0 min-w-0 grow">
       <section className="flex w-[408px] shrink-0 flex-col border-r border-line bg-panel">
-        <div className="flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4">
+        <ScrollColumn className="flex flex-col gap-3.5 p-4">
           <div className="flex flex-col gap-1.5">
             {kinds.length > 1 && recipe && (
               <Segmented
@@ -351,11 +398,11 @@ export function Create() {
               <WritingHelp
                 recipe={recipe}
                 text={mainText ? String(whole[mainText.id] ?? "") : ""}
+                look={draft.look}
+                onLook={d.setLook}
                 onDesigner={() => setDesigning(true)}
                 onInsert={(snippet) => {
-                  if (!mainText) return;
-                  const now = String(whole[mainText.id] ?? "").trim();
-                  d.setValue(recipe.id, mainText.id, now ? `${now}${mainText.type === "prompt" && mainText.style === "tags" ? ", " : " "}${snippet}` : snippet);
+                  if (mainText?.type === "prompt") d.setValue(recipe.id, mainText.id, appendTo(String(whole[mainText.id] ?? ""), snippet, mainText.style));
                 }}
               />
             </>
@@ -370,14 +417,17 @@ export function Create() {
               onClear={(inputs) => d.clearValues(recipe.id, inputs)}
             />
           )}
-        </div>
+        </ScrollColumn>
 
         <div className="flex shrink-0 flex-col gap-2 border-t border-line p-4">
           {send.isError && <ErrorNote>{send.error.message}</ErrorNote>}
           {blocked && (
             <ErrorNote>
-              {blocked} <Link href="/setup" className="font-semibold underline">Open Setup</Link>
+              {blocked} <Link href="/settings" className="font-semibold underline">Open Settings</Link>
             </ErrorNote>
+          )}
+          {recipe && recipe.inputs.some((i) => i.type === "prompt" && hasWildcards(String(whole[i.id] ?? ""))) && (
+            <span className="text-xs text-ink-2">{"{a|b|c}"}: one is picked for each {noun}{count === 1 ? ". Make several to see them vary." : "."}</span>
           )}
           <div className="flex items-center gap-2.5">
             <div className="flex h-11 shrink-0 items-center rounded-lg border border-line">
@@ -386,7 +436,7 @@ export function Create() {
               <button type="button" aria-label="One more" onClick={() => d.setCount(count + 1)} className="flex h-full w-9 items-center justify-center"><Plus size={14} /></button>
             </div>
             <Button tone="primary" className="h-11 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || send.isPending} onClick={() => send.mutate()}>
-              {send.isPending ? "Sending…" : `Make ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each * count)}` : ""}`}
+              <span title="Ctrl + Enter">{send.isPending ? "Sending…" : `Make ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each * count)}` : ""}`}</span>
             </Button>
           </div>
         </div>
@@ -402,13 +452,14 @@ export function Create() {
           {waiting > 0 && <Link href="/queue" className="text-xs text-ink-2 underline">{waiting} waiting</Link>}
         </header>
 
-        <div className="flex h-11 shrink-0 items-center gap-2 overflow-x-auto px-5 whitespace-nowrap">
-          <span className="text-xs font-semibold text-ink-2">Your drafts</span>
-          {d.drafts.map((x) => {
+        {/* the open draft and the latest few, each as wide as there is room; the others are in a list: the row never scrolls */}
+        <div className="flex h-11 shrink-0 items-center gap-2 overflow-hidden px-5 whitespace-nowrap">
+          <span className="shrink-0 text-xs font-semibold text-ink-2">Your drafts</span>
+          {shownDrafts.map((x) => {
             const on = x.id === draft?.id;
             // a name it was given; else the open draft shows what is on screen, before it is saved
             const main = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
-            const title = x.name || (on ? String(draft?.forms[draft.recipe]?.[main] ?? "").trim().slice(0, 60) : x.title) || "Empty draft";
+            const title = x.name || (on ? String(draft?.forms[draft.recipe]?.[main] ?? "").trim().slice(0, 60) : x.title) || "No prompt yet";
             if (naming?.id === x.id) {
               return (
                 <form
@@ -439,8 +490,8 @@ export function Create() {
               );
             }
             return (
-              <span key={x.id} className={cx("flex h-8 shrink-0 items-center rounded-full border", on ? "border-accent bg-accent-wash" : "border-line bg-panel")}>
-                <button type="button" aria-pressed={on} title="Double-click to rename" onClick={() => void d.switchTo(x.id)} onDoubleClick={() => setNaming({ id: x.id, text: x.name ?? "" })} className="flex h-full max-w-64 items-center gap-2 pr-1 pl-3 text-xs">
+              <span key={x.id} className={cx("flex h-8 min-w-0 items-center rounded-full border", on ? "shrink-0 border-accent bg-accent-wash" : "min-w-36 shrink border-line bg-panel")}>
+                <button type="button" aria-pressed={on} title={`${title}\nDouble-click to rename`} onClick={() => void d.switchTo(x.id)} onDoubleClick={() => setNaming({ id: x.id, text: x.name ?? "" })} className="flex h-full max-w-64 min-w-0 items-center gap-2 pr-1 pl-3 text-xs">
                   <span className={cx("truncate", on ? "font-semibold" : "text-ink")}>{title}</span>
                   {!on && <span className="shrink-0 text-ink-3">{when(x.updatedAt)}</span>}
                 </button>
@@ -449,12 +500,25 @@ export function Create() {
                     <Pencil size={11} />
                   </button>
                 )}
-                <button type="button" aria-label={`Delete the draft "${title}"`} onClick={() => void d.remove(x.id)} className="mr-1 flex h-6 w-6 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink">
+                <button type="button" aria-label={`Delete the draft "${title}"`} onClick={() => void d.remove(x.id)} className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink">
                   <X size={12} />
                 </button>
               </span>
             );
           })}
+          {moreDrafts.length > 0 && (
+            <div className="w-36 shrink-0">
+              <Select
+                size="sm"
+                label="Your other drafts"
+                placeholder={`${moreDrafts.length} more`}
+                searchHint={`Search your ${moreDrafts.length} other drafts`}
+                value=""
+                onChange={(id) => void d.switchTo(id)}
+                options={moreDrafts.map((x) => ({ value: x.id, label: x.name || x.title || "No prompt yet", note: when(x.updatedAt) }))}
+              />
+            </div>
+          )}
           <button type="button" onClick={() => void d.startNew()} className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border-[1.5px] border-dashed border-line-strong px-3 text-xs font-semibold text-ink-2 hover:text-ink">
             <Plus size={12} strokeWidth={2.6} /> New draft
           </button>
@@ -484,7 +548,7 @@ export function Create() {
           onClose={() => setDesigning(false)}
         />
       )}
-      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} onClose={() => setOpen(null)} />}
+      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={items} onOpen={setOpen} onClose={() => setOpen(null)} />}
     </div>
   );
 }

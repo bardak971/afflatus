@@ -21,14 +21,14 @@ A self-hosted studio for pictures, videos and timelines, in front of your own [C
 | MiniMax H3 "video with sound" recipe: from words, a first and a last picture, a picture it passes through, people and places from reference pictures, a voice, carrying on from another clip, arriving at another clip | `packages/recipes` | Graphs checked against a ComfyUI node catalog. Rendered on a real ComfyUI: a plain clip, a clip that flows on, a redo fitted to the next clip, an opening picture with a picture on the way, a reference picture. A voice sample was not |
 | Timelines: clips in order, each can flow on from the one before; takes; a join that went stale is marked and redone on request; stills, pictures a clip opens or ends on, a sound per clip, music, undo; export as one video, enlarged and with smoother motion if wanted | `apps/server`, the Timelines screens | Tested against a pretend ComfyUI, with real ffmpeg cuts. Two real H3 clips were joined, one redone to fit the other, and exported. Needs ffmpeg on the machine studai runs on |
 | Importing your own ComfyUI workflow as a recipe (reading it, mapping its inputs, running it) | `packages/workflows`, the Workflows screen | Works from the screen against a pretend ComfyUI. Reads the file ComfyUI's editor saves (group nodes, switched-off parts, switches) or an exported one. One large community Wan 2.2 workflow was imported from its editor file and rendered on a real ComfyUI, with and without one of its switches |
-| Getting a missing model file into ComfyUI, when turned on: from the address a workflow gives or from Civitai, saved by ComfyUI-Manager, with a progress bar | `apps/server/src/downloads.ts`, Setup and the import screen | Tested against a pretend ComfyUI-Manager and a pretend Civitai. Never run against the real ones |
+| Getting a missing model file into ComfyUI, when turned on: from the address a workflow gives or from Civitai, saved by ComfyUI-Manager, with a progress bar | `apps/server/src/downloads.ts`, Settings and the import screen | Tested against a pretend ComfyUI-Manager and a pretend Civitai. Never run against the real ones |
 | Dropping a file from the computer anywhere: add it to the library, use the settings stored in a picture, import the workflow a ComfyUI picture or video carries, put it on the open timeline | `apps/web/src/DropTray.tsx`, `apps/server/src/embedded.ts` | Tested with made-up files and scripted drags against a pretend ComfyUI |
 | ComfyUI client and "what can this ComfyUI do" scan | `packages/comfy` | Tested against a fake ComfyUI. The read-only part was also run against a real one |
 | Live progress, previews and the machine's load (CPU, memory, GPU, temperature) | `packages/comfy` | Tested against a fake ComfyUI. The load feed was also read from a real one |
 | Server: settings, setup scan, queue (pause, cancel, retry, resume after a restart), library with thumbnails, drafts, live events, clean-up of unkept results; SQLite | `apps/server` | Tested on SQLite with a fake ComfyUI. The Postgres path is written and untested |
 | People, places, styles, presets: written once, worked into any model's form (words, LoRAs, reference pictures, a voice) | `apps/server`, the People screen | Tested against a pretend ComfyUI |
 | The prompt designer: a conversation with a language model of your choice (any OpenAI-style address) that writes and improves prompts, and plans a scene as clips | `apps/server`, the designer panel | Tested against a pretend language model only |
-| Web app: Library, Create, Timelines, People, Workflows, Queue, Setup | `apps/web` | Checked by hand in a browser against the pretend ComfyUI. No automated tests yet |
+| Web app: Library, Create, Timelines, People, Workflows, Queue, Settings | `apps/web` | Checked by hand in a browser against the pretend ComfyUI. No automated tests yet |
 
 ## Try it without a GPU
 
@@ -50,7 +50,7 @@ corepack pnpm build
 corepack pnpm start
 ```
 
-Open `http://127.0.0.1:8720`, go to Setup, and enter the address of your ComfyUI. Data is kept in `./data`.
+Open `http://127.0.0.1:8720`, go to Settings, and enter the address of your ComfyUI. Data is kept in `./data`.
 
 While working on the web app, `corepack pnpm dev` (server) and `corepack pnpm dev:web` (Vite on port 8721, with hot reload) replace `build` and `start`.
 

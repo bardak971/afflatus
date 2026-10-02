@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@studai/core";
+import { hasWildcards, secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@studai/core";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
 import { instructionsInUse, llmInUse, readSettings, type Llm } from "./settings";
+import { cleanTags } from "./tags";
 
 /**
- * The prompt designer: a conversation with a language model (any OpenAI-style address, set in Setup)
+ * The prompt designer: a conversation with a language model (any OpenAI-style address, set in Settings)
  * that writes and improves what a form's text boxes hold. It is given the model's own way of writing
  * prompts (the family's guide), what the boxes hold now, who is in it, the LoRAs in use and, when the
  * language model can read pictures, the picture the clip opens on. It answers with the full new text
@@ -45,7 +46,7 @@ export function fitting(cfg: Llm, system: string, history: Message[]): Message[]
 
 /** One plain exchange with the language model. A busy server is asked a second time. */
 export async function chat(cfg: Llm | undefined, messages: Message[], opts: { temperature?: number; maxTokens?: number } = {}): Promise<string> {
-  if (!cfg || !cfg.baseUrl.trim() || !cfg.model.trim()) throw new DesignerError("The designer has no language model yet. Give it one in Setup.");
+  if (!cfg || !cfg.baseUrl.trim() || !cfg.model.trim()) throw new DesignerError("The designer has no language model yet. Give it one in Settings.");
   const ask = () =>
     fetch(`${cfg.baseUrl.trim().replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
@@ -68,7 +69,7 @@ export async function chat(cfg: Llm | undefined, messages: Message[], opts: { te
   // a model that thinks before it answers may leave its thinking in the answer: it is not part of it
   const said = (data.choices?.[0]?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*<\/think>/i, "").trim();
   if (!said && data.choices?.[0]?.finish_reason === "length") {
-    throw new DesignerError(`The language model used its whole answer (${opts.maxTokens ?? cfg.maxOutputTokens} tokens) before it wrote anything, as a model that thinks first can. Raise "Max output tokens" for it in Setup.`);
+    throw new DesignerError(`The language model used its whole answer (${opts.maxTokens ?? cfg.maxOutputTokens} tokens) before it wrote anything, as a model that thinks first can. Raise "Max output tokens" for it in Settings.`);
   }
   return said;
 }
@@ -97,6 +98,10 @@ export interface DesignerContext {
   /** The look and mood of the whole video. */
   mood?: string;
   loras?: Array<{ name: string; weight: number; trigger?: string }>;
+  /** Bits of text the user ticked: they are added after the main text on their own. */
+  snippets?: Array<{ name: string; text: string }>;
+  /** The model makes the sound too: people can speak in the clip. */
+  speaks?: boolean;
   /** Whether the picture is given to the language model with the request. */
   seesPicture?: boolean;
 }
@@ -110,6 +115,10 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
   const parts = boxes.map((b) => `- ${b.id}: "${b.label}"${b.optional ? " (may stay empty)" : ""}, written as ${b.style === "tags" ? "tags" : "sentences"}${b.note ? ` — ${b.note}` : ""}`).join("\n");
   const where = [
     video && ctx.seconds ? `The clip is ${ctx.seconds} seconds long: it holds about ${Math.max(1, Math.round(ctx.seconds / 3))} main action${ctx.seconds >= 6 ? "s" : ""}. Do not cram a story into it.` : "",
+    // how much can be said in it: a figure to fill, not only to stay under (models left to themselves write lines far shorter than fit)
+    video && ctx.seconds && ctx.speaks
+      ? `SPOKEN LINES: about ${Math.round(ctx.seconds * 2.5)} words fit in this clip in all (speech runs about 2.5 words a second, and people speak while they move: the action does not need silence). A line the user wrote is kept whole when it fits in that. When YOU write what is said, use the room: ${Math.max(3, Math.round(ctx.seconds * 1.7))} to ${Math.round(ctx.seconds * 2.5)} words in all, unless the user asks for less. Do not stop at a few words when the clip has room for a full sentence or two.`
+      : "",
     ctx.story && ctx.story.clips.length > 1
       ? `THE WHOLE VIDEO is ${ctx.story.clips.length} clips that play one after the other. You are writing clip ${ctx.story.index + 1}. What each clip says happens:\n${ctx.story.clips
           .map((c, i) => `${i + 1}.${i === ctx.story!.index ? " (THIS CLIP)" : ""} ${c.trim().slice(0, 700) || "(nothing written yet)"}`)
@@ -122,6 +131,8 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
     ctx.seesPicture ? "You are shown the picture. Describe what is really in it; do not add a place, props or people it does not show unless the user asks." : "",
     ctx.cast?.length ? `Who is in it. Their words are added on their own when it is made: never repeat or contradict them, refer to them by what they are (the woman, he):\n${ctx.cast.map((c) => `- ${c.name}: ${c.words || "(no words)"}`).join("\n")}` : "",
     ctx.mood?.trim() ? `The look and mood of the whole video, which every clip keeps: ${ctx.mood.trim()}` : "",
+    ctx.snippets?.length ? `These bits of text are added after the main text on their own when it is made: do not repeat or contradict them.\n${ctx.snippets.map((x) => `- ${x.name}: ${x.text.slice(0, 400)}`).join("\n")}` : "",
+    Object.values(ctx.values).some(hasWildcards) ? "Choices in braces like {red|black|white} are the user's: one is picked for each picture. Keep them exactly as written, braces and bars included, unless asked to change them." : "",
     ctx.loras?.length ? `LoRAs in use: ${ctx.loras.map((l) => `${l.name} at ${l.weight}${l.trigger ? ` (its trigger words: ${l.trigger})` : ""}`).join("; ")}. A LoRA's trigger words must stay in the text for it to act: never remove them.` : "",
   ].filter(Boolean).join("\n\n");
 
@@ -185,6 +196,8 @@ export interface DesignerReply {
   options: string[];
   /** A plan: the text boxes of each clip, in order. */
   clips: Array<Record<string, string>>;
+  /** What the tag check did to what was written, when it is on: tags put right, and tags danbooru does not have. */
+  tags?: { fixed: Array<{ from: string; to: string }>; unknown: string[] };
 }
 
 export function parseReply(raw: string, recipe: Recipe<any>, values: Record<string, string>): DesignerReply {
@@ -221,7 +234,7 @@ const body = z.strictObject({
   story: z.strictObject({ clips: z.array(z.string().max(8000)).max(60), index: z.number().int().min(0) }).optional(),
   look: lookSchema.nullable().optional(),
   mood: z.string().max(2000).optional(),
-  /** The session's own language model and instructions (ids from Setup; "" = no instructions). Left out: the usual ones. */
+  /** The session's own language model and instructions (ids from Settings; "" = no instructions). Left out: the usual ones. */
   llm: z.string().max(40).optional(),
   instruction: z.string().max(40).optional(),
 });
@@ -266,6 +279,10 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     const loraSpec = specs.find((i) => i.type === "loras");
     const loras = loraSpec && Array.isArray(values[loraSpec.id]) ? (values[loraSpec.id] as LoraValue[]) : [];
     const info = loras.length ? await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", "loras").where("file", "in", loras.map((l) => l.file)).execute() : [];
+    // the user's own words for a LoRA come first, then what its file says, then what its page gave
+    const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+    const words = loras.length ? await s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", "loras").where("name", "in", loras.map((l) => nameOf(l.file))).execute() : [];
+    const ticked = extra.look?.snippets?.length ? await s.db.selectFrom("entities").select(["id", "name", "def"]).where("kind", "=", "snippet").where("id", "in", extra.look.snippets).execute() : [];
     return {
       values: text,
       seconds: secondsOf(specs, values),
@@ -277,8 +294,10 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
       mood: extra.mood,
       loras: loras.filter((l) => l.weight !== 0).map((l) => ({
         name: (l.file.split(/[\\/]/).pop() ?? l.file).replace(/\.[a-z]+$/i, ""), weight: l.weight,
-        trigger: (JSON.parse(info.find((x) => x.file === l.file)?.info ?? "{}") as { trigger?: string }).trigger,
+        trigger: words.find((w) => w.name === nameOf(l.file))?.own || (JSON.parse(info.find((x) => x.file === l.file)?.info ?? "{}") as { trigger?: string }).trigger || words.find((w) => w.name === nameOf(l.file))?.found || undefined,
       })),
+      snippets: ticked.map((r) => ({ name: r.name, text: String((JSON.parse(r.def) as { text?: string }).text ?? "") })).filter((x) => x.text.trim()),
+      speaks: Boolean(recipe.traits?.sound),
       seesPicture: sees,
     };
   }
@@ -290,7 +309,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     if (!boxesOf(recipe).length) throw new DesignerError("This model has no text to write.");
     if (!b.messages.length || b.messages.at(-1)!.role !== "user") throw new DesignerError("Say what you want first.");
     const settings = await readSettings(s.db);
-    // the conversation's own choice; one that is gone from Setup falls back to the usual one
+    // the conversation's own choice; one that is gone from Settings falls back to the usual one
     const llm = settings.llms.find((l) => l.id === b.llm) ?? llmInUse(settings);
     const own = b.instruction === undefined ? instructionsInUse(settings) : settings.designerInstructions.find((i) => i.id === b.instruction)?.text.trim() ?? "";
     const picture = llm?.vision ? await pictureOf(recipe, b.values) : null;
@@ -301,7 +320,22 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     if (picture) history[history.length - 1] = { role: "user", content: [{ type: "text", text: b.messages.at(-1)!.content }, { type: "image_url", image_url: { url: picture } }] };
     // as much of the conversation as the model can read, the latest first
     const raw = await chat(llm, [{ role: "system", content: system }, ...(llm ? fitting(llm, system, history) : history)]);
-    return { ...parseReply(raw, recipe, ctx.values), sawPicture: Boolean(picture) };
+    const reply = parseReply(raw, recipe, ctx.values);
+    // tags written for an anime model are put right against danbooru's list: other names and one-letter typos
+    if (settings.tagCheck) {
+      const fixed: Array<{ from: string; to: string }> = [];
+      const unknown: string[] = [];
+      const ignore = (ctx.loras ?? []).map((l) => l.trigger ?? "");
+      for (const box of boxesOf(recipe)) {
+        if (box.style !== "tags" || box.optional || !reply.changes[box.id]) continue;
+        const clean = cleanTags(reply.changes[box.id]!, ignore);
+        reply.changes[box.id] = clean.tags;
+        fixed.push(...clean.fixed);
+        unknown.push(...clean.unknown);
+      }
+      if (fixed.length || unknown.length) reply.tags = { fixed: fixed.slice(0, 30), unknown: unknown.slice(0, 30) };
+    }
+    return { ...reply, sawPicture: Boolean(picture) };
   });
 
   /** A scene as several clips: the designer writes the text of each, nothing is rendered. */

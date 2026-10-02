@@ -69,6 +69,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const videoRecipes = useMemo(() => (recipes.data?.recipes ?? []).filter((r) => r.output === "video"), [recipes.data]);
   const comfyOnline = setup.data?.comfy.online ?? false;
   const current = clips.find((c) => c.id === selected) ?? null;
+  // what is forming is watched large when the clip that renders is the one selected, or when the timeline has nothing to show yet
+  const renderingAt = queue.data?.running ? clips.findIndex((c) => c.id === queue.data!.running!.clipId) : -1;
+  const liveShown = renderingAt >= 0 && (clips[renderingAt]!.id === selected || !clips.some((c) => c.take || c.still)) ? { job: queue.data!.running!, clip: renderingAt + 1 } : null;
   const running = queue.data?.running ?? null;
   const slots = useMemo(() => layout(clips, pps, videoRecipes), [clips, pps, videoRecipes]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
@@ -151,6 +154,14 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   });
   const remove = useMutation({ mutationFn: api.deleteClip, onSuccess: after });
   const removeTake = useMutation({ mutationFn: api.deleteTake, onSuccess: after });
+  // a clip that is rendering, or waiting for its turn, is stopped from here: nothing is added, the clip keeps the takes it has
+  const stop = useMutation({
+    mutationFn: api.cancel,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["queue"] });
+      after();
+    },
+  });
   const undo = useMutation({
     mutationFn: async () => {
       await save();
@@ -201,7 +212,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       after();
     },
   });
-  const error = plan.error ?? loop.error ?? render.error ?? patch.error ?? edit.error ?? add.error ?? remove.error ?? removeTake.error ?? undo.error ?? exportIt.error ?? frame.error;
+  const error = plan.error ?? loop.error ?? render.error ?? patch.error ?? edit.error ?? add.error ?? remove.error ?? removeTake.error ?? stop.error ?? undo.error ?? exportIt.error ?? frame.error;
   useEffect(() => {
     if (!note) return;
     const timer = setTimeout(() => setNote(null), 4000);
@@ -235,6 +246,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     setPlaying((p) => !p);
   }, [playing, t, time]);
   const undoNow = undo.mutate;
+  const removeNow = remove.mutate;
+  const selectedNow = useRef<string | null>(null);
+  selectedNow.current = current?.id ?? null;
   const canUndo = Boolean(t?.undo);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -248,10 +262,15 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         e.preventDefault();
         undoNow();
       }
+      // Delete takes the selected clip off the timeline; Undo brings it back
+      if (e.key === "Delete" && !typing && selectedNow.current && !document.querySelector("[role=dialog], [role=listbox], [role=menu]")) {
+        e.preventDefault();
+        removeNow(selectedNow.current);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, undoNow, canUndo]);
+  }, [toggle, undoNow, canUndo, removeNow]);
 
   const jump = (by: -1 | 1) => {
     const playable = clips.filter((c) => c.lengthMs > 0);
@@ -351,7 +370,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         />
 
         <main className="flex min-w-0 grow flex-col">
-          <Player ref={player} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} />
+          <Player ref={player} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} />
           <div className="flex h-12 shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
             <button type="button" aria-label="Previous clip" title="Previous clip" disabled={!t.durationMs} onClick={() => jump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
             <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!t.durationMs} onClick={toggle} className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-ground disabled:opacity-40">
@@ -402,6 +421,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
               setSelected(null);
             }}
             onRemoveTake={(takeId) => removeTake.mutate(takeId)}
+            onStop={() => current.job && stop.mutate(current.job.id)}
             onLoop={() => loop.mutate(current)}
             onDesigner={() => setDesigning(current.id)}
             onPreview={setPreview}
@@ -441,6 +461,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         musicSelected={musicOpen}
         time={time}
         running={running}
+        onStop={(job) => stop.mutate(job)}
         busy={add.isPending}
         onSelect={(clipId) => {
           setSelected(clipId);

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Check, RotateCcw, Send, Sparkles, WandSparkles, X } from "lucide-react";
+import { Check, RotateCcw, Send, Sparkles, WandSparkles, X } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
 import { useEntities, useSettings } from "./data";
 import { Select } from "./Select";
+import { Snippets, TickedSnippets } from "./Snippets";
 import { AutoText, Button, cx, ErrorNote } from "./ui";
 
 /** One thing said in the conversation. What the designer said keeps what it proposed, to use or not. */
@@ -81,7 +82,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   const instructions = settings.data?.designerInstructions ?? [];
   /**
    * What this conversation is held with: its own choice, else what the last choice made anywhere was
-   * (a new conversation starts the way the last one was set up). One that is gone from Setup falls back.
+   * (a new conversation starts the way the last one was set up). One that is gone from Settings falls back.
    */
   const using: DesignerSession = {
     llm: llms.some((l) => l.id === session?.llm) ? session!.llm : settings.data?.designerLlm,
@@ -118,7 +119,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             value={using.llm ?? ""}
             onChange={(id) => choose({ llm: id })}
             options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "reads pictures · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
-            footer={() => <Link href="/setup" className="text-xs text-ink-2 underline">Add or change language models in Setup</Link>}
+            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Add or change language models in Settings</Link>}
           />
           <Select
             size="sm"
@@ -128,7 +129,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             value={using.instruction || "none"}
             onChange={(id) => choose({ instruction: id === "none" ? "" : id })}
             options={[{ value: "none", label: "No instructions", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
-            footer={() => <Link href="/setup" className="text-xs text-ink-2 underline">Write your own instructions in Setup</Link>}
+            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Write your own instructions in Settings</Link>}
           />
           <Button
             size="sm"
@@ -145,7 +146,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
         {remember.isError && <ErrorNote>{remember.error.message}</ErrorNote>}
         {!ready && settings.isSuccess && (
-          <ErrorNote>The designer has no language model yet. <Link href="/setup" className="font-semibold underline">Give it one in Setup</Link>: any address that speaks the OpenAI way works, on your computer or elsewhere.</ErrorNote>
+          <ErrorNote>The designer has no language model yet. <Link href="/settings" className="font-semibold underline">Give it one in Settings</Link>: any address that speaks the OpenAI way works, on your computer or elsewhere.</ErrorNote>
         )}
         {!turns.length && ready && (
           <div className="text-ink-2">
@@ -165,6 +166,12 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
                   <div className="rounded-lg bg-raised px-2.5 py-2 leading-normal break-words whitespace-pre-wrap">{value}</div>
                 </div>
               ))}
+              {t.reply?.tags && (
+                <span className="text-xs text-ink-2">
+                  {t.reply.tags.fixed.length > 0 && <>Put right against danbooru's tags: {t.reply.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}
+                  {t.reply.tags.unknown.length > 0 && <span className="text-warn-ink">Not danbooru tags: {t.reply.tags.unknown.join(", ")}.</span>}
+                </span>
+              )}
               {t.reply && Object.keys(t.reply.changes).length > 0 && (
                 <span>
                   {t.used ? (
@@ -220,56 +227,28 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
 }
 
 /**
- * The two helpers that sit above a form's text: the designer, and snippets (bits of text kept to drop
- * into what is written).
+ * The helpers that sit above a form's text: the designer, and snippets (bits of text kept under a
+ * name: ticked, they are added to what is written each time something is made).
  */
-export function WritingHelp({ recipe, text, onInsert, onDesigner }: {
+export function WritingHelp({ recipe, text, look, onLook, onInsert, onDesigner }: {
   recipe: RecipeInfo;
   /** What the main text box holds now, to keep as a snippet. */
   text: string;
+  /** The ticked snippets are part of the look, with who is in it. */
+  look: Look | null;
+  onLook(look: Look): void;
   onInsert(text: string): void;
   onDesigner(): void;
 }) {
-  const entities = useEntities();
-  const client = useQueryClient();
-  const [name, setName] = useState("");
-  const snippets = (entities.data?.items ?? []).filter((e) => e.kind === "snippet");
-  const save = useMutation({ mutationFn: (n: string) => api.createEntity("snippet", n, { text }), onSuccess: () => client.invalidateQueries({ queryKey: ["entities"] }) });
-  if (!recipe.inputs.some((i) => i.type === "prompt")) return null;
+  const main = recipe.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe.inputs.find((i) => i.type === "prompt");
+  if (main?.type !== "prompt") return null;
   return (
-    <div className="flex items-center gap-1.5">
-      <Button size="sm" onClick={onDesigner}><WandSparkles size={13} /> Ask the designer</Button>
-      <div className="w-36">
-        <Select
-          dashed
-          size="sm"
-          icon={<Bookmark size={13} className="shrink-0" />}
-          label="Snippets"
-          placeholder="Snippets"
-          searchHint="Search your snippets"
-          value=""
-          onChange={(id) => {
-            const s = snippets.find((x) => x.id === id);
-            if (s?.kind === "snippet") onInsert(s.def.text);
-          }}
-          options={snippets.map((s) => ({ value: s.id, label: s.name, detail: s.kind === "snippet" ? s.def.text : "" }))}
-          footer={(close) => (
-            <form
-              className="flex items-center gap-1.5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!name.trim() || !text.trim()) return;
-                save.mutate(name.trim());
-                setName("");
-                close();
-              }}
-            >
-              <input aria-label="Name of a new snippet" placeholder={text.trim() ? "Keep what is written as: a name" : "Write something first"} value={name} disabled={!text.trim()} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 placeholder:text-ink-3" />
-              <Button size="sm" tone="quiet" type="submit" disabled={!name.trim() || !text.trim()}>Keep</Button>
-            </form>
-          )}
-        />
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <Button size="sm" onClick={onDesigner}><WandSparkles size={13} /> Ask the designer</Button>
+        <Snippets style={main.style} look={look} onLook={onLook} text={text} onInsert={onInsert} />
       </div>
+      <TickedSnippets look={look} onLook={onLook} />
     </div>
   );
 }

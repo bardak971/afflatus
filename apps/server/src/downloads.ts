@@ -180,7 +180,7 @@ export class Downloads {
     const type = res.headers.get("content-type") ?? "";
     if (!res.ok || !res.body || /text\/html|application\/json/.test(type)) {
       const refused = res.status === 401 || res.status === 403 || /text\/html/.test(type);
-      this.fail(d, refused ? "The site refused the download. For Civitai, save a key in Setup (Finding missing files): some files need an account." : `The site answered ${res.status}.`);
+      this.fail(d, refused ? "The site refused the download. For Civitai, save a key in Settings (Finding missing files): some files need an account." : `The site answered ${res.status}.`);
       return { error: d.error! };
     }
     const size = Number(res.headers.get("content-length")) || 0;

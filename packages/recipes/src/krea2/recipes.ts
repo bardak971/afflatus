@@ -75,7 +75,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     const H = r16(input.size.height);
     const styled = input.references.length > 0;
     if (styled && !ctx.slots.styleRef) {
-      throw new Error("Style reference images need Krea 2's style-reference LoRA: put krea2_style_reference.safetensors in ComfyUI's models/loras folder (Setup offers to download it).");
+      throw new Error("Style reference images need Krea 2's style-reference LoRA: put krea2_style_reference.safetensors in ComfyUI's models/loras folder (it can be downloaded from Settings).");
     }
     let model = k.model;
     if (styled) model = g.out("LoraLoaderModelOnly", { model, lora_name: ctx.slots.styleRef, strength_model: input.referenceStrength });

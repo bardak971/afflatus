@@ -4,6 +4,7 @@ import { ImagePlus, Link2, Music, Repeat, Scissors, Trash2, X } from "lucide-rea
 import { thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
 import { WritingHelp } from "../Designer";
+import { appendTo } from "../promptText";
 import { LookBar, lookWords } from "../LookBar";
 import { about, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
@@ -61,7 +62,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 }
 
 /** The selected clip: how it starts, its takes, its sound, its pictures and its form. */
-export function Inspector({ timeline, clip, index, recipes, stored, why, takes, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onLoop, onPreview, onDesigner }: {
+export function Inspector({ timeline, clip, index, recipes, stored, why, takes, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -81,6 +82,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, why, takes, 
   onRender(fit: boolean): void;
   onRemove(): void;
   onRemoveTake(id: string): void;
+  /** Stop the render of this clip that is under way, or take it out of the queue. */
+  onStop(): void;
   /** Make the clip end where it begins: on its opening picture, or on the first frame of its take. */
   onLoop(): void;
   /** A take is hovered: show it in the player without choosing it. */
@@ -346,8 +349,11 @@ export function Inspector({ timeline, clip, index, recipes, stored, why, takes, 
                 <WritingHelp
                   recipe={form}
                   text={written}
+                  // a clip that follows the timeline's cast gets a look of its own with the first snippet ticked: the timeline's, plus it
+                  look={clip.look ?? timeline.look}
+                  onLook={(look) => onPatch({ look })}
                   onDesigner={onDesigner}
-                  onInsert={(snippet) => main && onInputs({ ...stored, [main.id]: written.trim() ? `${written.trim()}${main.type === "prompt" && main.style === "tags" ? ", " : " "}${snippet}` : snippet })}
+                  onInsert={(snippet) => main?.type === "prompt" && onInputs({ ...stored, [main.id]: appendTo(written, snippet, main.style) })}
                 />
               );
             })()}
@@ -389,7 +395,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, why, takes, 
       {recipe && !still && (
         <div className="flex shrink-0 flex-col gap-2 border-t border-line p-4">
           {error && <ErrorNote>{error}</ErrorNote>}
-          {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href="/setup" className="font-semibold underline">Open Setup</Link> : null}</div>}
+          {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href="/settings" className="font-semibold underline">Open Settings</Link> : null}</div>}
           {canFit && <Toggle on={fit} onChange={setFit} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />}
           {clip.job ? (
             <div className="flex flex-col gap-1.5">
@@ -398,6 +404,9 @@ export function Inspector({ timeline, clip, index, recipes, stored, why, takes, 
                 <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${about(running.eta)}` : ""}</span>
               </div>
               <Bar value={(running?.progress ?? 0) * 100} />
+              <Button size="sm" className="self-start" onClick={onStop} title={running ? "Stop this render. Nothing is added; the clip keeps the takes it has." : "Take it out of the queue."}>
+                {running ? "Stop this render" : "Take it out of the queue"}
+              </Button>
             </div>
           ) : (
             <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit)}>
