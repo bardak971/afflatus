@@ -253,7 +253,7 @@ export const Player = forwardRef<PlayerHandle, {
       {live && !playing && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#08090b]">
           {live.job.previewSeq > 0
-            ? <LivePreview job={live.job} sound className="max-h-full max-w-full object-contain" />
+            ? <LivePreview job={live.job} sound className="h-full w-full object-contain" />
             : <span className="text-ink-2">Clip {live.clip} is rendering. What is forming shows here from its first step.</span>}
           <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 py-1 pr-1 pl-3 text-xs font-semibold whitespace-nowrap">
             Clip {live.clip} · {phaseLabel(live.job.phase)}{live.job.steps ? ` · step ${live.job.step} of ${live.job.steps}` : ""}

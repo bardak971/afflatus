@@ -150,7 +150,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   const video = recipe.output === "video";
   /** Ways to start that use what it knows: a first version from the picture's own story, or ideas to pick from. */
   const starts = [
-    ...(knows.data?.continues ? ["Carry the scene on from where the clip before ends", "Suggest three things that could happen next"] : []),
+    ...(knows.data?.continues ? ["Write what happens next", "Suggest three things that could happen next"] : []),
     ...(knows.data?.pictures.length && !knows.data.continues
       ? video ? ["Animate what the picture shows", "Suggest three things that could happen in it"] : ["Write it from what the picture shows", "Suggest three ways to change it"]
       : []),
@@ -214,10 +214,9 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             <span className="text-xs font-semibold text-good">It knows how this was made</span>
             {knows.data.pictures.map((p) => (
               <span key={p.what} className="text-xs text-ink-2">
-                <span className="text-ink">{p.what}</span>: {p.steps.map((x) => `${x.title}${x.with ? ` · ${x.with}` : ""}`).join(" → ")}. It is given {p.steps.filter((x) => x.said).length > 1 ? "the texts" : "the prompt"} it was made from.
+                <span className="text-ink">{p.what}</span>: {p.steps.map((x) => `${x.title}${x.with ? ` · ${x.with}` : ""}`).join(" → ")}. It is given {p.steps.filter((x) => x.said).length > 1 ? "the texts" : "the text"} of {p.steps.filter((x) => x.said).length > 1 ? "those steps" : "that step"}.
               </span>
             ))}
-            {knows.data.continues && <span className="text-xs text-ink-2"><span className="text-ink">The clip it carries on from</span>: it is given what that clip says happens.</span>}
             <span className="flex flex-wrap gap-1.5">
               {starts.map((o) => <button key={o} type="button" disabled={say.isPending} onClick={() => send(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-left text-xs hover:bg-hover disabled:opacity-45">{o}</button>)}
             </span>
@@ -343,6 +342,14 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
           </span>
         </div>
       )}
+      {r?.repeats && (
+        <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
+          <TriangleAlert size={14} className="mt-px shrink-0" />
+          <span>
+            <span className="font-semibold">This is the clip before, written again.</span> A clip that carries on should say what happens next. Tell it what comes next in a few words ("she sits down and laughs"), or ask again.
+          </span>
+        </div>
+      )}
       {r?.tags && (
         <span className="text-xs text-ink-2">
           {r.tags.fixed.length > 0 && <>Put right against danbooru's tags: {r.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}
@@ -357,10 +364,10 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
               {t.was && <Button size="sm" tone="quiet" title="Put back what the form held before" onClick={onUndo}><Undo2 size={13} /> Undo</Button>}
             </>
           ) : (
-            <Button size="sm" tone="primary" onClick={onUse}>{short.length ? "Use it anyway" : "Use it"}</Button>
+            <Button size="sm" tone="primary" onClick={onUse}>{short.length || r?.repeats ? "Use it anyway" : "Use it"}</Button>
           ))}
           {changes.length > 0 && last && <Button size="sm" disabled={busy} title="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Another one</Button>}
-          {(r?.empty || short.length > 0) && last && <Button size="sm" disabled={busy} title="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Ask again</Button>}
+          {(r?.empty || r?.repeats || short.length > 0) && last && <Button size="sm" disabled={busy} title="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Ask again</Button>}
           {r?.raw && <button type="button" className="text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide what it sent" : "What it sent"}</button>}
         </span>
       )}

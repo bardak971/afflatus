@@ -131,6 +131,11 @@ describe("h3.video", () => {
     expect(of(build({ fast: false, ...own }))).toEqual({ sampler: "dpmpp_2m", scheduler: "beta", video: 9, audio: 3.5 });
     // one of the two shifts alone
     expect(of(build({ fast: true, shiftAudio: 6 }))).toMatchObject({ video: 7, audio: 6 });
+    // the steps Turbo takes are a setting: 8 unless set
+    const steps = (b: ReturnType<typeof build>) => one(b, "BasicScheduler")[0]!.inputs.steps;
+    expect(steps(build({ fast: true }))).toBe(8);
+    expect(steps(build({ fast: true, turboSteps: 6 }))).toBe(6);
+    expect(steps(build({ fast: false, turboSteps: 6 }))).toBe(15);
   });
 
   it("writes the prompt in the model's layout, by what the clip opens and ends on", () => {
@@ -355,7 +360,7 @@ describe("h3.video with another H3 model", () => {
     const not = build({ model: "SomeoneH3_hybridTurboV3.safetensors", turboIn: "No", hybrid: "No", ...refs });
     expect(unet(not)).toBe("ref.safetensors");
     expect(loras(not)).toEqual(["t.safetensors"]);
-    expect(h3Video.inputs.filter((i) => i.perModel).map((i) => i.id)).toEqual(["fast", "steps", "sampler", "scheduler", "shiftVideo", "shiftAudio", "turboIn", "hybrid"]);
+    expect(h3Video.inputs.filter((i) => i.perModel).map((i) => i.id)).toEqual(["fast", "turboSteps", "steps", "sampler", "scheduler", "shiftVideo", "shiftAudio", "turboIn", "hybrid"]);
   });
 });
 
@@ -569,7 +574,7 @@ describe("wan.video", () => {
     expect(all(fromWords, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["t2v_high.safetensors", "t2v_low.safetensors"]);
     expect(all(fromWords, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["wh.safetensors", "wl.safetensors"]);
     // without those models, it says what to do
-    expect(() => build({ start: undefined })).toThrow(/words-to-video models.*Or give it a start image/);
+    expect(() => build({ start: undefined })).toThrow(/words-to-video \(T2V\) models.*Or give it a start image/);
   });
 
   it("puts each LoRA on the model it is for, and takes a timeline's frame", () => {
@@ -637,7 +642,9 @@ describe("ltx.video", () => {
     const b = build({ start: "p" });
     expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs).toMatchObject({ width: 512, height: 352, length: 129 });
     expect(all(b, "LTXVLatentUpsampler")).toHaveLength(1);
-    expect(all(b, "ManualSigmas").map((n) => n.inputs.sigmas)).toEqual([LTX_SIGMAS, LTX_REFINE_SIGMAS]);
+    expect(all(b, "ManualSigmas").map((n) => n.inputs.sigmas)).toEqual([LTX_SIGMAS, "0.85, 0.725, 0.4219, 0.0"]);
+    // the same numbers as LTX's own refining schedule, to the digit
+    expect(String(all(b, "ManualSigmas")[1]!.inputs.sigmas).split(",").map(Number)).toEqual(LTX_REFINE_SIGMAS.split(",").map(Number));
     expect(b.passes!.map((p) => p.steps)).toEqual([8, 3]);
     expect(b.totalSteps).toBe(11);
     // the opening picture goes in at both sizes: loosely first, then as the first frame itself
@@ -767,5 +774,192 @@ describe("flux and qwen image, from what is said once about each", () => {
     expect(all(edit, "KSampler")[0]!.inputs).toMatchObject({ steps: 40, cfg: 4, denoise: 1 });
     expect(all(edit, "CFGNorm")).toHaveLength(1);
     expect(() => qwenEdit.build(parseInput(qwenEdit, { source: "p", prompt: "x" }), dryContext({ slots: qwenFiles, uploads: { source: "s.png" } }))).toThrow(/Edit needs Qwen Image Edit/);
+  });
+});
+
+describe("klein: the model and how it samples are the user's to set", () => {
+  const picture = recipes.find((r) => r.id === "klein.picture")!;
+  const slots = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
+  const build = (over: Record<string, unknown> = {}) => picture.build(parseInput(picture, { prompt: "a cat", ...over }), dryContext({ seed: 7, slots }));
+  const one = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).find((n) => n.class_type === cls)!.inputs;
+
+  it("starts on the base model's values, and takes another model, steps, CFG and sampler", () => {
+    const usual = build();
+    expect(one(usual, "UNETLoader").unet_name).toBe("flux-2-klein-base-4b.safetensors");
+    expect(one(usual, "Flux2Scheduler").steps).toBe(20);
+    expect(one(usual, "CFGGuider").cfg).toBe(5);
+    expect(one(usual, "KSamplerSelect").sampler_name).toBe("euler");
+    // a distilled model, set the way it wants
+    const fast = build({ model: "flux-2-klein-4b-distilled.safetensors", steps: 4, cfg: 1, sampler: "res_multistep" });
+    expect(one(fast, "UNETLoader").unet_name).toBe("flux-2-klein-4b-distilled.safetensors");
+    expect(one(fast, "Flux2Scheduler").steps).toBe(4);
+    expect(one(fast, "CFGGuider").cfg).toBe(1);
+    expect(one(fast, "KSamplerSelect").sampler_name).toBe("res_multistep");
+    expect(fast.loads).toContain("diffusion_models/flux-2-klein-4b-distilled.safetensors");
+    // every Klein operation has the model to pick, and keeps steps, CFG, sampler and negative prompt per model
+    for (const r of recipes.filter((x) => x.family === "klein")) {
+      expect(r.inputs[0], r.id).toMatchObject({ id: "model", type: "model", slot: "unet" });
+      expect(r.inputs.filter((i) => i.perModel).map((i) => i.id), r.id).toEqual(expect.arrayContaining(["steps", "cfg", "sampler"]));
+    }
+  });
+});
+
+describe("what was fixed inside the recipes is the user's to set", () => {
+  const byId = (id: string) => recipes.find((r) => r.id === id)!;
+  const node = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls).map((n) => n.inputs);
+  const photo = { width: 1536, height: 2048 };
+  const files: Record<string, Record<string, string>> = {
+    sdxl: {},
+    klein: { unet: "klein.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" },
+    krea2: { unet: "krea2.safetensors", clip: "qwen3vl_4b.safetensors", vae: "qwen_image_vae.safetensors" },
+    flux: { unet: "flux1-dev.safetensors", clipL: "clip_l.safetensors", t5: "t5xxl.safetensors", vae: "ae.safetensors" },
+    qwen: { unet: "qwen_image.safetensors", clip: "qwen_2.5_vl_7b.safetensors", vae: "qwen_image_vae.safetensors" },
+  };
+  const build = (id: string, input: Record<string, unknown>, ctx: Parameters<typeof dryContext>[0] = {}) => {
+    const r = byId(id);
+    const family = id.split(".")[0]!;
+    return r.build(parseInput(r, { ...(family === "sdxl" ? { checkpoint: "c.safetensors" } : {}), ...input }), dryContext({ seed: 7, slots: files[family] ?? {}, uploads: { source: "s.png", mask: "m.png" }, media: { source: photo, mask: { ...photo, box: { x: 300, y: 500, width: 600, height: 500 } } }, ...ctx }));
+  };
+  const families = ["sdxl", "klein", "krea2", "flux", "qwen"];
+
+  it("the face detailer: how sure it must be, the room around the face, and the sizes it works at", () => {
+    for (const family of families) {
+      const usual = node(build(`${family}.fix-face`, { source: "p", detector: "bbox/face.pt" }), "FaceDetailer")[0]!;
+      expect(usual, family).toMatchObject({ bbox_threshold: 0.5, bbox_dilation: 10, bbox_crop_factor: 3, guide_size: 768, max_size: 1024, feather: 5 });
+      const set = node(build(`${family}.fix-face`, { source: "p", detector: "bbox/face.pt", faceThreshold: 0.3, faceGrow: 20, faceCrop: 2, faceSize: 1024, faceMax: 1536, faceFeather: 12 }), "FaceDetailer")[0]!;
+      expect(set, family).toMatchObject({ bbox_threshold: 0.3, bbox_dilation: 20, bbox_crop_factor: 2, guide_size: 1024, max_size: 1536, feather: 12 });
+      // the largest size is never under the size it is redrawn at
+      expect(node(build(`${family}.fix-face`, { source: "p", detector: "bbox/face.pt", faceSize: 1280, faceMax: 1024 }), "FaceDetailer")[0]!.max_size, family).toBe(1280);
+    }
+  });
+
+  it("the inpaint mask: how far it reaches and how soft its edge is, picked from the part's size when left at 0", () => {
+    for (const family of families) {
+      const usual = build(`${family}.paint-over`, { source: "p", mask: "m", prompt: "a" });
+      expect(node(usual, "GrowMask")[0]!.expand, family).toBe(6);
+      expect(node(usual, "ImageBlur")[0]!.blur_radius, family).toBe(12);
+      const set = build(`${family}.paint-over`, { source: "p", mask: "m", prompt: "a", maskGrow: 24, maskBlur: 30 });
+      expect(node(set, "GrowMask")[0]!.expand, family).toBe(24);
+      expect(node(set, "ImageBlur")[0]!.blur_radius, family).toBe(30);
+    }
+  });
+
+  it("an upscale: by how much", () => {
+    for (const family of families) {
+      const scale = (factor?: number) => node(build(`${family}.sharper`, { source: "p", upscaler: "u.pth", refine: false, ...(factor ? { factor } : {}) }, { media: { source: { width: 640, height: 960 } } }), "ImageScale")[0]!;
+      expect([scale().width, scale().height], family).toEqual([1280, 1920]);
+      expect([scale(3).width, scale(3).height], family).toEqual([1920, 2880]);
+    }
+  });
+
+  it("a hires second pass: its own sampler and scheduler, or the first pass's", () => {
+    for (const id of ["sdxl.text-to-picture", "krea2.text-to-picture", "flux.text-to-picture", "qwen.text-to-picture"]) {
+      const same = node(build(id, { prompt: "a", hires: true, hiresUpscaler: "u.pth", sampler: "euler", scheduler: "simple" }), "KSampler");
+      expect(same.map((k) => [k.sampler_name, k.scheduler]), id).toEqual([["euler", "simple"], ["euler", "simple"]]);
+      const own = node(build(id, { prompt: "a", hires: true, hiresUpscaler: "u.pth", sampler: "euler", scheduler: "simple", hiresSampler: "dpmpp_2m", hiresScheduler: "beta" }), "KSampler");
+      expect(own.map((k) => [k.sampler_name, k.scheduler]), id).toEqual([["euler", "simple"], ["dpmpp_2m", "beta"]]);
+    }
+  });
+
+  it("a video: how it is encoded, Wan's frame rate, LTX's refining pass and decoding, H3's step cache", () => {
+    const h3 = (over: Record<string, unknown>) => h3Video.build(parseInput(h3Video, { description: "a", ...over }), dryContext({ slots: { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors" } }));
+    expect(node(h3({}), "VHS_VideoCombine")[0]!.crf).toBe(19);
+    expect(node(h3({ crf: 12 }), "VHS_VideoCombine")[0]!.crf).toBe(12);
+    expect(node(h3({ fast: false, cache: true }), "MiniMaxH3Cache")[0]).toMatchObject({ reuse_threshold: 0.05, start_percent: 0.15, end_percent: 0.9, max_steps: 2 });
+    expect(node(h3({ fast: false, cache: true, cacheThreshold: 0.1, cacheStart: 0.3, cacheEnd: 0.8, cacheSteps: 3 }), "MiniMaxH3Cache")[0]).toMatchObject({ reuse_threshold: 0.1, start_percent: 0.3, end_percent: 0.8, max_steps: 3 });
+
+    const wanOf = (over: Record<string, unknown>, rife = false) => wanVideo.build(parseInput(wanVideo, { prompt: "a", start: "p", ...over }), dryContext({ slots: { i2vHigh: "h.safetensors", i2vLow: "l.safetensors", clip: "c.safetensors", vae: "v.safetensors", ...(rife ? { rife: "r.pth" } : {}) }, uploads: { start: "a.png" }, media: { start: photo } }));
+    expect(node(wanOf({}), "VHS_VideoCombine")[0]).toMatchObject({ frame_rate: 16, crf: 19 });
+    expect(node(wanOf({ fps: 24, crf: 23 }), "VHS_VideoCombine")[0]).toMatchObject({ frame_rate: 24, crf: 23 });
+    expect(node(wanOf({ fps: 24 }, true), "VHS_VideoCombine")[0]!.frame_rate).toBe(48);
+
+    const ltxOf = (over: Record<string, unknown>, slots: Record<string, string> = {}) => ltxVideo.build(parseInput(ltxVideo, { prompt: "a", ...over }), dryContext({ slots: { checkpoint: "ltx-2.3-22b-dev.safetensors", clip: "gemma.safetensors", upscaler: "up.safetensors", turbo: "lora.safetensors", ...slots } }));
+    const usual = ltxOf({});
+    expect(node(usual, "LoraLoaderModelOnly")[0]!.strength_model).toBe(0.5);
+    expect(node(usual, "VAEDecodeTiled")[0]).toMatchObject({ tile_size: 768, temporal_size: 4096 });
+    const set = ltxOf({ refineStrength: 0.6, refineSteps: 5, loraStrength: 0.8, tile: 512, tileFrames: 64, crf: 15 });
+    expect(node(set, "LoraLoaderModelOnly")[0]!.strength_model).toBe(0.8);
+    expect(node(set, "VAEDecodeTiled")[0]).toMatchObject({ tile_size: 512, temporal_size: 64 });
+    expect(node(set, "VHS_VideoCombine")[0]!.crf).toBe(15);
+    const refine = String(node(set, "ManualSigmas")[1]!.sigmas).split(",").map(Number);
+    expect(refine).toHaveLength(6);
+    expect(refine[0]).toBe(0.6);
+    expect(refine.at(-1)).toBe(0);
+    // it comes down all the way, never back up
+    expect(refine.every((x, i) => i === 0 || x < refine[i - 1]!)).toBe(true);
+    expect(set.passes!.map((x) => x.steps)).toEqual([8, 5]);
+  });
+});
+
+describe("the animated live preview of Wan and LTX", () => {
+  const node = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const photo = { width: 1536, height: 2048 };
+  const wanOf = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}, more: Record<string, string> = {}) =>
+    wanVideo.build(parseInput(wanVideo, { prompt: "a", start: "p", ...over }), dryContext({ slots: { i2vHigh: "h.safetensors", i2vLow: "l.safetensors", clip: "c.safetensors", vae: "v.safetensors", ...more }, uploads: { start: "a.png" }, media: { start: photo }, ...ctx }));
+  const ltxOf = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}, more: Record<string, string> = {}) =>
+    ltxVideo.build(parseInput(ltxVideo, { prompt: "a", ...over }), dryContext({ slots: { checkpoint: "ltx-2.3-22b-distilled.safetensors", clip: "gemma.safetensors", upscaler: "up.safetensors", ...more }, ...ctx }));
+
+  it("Wan: both models send a short clip each step, in place of ComfyUI's still first frame", () => {
+    const b = wanOf();
+    const previews = node(b, "ModelPreviewOverrideKJ");
+    expect(previews).toHaveLength(2);
+    for (const p of previews) expect(p.inputs).toMatchObject({ suppress_default_preview: true, preview_frames: 16, tiny_vae: "none" });
+    // each sampling pass runs on a model that previews
+    const ids = Object.entries(b.graph).filter(([, n]) => n.class_type === "ModelPreviewOverrideKJ").map(([id]) => id);
+    expect(node(b, "KSamplerAdvanced").map((k) => (k.inputs.model as [string, number])[0]).sort()).toEqual([...ids].sort());
+    expect(node(wanOf({}, {}, { tinyVae: "taew2_1.safetensors" }), "ModelPreviewOverrideKJ")[0]!.inputs.tiny_vae).toBe("taew2_1.safetensors");
+  });
+
+  it("LTX: one preview on the model of every pass", () => {
+    const b = ltxOf();
+    const previews = Object.entries(b.graph).filter(([, n]) => n.class_type === "ModelPreviewOverrideKJ");
+    expect(previews).toHaveLength(1);
+    expect(previews[0]![1].inputs).toMatchObject({ suppress_default_preview: true, preview_frames: 16, tiny_vae: "none" });
+    // no sound: the node plays it for H3 alone
+    expect(previews[0]![1].inputs.audio_vae).toBeUndefined();
+    for (const guider of node(b, "CFGGuider")) expect((guider.inputs.model as [string, number])[0]).toBe(previews[0]![0]);
+    expect(node(ltxOf({}, {}, { tinyVae: "taeltx_2.safetensors" }), "ModelPreviewOverrideKJ")[0]!.inputs.tiny_vae).toBe("taeltx_2.safetensors");
+  });
+
+  it("is left out when switched off, and when ComfyUI has no such node", () => {
+    for (const of of [wanOf, ltxOf]) {
+      expect(node(of({ livePreview: false }), "ModelPreviewOverrideKJ")).toHaveLength(0);
+      expect(node(of({}, { has: (c: string) => c !== "ModelPreviewOverrideKJ" }), "ModelPreviewOverrideKJ")).toHaveLength(0);
+    }
+  });
+});
+
+describe("Wan: the models fit the way the clip is made", () => {
+  const node = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const i2v = { i2vHigh: "wan2.2_i2v_high_noise_14B.safetensors", i2vLow: "wan2.2_i2v_low_noise_14B.safetensors", clip: "c.safetensors", vae: "v.safetensors" };
+  const t2v = { t2vHigh: "wan2.2_t2v_high_noise_14B.safetensors", t2vLow: "wan2.2_t2v_low_noise_14B.safetensors" };
+  const tuned = { model: "High/SomeoneWAN22I2V14B_HighV1.safetensors", modelLow: "Low/SomeoneWAN22I2V14B_LowV1.safetensors" };
+  const build = (input: Record<string, unknown>, slots: Record<string, string>, picture = false) =>
+    wanVideo.build(parseInput(wanVideo, { prompt: "a", ...(picture ? { start: "p" } : {}), ...input }), dryContext({ slots, ...(picture ? { uploads: { start: "a.png" }, media: { start: { width: 720, height: 1280 } } } : {}) }));
+  const unets = (b: ReturnType<typeof build>) => node(b, "UNETLoader").map((n) => n.inputs.unet_name);
+
+  it("words alone with picture-to-video models and no words-to-video ones renders nothing, and says why", () => {
+    // what the form holds when only I2V files are there: they would make a flat gray clip
+    expect(() => build(tuned, i2v)).toThrow(/words-to-video \(T2V\) models.*picture-to-video \(I2V\) models.*gray.*start image/s);
+    expect(() => build({}, i2v)).toThrow(/words-to-video \(T2V\) models/);
+  });
+
+  it("words alone takes the words-to-video files in place of a picture-to-video model picked on the form", () => {
+    expect(unets(build(tuned, { ...i2v, ...t2v }))).toEqual([t2v.t2vHigh, t2v.t2vLow]);
+    expect(node(build(tuned, { ...i2v, ...t2v }), "WanImageToVideo")).toHaveLength(0);
+  });
+
+  it("a picked model made for the way, or that does not say, is the one used", () => {
+    expect(unets(build(tuned, i2v, true))).toEqual([tuned.model, tuned.modelLow]);
+    const mine = { model: "my-wan-high.safetensors", modelLow: "my-wan-low.safetensors" };
+    expect(unets(build(mine, i2v))).toEqual([mine.model, mine.modelLow]);
+    const words = { model: "tune_T2V_high.safetensors", modelLow: "tune_T2V_low.safetensors" };
+    expect(unets(build(words, i2v))).toEqual([words.model, words.modelLow]);
+  });
+
+  it("a start image with words-to-video models picked takes the picture-to-video files, or says why it cannot", () => {
+    const words = { model: "tune_T2V_high.safetensors", modelLow: "tune_T2V_low.safetensors" };
+    expect(unets(build(words, i2v, true))).toEqual([i2v.i2vHigh, i2v.i2vLow]);
+    expect(() => build(words, { clip: "c.safetensors", vae: "v.safetensors" }, true)).toThrow(/do not look at the start image/);
   });
 });

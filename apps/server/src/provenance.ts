@@ -16,6 +16,8 @@ export interface Step {
   kind: "image" | "video" | "audio";
   /** What its main text said: empty for a step that had none (an upscale, a face pass left to itself). */
   text: string;
+  /** What its other texts said, by their label (a clip's sounds and music): not the negative prompt. */
+  more: Array<{ label: string; text: string }>;
   /** The LoRAs that were on it. */
   loras: LoraValue[];
   /** Who was in it and how it looked, when that is known: the cast it was sent with, else that of the draft it came from. */
@@ -55,6 +57,9 @@ export async function madeIn(s: Pick<Services, "db" | "registry">, assetId: stri
     const boxes = recipe ? boxesOf(recipe) : [];
     const main = boxes.find((b) => !b.optional && b.id !== "negative") ?? boxes.find((b) => b.id !== "negative");
     const text = typeof inputs[main?.id ?? "prompt"] === "string" ? (inputs[main?.id ?? "prompt"] as string).trim() : "";
+    const more = boxes
+      .filter((b) => b !== main && b.id !== "negative" && typeof inputs[b.id] === "string" && (inputs[b.id] as string).trim())
+      .map((b) => ({ label: b.label, text: (inputs[b.id] as string).trim() }));
     const loras = (recipe?.inputs as InputSpec[] | undefined ?? []).filter((i) => i.type === "loras").flatMap((i) => (Array.isArray(inputs[i.id]) ? (inputs[i.id] as LoraValue[]) : [])).filter((l) => l?.file && l.weight !== 0);
     // the cast it was sent with; for what was made before that was recorded, that of its draft as it is now
     let look = lookOf(resolved.look);
@@ -62,7 +67,7 @@ export async function madeIn(s: Pick<Services, "db" | "registry">, assetId: stri
       const draft = await s.db.selectFrom("drafts").select("look").where("id", "=", g.draft_id).executeTakeFirst();
       look = draft?.look ? lookOf(JSON.parse(draft.look)) : null;
     }
-    steps.push({ recipe: g.recipe_id, title: recipe?.title ?? g.recipe_id, family: s.registry.family(g.family)?.name, kind: a.kind, text, loras, look });
+    steps.push({ recipe: g.recipe_id, title: recipe?.title ?? g.recipe_id, family: s.registry.family(g.family)?.name, kind: a.kind, text, more, loras, look });
     // what it was made from: the picture it redraws, the clip it carries on, the picture it opens on
     const from = await s.db.selectFrom("generation_inputs").select(["asset_id", "role"]).where("generation_id", "=", g.id).where("role", "in", FROM).execute();
     id = FROM.map((role) => from.find((f) => f.role === role)?.asset_id).find(Boolean) ?? null;

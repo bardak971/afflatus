@@ -3,18 +3,28 @@ import { KLEIN_NEGATIVE } from "./family";
 
 /** What every Klein recipe asks for besides its own inputs. */
 export interface KleinBase {
+  model?: string;
   negative: string;
   loras: LoraValue[];
   steps: number;
   cfg: number;
+  sampler: string;
   seed: number;
 }
 
+/** Which Klein model: the base one, a distilled one, or a fine-tune. The form starts on the one found by name. */
+export const kleinModel: InputSpec = {
+  id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["^(?!.*(minimax|h3)).*flux-?2.*klein", "^(?!.*(minimax|h3)).*(klein|f2k)"],
+  note: "FLUX.2 Klein: the base model, a distilled one (4 steps, CFG 1), or a fine-tune",
+};
+
+/** How it samples: the values of ComfyUI's own Klein template for the base model, each kept per model once saved. */
 export const kleinInputs: InputSpec[] = [
   { id: "loras", type: "loras", label: "LoRAs", max: 4 },
-  { id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: KLEIN_NEGATIVE, advanced: true },
-  { id: "steps", type: "number", label: "Steps", note: "20 for the base model, 4 for a distilled one", min: 1, max: 60, step: 1, default: 20, advanced: true },
-  { id: "cfg", type: "number", label: "CFG scale", note: "5 for the base model, 1 for a distilled one", min: 1, max: 12, step: 0.5, default: 5, advanced: true },
+  { id: "negative", type: "prompt", label: "Negative prompt", note: "only acts with a CFG scale above 1, so not with a distilled model", style: "sentences", optional: true, default: KLEIN_NEGATIVE, advanced: true, perModel: true },
+  { id: "steps", type: "number", label: "Steps", note: "20 for the base model, 4 for a distilled one", min: 1, max: 60, step: 1, default: 20, advanced: true, perModel: true },
+  { id: "cfg", type: "number", label: "CFG scale", note: "5 for the base model, 1 for a distilled one", min: 1, max: 12, step: 0.5, default: 5, advanced: true, perModel: true },
+  { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
   { id: "seed", type: "seed", label: "Seed" },
 ];
 
@@ -42,7 +52,8 @@ export const REFERENCE_NODES = ["LoadImage", "ImageScaleToTotalPixels", "VAEEnco
 
 /** The model with its LoRAs, the text reader and the picture decoder. */
 export function loadKlein(g: GraphBuilder, input: KleinBase, ctx: BuildContext): Klein {
-  let model = g.out("UNETLoader", { unet_name: ctx.slots.unet, weight_dtype: "default" });
+  const unet = input.model ?? ctx.slots.unet;
+  let model = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
   for (const l of input.loras) {
     if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
   }
@@ -51,7 +62,7 @@ export function loadKlein(g: GraphBuilder, input: KleinBase, ctx: BuildContext):
     clip: g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "flux2", device: "default" }),
     vae: g.out("VAELoader", { vae_name: ctx.slots.vae }),
     input,
-    loads: [`diffusion_models/${ctx.slots.unet}`, `text_encoders/${ctx.slots.clip}`, `vae/${ctx.slots.vae}`],
+    loads: [`diffusion_models/${unet}`, `text_encoders/${ctx.slots.clip}`, `vae/${ctx.slots.vae}`],
   };
 }
 
@@ -70,7 +81,7 @@ export function kleinCond(g: GraphBuilder, k: Klein, text: string, pictures: Ref
 }
 
 /**
- * Sampling the way Klein is run: its own scheduler, euler. A strength under 1 keeps the first part of
+ * Sampling the way Klein is run: its own scheduler, and euler unless another sampler is picked. A strength under 1 keeps the first part of
  * what is there (the sigmas are split and only the end of them is run).
  */
 export function kleinSample(
@@ -82,7 +93,7 @@ export function kleinSample(
   let sigmas = g.out("Flux2Scheduler", { steps, width: size.width, height: size.height });
   if (strength < 1) sigmas = g.out("SplitSigmasDenoise", { sigmas, denoise: strength }, 1);
   const guider = g.out("CFGGuider", { model: k.model, positive: cond.positive, negative: cond.negative, cfg: k.input.cfg });
-  const sampler = g.out("KSamplerSelect", { sampler_name: "euler" });
+  const sampler = g.out("KSamplerSelect", { sampler_name: k.input.sampler });
   const noise = g.out("RandomNoise", { noise_seed: seed });
   g.phase("sampling");
   const sampled = g.out("SamplerCustomAdvanced", { noise, guider, sampler, sigmas, latent_image: latent });

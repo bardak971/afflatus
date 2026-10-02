@@ -89,6 +89,12 @@ describe("Monitor", () => {
     await until(() => monitor.preview("p1").seq === 2);
     expect(monitor.preview("p1").mime).toBe("video/mp4");
     expect([...monitor.preview("p1").bytes!]).toEqual([1, 2]);
+
+    // what a sampling pass starts from (step 0: noise, or a flat gray on a second pass) does not take its place
+    fake.send("kj_preview_override", { image: Buffer.from([5]).toString("base64"), step: 0, total: 4 });
+    fake.send("kj_preview_override", { image: Buffer.from([3, 4]).toString("base64"), mime: "video/mp4", step: 3, total: 4 });
+    await until(() => monitor.preview("p1").seq === 3);
+    expect([...monitor.preview("p1").bytes!]).toEqual([3, 4]);
   });
 
   it("forgets a prompt when told to", async () => {

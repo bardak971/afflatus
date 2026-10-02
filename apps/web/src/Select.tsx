@@ -15,6 +15,8 @@ export interface Option {
   search?: string;
   /** The section it is listed under. Options of one section must follow each other. */
   group?: string;
+  /** One of the choices put forward (what a picture was made with, among everything it could be changed with): drawn so that it stands out. */
+  marked?: boolean;
 }
 
 /** Shown at most at once: a longer list is narrowed by typing. */
@@ -188,7 +190,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
           <div ref={list} role="listbox" aria-label={label} className="flex min-h-0 grow flex-col overflow-y-auto p-1">
             {shown.map((o, i) => (
               <Fragment key={o.value}>
-              {o.group && o.group !== shown[i - 1]?.group && <div className="shrink-0 px-2 pt-2 pb-1 text-[10px] font-bold tracking-[0.08em] text-ink-3 uppercase">{o.group}</div>}
+              {o.group && o.group !== shown[i - 1]?.group && <div className={cx("shrink-0 px-2 pt-2 pb-1 text-[10px] font-bold tracking-[0.08em] uppercase", o.marked ? "text-accent" : "text-ink-3")}>{o.group}</div>}
               <button
                 type="button"
                 role="option"
@@ -196,11 +198,11 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 data-index={i}
                 onClick={() => pick(o)}
                 onPointerMove={() => setActive(i)}
-                className={cx("flex min-h-8 shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left", i === active && "bg-hover")}
+                className={cx("flex min-h-8 shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left", i === active ? "bg-hover" : o.marked && "bg-accent-wash", o.marked && "mb-0.5")}
               >
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center text-accent">{o.value === value && <Check size={14} strokeWidth={3} />}</span>
                 <span className="flex min-w-0 grow flex-col">
-                  <span className="break-words">{o.label}</span>
+                  <span className={cx("break-words", o.marked && "font-medium")}>{o.label}</span>
                   {o.detail && <span className="truncate text-xs text-ink-3">{o.detail}</span>}
                 </span>
                 {o.note && <span className="max-w-[45%] shrink-0 truncate text-xs text-ink-3">{o.note}</span>}

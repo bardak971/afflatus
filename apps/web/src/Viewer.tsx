@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
 import { askAboutDisk } from "./Confirm";
@@ -8,7 +8,7 @@ import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo, 
 import { useAsset, useAssetAction, useFamilies, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
 import { formDefaults } from "./form";
 import { Kbd, plainKey } from "./Keys";
-import { carryOver, modelGroups } from "./picker";
+import { carryOver, followOn, modelGroups, usedLast } from "./picker";
 import { fileLabel, notReady, recipeLabel, took, when } from "./format";
 import { Select } from "./Select";
 import { PngInfo } from "./PngInfo";
@@ -220,7 +220,7 @@ function TimelinePicker({ asset }: { asset: Asset }) {
 }
 
 /** A picture as a reference image: in which recipe is chosen, none is assumed. Every recipe that takes reference images is listed. */
-function ReferencePicker({ asset }: { asset: Asset }) {
+function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
   const recipes = useRecipes();
   const client = useQueryClient();
   const [, go] = useLocation();
@@ -238,6 +238,7 @@ function ReferencePicker({ asset }: { asset: Asset }) {
       client.setQueryData(["drafts", d.id], d);
       void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
       openDraft(d.id);
+      onDone?.();
       go("/create");
     },
   });
@@ -277,14 +278,23 @@ function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeIn
  * back (redraw it, paint over a part, enlarge it, fix a face, another shape, no background…), the
  * built-in ones and the imported workflows alike. Picking one opens a new draft with the picture in place.
  */
-function ChangePicker({ asset, start }: { asset: Asset; start: { mutate(id: string): void; isPending: boolean; isError: boolean; error: Error | null } }) {
+function ChangePicker({ madeWith, keys, start }: {
+  /** What the picture was made with: that model's own tools are listed first, and stand out. */
+  madeWith?: RecipeInfo;
+  /** The key that opens a tool, by the tool's id. */
+  keys: Record<string, string>;
+  start: { mutate(id: string): void; isPending: boolean; isError: boolean; error: Error | null };
+}) {
   const recipes = useRecipes();
   const setup = useSetup();
   const on = useFamilies().isOn;
-  const ways = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
-  void asset;
-  if (!ways.length) return null;
+  const pictures = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "image");
+  const all = pictures.filter((r) => r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
+  if (!all.length) return null;
   const online = setup.data?.comfy.online ?? false;
+  const mine = madeWith ? modelGroups(pictures, recipes.data?.families ?? []).find((group) => group.recipes.some((r) => r.id === madeWith.id)) : undefined;
+  const own = new Set(all.filter((r) => mine?.recipes.includes(r)).map((r) => r.id));
+  const ways = [...all.filter((r) => own.has(r.id)), ...all.filter((r) => !own.has(r.id))];
   return (
     <div className="flex flex-col gap-1.5">
       <Select
@@ -298,7 +308,9 @@ function ChangePicker({ asset, start }: { asset: Asset; start: { mutate(id: stri
         options={ways.map((r) => {
           const family = recipes.data?.families.find((f) => f.id === r.family);
           const why = setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), online) : null;
-          return { value: r.id, label: r.title, note: why ? "not ready" : undefined, detail: r.summary, group: family?.name ?? "Your workflows", search: family?.name };
+          const note = [keys[r.id] ? `key ${keys[r.id]!.toUpperCase()}` : "", why ? "not ready" : ""].filter(Boolean).join(" · ") || undefined;
+          if (own.has(r.id)) return { value: r.id, label: r.title, note, detail: r.summary, group: `${mine!.name} · what it was made with`, search: `${family?.name ?? ""} ${mine!.name}`, marked: true };
+          return { value: r.id, label: r.title, note, detail: r.summary, group: family?.name ?? "Your workflows", search: family?.name };
         })}
       />
       {start.isError && <span className="text-warn-ink">{start.error?.message}</span>}
@@ -348,46 +360,65 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const [, go] = useLocation();
   const client = useQueryClient();
   const openDraft = useOpenDraft((s) => s.open);
+  /** Over the screen, it steps aside when one of its actions opens a form: the form is what is looked at next. */
+  const leave = () => {
+    if (!inline) onClose();
+  };
+  const toForm = (d: Awaited<ReturnType<typeof api.createDraft>>) => {
+    client.setQueryData(["drafts", d.id], d);
+    void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+    openDraft(d.id);
+    leave();
+    go("/create");
+  };
+  const g = detail.data?.id === asset.id ? detail.data.generation : null;
+  const a: Asset = detail.data?.id === asset.id ? detail.data : asset;
+  const recipe = recipes.data?.recipes.find((r) => r.id === g?.recipe);
   /** The same settings with a new seed, as a new draft: what is being written elsewhere is not touched. */
   const again = useMutation({
     mutationFn: (g: NonNullable<AssetDetail["generation"]>) => api.createDraft({ recipe: g.recipe, forms: { [g.recipe]: { ...g.inputs, seed: -1 } } }),
-    onSuccess: (d) => {
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
-      go("/create");
-    },
+    onSuccess: toForm,
   });
 
-  // a new clip that carries on from this video: a draft on a recipe that can, with this video in its "carries on from" slot
+  // a new clip that carries on from this video, on the model the video was made with and with its settings: with
+  // the video in its "carries on from" slot when that model can join a clip, else opening on the video's last
+  // frame. A video made with nothing that can do either carries on on a model that joins clips
   const on = useFamilies().isOn;
-  const carrier = recipes.data?.recipes.find((r) => on(r.family) && r.inputs.some((i) => i.type === "clip" && i.role === "previous"));
+  const joins = (r: RecipeInfo) => r.inputs.find((i) => i.type === "clip" && i.role === "previous");
+  const opensOn = (r: RecipeInfo) => (r.output === "video" ? r.inputs.find((i) => i.type === "image" && i.role === "start") : undefined);
+  const own = recipe && on(recipe.family) && (joins(recipe) || opensOn(recipe)) ? recipe : undefined;
+  const carrier = own ?? recipes.data?.recipes.find((r) => on(r.family) && joins(r));
+  const fromLastFrame = Boolean(carrier && !joins(carrier));
   const carryOn = useMutation({
-    mutationFn: () => {
-      const slot = carrier!.inputs.find((i) => i.type === "clip" && i.role === "previous")!;
-      return api.createDraft({ recipe: carrier!.id, forms: { [carrier!.id]: { [slot.id]: { asset: asset.id } } }, look: castOf(detail.data) });
+    mutationFn: async () => {
+      const to = carrier!;
+      const settings = followOn(recipe, to, g?.inputs);
+      const slot = joins(to);
+      if (slot) return api.createDraft({ recipe: to.id, forms: { [to.id]: { ...settings, [slot.id]: { asset: asset.id } } }, look: castOf(detail.data) });
+      // past its end, the last frame that can be read is the one taken
+      const last = await api.frame(asset.id, a.durationMs ?? 0);
+      void client.invalidateQueries({ queryKey: ["assets"] });
+      return api.createDraft({ recipe: to.id, forms: { [to.id]: { ...settings, [opensOn(to)!.id]: last.id } }, look: castOf(detail.data) });
     },
-    onSuccess: (d) => {
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
-      go("/create");
-    },
+    onSuccess: toForm,
   });
 
-  // a picture as the first frame of a new video: a draft on a video model that can open on a picture
-  const opener = recipes.data?.recipes.find((r) => on(r.family) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start"));
+  // a picture as the first frame of a new video: a draft on the video model used last among those that can
+  // open on a picture (the form can still be put on another one: the picture goes along)
+  const setup = useSetup();
+  const drafts = useQuery({ queryKey: ["drafts"], queryFn: api.drafts });
+  const opener = usedLast(
+    (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start")),
+    drafts.data?.items,
+    (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready),
+  );
+  const openerName = opener ? (recipes.data?.families.find((f) => f.id === opener.family)?.name ?? opener.title) : "";
   const animate = useMutation({
     mutationFn: () => {
       const slot = opener!.inputs.find((i) => i.type === "image" && i.role === "start")!;
       return api.createDraft({ recipe: opener!.id, forms: { [opener!.id]: { [slot.id]: asset.id } }, look: castOf(detail.data) });
     },
-    onSuccess: (d) => {
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
-      go("/create");
-    },
+    onSuccess: toForm,
   });
   // a picture of someone, or a voice, straight into a new draft of a model that follows them
   const follower = recipes.data?.recipes.find((r) => on(r.family) && r.inputs.some((i) => (asset.kind === "audio" ? i.type === "audio" && i.role === "voice" : i.type === "references")));
@@ -396,12 +427,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
       const slot = follower!.inputs.find((i) => (asset.kind === "audio" ? i.type === "audio" : i.type === "references"))!;
       return api.createDraft({ recipe: follower!.id, forms: { [follower!.id]: { [slot.id]: asset.kind === "audio" ? asset.id : [{ asset: asset.id, role: "person" }] } } });
     },
-    onSuccess: (d) => {
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
-      go("/create");
-    },
+    onSuccess: toForm,
   });
   // what a video gives besides itself: the frame it is paused on, and its sound; both open here once made
   const player = useRef<HTMLVideoElement>(null);
@@ -412,12 +438,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const saveFrame = useMutation({ mutationFn: () => api.frame(asset.id, Math.round((player.current?.currentTime ?? 0) * 1000)), onSuccess: opened });
   const takeSound = useMutation({ mutationFn: () => api.takeSound(asset.id), onSuccess: opened });
 
-  const g = detail.data?.id === asset.id ? detail.data.generation : null;
-  const a: Asset = detail.data?.id === asset.id ? detail.data : asset;
-  const recipe = recipes.data?.recipes.find((r) => r.id === g?.recipe);
-
   // ---- what the keys do
-  const setup = useSetup();
   const modelSettings = useModelSettings();
   const say = useBanners((b) => b.push);
   const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
@@ -436,12 +457,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
       const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
       return api.createDraft({ recipe: tool.id, forms: { [tool.id]: { ...carried(g, recipe, tool), [slot.id]: asset.id } }, look: castOf(detail.data) });
     },
-    onSuccess: (d) => {
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
-      go("/create");
-    },
+    onSuccess: toForm,
   });
   /** Queue something at once, and say so. */
   const queued = useMutation({
@@ -556,8 +572,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           {a.kind === "image" && (["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
             <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: a new draft in the form, with this picture.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
           ))}
-          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title="A new video that opens on this picture." onClick={() => animate.mutate()}><Clapperboard size={13} /> Video <Kbd>M</Kbd></Button>}
-          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title="A new clip whose first moments are the last moments of this one." onClick={() => carryOn.mutate()}><Link2 size={13} /> Continue it <Kbd>C</Kbd></Button>}
+          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title={`A new video that opens on this picture, with ${openerName}: the video model used last.`} onClick={() => animate.mutate()}><Clapperboard size={13} /> Video <Kbd>M</Kbd></Button>}
+          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title={fromLastFrame ? "A new clip that opens on the last frame of this one, on the same model and settings." : "A new clip whose first moments are the last moments of this one."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Continue it <Kbd>C</Kbd></Button>}
           {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video where you want, then save that frame as a picture." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save the frame <Kbd>G</Kbd></Button>}
           {onDetails && <Button size="sm" onClick={onDetails} title="How it was made, where it is filed, and everything else that can be done with it">Details</Button>}
           <Button size="sm" onClick={() => void toBin()} title="Move it to the bin, and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
@@ -637,7 +653,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
 
           {!a.inBin && <FolderPicker asset={a} />}
           {!a.inBin && a.kind !== "audio" && <TimelinePicker asset={a} />}
-          {!a.inBin && a.kind === "image" && <ChangePicker asset={a} start={openTool} />}
+          {!a.inBin && a.kind === "image" && (
+            <ChangePicker madeWith={recipe} keys={Object.fromEntries((["i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [[toolFor(k)!.id, k]] : [])))} start={openTool} />
+          )}
           {!a.inBin && a.kind === "image" && (
             <div className="flex flex-wrap gap-1.5">
               {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
@@ -645,14 +663,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
                   {OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd>
                 </Button>
               ))}
-              {(["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
-                <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: opens its form with this picture, on a new draft.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>
-                  {OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd>
-                </Button>
-              ))}
             </div>
           )}
-          {!a.inBin && a.kind === "image" && <ReferencePicker asset={a} />}
+          {!a.inBin && a.kind === "image" && <ReferencePicker asset={a} onDone={leave} />}
 
           <div className="flex flex-col gap-2">
             {g && recipe && (
@@ -662,7 +675,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
               </div>
             )}
             {a.kind === "image" && !a.inBin && opener && (
-              <Button onClick={() => animate.mutate()} disabled={animate.isPending} title="A new video that opens on this picture.">
+              <Button onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video that opens on this picture, with ${openerName}: the video model used last.`}>
                 <Clapperboard size={15} /> Make a video from it <Kbd>M</Kbd>
               </Button>
             )}
@@ -686,9 +699,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
                 <Music size={15} /> {takeSound.isPending ? "Taking…" : "Take its sound"}
               </Button>
             )}
-            {(saveFrame.isError || takeSound.isError || animate.isError) && <span className="text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error)?.message}</span>}
+            {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError) && <span className="text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error)?.message}</span>}
             {a.kind === "video" && !a.inBin && carrier && (
-              <Button onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title="A new clip whose first moments are the last moments of this one. You can pick the frame it starts from.">
+              <Button onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip that opens on the last frame of this one, on the same model and settings. The frame is saved as a picture in your library." : "A new clip whose first moments are the last moments of this one. You can pick the frame it starts from."}>
                 <Link2 size={15} /> Continue it <Kbd>C</Kbd>
               </Button>
             )}
@@ -708,7 +721,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           </div>
         </div>
       </aside>
-      {info && <PngInfo name={asset.name || "This file"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} />}
+      {info && <PngInfo name={asset.name || "This file"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} />}
     </div>
   );
 }

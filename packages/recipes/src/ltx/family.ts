@@ -53,6 +53,11 @@ export const ltx = defineFamily({
       get: { file: "ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors", url: "https://huggingface.co/Comfy-Org/ltx-2.3/resolve/main/split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors" },
     },
     {
+      id: "tinyVae", label: "Tiny VAE for the live preview", folder: "vae_approx", detect: ["tae.?ltx.?2.?3", "tae.?ltx"], optional: true,
+      hint: "Optional, 24 MB: with taeltx2_3.safetensors in ComfyUI's models/vae_approx folder, the animated live preview shows the real picture. Without it, it is a few blurred patches of colour (LTX's latent is 32 times smaller than the clip).",
+      get: { file: "taeltx2_3.safetensors", url: "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/taeltx2_3.safetensors" },
+    },
+    {
       id: "rife", label: "Smooth motion (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
       hint: "Without it, clips stay at 25 pictures a second. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },

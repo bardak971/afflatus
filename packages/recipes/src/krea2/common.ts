@@ -88,11 +88,11 @@ export function krea2Cond(g: GraphBuilder, k: Krea2, positive: Ref) {
 }
 
 /** One pass of sampling. */
-export function krea2Sample(g: GraphBuilder, k: Krea2, model: Ref, cond: { positive: Ref; negative: Ref }, latent: Ref, opts: { steps?: number; denoise?: number } = {}) {
+export function krea2Sample(g: GraphBuilder, k: Krea2, model: Ref, cond: { positive: Ref; negative: Ref }, latent: Ref, opts: { steps?: number; denoise?: number; sampler_name?: string; scheduler?: string } = {}) {
   const steps = opts.steps ?? k.input.steps;
   const sampled = g.out("KSampler", {
     model, positive: cond.positive, negative: cond.negative, latent_image: latent, seed: k.seed,
-    steps, cfg: k.input.cfg, sampler_name: k.input.sampler, scheduler: k.input.scheduler, denoise: opts.denoise ?? 1,
+    steps, cfg: k.input.cfg, sampler_name: opts.sampler_name ?? k.input.sampler, scheduler: opts.scheduler ?? k.input.scheduler, denoise: opts.denoise ?? 1,
   });
   return { latent: sampled, pass: { node: sampled[0], steps } };
 }

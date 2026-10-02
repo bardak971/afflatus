@@ -5,6 +5,17 @@ import { LTX_FPS, ltxCanvas, ltxFrames } from "./family";
 export const LTX_SIGMAS = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0";
 /** The schedule of the second pass, over the enlarged clip: 3 steps that only refine. */
 export const LTX_REFINE_SIGMAS = "0.85, 0.7250, 0.4219, 0.0";
+/** How the refining pass comes down from where it starts, in three steps, as LTX's authors wrote it: shares of its first value. */
+const REFINE_SHAPE = LTX_REFINE_SIGMAS.split(",").map((x) => Number(x) / 0.85);
+/**
+ * The schedule of the refining pass: it starts at `from` (how much of the enlarged clip is redrawn) and
+ * comes down to nothing in `steps` steps. At 0.85 in 3 steps it is LTX's own, to the digit; other
+ * figures follow the same curve.
+ */
+export function refineSigmas(from: number, steps: number): string {
+  const shares = steps === 3 ? REFINE_SHAPE : Array.from({ length: steps + 1 }, (_x, i) => 1 - (i / steps) ** 1.75);
+  return shares.map((x, i) => (i === shares.length - 1 ? "0.0" : String(Number((from * x).toFixed(4))))).join(", ");
+}
 const OWN_SCHEDULE = "LTX's own (8 steps)";
 const BY_STEPS = "By steps";
 
@@ -19,6 +30,12 @@ export interface LtxVideo {
   shape: SizeValue;
   short: number;
   twoPass: boolean;
+  refineStrength: number;
+  refineSteps: number;
+  loraStrength: number;
+  tile: number;
+  tileFrames: number;
+  crf: number;
   schedule: string;
   steps: number;
   scheduler: string;
@@ -29,6 +46,7 @@ export interface LtxVideo {
   endStrength: number;
   compression: number;
   smooth: boolean;
+  livePreview: boolean;
   loras: LoraValue[];
   seed: number;
 }
@@ -93,6 +111,11 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       note: "half the size first, enlarged with the latent upscaler, then 3 steps that refine: faster and sharper. Off, or without the upscaler, or with an end image: one pass at full size",
     },
     {
+      id: "refineStrength", type: "number", label: "Second pass: how much it redraws", min: 0.3, max: 1, step: 0.05, default: 0.85, showWhen: "twoPass", advanced: true,
+      note: "where the refining pass starts: 0.85 is LTX's own. Lower keeps the enlarged clip closer to the first pass, higher lets it change more",
+    },
+    { id: "refineSteps", type: "number", label: "Second pass: steps", note: "3 is LTX's own", min: 1, max: 8, step: 1, default: 3, showWhen: "twoPass", advanced: true },
+    {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "made for 8 steps as it is: no distilled LoRA is added. Auto reads it from the file name",
     },
@@ -122,6 +145,17 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       id: "compression", type: "number", label: "Picture roughened by", min: 0, max: 50, step: 1, default: 18, advanced: true,
       note: "the start and end pictures are compressed like a video frame before the model sees them: a picture that is too clean gives a clip that does not move. 0 leaves them as they are",
     },
+    {
+      id: "loraStrength", type: "number", label: "Distilled LoRA strength", min: 0, max: 1.5, step: 0.05, default: 0.5, advanced: true, perModel: true,
+      note: "only for a model that is not distilled: how strongly the distilled LoRA is put on it. 0.5 is what ComfyUI's template uses",
+    },
+    { id: "tile", type: "number", label: "Decoding: tile size", note: "the clip is turned into pictures piece by piece: smaller pieces need less memory and take longer", min: 256, max: 2048, step: 32, default: 768, unit: " px", advanced: true },
+    { id: "tileFrames", type: "number", label: "Decoding: frames at a time", note: "fewer needs less memory. 4096 is all of them at once", min: 16, max: 4096, step: 8, default: 4096, advanced: true },
+    { id: "crf", type: "number", label: "Encoding quality (CRF)", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
+    {
+      id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
+      note: "while it renders, a short clip of what is forming, each step, without its sound. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",
+    },
     { id: "smooth", type: "toggle", label: "Smooth: 50 fps", note: "frames interpolated with RIFE, from 25 to 50 a second", default: false, advanced: true },
     { id: "loras", type: "loras", label: "LoRAs", max: 6 },
     { id: "seed", type: "seed", label: "Seed" },
@@ -139,7 +173,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
   optionalNodes: [
     "UNETLoader", "DualCLIPLoader", "VAELoader", "CheckpointLoaderSimple", "LTXVAudioVAELoader", "LTXAVTextEncoderLoader", "LoraLoaderModelOnly",
     "LatentUpscaleModelLoader", "LTXVLatentUpsampler", "LTXVImgToVideoInplace", "LTXVAddGuide", "LTXVCropGuides", "ManualSigmas",
-    "FrameInterpolationModelLoader", "FrameInterpolate",
+    "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
   ],
 
   build(input, ctx) {
@@ -179,11 +213,20 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     }
     // the full model works in 8 steps with the distilled LoRA at half strength, as ComfyUI's template has it
     const lora = !picked.distilled && slots.turbo ? slots.turbo : undefined;
-    if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: 0.5 });
+    if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength });
     for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
 
     const byHand = input.schedule !== BY_STEPS;
     if (!byHand && input.shift > 0) model = g.out("ModelSamplingSD3", { model, shift: input.shift });
+    // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
+    // there), sent as a short clip. ComfyUI's own preview is the first frame alone. No sound: the node
+    // plays it for H3 alone (seen on a real render: an audio VAE given here is not used)
+    if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
+      model = g.out("ModelPreviewOverrideKJ", {
+        model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12,
+        tiny_vae: slots.tinyVae ?? "none",
+      });
+    }
     const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
     const sigmas = () => (byHand ? g.out("ManualSigmas", { sigmas: LTX_SIGMAS }) : g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: 1 }));
 
@@ -225,11 +268,11 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       // the opening picture again, at full size and at full strength: the first frame is the picture itself
       if (input.start) large = g.out("LTXVImgToVideoInplace", { vae, image: frame(uploads.start, width, height), latent: large, strength: 1, bypass: false });
       g.phase("refining");
-      const refine = LTX_REFINE_SIGMAS.split(",").length - 1;
+      const refine = input.refineSteps;
       const second = g.add("SamplerCustomAdvanced", {
         noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
         guider: g.out("CFGGuider", { model, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
-        sampler, sigmas: g.out("ManualSigmas", { sigmas: LTX_REFINE_SIGMAS }),
+        sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(input.refineStrength, refine) }),
         latent_image: g.out("LTXVConcatAVLatent", { video_latent: large, audio_latent: [made, 1] }),
       });
       passes.push({ node: second, steps: refine });
@@ -265,7 +308,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     }
 
     g.phase("decoding");
-    let images = g.out("VAEDecodeTiled", { samples: video, vae, tile_size: 768, overlap: 64, temporal_size: 4096, temporal_overlap: 4 });
+    let images = g.out("VAEDecodeTiled", { samples: video, vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: 4 });
     const heard = g.out("LTXVAudioVAEDecode", { samples: audio, audio_vae: audioVae });
     const smooth = input.smooth && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
     if (smooth) {
@@ -276,7 +319,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
       images, audio: heard, frame_rate: smooth ? LTX_FPS * 2 : LTX_FPS, loop_count: 0, filename_prefix: "studai/video", format: "video/h264-mp4",
-      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: 19, save_metadata: false, trim_to_audio: false,
+      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
     });
 
     return {

@@ -1,7 +1,10 @@
 import { defineRecipe, GraphBuilder, type ReferenceValue, type SizeValue } from "@studai/core";
-import { boxOf, FACE_DETECTOR_PREFER, MASK_NODES, maskParts, UPSCALER_PREFER } from "../sdxl/common";
 import {
-  introduce, kleinCond, kleinInputs, kleinSample, kleinSize, LOAD_NODES, loadKlein, r16, REFERENCE_NODES, SAMPLE_NODES, withIntro,
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
+  type FaceSettings, type MaskSettings, type UpscaleSettings,
+} from "../sdxl/common";
+import {
+  introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSize, LOAD_NODES, loadKlein, r16, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
 } from "./common";
 
@@ -25,6 +28,7 @@ export const kleinPicture = defineRecipe<KleinPicture>({
   summary: "Text to image, from a prompt in plain sentences. With reference images of a person, a place or clothes, it keeps them.",
   output: "image",
   inputs: [
+    kleinModel,
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A woman in a linen shirt drinks coffee on a terrace at sunrise, soft light, waist up." },
     {
       id: "references", type: "references", label: "Reference images", max: 6, roles: [...ALL_ROLES],
@@ -79,6 +83,7 @@ export const kleinEdit = defineRecipe<KleinEdit>({
   summary: "Instruction editing: prompt what to change (the clothes, the place, the light, the pose) and what stays.",
   output: "image",
   inputs: [
+    kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "an instruction: what to change, and what stays", style: "sentences", placeholder: "Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same." },
     {
@@ -112,7 +117,7 @@ export const kleinEdit = defineRecipe<KleinEdit>({
 
 // ---------------------------------------------------------------- paint over a part
 
-export interface KleinPaintOver extends KleinBase {
+export interface KleinPaintOver extends KleinBase, MaskSettings {
   source: string;
   mask: string;
   prompt: string;
@@ -137,11 +142,13 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
   summary: "Paint a mask over a part of a picture and prompt what changes there. Only the masked part is redrawn.",
   output: "image",
   inputs: [
+    kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 redoes the masked part from the prompt; lower only touches it up", min: 0.1, max: 1, step: 0.05, default: 1 },
     { id: "references", type: "references", label: "Reference images", max: 4, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
+    ...MASK_INPUTS,
     ...kleinInputs,
   ],
   nodes: (input) => [
@@ -157,7 +164,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const part = g.out("ImageCrop", { image: source, width: box.width, height: box.height, x: box.x, y: box.y });
     const sized = g.out("ImageScale", { image: part, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-    const masks = maskParts(g, ctx.uploads.mask!, box, size);
+    const masks = maskParts(g, ctx.uploads.mask!, box, size, input);
     const pictures = [sized, ...input.references.map((_, i) => g.out("LoadImage", { image: ctx.uploads[`references.${i}`] }))];
     const intro = input.references.length ? `Picture 1 is the picture to change. ${introduce(input.references, 2)}` : "";
     const cond = kleinCond(g, k, withIntro(intro, input.prompt), pictures);
@@ -224,6 +231,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
   summary: "Extends a picture to another aspect ratio by drawing what is beyond its edges. Nothing is cropped and what was there stays.",
   output: "image",
   inputs: [
+    kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "shape", type: "choice", label: "Aspect ratio", options: SHAPES, default: "Widescreen 16:9" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "optional: what is around it. Left empty, the surroundings simply continue", style: "sentences", optional: true, default: "" },
@@ -261,7 +269,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
 
 // ---------------------------------------------------------------- twice as large
 
-export interface KleinSharper extends KleinBase {
+export interface KleinSharper extends KleinBase, UpscaleSettings {
   source: string;
   upscaler: string;
   refine: boolean;
@@ -278,8 +286,10 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   summary: "For photos: upscales to twice the size with an upscale model, then a light img2img pass so it looks photographed, not smeared.",
   output: "image",
   inputs: [
+    kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER] },
+    FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscaling", note: "a light pass with the model; skipped when the result is larger than about 2.5 megapixels", default: true },
     ...kleinInputs,
   ],
@@ -289,7 +299,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const size = { width: r16(from.width * 2), height: r16(from.height * 2) };
+    const size = { width: r16(from.width * input.factor), height: r16(from.height * input.factor) };
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     g.phase("upscaling");
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
@@ -316,7 +326,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
 
 // ---------------------------------------------------------------- fix the face
 
-export interface KleinFixFace extends KleinBase {
+export interface KleinFixFace extends KleinBase, FaceSettings {
   source: string;
   references: ReferenceValue[];
   /** With two people in the picture: pictures of the one on the right (`references` is then the one on the left). */
@@ -330,8 +340,8 @@ const SAME_FACE = "the same person's face, identical to the reference photos: sa
 /** What a face is redrawn with, whichever node does it. */
 const detail = (k: ReturnType<typeof loadKlein>, input: KleinFixFace, cond: { positive: unknown; negative: unknown }, seed: number) => ({
   model: k.model, clip: k.clip, vae: k.vae, positive: cond.positive, negative: cond.negative,
-  guide_size: 768, guide_size_for: true, max_size: 1024, seed, steps: input.steps, cfg: input.cfg,
-  sampler_name: "euler", scheduler: "simple", denoise: input.strength, feather: 5, noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
+  guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed, steps: input.steps, cfg: input.cfg,
+  sampler_name: input.sampler, scheduler: "simple", denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
 });
 
 /**
@@ -348,6 +358,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
   summary: "For photos, like ADetailer: detects the face and inpaints it sharper, from reference images of the same person so that it stays them. Needs the Impact Pack nodes.",
   output: "image",
   inputs: [
+    kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
     {
       id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"],
@@ -359,6 +370,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
     },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.5 pulls the face back to the reference images", min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
     { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+    ...FACE_INPUTS,
     ...kleinInputs,
   ],
   nodes: (input) => [
@@ -374,7 +386,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
     if (input.references.length && input.second.length) {
       const people = [load("references"), load("second")];
       g.phase("detailing");
-      const found = g.out("BboxDetectorSEGS", { bbox_detector: detector, image: source, threshold: 0.5, dilation: 10, crop_factor: 3, drop_size: 10, labels: "all" });
+      const found = g.out("BboxDetectorSEGS", { bbox_detector: detector, image: source, threshold: input.faceThreshold, dilation: input.faceGrow, crop_factor: input.faceCrop, drop_size: 10, labels: "all" });
       // the two largest faces, whoever else is in the background
       const two = g.out("ImpactSEGSOrderedFilter", { segs: found, target: "area(=w*h)", order: true, take_start: 0, take_count: 2 });
       let image = source;
@@ -394,7 +406,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
     g.phase("detailing");
     const fixed = g.add("FaceDetailer", {
       image: source, bbox_detector: detector, ...detail(k, input, cond, ctx.seed),
-      bbox_threshold: 0.5, bbox_dilation: 10, bbox_crop_factor: 3, sam_detection_hint: "center-1", sam_dilation: 0,
+      bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
       sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",
       drop_size: 10,
     });
@@ -436,6 +448,7 @@ export const kleinVariation = defineRecipe<KleinVariation>({
   summary: "The same picture taken again: the same people, place, clothes and light, with a slightly different pose, expression and angle. Make several and keep the best.",
   output: "image",
   inputs: [
+    kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: `optional: left empty, ${DIFFERS}`, style: "sentences", optional: true, default: "", placeholder: "she looks over her shoulder and laughs" },
     { id: "photo", type: "toggle", label: "It is a photo", note: "off for a drawing or a painting: its style is kept instead", default: true },

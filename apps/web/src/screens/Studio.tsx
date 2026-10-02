@@ -18,7 +18,7 @@ import { plainKey } from "../Keys";
 import { LivePreview } from "../LivePreview";
 import { LookBar, lookWords } from "../LookBar";
 import { FormModel, ResultsPlace, useStop } from "../ModelLoad";
-import { carryOver, modelGroups } from "../picker";
+import { carryAcross, carryOver, modelGroups } from "../picker";
 import { Popover } from "../Popover";
 import { appendTo } from "../promptText";
 import { Select } from "../Select";
@@ -154,8 +154,13 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
     setLastOf((l) => ({ ...l, [r.output]: id }));
     const to = groups.find((g) => g.recipes.includes(r));
     if (to) setLastIn((l) => ({ ...l, [to.key]: id }));
-    // another operation of the same model takes along what was set: the prompt, the model, the LoRAs, how it samples
-    const carried = recipe && draft && to && to === group ? carryOver(recipe, r, draft.forms[recipe.id], draft.forms[r.id]) : {};
+    // another operation of the same model takes along what was set: the prompt, the model, the LoRAs, how it samples.
+    // Another model that makes the same kind of thing takes along what it is made from and about: the pictures
+    // (a start image stays the start image) and what is written, never the settings of the first model
+    const carried = !recipe || !draft || !to ? {}
+      : to === group ? carryOver(recipe, r, draft.forms[recipe.id], draft.forms[r.id])
+      : r.output === recipe.output ? carryAcross(recipe, r, draft.forms[recipe.id], draft.forms[r.id])
+      : {};
     d.setRecipe(id, carried);
   };
   const pickModel = (key: string) => {
@@ -430,7 +435,7 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
       <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-ground p-[var(--stage-pad)]">
         {live && running && (
           <div className="flex min-h-0 grow flex-col items-center justify-center gap-3 pb-4">
-            <LivePreview job={running} sound className="max-h-[calc(100%-70px)] max-w-full rounded-lg object-contain" />
+            <LivePreview job={running} sound className="h-[calc(100%-70px)] min-h-0 w-auto max-w-full rounded-lg object-contain" />
             <div className="flex w-72 flex-col items-center gap-1.5 text-center">
               <span className="font-semibold">{phaseLabel(running.phase)}{running.steps ? ` · step ${running.step} of ${running.steps}` : ""}{running.eta ? ` · ${about(running.eta)}` : ""}</span>
               <div className="w-full"><Bar value={running.progress * 100} /></div>

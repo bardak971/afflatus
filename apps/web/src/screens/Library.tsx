@@ -128,6 +128,15 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   const [over, setOver] = useState<string | null>(null);
   const [text, setText] = useState("");
   const storage = useStorage();
+  // the bin, emptied now instead of waiting a week: asked twice, it cannot be undone
+  const [emptying, setEmptying] = useState(false);
+  const empty = useMutation({
+    mutationFn: api.emptyBin,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["assets"] });
+      void client.invalidateQueries({ queryKey: ["timelines"] });
+    },
+  });
 
   const selected = place.type === "folder" ? place.id : null;
   const create = useMutation({ mutationFn: (v: { name: string; parent: string | null }) => api.createFolder(v.name, v.parent), onSuccess: refresh });
@@ -178,7 +187,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     setEditing(null);
     setText("");
   };
-  const error = create.error ?? rename.error ?? remove.error ?? move.error ?? link.error ?? look.error ?? folders.error;
+  const error = create.error ?? rename.error ?? remove.error ?? move.error ?? link.error ?? look.error ?? empty.error ?? folders.error;
 
   return (
     <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
@@ -297,6 +306,21 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
         <span className="flex items-center gap-2"><Trash2 size={14} /> Bin</span>
         {storage.data && storage.data.bin.count > 0 && <span className="shrink-0 font-normal text-ink-2">{storage.data.bin.count}</span>}
       </button>
+      {storage.data && storage.data.bin.count > 0 && (
+        <div className="flex flex-wrap items-center gap-1 py-1 pl-1.5">
+          {emptying ? (
+            <>
+              <span className="text-xs text-ink-2">This cannot be undone.</span>
+              <button type="button" disabled={empty.isPending} onClick={() => { empty.mutate(); setEmptying(false); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Erase {size(storage.data.bin.bytes)}</button>
+              <button type="button" onClick={() => setEmptying(false)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
+            </>
+          ) : (
+            <button type="button" disabled={empty.isPending} title="Everything in the bin is erased now, files and all, instead of after its 7 days." onClick={() => setEmptying(true)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink">
+              <Trash2 size={12} /> {empty.isPending ? "Emptying…" : `Empty it now · ${size(storage.data.bin.bytes)}`}
+            </button>
+          )}
+        </div>
+      )}
       {storage.data && (
         <Link href="/settings" title="Where the space goes, and how to get some back: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
           {size(storage.data.total)} used

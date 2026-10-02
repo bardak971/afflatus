@@ -116,7 +116,7 @@ export interface DesignerContext {
    * (a picture that was upscaled, edited, or saved out of a video has its story behind it). It is what a
    * picture shows, in words, for a language model that cannot look at it, and a help for one that can.
    */
-  madeFrom?: Array<{ what: string; steps: Array<{ title: string; with?: string; text: string; loras: Array<{ name: string; trigger?: string }> }> }>;
+  madeFrom?: Array<{ what: string; steps: Array<{ title: string; with?: string; text: string; more: Array<{ label: string; text: string }>; loras: Array<{ name: string; trigger?: string }> }> }>;
   /** Who is in it, as names with their words: they are added on their own, the designer must not repeat them. */
   cast?: Array<{ name: string; words: string }>;
   /** The look and mood of the whole video. */
@@ -148,15 +148,15 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
           .map((c, i) => `${i + 1}.${i === ctx.story!.index ? " (THIS CLIP)" : ""} ${c.trim().slice(0, 700) || "(nothing written yet)"}`)
           .join("\n")}\nKeep it one story: do not show again what an earlier clip already showed, lead into what the next clip needs, and keep the people, the place, the clothes and the mood the same from clip to clip unless the user says otherwise. You only write clip ${ctx.story.index + 1}.`
       : "",
-    ctx.previous ? `This clip CONTINUES the clip before it (the model is given that clip's last frames): carry the action on from where it ended, nothing resets. Restate how the people look in a short clause, so they stay the same people even if that clip ended on a close-up. What the clip before says:\n${ctx.previous.slice(0, 2500)}` : "",
+    ctx.previous ? `This clip CONTINUES the clip before it (the model is given that clip's last frames): carry the action on from where it ended, nothing resets. Restate how the people look in a short clause, so they stay the same people even if that clip ended on a close-up. What the clip before says, which has ALREADY HAPPENED and is not to be shown or said again:\n${ctx.previous.slice(0, 2500)}\nWrite ONLY what comes after it: the next action, and new words if someone speaks (never the same line a second time). A text that says again what the clip before says is wrong, however it is reworded.` : "",
     ctx.opensOnPicture && !ctx.previous ? "A picture is the FIRST FRAME: the action starts from exactly what it shows." : "",
     ctx.endsOnPicture ? "A picture is the LAST FRAME: the action has to arrive at it." : "",
     ctx.madeFrom?.length
       ? `${ctx.madeFrom
           .map((m) => `${m.what} was made here, in ${m.steps.length === 1 ? "one step" : `${m.steps.length} steps, the oldest first`}:\n${m.steps
-            .map((x, i) => `${i + 1}. ${x.title}${x.with ? ` with ${x.with}` : ""}${x.text ? `: ${x.text.slice(0, 1500)}` : " (no text of its own: it worked on the picture as it was)"}${x.loras.length ? `\n   LoRAs on it: ${x.loras.map((l) => `${l.name}${l.trigger ? ` (its words: ${l.trigger})` : ""}`).join("; ")}` : ""}`)
+            .map((x, i) => `${i + 1}. ${x.title}${x.with ? ` with ${x.with}` : ""}${x.text ? `: ${x.text.slice(0, 1500)}` : " (no text of its own: it worked on the picture as it was)"}${x.more.map((m) => `\n   ${m.label}: ${m.text.slice(0, 500)}`).join("")}${x.loras.length ? `\n   LoRAs on it: ${x.loras.map((l) => `${l.name}${l.trigger ? ` (its words: ${l.trigger})` : ""}`).join("; ")}` : ""}`)
             .join("\n")}`)
-          .join("\n\n")}\nThose texts say what it shows: the people and how they look, what they wear, the place, the light; a later step that changes something wins over an earlier one. Take those from them, in your own words and in the way THIS model's prompts are written; do not copy their tags or quality words, and do not add what they do not say. A LoRA named there shaped how it looks and is NOT in use now: where its look matters, say that look in plain words, never its trigger words.`
+          .join("\n\n")}\nThose texts say what it shows and, for a clip, what has already happened and been said: the people and how they look, what they wear, the place, the light; a later step that changes something wins over an earlier one. Take those from them, in your own words and in the way THIS model's prompts are written; do not copy their tags or quality words, and do not add what they do not say. A LoRA named there shaped how it looks and is NOT in use now: where its look matters, say that look in plain words, never its trigger words.`
       : "",
     ctx.opensOnPicture && !ctx.seesPicture && !ctx.madeFrom?.length ? "You cannot see that picture. Never invent a place, props, light, weather, clothing or other people for it: say nothing about the setting and describe only the motion, the expression, the sound and the camera, unless the user says what the picture shows." : "",
     ctx.opensOnPicture && !ctx.seesPicture && ctx.madeFrom?.length ? "You cannot see the picture itself: what you know of it is the prompt it was made from. Do not invent what that prompt does not say." : "",
@@ -243,6 +243,8 @@ export interface DesignerReply {
   empty?: boolean;
   /** Parts whose new text is far shorter than what is written (by id: the lengths): it may be a fragment. */
   short?: Record<string, { was: number; now: number }>;
+  /** It wrote the clip before again, twice, in place of what comes next. */
+  repeats?: boolean;
   /** What the language model sent, when something was off with it: to look at. */
   raw?: string;
 }
@@ -279,16 +281,34 @@ export function parseReply(raw: string, recipe: Recipe<any>, values: Record<stri
 /** The user asked for less text: a much shorter answer is then what was wanted. */
 const asksShorter = (said: string) => /\b(short|brief|concise|trim|cut|summar|less|fewer|simpl|tight|condens|compact|court|raccourc|r[ée]sum|k[uü]rz)/i.test(said);
 
-export type Trouble = { kind: "empty" } | { kind: "short"; parts: Record<string, { was: number; now: number }> };
+export type Trouble = { kind: "empty" } | { kind: "short"; parts: Record<string, { was: number; now: number }> } | { kind: "repeat"; part: string };
+
+const wordsOf = (text: string) => text.toLowerCase().replace(/<[^>]*>/g, " ").replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+/**
+ * How much of a text is another one said again, 0 to 1: the share of its runs of three words that the
+ * other has too. Rewording a sentence keeps few of them; copying it keeps nearly all.
+ */
+export function repeated(text: string, other: string): number {
+  const runs = (words: string[]) => words.slice(0, -2).map((w, i) => `${w} ${words[i + 1]} ${words[i + 2]}`);
+  const mine = runs(wordsOf(text));
+  if (mine.length < 6) return 0;
+  const theirs = new Set(runs(wordsOf(other)));
+  return mine.filter((r) => theirs.has(r)).length / mine.length;
+}
 /**
  * What is off with a reply that says it changes the prompt: it carries no text (the note claims a
  * change that is not there), or the text of a part is a fraction of what is written (the changed line
  * alone, where the whole part was asked for: using it would wipe the rest).
  */
-export function troubleWith(reply: DesignerReply, values: Record<string, string>, said: string): Trouble | null {
+export function troubleWith(reply: DesignerReply, values: Record<string, string>, said: string, previous?: string): Trouble | null {
   if (reply.kind !== "proposal") return null;
   const ids = Object.keys(reply.changes);
   if (!ids.length) return { kind: "empty" };
+  // a clip that carries on from another one, written as that one again: it would show the same thing twice
+  if (previous?.trim()) {
+    const again = ids.find((id) => repeated(reply.changes[id]!, previous) > 0.6);
+    if (again) return { kind: "repeat", part: again };
+  }
   if (asksShorter(said)) return null;
   const parts: Record<string, { was: number; now: number }> = {};
   for (const id of ids) {
@@ -301,6 +321,9 @@ export function troubleWith(reply: DesignerReply, values: Record<string, string>
 
 /** What the language model is told when its reply was off, to have it send it again. */
 function nudge(trouble: Trouble, recipe: Recipe<any>): string {
+  if (trouble.kind === "repeat") {
+    return `Your text says again what the clip before says. That clip is over: this one starts where it ended. Reply again in the format with what happens NEXT: a new action that follows from it, and new words if someone speaks. Keep the people, the place and the look; do not reuse its sentences.`;
+  }
   if (trouble.kind === "empty") {
     return `Your reply carried no new text: every part was empty, or the same as what is written now. Reply again in the format. If you are changing the prompt, write the WHOLE new text of each part you change, before the note. If you are changing nothing, use kind: answer and say so plainly in the note; if you will not write what was asked, say that.`;
   }
@@ -376,21 +399,25 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
    */
   async function madeFrom(recipe: Recipe<any>, values: Record<string, unknown>): Promise<NonNullable<DesignerContext["madeFrom"]>> {
     const out: NonNullable<DesignerContext["madeFrom"]> = [];
-    for (const spec of recipe.inputs as InputSpec[]) {
-      if (spec.type !== "image" || !spec.role || !(spec.role in PICTURES)) continue;
-      const id = values[spec.id];
-      if (typeof id !== "string") continue;
+    const told = async (what: string, id: string) => {
       const steps = await madeIn(s, id);
-      // a trail with no text anywhere says nothing about what the picture shows
-      if (!steps.some((x) => x.text)) continue;
+      // a trail with no text anywhere says nothing about what it shows
+      if (!steps.some((x) => x.text)) return;
       const trigger = await triggersOf(steps.flatMap((x) => x.loras.map((l) => l.file)));
       out.push({
-        what: PICTURES[spec.role]!,
+        what,
         steps: steps.map((x) => ({
-          title: x.title, with: x.family, text: x.text,
+          title: x.title, with: x.family, text: x.text, more: x.more,
           loras: x.loras.map((l) => ({ name: (l.file.split(/[\\/]/).pop() ?? l.file).replace(/\.[a-z]+$/i, ""), trigger: trigger(l.file) })),
         })),
       });
+    };
+    for (const spec of recipe.inputs as InputSpec[]) {
+      const value = values[spec.id];
+      if (spec.type === "image" && spec.role && spec.role in PICTURES && typeof value === "string") await told(PICTURES[spec.role]!, value);
+      // the clip it carries on from: its whole story, the clips before it and the picture it opened on included
+      const from = spec.type === "clip" && spec.role === "previous" ? (value as { asset?: string } | undefined)?.asset : undefined;
+      if (typeof from === "string") await told("The clip this one carries on from", from);
     }
     return out;
   }
@@ -460,13 +487,15 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     // What it says it did is held against what it sent. A claim with no text, or a fragment in place of
     // the whole text, is asked for again once: models that slip usually put it right when told.
     const said = b.messages.at(-1)!.content;
-    const first = troubleWith(reply, ctx.values, said);
+    const first = troubleWith(reply, ctx.values, said, ctx.previous);
     if (first) {
       const again = await chat(llm, [...sent, { role: "assistant", content: raw }, { role: "user", content: nudge(first, recipe) }])
         .then((r) => parseReply(r, recipe, ctx.values))
         .catch(() => null);
-      const second = again && troubleWith(again, ctx.values, said);
+      const second = again && troubleWith(again, ctx.values, said, ctx.previous);
       if (again && !second) reply = { ...again, retried: true };
+      else if (again && second?.kind === "repeat") reply = { ...again, retried: true, repeats: true, raw: raw.slice(0, 6000) };
+      else if (first.kind === "repeat" && (!again || second?.kind === "empty")) reply = { ...reply, repeats: true, raw: raw.slice(0, 6000) };
       else if (again && second?.kind === "short") reply = { ...again, retried: true, short: second.parts, raw: raw.slice(0, 6000) };
       else if (first.kind === "short") reply = { ...reply, short: first.parts, raw: raw.slice(0, 6000) };
       // twice nothing: it is shown as what it is, talk with no text behind it

@@ -95,19 +95,71 @@ export function boxOf(picture: MediaFacts | undefined, mask: MediaFacts | undefi
  * The mask of the part being redone, cut to the box, and a soft version of it for putting the result
  * back: grown a little and blurred, so no seam shows. (Blur works on pictures, hence the round trip.)
  */
-export function maskParts(g: GraphBuilder, maskFile: string, box: { x: number; y: number; width: number; height: number }, size: { width: number; height: number }) {
+export function maskParts(g: GraphBuilder, maskFile: string, box: { x: number; y: number; width: number; height: number }, size: { width: number; height: number }, edge: Partial<MaskSettings> = {}) {
   const mask = g.out("LoadImageMask", { image: maskFile, channel: "red" });
   const cut = g.out("CropMask", { mask, x: box.x, y: box.y, width: box.width, height: box.height });
   const asPicture = g.out("MaskToImage", { mask: cut });
   const sized = g.out("ImageScale", { image: asPicture, upscale_method: "bilinear", width: size.width, height: size.height, crop: "disabled" });
   const forLatent = g.out("ImageToMask", { image: sized, channel: "red" });
-  const feather = Math.min(31, Math.max(4, Math.round(Math.max(box.width, box.height) * 0.02)));
-  const grown = g.out("GrowMask", { mask: cut, expand: Math.round(feather / 2), tapered_corners: true });
+  // left to itself the edge follows the size of the part: about 2% of it, blurred, and grown by half of that
+  const picked = Math.min(31, Math.max(4, Math.round(Math.max(box.width, box.height) * 0.02)));
+  const feather = edge.maskBlur && edge.maskBlur > 0 ? Math.min(31, Math.round(edge.maskBlur)) : picked;
+  const grown = g.out("GrowMask", { mask: cut, expand: edge.maskGrow && edge.maskGrow > 0 ? Math.round(edge.maskGrow) : Math.round(picked / 2), tapered_corners: true });
   const grownPicture = g.out("MaskToImage", { mask: grown });
   const blurred = g.out("ImageBlur", { image: grownPicture, blur_radius: feather, sigma: Math.min(10, feather / 2) });
   const soft = g.out("ImageToMask", { image: blurred, channel: "red" });
   return { forLatent, soft };
 }
+/** How the part that was redone is put back: how far past the mask it reaches, and how soft its edge is. */
+export interface MaskSettings {
+  maskGrow: number;
+  maskBlur: number;
+}
+export const MASK_INPUTS: InputSpec[] = [
+  { id: "maskGrow", type: "number", label: "Grow the mask", note: "how far past what you painted the new part reaches when it is put back. 0 picks it from the size of the part", min: 0, max: 64, step: 1, default: 0, unit: " px", advanced: true },
+  { id: "maskBlur", type: "number", label: "Soften the mask's edge", note: "how wide the blend between the new part and the picture is: more hides a seam, less keeps the new part exact. 0 picks it from the size of the part", min: 0, max: 31, step: 1, default: 0, unit: " px", advanced: true },
+];
+
+/** The face detailer's own settings: the same whichever model redraws the face. */
+export interface FaceSettings {
+  faceThreshold: number;
+  faceCrop: number;
+  faceGrow: number;
+  faceSize: number;
+  faceMax: number;
+  faceFeather: number;
+}
+export const FACE_INPUTS: InputSpec[] = [
+  { id: "faceThreshold", type: "number", label: "Detection threshold", note: "how sure the detector must be that it is a face. Lower finds more: small or turned faces, and more mistakes", min: 0.1, max: 0.95, step: 0.05, default: 0.5, advanced: true },
+  { id: "faceCrop", type: "number", label: "Room around the face", note: "how much around the face is redrawn with it, in face sizes: 3 takes in the hair and the neck", min: 1, max: 6, step: 0.5, default: 3, unit: "×", advanced: true },
+  { id: "faceGrow", type: "number", label: "Grow the face area", note: "the area that is found, made larger by this much before it is redrawn", min: 0, max: 64, step: 1, default: 10, unit: " px", advanced: true },
+  { id: "faceSize", type: "number", label: "Size the face is redrawn at", note: "a face smaller than this is enlarged to it first: larger is sharper and slower", min: 256, max: 1536, step: 64, default: 768, unit: " px", advanced: true },
+  { id: "faceMax", type: "number", label: "Largest size it is redrawn at", note: "a face larger than this is brought down to it", min: 512, max: 2048, step: 64, default: 1024, unit: " px", advanced: true },
+  { id: "faceFeather", type: "number", label: "Soft edge", note: "how softly the redrawn face is blended back", min: 0, max: 64, step: 1, default: 5, unit: " px", advanced: true },
+];
+
+/** How much "Upscale" enlarges. */
+export interface UpscaleSettings {
+  factor: number;
+}
+export const FACTOR_INPUT: InputSpec = { id: "factor", type: "number", label: "Upscale by", note: "2 doubles each edge. The light pass after it is skipped when the result is too large for it", min: 1.5, max: 4, step: 0.5, default: 2, unit: "×" };
+
+/** A hires second pass with the sampler and the scheduler of the first, unless others are picked. */
+export const SAME_PASS = "As the first pass";
+export interface HiresPass {
+  hiresSampler: string;
+  hiresScheduler: string;
+}
+export const HIRES_PASS_INPUTS: InputSpec[] = [
+  { id: "hiresSampler", type: "choice", label: "Hires sampler", options: { node: "KSampler", input: "sampler_name" }, extra: [SAME_PASS], default: SAME_PASS, showWhen: "hires", advanced: true, perModel: true },
+  { id: "hiresScheduler", type: "choice", label: "Hires scheduler", options: { node: "KSampler", input: "scheduler" }, extra: [SAME_PASS], default: SAME_PASS, showWhen: "hires", advanced: true, perModel: true },
+];
+/** What the second pass samples with, over what the first pass used. */
+export const hiresPass = (input: HiresPass) => ({
+  ...(input.hiresSampler !== SAME_PASS ? { sampler_name: input.hiresSampler } : {}),
+  ...(input.hiresScheduler !== SAME_PASS ? { scheduler: input.hiresScheduler } : {}),
+});
+
 export const MASK_NODES = ["LoadImageMask", "CropMask", "MaskToImage", "ImageToMask", "GrowMask", "ImageBlur", "ImageCrop", "ImageScale", "ImageCompositeMasked", "SetLatentNoiseMask"];
 
 /** The upscale models that suit most pictures, best first. */

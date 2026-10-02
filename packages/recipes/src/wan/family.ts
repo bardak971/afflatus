@@ -67,6 +67,11 @@ export const wan = defineFamily({
       get: { file: "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors", url: `${HF}/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors` },
     },
     {
+      id: "tinyVae", label: "Tiny VAE for the live preview", folder: "vae_approx", detect: ["tae.?w2[._]1"], optional: true,
+      hint: "Optional, 23 MB: with taew2_1.safetensors in ComfyUI's models/vae_approx folder, the animated live preview shows the real picture. Without it, it is a small, rough colour preview.",
+      get: { file: "taew2_1.safetensors", url: "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/taew2_1.safetensors" },
+    },
+    {
       id: "rife", label: "Smooth motion (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
       hint: "Without it, clips stay at 16 pictures a second. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },

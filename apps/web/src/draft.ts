@@ -101,9 +101,9 @@ export function useDraft(firstRecipe: string | undefined) {
     /** Drop what the draft holds for these inputs: they follow the defaults again. */
     clearValues: (recipe: string, inputs: string[]) =>
       change((d) => ({ ...d, forms: { ...d.forms, [recipe]: Object.fromEntries(Object.entries(d.forms[recipe] ?? {}).filter(([id]) => !inputs.includes(id))) } })),
-    /** Another recipe's form. `carried` is what it takes along from the form that is left, where it holds nothing itself. */
+    /** Another recipe's form. `carried` is what it takes along from the form that is left, where it holds nothing itself (whoever makes `carried` leaves out what the form holds: an empty box counts as nothing). */
     setRecipe: (recipe: string, carried: Record<string, unknown> = {}) =>
-      change((d) => ({ ...d, recipe, ...(Object.keys(carried).length ? { forms: { ...d.forms, [recipe]: { ...carried, ...d.forms[recipe] } } } : {}) })),
+      change((d) => ({ ...d, recipe, ...(Object.keys(carried).length ? { forms: { ...d.forms, [recipe]: { ...d.forms[recipe], ...carried } } } : {}) })),
     setLook: (look: Draft["look"]) => change((d) => ({ ...d, look })),
     setChat: (chat: unknown[]) => change((d) => ({ ...d, chat })),
     /** Which language model and instructions this draft's conversation with the designer is held with. */

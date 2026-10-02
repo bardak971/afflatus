@@ -28,6 +28,9 @@ export interface WanVideo {
   scheduler: string;
   shift: number;
   smooth: boolean;
+  livePreview: boolean;
+  fps: number;
+  crf: number;
   loras: LoraValue[];
   lorasLow: LoraValue[];
   seed: number;
@@ -39,15 +42,27 @@ const namedTurbo = /turbo|distill|lightning|lightx2v|lightspeed|rapid|smoothmix|
 /** Which way the clip is made: from words alone (the words-to-video models), or opening / ending on a picture. */
 const uses = (input: WanVideo) => ({ words: !input.start && !input.end, both: Boolean(input.end) });
 
+/** What a Wan model is made for, when its file name says: opening on a picture (I2V), or words alone (T2V). */
+const madeFor = (file: string | undefined): "picture" | "words" | undefined => {
+  const name = file?.split(/[\\/]/).pop() ?? "";
+  if (/i2v|img2vid|image.?to.?video|flf2v/i.test(name)) return "picture";
+  if (/t2v|txt2vid|text.?to.?video/i.test(name)) return "words";
+  return undefined;
+};
+
 /**
  * The two models the clip is made with, and whether they are made for a few steps as they are. Left
- * alone, they are the usual files of the way the clip is made; a model picked on the form is used for
- * both ways (a fine-tune is made for one of them: its author says which).
+ * alone, they are the usual files of the way the clip is made. A model picked on the form is used when
+ * it is made for that way, or does not say: a picture-to-video model given no picture makes a flat gray
+ * clip, and a words-to-video model does not look at the picture, so the usual files of the way take the
+ * place of a model made for the other one (and without them, nothing is rendered: see build).
  */
 const modelsOf = (input: WanVideo, slots: Record<string, string>) => {
   const words = uses(input).words;
-  const high = input.model ?? (words ? slots.t2vHigh : slots.i2vHigh);
-  const low = input.modelLow ?? (words ? slots.t2vLow : slots.i2vLow);
+  const way = words ? "words" : "picture";
+  const fits = (file: string | undefined) => (file && (madeFor(file) ?? way) === way ? file : undefined);
+  const high = fits(input.model) ?? (words ? slots.t2vHigh : slots.i2vHigh);
+  const low = fits(input.modelLow) ?? (words ? slots.t2vLow : slots.i2vLow);
   const name = high?.split(/[\\/]/).pop() ?? "";
   const distilled = input.turboIn === "Yes" || (input.turboIn !== "No" && namedTurbo.test(name));
   return { high, low, distilled, turboHigh: words ? slots.t2vTurboHigh : slots.i2vTurboHigh, turboLow: words ? slots.t2vTurboLow : slots.i2vTurboLow };
@@ -77,7 +92,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       id: "prompt", type: "prompt", label: "What happens", style: "sentences",
       placeholder: "She turns to the camera and smiles, her hair moving in the wind. The camera pushes in slowly.",
     },
-    { id: "start", type: "image", role: "start", label: "Start image", note: "the first frame. Without one, the clip is made from the words alone, with the words-to-video models", optional: true },
+    { id: "start", type: "image", role: "start", label: "Start image", note: "the first frame. Without one, the clip is made from the words alone, which needs words-to-video (T2V) models: picture-to-video (I2V) ones make a gray clip without a picture", optional: true },
     { id: "end", type: "image", role: "end", label: "End image", note: "the last frame", optional: true },
     { id: "seconds", type: "number", label: "Length", min: 1, max: 10, step: 0.5, default: 5, unit: " s", note: "the model is made for about 5 seconds: longer clips drift" },
     {
@@ -115,7 +130,16 @@ export const wanVideo = defineRecipe<WanVideo>({
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: WAN_NEGATIVE, advanced: true, perModel: true,
       note: "only acts with a CFG scale above 1, so not with Turbo. The starting text is Wan's own, in Chinese",
     },
-    { id: "smooth", type: "toggle", label: "Smooth: 32 fps", note: "frames interpolated with RIFE, from 16 to 32 a second", default: true, advanced: true },
+    { id: "smooth", type: "toggle", label: "Smooth: twice the frames", note: "frames interpolated with RIFE: 32 a second in place of 16", default: true, advanced: true },
+    {
+      id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
+      note: "while it renders, a short clip of what is forming, each step. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",
+    },
+    {
+      id: "fps", type: "number", label: "Frames per second", min: 8, max: 60, step: 1, default: WAN_FPS, advanced: true,
+      note: "Wan makes 16 pictures for a second of motion. Another figure plays the same pictures faster or slower: 24 makes the motion quicker and the clip shorter. Doubled when Smooth is on",
+    },
+    { id: "crf", type: "number", label: "Encoding quality (CRF)", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
     { id: "loras", type: "loras", label: "LoRAs (high noise)", max: 6, note: "Wan LoRAs come in two files: the HIGH one here" },
     { id: "lorasLow", type: "loras", label: "LoRAs (low noise)", max: 6, note: "and the LOW one here. A LoRA in one file goes in both" },
     { id: "seed", type: "seed", label: "Seed" },
@@ -132,16 +156,19 @@ export const wanVideo = defineRecipe<WanVideo>({
       ...((input.fast && !picked.distilled) || any(input.loras) || any(input.lorasLow) ? ["LoraLoaderModelOnly"] : []),
     ];
   },
-  optionalNodes: ["FrameInterpolationModelLoader", "FrameInterpolate"],
+  optionalNodes: ["FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
 
   build(input, ctx) {
     const { slots, uploads, media } = ctx;
     const how = uses(input);
     const picked = modelsOf(input, slots);
     if (!picked.high || !picked.low) {
+      const other = madeFor(input.model) ?? madeFor(input.modelLow);
       throw new Error(how.words
-        ? "A clip made from words alone needs Wan 2.2's words-to-video models (wan2.2_t2v_high_noise and wan2.2_t2v_low_noise in ComfyUI's models/diffusion_models folder). Or give it a start image."
-        : "Wan 2.2 comes as two models: the high-noise and the low-noise file are both needed.");
+        ? `A clip made from words alone needs Wan 2.2's words-to-video (T2V) models: wan2.2_t2v_high_noise and wan2.2_t2v_low_noise, or a T2V fine-tune, in ComfyUI's models/diffusion_models folder.${other === "picture" ? " The models picked are picture-to-video (I2V) models: without a picture they make a flat gray clip." : ""} Or give it a start image.`
+        : other === "words"
+          ? "The models picked are words-to-video (T2V) models: they do not look at the start image. Pick picture-to-video (I2V) models, or take the start image away."
+          : "Wan 2.2 comes as two models: the high-noise and the low-noise file are both needed.");
     }
 
     // the frame: a timeline's canvas, else the picture it opens or ends on, else the shape picked
@@ -165,7 +192,16 @@ export const wanVideo = defineRecipe<WanVideo>({
       let model: Ref = g.out("UNETLoader", { unet_name: file, weight_dtype: "default" });
       if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: 1 });
       for (const l of loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
-      return g.out("ModelSamplingSD3", { model, shift: input.shift });
+      model = g.out("ModelSamplingSD3", { model, shift: input.shift });
+      // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
+      // there), sent as a short clip. ComfyUI's own preview is the first frame alone: the start image, still
+      if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
+        model = g.out("ModelPreviewOverrideKJ", {
+          model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12,
+          tiny_vae: slots.tinyVae ?? "none",
+        });
+      }
+      return model;
     };
     const high = load(picked.high, turboLoras?.high, input.loras);
     const low = load(picked.low, turboLoras?.low, input.lorasLow);
@@ -213,8 +249,8 @@ export const wanVideo = defineRecipe<WanVideo>({
     g.phase("encoding");
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
-      images, frame_rate: smooth ? WAN_FPS * 2 : WAN_FPS, loop_count: 0, filename_prefix: "studai/video", format: "video/h264-mp4",
-      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: 19, save_metadata: false, trim_to_audio: false,
+      images, frame_rate: smooth ? input.fps * 2 : input.fps, loop_count: 0, filename_prefix: "studai/video", format: "video/h264-mp4",
+      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
     });
 
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [turboLora] : []), ...loras.filter((l) => l.weight !== 0).map((l) => l.file)].map((f) => `loras/${f}`);

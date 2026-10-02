@@ -29,6 +29,7 @@ export interface H3Video {
   shape: SizeValue;
   short: number;
   fast: boolean;
+  turboSteps: number;
   steps: number;
   sampler: string;
   scheduler: string;
@@ -37,6 +38,11 @@ export interface H3Video {
   smooth: boolean;
   quick: boolean;
   cache: boolean;
+  cacheThreshold: number;
+  cacheStart: number;
+  cacheEnd: number;
+  cacheSteps: number;
+  crf: number;
   livePreview: boolean;
   loras: LoraValue[];
   seed: number;
@@ -154,15 +160,19 @@ export const h3Video = defineRecipe<H3Video>({
     },
     { id: "short", type: "number", label: "Resolution", note: "the short side: 480p, 576p (the usual one), 768p. Larger is sharper and slower", min: 384, max: 768, step: 96, default: 576, unit: "p" },
     { id: "fast", type: "toggle", label: "Turbo", note: "8 steps, about twice as fast: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
-    { id: "steps", type: "number", label: "Steps", min: 4, max: 50, step: 1, default: 15, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
+    {
+      id: "turboSteps", type: "number", label: "Turbo steps", min: 2, max: 16, step: 1, default: 8, showWhen: "fast", advanced: true, perModel: true,
+      note: "8 is what the turbo LoRA is named for. ComfyUI's own template runs it at 6, and the reference model's turbo LoRA at 4",
+    },
+    { id: "steps", type: "number", label: "Steps", note: "15 here; ComfyUI's own template uses 20", min: 4, max: 50, step: 1, default: 15, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
       id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, extra: [AUTO_SAMPLER], default: AUTO_SAMPLER, advanced: true, perModel: true,
-      note: "Auto: euler with Turbo, res_multistep without",
+      note: "Auto: euler with Turbo, res_multistep without (ComfyUI's own template uses res_multistep for both)",
     },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "BasicScheduler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
     {
       id: "shiftVideo", type: "number", label: "Shift (video)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
-      note: "0 picks it: 7 with Turbo, 11 without. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)",
+      note: "0 picks it: 7 with Turbo, 11 without. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail). The model's own, when no shift is set at all, is 12",
     },
     {
       id: "shiftAudio", type: "number", label: "Shift (sound)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
@@ -187,6 +197,11 @@ export const h3Video = defineRecipe<H3Video>({
       id: "quick", type: "toggle", label: "Comfy Kitchen attention", default: true, advanced: true,
       note: "a faster attention for INT8 models (ModelAttentionBackend), on Nvidia and AMD cards. Turn it off if renders fail on another machine",
     },
+    { id: "cacheThreshold", type: "number", label: "Step cache: how alike", note: "a step that would change the clip by less than this is skipped: higher skips more, faster and softer", min: 0.01, max: 0.5, step: 0.01, default: 0.05, showWhen: "cache", advanced: true },
+    { id: "cacheStart", type: "number", label: "Step cache: from", note: "where in the render skipping may begin: the first steps decide the clip and are never skipped below this", min: 0, max: 0.9, step: 0.05, default: 0.15, showWhen: "cache", advanced: true },
+    { id: "cacheEnd", type: "number", label: "Step cache: until", note: "where skipping stops, so that the last steps finish the detail", min: 0.1, max: 1, step: 0.05, default: 0.9, showWhen: "cache", advanced: true },
+    { id: "cacheSteps", type: "number", label: "Step cache: steps in a row", note: "how many steps may be skipped one after the other", min: 1, max: 6, step: 1, default: 2, showWhen: "cache", advanced: true },
+    { id: "crf", type: "number", label: "Encoding quality (CRF)", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
     { id: "loras", type: "loras", label: "LoRAs", max: 6 },
     { id: "seed", type: "seed", label: "Seed" },
   ],
@@ -249,7 +264,7 @@ export const h3Video = defineRecipe<H3Video>({
     let model = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
     // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
     if (input.cache && !turbo && ctx.has("MiniMaxH3Cache")) {
-      model = g.out("MiniMaxH3Cache", { model, reuse_threshold: 0.05, start_percent: 0.15, end_percent: 0.9, max_steps: 2, device: "auto", verbose: false });
+      model = g.out("MiniMaxH3Cache", { model, reuse_threshold: input.cacheThreshold, start_percent: Math.min(input.cacheStart, input.cacheEnd), end_percent: input.cacheEnd, max_steps: input.cacheSteps, device: "auto", verbose: false });
     }
     if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
     if (ctx.has("ModelPatchTorchSettings")) model = g.out("ModelPatchTorchSettings", { model, enable_fp16_accumulation: true });
@@ -323,7 +338,7 @@ export const h3Video = defineRecipe<H3Video>({
     }
 
     // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
-    const steps = lora || (distilled && input.fast) ? 8 : input.steps;
+    const steps = lora || (distilled && input.fast) ? input.turboSteps : input.steps;
     g.phase("sampling");
     const sampled = g.add("SamplerCustomAdvanced", {
       noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
@@ -345,7 +360,7 @@ export const h3Video = defineRecipe<H3Video>({
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
       images, audio, frame_rate: smooth ? H3_FPS * 2 : H3_FPS, loop_count: 0, filename_prefix: "studai/video", format: "video/h264-mp4",
-      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: 19, save_metadata: false, trim_to_audio: false,
+      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
     });
 
     const ms = (n: number) => Math.round((n / H3_FPS) * 1000);

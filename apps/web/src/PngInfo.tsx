@@ -19,12 +19,14 @@ export const workflowFile = (name: string, workflow: unknown) => new File([JSON.
  * are sent to. The same for a file being dropped on the app and for a picture already in the library:
  * `read` fetches it either way, for the form asked for.
  */
-export function PngInfo({ name, read, first, onClose }: {
+export function PngInfo({ name, read, first, onClose, onSent }: {
   name: string;
   read(recipe?: string): Promise<Embedded>;
   /** What was already read, when the caller had to read it to know whether to open this. */
   first?: Embedded;
   onClose(): void;
+  /** A form was filled with what was read: what this was opened over can step aside. */
+  onSent?(): void;
 }) {
   const [data, setData] = useState<Embedded | null>(first ?? null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -55,6 +57,7 @@ export function PngInfo({ name, read, first, onClose }: {
       void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
       openDraft(d.id);
       onClose();
+      onSent?.();
       go("/create");
     } catch (err) {
       setFailed((err as Error).message);

@@ -1,5 +1,8 @@
 import { defineRecipe, GraphBuilder, type ReferenceValue, type Ref, type SizeValue } from "@studai/core";
-import { boxOf, FACE_DETECTOR_PREFER, MASK_NODES, maskParts, UPSCALER_PREFER } from "../sdxl/common";
+import {
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
+  type FaceSettings, type HiresPass, type MaskSettings, type UpscaleSettings,
+} from "../sdxl/common";
 import { krea2Cond, krea2Inputs, krea2Model, krea2Sample, krea2Size, LOAD_NODES, loadKrea2, r16, shifted, type Krea2Base } from "./common";
 
 const files = { unet: "krea2_turbo_fp8_scaled.safetensors", clip: "qwen3vl_4b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" };
@@ -8,7 +11,7 @@ const photo = { width: 1536, height: 2048 };
 
 // ---------------------------------------------------------------- txt2img
 
-export interface Krea2Picture extends Krea2Base {
+export interface Krea2Picture extends Krea2Base, HiresPass {
   prompt: string;
   references: ReferenceValue[];
   referenceStrength: number;
@@ -61,6 +64,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     },
     { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.5, showWhen: "hires", advanced: true, perModel: true },
     { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: 4, showWhen: "hires", advanced: true, perModel: true },
+    ...HIRES_PASS_INPUTS,
     krea2Inputs.at(-1)!,
   ],
   nodes: (input) => [
@@ -107,7 +111,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
       const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W2, height: H2, crop: "disabled" });
       g.phase("refining");
-      const second = krea2Sample(g, k, sized(model, W2, H2), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), { steps: input.hiresSteps, denoise: input.hiresDenoise });
+      const second = krea2Sample(g, k, sized(model, W2, H2), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) });
       latent = second.latent;
       passes.push(second.pass);
       loads.push(`upscale_models/${input.hiresUpscaler}`);
@@ -187,7 +191,7 @@ export const krea2Redraw = defineRecipe<Krea2Redraw>({
 
 // ---------------------------------------------------------------- inpaint
 
-export interface Krea2PaintOver extends Krea2Base {
+export interface Krea2PaintOver extends Krea2Base, MaskSettings {
   source: string;
   mask: string;
   prompt: string;
@@ -211,6 +215,7 @@ export const krea2PaintOver = defineRecipe<Krea2PaintOver>({
     { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the masked part with what is around it, as it should come out", style: "sentences", placeholder: "A woman's hand holding a glass of orange juice, on a terrace table in morning light." },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.8 },
+    ...MASK_INPUTS,
     ...krea2Inputs,
   ],
   nodes: (input) => [...LOAD_NODES(input), "LoadImage", "VAEEncode", ...MASK_NODES],
@@ -222,7 +227,7 @@ export const krea2PaintOver = defineRecipe<Krea2PaintOver>({
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const part = g.out("ImageCrop", { image: source, width: box.width, height: box.height, x: box.x, y: box.y });
     const sized = g.out("ImageScale", { image: part, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-    const masks = maskParts(g, ctx.uploads.mask!, box, size);
+    const masks = maskParts(g, ctx.uploads.mask!, box, size, input);
     const cond = krea2Cond(g, k, g.out("CLIPTextEncode", { text: input.prompt, clip: k.clip }));
     const masked = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: sized, vae: k.vae }), mask: masks.forLatent });
     g.phase("sampling");
@@ -250,7 +255,7 @@ export const krea2PaintOver = defineRecipe<Krea2PaintOver>({
 
 // ---------------------------------------------------------------- upscale 2x
 
-export interface Krea2Sharper extends Krea2Base {
+export interface Krea2Sharper extends Krea2Base, UpscaleSettings {
   source: string;
   prompt: string;
   upscaler: string;
@@ -274,6 +279,7 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "sentences", optional: true, default: "" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER },
+    FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscaling", note: "a light pass with the model; skipped when the result is larger than about 3 megapixels", default: true },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true },
     ...krea2Inputs,
@@ -284,8 +290,8 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const W = r16(from.width * 2);
-    const H = r16(from.height * 2);
+    const W = r16(from.width * input.factor);
+    const H = r16(from.height * input.factor);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     g.phase("upscaling");
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
@@ -321,7 +327,7 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
 
 // ---------------------------------------------------------------- face detailer
 
-export interface Krea2FixFace extends Krea2Base {
+export interface Krea2FixFace extends Krea2Base, FaceSettings {
   source: string;
   prompt: string;
   detector: string;
@@ -344,6 +350,7 @@ export const krea2FixFace = defineRecipe<Krea2FixFace>({
     { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "sentences", optional: true, default: "" },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
     { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+    ...FACE_INPUTS,
     ...krea2Inputs,
   ],
   nodes: (input) => [...LOAD_NODES(input).filter((n) => !["KSampler", "VAEDecode"].includes(n)), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer"],
@@ -356,9 +363,9 @@ export const krea2FixFace = defineRecipe<Krea2FixFace>({
     g.phase("detailing");
     const fixed = g.add("FaceDetailer", {
       image: source, model: shifted(g, k.model, input), clip: k.clip, vae: k.vae, positive: cond.positive, negative: cond.negative, bbox_detector: detector,
-      guide_size: 768, guide_size_for: true, max_size: 1024, seed: ctx.seed, steps: input.steps, cfg: input.cfg,
-      sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: 5, noise_mask: true, force_inpaint: true,
-      bbox_threshold: 0.5, bbox_dilation: 10, bbox_crop_factor: 3, sam_detection_hint: "center-1", sam_dilation: 0,
+      guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps: input.steps, cfg: input.cfg,
+      sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true,
+      bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
       sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",
       drop_size: 10, wildcard: "", cycle: 1,
     });

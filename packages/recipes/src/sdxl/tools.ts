@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder } from "@studai/core";
 import {
-  boxOf, FACE_DETECTOR_PREFER, loadSdxl, MASK_NODES, maskParts, modelInputs, modelNodes, round8, samplerOf, samplingInputs, UPSCALER_PREFER, workSize,
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, round8, samplerOf, samplingInputs, UPSCALER_PREFER, workSize,
+  type FaceSettings, type MaskSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
 
@@ -58,7 +59,7 @@ export const sdxlRedraw = defineRecipe<SdxlRedraw>({
 
 // ---------------------------------------------------------------- paint over a part
 
-export interface SdxlPaintOver extends SdxlBase {
+export interface SdxlPaintOver extends SdxlBase, MaskSettings {
   source: string;
   mask: string;
   prompt: string;
@@ -81,6 +82,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the painted part should show" },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.75 },
+    ...MASK_INPUTS,
     ...modelInputs,
     ...samplingInputs(),
   ],
@@ -93,7 +95,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const part = g.out("ImageCrop", { image: source, width: box.width, height: box.height, x: box.x, y: box.y });
     const sized = g.out("ImageScale", { image: part, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-    const masks = maskParts(g, ctx.uploads.mask!, box, size);
+    const masks = maskParts(g, ctx.uploads.mask!, box, size, input);
     const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
     const masked = g.out("SetLatentNoiseMask", { samples: latent, mask: masks.forLatent });
     g.phase("sampling");
@@ -124,7 +126,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
 
 // ---------------------------------------------------------------- twice as large
 
-export interface SdxlSharper extends SdxlBase {
+export interface SdxlSharper extends SdxlBase, UpscaleSettings {
   source: string;
   prompt: string;
   upscaler: string;
@@ -147,6 +149,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "tags", optional: true, default: "" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER },
+    FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscaling", note: "a light pass with the checkpoint; skipped when the result is larger than about 4 megapixels", default: true },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true },
     ...modelInputs,
@@ -158,8 +161,8 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const W = round8(from.width * 2);
-    const H = round8(from.height * 2);
+    const W = round8(from.width * input.factor);
+    const H = round8(from.height * input.factor);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     g.phase("upscaling");
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
@@ -192,7 +195,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
 
 // ---------------------------------------------------------------- fix the faces
 
-export interface SdxlFixFace extends SdxlBase {
+export interface SdxlFixFace extends SdxlBase, FaceSettings {
   source: string;
   prompt: string;
   detector: string;
@@ -212,6 +215,7 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
     { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "tags", optional: true, default: "" },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
     { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+    ...FACE_INPUTS,
     ...modelInputs,
     ...samplingInputs(),
   ],
@@ -225,9 +229,9 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
     g.phase("detailing");
     const fixed = g.add("FaceDetailer", {
       image: source, model: m.model, clip: m.clip, vae: m.vae, positive: m.positive, negative: m.negative, bbox_detector: detector,
-      guide_size: 768, guide_size_for: true, max_size: 1024, seed: ctx.seed, steps, cfg: input.cfg,
-      sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: 5, noise_mask: true, force_inpaint: true,
-      bbox_threshold: 0.5, bbox_dilation: 10, bbox_crop_factor: 3, sam_detection_hint: "center-1", sam_dilation: 0,
+      guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps, cfg: input.cfg,
+      sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true,
+      bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
       sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",
       drop_size: 10, wildcard: "", cycle: 1,
     });

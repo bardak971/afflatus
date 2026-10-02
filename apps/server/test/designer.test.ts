@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
-import { chatJson } from "../src/designer";
+import { chatJson, repeated } from "../src/designer";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** A stand-in for a language model's address: it answers what the test tells it to, and keeps what it was asked. */
@@ -188,6 +188,44 @@ describe("a conversation's own language model and instructions", () => {
     // saving something else leaves it; null goes back to the usual ones
     expect((await put(`/api/drafts/${draft.id}`, { count: 2 })).json().designer).toEqual({ llm: "big", instruction: "" });
     expect((await put(`/api/drafts/${draft.id}`, { designer: null })).json().designer).toBeNull();
+  });
+});
+
+describe("a clip that carries on from another", () => {
+  const before = "She walks along the terrace at sunset, stops at the railing and looks out at the sea. The woman (S1) says softly: what a view. The camera follows her slowly from behind.";
+
+  it("is told that the clip before is over, and is asked again when it writes that clip a second time", async () => {
+    await useLlm();
+    const ask = { recipe: "h3.video", values: { description: "" }, previous: before, messages: [{ role: "user", content: "Write what happens next" }] };
+    // the clip before, handed back barely reworded; told so, it writes what comes after
+    llm.answers.push(`kind: proposal\ndescription: ${before.replace("softly", "quietly")}\nnote: Here it is.`, "kind: proposal\ndescription: She turns from the railing, laughs and sits down at the table. The woman (S1) says: let us stay a while.\nnote: What comes next.");
+    const fixed = (await post(t.app, "/api/designer", ask)).json();
+    expect(fixed).toMatchObject({ kind: "proposal", retried: true });
+    expect(fixed.changes.description).toContain("sits down at the table");
+    expect(fixed.repeats).toBeUndefined();
+    expect(system(0)).toContain("which has ALREADY HAPPENED and is not to be shown or said again");
+    expect(system(0)).toContain("Write ONLY what comes after it");
+    expect(String(llm.asked[1]!.messages.at(-1)!.content)).toContain("says again what the clip before says");
+
+    // it does it twice: the text is kept, and said to be the clip before
+    llm.answers.push(`kind: proposal\ndescription: ${before}\nnote: Here it is.`, `kind: proposal\ndescription: ${before.replace("softly", "gently")}\nnote: Again.`);
+    const twice = (await post(t.app, "/api/designer", ask)).json();
+    expect(twice).toMatchObject({ kind: "proposal", repeats: true });
+
+    // without a clip before, the same text is nothing to object to
+    const n = llm.asked.length;
+    llm.answers.push(`kind: proposal\ndescription: ${before}\nnote: ok`);
+    const alone = (await post(t.app, "/api/designer", { ...ask, previous: undefined })).json();
+    expect(alone.repeats).toBeUndefined();
+    expect(llm.asked).toHaveLength(n + 1);
+  });
+
+  it("tells a text said again from one that only shares the people and the place", () => {
+    expect(repeated(before, before)).toBe(1);
+    expect(repeated(before.replace("softly", "quietly"), before)).toBeGreaterThan(0.8);
+    expect(repeated("She turns from the railing, laughs and sits down at the table on the terrace at sunset. The woman (S1) says: let us stay a while.", before)).toBeLessThan(0.3);
+    // too short to say
+    expect(repeated("She waves.", before)).toBe(0);
   });
 });
 
@@ -455,18 +493,22 @@ describe("what the designer knows of what studai made", () => {
   it("knows a frame saved from a video by that video's story, and the clip a new one carries on from", async () => {
     await useLlm();
     const picture = await render("sdxl.text-to-picture", "sdxl", { prompt: "1girl, terrace", checkpoint: CHECKPOINT });
-    const clip = await render("h3.video", "h3", { description: "She walks to the railing and says hello.", start: picture }, { from: [{ asset: picture, role: "start" }], kind: "video" });
+    const clip = await render("h3.video", "h3", { description: "She walks to the railing and says hello.", soundscape: "waves, a light wind", start: picture }, { from: [{ asset: picture, role: "start" }], kind: "video" });
     const frame = await item("frame1", "image", { source_id: clip, origin: "frame" });
 
     // a new clip that opens on the saved frame
     const opens = await knows({ start: frame });
     expect(opens.pictures[0].steps.map((x: { title: string }) => x.title)).toEqual(["txt2img", "Video with sound"]);
     // a new clip that carries on from the video itself, as "Continue this clip" sets it up in Studio
-    expect(await knows({ previous: { asset: clip } })).toEqual({ pictures: [], continues: true });
+    // it is given that clip's whole story: the picture it opened on, then the clip itself
+    const carries = await knows({ previous: { asset: clip } });
+    expect(carries.continues).toBe(true);
+    expect(carries.pictures).toEqual([{ what: "The clip this one carries on from", steps: [{ title: "txt2img", with: "SDXL", said: true }, { title: "Video with sound", with: "MiniMax H3", said: true }] }]);
     llm.answers.push("kind: proposal\ndescription: She leans on the railing.\nnote: ok");
     await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "", previous: { asset: clip } }, messages: [{ role: "user", content: "what next" }] });
     expect(system()).toContain("CONTINUES the clip before it");
     expect(system()).toContain("She walks to the railing and says hello.");
+    expect(system()).toContain("The clip this one carries on from was made here, in 2 steps, the oldest first:\n1. txt2img with SDXL: 1girl, terrace\n2. Video with sound with MiniMax H3: She walks to the railing and says hello.\n   Sounds: waves, a light wind");
 
     // something studai did not make has no story
     const mine = await item("mine1", "image", { origin: "uploaded" });

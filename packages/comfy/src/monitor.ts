@@ -217,6 +217,9 @@ export class Monitor {
     if (!r) return;
     if (msg.type === "kj_preview_override") {
       if (typeof d.image !== "string" || !d.image) return;
+      // before its first step, each sampling pass sends what it starts from: noise, and on a pass that is
+      // handed a latent (Wan's low-noise model) a flat gray. Neither is the clip: what the last step showed stays
+      if (d.step === 0) return;
       r.preview = {
         seq: r.preview.seq + 1,
         bytes: new Uint8Array(Buffer.from(d.image, "base64")),

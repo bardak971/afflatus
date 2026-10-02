@@ -1,5 +1,8 @@
 import { defineRecipe, GraphBuilder, type BuildContext, type InputSpec, type LoraValue, type Recipe, type Ref, type SizeValue } from "@studai/core";
-import { boxOf, FACE_DETECTOR_PREFER, MASK_NODES, maskParts, UPSCALER_PREFER } from "../sdxl/common";
+import {
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
+  type FaceSettings, type HiresPass, type MaskSettings, type UpscaleSettings,
+} from "../sdxl/common";
 
 /**
  * The picture models that are built the same way in ComfyUI (a diffusion model in a file of its own, one
@@ -46,7 +49,7 @@ export interface FlowBase {
   guidance?: number;
   seed: number;
 }
-export interface FlowPicture extends FlowBase {
+export interface FlowPicture extends FlowBase, HiresPass {
   prompt: string;
   size: SizeValue;
   hires: boolean;
@@ -56,9 +59,9 @@ export interface FlowPicture extends FlowBase {
   hiresSteps: number;
 }
 export interface FlowRedraw extends FlowBase { source: string; prompt: string; strength: number }
-export interface FlowPaintOver extends FlowBase { source: string; mask: string; prompt: string; strength: number }
-export interface FlowSharper extends FlowBase { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
-export interface FlowFixFace extends FlowBase { source: string; prompt: string; detector: string; strength: number }
+export interface FlowPaintOver extends FlowBase, MaskSettings { source: string; mask: string; prompt: string; strength: number }
+export interface FlowSharper extends FlowBase, UpscaleSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
+export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
 
 export const r16 = (n: number) => Math.max(16, Math.round(n / 16) * 16);
 /** Past this many pixels an upscaled picture is only enlarged: a pass that large does not fit a common card. */
@@ -134,11 +137,11 @@ export function flowKit(spec: FlowSpec) {
   }
 
   /** One pass of sampling. */
-  function sample(g: GraphBuilder, k: Loaded, input: FlowBase, model: Ref, c: { positive: Ref; negative: Ref }, latent: Ref, seed: number, opts: { steps?: number; denoise?: number } = {}) {
+  function sample(g: GraphBuilder, k: Loaded, input: FlowBase, model: Ref, c: { positive: Ref; negative: Ref }, latent: Ref, seed: number, opts: { steps?: number; denoise?: number; sampler_name?: string; scheduler?: string } = {}) {
     const steps = opts.steps ?? k.steps;
     const sampled = g.out("KSampler", {
       model, positive: c.positive, negative: c.negative, latent_image: latent, seed,
-      steps, cfg: k.cfg, sampler_name: input.sampler, scheduler: input.scheduler, denoise: opts.denoise ?? 1,
+      steps, cfg: k.cfg, sampler_name: opts.sampler_name ?? input.sampler, scheduler: opts.scheduler ?? input.scheduler, denoise: opts.denoise ?? 1,
     });
     return { latent: sampled, pass: { node: sampled[0], steps } };
   }
@@ -183,6 +186,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       },
       { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.4, showWhen: "hires", advanced: true, perModel: true },
       { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: Math.max(4, Math.round(spec.sampling.steps / 2)), showWhen: "hires", advanced: true, perModel: true },
+      ...HIRES_PASS_INPUTS,
       inputs.at(-1)!,
     ],
     nodes: (input) => [...LOAD_NODES, "EmptySD3LatentImage", ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : [])],
@@ -206,7 +210,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
         const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
         const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
         g.phase("refining");
-        const second = sample(g, k, input, shifted(g, k.model, input, large), c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, { steps: input.hiresSteps, denoise: input.hiresDenoise });
+        const second = sample(g, k, input, shifted(g, k.model, input, large), c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) });
         latent = second.latent;
         passes.push(second.pass);
         loads.push(`upscale_models/${input.hiresUpscaler}`);
@@ -281,6 +285,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "the masked part with what is around it, as it should come out", style: "sentences", placeholder: "A woman's hand holding a glass of orange juice, on a terrace table in morning light." },
       { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.8 },
+      ...MASK_INPUTS,
       ...inputs,
     ],
     nodes: () => [...LOAD_NODES, "LoadImage", "VAEEncode", ...MASK_NODES],
@@ -293,7 +298,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const part = g.out("ImageCrop", { image: source, width: box.width, height: box.height, x: box.x, y: box.y });
       const sized = g.out("ImageScale", { image: part, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-      const masks = maskParts(g, ctx.uploads.mask!, box, size);
+      const masks = maskParts(g, ctx.uploads.mask!, box, size, input);
       const c = cond(g, k, input, input.prompt);
       const masked = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: sized, vae: k.vae }), mask: masks.forLatent });
       g.phase("sampling");
@@ -332,6 +337,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       { id: "source", type: "image", role: "source", label: "Image" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "sentences", optional: true, default: "" },
       { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER },
+      FACTOR_INPUT,
       { id: "refine", type: "toggle", label: "img2img pass after upscaling", note: "a light pass with the model; skipped when the result is larger than about 3 megapixels", default: true },
       { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true },
       ...inputs,
@@ -342,7 +348,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
     build(input, ctx) {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-      const size = { width: r16(from.width * 2), height: r16(from.height * 2) };
+      const size = { width: r16(from.width * input.factor), height: r16(from.height * input.factor) };
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       g.phase("upscaling");
       const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
@@ -385,6 +391,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "sentences", optional: true, default: "" },
       { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
       { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+      ...FACE_INPUTS,
       ...inputs,
     ],
     nodes: () => [...LOAD_NODES.filter((n) => !["KSampler", "VAEDecode"].includes(n)), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer"],
@@ -398,9 +405,9 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       g.phase("detailing");
       const fixed = g.add("FaceDetailer", {
         image: source, model: shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, positive: c.positive, negative: c.negative, bbox_detector: detector,
-        guide_size: 768, guide_size_for: true, max_size: 1024, seed: ctx.seed, steps: k.steps, cfg: k.cfg,
-        sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: 5, noise_mask: true, force_inpaint: true,
-        bbox_threshold: 0.5, bbox_dilation: 10, bbox_crop_factor: 3, sam_detection_hint: "center-1", sam_dilation: 0,
+        guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps: k.steps, cfg: k.cfg,
+        sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true,
+        bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
         sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",
         drop_size: 10, wildcard: "", cycle: 1,
       });

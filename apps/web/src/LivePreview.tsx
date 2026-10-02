@@ -13,6 +13,9 @@ const useLiveSound = create<{ muted: boolean; volume: number; set(muted: boolean
 /**
  * The latest preview of the job that is rendering: a picture, or (a video model with the animated
  * preview on) a short clip of what is forming, which plays. Each step brings a new one.
+ *
+ * It comes small: at the latent's size (an eighth of the picture, a thirty-second for LTX) unless a tiny
+ * VAE decodes it. Whoever shows it gives it a size to fill; it is never left at its own few pixels.
  */
 export function LivePreview({ job, className, sound }: {
   job: Pick<RunningJob, "id" | "previewSeq" | "previewMime">;

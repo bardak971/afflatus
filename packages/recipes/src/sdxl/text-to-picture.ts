@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@studai/core";
+import { HIRES_PASS_INPUTS, hiresPass } from "./common";
 import { DEFAULT_NEGATIVE } from "./family";
 
 export interface SdxlTextToPicture {
@@ -19,6 +20,8 @@ export interface SdxlTextToPicture {
   hiresUpscaler: string;
   hiresDenoise: number;
   hiresSteps: number;
+  hiresSampler: string;
+  hiresScheduler: string;
   seed: number;
 }
 
@@ -60,8 +63,12 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
       options: { node: "UpscaleModelLoader", input: "model_name" }, extra: [LATENT_UPSCALE], default: LATENT_UPSCALE,
     },
-    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.4, showWhen: "hires", advanced: true, perModel: true },
+    {
+      id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.55, showWhen: "hires", advanced: true, perModel: true,
+      note: "how much the second pass may redraw. Enlarging in latent space needs 0.5 or more, or the picture stays soft; with an upscale model 0.3 to 0.45 is enough",
+    },
     { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: 15, showWhen: "hires", advanced: true, perModel: true },
+    ...HIRES_PASS_INPUTS,
     { id: "seed", type: "seed", label: "Seed" },
   ],
 
@@ -121,7 +128,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
         enlarged = g.out("VAEEncode", { pixels: sized, vae });
       }
       g.phase("refining");
-      latent = g.out("KSampler", { ...sampler, latent_image: enlarged, steps: input.hiresSteps, denoise: input.hiresDenoise });
+      latent = g.out("KSampler", { ...sampler, ...hiresPass(input), latent_image: enlarged, steps: input.hiresSteps, denoise: input.hiresDenoise });
       totalSteps += input.hiresSteps;
       passes.push({ node: latent[0], steps: input.hiresSteps });
     }

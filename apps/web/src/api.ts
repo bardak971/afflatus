@@ -185,6 +185,8 @@ export interface DesignerReply {
   empty?: boolean;
   /** Parts whose new text is far shorter than what is written (the lengths): it may be a fragment. */
   short?: Record<string, { was: number; now: number }>;
+  /** It wrote the clip before again, twice, in place of what comes next. */
+  repeats?: boolean;
   /** What the language model sent, when something was off with it. */
   raw?: string;
 }
