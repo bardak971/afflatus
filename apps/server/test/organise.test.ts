@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { makePng } from "@studai/comfy/testing";
 import { newId, OWNER } from "../src/db";
 import { get, makeApp, post, type TestApp } from "./helpers";
 
@@ -110,5 +111,36 @@ describe("folders", () => {
     expect(list.find((f) => f.id === top)!.count).toBe(1);
     expect((await get(t.app, `/api/assets/${a}`)).json().folderId).toBe(top);
     expect((await del(`/api/folders/${mid}`)).statusCode).toBe(404);
+  });
+});
+
+describe("several items at once", () => {
+  it("are kept, sent to the bin and put back together; an upload can go straight into a folder", async () => {
+    const t = await makeApp();
+    try {
+      const folder = (await post(t.app, "/api/folders", { name: "Shoot" })).json();
+      const up = async (name: string, into?: string) =>
+        (await t.app.inject({ method: "POST", url: `/api/assets?name=${name}${into ? `&folder=${into}` : ""}`, headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(8, 8, [1, 2, 3], [4, 5, 6])) })).json();
+      const a = await up("a.png", folder.id);
+      const b = await up("b.png", folder.id);
+      const c = await up("c.png", "no-such-folder");
+      expect((await get(t.app, `/api/assets?folder=${folder.id}`)).json().items.map((x: { id: string }) => x.id).sort()).toEqual([a.id, b.id].sort());
+      // a folder that does not exist: the file is brought in all the same, unfiled
+      expect((await get(t.app, "/api/assets?folder=none")).json().items.map((x: { id: string }) => x.id)).toEqual([c.id]);
+
+      const bulk = async (ids: string[], action: string) => (await post(t.app, "/api/assets/bulk", { ids, action })).json();
+      expect(await bulk([a.id, b.id], "unkeep")).toEqual({ changed: 2 });
+      expect((await get(t.app, "/api/assets?kept=1")).json().items.map((x: { id: string }) => x.id)).toEqual([c.id]);
+      // keeping what is kept already changes nothing
+      expect(await bulk([a.id, c.id], "keep")).toEqual({ changed: 1 });
+      expect(await bulk([a.id, b.id], "bin")).toEqual({ changed: 2 });
+      expect((await get(t.app, "/api/assets")).json().items).toHaveLength(1);
+      expect((await get(t.app, "/api/assets?bin=1")).json().items).toHaveLength(2);
+      expect(await bulk([a.id], "restore")).toEqual({ changed: 1 });
+      expect((await get(t.app, "/api/assets")).json().items).toHaveLength(2);
+      expect((await post(t.app, "/api/assets/bulk", { ids: [], action: "bin" })).statusCode).toBe(400);
+    } finally {
+      await t.close();
+    }
   });
 });

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, ChevronDown, ChevronLeft, Film, Folder as FolderIcon, Minus, Pencil, Plus, Search, Star, Trash2, Workflow, X } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronLeft, Film, Folder as FolderIcon, Minus, Pencil, Plus, Search, Square, Star, Trash2, Undo2, Workflow, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { hasWildcards } from "@studai/core";
 import { api, ApiError, thumbUrl, type Asset, type RecipeInfo, type RunningJob } from "../api";
+import { askAboutDisk } from "../Confirm";
 import { useAssetFamilies, useAssetModels, useAssets, useEntities, useEstimates, useFolders, useModelSettings, useQueue, useRecipes, useSetup, useTimelines } from "../data";
 import { Designer, WritingHelp, type DesignerTurn } from "../Designer";
 import { useDraft } from "../draft";
@@ -13,6 +14,7 @@ import { estimateFor } from "../estimate";
 import { Form, mainTextOf } from "../RecipeForm";
 import { formDefaults } from "../form";
 import { about, aboutMs, clock, fileLabel, notReady, phaseLabel, recipeLabel, when } from "../format";
+import { plainKey } from "../Keys";
 import { LivePreview } from "../LivePreview";
 import { LookBar, lookWords } from "../LookBar";
 import { carryOver, modelGroups } from "../picker";
@@ -49,15 +51,39 @@ const KINDS = [
 ] as const;
 const TILE = { S: "minmax(120px,1fr)", M: "minmax(170px,1fr)", L: "minmax(250px,1fr)" };
 
-function LiveTile({ job, onClick, on }: { job: RunningJob; onClick?(): void; on?: boolean }) {
+/** Stops a render that is under way, or takes one that waits out of the queue. Nothing is added. */
+function useStop() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) await api.cancel(id);
+    },
+    onSettled: () => void client.invalidateQueries({ queryKey: ["queue"] }),
+  });
+}
+
+function LiveTile({ job, onClick, on, title }: { job: RunningJob; onClick?(): void; on?: boolean; title?: string }) {
+  const stop = useStop();
   return (
-    <button type="button" onClick={onClick} disabled={!onClick} aria-label="What is being made now" className={cx("relative flex aspect-[3/4] flex-col items-center justify-center gap-2 overflow-hidden rounded-[10px] border bg-panel", on ? "border-2 border-accent" : "border-line-strong")}>
-      <LivePreview job={job} className="absolute inset-0 h-full w-full object-cover opacity-80" />
-      <div className="relative flex w-full flex-col items-center gap-1.5 bg-ground/60 px-2 py-2 text-center">
-        <div className="text-xs font-semibold">{phaseLabel(job.phase)}</div>
-        <div className="w-4/5"><Bar value={job.progress * 100} /></div>
-      </div>
-    </button>
+    <div className={cx("relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", on ? "border-2 border-accent" : "border-line-strong")}>
+      <button type="button" onClick={onClick} disabled={!onClick} aria-label={title ?? "What is being made now"} title={title} className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+        <LivePreview job={job} className="absolute inset-0 h-full w-full object-cover opacity-80" />
+        <div className="relative flex w-full flex-col items-center gap-1.5 bg-ground/60 px-2 py-2 text-center">
+          <div className="text-xs font-semibold">{phaseLabel(job.phase)}</div>
+          <div className="w-4/5"><Bar value={job.progress * 100} /></div>
+        </div>
+      </button>
+      <button
+        type="button"
+        aria-label="Stop this render"
+        title="Stop this render. Nothing is added."
+        disabled={stop.isPending}
+        onClick={() => stop.mutate([job.id])}
+        className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-lg border border-line-strong bg-ground/80 text-ink hover:border-warn hover:text-warn"
+      >
+        <Square size={11} fill="currentColor" />
+      </button>
+    </div>
   );
 }
 
@@ -65,7 +91,7 @@ function LiveTile({ job, onClick, on }: { job: RunningJob; onClick?(): void; on?
  * The form that makes things, as a panel: the draft it is on, then the form in its parts, then the
  * button. What it makes is filed in `folder`, the one that is open beside it.
  */
-function CreatePanel({ folder, onClose }: { folder: { id: string; name: string } | null; onClose(): void }) {
+function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; path: string | null } | null; onClose(): void }) {
   const recipes = useRecipes();
   const setup = useSetup();
   const client = useQueryClient();
@@ -259,7 +285,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string }
   const takesLook = recipe?.inputs.some((i) => i.type === "prompt" || i.type === "loras" || i.type === "references");
 
   return (
-    <aside aria-label="Create" className="flex w-[408px] shrink-0 flex-col border-r border-line bg-panel">
+    <aside aria-label="Create" data-designer-stays className="flex w-[408px] shrink-0 flex-col border-r border-line bg-panel">
       <div className="flex h-[60px] shrink-0 items-center gap-1.5 border-b border-line px-3">
         {naming !== null && draft ? (
           <form
@@ -348,7 +374,9 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string }
         )}
         <span className="flex items-center gap-1.5 text-xs text-ink-2">
           <FolderIcon size={13} className="shrink-0" />
-          {folder ? <span className="truncate">Results go to <span className="font-semibold text-ink">{folder.name}</span>, the folder that is open</span> : <span>Results are not filed: open a folder to have them land in it</span>}
+          {folder
+            ? <span className="truncate" title={folder.path ? `Kept results become files in ${folder.path}` : undefined}>Results go to <span className="font-semibold text-ink">{folder.name}</span>{folder.path ? ": written to your disk when you keep them" : ", the folder that is open"}</span>
+            : <span>Results are not filed: open a folder to have them land in it</span>}
         </span>
         <div className="flex items-center gap-2.5">
           <div className="flex h-11 shrink-0 items-center rounded-lg border border-line">
@@ -389,7 +417,9 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
   const queue = useQueue();
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
   const running = queue.data?.running?.draftId === draft ? queue.data.running : null;
-  const waiting = (queue.data?.waiting ?? []).filter((j) => j.draftId === draft).length;
+  const inLine = (queue.data?.waiting ?? []).filter((j) => j.draftId === draft);
+  const waiting = inLine.length;
+  const stop = useStop();
   // what is shown large: the one that was picked, else what is forming, else the newest
   const [picked, setPicked] = useState<string | "live" | null>(null);
   const [details, setDetails] = useState<Asset | null>(null);
@@ -413,6 +443,17 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
               <span className="font-semibold">{phaseLabel(running.phase)}{running.steps ? ` · step ${running.step} of ${running.steps}` : ""}{running.eta ? ` · ${about(running.eta)}` : ""}</span>
               <div className="w-full"><Bar value={running.progress * 100} /></div>
               {waiting > 0 && <span className="text-xs text-ink-2">{waiting} more waiting</span>}
+              <div className="flex flex-wrap justify-center gap-2 pt-1">
+                <Button size="sm" onClick={() => stop.mutate([running.id])} disabled={stop.isPending} title={waiting ? "Stop this one. Nothing is added; the next one starts." : "Stop this render. Nothing is added."}>
+                  <Square size={11} fill="currentColor" /> Stop this render
+                </Button>
+                {waiting > 0 && (
+                  <Button size="sm" onClick={() => stop.mutate([...inLine.map((j) => j.id), running.id])} disabled={stop.isPending} title="Stop this one and take the ones that wait out of the queue.">
+                    Stop all {waiting + 1}
+                  </Button>
+                )}
+              </div>
+              {stop.isError && <ErrorNote>{stop.error.message}</ErrorNote>}
             </div>
           </div>
         )}
@@ -428,10 +469,17 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
           />
         )}
       </div>
-      <div className="flex w-[132px] shrink-0 flex-col gap-2.5 overflow-y-auto pb-4">
+      <div className="flex w-[140px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-4">
         <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">This draft · {items.length}</span>
         {running && <LiveTile job={running} on={Boolean(live)} onClick={() => setPicked("live")} />}
-        {waiting > 0 && <span className="rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-center text-xs text-ink-2">{waiting} waiting</span>}
+        {waiting > 0 && (
+          <span className="flex items-center justify-between gap-1 rounded-lg border border-dashed border-line-strong py-1 pr-1 pl-2 text-xs text-ink-2">
+            {waiting} waiting
+            <button type="button" aria-label={`Take the ${waiting} that wait out of the queue`} title="Take them out of the queue" disabled={stop.isPending} onClick={() => stop.mutate(inLine.map((j) => j.id))} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-warn">
+              <X size={13} />
+            </button>
+          </span>
+        )}
         {items.map((a) => (
           <div key={a.id} className={cx("rounded-[12px] border-2", !live && shown?.id === a.id ? "border-accent" : "border-transparent")}>
             <Tile asset={a} onOpen={() => setPicked(a.id)} />
@@ -466,6 +514,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
   const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "Not filed yet" : place.type === "folder" ? folder?.name ?? "A folder" : "Everything";
 
   const draftId = useOpenDraft((s) => s.id);
+  const openDraft = useOpenDraft((s) => s.open);
   const draftOnly = view.form && view.scope === "draft" && Boolean(draftId);
 
   const [kind, setKind] = useState<(typeof KINDS)[number]["id"]>("all");
@@ -526,9 +575,68 @@ export function Studio({ open: forced }: { open?: boolean }) {
   }, []);
   const running = queue.data?.running ?? null;
 
+  // ---- several items ticked, to move, keep or delete them together
+  const client = useQueryClient();
+  const [picked, setPicked] = useState<string[]>([]);
+  const lastPicked = useRef<string | null>(null);
+  const tick = (a: Asset, range: boolean) => {
+    const from = range && lastPicked.current ? items.findIndex((x) => x.id === lastPicked.current) : -1;
+    const to = items.findIndex((x) => x.id === a.id);
+    if (from >= 0 && to >= 0) {
+      // with Shift: everything from the last one ticked to this one
+      const between = items.slice(Math.min(from, to), Math.max(from, to) + 1).map((x) => x.id);
+      setPicked((old) => [...new Set([...old, ...between])]);
+    } else setPicked((old) => (old.includes(a.id) ? old.filter((x) => x !== a.id) : [...old, a.id]));
+    lastPicked.current = a.id;
+  };
+  // what is ticked is of the list that is shown: another folder, another search, and nothing is
+  const listKey = JSON.stringify([place, kind, q, made, lora, kept, draftOnly]);
+  useEffect(() => setPicked([]), [listKey]);
+  const afterBulk = () => {
+    setPicked([]);
+    return client.invalidateQueries({ queryKey: ["assets"] });
+  };
+  const bulk = useMutation({ mutationFn: (action: "keep" | "unkeep" | "bin" | "restore") => api.bulkAssets(picked, action), onSuccess: afterBulk });
+  const moveTo = useMutation({ mutationFn: (to: string | null) => api.moveAssets(picked, to), onSuccess: afterBulk });
+  const chosen = items.filter((a) => picked.includes(a.id));
+  /** The ticked items to the bin; files of a linked folder leave the disk, which is asked first. */
+  const binChosen = async () => {
+    if (await askAboutDisk(chosen)) bulk.mutate("bin");
+  };
+  // Esc unticks, Ctrl + A ticks everything shown, Del sends what is ticked to the bin
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
+  keys.current = (e) => {
+    if (draftOnly || open || document.querySelector("[role=dialog][aria-modal=true]")) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]") && items.length) {
+      e.preventDefault();
+      setPicked(items.map((a) => a.id));
+      return;
+    }
+    if (!picked.length || !plainKey(e)) return;
+    if (e.key === "Escape") setPicked([]);
+    else if (e.key === "Delete" && place.type !== "bin") void binChosen();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keys.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const folderOptions = useMemo(() => {
+    const all = folders.data?.items ?? [];
+    const out: Array<{ value: string; label: string }> = [];
+    const walk = (parent: string | null, depth: number) => {
+      for (const f of all.filter((x) => x.parentId === parent)) {
+        out.push({ value: f.id, label: `${"\u2003".repeat(depth)}${depth ? "\u21b3 " : ""}${f.name}` });
+        walk(f.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  }, [folders.data]);
+
   return (
     <div className="flex min-h-0 min-w-0 grow">
-      {view.form && <CreatePanel folder={folder ? { id: folder.id, name: folder.name } : null} onClose={() => view.set({ form: false })} />}
+      {view.form && <CreatePanel folder={folder ? { id: folder.id, name: folder.name, path: folder.path } : null} onClose={() => view.set({ form: false })} />}
       <div className="flex min-w-0 grow flex-col">
         <header className="flex h-[60px] shrink-0 items-center gap-2 px-5">
           <h1 className="sr-only">Studio</h1>
@@ -565,7 +673,30 @@ export function Studio({ open: forced }: { open?: boolean }) {
             </button>
           ))}
           <span className="grow" />
-          {!draftOnly && (
+          {!draftOnly && picked.length > 0 && (
+            <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
+              <span className="font-semibold whitespace-nowrap">{picked.length} ticked</span>
+              {picked.length < items.length && <button type="button" onClick={() => setPicked(items.map((a) => a.id))} className="text-xs text-ink-2 underline hover:text-ink">all {items.length} shown</button>}
+              {place.type === "bin" ? (
+                <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Put them back</Button>
+              ) : (
+                <>
+                  <div className="w-44">
+                    <Select
+                      size="sm" label="Move the ticked items to a folder" placeholder="Move to a folder" searchHint="Search your folders" value=""
+                      onChange={(to) => moveTo.mutate(to === "__none__" ? null : to)}
+                      options={[...folderOptions, { value: "__none__", label: "Out of any folder" }]}
+                    />
+                  </div>
+                  {chosen.some((a) => !a.kept) && <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} /> Keep</Button>}
+                  {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} title="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Stop keeping</Button>}
+                  <Button size="sm" disabled={bulk.isPending} title="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} /> Bin</Button>
+                </>
+              )}
+              <button type="button" aria-label="Untick everything" title="Untick everything (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+            </div>
+          )}
+          {!draftOnly && picked.length === 0 && (
             <>
               <label className="flex h-9 w-64 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
                 <Search size={14} className="shrink-0 text-ink-3" />
@@ -605,12 +736,13 @@ export function Studio({ open: forced }: { open?: boolean }) {
           )}
         </header>
 
-        <div className={cx("min-h-0 grow px-5", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
+        <div className={cx("min-h-0 grow px-5 pt-1.5", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
           {draftOnly ? (
             <DraftResults draft={draftId!} folder={folder?.id} />
           ) : (
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
+              {(bulk.isError || moveTo.isError) && <ErrorNote>{(bulk.error ?? moveTo.error)?.message}</ErrorNote>}
               {showTimelines && (
                 <>
                   {timelines.isSuccess && !timelines.data.items.length && <Empty title="No timeline yet">A timeline plays clips one after the other. Start one in Timelines.</Empty>}
@@ -642,8 +774,28 @@ export function Studio({ open: forced }: { open?: boolean }) {
               )}
               <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${TILE[view.size]})` }}>
                 {/* what is being made now comes first, where its result will land */}
-                {!showTimelines && running && running.kind === "render" && place.type !== "bin" && !filtered && <LiveTile job={running} />}
-                {items.map((a) => <Tile key={a.id} asset={a} onOpen={() => setOpen(a)} />)}
+                {!showTimelines && running && running.kind === "render" && place.type !== "bin" && !filtered && (
+                  <LiveTile
+                    job={running}
+                    title={running.draftId ? "Open the draft that is making it" : undefined}
+                    // to the draft it comes from: the form opens on it, with what it has made beside it
+                    onClick={running.draftId ? () => {
+                      openDraft(running.draftId);
+                      view.set({ form: true, scope: "draft" });
+                    } : undefined}
+                  />
+                )}
+                {items.map((a) => (
+                  <Tile
+                    key={a.id}
+                    asset={a}
+                    onOpen={() => setOpen(a)}
+                    selected={picked.includes(a.id)}
+                    selecting={picked.length > 0}
+                    onSelect={(range) => tick(a, range)}
+                    dragIds={picked.includes(a.id) ? picked : undefined}
+                  />
+                ))}
               </div>
               {!showTimelines && assets.hasNextPage && (
                 <div className="mt-5 flex justify-center">

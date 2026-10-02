@@ -130,7 +130,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, why, takes, 
   const heard = clip.sound === "file" ? "file" : clip.sound === "muted" && hasOwn ? "muted" : "own";
 
   return (
-    <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
+    <aside data-designer-stays className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <span className="font-semibold">{still ? "Picture" : "Clip"} {index + 1}</span>
         <span className="text-ink-2">{clip.lengthMs ? `${(clip.lengthMs / 1000).toFixed(1)} s` : "not rendered yet"}</span>

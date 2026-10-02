@@ -574,6 +574,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         const status = setup.data?.recipes.find((r) => r.id === recipe.id);
         return (
           <Designer
+            // on the left, over the media: the clip's own settings, on the right, stay in view and are seen to change
+            side="left"
             recipe={recipe}
             values={{ ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored }}
             previous={before && beforeMain ? String(inputsOf(before)[beforeMain.id] ?? "") || undefined : undefined}

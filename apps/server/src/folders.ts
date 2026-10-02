@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { newId, now, OWNER } from "./db";
+import { isLinked } from "./linked";
 import type { Services } from "./services";
 
 /** Folders, nested like directories. An item is in one folder or in none. */
@@ -33,22 +34,44 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     return {
       items: rows
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((f) => ({ id: f.id, parentId: f.parent_id, name: f.name, count: byFolder.get(f.id) ?? 0 })),
+        .map((f) => ({
+          id: f.id, parentId: f.parent_id, name: f.name, count: byFolder.get(f.id) ?? 0,
+          // linked to a directory of the disk; `root`: the one that was linked, not one of its sub-directories
+          path: f.path, root: Boolean(f.path) && !rows.some((p) => p.id === f.parent_id && p.path),
+        })),
     };
+  });
+
+  /** Link a directory of the disk the server runs on: it becomes a folder, with its sub-directories as sub-folders. */
+  app.post("/api/folders/link", async (req) => {
+    const body = z.strictObject({ path: z.string().trim().min(1).max(1000), name: z.string().trim().max(120).optional() }).parse(req.body);
+    const row = await s.linked.link(body.path, body.name);
+    return { id: row.id, parentId: null, name: row.name, count: 0, path: row.path, root: true };
+  });
+
+  /** Read a linked folder's directory again. */
+  app.post<{ Params: { id: string } }>("/api/folders/:id/scan", async (req) => {
+    await mustExist(req.params.id);
+    return s.linked.scan(req.params.id);
   });
 
   app.post("/api/folders", async (req) => {
     const body = createBody.parse(req.body);
-    if (body.parentId) await mustExist(body.parentId);
-    const row = { id: newId(), owner_id: OWNER, parent_id: body.parentId, name: body.name, created_at: now() };
+    const parent = body.parentId ? await mustExist(body.parentId) : null;
+    // inside a linked folder, a new folder is a new directory
+    const path = parent?.path ? await s.linked.makeFolder(parent, body.name) : null;
+    const row = { id: newId(), owner_id: OWNER, parent_id: body.parentId, name: path ? path.split(/[\\/]/).pop()! : body.name, path, created_at: now() };
     await s.db.insertInto("folders").values(row).execute();
     s.queue.events.emit("library");
-    return { id: row.id, parentId: row.parent_id, name: row.name, count: 0 };
+    return { id: row.id, parentId: row.parent_id, name: row.name, count: 0, path: row.path, root: false };
   });
 
   app.patch<{ Params: { id: string } }>("/api/folders/:id", async (req) => {
     const body = editBody.parse(req.body);
     const folder = await mustExist(req.params.id);
+    const rootLinked = folder.path && !(folder.parent_id && (await mustExist(folder.parent_id)).path);
+    if (folder.path && (body.parentId !== undefined || !rootLinked)) throw bad("This folder is a directory of your disk: rename or move it there, then press Look again. The linked folder itself can be given another name here.");
+    if (body.parentId && (await mustExist(body.parentId)).path) throw bad("A folder of the library cannot be moved into a linked folder. Make a new folder in it instead.");
     if (body.parentId) {
       // a folder cannot be moved into itself or into one of its own subfolders
       const rows = await all();
@@ -69,6 +92,12 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
   /** Deleting a folder never deletes what is in it: its items and subfolders move up one level. */
   app.delete<{ Params: { id: string } }>("/api/folders/:id", async (req) => {
     const folder = await mustExist(req.params.id);
+    if (folder.path) {
+      // a linked folder is unlinked: nothing on the disk is touched. One of its sub-directories is not deleted from here.
+      if (folder.parent_id && (await mustExist(folder.parent_id)).path) throw bad("This folder is a directory of your disk: delete it there, then press Look again.");
+      await s.linked.unlink(folder.id);
+      return { ok: true };
+    }
     await s.db.transaction().execute(async (tx) => {
       await tx.updateTable("assets").set({ folder_id: folder.parent_id }).where("folder_id", "=", folder.id).execute();
       await tx.updateTable("folders").set({ parent_id: folder.parent_id }).where("parent_id", "=", folder.id).execute();
@@ -81,7 +110,17 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
   /** File items in a folder, or take them out of any (folderId null). Filing something keeps it. */
   app.post("/api/assets/move", async (req) => {
     const body = moveBody.parse(req.body);
-    if (body.folderId) await mustExist(body.folderId);
+    const target = body.folderId ? await mustExist(body.folderId) : null;
+    const items = await s.db.selectFrom("assets").selectAll().where("id", "in", body.ids).execute();
+    if (target?.path) {
+      // into a linked folder: each becomes a file in its directory (one that is a linked file already is moved on the disk)
+      for (const a of items) await s.linked.into(a, target);
+      s.queue.events.emit("library");
+      return { moved: items.length };
+    }
+    if (items.some((a) => isLinked(a.file_key))) {
+      throw bad("These are files of a linked folder: they live on your disk. Move them to another linked folder, or with your file manager.");
+    }
     const moved = await s.db.updateTable("assets").set({ folder_id: body.folderId }).where("id", "in", body.ids).executeTakeFirst();
     // what someone took the trouble to file is not thrown away after a day
     if (body.folderId) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", body.ids).where("kept_at", "is", null).execute();

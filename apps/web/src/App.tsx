@@ -10,6 +10,8 @@ import { useDownloads } from "./GetFile";
 import { about, phaseLabel } from "./format";
 import { useLiveEvents } from "./live";
 import { Studio } from "./screens/Studio";
+import { ConfirmHost } from "./Confirm";
+import { FolderImportNote } from "./folderImport";
 import { People } from "./screens/People";
 import { Queue } from "./screens/Queue";
 import { Setup } from "./screens/Setup";
@@ -115,6 +117,8 @@ export function App() {
       <Strip />
       <DropTray />
       <Banners />
+      <FolderImportNote />
+      <ConfirmHost />
       <KeysHelp />
       <TabProgress />
     </div>

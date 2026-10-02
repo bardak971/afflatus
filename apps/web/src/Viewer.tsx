@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
+import { askAboutDisk } from "./Confirm";
 import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo } from "./api";
 import { useAsset, useAssetAction, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
 import { formDefaults } from "./form";
@@ -464,7 +465,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     if (next) onOpen?.(next);
     return Boolean(next);
   };
-  const toBin = () => {
+  const toBin = async () => {
+    // a file of a linked folder leaves its folder on the disk: asked first
+    if (!(await askAboutDisk([a]))) return;
     bin.mutate(undefined);
     // on to the next one: sorting a batch is keep, bin, keep, bin
     if (!(move(1) || move(-1))) onClose();
@@ -493,7 +496,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     else if (e.key === "ArrowRight" && !inPlayer) move(1);
     else if (a.inBin) return;
     else if (k === "s") keep.mutate(!a.kept);
-    else if (e.key === "Delete") toBin();
+    else if (e.key === "Delete") void toBin();
     else if (k === "d") download();
     else if (k === "l" && g && recipe) again.mutate(g);
     else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" });
@@ -548,7 +551,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title="A new clip whose first moments are the last moments of this one." onClick={() => carryOn.mutate()}><Link2 size={13} /> Continue it <Kbd>C</Kbd></Button>}
           {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video where you want, then save that frame as a picture." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save the frame <Kbd>G</Kbd></Button>}
           {onDetails && <Button size="sm" onClick={onDetails} title="How it was made, where it is filed, and everything else that can be done with it">Details</Button>}
-          <Button size="sm" onClick={toBin} title="Move it to the bin, and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
+          <Button size="sm" onClick={() => void toBin()} title="Move it to the bin, and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
         </div>
       </div>
     );
@@ -597,6 +600,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
               {g?.resolved.overlap?.headMs ? <Row label="Its start">The first {(g.resolved.overlap.headMs / 1000).toFixed(1)} s repeat the end of the clip it continues. A timeline skips them.</Row> : null}
               {g?.resolved.overlap?.tailMs ? <Row label="Its end">The last {(g.resolved.overlap.tailMs / 1000).toFixed(1)} s repeat the start of the clip it flows into. A timeline skips them.</Row> : null}
               <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
+              {a.path && <Row label={a.inBin ? "It was at" : "On your disk"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
               <Row label="Made">{made.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
               {g && <Row label="It took">{took(g.tookMs)}</Row>}
             </dl>
@@ -686,7 +690,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             )}
             {!a.inBin && (
               <div className="flex gap-2">
-                <Button className="grow" onClick={toBin}>
+                <Button className="grow" onClick={() => void toBin()}>
                   <Trash2 size={15} /> Move to the bin <Kbd>Del</Kbd>
                 </Button>
                 <Button onClick={download} title="Download the file">Download <Kbd>D</Kbd></Button>

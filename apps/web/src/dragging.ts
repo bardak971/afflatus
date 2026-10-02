@@ -57,7 +57,8 @@ export function useDropZone(types: string[], take: (id: string) => void, file?: 
         const dropped = e.dataTransfer.files[0];
         if (dropped) file?.(dropped);
         else {
-          const id = e.dataTransfer.getData(DRAG_TYPE);
+          // several ticked items dragged together: a place for one takes the first
+          const id = e.dataTransfer.getData(DRAG_TYPE).split(",")[0];
           if (id) take(id);
         }
       },

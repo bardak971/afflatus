@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, RotateCcw, Send, Sparkles, WandSparkles, X } from "lucide-react";
@@ -27,7 +27,7 @@ const asText = (r: DesignerReply) =>
  * demand, over the right side of the screen. What it proposes is shown whole and goes in the form only
  * when "Use it" is pressed.
  */
-export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose }: {
+export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose, side = "right" }: {
   recipe: RecipeInfo;
   /** The whole form as it is now. */
   values: Record<string, unknown>;
@@ -44,6 +44,8 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   look?: Look | null;
   mood?: string;
   onClose(): void;
+  /** Which side of the screen it opens on: the one where it does not hide the form it writes into. */
+  side?: "left" | "right";
 }) {
   const settings = useSettings();
   const client = useQueryClient();
@@ -74,6 +76,35 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  // On the left it ends above what is marked `data-designer-floor` (the strip of clips), which stays in view.
+  const [floor, setFloor] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (side !== "left") return;
+    const el = document.querySelector("[data-designer-floor]");
+    if (!el) return;
+    const measure = () => setFloor(Math.max(0, window.innerHeight - el.getBoundingClientRect().top));
+    measure();
+    const seen = new ResizeObserver(measure);
+    seen.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      seen.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [side]);
+  // A click anywhere else closes it, except in the form it writes into (marked `data-designer-stays`):
+  // the texts are corrected by hand between two messages. Menus float outside the panel and are part of it.
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const el = e.target as Element | null;
+      if (!el?.closest || panel.current?.contains(el)) return;
+      if (el.closest('[data-designer-stays], [data-floating], [role="menu"]')) return;
+      onClose();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [onClose]);
   const send = (words: string, mode: "chat" | "enhance" = "chat") => {
     if (!words.trim() || say.isPending) return;
     setText("");
@@ -102,7 +133,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   const sees = last?.sawPicture;
 
   return (
-    <div role="dialog" aria-label="Designer" className="fixed top-0 right-0 bottom-10 z-30 flex w-[420px] flex-col border-l border-line-strong bg-panel shadow-2xl shadow-black/60">
+    <div ref={panel} role="dialog" aria-label="Designer" style={floor !== null ? { bottom: floor } : undefined} className={cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-black/60", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <WandSparkles size={15} className="text-accent" />
         <span className="font-semibold">Designer</span>

@@ -16,7 +16,8 @@ import type { Config } from "./config";
  */
 export interface Tables {
   settings: { key: string; value: string; updated_at: string };
-  folders: { id: string; owner_id: string; parent_id: string | null; name: string; created_at: string };
+  /** `path`: the directory of the disk a folder is linked to (see linked.ts); null for a folder that only exists in the library. */
+  folders: { id: string; owner_id: string; parent_id: string | null; name: string; path: string | null; created_at: string };
   /** One row per file: a picture, a video or a sound. */
   assets: {
     id: string;
@@ -40,6 +41,8 @@ export interface Tables {
     kept_at: string | null;
     /** set = in the bin. */
     deleted_at: string | null;
+    /** Of a file of a linked folder that is in the bin: where it was on the disk, to put it back there. */
+    linked_path: string | null;
     created_at: string;
   };
   /** How an asset was made: the recipe, the inputs as submitted, and what was resolved at render time. */
@@ -550,6 +553,17 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0017_linked_folders"] = {
+  async up(db) {
+    await db.schema.alterTable("folders").addColumn("path", "text").execute();
+    await db.schema.alterTable("assets").addColumn("linked_path", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("folders").dropColumn("path").execute();
+    await db.schema.alterTable("assets").dropColumn("linked_path").execute();
   },
 };
 

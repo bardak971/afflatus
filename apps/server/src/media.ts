@@ -5,6 +5,8 @@ export const assetView = (a: Tables["assets"]) => ({
   id: a.id, kind: a.kind, origin: a.origin, name: a.name, mime: a.mime, bytes: a.bytes, width: a.width, height: a.height,
   durationMs: a.duration_ms, fps: a.fps, hasSound: Boolean(a.has_sound), folderId: a.folder_id, generationId: a.generation_id,
   kept: a.kept_at !== null, inBin: a.deleted_at !== null, createdAt: a.created_at,
+  // a file of a linked folder: where it is on the disk (in the bin: where it was)
+  path: a.file_key.startsWith("linked:") ? a.file_key.slice("linked:".length) : a.linked_path,
 });
 
 /** Width and height of a PNG, read from its header (ComfyUI's image outputs are PNG). */

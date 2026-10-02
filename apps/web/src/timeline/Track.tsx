@@ -192,7 +192,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   for (let s = 0; s * 1000 <= totalMs + step * 1000; s += step) marks.push(s);
 
   return (
-    <div className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
+    <div data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
       <div className="flex">
         <div className="relative w-[64px] shrink-0 border-r border-line text-[11px] font-semibold text-ink-2" style={{ height: HEIGHT }}>
           <span className="absolute left-3" style={{ top: ROW.top + ROW.height / 2 - 8 }}>Picture</span>

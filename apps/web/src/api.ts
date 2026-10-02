@@ -115,6 +115,8 @@ export interface Asset {
   folderId: string | null;
   generationId: string | null;
   createdAt: string;
+  /** Of a file of a linked folder: where it is on the disk (in the bin: where it was). */
+  path: string | null;
 }
 export interface AssetDetail extends Asset {
   generation: null | {
@@ -254,6 +256,9 @@ export interface Folder {
   parentId: string | null;
   name: string;
   count: number;
+  /** The directory of the disk it is linked to, when it is; `root`: the one that was linked, not one of its sub-directories. */
+  path: string | null;
+  root: boolean;
 }
 /** An imported workflow, as the list shows it. */
 export interface WorkflowBrief {
@@ -604,6 +609,8 @@ export const api = {
   },
   asset: (id: string) => call<AssetDetail>("GET", `/assets/${id}`),
   keep: (id: string, kept: boolean) => call<Asset>("POST", `/assets/${id}/keep`, { kept }),
+  /** Several items at once: kept or not, to the bin, or back from it. */
+  bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number }>("POST", "/assets/bulk", { ids, action }),
   bin: (id: string) => call<{ ok: true }>("DELETE", `/assets/${id}`),
   restore: (id: string) => call<Asset>("POST", `/assets/${id}/restore`),
   drafts: () => call<{ items: DraftBrief[] }>("GET", "/drafts"),
@@ -637,13 +644,17 @@ export const api = {
   modelInfo: (folder: string) => call<{ items: Record<string, ModelInfo>; pending: number }>("GET", `/models/${folder}/info`),
   folders: () => call<{ items: Folder[] }>("GET", "/folders"),
   createFolder: (name: string, parentId: string | null) => call<Folder>("POST", "/folders", { name, parentId }),
+  /** Link a directory of the disk the server runs on: it becomes a folder, read where it is. */
+  linkFolder: (path: string, name?: string) => call<Folder>("POST", "/folders/link", name ? { path, name } : { path }),
+  /** Read a linked folder's directory again. */
+  scanFolder: (id: string) => call<{ files: number; folders: number }>("POST", `/folders/${id}/scan`, {}),
   editFolder: (id: string, patch: { name?: string; parentId?: string | null }) => call<{ ok: true }>("PATCH", `/folders/${id}`, patch),
   deleteFolder: (id: string) => call<{ ok: true }>("DELETE", `/folders/${id}`),
   moveAssets: (ids: string[], folderId: string | null) => call<{ moved: number }>("POST", "/assets/move", { ids, folderId }),
   /** A picture, a video or a sound from this computer, into the library. The file is the request body. */
-  upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean } = {}) => {
+  upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean; /** The folder it goes into. */ folder?: string } = {}) => {
     if (!/^(image|video|audio)\//.test(file.type)) throw new ApiError("This file is not a picture, a video or a sound.");
-    const res = await fetch(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
+    const res = await fetch(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : ""}${opts.folder ? `&folder=${encodeURIComponent(opts.folder)}` : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
     const data = (await res.json().catch(() => ({}))) as Asset & { error?: string };
     if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`);
     return data as Asset;

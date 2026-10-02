@@ -1,11 +1,12 @@
-import { useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderPlus, Music, Pencil, Play, Trash2, VolumeX } from "lucide-react";
+import { CornerDownRight, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
 import { api, thumbUrl, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
 import { clock, size } from "../format";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
+import { useFolderImport } from "../folderImport";
 import { cx, ErrorNote } from "../ui";
 
 /** The pieces of the library that several screens use: a tile, what dragging one carries, and the folders. The screen itself is Studio. */
@@ -22,23 +23,57 @@ export type Place = { type: "all" } | { type: "unfiled" } | { type: "folder"; id
 
 export { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO, dragKind } from "../dragging";
 
-export function Tile({ asset, onOpen }: { asset: Asset; onOpen(): void }) {
+export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: {
+  asset: Asset;
+  onOpen(): void;
+  /** It is one of the items ticked; and whether any is: a click then ticks instead of opening. */
+  selected?: boolean;
+  selecting?: boolean;
+  /** Tick or untick it. With the Shift key held: everything from the last one ticked to this one. */
+  onSelect?(range: boolean): void;
+  /** What a drag of it carries: every ticked item when it is one of them. */
+  dragIds?: string[];
+}) {
   // a video has a preview frame when the server could read one from it
   const [noFrame, setNoFrame] = useState(false);
   return (
     <button
       type="button"
       draggable
+      aria-pressed={onSelect ? Boolean(selected) : undefined}
       onDragStart={(e) => {
-        e.dataTransfer.setData(DRAG_TYPE, asset.id);
+        e.dataTransfer.setData(DRAG_TYPE, (dragIds ?? [asset.id]).join(","));
         e.dataTransfer.setData(dragKind(asset.kind), asset.id);
         if (asset.kind === "video" && asset.hasSound) e.dataTransfer.setData(DRAG_HAS_SOUND, asset.id);
         e.dataTransfer.effectAllowed = "copyMove";
       }}
-      onClick={onOpen}
+      onClick={(e) => {
+        // with something ticked, or with Ctrl or Shift held, a click ticks; otherwise it opens
+        if (onSelect && (selecting || e.ctrlKey || e.metaKey || e.shiftKey)) onSelect(e.shiftKey);
+        else onOpen();
+      }}
       aria-label={`Open ${asset.kind === "image" ? "picture" : asset.kind}`}
-      className="group relative aspect-[3/4] overflow-hidden rounded-[10px] border border-line bg-panel"
+      className={cx("group relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
     >
+      {onSelect && (
+        <span
+          role="checkbox"
+          aria-checked={Boolean(selected)}
+          aria-label="Tick it, to move, keep or delete several at once"
+          title="Tick it (also Ctrl + click; Shift + click ticks everything in between)"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(e.shiftKey);
+          }}
+          className={cx(
+            "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
+            selected ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
+            !selected && !selecting && "opacity-0 group-hover:opacity-100",
+          )}
+        >
+          ✓
+        </span>
+      )}
       {asset.kind === "image" || (asset.kind === "video" && !noFrame) ? (
         <img src={thumbUrl(asset.id)} alt="" loading="lazy" draggable={false} onError={() => setNoFrame(true)} className="h-full w-full object-cover" />
       ) : (
@@ -85,7 +120,8 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   const folders = useFolders();
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: ["assets"] });
-  const [adding, setAdding] = useState(false);
+  // a new folder: inside the one that is open, or at the top; or a directory of the disk to link
+  const [adding, setAdding] = useState<false | "inside" | "top" | "link">(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -93,7 +129,11 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   const storage = useStorage();
 
   const selected = place.type === "folder" ? place.id : null;
-  const create = useMutation({ mutationFn: (name: string) => api.createFolder(name, selected), onSuccess: refresh });
+  const create = useMutation({ mutationFn: (v: { name: string; parent: string | null }) => api.createFolder(v.name, v.parent), onSuccess: refresh });
+  const open = (folders.data?.items ?? []).find((f) => f.id === selected);
+  // a whole folder of the computer, brought in with its sub-folders: into the folder that is open, or at the top
+  const picker = useRef<HTMLInputElement>(null);
+  const bringIn = useFolderImport((s) => s.start);
   const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.editFolder(v.id, { name: v.name }), onSuccess: refresh });
   const remove = useMutation({
     mutationFn: api.deleteFolder,
@@ -102,7 +142,14 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       return refresh();
     },
   });
-  const move = useMutation({ mutationFn: (v: { asset: string; folder: string | null }) => api.moveAssets([v.asset], v.folder), onSuccess: refresh });
+  const move = useMutation({ mutationFn: (v: { asset: string; folder: string | null }) => api.moveAssets(v.asset.split(",").filter(Boolean), v.folder), onSuccess: refresh });
+  const link = useMutation({ mutationFn: (path: string) => api.linkFolder(path), onSuccess: async (made) => {
+      // the list of folders first: a folder that is not in it yet is no place to go to
+      await refresh();
+      onPlace({ type: "folder", id: made.id });
+    },
+  });
+  const look = useMutation({ mutationFn: api.scanFolder, onSuccess: refresh });
 
   /** A row that items can be dropped on. */
   const drop = (key: string, folder: string | null) => ({
@@ -130,7 +177,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     setEditing(null);
     setText("");
   };
-  const error = create.error ?? rename.error ?? remove.error ?? move.error ?? folders.error;
+  const error = create.error ?? rename.error ?? remove.error ?? move.error ?? link.error ?? look.error ?? folders.error;
 
   return (
     <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
@@ -142,12 +189,37 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
             <input autoFocus aria-label="Folder name" value={text} onChange={(e) => setText(e.target.value)} onBlur={() => setEditing(null)} className="h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5" />
           </form>
         ) : (
-          <div key={f.id} style={{ paddingLeft: f.depth * 14 }}>
+          <div key={f.id} style={{ paddingLeft: f.depth * 16 }}>
             <button type="button" onClick={() => onPlace({ type: "folder", id: f.id })} className={row(selected === f.id, f.id)} {...drop(f.id, f.id)}>
-              <span className="truncate">{f.name}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                {/* a folder inside another one sits under it, with an arrow that says so */}
+                {f.depth > 0 ? <CornerDownRight size={13} className="shrink-0 text-ink-3" /> : f.path ? <HardDrive size={14} className="shrink-0 text-ink-2" /> : <FolderIcon size={14} className="shrink-0 text-ink-2" />}
+                <span className="truncate" title={f.path ?? undefined}>{f.name}</span>
+              </span>
               <span className="shrink-0 font-normal text-ink-2">{f.count}</span>
             </button>
-            {selected === f.id && (
+            {selected === f.id && f.path && (
+              // a folder of the disk: it is read again on request; the linked one can be renamed here and unlinked, its sub-directories are changed on the disk
+              <div className="flex flex-col gap-1 py-1 pl-1.5">
+                <span className="truncate font-mono text-[11px] text-ink-3" title={f.path}>{f.path}</span>
+                <div className="flex flex-wrap items-center gap-1">
+                  {deleting === f.id ? (
+                    <>
+                      <span className="text-xs text-ink-2">Nothing on your disk is touched.</span>
+                      <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-[#2a0e00]">Unlink</button>
+                      <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" disabled={look.isPending} title="Read the folder on your disk again: what was added appears, what was removed is gone" onClick={() => look.mutate(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><RefreshCw size={12} /> {look.isPending ? "Looking…" : "Look again"}</button>
+                      {f.root && <button type="button" onClick={() => { setEditing(f.id); setText(f.name); }} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={12} /> Rename</button>}
+                      {f.root && <button type="button" onClick={() => setDeleting(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Unlink size={12} /> Unlink</button>}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+            {selected === f.id && !f.path && (
               <div className="flex items-center gap-1 py-1 pl-1.5">
                 {deleting === f.id ? (
                   <>
@@ -169,14 +241,54 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", "unfiled")} {...drop("unfiled", null)}>Not filed yet</button>
 
       {adding ? (
-        <form onSubmit={submit((name) => create.mutate(name))}>
-          <input autoFocus aria-label="Name of the new folder" placeholder={selected ? "New folder inside it" : "New folder"} value={text} onChange={(e) => setText(e.target.value)} onBlur={() => { if (!text.trim()) setAdding(false); }} className="h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5" />
+        <form className="flex flex-col gap-1" onSubmit={submit((name) => (adding === "link" ? link.mutate(name) : create.mutate({ name, parent: adding === "inside" ? selected : null })))}>
+          <input
+            autoFocus
+            aria-label={adding === "link" ? "The folder's address on the disk" : "Name of the new folder"}
+            placeholder={adding === "link" ? "Its address on the disk, for example D:\\pictures\\shoots" : adding === "inside" && open ? `Name of the folder inside ${open.name}` : "Name of the new folder"}
+            value={text}
+            spellCheck={false}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={() => { if (!text.trim()) setAdding(false); }}
+            className={cx("h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5", adding === "link" && "font-mono text-xs")}
+          />
+          {adding === "link" && <span className="px-1 text-xs text-ink-3">A folder the computer studai runs on can read. Its pictures, videos and sounds show here and are used where they are; nothing is copied. Press Enter.</span>}
         </form>
       ) : (
-        <button type="button" onClick={() => { setAdding(true); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-ink-2 hover:bg-raised hover:text-ink">
-          <FolderPlus size={14} /> New folder
+        <>
+          {open && (
+            <button type="button" onClick={() => { setAdding("inside"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
+              <CornerDownRight size={14} className="shrink-0" /> <span className="truncate">New folder inside {open.name}</span>
+            </button>
+          )}
+          <button type="button" onClick={() => { setAdding("top"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-ink-2 hover:bg-raised hover:text-ink">
+            <FolderPlus size={14} /> {open ? "New folder at the top" : "New folder"}
+          </button>
+        </>
+      )}
+      {!adding && (
+        <button type="button" title="A folder of the disk studai runs on, shown here with its sub-folders. Its files are used where they are." onClick={() => { setAdding("link"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
+          <Link2 size={14} className="shrink-0" /> <span className="truncate">Link a folder of this computer</span>
         </button>
       )}
+      <button type="button" title="Every picture, video and sound in a folder of your computer is copied into the library, with its sub-folders" onClick={() => picker.current?.click()} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
+        <FolderUp size={14} className="shrink-0" /> <span className="truncate">Bring in a folder from your computer{open ? `, into ${open.name}` : ""}</span>
+      </button>
+      <input
+        ref={picker}
+        type="file"
+        multiple
+        hidden
+        aria-hidden="true"
+        tabIndex={-1}
+        // a whole directory, sub-directories included
+        {...{ webkitdirectory: "", directory: "" }}
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = "";
+          if (files.length) void bringIn(files, selected, client);
+        }}
+      />
       {error && <ErrorNote>{error.message}</ErrorNote>}
 
       <div className="my-1 border-t border-line" />

@@ -12,6 +12,7 @@ import { registerDesigner } from "./designer";
 import { registerDrafts } from "./drafts";
 import { compose, lookSchema, registerEntities } from "./entities";
 import { registerFolders } from "./folders";
+import { isLinked } from "./linked";
 import { registerModelInfo } from "./modelInfo";
 import { registerModelPages } from "./modelPages";
 import { registerModelSettings } from "./modelSettings";
@@ -475,11 +476,19 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     return a;
   };
 
+  /** An item of studai's own storage that sits in a linked folder becomes a file of that folder's directory. */
+  const fileInLinked = async (id: string) => {
+    const a = await asset(id);
+    if (!a.folder_id || isLinked(a.file_key) || a.deleted_at) return;
+    const folder = await s.db.selectFrom("folders").selectAll().where("id", "=", a.folder_id).executeTakeFirst();
+    if (folder?.path) await s.linked.into(a, folder);
+  };
+
   /**
    * A picture, a video or a sound from the user's computer, sent as the request body. It is theirs, so
    * it is kept from the start and never goes to the bin on its own.
    */
-  app.post<{ Querystring: { name?: string; as?: string } }>("/api/assets", { bodyLimit: UPLOAD_LIMIT }, async (req) => {
+  app.post<{ Querystring: { name?: string; as?: string; folder?: string } }>("/api/assets", { bodyLimit: UPLOAD_LIMIT }, async (req) => {
     const bytes = Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : null;
     // what the file is comes from its bytes, not from what the browser says it is
     const picture = bytes && (await readPicture(bytes));
@@ -498,15 +507,19 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const thumb = picture ? await makeThumb(bytes) : video?.frame ? await makeThumb(video.frame) : null;
     if (thumb) await s.storage.put(thumbKey(id), thumb);
     const at = now();
+    // a whole folder brought in from the computer: each file goes straight into the folder made for it
+    const into = req.query.folder && !mask ? (await s.db.selectFrom("folders").select("id").where("id", "=", req.query.folder).executeTakeFirst())?.id ?? null : null;
     await s.db
       .insertInto("assets")
       .values({
         id, owner_id: OWNER, kind: picture ? "image" : media!.kind, origin: mask ? "mask" : "uploaded", name: String(req.query.name ?? "").slice(0, 200), file_key: key,
         thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, width: picture?.width ?? video?.facts?.width ?? null, height: picture?.height ?? video?.facts?.height ?? null,
         duration_ms: media?.durationMs ?? null, fps: video?.facts?.fps ?? null, has_sound: media?.kind === "audio" || video?.facts?.hasSound ? 1 : 0,
-        folder_id: null, generation_id: null, kept_at: at, deleted_at: null, created_at: at,
+        folder_id: into, generation_id: null, kept_at: at, deleted_at: null, linked_path: null, created_at: at,
       })
       .execute();
+    // into a linked folder: it is a file of that directory at once
+    if (into) await fileInLinked(id);
     if (!mask) s.queue.events.emit("library");
     return assetView(await asset(id));
   });
@@ -601,22 +614,56 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
 
   app.post<{ Params: { id: string } }>("/api/assets/:id/keep", async (req) => {
     const { kept } = z.strictObject({ kept: z.boolean() }).parse(req.body);
-    await asset(req.params.id);
+    const a = await asset(req.params.id);
+    // a file of a linked folder is the user's own file: it is kept, whatever is asked
+    if (isLinked(a.file_key)) return assetView(a);
     await s.db.updateTable("assets").set({ kept_at: kept ? now() : null }).where("id", "=", req.params.id).execute();
+    // kept while it sits in a linked folder: it is written there as a file
+    if (kept) await fileInLinked(a.id);
     return assetView(await asset(req.params.id));
   });
 
   /** To the bin. Nothing is erased here: the bin is emptied later. */
   app.delete<{ Params: { id: string } }>("/api/assets/:id", async (req) => {
-    await asset(req.params.id);
-    await s.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", req.params.id).execute();
+    const a = await asset(req.params.id);
+    // a file of a linked folder leaves its directory, and waits in the bin like the rest
+    if (isLinked(a.file_key)) await s.linked.toBin(a);
+    else await s.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", req.params.id).execute();
     s.queue.events.emit("library");
     return { ok: true };
   });
 
+  /** The same for several items at once: kept or not, to the bin, or back from it. */
+  app.post("/api/assets/bulk", async (req) => {
+    const b = z.strictObject({ ids: z.array(z.string().min(1)).min(1).max(500), action: z.enum(["keep", "unkeep", "bin", "restore"]) }).parse(req.body);
+    // the files of linked folders among them: to the bin and back they move on the disk; they are never "not kept"
+    const rows = await s.db.selectFrom("assets").selectAll().where("id", "in", b.ids).where("origin", "!=", "mask").execute();
+    const onDisk = rows.filter((a) => isLinked(a.file_key));
+    const back = rows.filter((a) => a.linked_path && a.deleted_at);
+    let special = 0;
+    if (b.action === "bin") for (const a of onDisk) { await s.linked.toBin(a); special++; }
+    if (b.action === "restore") for (const a of back) { await s.linked.restore(a); special++; }
+    const handled = new Set([...(b.action === "bin" || b.action === "unkeep" || b.action === "keep" ? onDisk : []), ...(b.action === "restore" ? back : [])].map((a) => a.id));
+    b.ids = b.ids.filter((id) => !handled.has(id));
+    if (!b.ids.length) {
+      s.queue.events.emit("library");
+      return { changed: special };
+    }
+    const set = b.action === "keep" ? { kept_at: now() } : b.action === "unkeep" ? { kept_at: null } : b.action === "bin" ? { deleted_at: now() } : { deleted_at: null };
+    let query = s.db.updateTable("assets").set(set).where("id", "in", b.ids).where("origin", "!=", "mask");
+    // what is kept already keeps the day it was kept
+    if (b.action === "keep") query = query.where("kept_at", "is", null);
+    const done = await query.executeTakeFirst();
+    if (b.action === "keep") for (const id of b.ids) await fileInLinked(id);
+    s.queue.events.emit("library");
+    return { changed: Number(done.numUpdatedRows) + special };
+  });
+
   app.post<{ Params: { id: string } }>("/api/assets/:id/restore", async (req) => {
-    await asset(req.params.id);
-    await s.db.updateTable("assets").set({ deleted_at: null }).where("id", "=", req.params.id).execute();
+    const a = await asset(req.params.id);
+    // a file that was taken out of a linked folder goes back into its directory
+    if (a.linked_path) await s.linked.restore(a);
+    else await s.db.updateTable("assets").set({ deleted_at: null }).where("id", "=", req.params.id).execute();
     s.queue.events.emit("library");
     return assetView(await asset(req.params.id));
   });
