@@ -5,7 +5,7 @@ import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, 
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
 import { askAboutDisk } from "./Confirm";
 import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo } from "./api";
-import { useAsset, useAssetAction, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
+import { useAsset, useAssetAction, useFamilies, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
 import { formDefaults } from "./form";
 import { Kbd, plainKey } from "./Keys";
 import { carryOver, modelGroups } from "./picker";
@@ -225,7 +225,8 @@ function ReferencePicker({ asset }: { asset: Asset }) {
   const client = useQueryClient();
   const [, go] = useLocation();
   const openDraft = useOpenDraft((s) => s.open);
-  const ways = (recipes.data?.recipes ?? []).filter((r) => r.inputs.some((i) => i.type === "references"));
+  const on = useFamilies().isOn;
+  const ways = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.inputs.some((i) => i.type === "references"));
   const start = useMutation({
     mutationFn: (id: string) => {
       const recipe = ways.find((r) => r.id === id)!;
@@ -279,7 +280,8 @@ function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeIn
 function ChangePicker({ asset, start }: { asset: Asset; start: { mutate(id: string): void; isPending: boolean; isError: boolean; error: Error | null } }) {
   const recipes = useRecipes();
   const setup = useSetup();
-  const ways = (recipes.data?.recipes ?? []).filter((r) => r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
+  const on = useFamilies().isOn;
+  const ways = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
   void asset;
   if (!ways.length) return null;
   const online = setup.data?.comfy.online ?? false;
@@ -352,7 +354,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   });
 
   // a new clip that carries on from this video: a draft on a recipe that can, with this video in its "carries on from" slot
-  const carrier = recipes.data?.recipes.find((r) => r.inputs.some((i) => i.type === "clip" && i.role === "previous"));
+  const on = useFamilies().isOn;
+  const carrier = recipes.data?.recipes.find((r) => on(r.family) && r.inputs.some((i) => i.type === "clip" && i.role === "previous"));
   const carryOn = useMutation({
     mutationFn: () => {
       const slot = carrier!.inputs.find((i) => i.type === "clip" && i.role === "previous")!;
@@ -367,7 +370,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   });
 
   // a picture as the first frame of a new video: a draft on a video model that can open on a picture
-  const opener = recipes.data?.recipes.find((r) => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start"));
+  const opener = recipes.data?.recipes.find((r) => on(r.family) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start"));
   const animate = useMutation({
     mutationFn: () => {
       const slot = opener!.inputs.find((i) => i.type === "image" && i.role === "start")!;
@@ -381,7 +384,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     },
   });
   // a picture of someone, or a voice, straight into a new draft of a model that follows them
-  const follower = recipes.data?.recipes.find((r) => r.inputs.some((i) => (asset.kind === "audio" ? i.type === "audio" && i.role === "voice" : i.type === "references")));
+  const follower = recipes.data?.recipes.find((r) => on(r.family) && r.inputs.some((i) => (asset.kind === "audio" ? i.type === "audio" && i.role === "voice" : i.type === "references")));
   const follow = useMutation({
     mutationFn: () => {
       const slot = follower!.inputs.find((i) => (asset.kind === "audio" ? i.type === "audio" : i.type === "references"))!;
@@ -411,7 +414,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const setup = useSetup();
   const modelSettings = useModelSettings();
   const say = useBanners((b) => b.push);
-  const all = recipes.data?.recipes ?? [];
+  const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
   const toolFor = (key: string): RecipeInfo | undefined => {
     const ends = OPS[key]?.ends ?? [];

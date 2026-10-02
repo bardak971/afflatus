@@ -448,6 +448,8 @@ export interface Settings {
   designerInstruction: string;
   /** Tags written for an anime model are compared with danbooru's list. */
   tagCheck: boolean;
+  /** Model families switched on or off by hand; one that is not named follows its files. */
+  families: Record<string, boolean>;
   hasCivitaiKey: boolean;
   /** Missing model files may be looked for on Civitai. */
   civitaiLookups: boolean;

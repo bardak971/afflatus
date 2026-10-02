@@ -13,6 +13,11 @@ export interface ModelSlot {
   /** Shown when nothing matches: what to download and where to put it. */
   hint: string;
   optional?: boolean;
+  /**
+   * Another slot of the family whose file makes this one unneeded: a model that comes either as one
+   * file or as several has a slot for each way, and is ready with either.
+   */
+  unless?: string;
   /** Where its usual file can be had, when that is known: the name to save it under and its address. */
   get?: { file: string; url: string };
 }
@@ -101,6 +106,11 @@ export interface Recipe<In = Record<string, unknown>> {
    * ComfyUI offers for that input of that node class. Files the user picks on the form are not listed here.
    */
   files?: Array<{ classType: string; input: string; file: string; /** Where its author says it can be had. */ url?: string }>;
+  /**
+   * Slots of its family this recipe cannot run without, although the family can (an "Edit" that needs
+   * the model that edits): it is not ready while their files are missing.
+   */
+  needs?: string[];
   /** Node classes this particular input needs (checked against ComfyUI before queueing). */
   nodes(input: In): string[];
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */

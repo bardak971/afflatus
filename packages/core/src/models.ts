@@ -36,6 +36,7 @@ export function folderOfFileInput(classType: string, input: string): string | nu
   if (/^unet_name/.test(input)) return "diffusion_models";
   if (/^vae_name/.test(input)) return "vae";
   if (/^clip_name/.test(input)) return /vision/i.test(classType) ? "clip_vision" : "text_encoders";
+  if (input === "text_encoder") return "text_encoders";
   if (/^lora(_name)?(_?\d+)?$/.test(input) || /^lora_/.test(input)) return "loras";
   if (/^control_net_name/.test(input)) return "controlnet";
   if (input === "model_name" && /upscale/i.test(classType)) return "upscale_models";

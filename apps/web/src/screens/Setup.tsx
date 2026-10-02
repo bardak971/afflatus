@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type LlmInfo, type Settings } from "../api";
-import { useRecipes, useSettings, useSetup, useStorage } from "../data";
+import { useFamilies, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { Link } from "wouter";
+import { ChevronDown } from "lucide-react";
 import { fileLabel, gb, problemSaid, recipeLabel, size } from "../format";
 import { allowNotifications, useNotify } from "../store";
 import { DownloadRow, GetFile, useDownloads } from "../GetFile";
@@ -519,6 +520,86 @@ function NotifyCard() {
   );
 }
 
+/**
+ * One switch per model: whether it is offered in the lists to choose from (the model list in Studio, a
+ * clip's model on a timeline, the tools under a picture). Left alone a model follows its files; set by
+ * hand it stays as set. Nothing made with a model that is off is touched.
+ */
+function ModelSwitches() {
+  const recipes = useRecipes();
+  const settings = useSettings();
+  const setup = useSetup();
+  const families = useFamilies();
+  const [needs, setNeeds] = useState<string | null>(null);
+  const client = useQueryClient();
+  const save = useMutation({
+    mutationFn: (next: Record<string, boolean>) => api.saveSettings({ families: next }),
+    onSuccess: (saved) => client.setQueryData(["settings"], saved),
+  });
+  if (!recipes.data || !settings.data) return null;
+  const said = settings.data.families;
+  const shown = recipes.data.families.filter((f) => recipes.data.recipes.some((r) => r.family === f.id));
+  const names = new Set<string>();
+  const twice = new Set(shown.map((f) => f.name).filter((n) => (names.has(n) ? true : (names.add(n), false))));
+  return (
+    <>
+      <h2 className="text-[15px] font-bold">Models</h2>
+      <div className="text-ink-2">Off: left out of the lists to choose from. What you made with it stays.</div>
+      <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
+        {shown.map((f) => {
+          const mine = recipes.data.recipes.filter((r) => r.family === f.id);
+          const found = families.found(f.id);
+          const on = families.isOn(f.id);
+          const byHand = f.id in said;
+          const imported = f.id.startsWith("workflow-");
+          const name = `${f.name}${imported && twice.has(f.name) ? " (your workflows)" : ""}`;
+          // its files are not there: what it needs is said here, once, with the way to get each file
+          const slots = found || imported ? [] : (setup.data?.families.find((x) => x.id === f.id)?.slots ?? []).filter((x) => !x.optional && !x.file);
+          const open = needs === f.id;
+          return (
+            <div key={f.id} className="flex flex-col">
+              <div className="flex h-11 items-center gap-3 px-3">
+                <span className={cx("truncate font-semibold", !on && "text-ink-2")}>{name}</span>
+                <span className="shrink-0 text-xs text-ink-3">{imported ? `${mine.length} workflow${mine.length > 1 ? "s" : ""}` : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
+                <span className="grow" />
+                {!found && (slots.length ? (
+                  <button type="button" aria-expanded={open} title="What it needs, and where to get it" onClick={() => setNeeds(open ? null : f.id)} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warn-ink hover:underline">
+                    {slots.length} file{slots.length > 1 ? "s" : ""} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
+                  </button>
+                ) : (
+                  <span className="shrink-0 text-xs text-warn-ink">not ready</span>
+                ))}
+                {byHand && (
+                  <button
+                    type="button"
+                    title="Set by hand. Click to let it follow its files again: on when they are on ComfyUI, off when they are not."
+                    onClick={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
+                    className="shrink-0 rounded-md border border-line-strong px-1.5 py-0.5 text-[11px] font-semibold text-ink-2 hover:text-ink"
+                  >
+                    by hand ×
+                  </button>
+                )}
+                <Toggle bare on={on} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={`${name} in the lists to choose from`} />
+              </div>
+              {open && slots.length > 0 && (
+                <div className="flex flex-col gap-2 border-t border-line bg-raised px-3 py-2.5 text-xs text-ink-2">
+                  {slots.map((x) => (
+                    <div key={x.id}>
+                      <span className="font-semibold text-ink">{x.label}</span>: {x.hint}
+                      {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={[f.name]} />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+    </>
+  );
+}
+
 export function Setup() {
   const settings = useSettings();
   const setup = useSetup();
@@ -542,7 +623,10 @@ export function Setup() {
   });
 
   const comfy = setup.data?.comfy;
-  const ready = setup.data?.recipes.filter((r) => r.ready).length ?? 0;
+  // what is listed as ready or not: the models that are on. One that is off says what it needs where it is switched.
+  const families = useFamilies();
+  const listed = (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family));
+  const ready = listed.filter((r) => setup.data?.recipes.find((x) => x.id === r.id)?.ready).length;
 
   return (
     <div className="flex min-h-0 grow flex-col overflow-y-auto px-8 pb-8">
@@ -614,13 +698,14 @@ export function Setup() {
         </div>
 
         <section className="col-start-2 row-span-2 row-start-1 flex flex-col gap-2.5 rounded-xl border border-line bg-panel p-[18px]">
-          <h2 className="text-[15px] font-bold">What is ready</h2>
+          <ModelSwitches />
+          <h2 className="pt-2 text-[15px] font-bold">What is ready</h2>
           {setup.isLoading && <div className="text-ink-2">Asking ComfyUI…</div>}
           {setup.isError && <ErrorNote>{setup.error.message}</ErrorNote>}
-          {setup.data && <div className="text-ink-2">{ready} of {recipes.data?.recipes.length ?? 0} ready.</div>}
-          {recipes.data?.recipes.map((r) => {
+          {setup.data && <div className="text-ink-2">{ready} of {listed.length} ready. Models that are off are not listed.</div>}
+          {listed.map((r) => {
             const s = setup.data?.recipes.find((x) => x.id === r.id);
-            const family = recipes.data.families.find((f) => f.id === r.family);
+            const family = recipes.data?.families.find((f) => f.id === r.family);
             const problems = [
               ...(s?.missingNodes.length ? [`Missing nodes: ${s.missingNodes.join(", ")}`] : []),
 

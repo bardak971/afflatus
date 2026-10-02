@@ -96,7 +96,13 @@ describe("the graph that loads a render's models", () => {
       "4": { class_type: "SamplerCustomAdvanced", inputs: { model: ["1", 0], sigmas: ["2", 0], latent_image: ["3", 0] } },
       "5": { class_type: "SaveLatent", inputs: { samples: ["4", 0] } },
     };
-    const loaders = warmGraph({ graph: byHand, phases: {}, outputs: [{ node: "5", kind: "image", role: "result" }], totalSteps: 2, passes: [{ node: "4", steps: 2 }], loads: [] })!;
+    // a schedule written out by hand is cut to its first step
+    const written = warmGraph({ graph: byHand, phases: {}, outputs: [{ node: "5", kind: "image", role: "result" }], totalSteps: 2, passes: [{ node: "4", steps: 2 }], loads: [] })!;
+    expect(written.graph["2"]!.inputs.sigmas).toBe("1.0, 0.5");
+    expect(written.pass).toEqual({ node: "4", steps: 1 });
+    // one that cannot be read (it comes from a node that works it out): the loaders only
+    const worked = { ...byHand, "2": { class_type: "SomeSigmas", inputs: { curve: "soft" } } };
+    const loaders = warmGraph({ graph: worked, phases: {}, outputs: [{ node: "5", kind: "image", role: "result" }], totalSteps: 2, passes: [{ node: "4", steps: 2 }], loads: [] })!;
     expect(Object.keys(loaders.graph).sort()).toEqual(["1", "warm6"]);
     expect(loaders.pass).toBeNull();
   });

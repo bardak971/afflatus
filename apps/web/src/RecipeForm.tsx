@@ -214,7 +214,8 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
   const allSaid = [
     key("steps") ? `${values.steps} steps` : "",
     key("cfg") ? `CFG ${values.cfg}` : "",
-    key("sampler") ? fileLabel(String(values.sampler ?? "")) : "",
+    // a sampler left to the recipe says so: "Auto" alone would say nothing
+    key("sampler") ? (values.sampler === "Auto" ? "sampler picked for you" : fileLabel(String(values.sampler ?? ""))) : "",
   ].filter(Boolean).join(" · ") || count(advanced.length, "setting");
 
   // what belongs to the model, whatever part of the form it is in (the size and the negative prompt are up front)

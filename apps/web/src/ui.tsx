@@ -94,7 +94,8 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
   );
 }
 
-export function Toggle({ on, onChange, label, note }: { on: boolean; onChange(on: boolean): void; label: string; note?: string }) {
+/** `bare`: the switch alone, where what it switches is already written beside it; the label is still what a screen reader says. */
+export function Toggle({ on, onChange, label, note, bare }: { on: boolean; onChange(on: boolean): void; label: string; note?: string; bare?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       <button
@@ -107,8 +108,8 @@ export function Toggle({ on, onChange, label, note }: { on: boolean; onChange(on
       >
         <span className={cx("block h-4 w-4 rounded-full bg-white transition-[margin]", on && "ml-4")} />
       </button>
-      <span>{label}</span>
-      {note && <span className="text-xs text-ink-2">{note}</span>}
+      {!bare && <span>{label}</span>}
+      {!bare && note && <span className="text-xs text-ink-2">{note}</span>}
     </div>
   );
 }

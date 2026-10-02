@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, schemaFor, type ChoiceInput, type NodeCatalog } from "@studai/core";
-import { familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture } from "../src";
+import { familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx } from "../src";
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8"),
@@ -113,6 +113,24 @@ describe("h3.video", () => {
     expect(h3Canvas(1920, 1080, 768)).toEqual({ width: 1344, height: 768 });
     const big = h3Canvas(1000, 1000, 2000);
     expect(big.width * big.height).toBeLessThanOrEqual(768 * 1344);
+  });
+
+  it("picks the sampler and the shifts from the steps, unless they are set in the form", () => {
+    const of = (b: ReturnType<typeof build>) => ({
+      sampler: one(b, "KSamplerSelect")[0]!.inputs.sampler_name,
+      scheduler: one(b, "BasicScheduler")[0]!.inputs.scheduler,
+      video: one(b, "MiniMaxH3SigmaShift")[0]!.inputs.shift_video,
+      audio: one(b, "MiniMaxH3SigmaShift")[0]!.inputs.shift_audio,
+    });
+    // left alone: what suits a turbo's few steps, and what suits full steps
+    expect(of(build({ fast: true }))).toEqual({ sampler: "euler", scheduler: "simple", video: 7, audio: 4.5 });
+    expect(of(build({ fast: false }))).toEqual({ sampler: "res_multistep", scheduler: "simple", video: 11, audio: 4 });
+    // set in the form: used as they are, with Turbo or without
+    const own = { sampler: "dpmpp_2m", scheduler: "beta", shiftVideo: 9, shiftAudio: 3.5 };
+    expect(of(build({ fast: true, ...own }))).toEqual({ sampler: "dpmpp_2m", scheduler: "beta", video: 9, audio: 3.5 });
+    expect(of(build({ fast: false, ...own }))).toEqual({ sampler: "dpmpp_2m", scheduler: "beta", video: 9, audio: 3.5 });
+    // one of the two shifts alone
+    expect(of(build({ fast: true, shiftAudio: 6 }))).toMatchObject({ video: 7, audio: 6 });
   });
 
   it("writes the prompt in the model's layout, by what the clip opens and ends on", () => {
@@ -337,7 +355,7 @@ describe("h3.video with another H3 model", () => {
     const not = build({ model: "SomeoneH3_hybridTurboV3.safetensors", turboIn: "No", hybrid: "No", ...refs });
     expect(unet(not)).toBe("ref.safetensors");
     expect(loras(not)).toEqual(["t.safetensors"]);
-    expect(h3Video.inputs.filter((i) => i.perModel).map((i) => i.id)).toEqual(["fast", "steps", "turboIn", "hybrid"]);
+    expect(h3Video.inputs.filter((i) => i.perModel).map((i) => i.id)).toEqual(["fast", "steps", "sampler", "scheduler", "shiftVideo", "shiftAudio", "turboIn", "hybrid"]);
   });
 });
 
@@ -486,5 +504,268 @@ describe("krea2: built the way ComfyUI's own templates build it", () => {
     const p = paint.build(parseInput(paint, { source: "p", mask: "m", prompt: "a" }), dryContext({ seed: 1, slots, uploads: { source: "s.png", mask: "m.png" }, media: { source: { width: 1536, height: 2048 }, mask: { width: 1536, height: 2048, box: { x: 300, y: 500, width: 400, height: 300 } } } }));
     expect(Object.values(p.graph).filter((n) => n.class_type === "SetLatentNoiseMask")).toHaveLength(1);
     expect(Object.values(p.graph).find((n) => n.class_type === "ImageCompositeMasked")!.inputs).toMatchObject({ x: 300, y: 500 });
+  });
+});
+
+describe("wan.video", () => {
+  const slots = { i2vHigh: "i2v_high.safetensors", i2vLow: "i2v_low.safetensors", clip: "umt5.safetensors", vae: "wan_vae.safetensors" };
+  const turbo = { ...slots, i2vTurboHigh: "th.safetensors", i2vTurboLow: "tl.safetensors" };
+  const words = { ...turbo, t2vHigh: "t2v_high.safetensors", t2vLow: "t2v_low.safetensors", t2vTurboHigh: "wh.safetensors", t2vTurboLow: "wl.safetensors" };
+  const picture = { width: 832, height: 1216 };
+  const build = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) => {
+    const input = parseInput(wanVideo, { prompt: "She waves.", start: "p", ...over });
+    return wanVideo.build(input, dryContext({ seed: 7, slots: turbo, uploads: { start: "a.png", end: "b.png" }, media: { start: picture, end: picture }, ...ctx }));
+  };
+  const all = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const passes = (b: ReturnType<typeof build>) => all(b, "KSamplerAdvanced").map((n) => n.inputs);
+
+  it("counts frames on the model's grid and keeps canvases within what it takes", () => {
+    expect([1, 3, 5, 5.2, 10].map(wanFrames)).toEqual([17, 49, 81, 85, 161]);
+    for (const n of [1.5, 4, 7.5].map(wanFrames)) expect(n % 4).toBe(1);
+    expect(wanCanvas(480, 832, 480)).toEqual({ width: 480, height: 832 });
+    expect(wanCanvas(832, 1216, 480)).toEqual({ width: 480, height: 704 });
+    const big = wanCanvas(1000, 1000, 2000);
+    expect(big.width * big.height).toBeLessThanOrEqual(1280 * 720);
+    expect(big.width % 16).toBe(0);
+  });
+
+  it("makes the clip in two passes over one schedule: the high-noise model, then the low-noise one", () => {
+    const b = build({ fast: false, steps: 20, split: 0.5, cfg: 3.5 });
+    const [first, second] = passes(b);
+    expect(first).toMatchObject({ add_noise: "enable", noise_seed: 7, steps: 20, cfg: 3.5, start_at_step: 0, end_at_step: 10, return_with_leftover_noise: "enable" });
+    expect(second).toMatchObject({ add_noise: "disable", steps: 20, cfg: 3.5, start_at_step: 10, return_with_leftover_noise: "disable" });
+    // each pass has its own model, shifted the same way
+    expect(all(b, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["i2v_high.safetensors", "i2v_low.safetensors"]);
+    expect(all(b, "ModelSamplingSD3").map((n) => n.inputs.shift)).toEqual([5, 5]);
+    expect(b.passes!.map((p) => p.steps)).toEqual([10, 10]);
+    expect(build({ fast: false, steps: 30, split: 0.4 }).passes!.map((p) => p.steps)).toEqual([12, 18]);
+  });
+
+  it("runs Turbo with the two lightx2v LoRAs, with none on a model made for it, and at full steps without their files", () => {
+    const fast = build({});
+    expect(passes(fast)[0]).toMatchObject({ steps: 4, cfg: 1, end_at_step: 2 });
+    expect(all(fast, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["th.safetensors", "tl.safetensors"]);
+    // a fine-tune named for it, or said to be one
+    const named = build({ model: "High\\SomeoneWAN22_lightningHigh.safetensors", modelLow: "Low\\SomeoneWAN22_lightningLow.safetensors" });
+    expect(all(named, "LoraLoaderModelOnly")).toEqual([]);
+    expect(passes(named)[0]).toMatchObject({ steps: 4, cfg: 1 });
+    const said = build({ model: "mine_high.safetensors", modelLow: "mine_low.safetensors", turboIn: "Yes", turboSteps: 6 });
+    expect(all(said, "LoraLoaderModelOnly")).toEqual([]);
+    expect(passes(said)[0]).toMatchObject({ steps: 6, end_at_step: 3 });
+    // no turbo files and a model that is not distilled: the full steps, and the CFG of the form
+    const none = build({}, { slots });
+    expect(all(none, "LoraLoaderModelOnly")).toEqual([]);
+    expect(passes(none)[0]).toMatchObject({ steps: 20, cfg: 3.5 });
+  });
+
+  it("opens on a picture, ends on one, or is made from words alone with the words-to-video models", () => {
+    const opens = build({});
+    expect(all(opens, "WanImageToVideo")[0]!.inputs).toMatchObject({ width: 480, height: 704, length: 81 });
+    expect(all(opens, "WanImageToVideo")[0]!.inputs.end_image).toBeUndefined();
+    const both = build({ end: "q" });
+    expect(Object.keys(all(both, "WanFirstLastFrameToVideo")[0]!.inputs)).toEqual(expect.arrayContaining(["start_image", "end_image"]));
+    const fromWords = build({ start: undefined, seconds: 3, shape: { width: 832, height: 480 } }, { slots: words });
+    expect(all(fromWords, "EmptyHunyuanLatentVideo")[0]!.inputs).toMatchObject({ width: 832, height: 480, length: 49 });
+    expect(all(fromWords, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["t2v_high.safetensors", "t2v_low.safetensors"]);
+    expect(all(fromWords, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["wh.safetensors", "wl.safetensors"]);
+    // without those models, it says what to do
+    expect(() => build({ start: undefined })).toThrow(/words-to-video models.*Or give it a start image/);
+  });
+
+  it("puts each LoRA on the model it is for, and takes a timeline's frame", () => {
+    const b = build({ fast: false, loras: [{ file: "a_high.safetensors", weight: 0.8 }], lorasLow: [{ file: "a_low.safetensors", weight: 0.7 }, { file: "off.safetensors", weight: 0 }] }, { canvas: { width: 1024, height: 576 } });
+    const loras = Object.entries(b.graph).filter(([, n]) => n.class_type === "LoraLoaderModelOnly");
+    expect(loras.map(([, n]) => [n.inputs.lora_name, n.inputs.strength_model])).toEqual([["a_high.safetensors", 0.8], ["a_low.safetensors", 0.7]]);
+    const source = (lora: (typeof loras)[number]) => b.graph[(lora[1].inputs.model as [string, number])[0]]!.inputs.unet_name;
+    expect(loras.map(source)).toEqual(["i2v_high.safetensors", "i2v_low.safetensors"]);
+    expect(all(b, "WanImageToVideo")[0]!.inputs).toMatchObject({ width: 1024, height: 576 });
+    expect(b.loads).toEqual(expect.arrayContaining(["loras/a_high.safetensors", "loras/a_low.safetensors"]));
+    expect(b.loads).not.toContain("loras/off.safetensors");
+    // 16 pictures a second, 32 when smoothed
+    expect(all(b, "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(16);
+    expect(all(build({}, { slots: { ...turbo, rife: "r.pth" } }), "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(32);
+  });
+});
+
+describe("ltx.video", () => {
+  const one = { checkpoint: "ltx-2.3-22b-distilled.safetensors", clip: "gemma.safetensors" };
+  const parts = { unet: "SomeoneLTX23.safetensors", videoVae: "video_vae.safetensors", audioVae: "audio_vae.safetensors", projection: "projection.safetensors", clip: "gemma.safetensors" };
+  const extras = { upscaler: "up.safetensors", turbo: "distilled_lora.safetensors" };
+  const picture = { width: 1216, height: 832 };
+  const build = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) => {
+    const input = parseInput(ltxVideo, { prompt: "She waves.", ...over });
+    return ltxVideo.build(input, dryContext({ seed: 7, slots: { ...one, ...extras }, uploads: { start: "a.png", end: "b.png" }, media: { start: picture, end: picture }, ...ctx }));
+  };
+  const all = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+
+  it("counts frames on the model's grid and keeps both edges on multiples of 64", () => {
+    expect([1, 5, 5.2, 10].map(ltxFrames)).toEqual([25, 129, 129, 249]);
+    for (const n of [2, 3.5, 7].map(ltxFrames)) expect(n % 8).toBe(1);
+    expect(ltxCanvas(1280, 704, 704)).toEqual({ width: 1280, height: 704 });
+    const c = ltxCanvas(1216, 832, 704);
+    expect([c.width % 64, c.height % 64]).toEqual([0, 0]);
+  });
+
+  it("loads the model from one checkpoint, or from its parts when a diffusion model is there", () => {
+    const whole = build({});
+    expect(all(whole, "CheckpointLoaderSimple")[0]!.inputs.ckpt_name).toBe("ltx-2.3-22b-distilled.safetensors");
+    expect(all(whole, "LTXAVTextEncoderLoader")[0]!.inputs).toMatchObject({ text_encoder: "gemma.safetensors", ckpt_name: "ltx-2.3-22b-distilled.safetensors" });
+    expect(all(whole, "LTXVAudioVAELoader")).toHaveLength(1);
+    expect(all(whole, "UNETLoader")).toEqual([]);
+
+    const split = build({}, { slots: { ...parts, ...extras } });
+    expect(all(split, "UNETLoader")[0]!.inputs.unet_name).toBe("SomeoneLTX23.safetensors");
+    expect(all(split, "DualCLIPLoader")[0]!.inputs).toMatchObject({ clip_name1: "gemma.safetensors", clip_name2: "projection.safetensors", type: "ltxv" });
+    expect(all(split, "VAELoader").map((n) => n.inputs.vae_name)).toEqual(["video_vae.safetensors", "audio_vae.safetensors"]);
+    expect(all(split, "CheckpointLoaderSimple")).toEqual([]);
+    // a diffusion model without its other parts says what is missing
+    expect(() => build({}, { slots: { unet: "x.safetensors", clip: "gemma.safetensors" } })).toThrow(/video VAE and the audio VAE/);
+    expect(() => build({}, { slots: { clip: "gemma.safetensors" } })).toThrow(/LTX 2.3 was not found/);
+  });
+
+  it("puts the distilled LoRA on a model that is not distilled, and on no other", () => {
+    const lorasOf = (b: ReturnType<typeof build>) => all(b, "LoraLoaderModelOnly").map((n) => [n.inputs.lora_name, n.inputs.strength_model]);
+    expect(lorasOf(build({}))).toEqual([]); // "distilled" is in its name
+    expect(lorasOf(build({}, { slots: { ...parts, ...extras } }))).toEqual([["distilled_lora.safetensors", 0.5]]);
+    expect(lorasOf(build({ turboIn: "Yes" }, { slots: { ...parts, ...extras } }))).toEqual([]);
+    expect(lorasOf(build({ turboIn: "No" }))).toEqual([["distilled_lora.safetensors", 0.5]]);
+    // not distilled and no LoRA file: it is run as it is
+    expect(lorasOf(build({}, { slots: parts }))).toEqual([]);
+  });
+
+  it("makes the clip in two passes: half the size, enlarged, then refined, keeping the sound of the first", () => {
+    const b = build({ start: "p" });
+    expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs).toMatchObject({ width: 512, height: 352, length: 129 });
+    expect(all(b, "LTXVLatentUpsampler")).toHaveLength(1);
+    expect(all(b, "ManualSigmas").map((n) => n.inputs.sigmas)).toEqual([LTX_SIGMAS, LTX_REFINE_SIGMAS]);
+    expect(b.passes!.map((p) => p.steps)).toEqual([8, 3]);
+    expect(b.totalSteps).toBe(11);
+    // the opening picture goes in at both sizes: loosely first, then as the first frame itself
+    expect(all(b, "LTXVImgToVideoInplace").map((n) => n.inputs.strength)).toEqual([0.7, 1]);
+    expect(all(b, "ImageScale").map((n) => [n.inputs.width, n.inputs.height])).toEqual([[512, 352], [1024, 704]]);
+    expect(all(b, "LTXVEmptyLatentAudio")[0]!.inputs).toMatchObject({ frames_number: 129, frame_rate: 25 });
+    expect(all(b, "VHS_VideoCombine")[0]!.inputs.audio).toBeDefined();
+  });
+
+  it("makes it in one pass at full size when it ends on a picture, when asked, or without the upscaler", () => {
+    const ends = build({ start: "p", end: "q", endStrength: 0.9 });
+    expect(all(ends, "LTXVLatentUpsampler")).toEqual([]);
+    expect(all(ends, "EmptyLTXVLatentVideo")[0]!.inputs).toMatchObject({ width: 1024, height: 704 });
+    expect(all(ends, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[0, 0.7], [-1, 0.9]]);
+    expect(all(ends, "LTXVCropGuides")).toHaveLength(1);
+    expect(ends.passes!.map((p) => p.steps)).toEqual([8]);
+    expect(all(build({ twoPass: false }), "LTXVLatentUpsampler")).toEqual([]);
+    expect(all(build({}, { slots: one }), "LTXVLatentUpsampler")).toEqual([]);
+    // from words alone there is no guide to take out again
+    expect(all(build({ twoPass: false }), "LTXVCropGuides")).toEqual([]);
+  });
+
+  it("takes a schedule by steps, with a scheduler and a shift, in place of LTX's own", () => {
+    const b = build({ schedule: "By steps", steps: 12, scheduler: "beta", shift: 9, cfg: 3 });
+    expect(all(b, "BasicScheduler")[0]!.inputs).toMatchObject({ steps: 12, scheduler: "beta" });
+    expect(all(b, "ModelSamplingSD3")[0]!.inputs.shift).toBe(9);
+    expect(all(b, "CFGGuider").map((n) => n.inputs.cfg)).toEqual([3, 3]);
+    expect(b.passes!.map((p) => p.steps)).toEqual([12, 3]);
+    expect(all(build({ schedule: "By steps", shift: 0 }), "ModelSamplingSD3")).toEqual([]);
+  });
+});
+
+describe("flux and qwen image, from what is said once about each", () => {
+  const fluxFiles = { unet: "flux1-dev.safetensors", clipL: "clip_l.safetensors", t5: "t5xxl.safetensors", vae: "ae.safetensors" };
+  const qwenFiles = { unet: "qwen_image.safetensors", clip: "qwen_2.5_vl_7b.safetensors", vae: "qwen_image_vae.safetensors" };
+  const all = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const fluxOf = (over: Record<string, unknown> = {}) => fluxPicture.build(parseInput(fluxPicture, { prompt: "a cat", ...over }), dryContext({ seed: 7, slots: fluxFiles }));
+  const qwenOf = (over: Record<string, unknown> = {}, slots: Record<string, string> = qwenFiles) => qwenPicture.build(parseInput(qwenPicture, { prompt: "a cat", ...over }), dryContext({ seed: 7, slots }));
+
+  it("builds FLUX.1 as ComfyUI's template does: two text encoders, guidance on the prompt, CFG 1, no negative prompt", () => {
+    const b = fluxOf();
+    expect(all(b, "DualCLIPLoader")[0]!.inputs).toMatchObject({ clip_name1: "clip_l.safetensors", clip_name2: "t5xxl.safetensors", type: "flux" });
+    expect(all(b, "FluxGuidance")[0]!.inputs.guidance).toBe(3.5);
+    expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 20, cfg: 1, sampler_name: "euler", scheduler: "simple", seed: 7 });
+    expect(all(b, "ConditioningZeroOut")).toHaveLength(1);
+    expect(all(b, "EmptySD3LatentImage")[0]!.inputs).toMatchObject({ width: 896, height: 1152 });
+    // left alone the model keeps its own shift; one that is typed follows the size of the picture
+    expect(all(b, "ModelSamplingFlux")).toEqual([]);
+    expect(all(fluxOf({ shift: 1.5 }), "ModelSamplingFlux")[0]!.inputs).toMatchObject({ max_shift: 1.5, width: 896, height: 1152 });
+    // a negative prompt that is written is encoded
+    expect(all(fluxOf({ negative: "blurry", cfg: 2 }), "ConditioningZeroOut")).toEqual([]);
+    expect(fluxPicture.inputs.map((i) => i.id)).toContain("guidance");
+    expect(fluxPicture.inputs.map((i) => i.id)).not.toContain("fast");
+  });
+
+  it("builds Qwen Image with its shift and a CFG, and in a few steps with its Lightning LoRA", () => {
+    const b = qwenOf();
+    expect(all(b, "CLIPLoader")[0]!.inputs).toMatchObject({ clip_name: "qwen_2.5_vl_7b.safetensors", type: "qwen_image" });
+    expect(all(b, "ModelSamplingAuraFlow")[0]!.inputs.shift).toBe(3.1);
+    expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 20, cfg: 4 });
+    // an empty negative prompt is an empty text, as the template has it
+    expect(all(b, "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(["a cat", ""]);
+    expect(all(b, "FluxGuidance")).toEqual([]);
+    const fast = qwenOf({ fast: true }, { ...qwenFiles, turbo: "lightning.safetensors" });
+    expect(all(fast, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["lightning.safetensors"]);
+    expect(all(fast, "KSampler")[0]!.inputs).toMatchObject({ steps: 4, cfg: 1 });
+    // Turbo with no LoRA and a model that is not made for it: the full steps
+    expect(all(qwenOf({ fast: true }), "KSampler")[0]!.inputs).toMatchObject({ steps: 20, cfg: 4 });
+    // a model named for it needs none
+    const made = qwenOf({ fast: true, turboSteps: 8, model: "someone_qwen_lightning_8steps.safetensors" }, { ...qwenFiles, turbo: "lightning.safetensors" });
+    expect(all(made, "LoraLoaderModelOnly")).toEqual([]);
+    expect(all(made, "KSampler")[0]!.inputs).toMatchObject({ steps: 8, cfg: 1 });
+  });
+
+  it("finds each family's files by name, and not the files of another model that are named alike", () => {
+    const found = (family: { slots: Array<{ id: string; detect: string[] }> }, slot: string, files: string[]) => {
+      const patterns = family.slots.find((x) => x.id === slot)!.detect.map((d) => new RegExp(d, "i"));
+      for (const p of patterns) { const hit = files.find((f) => p.test(f)); if (hit) return hit; }
+      return null;
+    };
+    // FLUX.1: never FLUX.2 Klein, never Kontext as the model that draws, never Wan's UMT5 as T5, never FLUX.2's VAE
+    expect(found(flux, "unet", ["flux-2-klein-base-4b.safetensors", "flux1-dev-kontext_fp8_scaled.safetensors"])).toBeNull();
+    expect(found(flux, "unet", ["flux1-dev-kontext_fp8_scaled.safetensors", "flux1-schnell.safetensors", "Flux/flux1-dev-fp8.safetensors"])).toBe("Flux/flux1-dev-fp8.safetensors");
+    expect(found(flux, "kontext", ["flux1-dev.safetensors", "flux1-dev-kontext_fp8_scaled.safetensors"])).toBe("flux1-dev-kontext_fp8_scaled.safetensors");
+    expect(found(flux, "t5", ["umt5_xxl_fp8_e4m3fn_scaled.safetensors"])).toBeNull();
+    expect(found(flux, "t5", ["umt5_xxl_fp8_e4m3fn_scaled.safetensors", "t5xxl_fp8_e4m3fn_scaled.safetensors"])).toBe("t5xxl_fp8_e4m3fn_scaled.safetensors");
+    expect(found(flux, "vae", ["flux2-vae.safetensors", "Wan/wan_2.1_vae.safetensors"])).toBeNull();
+    expect(found(flux, "vae", ["flux2-vae.safetensors", "ae.safetensors"])).toBe("ae.safetensors");
+    expect(found(flux, "clipL", ["clip_vision_h.safetensors", "clip_l.safetensors"])).toBe("clip_l.safetensors");
+    // Qwen Image: never the Edit model as the one that draws, never another Qwen text encoder
+    expect(found(qwen, "unet", ["qwen_image_edit_2511_fp8mixed.safetensors"])).toBeNull();
+    expect(found(qwen, "unet", ["qwen_image_fp8_e4m3fn.safetensors", "qwen_image_2512_fp8_e4m3fn.safetensors"])).toBe("qwen_image_2512_fp8_e4m3fn.safetensors");
+    expect(found(qwen, "edit", ["qwen_image_2512_fp8_e4m3fn.safetensors", "qwen_image_edit_2511_fp8mixed.safetensors"])).toBe("qwen_image_edit_2511_fp8mixed.safetensors");
+    expect(found(qwen, "clip", ["qwen3vl_4b_fp8_scaled.safetensors", "qwen_3_4b.safetensors", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"])).toBeNull();
+    expect(found(qwen, "clip", ["qwen_2.5_vl_7b_fp8_scaled.safetensors"])).toBe("qwen_2.5_vl_7b_fp8_scaled.safetensors");
+    expect(found(qwen, "turbo", ["Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"])).toBeNull();
+    // Wan and LTX: each half of Wan goes to its own slot; LTX's two VAEs are told apart
+    expect(found(wan, "i2vHigh", ["Low/SomeoneWAN22I2V14B_LowV1.safetensors", "High/SomeoneWAN22I2V14B_HighV1.safetensors"])).toBe("High/SomeoneWAN22I2V14B_HighV1.safetensors");
+    expect(found(wan, "i2vLow", ["High/SomeoneWAN22I2V14B_HighV1.safetensors", "Low/SomeoneWAN22I2V14B_LowV1.safetensors"])).toBe("Low/SomeoneWAN22I2V14B_LowV1.safetensors");
+    expect(found(wan, "t2vHigh", ["High/SomeoneWAN22I2V14B_HighV1.safetensors"])).toBeNull();
+    expect(found(ltx, "videoVae", ["taeltx2_3.safetensors", "LTX23_audio_vae_bf16.safetensors", "LTX23_video_vae_bf16.safetensors"])).toBe("LTX23_video_vae_bf16.safetensors");
+    expect(found(ltx, "audioVae", ["LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"])).toBe("LTX23_audio_vae_bf16.safetensors");
+  });
+
+  it("gives every picture model the same five operations, under the names the tools look for", () => {
+    for (const family of ["flux", "qwen"]) {
+      const ids = recipes.filter((r) => r.family === family).map((r) => r.id);
+      expect(ids).toEqual([`${family}.text-to-picture`, `${family}.edit`, `${family}.redraw`, `${family}.paint-over`, `${family}.sharper`, `${family}.fix-face`]);
+    }
+  });
+
+  it("edits a picture with the model made for it, and says which file is missing without it", () => {
+    const kontext = fluxEdit.build(parseInput(fluxEdit, { source: "p", prompt: "make it red" }), dryContext({ seed: 7, slots: { ...fluxFiles, kontext: "kontext.safetensors" }, uploads: { source: "s.png" } }));
+    expect(all(kontext, "UNETLoader")[0]!.inputs.unet_name).toBe("kontext.safetensors");
+    expect(all(kontext, "ReferenceLatent")).toHaveLength(1);
+    expect(all(kontext, "FluxGuidance")[0]!.inputs.guidance).toBe(2.5);
+    expect(() => fluxEdit.build(parseInput(fluxEdit, { source: "p", prompt: "x" }), dryContext({ slots: fluxFiles, uploads: { source: "s.png" } }))).toThrow(/Edit needs FLUX.1 Kontext/);
+    expect(fluxEdit.needs).toEqual(["kontext"]);
+
+    const edit = qwenEdit.build(
+      parseInput(qwenEdit, { source: "p", prompt: "put her in image 2", references: [{ asset: "a", role: "place" }] }),
+      dryContext({ seed: 7, slots: { ...qwenFiles, edit: "qwen_image_edit.safetensors" }, uploads: { source: "s.png", "references.0": "a.png" } }),
+    );
+    const read = all(edit, "TextEncodeQwenImageEditPlus");
+    expect(read.map((n) => n.inputs.prompt)).toEqual(["put her in image 2", ""]);
+    expect(Object.keys(read[0]!.inputs)).toEqual(expect.arrayContaining(["image1", "image2"]));
+    expect(all(edit, "KSampler")[0]!.inputs).toMatchObject({ steps: 40, cfg: 4, denoise: 1 });
+    expect(all(edit, "CFGNorm")).toHaveLength(1);
+    expect(() => qwenEdit.build(parseInput(qwenEdit, { source: "p", prompt: "x" }), dryContext({ slots: qwenFiles, uploads: { source: "s.png" } }))).toThrow(/Edit needs Qwen Image Edit/);
   });
 });

@@ -84,7 +84,7 @@ export async function scan(
     return p;
   };
 
-  const familyStatus = await Promise.all(
+  const found = await Promise.all(
     families.map(async (f) => ({
       id: f.id,
       slots: await Promise.all(
@@ -100,6 +100,13 @@ export async function scan(
     })),
   );
 
+  // a file that stands in for another way of having the model: with it, the files of the other way are not needed
+  const familyStatus = found.map((f) => {
+    const def = families.find((x) => x.id === f.id)!;
+    const here = new Set(f.slots.filter((s) => s.file).map((s) => s.id));
+    return { ...f, slots: f.slots.map((s) => { const unless = def.slots.find((x) => x.id === s.id)?.unless; return unless && here.has(unless) ? { ...s, optional: true } : s; }) };
+  });
+
   const has = (cls: string) => cls in catalog;
   const recipeStatus = await Promise.all(
     recipes.map(async (r): Promise<RecipeStatus> => {
@@ -110,7 +117,7 @@ export async function scan(
       // what only some options need, and the extras the recipe takes when they are there: without them it still runs
       const limitedBy = [...new Set([...nodeSets.flat(), ...(r.optionalNodes ?? [])])].filter((n) => !has(n) && !base.includes(n));
       const slots = familyStatus.find((f) => f.id === r.family)?.slots ?? [];
-      const missingSlots = slots.filter((s) => !s.optional && !s.file).map((s) => s.id);
+      const missingSlots = slots.filter((s) => (!s.optional || r.needs?.includes(s.id)) && !s.file).map((s) => s.id);
 
       const options: Record<string, string[]> = {};
       const emptyInputs: string[] = [];

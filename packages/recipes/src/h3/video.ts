@@ -2,6 +2,9 @@ import { defineRecipe, GraphBuilder, REFERENCE_ROLES, type ClipValue, type LoraV
 import { H3_FPS, h3Canvas, h3Frames } from "./family";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
+/** The sampler left to the recipe: the one that suits the steps (euler for a turbo's few, res_multistep otherwise). */
+const AUTO_SAMPLER = "Auto";
+
 export interface H3Video {
   model?: string;
   turboIn: string;
@@ -27,6 +30,10 @@ export interface H3Video {
   short: number;
   fast: boolean;
   steps: number;
+  sampler: string;
+  scheduler: string;
+  shiftVideo: number;
+  shiftAudio: number;
   smooth: boolean;
   quick: boolean;
   cache: boolean;
@@ -149,6 +156,19 @@ export const h3Video = defineRecipe<H3Video>({
     { id: "fast", type: "toggle", label: "Turbo", note: "8 steps, about twice as fast: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
     { id: "steps", type: "number", label: "Steps", min: 4, max: 50, step: 1, default: 15, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
+      id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, extra: [AUTO_SAMPLER], default: AUTO_SAMPLER, advanced: true, perModel: true,
+      note: "Auto: euler with Turbo, res_multistep without",
+    },
+    { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "BasicScheduler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
+    {
+      id: "shiftVideo", type: "number", label: "Shift (video)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
+      note: "0 picks it: 7 with Turbo, 11 without. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)",
+    },
+    {
+      id: "shiftAudio", type: "number", label: "Shift (sound)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
+      note: "0 picks it: 4.5 with Turbo, 4 without",
+    },
+    {
       id: "turboIn", type: "choice", label: "Turbo model (distilled)", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "made for 4 to 8 steps: no turbo LoRA is added. Auto reads it from the file name",
     },
@@ -237,7 +257,8 @@ export const h3Video = defineRecipe<H3Video>({
     for (const l of input.loras) {
       if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     }
-    model = g.out("MiniMaxH3SigmaShift", { model, shift_video: turbo ? 7 : 11, shift_audio: turbo ? 4.5 : 4 });
+    // the shifts typed in, else the ones that suit the steps: few steps (turbo) want less of it on the video
+    model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo > 0 ? input.shiftVideo : turbo ? 7 : 11, shift_audio: input.shiftAudio > 0 ? input.shiftAudio : turbo ? 4.5 : 4 });
     // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is there)
     // and the sound so far, sent as a short clip to whoever queued the prompt: what ComfyUI itself shows
     if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
@@ -307,8 +328,8 @@ export const h3Video = defineRecipe<H3Video>({
     const sampled = g.add("SamplerCustomAdvanced", {
       noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
       guider: g.out("BasicGuider", { model, conditioning: positive }),
-      sampler: g.out("KSamplerSelect", { sampler_name: turbo ? "euler" : "res_multistep" }),
-      sigmas: g.out("BasicScheduler", { model, scheduler: "simple", steps, denoise: 1 }),
+      sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
+      sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: 1 }),
       latent_image: latent,
     });
 

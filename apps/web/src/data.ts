@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
@@ -7,6 +8,26 @@ export const useRecipes = () => useQuery({ queryKey: ["recipes"], queryFn: api.r
 export const useSetup = () => useQuery({ queryKey: ["setup"], queryFn: () => api.setup(), staleTime: 60_000 });
 export const useQueue = () => useQuery({ queryKey: ["queue"], queryFn: api.queue });
 export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: api.settings });
+
+/**
+ * Which model families are offered where something is chosen (the model list, a clip's model, the
+ * tools under a picture). A family is on when its switch in Settings says so; left alone it follows its
+ * files: on when ComfyUI has what one of its recipes needs, off when it does not. While ComfyUI has not
+ * answered, everything is on. Off never hides what already uses a family: only the lists to pick from.
+ */
+export function useFamilies() {
+  const recipes = useRecipes();
+  const setup = useSetup();
+  const settings = useSettings();
+  return useMemo(() => {
+    const said = settings.data?.families ?? {};
+    const status = setup.data?.recipes;
+    /** Its files (and nodes) are there for at least one of its recipes. */
+    const found = (family: string) => !status || (recipes.data?.recipes ?? []).some((r) => r.family === family && status.find((s) => s.id === r.id)?.ready);
+    const isOn = (family: string) => said[family] ?? found(family);
+    return { isOn, found, said };
+  }, [recipes.data, setup.data, settings.data]);
+}
 
 export const useTimelines = () => useQuery({ queryKey: ["timelines"], queryFn: api.timelines });
 export const useTimeline = (id: string | undefined) => useQuery({ queryKey: ["timelines", id], queryFn: () => api.timeline(id!), enabled: Boolean(id) });

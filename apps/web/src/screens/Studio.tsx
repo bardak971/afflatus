@@ -7,7 +7,7 @@ import { persist } from "zustand/middleware";
 import { hasWildcards } from "@studai/core";
 import { api, ApiError, thumbUrl, type Asset, type RecipeInfo, type RunningJob } from "../api";
 import { askAboutDisk } from "../Confirm";
-import { useAssetFamilies, useAssetModels, useAssets, useEntities, useEstimates, useFolders, useModelSettings, useQueue, useRecipes, useSetup, useTimelines } from "../data";
+import { useAssetFamilies, useAssetModels, useAssets, useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useQueue, useRecipes, useSetup, useTimelines } from "../data";
 import { Designer, WritingHelp, type DesignerTurn } from "../Designer";
 import { useDraft } from "../draft";
 import { estimateFor } from "../estimate";
@@ -87,10 +87,13 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
   const client = useQueryClient();
   const entities = useEntities();
   const all = recipes.data?.recipes ?? [];
-  const d = useDraft(all[0]?.id);
+  // what is offered to choose from: the families that are on. A draft keeps the model it is on, on or off.
+  const families = useFamilies();
+  const first = all.find((r) => families.isOn(r.family)) ?? all[0];
+  const d = useDraft(first?.id);
   const draft = d.draft;
   // a draft can be on a recipe that is gone (a workflow that was removed): fall back to the first one
-  const recipe = all.find((r) => r.id === draft?.recipe) ?? all[0];
+  const recipe = all.find((r) => r.id === draft?.recipe) ?? first;
   const count = draft?.count ?? 1;
 
   const comfyOnline = setup.data?.comfy.online ?? false;
@@ -137,7 +140,10 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
   const kinds = [...new Set(all.map((r) => r.output))];
   const [lastOf, setLastOf] = useState<Record<string, string>>({});
   // a model first, then what to do with it: the models that make this kind of thing, each with its operations
-  const groups = useMemo(() => modelGroups(all.filter((r) => r.output === (recipe?.output ?? "image")), recipes.data?.families ?? []), [all, recipe?.output, recipes.data?.families]);
+  const groups = useMemo(
+    () => modelGroups(all.filter((r) => r.output === (recipe?.output ?? "image") && (families.isOn(r.family) || r.id === recipe?.id)), recipes.data?.families ?? []),
+    [all, recipe?.output, recipe?.id, recipes.data?.families, families],
+  );
   const group = groups.find((g) => g.recipes.some((r) => r.id === recipe?.id));
   const why = (r: RecipeInfo) => (setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), comfyOnline) : null);
   /** The operation last used with each model: going back to a model goes back to it. */

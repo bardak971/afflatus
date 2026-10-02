@@ -33,6 +33,12 @@ export const settingsSchema = z.object({
   designerInstruction: z.string().default(""),
   /** Tags written for an anime model are compared with danbooru's list, under the prompt and in what the designer writes. */
   tagCheck: z.boolean().default(true),
+  /**
+   * Model families switched on or off by hand, by family id. One that is not named follows its files:
+   * offered when they are found on ComfyUI, left out when they are not. Off only takes it out of the
+   * lists to choose from: what was made with it, and drafts that use it, stay as they are.
+   */
+  families: z.record(z.string().max(120), z.boolean()).default({}),
   civitaiKey: z.string().default(""),
   /** Missing model files may be looked for on Civitai. Off: studai never contacts Civitai. */
   civitaiLookups: z.boolean().default(false),
@@ -110,6 +116,7 @@ export function publicSettings(s: Settings) {
     designerInstructions: s.designerInstructions,
     designerInstruction: s.designerInstructions.some((i) => i.id === s.designerInstruction) ? s.designerInstruction : "",
     tagCheck: s.tagCheck,
+    families: s.families,
     hasCivitaiKey: Boolean(s.civitaiKey),
     civitaiLookups: s.civitaiLookups,
     downloadModels: s.downloadModels,

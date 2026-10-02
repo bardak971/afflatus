@@ -102,11 +102,16 @@ export function warmGraph(built: BuiltGraph): { graph: Graph; phases: BuiltGraph
   for (const id of keep) graph[id] = { class_type: built.graph[id]!.class_type, inputs: { ...built.graph[id]!.inputs } };
 
   // one step: where the pass has its count, or where the scheduler it reads from has it, typed in or
-  // held by a number node
+  // held by a number node; a schedule written out by hand ("1.0, 0.99, …") keeps its first step
   let cut = false;
   if (first) {
     for (const id of keep) {
       const node = graph[id]!;
+      const written = typeof node.inputs.sigmas === "string" ? node.inputs.sigmas.split(",").map((x) => x.trim()).filter(Boolean) : null;
+      if (written && written.length >= 2 && written.every((x) => Number.isFinite(Number(x)))) {
+        node.inputs.sigmas = written.slice(0, 2).join(", ");
+        cut = true;
+      }
       if (!("steps" in node.inputs)) continue;
       const steps = node.inputs.steps;
       if (typeof steps === "number") {

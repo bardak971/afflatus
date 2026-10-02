@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Camera, Download, ImagePlus, Link2, Pause, Play, Plus, SkipBack, SkipForward, Undo2, Users } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
-import { useEntities, useEstimates, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
+import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
 import { LookBar, lookWords } from "../LookBar";
 import { estimateFor } from "../estimate";
@@ -66,7 +66,12 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
   const t = timeline.data;
   const clips = useMemo(() => t?.clips ?? [], [t]);
-  const videoRecipes = useMemo(() => (recipes.data?.recipes ?? []).filter((r) => r.output === "video"), [recipes.data]);
+  // the video models that are on, and the ones a clip of this timeline is already made with
+  const families = useFamilies();
+  const videoRecipes = useMemo(
+    () => (recipes.data?.recipes ?? []).filter((r) => r.output === "video" && (families.isOn(r.family) || clips.some((c) => c.recipe === r.id))),
+    [recipes.data, families, clips],
+  );
   const comfyOnline = setup.data?.comfy.online ?? false;
   const current = clips.find((c) => c.id === selected) ?? null;
   // what is forming is watched large when the clip that renders is the one selected, or when the timeline has nothing to show yet
