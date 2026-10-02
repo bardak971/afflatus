@@ -113,7 +113,7 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean } } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw new UserError(`there is no recipe called ${recipeId}`);
     const input = parseInput(recipe, rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
@@ -129,6 +129,7 @@ export class Queue {
         id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input),
         status: "queued", priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0,
+        draft_id: opts.draft ?? null, folder_id: opts.folder ?? null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
@@ -148,7 +149,7 @@ export class Queue {
       .insertInto("jobs")
       .values({
         id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", priority: 20, depends_on: null,
-        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, created_at: at, started_at: null, finished_at: null, updated_at: at,
+        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, draft_id: null, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
     this.events.emit("queue");
@@ -230,6 +231,7 @@ export class Queue {
     return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
       clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit) } : undefined,
+      draft: row.draft_id, folder: row.folder_id,
     });
   }
 
@@ -283,7 +285,7 @@ export class Queue {
       return { ...plain(r), estimateMs: r.status === "queued" && recipe ? estimateMs(usual, recipe, JSON.parse(r.inputs) as Record<string, unknown>) : null };
     };
     const plain = (r: JobRow) => ({
-      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id,
+      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
       kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : ("render" as const),
       // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
       input: r.status === "failed" && r.recipe_id !== EXPORT_JOB ? (JSON.parse(r.inputs) as Record<string, unknown>) : null,
@@ -460,7 +462,7 @@ export class Queue {
       } finally {
         comfy.monitor.untrack(resume.promptId);
       }
-      const generationId = await this.store(comfy, recipe, resume.input ?? input, resume, outputs);
+      const generationId = await this.store(comfy, recipe, resume.input ?? input, resume, outputs, row);
       if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {});
       await this.finish(row.id, "done", { generationId });
       this.events.emit("library");
@@ -611,6 +613,7 @@ export class Queue {
   private async store(
     comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
     outputs: Awaited<ReturnType<typeof waitForOutputs>>,
+    row: Pick<JobRow, "draft_id" | "folder_id">,
   ): Promise<string> {
     const files: Array<{ file: OutputFile; kind: "image" | "video" | "audio" }> = [];
     for (const out of resume.outputs) {
@@ -632,9 +635,12 @@ export class Queue {
       .values({
         id: generationId, owner_id: OWNER, recipe_id: recipe.id, recipe_version: recipe.version, family: recipe.family,
         inputs: JSON.stringify(input), resolved: JSON.stringify({ seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}) }),
-        gen_ms: Date.now() - resume.startedAt, created_at: at,
+        gen_ms: Date.now() - resume.startedAt, draft_id: row.draft_id, created_at: at,
       })
       .execute();
+    // the folder that was open when it was sent, when it is still there. Being in a folder does not keep a result:
+    // it still goes to the bin after a day unless it is kept
+    const folder = row.folder_id ? (await this.db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;
     // what it was made from: its pictures, the clips it joins onto, and what a timeline handed it
     const sources = [...(resume.sources ?? [])];
     for (const spec of recipe.inputs) {
@@ -671,7 +677,7 @@ export class Queue {
           id, owner_id: OWNER, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length,
           width: size?.width ?? null, height: size?.height ?? null,
           duration_ms: video?.facts?.durationMs ?? null, fps: video?.facts?.fps ?? null, has_sound: video?.facts?.hasSound ? 1 : 0,
-          folder_id: null, generation_id: generationId, kept_at: null, deleted_at: null, created_at: at,
+          folder_id: folder, generation_id: generationId, kept_at: null, deleted_at: null, created_at: at,
         })
         .execute();
     }

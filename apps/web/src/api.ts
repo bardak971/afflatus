@@ -67,6 +67,8 @@ export interface Job {
   generationId: string | null;
   /** The timeline clip it renders a take of, when it is one. */
   clipId: string | null;
+  /** The draft it was sent from, when it was sent from one. */
+  draftId: string | null;
   /** "export": it puts a timeline together as one video instead of rendering. */
   kind: "render" | "export";
   /** Of a waiting job: about how long it will take, from past renders. */
@@ -535,8 +537,9 @@ export const api = {
   queue: () => call<QueueStatus>("GET", "/queue"),
   pause: () => call<QueueStatus>("POST", "/queue/pause"),
   resume: () => call<QueueStatus>("POST", "/queue/resume"),
-  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null) =>
-    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}) }),
+  /** `into`: the draft it is sent from, and the folder that is open, where its results are filed. */
+  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string }) =>
+    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}) }),
   entities: () => call<{ items: Entity[] }>("GET", "/entities"),
   createEntity: (kind: Entity["kind"], name: string, def?: unknown) => call<Entity>("POST", "/entities", def === undefined ? { kind, name } : { kind, name, def }),
   saveEntity: (id: string, patch: { name?: string; def?: unknown }) => call<Entity>("PUT", `/entities/${id}`, patch),
@@ -585,7 +588,7 @@ export const api = {
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string }) => {
+  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string }) => {
     const q = new URLSearchParams({ limit: "40" });
     if (opts.kind) q.set("kind", opts.kind);
     if (opts.bin) q.set("bin", "1");
@@ -596,6 +599,7 @@ export const api = {
     if (opts.kept) q.set("kept", "1");
     if (opts.model) q.set("model", opts.model);
     if (opts.lora) q.set("lora", opts.lora);
+    if (opts.draft) q.set("draft", opts.draft);
     return call<{ items: Asset[]; next: string | null }>("GET", `/assets?${q}`);
   },
   asset: (id: string) => call<AssetDetail>("GET", `/assets/${id}`),

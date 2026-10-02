@@ -52,6 +52,8 @@ export interface Tables {
     inputs: string;
     resolved: string;
     gen_ms: number;
+    /** The draft it was made from, when it was made from one: "this draft" in Studio shows what its drafts made. */
+    draft_id: string | null;
     created_at: string;
   };
   /** Which assets a generation used, and as what: the lineage. */
@@ -75,6 +77,9 @@ export interface Tables {
     clip_id: string | null;
     /** For a clip: whether the take should end where the next clip begins (0 / 1). */
     clip_fit: number;
+    /** The draft it was sent from, and the folder its results go to: the one that was open when it was sent. */
+    draft_id: string | null;
+    folder_id: string | null;
     created_at: string;
     started_at: string | null;
     finished_at: string | null;
@@ -545,6 +550,19 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0016_job_draft_folder"] = {
+  async up(db) {
+    await db.schema.alterTable("jobs").addColumn("draft_id", "text").execute();
+    await db.schema.alterTable("jobs").addColumn("folder_id", "text").execute();
+    await db.schema.alterTable("generations").addColumn("draft_id", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("jobs").dropColumn("draft_id").execute();
+    await db.schema.alterTable("jobs").dropColumn("folder_id").execute();
+    await db.schema.alterTable("generations").dropColumn("draft_id").execute();
   },
 };
 

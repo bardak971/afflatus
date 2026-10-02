@@ -123,7 +123,7 @@ export function PngInfo({ name, read, first, onClose }: {
           ) : null}
           <span className="grow" />
           <Button onClick={onClose}>Close</Button>
-          {s && <Button tone="primary" onClick={() => void send()}>Send to Create</Button>}
+          {s && <Button tone="primary" onClick={() => void send()}>Send to the form</Button>}
         </footer>
       </div>
     </div>

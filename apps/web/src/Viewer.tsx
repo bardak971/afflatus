@@ -314,12 +314,18 @@ const OPS: Record<string, { ends: string[]; label: string }> = {
   r: { ends: [".change-shape"], label: "Outpaint" },
 };
 
-export function Viewer({ asset: first, items, onOpen, onClose }: {
+export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails, into }: {
   asset: Asset;
   /** The list it was opened from: the arrow keys go to the item before and after. */
   items?: Asset[];
   onOpen?(asset: Asset): void;
   onClose(): void;
+  /** Drawn in place instead of over the screen: the item large, and under it what can be done with it. Its keys work the same. */
+  inline?: boolean;
+  /** In place: open it over the screen, with everything about it. */
+  onDetails?(): void;
+  /** What is queued from here belongs to this draft and lands in this folder. */
+  into?: { draft?: string; folder?: string };
 }) {
   // "made from" and "used to make" lead to other items without leaving the viewer
   const [trail, setTrail] = useState<Asset[]>([]);
@@ -413,7 +419,7 @@ export function Viewer({ asset: first, items, onOpen, onClose }: {
     const ready = (r: RecipeInfo) => setup.data?.recipes.find((x) => x.id === r.id)?.ready;
     return mine?.recipes.find(fits) ?? all.find((r) => fits(r) && ready(r)) ?? all.find(fits);
   };
-  /** A tool's form in Create, with the picture in place and what it was made with. */
+  /** A tool's form, with the picture in place and what it was made with. */
   const openTool = useMutation({
     mutationFn: (id: string) => {
       const tool = all.find((r) => r.id === id)!;
@@ -436,7 +442,7 @@ export function Viewer({ asset: first, items, onOpen, onClose }: {
       const input: Record<string, unknown> = { ...formDefaults(job.recipe, status?.options, modelSettings.data?.items ?? [], job.stored).defaults, ...job.stored };
       const has = new Set(job.recipe.inputs.map((i) => i.id));
       for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
-      await api.enqueue(job.recipe.id, input, 1, null);
+      await api.enqueue(job.recipe.id, input, 1, null, into);
       return job.label;
     },
     onSuccess: (label) => {
@@ -472,7 +478,10 @@ export function Viewer({ asset: first, items, onOpen, onClose }: {
 
   const act = useRef<(e: KeyboardEvent) => void>(() => {});
   act.current = (e) => {
+    // drawn in place, it leaves the keys to whatever is open over the screen
+    if (inline && document.querySelector("[role=dialog][aria-modal=true]")) return;
     if (e.key === "Escape") {
+      if (inline) return;
       if (!document.querySelector("[data-keys-help], [role=listbox], [role=menu]") && !info) onClose();
       return;
     }
@@ -509,6 +518,41 @@ export function Viewer({ asset: first, items, onOpen, onClose }: {
   const made = new Date(a.createdAt);
   const sources = detail.data?.id === asset.id ? detail.data.sources : [];
   const usedIn = detail.data?.id === asset.id ? detail.data.usedIn : [];
+
+  if (inline) {
+    return (
+      <div className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
+        <div className="flex min-h-0 grow items-center justify-center">
+          {a.kind === "image" && (
+            <button type="button" onClick={onDetails} title="Everything about it, and everything that can be done with it" className="flex h-full max-w-full items-center justify-center">
+              <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Picture"} className="max-h-full max-w-full rounded-lg object-contain" />
+            </button>
+          )}
+          {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls className="max-h-full max-w-full rounded-lg" />}
+          {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls />}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
+          <Button size="sm" onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")} title={a.kept ? "It is kept" : "Not kept: it goes to the bin after a day"}>
+            <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
+          </Button>
+          {g && recipe && (
+            <Button size="sm" disabled={queued.isPending} title="The same settings with a new seed, queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" })}>Variation <Kbd>V</Kbd></Button>
+          )}
+          {a.kind === "image" && (["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
+            <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}, queued at once with what the picture was made with.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
+          ))}
+          {a.kind === "image" && (["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
+            <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: a new draft in the form, with this picture.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
+          ))}
+          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title="A new video that opens on this picture." onClick={() => animate.mutate()}><Clapperboard size={13} /> Video <Kbd>M</Kbd></Button>}
+          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title="A new clip whose first moments are the last moments of this one." onClick={() => carryOn.mutate()}><Link2 size={13} /> Continue it <Kbd>C</Kbd></Button>}
+          {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video where you want, then save that frame as a picture." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save the frame <Kbd>G</Kbd></Button>}
+          {onDetails && <Button size="sm" onClick={onDetails} title="How it was made, where it is filed, and everything else that can be done with it">Details</Button>}
+          <Button size="sm" onClick={toBin} title="Move it to the bin, and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
@@ -589,7 +633,7 @@ export function Viewer({ asset: first, items, onOpen, onClose }: {
                 </Button>
               ))}
               {(["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
-                <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: opens its form in Create with this picture.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>
+                <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: opens its form with this picture, on a new draft.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>
                   {OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd>
                 </Button>
               ))}
@@ -600,7 +644,7 @@ export function Viewer({ asset: first, items, onOpen, onClose }: {
           <div className="flex flex-col gap-2">
             {g && recipe && (
               <div className="flex gap-2">
-                <Button className="grow" onClick={() => again.mutate(g)} disabled={again.isPending} title="Its settings in a new draft in Create.">Make more like it <Kbd>L</Kbd></Button>
+                <Button className="grow" onClick={() => again.mutate(g)} disabled={again.isPending} title="Its settings in a new draft in the form.">Make more like it <Kbd>L</Kbd></Button>
                 <Button onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" })} disabled={queued.isPending} title="The same settings with a new seed, queued at once.">Variation <Kbd>V</Kbd></Button>
               </div>
             )}

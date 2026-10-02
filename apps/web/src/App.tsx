@@ -9,8 +9,7 @@ import { DropTray } from "./DropTray";
 import { useDownloads } from "./GetFile";
 import { about, phaseLabel } from "./format";
 import { useLiveEvents } from "./live";
-import { Create } from "./screens/Create";
-import { Library } from "./screens/Library";
+import { Studio } from "./screens/Studio";
 import { People } from "./screens/People";
 import { Queue } from "./screens/Queue";
 import { Setup } from "./screens/Setup";
@@ -21,8 +20,7 @@ import { useSystem } from "./store";
 import { Bar, cx } from "./ui";
 
 const NAV: Array<{ href: string; label: string; icon: ReactNode }> = [
-  { href: "/", label: "Library", icon: <LayoutGrid size={18} /> },
-  { href: "/create", label: "Create", icon: <Plus size={18} /> },
+  { href: "/", label: "Studio", icon: <LayoutGrid size={18} /> },
   { href: "/timelines", label: "Timelines", icon: <Film size={18} /> },
   { href: "/kit", label: "Prompt kit", icon: <Users size={18} /> },
   { href: "/workflows", label: "Workflows", icon: <Workflow size={18} /> },
@@ -96,8 +94,9 @@ export function App() {
           })}
         </nav>
         <Switch>
-          <Route path="/" component={Library} />
-          <Route path="/create" component={Create} />
+          <Route path="/"><Studio /></Route>
+          {/* links from elsewhere that mean "the form": the same screen, with the form open */}
+          <Route path="/create"><Studio open /></Route>
           <Route path="/kit" component={People} />
           {/* the screen's old address still leads to it */}
           <Route path="/people"><Redirect to="/kit" /></Route>
@@ -109,7 +108,7 @@ export function App() {
           {/* the screen's old address still leads to it */}
           <Route path="/setup"><Redirect to="/settings" /></Route>
           <Route>
-            <div className="p-8 text-ink-2">There is no such page. <Link href="/" className="underline">Back to the library</Link></div>
+            <div className="p-8 text-ink-2">There is no such page. <Link href="/" className="underline">Back to Studio</Link></div>
           </Route>
         </Switch>
       </div>

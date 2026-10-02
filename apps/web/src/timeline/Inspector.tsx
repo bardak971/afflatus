@@ -8,7 +8,7 @@ import { appendTo } from "../promptText";
 import { LookBar, lookWords } from "../LookBar";
 import { about, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
-import { Form } from "../screens/Create";
+import { Form, mainTextOf } from "../RecipeForm";
 import { Select } from "../Select";
 import { Bar, Button, cx, ErrorNote, NumberBox, SectionTitle, Segmented, Toggle } from "../ui";
 import { otherShape, pinInputs, shapeOf } from "./model";
@@ -313,60 +313,63 @@ export function Inspector({ timeline, clip, index, recipes, stored, why, takes, 
                 A video file you added. It can be shortened, and a new clip can continue from any of its frames. It cannot be rendered again, unless you choose what to render in its place:
               </div>
             )}
-            <div className="flex flex-col gap-1.5">
-              <div className="text-xs font-semibold">Made with</div>
-              <Select
-                label="Made with"
-                value={recipe?.id ?? ""}
-                onChange={onRecipe}
-                placeholder={recipes.length ? "Choose what renders this clip" : "No video model yet: import a workflow"}
-                options={recipes.map((r) => ({ value: r.id, label: recipeLabel(all.data?.families.find((f) => f.id === r.family)?.name, r.title), detail: r.summary }))}
-              />
-            </div>
-            {recipe && (
-              <div className="flex flex-col gap-1.5">
-                {clip.look === null ? (
-                  <>
-                    <div className="text-xs font-semibold">Cast and places</div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span>{lookWords(timeline.look, entities.data?.items ?? []) || "Nobody yet"}</span>
-                      <span className="text-xs text-ink-2">from the timeline</span>
-                      <Button size="sm" onClick={() => onPatch({ look: timeline.look ?? { cast: [], style: null } })}>Change for this clip</Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <LookBar title="Cast and places, for this clip only" look={clip.look} onChange={(look) => onPatch({ look })} recipe={recipe} input={stored} />
-                    <span><Button size="sm" onClick={() => onPatch({ look: null })}>Use the timeline's again</Button></span>
-                  </>
-                )}
-              </div>
-            )}
-            {form && (() => {
-              const main = form.inputs.find((i) => i.type === "prompt" && !i.optional) ?? form.inputs.find((i) => i.type === "prompt");
-              const written = main ? String(stored[main.id] ?? "") : "";
-              return (
-                <WritingHelp
-                  recipe={form}
-                  text={written}
-                  // a clip that follows the timeline's cast gets a look of its own with the first snippet ticked: the timeline's, plus it
-                  look={clip.look ?? timeline.look}
-                  onLook={(look) => onPatch({ look })}
-                  onDesigner={onDesigner}
-                  onInsert={(snippet) => main?.type === "prompt" && onInputs({ ...stored, [main.id]: appendTo(written, snippet, main.style) })}
+            {(() => {
+              const picker = (
+                <Select
+                  label="Made with"
+                  value={recipe?.id ?? ""}
+                  onChange={onRecipe}
+                  placeholder={recipes.length ? "Choose what renders this clip" : "No video model yet: import a workflow"}
+                  options={recipes.map((r) => ({ value: r.id, label: recipeLabel(all.data?.families.find((f) => f.id === r.family)?.name, r.title), detail: r.summary }))}
                 />
               );
+              // nothing renders it yet: only the choice of what does
+              if (!form || !recipe) return <div className="flex flex-col gap-1.5"><div className="text-xs font-semibold">Made with</div>{picker}</div>;
+              const main = mainTextOf(form);
+              const written = main ? String(stored[main.id] ?? "") : "";
+              const cast = clip.look === null ? (
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-xs font-semibold">Cast and places</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>{lookWords(timeline.look, entities.data?.items ?? []) || "Nobody yet"}</span>
+                    <span className="text-xs text-ink-2">from the timeline</span>
+                    <Button size="sm" onClick={() => onPatch({ look: timeline.look ?? { cast: [], style: null } })}>Change for this clip</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <LookBar title="Cast and places, for this clip only" look={clip.look} onChange={(look) => onPatch({ look })} recipe={recipe} input={stored} />
+                  <span><Button size="sm" onClick={() => onPatch({ look: null })}>Use the timeline's again</Button></span>
+                </div>
+              );
+              return (
+                <div className="flex flex-col gap-2.5">
+                  <Form
+                    key={`${clip.id}:${form.id}`}
+                    recipe={form}
+                    status={status}
+                    stored={stored}
+                    onChange={(input, value) => onInputs({ ...stored, [input]: value })}
+                    onClear={(inputs) => onInputs(Object.fromEntries(Object.entries(stored).filter(([k]) => !inputs.includes(k))))}
+                    made={picker}
+                    madeSummary={recipeLabel(all.data?.families.find((f) => f.id === recipe.family)?.name, recipe.title)}
+                    look={cast}
+                    lookSummary={lookWords(clip.look ?? timeline.look, entities.data?.items ?? []) + (clip.look === null && timeline.look ? " (from the timeline)" : "")}
+                    helpers={
+                      <WritingHelp
+                        recipe={form}
+                        text={written}
+                        // a clip that follows the timeline's cast gets a look of its own with the first snippet ticked: the timeline's, plus it
+                        look={clip.look ?? timeline.look}
+                        onLook={(look) => onPatch({ look })}
+                        onDesigner={onDesigner}
+                        onInsert={(snippet) => main?.type === "prompt" && onInputs({ ...stored, [main.id]: appendTo(written, snippet, main.style) })}
+                      />
+                    }
+                  />
+                </div>
+              );
             })()}
-            {form && (
-              <Form
-                key={`${clip.id}:${form.id}`}
-                recipe={form}
-                status={status}
-                stored={stored}
-                onChange={(input, value) => onInputs({ ...stored, [input]: value })}
-                onClear={(inputs) => onInputs(Object.fromEntries(Object.entries(stored).filter(([k]) => !inputs.includes(k))))}
-              />
-            )}
           </>
         )}
         {(take || still) && (

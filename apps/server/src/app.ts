@@ -39,6 +39,9 @@ const jobBody = z.strictObject({
   count: z.number().int().min(1).max(8).default(1),
   /** Who is in it and how it looks: worked into the form before it is queued. */
   look: lookSchema.optional(),
+  /** The draft it is sent from, and the folder that is open: its results are filed there. */
+  draft: z.string().max(64).optional(),
+  folder: z.string().max(64).optional(),
 });
 
 export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyInstance {
@@ -282,7 +285,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const recipe = s.registry.recipe(body.recipe);
     const input = recipe && body.look ? (await compose(s.db, recipe, body.input, body.look)).input : body.input;
     const ids: string[] = [];
-    for (let i = 0; i < body.count; i++) ids.push(await s.queue.enqueue(body.recipe, input, { label: body.label }));
+    for (let i = 0; i < body.count; i++) ids.push(await s.queue.enqueue(body.recipe, input, { label: body.label, draft: body.draft, folder: body.folder }));
     return { ids };
   });
 
@@ -378,6 +381,8 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     /** Only what was made with this model file (a checkpoint, a diffusion model), or with this LoRA. */
     model: z.string().max(500).optional(),
     lora: z.string().max(500).optional(),
+    /** Only what this draft made. */
+    draft: z.string().max(64).optional(),
   });
 
   /** The model files and the LoRAs a generation was made with. */
@@ -406,6 +411,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     else if (q.folder) query = query.where("folder_id", "=", q.folder);
     if (q.kept) query = query.where("kept_at", "is not", null);
     if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
+    if (q.draft) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("draft_id", "=", q.draft));
     if (q.q?.trim() || q.model || q.lora) {
       // found by its name and by every text of the form it was made with; and by the files it was made with
       if (q.model || q.lora) query = query.where("generation_id", "is not", null);

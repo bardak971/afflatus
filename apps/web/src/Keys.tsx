@@ -30,7 +30,7 @@ const KEYS: Array<{ where: string; keys: Array<[string, string]> }> = [
     where: "An item that is open (a picture, a video, a sound)",
     keys: [
       ["←  →", "The item before, the item after"], ["S", "Keep it, or stop keeping it"], ["Del", "Move it to the bin, and go to the next one"], ["D", "Download the file"],
-      ["L", "Load its settings into Create (make more like it)"], ["V", "Variation: the same settings with a new seed, queued at once"],
+      ["L", "Load its settings into the form (make more like it)"], ["V", "Variation: the same settings with a new seed, queued at once"],
       ["Esc", "Close"],
     ],
   },
@@ -38,12 +38,12 @@ const KEYS: Array<{ where: string; keys: Array<[string, string]> }> = [
     where: "A picture that is open",
     keys: [
       ["U", "Upscale 2x, queued at once"], ["F", "Face detailer, queued at once"], ["B", "Remove the background, queued at once"],
-      ["I", "Inpaint: open it in Create"], ["E", "Edit / img2img: open it in Create"], ["R", "Outpaint to another aspect ratio: open it in Create"],
+      ["I", "Inpaint: open it in the form"], ["E", "Edit / img2img: open it in the form"], ["R", "Outpaint to another aspect ratio: open it in the form"],
       ["M", "Make a video from it"], ["P", "PNG info (for a file that was brought in)"],
     ],
   },
   { where: "A video that is open", keys: [["C", "Continue it in a new clip"], ["G", "Save the frame shown as a picture"]] },
-  { where: "Create", keys: [["Ctrl + Enter", "Make"]] },
+  { where: "The form, in Studio", keys: [["Ctrl + Enter", "Make"]] },
   { where: "A prompt", keys: [["Ctrl + ↑  ↓", "The weight of the tag the cursor is in, or of what is selected: (red dress:1.1)"], ["{a|b|c}", "Written in the text: one of the choices is picked for each result"]] },
   { where: "A timeline", keys: [["Space", "Play or pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has the focus"]] },
   { where: "Everywhere", keys: [["?", "This list"], ["Esc", "Close what is open"]] },

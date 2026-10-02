@@ -5,6 +5,7 @@ import { Check, RotateCcw, Send, Sparkles, WandSparkles, X } from "lucide-react"
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
 import { useEntities, useSettings } from "./data";
 import { Select } from "./Select";
+import { mainTextOf } from "./RecipeForm";
 import { Snippets, TickedSnippets } from "./Snippets";
 import { AutoText, Button, cx, ErrorNote } from "./ui";
 
@@ -240,7 +241,7 @@ export function WritingHelp({ recipe, text, look, onLook, onInsert, onDesigner }
   onInsert(text: string): void;
   onDesigner(): void;
 }) {
-  const main = recipe.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe.inputs.find((i) => i.type === "prompt");
+  const main = mainTextOf(recipe);
   if (main?.type !== "prompt") return null;
   return (
     <div className="flex flex-col gap-1.5">

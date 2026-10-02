@@ -295,7 +295,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
           {found.toggles.length > 0 && (
             <>
               <SectionTitle>Switches</SectionTitle>
-              <div className="text-ink-2">Parts of this workflow that can be turned on and off. Each ticked one becomes a switch in Create. {b.toggles.length} of {found.toggles.length} ticked.</div>
+              <div className="text-ink-2">Parts of this workflow that can be turned on and off. Each ticked one becomes a switch in the form. {b.toggles.length} of {found.toggles.length} ticked.</div>
               {!switches.length && <div className="text-ink-2">No switch matches.</div>}
               {switches.map((t) => {
                 const ticked = b.toggles.find((x) => x.id === t.id);
@@ -372,7 +372,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         </section>
 
         <section className="flex min-h-0 flex-col gap-3.5 overflow-y-auto bg-panel p-5">
-          <SectionTitle>How it will look in Create</SectionTitle>
+          <SectionTitle>How its form will look</SectionTitle>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="wf-title" className="text-xs font-semibold">Its name</label>
             <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Picture to video" className={text} />

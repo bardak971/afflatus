@@ -26,7 +26,7 @@ export const useStorage = () => useQuery({ queryKey: ["assets", "storage"], quer
 export const useAssetFamilies = () => useQuery({ queryKey: ["assets", "families"], queryFn: api.assetFamilies });
 export const useAssetModels = () => useQuery({ queryKey: ["assets", "models"], queryFn: api.assetModels });
 
-export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string }) {
+export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string }) {
   return useInfiniteQuery({
     queryKey: ["assets", filter],
     queryFn: ({ pageParam }) => api.assets({ ...filter, after: pageParam || undefined }),

@@ -86,7 +86,7 @@ export function Workflows() {
   const shareIt = useMutation({ mutationFn: share });
   const [, go] = useLocation();
   const openDraft = useOpenDraft((s) => s.open);
-  // straight to Create on a new draft with the workflow picked: nothing is rendered until Generate is pressed
+  // straight to the form on a new draft with the workflow picked: nothing is rendered until Generate is pressed
   const tryIt = useMutation({
     mutationFn: (workflow: string) => {
       const recipe = recipes.data?.recipes.find((r) => r.id === workflow);
@@ -132,7 +132,7 @@ export function Workflows() {
       <header className="flex h-20 shrink-0 items-center gap-4">
         <div className="flex flex-col">
           <h1 className="text-xl font-semibold">Models and workflows</h1>
-          <div className="text-ink-2">Everything studai can make pictures and videos with. Each one appears under "Made with" in Create.</div>
+          <div className="text-ink-2">Everything studai can make pictures and videos with. Each one appears under "Made with" in Studio's form.</div>
         </div>
         <span className="grow" />
         <Button tone="primary" onClick={() => input.current?.click()} disabled={open.isPending}>
@@ -183,7 +183,7 @@ export function Workflows() {
                     </>
                   ) : (
                     <>
-                      <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} title="Opens Create with this workflow picked, on a new draft.">Try it</Button>
+                      <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} title="Opens the form with this workflow picked, on a new draft.">Try it</Button>
                       <Button size="sm" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Change</Button>
                       <Button size="sm" onClick={() => shareIt.mutate(w)}>Share as a file</Button>
                       <Button size="sm" onClick={() => setRemoving(w.id)}>Remove</Button>

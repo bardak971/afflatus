@@ -610,7 +610,7 @@ export function People() {
             {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
             {editing.kind === "preset" && (
               <div className="flex flex-col gap-2 text-ink-2">
-                <span>A whole setup kept under a name: the model, its form, and who is in it. Use it from Create, under "Presets".</span>
+                <span>A whole setup kept under a name: the model, its form, and who is in it. Use it from the form in Studio, under "Made with".</span>
                 <span>Model: <span className="text-ink">{recipes.data?.recipes.find((r) => r.id === editing.def.recipe)?.title ?? "a model that is no longer here"}</span></span>
                 <span>Settings kept: <span className="text-ink">{Object.keys(editing.def.inputs).length}</span></span>
               </div>
@@ -620,7 +620,7 @@ export function People() {
           <SnippetTable snippets={all.filter((e): e is Snippet => e.kind === "snippet")} query={query} />
         ) : (
           <>
-            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is a whole setup kept under a name: the model, its form, and who is in it. Save one from Create, under "Presets".</Empty>}
+            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is a whole setup kept under a name: the model, its form, and who is in it. Save one from the form in Studio, under "Made with".</Empty>}
             {mine.length > 0 && found.length === 0 && <Empty title="Nothing matches">None of your {here.title.toLowerCase()} has these words.</Empty>}
             {(tab === "person" || tab === "place") && (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3.5">

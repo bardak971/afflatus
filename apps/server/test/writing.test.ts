@@ -196,3 +196,34 @@ describe.skipIf(!hasFfmpeg)("a part of a sound", () => {
     expect(secondsOf(await soundPart(tone(3), "wav", { start: 0, seconds: 8, durationMs: 3_000 }))).toBeCloseTo(3, 1);
   });
 });
+
+describe("what a draft made, and where it lands", () => {
+  it("is filed in the folder that was open when it was sent, without being kept, and is found by its draft", async () => {
+    const folder = (await post(t.app, "/api/folders", { name: "Terrace" })).json();
+    const draft = (await post(t.app, "/api/drafts", { recipe: "sdxl.text-to-picture" })).json();
+    const make = async (extra: Record<string, unknown>) => {
+      const before = fake.prompts.size;
+      await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "1girl", checkpoint: CHECKPOINT }, ...extra });
+      await until(() => fake.prompts.size === before + 1);
+      // while it renders, the queue says which draft it is from
+      const running = (await get(t.app, "/api/queue")).json().running;
+      complete(fake, [...fake.prompts.keys()].at(-1)!);
+      await until(async () => (await get(t.app, "/api/queue")).json().running === null);
+      return running;
+    };
+    expect((await make({ draft: draft.id, folder: folder.id })).draftId).toBe(draft.id);
+    expect((await make({})).draftId).toBeNull();
+    // a folder that is gone by the time it is done: the result is not filed
+    await make({ draft: draft.id, folder: "no-such-folder" });
+
+    const all = (await get(t.app, "/api/assets")).json().items;
+    expect(all).toHaveLength(3);
+    const mine = (await get(t.app, `/api/assets?draft=${draft.id}`)).json().items;
+    expect(mine).toHaveLength(2);
+    const filed = (await get(t.app, `/api/assets?folder=${folder.id}`)).json().items;
+    expect(filed).toHaveLength(1);
+    // in a folder, and still on its one-day countdown
+    expect(filed[0].kept).toBe(false);
+    expect(mine.map((a: { id: string }) => a.id)).toContain(filed[0].id);
+  });
+});
