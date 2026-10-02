@@ -17,6 +17,7 @@ import { about, aboutMs, clock, fileLabel, notReady, phaseLabel, recipeLabel, wh
 import { plainKey } from "../Keys";
 import { LivePreview } from "../LivePreview";
 import { LookBar, lookWords } from "../LookBar";
+import { FormModel, ResultsPlace, useStop } from "../ModelLoad";
 import { carryOver, modelGroups } from "../picker";
 import { Popover } from "../Popover";
 import { appendTo } from "../promptText";
@@ -50,17 +51,6 @@ const KINDS = [
   { id: "timeline", label: "Timelines", kind: undefined },
 ] as const;
 const TILE = { S: "minmax(120px,1fr)", M: "minmax(170px,1fr)", L: "minmax(250px,1fr)" };
-
-/** Stops a render that is under way, or takes one that waits out of the queue. Nothing is added. */
-function useStop() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: async (ids: string[]) => {
-      for (const id of ids) await api.cancel(id);
-    },
-    onSettled: () => void client.invalidateQueries({ queryKey: ["queue"] }),
-  });
-}
 
 function LiveTile({ job, onClick, on, title }: { job: RunningJob; onClick?(): void; on?: boolean; title?: string }) {
   const stop = useStop();
@@ -372,12 +362,8 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         {recipe && recipe.inputs.some((i) => i.type === "prompt" && hasWildcards(String(whole[i.id] ?? ""))) && (
           <span className="text-xs text-ink-2">{"{a|b|c}"}: one is picked for each {noun}{count === 1 ? ". Make several to see them vary." : "."}</span>
         )}
-        <span className="flex items-center gap-1.5 text-xs text-ink-2">
-          <FolderIcon size={13} className="shrink-0" />
-          {folder
-            ? <span className="truncate" title={folder.path ? `Kept results become files in ${folder.path}` : undefined}>Results go to <span className="font-semibold text-ink">{folder.name}</span>{folder.path ? ": written to your disk when you keep them" : ", the folder that is open"}</span>
-            : <span>Results are not filed: open a folder to have them land in it</span>}
-        </span>
+        {recipe && draft && !blocked && <FormModel recipe={recipe} input={whole} look={draft.look} />}
+        <ResultsPlace folder={folder ? { name: folder.name, path: folder.path } : null} />
         <div className="flex items-center gap-2.5">
           <div className="flex h-11 shrink-0 items-center rounded-lg border border-line">
             <button type="button" aria-label="One fewer" onClick={() => d.setCount(count - 1)} className="flex h-full w-9 items-center justify-center"><Minus size={14} /></button>

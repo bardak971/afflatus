@@ -132,7 +132,7 @@ export function Queue() {
         <div className="grid grid-cols-[minmax(0,1fr)_420px] gap-8">
           <div className="flex flex-col gap-6">
             <section className="flex flex-col gap-2">
-              <SectionTitle>{q.running?.kind === "export" ? "Exporting now" : "Rendering now"}</SectionTitle>
+              <SectionTitle>{q.running?.kind === "export" ? "Exporting now" : q.running?.kind === "load" ? "Loading a model now" : "Rendering now"}</SectionTitle>
               {q.running ? (
                 <div className="flex gap-4 rounded-xl border border-line-strong bg-panel p-3.5">
                   {/* large enough to judge a render by, and to stop one that is not going where it should; a clip plays with its sound */}

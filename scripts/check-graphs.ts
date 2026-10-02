@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { checkGraph, dryContext, parseInput, type NodeCatalog } from "@studai/core";
+import { baseModels, checkGraph, dryContext, parseInput, warmGraph, type NodeCatalog } from "@studai/core";
 import { recipes } from "@studai/recipes";
 
 const saved = fileURLToPath(new URL("../reference/comfy-object-info.json", import.meta.url));
@@ -29,8 +29,12 @@ for (const recipe of recipes) {
       for (const n of missing) problems.push(`nodes() lists ${n}, which the graph does not use`);
       const unlisted = [...new Set(Object.values(built.graph).map((node) => node.class_type))].filter((c) => !recipe.nodes(input).includes(c) && !recipe.optionalNodes?.includes(c));
       for (const n of unlisted) problems.push(`the graph uses ${n}, which nodes() does not list`);
+      // the graph that loads its models ahead of the render: the same graph cut after one step of its first pass
+      const warm = warmGraph(built);
+      if (warm) for (const p of checkGraph({ ...built, graph: warm.graph, phases: warm.phases, outputs: [] }, catalog)) problems.push(`loading ahead: ${p}`);
+      const ahead = warm ? `${Object.keys(warm.graph).length} nodes, ${warm.pass ? "one step" : "loaders only"}` : "nothing to load";
       bad += problems.length;
-      console.log(`${problems.length ? "FAIL" : "ok  "} ${label} (${Object.keys(built.graph).length} nodes)${problems.map((p) => `\n     ${p}`).join("")}`);
+      console.log(`${problems.length ? "FAIL" : "ok  "} ${label} (${Object.keys(built.graph).length} nodes; ${baseModels(built).length} base models; loading ahead: ${ahead})${problems.map((p) => `\n     ${p}`).join("")}`);
     } catch (err) {
       bad++;
       console.log(`FAIL ${label}\n     ${(err as Error).message}`);

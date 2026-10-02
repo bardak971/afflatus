@@ -30,6 +30,8 @@ export function Banners() {
       for (const j of over) {
         if (seenJobs.current.has(j.id)) continue;
         if (j.status === "failed") push({ id: `job:${j.id}`, tone: "bad", title: `${j.label} failed`, text: j.error ?? undefined, href: "/queue", go: "Open the queue" });
+        // a model loaded ahead has nothing to show: the form says it is loaded
+        else if (j.kind === "load") continue;
         else if (!showsResults(path)) push({ id: `job:${j.id}`, tone: "good", title: `${j.label} is done`, href: j.kind === "export" ? "/timelines" : "/", go: j.kind === "export" ? "Open the timelines" : "Open the library" });
       }
     }

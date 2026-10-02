@@ -44,6 +44,8 @@ const jobBody = z.strictObject({
   draft: z.string().max(64).optional(),
   folder: z.string().max(64).optional(),
 });
+/** A form as it stands, to load its models ahead or to ask whether they are loaded. */
+const warmBody = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()), look: lookSchema.optional() });
 
 export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyInstance {
   // a workflow with many nodes is a large body
@@ -288,6 +290,26 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const ids: string[] = [];
     for (let i = 0; i < body.count; i++) ids.push(await s.queue.enqueue(body.recipe, input, { label: body.label, draft: body.draft, folder: body.folder }));
     return { ids };
+  });
+
+  /**
+   * Load the models a form would render with, ahead of the render: a job in the queue like any other,
+   * that makes nothing. Asked for while the prompt is still being written.
+   */
+  // the cast is worked in as for a render: a person with reference pictures can call for another model
+  const withCast = async (body: z.infer<typeof warmBody>) => {
+    const recipe = s.registry.recipe(body.recipe);
+    return recipe && body.look ? (await compose(s.db, recipe, body.input, body.look).catch(() => null))?.input ?? body.input : body.input;
+  };
+  app.post("/api/jobs/warm", async (req) => {
+    const body = warmBody.parse(req.body);
+    return { id: await s.queue.enqueue(body.recipe, await withCast(body), { label: `Load the model: ${s.registry.recipe(body.recipe)?.title ?? body.recipe}`, warm: true }) };
+  });
+
+  /** Whether the models a form would render with are the ones ComfyUI was last asked to load. */
+  app.post("/api/comfy/loaded", async (req) => {
+    const body = warmBody.parse(req.body);
+    return { loaded: await s.queue.isLoaded(body.recipe, await withCast(body)) };
   });
 
   app.get("/api/queue", async () => s.queue.status());

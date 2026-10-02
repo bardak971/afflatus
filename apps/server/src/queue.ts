@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type OutputFile, type WaitOptions } from "@studai/comfy";
-import { checkGraph, choicesOf, expandWildcards, parseInput, pickChoice, RANDOM_SEED, relocateFiles, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
+import { baseModels, mainModel, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
 import { cutFrames, referenceClip, frameAt, soundPart } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
@@ -40,6 +40,29 @@ interface Resume {
   sources?: Array<{ asset: string; role: string }>;
 }
 
+/** A form's values with something in every text that must be written: to load its models, what the text says does not matter. */
+function withTexts(recipe: Recipe<any>, raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const input = { ...(raw as Record<string, unknown>) };
+  for (const spec of recipe.inputs as InputSpec[]) {
+    if (spec.type === "prompt" && !spec.optional && !String(input[spec.id] ?? "").trim()) input[spec.id] = "a";
+  }
+  return input;
+}
+
+/** A file choice left on its default, when this ComfyUI does not have that file: the best one it has. */
+function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>): Record<string, unknown> {
+  const chosen: Record<string, unknown> = { ...input };
+  for (const spec of recipe.inputs as InputSpec[]) {
+    if (spec.type !== "choice" || Array.isArray(spec.options)) continue;
+    const def = catalog[spec.options.node];
+    const offered = choicesOf(def?.input.required?.[spec.options.input] ?? def?.input.optional?.[spec.options.input]) ?? [];
+    const all = [...(spec.extra ?? []), ...offered];
+    if (all.length && !all.includes(String(chosen[spec.id])) && chosen[spec.id] === spec.default) chosen[spec.id] = pickChoice(spec, all);
+  }
+  return chosen;
+}
+
 export interface QueueOptions {
   /** How long to wait before looking for ComfyUI again while it is away. */
   offlineRetryMs: number;
@@ -61,6 +84,10 @@ export class UserError extends Error {
 }
 
 const PAUSED_KEY = "queue.paused";
+/** The name of the model among them that a person knows it by, to say which one is loaded. */
+const MODEL_KEY = "queue.model";
+/** The base models the last job had ComfyUI load, kept across restarts of this app (ComfyUI keeps running through them). */
+const LOADS_KEY = "queue.loads";
 const randomSeed = () => Math.floor(Math.random() * 2 ** 32);
 
 export class Queue {
@@ -74,8 +101,16 @@ export class Queue {
   private unloadTimer: NodeJS.Timeout | null = null;
   private offlineSince: number | null = null;
   private retry: NodeJS.Timeout | null = null;
-  /** What the last job loaded. A different list frees ComfyUI's memory first; unknown after a restart. */
+  /**
+   * The base models the last job loaded (checkpoint or diffusion model, text encoders, VAE), file names
+   * joined by "|". A job that needs a base model that is not among them frees ComfyUI's memory first;
+   * another LoRA or upscaler does not. It is stored, so that a restart of this app does not have ComfyUI
+   * unload a model the next job uses again; unknown (null) only before the first job ever and after
+   * the memory was freed by hand.
+   */
   private lastLoads: string | null = null;
+  /** The name of the model that is loaded, when it is known. */
+  private lastModel: string | null = null;
   private stopped = false;
   /** The timelines, for jobs that render a clip of one (set once both exist). */
   clips: Timelines | null = null;
@@ -94,6 +129,16 @@ export class Queue {
   async start(): Promise<void> {
     const flag = await this.db.selectFrom("settings").select("value").where("key", "=", PAUSED_KEY).executeTakeFirst();
     this.paused = flag?.value === "true";
+    const loaded = await this.db.selectFrom("settings").select("value").where("key", "=", LOADS_KEY).executeTakeFirst();
+    const named = await this.db.selectFrom("settings").select("value").where("key", "=", MODEL_KEY).executeTakeFirst();
+    this.lastModel = loaded?.value ? named?.value || null : null;
+    if (loaded) this.lastLoads = loaded.value || null;
+    else {
+      // nothing noted yet (a database from before the note existed): what the last render loaded
+      const last = await this.db.selectFrom("generations").select("resolved").orderBy("created_at", "desc").limit(1).executeTakeFirst();
+      const files = last ? (JSON.parse(last.resolved) as { loads?: string[] }).loads : undefined;
+      this.lastLoads = files ? files.map(modelFileName).sort().join("|") : null;
+    }
     await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("status", "=", "running").where("resume", "is", null).execute();
     void this.pump();
   }
@@ -113,10 +158,11 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw new UserError(`there is no recipe called ${recipeId}`);
-    const input = parseInput(recipe, rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
+    // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
+    const input = parseInput(recipe, opts.warm ? withTexts(recipe, rawInput) : rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
     for (const spec of recipe.inputs as InputSpec[]) {
       if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);
@@ -127,7 +173,7 @@ export class Queue {
       .insertInto("jobs")
       .values({
         id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input),
-        status: "queued", priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
+        status: "queued", warm: opts.warm ? 1 : 0, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0,
         draft_id: opts.draft ?? null, folder_id: opts.folder ?? null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
@@ -148,7 +194,7 @@ export class Queue {
     await this.db
       .insertInto("jobs")
       .values({
-        id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", priority: 20, depends_on: null,
+        id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, priority: 20, depends_on: null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, draft_id: null, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
@@ -197,10 +243,34 @@ export class Queue {
   async freeMemory(): Promise<void> {
     if (this.running?.gpu) throw new UserError("A render is under way and its model is in use. Wait for it, or stop it first.");
     await (await this.comfy()).client.free();
-    this.lastLoads = null;
+    await this.loaded(null);
+    // every open screen says which model is loaded: they are told it no longer is
+    this.events.emit("queue");
     this.holds = false;
     if (this.unloadTimer) clearTimeout(this.unloadTimer);
     this.unloadTimer = null;
+  }
+
+  /** Note what ComfyUI was last asked to load, here and in the database. */
+  private async loaded(loads: string | null, model: string | null = null): Promise<void> {
+    if (this.lastLoads === loads && this.lastModel === model) return;
+    this.lastLoads = loads;
+    this.lastModel = model;
+    await this.db
+      .insertInto("settings")
+      .values({ key: MODEL_KEY, value: model ?? "", updated_at: now() })
+      .onConflict((oc) => oc.column("key").doUpdateSet({ value: model ?? "", updated_at: now() }))
+      .execute()
+      .catch(() => {});
+    // only a note: a database that cannot take it costs one needless unload after the next restart.
+    // Freed by hand is noted as empty, which is not the same as nothing noted.
+    const value = loads ?? "";
+    await this.db
+      .insertInto("settings")
+      .values({ key: LOADS_KEY, value, updated_at: now() })
+      .onConflict((oc) => oc.column("key").doUpdateSet({ value, updated_at: now() }))
+      .execute()
+      .catch(() => {});
   }
 
   /** After a render: when it is set in Settings, the models are unloaded once nothing has rendered for that long. */
@@ -231,7 +301,7 @@ export class Queue {
     return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
       clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit) } : undefined,
-      draft: row.draft_id, folder: row.folder_id,
+      draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm),
     });
   }
 
@@ -282,11 +352,11 @@ export class Queue {
     const usual = await this.usual();
     const brief = (r: JobRow) => {
       const recipe = this.registry.recipe(r.recipe_id);
-      return { ...plain(r), estimateMs: r.status === "queued" && recipe ? estimateMs(usual, recipe, JSON.parse(r.inputs) as Record<string, unknown>) : null };
+      return { ...plain(r), estimateMs: r.status === "queued" && recipe && !r.warm ? estimateMs(usual, recipe, JSON.parse(r.inputs) as Record<string, unknown>) : null };
     };
     const plain = (r: JobRow) => ({
       id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
-      kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : ("render" as const),
+      kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.warm ? ("load" as const) : ("render" as const),
       // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
       input: r.status === "failed" && r.recipe_id !== EXPORT_JOB ? (JSON.parse(r.inputs) as Record<string, unknown>) : null,
       createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at,
@@ -305,6 +375,8 @@ export class Queue {
     }
     return {
       paused: this.paused,
+      /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
+      model: this.lastLoads === null ? null : this.lastModel,
       online: this.offlineSince === null,
       offlineForMs: this.offlineSince ? Date.now() - this.offlineSince : 0,
       running,
@@ -462,6 +534,11 @@ export class Queue {
       } finally {
         comfy.monitor.untrack(resume.promptId);
       }
+      if (row.warm) {
+        // the models are loaded, which is all that was asked
+        await this.finish(row.id, "done");
+        return;
+      }
       const generationId = await this.store(comfy, recipe, resume.input ?? input, resume, outputs, row);
       if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {});
       await this.finish(row.id, "done", { generationId });
@@ -491,24 +568,10 @@ export class Queue {
     // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
     const plan = row.clip_id && this.clips ? await this.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit)) : null;
     const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
-    // a file choice left on its default, when this ComfyUI does not have that file: the best one it has
-    const chosen: Record<string, unknown> = { ...input };
-    for (const spec of recipe.inputs) {
-      if (spec.type !== "choice" || Array.isArray(spec.options)) continue;
-      const def = catalog[spec.options.node];
-      const offered = choicesOf(def?.input.required?.[spec.options.input] ?? def?.input.optional?.[spec.options.input]) ?? [];
-      const all = [...(spec.extra ?? []), ...offered];
-      if (all.length && !all.includes(String(chosen[spec.id])) && chosen[spec.id] === spec.default) chosen[spec.id] = pickChoice(spec, all);
-    }
+    const chosen = settled(recipe, input, catalog);
     const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
     if (missing.length) throw new Error(`ComfyUI is missing nodes this needs: ${missing.join(", ")}`);
-
-    const slots: Record<string, string> = {};
-    const scanned = (await comfy.scan()).families.find((f) => f.id === recipe.family);
-    for (const s of scanned?.slots ?? []) {
-      if (s.file) slots[s.id] = s.file;
-      else if (!s.optional) throw new Error(`a file ${this.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`);
-    }
+    const slots = await this.slots(comfy, recipe);
 
     // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
     const uploads: Record<string, string> = {};
@@ -594,12 +657,23 @@ export class Queue {
       throw new Error(`this cannot run on your ComfyUI: ${problems.slice(0, 3).join("; ")}.${fix}`);
     }
 
-    const loads = [...built.loads].sort().join("|");
-    if (this.lastLoads !== loads) await comfy.client.free().catch(() => {});
-    this.lastLoads = loads;
+    // Another base model is coming: ComfyUI's memory is cleared for it. A graph with no base model of
+    // its own (an upscale, a background removal) changes nothing: what is loaded stays, and stays noted.
+    const base = baseModels(built);
+    if (base.length) {
+      if (!this.holding(base)) await comfy.client.free().catch(() => {});
+      await this.loaded(base.join("|"), mainModel(built));
+    }
 
     comfy.monitor.ensure();
     await comfy.monitor.ready();
+    if (row.warm) {
+      const warm = warmGraph(built);
+      if (!warm) throw new Error("this loads no model: there is nothing to load ahead");
+      if (!(WARM_SINK in catalog)) throw new Error(`ComfyUI is missing the ${WARM_SINK} node, which loading a model ahead needs. Update ComfyUI.`);
+      const promptId = await comfy.client.submit(warm.graph, { preview: "latent2rgb" });
+      return { promptId, seed, outputs: [], totalSteps: 1, phases: warm.phases, passes: warm.pass ? [warm.pass] : [], clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now() };
+    }
     const promptId = await comfy.client.submit(built.graph, { preview: "latent2rgb" });
     return {
       promptId, seed, outputs: built.outputs, totalSteps: built.totalSteps, phases: built.phases, passes: built.passes,
@@ -607,6 +681,60 @@ export class Queue {
       ...(plan ? { input, links: plan.links, sources: plan.sources } : {}),
       ...(built.overlap ? { overlap: built.overlap } : {}),
     };
+  }
+
+  /** The files a family's recipes need, as this ComfyUI has them. */
+  private async slots(comfy: Comfy, recipe: Recipe<any>): Promise<Record<string, string>> {
+    const slots: Record<string, string> = {};
+    const scanned = (await comfy.scan()).families.find((f) => f.id === recipe.family);
+    for (const s of scanned?.slots ?? []) {
+      if (s.file) slots[s.id] = s.file;
+      else if (!s.optional) throw new Error(`a file ${this.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`);
+    }
+    return slots;
+  }
+
+  /** Every one of these base models is among the ones the last job loaded. */
+  private holding(base: string[]): boolean {
+    if (this.lastLoads === null) return false;
+    const held = new Set(this.lastLoads.split("|").map(modelFileName));
+    return base.every((f) => held.has(f));
+  }
+
+  /**
+   * Whether the base models a form would use are the ones ComfyUI was last asked to load. Null when it
+   * cannot be told (the form is not complete enough to build its graph, ComfyUI is away). It is what
+   * this app last asked for: a ComfyUI that was restarted since, or used from elsewhere, is not seen.
+   */
+  async isLoaded(recipeId: string, rawInput: unknown): Promise<boolean | null> {
+    try {
+      const recipe = this.registry.recipe(recipeId);
+      if (!recipe) return null;
+      const input = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
+      const comfy = await this.comfy();
+      const catalog = await comfy.catalog();
+      // nothing is uploaded: the files a render would send are stood in for, the models do not depend on them
+      const uploads: Record<string, string> = {};
+      const media: Record<string, MediaFacts> = {};
+      for (const spec of recipe.inputs as InputSpec[]) {
+        const value = input[spec.id];
+        if ((spec.type === "image" || spec.type === "audio" || spec.type === "clip") && typeof value === "string") {
+          uploads[spec.id] = "stand-in";
+          media[spec.id] = { width: 1024, height: 1024 };
+        } else if (spec.type === "references" && Array.isArray(value)) {
+          value.forEach((_, i) => {
+            uploads[`${spec.id}.${i}`] = "stand-in";
+            media[`${spec.id}.${i}`] = { width: 1024, height: 1024 };
+          });
+        }
+      }
+      const built = recipe.build(settled(recipe, input, catalog), { seed: 1, slots: await this.slots(comfy, recipe), uploads, media, has: (cls: string) => cls in catalog });
+      relocateFiles(built.graph, catalog);
+      const base = baseModels(built);
+      return base.length ? this.holding(base) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Download the results, file them in the library, and record how they were made. */

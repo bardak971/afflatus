@@ -69,8 +69,8 @@ export interface Job {
   clipId: string | null;
   /** The draft it was sent from, when it was sent from one. */
   draftId: string | null;
-  /** "export": it puts a timeline together as one video instead of rendering. */
-  kind: "render" | "export";
+  /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. */
+  kind: "render" | "export" | "load";
   /** Of a waiting job: about how long it will take, from past renders. */
   estimateMs: number | null;
   /** Of a failed job: what it was asked, so that a retry can change it. */
@@ -91,6 +91,8 @@ export interface RunningJob extends Job {
 }
 export interface QueueStatus {
   paused: boolean;
+  /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
+  model: string | null;
   online: boolean;
   offlineForMs: number;
   running: RunningJob | null;
@@ -545,6 +547,10 @@ export const api = {
   /** `into`: the draft it is sent from, and the folder that is open, where its results are filed. */
   enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string }) =>
     call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}) }),
+  /** Load the models this form would render with, ahead of the render. A job in the queue that makes nothing. */
+  warm: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ id: string }>("POST", "/jobs/warm", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
+  /** Whether the models this form would render with are the ones ComfyUI was last asked to load. Null: it cannot be told. */
+  loaded: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ loaded: boolean | null }>("POST", "/comfy/loaded", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
   entities: () => call<{ items: Entity[] }>("GET", "/entities"),
   createEntity: (kind: Entity["kind"], name: string, def?: unknown) => call<Entity>("POST", "/entities", def === undefined ? { kind, name } : { kind, name, def }),
   saveEntity: (id: string, patch: { name?: string; def?: unknown }) => call<Entity>("PUT", `/entities/${id}`, patch),

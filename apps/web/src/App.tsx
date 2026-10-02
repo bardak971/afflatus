@@ -19,6 +19,7 @@ import { TimelineEditor } from "./screens/TimelineEditor";
 import { Timelines } from "./screens/Timelines";
 import { Workflows } from "./screens/Workflows";
 import { useSystem } from "./store";
+import { StripModel, StripPlace } from "./ModelLoad";
 import { Bar, cx } from "./ui";
 
 const NAV: Array<{ href: string; label: string; icon: ReactNode }> = [
@@ -29,6 +30,9 @@ const NAV: Array<{ href: string; label: string; icon: ReactNode }> = [
   { href: "/queue", label: "Queue", icon: <ListOrdered size={18} /> },
   { href: "/settings", label: "Settings", icon: <Settings2 size={18} /> },
 ];
+
+/** A number of the strip in the room of three digits. */
+const pad = (n: number) => String(Math.round(n)).padStart(3, " ");
 
 /** The strip at the bottom of every screen: what is rendering, and how the GPU is doing. */
 function Strip() {
@@ -52,6 +56,7 @@ function Strip() {
           {queue.data?.online === false ? "ComfyUI is not answering" : queue.data?.paused ? "The queue is paused" : "Nothing rendering"}
         </span>
       )}
+      {queue.data && queue.data.waiting.length > 0 && <span className="shrink-0 text-ink-2">{queue.data.waiting.length} waiting</span>}
       <span className="grow" />
       {fetching.length > 0 && (
         <Link href="/settings" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being fetched into ComfyUI. It goes on if this page is closed. Open Settings to see it or stop it.">
@@ -59,13 +64,15 @@ function Strip() {
           {fetching.length === 1 && fetching[0]!.total > 0 && ` · ${Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100)}%`}
         </Link>
       )}
+      <StripPlace />
+      <StripModel />
       {gpu && (
-        <span className="font-mono text-ink-2">
-          {gpu.load !== undefined && `GPU ${Math.round(gpu.load)}% · `}memory {Math.round(gpu.vramPercent)}%
+        // every number keeps the room of three digits: what is beside it does not move when they change
+        <span className="shrink-0 font-mono whitespace-pre text-ink-2">
+          {gpu.load !== undefined && `GPU ${pad(gpu.load)}% · `}memory {pad(gpu.vramPercent)}%
           {gpu.temperature !== undefined && <> · <span className={cx(gpu.temperature >= 80 && "text-warn-ink")}>{Math.round(gpu.temperature)}°</span></>}
         </span>
       )}
-      {queue.data && queue.data.waiting.length > 0 && <span className="text-ink-2">{queue.data.waiting.length} waiting</span>}
       <button type="button" title="Every key the app answers to" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Keys <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
       <Link href="/queue" className="inline-flex h-7 items-center rounded-md border border-line-strong px-2.5 font-semibold">Open the queue</Link>
     </footer>

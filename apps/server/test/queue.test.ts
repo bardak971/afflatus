@@ -64,6 +64,49 @@ describe("a job from start to finish", () => {
     expect(frees()).toBe(2);
   });
 
+  it("remembers what is loaded across a restart: the same model is not unloaded for the first render after it", async () => {
+    const frees = () => fake.calls.filter((c) => c === "POST /free").length;
+    const run = async (app: TestApp, over: Record<string, unknown>) => {
+      const id = (await post(app.app, "/api/jobs", job(over))).json().ids[0] as string;
+      const n = submitted().length;
+      await until(() => submitted().length === n + 1);
+      complete(fake, submitted().at(-1)!);
+      await until(async () => (await statusOf(id)).status === "done");
+    };
+    await run(t, {});
+    expect(frees()).toBe(1);
+    t.services.queue.stop();
+    await t.services.queue.idle();
+
+    const again = await makeApp({ db: t.db, dir: t.dir, comfyUrl: fake.url });
+    await again.services.queue.start();
+    await run(again, { prompt: "a dog" });
+    expect(frees()).toBe(1); // the same checkpoint: ComfyUI still has it
+    await run(again, { checkpoint: "other.safetensors" });
+    expect(frees()).toBe(2);
+    // freed by hand: nothing is known to be loaded any more, also after the next restart
+    await post(again.app, "/api/comfy/free");
+    expect(frees()).toBe(3);
+    again.services.queue.stop();
+    await again.services.queue.idle();
+
+    const third = await makeApp({ db: t.db, dir: t.dir, comfyUrl: fake.url });
+    await third.services.queue.start();
+    await run(third, { checkpoint: "other.safetensors" });
+    expect(frees()).toBe(4);
+    third.services.queue.stop();
+    await third.services.queue.idle();
+
+    // a database from before the note existed: what the last render loaded stands for it
+    await t.db.deleteFrom("settings").where("key", "=", "queue.loads").execute();
+    const fourth = await makeApp({ db: t.db, dir: t.dir, comfyUrl: fake.url });
+    await fourth.services.queue.start();
+    await run(fourth, { checkpoint: "other.safetensors", prompt: "a dog" });
+    expect(frees()).toBe(4);
+    fourth.services.queue.stop();
+    await fourth.services.queue.idle();
+  });
+
   it("frees ComfyUI's memory when asked, but not under a render; and by itself after a while without one, when Settings asks for it", async () => {
     const frees = () => fake.calls.filter((c) => c === "POST /free").length;
     const id = await enqueue({});

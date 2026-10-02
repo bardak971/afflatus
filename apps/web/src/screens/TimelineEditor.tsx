@@ -104,6 +104,21 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** The timeline as it is on screen: with what was typed and is not saved yet. */
   const shown = useMemo(() => (t ? { ...t, clips: clips.map((c) => (edits[c.id] ? { ...c, inputs: edits[c.id]! } : c)) } : undefined), [t, clips, edits]);
 
+  /** The whole form of a clip as a render would send it, whether it is ready to render or not (its models are told from it). */
+  const formOf = useCallback(
+    (c: Clip): Record<string, unknown> | null => {
+      const recipe = c.kind === "still" ? undefined : recipes.data?.recipes.find((r) => r.id === c.recipe);
+      if (!recipe) return null;
+      const status = setup.data?.recipes.find((r) => r.id === recipe.id);
+      if (setup.isSuccess && notReady(status, comfyOnline)) return null;
+      const stored = inputsOf(c);
+      const input: Record<string, unknown> = { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored };
+      for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
+      return input;
+    },
+    [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data],
+  );
+
   /** The whole form of a clip as it would be sent, or why it cannot be rendered yet. */
   const ready = useCallback(
     (c: Clip): { input?: Record<string, unknown>; why?: string } => {
@@ -407,6 +422,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             index={clips.indexOf(current)}
             recipes={videoRecipes}
             stored={inputsOf(current)}
+            whole={formOf(current)}
             why={why}
             takes={aboutMs(takes(current))}
             running={running?.clipId === current.id ? running : null}

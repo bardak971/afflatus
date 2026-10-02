@@ -68,6 +68,8 @@ export interface Tables {
     label: string;
     inputs: string;
     status: "queued" | "running" | "done" | "failed" | "cancelled";
+    /** 1: it only loads the models its render would use, and makes nothing. */
+    warm: number;
     priority: number;
     /** A job that waits for another one (a clip that continues the clip before it). */
     depends_on: string | null;
@@ -553,6 +555,16 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0018_job_warm"] = {
+  async up(db) {
+    // a job that only loads the models of a render, and makes nothing
+    await db.schema.alterTable("jobs").addColumn("warm", "integer", (c) => c.notNull().defaultTo(0)).execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("jobs").dropColumn("warm").execute();
   },
 };
 

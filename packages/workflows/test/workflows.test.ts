@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkGraph, dryContext, parseInput, schemaFor, type Graph, type NodeCatalog } from "@studai/core";
+import { baseModels, checkGraph, dryContext, parseInput, schemaFor, warmGraph, type Graph, type NodeCatalog } from "@studai/core";
 import { factorOfUpscaler, inspect, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
 import { catalog, flux, panel, sdxl, wan } from "./fixtures";
 
@@ -458,5 +458,45 @@ describe("a workflow with previews on the way that is not hires fix", () => {
     const first = recipe.build(parseInput(recipe, { stage: "Base pass only" }), dryContext());
     expect(first.outputs[0]!.node).toBe("10");
     expect(recipe.inputs.find((i) => i.id === "ctl_31_steps")?.showWhen).toEqual({ input: "stage", in: ["Full workflow"] });
+  });
+});
+
+describe("loading the models of an imported workflow ahead of the render", () => {
+  const warmOf = (graph: Graph, title: string, model: string, uploads: Record<string, string> = {}) => {
+    const r = recipeFromWorkflow(defOf(graph, title, model));
+    const input = Object.fromEntries(Object.keys(uploads).map((id) => [id, "asset"]));
+    const built = r.build(parseInput(r, input), dryContext({ uploads }));
+    return { built, warm: warmGraph(built)! };
+  };
+  const stepsLeft = (graph: Graph) => Object.values(graph).flatMap((n) => (typeof n.inputs.steps === "number" ? [n.inputs.steps] : []));
+
+  it("cuts the default picture workflow after one step of its sampler", () => {
+    const { built, warm } = warmOf(sdxl, "Default", "SDXL");
+    expect(warm.pass).toMatchObject({ steps: 1 });
+    expect(stepsLeft(warm.graph)).toEqual([1]);
+    const classes = Object.values(warm.graph).map((n) => n.class_type);
+    expect(classes).toContain("PreviewAny");
+    expect(classes).not.toContain("VAEDecode");
+    expect(classes).not.toContain("SaveImage");
+    expect(checkGraph({ ...built, graph: warm.graph, outputs: [] }, catalog)).toEqual([]);
+    expect(baseModels(built)).toHaveLength(1);
+  });
+
+  it("finds the sampler of a workflow whose steps sit on a scheduler", () => {
+    const { built, warm } = warmOf(flux, "Flux picture", "FLUX");
+    expect(warm.pass).toMatchObject({ steps: 1 });
+    expect(stepsLeft(warm.graph)).toEqual([1]);
+    const sink = Object.values(warm.graph).find((n) => n.class_type === "PreviewAny")!;
+    expect(warm.graph[(sink.inputs.source as [string, number])[0]]!.class_type).toMatch(/Sampler/);
+    expect(checkGraph({ ...built, graph: warm.graph, outputs: [] }, catalog)).toEqual([]);
+    // its diffusion model, text encoders and VAE: more than one file, none of them a LoRA
+    expect(baseModels(built).length).toBeGreaterThan(1);
+  });
+
+  it("stops a video workflow with two models at the first of them", () => {
+    const { built, warm } = warmOf(wan, "Wan video", "Wan 2.2", { startImage: "a.png" });
+    expect(warm.pass).toMatchObject({ steps: 1 });
+    expect(Object.values(warm.graph).filter((n) => /KSampler/.test(n.class_type))).toHaveLength(1);
+    expect(checkGraph({ ...built, graph: warm.graph, outputs: [] }, catalog, { uploaded: ["a.png"] })).toEqual([]);
   });
 });

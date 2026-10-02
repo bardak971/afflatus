@@ -6,6 +6,7 @@ import { useEntities, useRecipes, useSetup } from "../data";
 import { WritingHelp } from "../Designer";
 import { appendTo } from "../promptText";
 import { LookBar, lookWords } from "../LookBar";
+import { FormModel } from "../ModelLoad";
 import { about, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
@@ -62,13 +63,15 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 }
 
 /** The selected clip: how it starts, its takes, its sound, its pictures and its form. */
-export function Inspector({ timeline, clip, index, recipes, stored, why, takes, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takes, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
   recipes: RecipeInfo[];
   /** The clip's form: what was touched. */
   stored: Record<string, unknown>;
+  /** The clip's whole form as a render would send it, written or not: what its models are told from. */
+  whole: Record<string, unknown> | null;
   /** Why it cannot be rendered right now, in a sentence. */
   why: string | null;
   /** About how long a render of it takes, in words ("about 40 s"); empty when nothing like it was rendered yet. */
@@ -400,6 +403,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, why, takes, 
           {error && <ErrorNote>{error}</ErrorNote>}
           {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href="/settings" className="font-semibold underline">Open Settings</Link> : null}</div>}
           {canFit && <Toggle on={fit} onChange={setFit} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />}
+          {whole && !clip.job && <FormModel recipe={recipe} input={whole} look={clip.look ?? timeline.look} />}
           {clip.job ? (
             <div className="flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between">
