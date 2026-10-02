@@ -1,3 +1,4 @@
+import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import type { Recipe } from "@studai/core";
@@ -506,7 +507,7 @@ export class Timelines {
     if (keys.length && keys.every((k) => k === "chat" || k === "designer")) {
       // what was said to the designer, and with which language model, is not a change to the timeline: nothing to undo, nothing to redraw
       await this.db.updateTable("clips").set({
-        ...(patch.chat !== undefined ? { chat: patch.chat.length ? JSON.stringify(patch.chat).slice(0, 256 * 1024) : null } : {}),
+        ...(patch.chat !== undefined ? { chat: chatJson(patch.chat) } : {}),
         ...(patch.designer !== undefined ? { designer: patch.designer ? JSON.stringify(patch.designer) : null } : {}),
       }).where("id", "=", id).execute();
       return;
@@ -708,7 +709,7 @@ export class Timelines {
       .values({
         id, owner_id: OWNER, kind: "image", origin: "frame", name: video.name ? `${video.name}, a frame` : "", file_key: key,
         thumb_key: thumb ? thumbKey(id) : null, mime: "image/png", bytes: bytes.length, width: size?.width ?? video.width, height: size?.height ?? video.height,
-        duration_ms: null, fps: null, has_sound: 0, folder_id: video.folder_id, generation_id: null, kept_at: at, deleted_at: null, created_at: at,
+        duration_ms: null, fps: null, has_sound: 0, folder_id: video.folder_id, generation_id: null, source_id: video.id, kept_at: at, deleted_at: null, created_at: at,
       })
       .execute();
     this.events.emit("library");

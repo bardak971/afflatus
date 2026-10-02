@@ -1,3 +1,4 @@
+import { chatJson } from "./designer";
 import type { Recipe } from "@studai/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -102,7 +103,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     const next = {
       recipe_id: recipe, forms: json, count: body.count ?? current.count, title: titleOf(s.registry.recipe(recipe), all), updated_at: now(),
       ...(body.look !== undefined ? { look: body.look ? JSON.stringify(body.look) : null } : {}),
-      ...(body.chat !== undefined ? { chat: body.chat.length ? JSON.stringify(body.chat).slice(0, MAX_BYTES) : null } : {}),
+      ...(body.chat !== undefined ? { chat: chatJson(body.chat, MAX_BYTES) } : {}),
       ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),
       ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),
     };

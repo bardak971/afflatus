@@ -2,7 +2,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
-import { CHECKPOINT, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { chatJson } from "../src/designer";
+import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** A stand-in for a language model's address: it answers what the test tells it to, and keeps what it was asked. */
 interface FakeLlm {
@@ -190,6 +191,27 @@ describe("a conversation's own language model and instructions", () => {
   });
 });
 
+describe("a long conversation", () => {
+  it("loses its oldest exchanges when it outgrows its room, and can always be read back", async () => {
+    const turn = (i: number) => [{ role: "user", content: `ask ${i}` }, { role: "assistant", content: "x".repeat(900), reply: { kind: "proposal", note: "ok", changes: { prompt: "y".repeat(900) } } }];
+    const chat = Array.from({ length: 12 }, (_x, i) => turn(i)).flat();
+    const stored = chatJson(chat, 8000)!;
+    expect(stored.length).toBeLessThanOrEqual(8000);
+    const kept = JSON.parse(stored) as Array<{ role: string; content: string }>;
+    // whole exchanges, the latest ones, starting with what the user said
+    expect(kept[0]).toMatchObject({ role: "user" });
+    expect(kept.at(-2)).toEqual({ role: "user", content: "ask 11" });
+    expect(kept.length % 2).toBe(0);
+    expect(chatJson([], 8000)).toBeNull();
+    expect(JSON.parse(chatJson(chat)!)).toHaveLength(24);
+
+    // kept with a draft through the API all the same
+    const draft = (await post(t.app, "/api/drafts", { recipe: "sdxl.text-to-picture" })).json();
+    await put(`/api/drafts/${draft.id}`, { chat });
+    expect((await get(t.app, `/api/drafts/${draft.id}`)).json().chat).toHaveLength(24);
+  });
+});
+
 describe("a fresh start", () => {
   it("forgets every conversation, in drafts and on timelines, and leaves the forms alone", async () => {
     const turns = [{ role: "user", content: "a terrace" }, { role: "assistant", content: "ok" }];
@@ -248,10 +270,82 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     expect(ask).toMatchObject({ kind: "question", question: "Indoors or outdoors?", options: ["indoors", "outdoors"], changes: {} });
     expect(system()).toContain("Nothing is written yet");
 
+    // plain sentences without the labels are an answer, not an error
     llm.answers.push("I cannot help with that.");
+    const plain = (await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "x" }, messages: [{ role: "user", content: "hm" }] })).json();
+    expect(plain).toMatchObject({ kind: "answer", note: "I cannot help with that.", changes: {} });
+    // nothing at all is still an error
+    llm.answers.push("   ");
     const none = await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "x" }, messages: [{ role: "user", content: "hm" }] });
     expect(none.statusCode).toBe(400);
     expect(none.json().error).toMatch(/nothing usable/);
+  });
+
+  it("answers when it is only asked something, with ideas to pick from, and changes nothing", async () => {
+    await useLlm();
+    llm.answers.push("kind: answer\nnote: Yes: a woman on a terrace, tagged as 1girl. She could hold a cup, or lean on the railing.\noptions: she holds a cup | she leans on the railing");
+    const reply = (await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "1girl, terrace" }, messages: [{ role: "user", content: "do you see the prompt? any ideas?" }] })).json();
+    expect(reply).toMatchObject({ kind: "answer", changes: {}, options: ["she holds a cup", "she leans on the railing"] });
+    expect(reply.note).toContain("a woman on a terrace");
+    expect(reply.empty).toBeUndefined();
+    // one question, one call: an answer is not asked for again
+    expect(llm.asked).toHaveLength(1);
+    expect(system()).toContain("THIS IS A CONVERSATION");
+    expect(system()).toContain("never say you changed, wrote or printed something without its text being there");
+    // the text comes before the note in what it is asked to send
+    expect(system().indexOf("\nprompt: the WHOLE new text")).toBeLessThan(system().indexOf("\nnote: one or two short sentences"));
+  });
+
+  it("is asked again when it says it changed the prompt and sent no text, and is not believed when it does it twice", async () => {
+    await useLlm();
+    const ask = { recipe: "sdxl.text-to-picture", values: { prompt: "1girl, terrace" }, messages: [{ role: "user", content: "make her smile" }] };
+    // the first reply claims a change with nothing behind it; told so, it sends the text
+    llm.answers.push("kind: proposal\nnote: I made her smile.", "kind: proposal\nprompt: 1girl, terrace, smile\nnote: She smiles now.");
+    const fixed = (await post(t.app, "/api/designer", ask)).json();
+    expect(fixed).toMatchObject({ kind: "proposal", changes: { prompt: "1girl, terrace, smile" }, note: "She smiles now.", retried: true });
+    expect(llm.asked).toHaveLength(2);
+    const second = llm.asked[1]!.messages;
+    expect(second.at(-2)).toEqual({ role: "assistant", content: "kind: proposal\nnote: I made her smile." });
+    expect(String(second.at(-1)!.content)).toContain("Your reply carried no new text");
+
+    // the same text as what is written is no change either
+    llm.answers.push("kind: proposal\nnote: Done.\nprompt: 1girl, terrace", "kind: proposal\nnote: Here is the full updated prompt.");
+    const twice = (await post(t.app, "/api/designer", ask)).json();
+    expect(twice).toMatchObject({ kind: "answer", empty: true, changes: {}, note: "Here is the full updated prompt." });
+    expect(twice.raw).toContain("note: Done.");
+    expect(llm.asked).toHaveLength(4);
+
+    // asked again, it says plainly that it will not: that is an answer, and nothing is hidden
+    llm.answers.push("kind: proposal\nnote: I updated it.", "kind: answer\nnote: I will not write that.");
+    const refused = (await post(t.app, "/api/designer", ask)).json();
+    expect(refused).toMatchObject({ kind: "answer", note: "I will not write that.", retried: true });
+    expect(refused.empty).toBeUndefined();
+  });
+
+  it("is asked again when it sends a fragment in place of the whole text, and the fragment is flagged when it insists", async () => {
+    await useLlm();
+    const long = `${"She walks along the terrace at sunset, the low light warm on her face, her linen dress moving in the wind. ".repeat(4)}She says: hello.`;
+    const whole = long.replace("hello", "what a view");
+    const ask = (words: string) => ({ recipe: "h3.video", values: { description: long }, messages: [{ role: "user", content: words }] });
+    // only the changed line comes back: using it would wipe the rest
+    llm.answers.push("kind: proposal\ndescription: She says: what a view.\nnote: New line.", `kind: proposal\ndescription: ${whole}\nnote: New line, in the whole text.`);
+    const fixed = (await post(t.app, "/api/designer", ask("change what she says"))).json();
+    expect(fixed).toMatchObject({ kind: "proposal", changes: { description: whole }, retried: true });
+    expect(fixed.short).toBeUndefined();
+    expect(String(llm.asked[1]!.messages.at(-1)!.content)).toContain("reads as a fragment");
+
+    // it insists: the short text is kept, flagged with the two lengths
+    llm.answers.push("kind: proposal\ndescription: She says: what a view.\nnote: New line.", "kind: proposal\ndescription: She says: what a view.\nnote: New line.");
+    const short = (await post(t.app, "/api/designer", ask("change what she says"))).json();
+    expect(short.changes).toEqual({ description: "She says: what a view." });
+    expect(short.short).toEqual({ description: { was: long.length, now: "She says: what a view.".length } });
+
+    // a shorter text that was asked for is not a fragment
+    const before = llm.asked.length;
+    llm.answers.push("kind: proposal\ndescription: She walks along the terrace and says hello.\nnote: Shorter.");
+    const wanted = (await post(t.app, "/api/designer", ask("Shorter"))).json();
+    expect(wanted.short).toBeUndefined();
+    expect(llm.asked).toHaveLength(before + 1);
   });
 
   it("is shown the opening picture when the language model can read pictures, and told not to invent the scene when it cannot", async () => {
@@ -272,6 +366,33 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     expect(last[1]!.image_url!.url).toMatch(/^data:image\/(webp|png);base64,/);
   });
 
+  it("knows the prompt a picture was made from, when the clip opens on a picture studai made", async () => {
+    await useLlm();
+    // a picture made here, from a prompt of tags
+    const job = (await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "1girl, red dress, terrace at sunset, holding a cup", checkpoint: CHECKPOINT } })).json().ids[0] as string;
+    await until(() => fake.prompts.size === 1);
+    complete(fake, [...fake.prompts.keys()][0]!);
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", job).executeTakeFirstOrThrow()).status === "done");
+    const picture = (await get(t.app, "/api/assets")).json().items[0].id as string;
+
+    // a video that opens on it: the designer is told what the picture was made from
+    llm.answers.push("kind: proposal\ndescription: The woman in the red dress lifts her cup and smiles.\nnote: ok");
+    await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "", start: picture }, messages: [{ role: "user", content: "she drinks" }] });
+    const s1 = system();
+    expect(s1).toContain("The picture that is the first frame was made here, in one step:\n1. txt2img with SDXL: 1girl, red dress, terrace at sunset, holding a cup");
+    expect(s1).toContain("1girl, red dress, terrace at sunset, holding a cup");
+    expect(s1).toContain("what you know of it is the prompt it was made from");
+    expect(s1).not.toContain("Never invent a place, props, light");
+
+    // a picture that came from elsewhere says nothing: the designer is told not to invent
+    const mine = (await t.app.inject({ method: "POST", url: "/api/assets?name=mine.png", headers: { "content-type": "image/png" }, payload: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64") })).json();
+    expect(mine.id).toBeTruthy();
+    llm.answers.push("kind: proposal\ndescription: She turns her head.\nnote: ok");
+    await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "", start: mine.id }, messages: [{ role: "user", content: "she turns" }] });
+    expect(system()).not.toContain("was made here");
+    expect(system()).toContain("Never invent a place, props, light");
+  });
+
   it("knows who is in it and does not repeat their words", async () => {
     await useLlm();
     const her = (await post(t.app, "/api/entities", { kind: "person", name: "Her", def: { sentence: "She has brown hair and green eyes.", tags: "brown hair, green eyes" } })).json();
@@ -279,6 +400,88 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "" }, messages: [{ role: "user", content: "she waves" }], look: { cast: [{ id: her.id }], style: null } });
     expect(system()).toContain("- Her: She has brown hair and green eyes.");
     expect(system()).toContain("never repeat or contradict them");
+  });
+});
+
+describe("what the designer knows of what studai made", () => {
+  /** Rows as the queue would have left them: a render, and what came out of it. */
+  let n = 0;
+  const at = () => new Date(Date.UTC(2026, 0, 1, 0, 0, n++)).toISOString();
+  const render = async (recipe: string, family: string, inputs: Record<string, unknown>, opts: { from?: Array<{ asset: string; role: string }>; look?: unknown; kind?: "image" | "video" } = {}) => {
+    const g = `g${n}`;
+    const a = `a${n}`;
+    await t.db.insertInto("generations").values({ id: g, owner_id: "owner", recipe_id: recipe, recipe_version: 1, family, inputs: JSON.stringify(inputs), resolved: JSON.stringify({ seed: 1, loads: [], ...(opts.look ? { look: opts.look } : {}) }), gen_ms: 1000, draft_id: null, created_at: at() }).execute();
+    for (const f of opts.from ?? []) await t.db.insertInto("generation_inputs").values({ generation_id: g, asset_id: f.asset, role: f.role }).execute();
+    await item(a, opts.kind ?? "image", { generation_id: g });
+    return a;
+  };
+  const item = async (id: string, kind: "image" | "video", over: { generation_id?: string; source_id?: string; origin?: "generated" | "uploaded" | "frame" } = {}) => {
+    await t.db.insertInto("assets").values({
+      id, owner_id: "owner", kind, origin: over.origin ?? "generated", name: "", file_key: `assets/${id}`, thumb_key: null, mime: kind === "image" ? "image/png" : "video/mp4", bytes: 1,
+      width: 832, height: 1216, duration_ms: kind === "video" ? 5000 : null, fps: kind === "video" ? 24 : null, has_sound: 0, folder_id: null,
+      generation_id: over.generation_id ?? null, source_id: over.source_id ?? null, kept_at: at(), deleted_at: null, created_at: at(),
+    }).execute();
+    return id;
+  };
+  const knows = async (values: Record<string, unknown>, recipe = "h3.video") => (await post(t.app, "/api/designer/knows", { recipe, values })).json();
+
+  it("follows a picture back through its upscale and its edit to the prompt it started as, with the LoRAs that shaped it", async () => {
+    await useLlm();
+    await t.db.insertInto("model_words").values({ folder: "loras", name: "inkstyle.safetensors", own: "ink wash, sumi-e", found: null, asked_at: null }).execute();
+    const first = await render("sdxl.text-to-picture", "sdxl", { prompt: "1girl, red dress, terrace at sunset", checkpoint: CHECKPOINT, loras: [{ file: "Style\\inkstyle.safetensors", weight: 0.8 }, { file: "off.safetensors", weight: 0 }] });
+    // a reference picture of someone is not what the result "was": the trail does not go that way
+    await item("someone", "image", { origin: "uploaded" });
+    const edited = await render("klein.edit", "klein", { source: first, prompt: "Make the dress blue." }, { from: [{ asset: first, role: "source" }, { asset: "someone", role: "person" }] });
+    const large = await render("sdxl.sharper", "sdxl", { source: edited, prompt: "", upscaler: "u.pth", checkpoint: CHECKPOINT }, { from: [{ asset: edited, role: "source" }] });
+
+    expect(await knows({ start: large })).toEqual({
+      continues: false,
+      pictures: [{ what: "The picture that is the first frame", steps: [{ title: "txt2img", with: "SDXL", said: true }, { title: "Edit (instruction)", with: "FLUX.2 Klein", said: true }, { title: "Upscale 2x", with: "SDXL", said: false }] }],
+    });
+
+    llm.answers.push("kind: proposal\ndescription: The woman in the blue dress turns to the sea.\nnote: ok");
+    await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "", start: large }, messages: [{ role: "user", content: "she turns" }] });
+    const told = system();
+    expect(told).toContain("The picture that is the first frame was made here, in 3 steps, the oldest first:");
+    expect(told).toContain("1. txt2img with SDXL: 1girl, red dress, terrace at sunset\n   LoRAs on it: inkstyle (its words: ink wash, sumi-e)");
+    expect(told).toContain("2. Edit (instruction) with FLUX.2 Klein: Make the dress blue.");
+    expect(told).toContain("3. Upscale 2x with SDXL (no text of its own");
+    expect(told).toContain("a later step that changes something wins over an earlier one");
+    expect(told).toContain("is NOT in use now");
+    // a LoRA at weight 0 was not on it
+    expect(told).not.toContain("off (");
+  });
+
+  it("knows a frame saved from a video by that video's story, and the clip a new one carries on from", async () => {
+    await useLlm();
+    const picture = await render("sdxl.text-to-picture", "sdxl", { prompt: "1girl, terrace", checkpoint: CHECKPOINT });
+    const clip = await render("h3.video", "h3", { description: "She walks to the railing and says hello.", start: picture }, { from: [{ asset: picture, role: "start" }], kind: "video" });
+    const frame = await item("frame1", "image", { source_id: clip, origin: "frame" });
+
+    // a new clip that opens on the saved frame
+    const opens = await knows({ start: frame });
+    expect(opens.pictures[0].steps.map((x: { title: string }) => x.title)).toEqual(["txt2img", "Video with sound"]);
+    // a new clip that carries on from the video itself, as "Continue this clip" sets it up in Studio
+    expect(await knows({ previous: { asset: clip } })).toEqual({ pictures: [], continues: true });
+    llm.answers.push("kind: proposal\ndescription: She leans on the railing.\nnote: ok");
+    await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "", previous: { asset: clip } }, messages: [{ role: "user", content: "what next" }] });
+    expect(system()).toContain("CONTINUES the clip before it");
+    expect(system()).toContain("She walks to the railing and says hello.");
+
+    // something studai did not make has no story
+    const mine = await item("mine1", "image", { origin: "uploaded" });
+    expect(await knows({ start: mine })).toEqual({ pictures: [], continues: false });
+  });
+
+  it("hands the cast of a picture on to what is made from it, through an upscale too", async () => {
+    const her = (await post(t.app, "/api/entities", { kind: "person", name: "Her" })).json();
+    const look = { cast: [{ id: her.id }], style: null, snippets: [] };
+    const picture = await render("sdxl.text-to-picture", "sdxl", { prompt: "1girl", checkpoint: CHECKPOINT }, { look });
+    const large = await render("sdxl.sharper", "sdxl", { source: picture, upscaler: "u.pth", checkpoint: CHECKPOINT }, { from: [{ asset: picture, role: "source" }] });
+    expect((await get(t.app, `/api/assets/${picture}`)).json().look).toMatchObject({ cast: [{ id: her.id }] });
+    expect((await get(t.app, `/api/assets/${large}`)).json().look).toMatchObject({ cast: [{ id: her.id }] });
+    const alone = await render("sdxl.text-to-picture", "sdxl", { prompt: "a cup", checkpoint: CHECKPOINT });
+    expect((await get(t.app, `/api/assets/${alone}`)).json().look).toBeNull();
   });
 });
 

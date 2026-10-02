@@ -86,6 +86,9 @@ const fake = await startFakeComfy({
 /**
  * A pretend language model for the designer: it answers in the designer's format with what it was told,
  * dressed up a little, so that the conversation can be tried without a real model. It writes nothing clever.
+ * To see how the designer copes with a model that misbehaves: a message with a question mark is answered
+ * and nothing is changed; "claim" has it say it changed the text and send none; "fragment" has it send one
+ * line in place of the whole text.
  */
 const pretendLlm = createServer(async (req, res) => {
   const chunks: Buffer[] = [];
@@ -102,7 +105,13 @@ const pretendLlm = createServer(async (req, res) => {
     ? `kind: plan\nnote: (pretend designer) ${clips} clips from your idea.\n${Array.from({ length: clips }, (_x, i) => `CLIP ${i + 1}\n${main}: Part ${i + 1} of ${clips}: ${said}`).join("\n")}`
     : /^ready|single word/i.test(said)
       ? "ready"
-      : `kind: proposal\nnote: (pretend designer) I worked "${said}" into it.\n${main}: ${now && now !== "(empty)" ? `${now} ` : ""}${said.replace(/\.?$/, ".")}\noptions: even more | shorter | another angle`;
+      : /\bclaim\b/i.test(said) || /carried no new text/.test(said)
+        ? "kind: proposal\nnote: (pretend designer) I rewrote the whole prompt as you asked."
+        : /\bfragment\b/i.test(said) || /reads as a fragment/.test(said)
+          ? `kind: proposal\n${main}: Only this line.\nnote: (pretend designer) I changed one line.`
+          : /\?\s*$/.test(said)
+            ? `kind: answer\nnote: (pretend designer) Yes. What is written now is ${now && now !== "(empty)" ? `"${now.slice(0, 80)}"` : "nothing yet"}. Here are three ways it could go.\noptions: make it warmer | add a second person | change the place`
+            : `kind: proposal\n${main}: ${now && now !== "(empty)" ? `${now} ` : ""}${said.replace(/\.?$/, ".")}\nnote: (pretend designer) I worked "${said}" into it.\noptions: even more | shorter | another angle`;
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ choices: [{ message: { content: text } }] }));
 });

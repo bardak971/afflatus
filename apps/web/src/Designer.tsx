@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, RotateCcw, Send, Sparkles, WandSparkles, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, Undo2, WandSparkles, X } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
 import { useEntities, useSettings } from "./data";
+import { changedShare, wordDiff } from "./diff";
 import { Select } from "./Select";
 import { mainTextOf } from "./RecipeForm";
 import { Snippets, TickedSnippets } from "./Snippets";
@@ -16,6 +17,8 @@ export interface DesignerTurn {
   reply?: DesignerReply;
   /** The proposal was put in the form. */
   used?: boolean;
+  /** What the parts it changes held when it was proposed: to show what changed, and to put back. */
+  was?: Record<string, string>;
 }
 
 /** What the designer said, as text again: the language model is shown its own earlier answers. */
@@ -24,8 +27,9 @@ const asText = (r: DesignerReply) =>
 
 /**
  * The designer: a conversation that writes and improves what the form's text boxes hold. It opens on
- * demand, over the right side of the screen. What it proposes is shown whole and goes in the form only
- * when "Use it" is pressed.
+ * demand, over the right side of the screen. It can be asked something and just answer; what it
+ * proposes is shown with what changed marked, and goes in the form only when "Use it" is pressed.
+ * A reply that claims a change and carries no text, or only a fragment, is said to be so.
  */
 export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose, side = "right" }: {
   recipe: RecipeInfo;
@@ -54,8 +58,9 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   const boxes = recipe.inputs.filter((i) => i.type === "prompt");
   const ready = Boolean(settings.data?.llm.baseUrl && settings.data.llm.model);
   const say = useMutation({
-    mutationFn: async (v: { words: string; mode: "chat" | "enhance" }) => {
-      const mine: DesignerTurn[] = [...turns, { role: "user", content: v.words }];
+    mutationFn: async (v: { words: string; mode: "chat" | "enhance"; from?: DesignerTurn[] }) => {
+      // `from`: the conversation as it was before a reply that is asked for again
+      const mine: DesignerTurn[] = [...(v.from ?? turns), { role: "user", content: v.words }];
       onTurns(mine);
       // a conversation keeps what it was started with, whatever is picked elsewhere afterwards
       if (!session) onSession(using);
@@ -64,7 +69,9 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
         // the server keeps as much of it as the language model can read
         messages: mine.slice(-40).map((t) => ({ role: t.role, content: (t.reply ? asText(t.reply) : t.content).slice(0, 8000) })),
       });
-      onTurns([...mine, { role: "assistant", content: reply.note, reply }]);
+      // what the parts it changes hold now is kept with the proposal: what changed is shown against it
+      const was = Object.fromEntries(Object.keys(reply.changes).map((id) => [id, typeof values[id] === "string" ? (values[id] as string) : ""]));
+      onTurns([...mine, { role: "assistant", content: reply.note, reply, ...(Object.keys(was).length ? { was } : {}) }]);
     },
   });
   // in braces: a browser may hand back a promise from a scroll, and an effect must not return one
@@ -131,6 +138,23 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   };
   const last = [...turns].reverse().find((t) => t.role === "assistant")?.reply;
   const sees = last?.sawPicture;
+  // What it knows of the pictures and the clip the form holds, from how studai made them: asked for
+  // when those change, not as the texts are typed.
+  const media = JSON.stringify(recipe.inputs.filter((i) => i.type === "image" || i.type === "clip").map((i) => [i.id, values[i.id] ?? null]));
+  const knows = useQuery({
+    queryKey: ["designer-knows", recipe.id, media],
+    queryFn: () => api.designerKnows(recipe.id, Object.fromEntries(JSON.parse(media) as Array<[string, unknown]>)),
+    enabled: ready,
+    staleTime: 60_000,
+  });
+  const video = recipe.output === "video";
+  /** Ways to start that use what it knows: a first version from the picture's own story, or ideas to pick from. */
+  const starts = [
+    ...(knows.data?.continues ? ["Carry the scene on from where the clip before ends", "Suggest three things that could happen next"] : []),
+    ...(knows.data?.pictures.length && !knows.data.continues
+      ? video ? ["Animate what the picture shows", "Suggest three things that could happen in it"] : ["Write it from what the picture shows", "Suggest three ways to change it"]
+      : []),
+  ];
 
   return (
     <div ref={panel} role="dialog" aria-label="Designer" style={floor !== null ? { bottom: floor } : undefined} className={cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}>
@@ -182,43 +206,40 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
         )}
         {!turns.length && ready && (
           <div className="text-ink-2">
-            Say what you want in your own words: "a woman has coffee on a terrace at sunset", "make the light warmer", "longer and more detailed". The designer writes it the way {recipe.title.toLowerCase().includes("video") ? "this video model" : "this model"} reads best. Nothing changes in your form until you press "Use it".
+            Say what you want in your own words: "a woman has coffee on a terrace at sunset", "make the light warmer", "longer and more detailed". Or just ask: "what would make this more dramatic?", "give me three ideas for what she says". The designer writes it the way {recipe.title.toLowerCase().includes("video") ? "this video model" : "this model"} reads best. Nothing changes in your form until you press "Use it".
+          </div>
+        )}
+        {!turns.length && ready && knows.data && (knows.data.pictures.length > 0 || knows.data.continues) && (
+          <div className="flex flex-col gap-2 rounded-xl border border-line p-3">
+            <span className="text-xs font-semibold text-good">It knows how this was made</span>
+            {knows.data.pictures.map((p) => (
+              <span key={p.what} className="text-xs text-ink-2">
+                <span className="text-ink">{p.what}</span>: {p.steps.map((x) => `${x.title}${x.with ? ` · ${x.with}` : ""}`).join(" → ")}. It is given {p.steps.filter((x) => x.said).length > 1 ? "the texts" : "the prompt"} it was made from.
+              </span>
+            ))}
+            {knows.data.continues && <span className="text-xs text-ink-2"><span className="text-ink">The clip it carries on from</span>: it is given what that clip says happens.</span>}
+            <span className="flex flex-wrap gap-1.5">
+              {starts.map((o) => <button key={o} type="button" disabled={say.isPending} onClick={() => send(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-left text-xs hover:bg-hover disabled:opacity-45">{o}</button>)}
+            </span>
           </div>
         )}
         {turns.map((t, i) =>
           t.role === "user" ? (
             <div key={i} className="max-w-[85%] self-end rounded-xl bg-hover px-3 py-2 whitespace-pre-wrap">{t.content}</div>
           ) : (
-            <div key={i} className="flex flex-col gap-2 rounded-xl border border-line p-3">
-              {t.reply?.kind === "question" ? <span className="font-semibold">{t.reply.question}</span> : null}
-              {t.content && <span className={cx(t.reply?.kind === "question" && "text-ink-2")}>{t.content}</span>}
-              {t.reply && Object.entries(t.reply.changes).map(([id, value]) => (
-                <div key={id} className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-ink-2">{boxes.find((b) => b.id === id)?.label ?? id}</span>
-                  <div className="rounded-lg bg-raised px-2.5 py-2 leading-normal break-words whitespace-pre-wrap">{value}</div>
-                </div>
-              ))}
-              {t.reply?.tags && (
-                <span className="text-xs text-ink-2">
-                  {t.reply.tags.fixed.length > 0 && <>Put right against danbooru's tags: {t.reply.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}
-                  {t.reply.tags.unknown.length > 0 && <span className="text-warn-ink">Not danbooru tags: {t.reply.tags.unknown.join(", ")}.</span>}
-                </span>
-              )}
-              {t.reply && Object.keys(t.reply.changes).length > 0 && (
-                <span>
-                  {t.used ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-good"><Check size={13} /> In your form</span>
-                  ) : (
-                    <Button size="sm" tone="primary" onClick={() => { onApply(t.reply!.changes); onTurns(turns.map((x, j) => (j === i ? { ...x, used: true } : x))); }}>Use it</Button>
-                  )}
-                </span>
-              )}
-              {i === turns.length - 1 && t.reply && t.reply.options.length > 0 && (
-                <span className="flex flex-wrap gap-1.5">
-                  {t.reply.options.map((o) => <button key={o} type="button" onClick={() => send(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-xs hover:bg-hover">{o}</button>)}
-                </span>
-              )}
-            </div>
+            <Reply
+              key={i}
+              turn={t}
+              last={i === turns.length - 1}
+              busy={say.isPending}
+              label={(id) => boxes.find((b) => b.id === id)?.label ?? id}
+              onUse={() => { onApply(t.reply!.changes); onTurns(turns.map((x, j) => (j === i ? { ...x, used: true } : x))); }}
+              onUndo={() => { if (t.was) onApply(t.was); onTurns(turns.map((x, j) => (j === i ? { ...x, used: false } : x))); }}
+              onAnother={() => send("Another version, different from this one")}
+              // the same words again, as if the reply had not come: it is taken out of the conversation
+              onAgain={() => { const asked = turns[i - 1]; if (asked?.role === "user" && !say.isPending) say.mutate({ words: asked.content, mode: "chat", from: turns.slice(0, i - 1) }); }}
+              onOption={send}
+            />
           ),
         )}
         {say.isPending && <div className="self-start rounded-xl border border-line px-3 py-2 text-ink-2">Writing…</div>}
@@ -254,6 +275,101 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
           <Button type="submit" tone="primary" className="h-10 w-10 shrink-0 px-0" aria-label="Send" disabled={!ready || !text.trim() || say.isPending}><Send size={15} /></Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** A proposed text with what changed against what was there: new words marked, words taken out struck. */
+function Changed({ was, now }: { was: string; now: string }) {
+  const pieces = was.trim() ? wordDiff(was, now) : null;
+  // a text rewritten from end to end, or too long to compare, is read better plain
+  const marked = pieces && changedShare(pieces) < 0.85 && pieces.some((p) => p.kind !== "same");
+  const [plain, setPlain] = useState(false);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="rounded-lg bg-raised px-2.5 py-2 leading-normal break-words whitespace-pre-wrap">
+        {marked && !plain
+          ? pieces.map((p, k) => (p.kind === "same" ? <span key={k}>{p.text}</span> : p.kind === "added" ? <mark key={k} className="rounded-sm bg-accent-wash px-0.5 text-ink-strong">{p.text}</mark> : <del key={k} className="text-ink-3">{p.text}</del>))
+          : now}
+      </div>
+      {marked && (
+        <button type="button" className="self-start text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setPlain(!plain)}>
+          {plain ? "Show what changed" : "Show the text alone"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** One thing the designer said: an answer, a question, or a proposal with what can be done with it. */
+function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, onOption }: {
+  turn: DesignerTurn;
+  last: boolean;
+  busy: boolean;
+  label(id: string): string;
+  onUse(): void;
+  onUndo(): void;
+  onAnother(): void;
+  onAgain(): void;
+  onOption(words: string): void;
+}) {
+  const r = t.reply;
+  const [raw, setRaw] = useState(false);
+  const changes = Object.entries(r?.changes ?? {});
+  const short = Object.entries(r?.short ?? {});
+  return (
+    <div className={cx("flex flex-col gap-2 rounded-xl border p-3", r?.empty ? "border-warn/60" : "border-line")}>
+      {r?.kind === "question" ? <span className="font-semibold">{r.question}</span> : null}
+      {t.content && <span className={cx("whitespace-pre-wrap", r?.kind === "question" && "text-ink-2")}>{t.content}</span>}
+      {r?.empty && (
+        <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
+          <TriangleAlert size={14} className="mt-px shrink-0" />
+          <span>
+            <span className="font-semibold">It sent no text, twice.</span> Nothing was changed, whatever it says above. The language model may be declining what you asked: try other instructions or another model (at the top of this panel), or say it another way.
+          </span>
+        </div>
+      )}
+      {changes.map(([id, value]) => (
+        <div key={id} className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-ink-2">{label(id)}</span>
+          <Changed was={t.was?.[id] ?? ""} now={value} />
+        </div>
+      ))}
+      {short.length > 0 && (
+        <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
+          <TriangleAlert size={14} className="mt-px shrink-0" />
+          <span>
+            <span className="font-semibold">Much shorter than what you have</span> ({short.map(([id, n]) => `${label(id)}: ${n.now} characters in place of ${n.was}`).join("; ")}). It may be only the line that changed: using it replaces the whole text.
+          </span>
+        </div>
+      )}
+      {r?.tags && (
+        <span className="text-xs text-ink-2">
+          {r.tags.fixed.length > 0 && <>Put right against danbooru's tags: {r.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}
+          {r.tags.unknown.length > 0 && <span className="text-warn-ink">Not danbooru tags: {r.tags.unknown.join(", ")}.</span>}
+        </span>
+      )}
+      {(changes.length > 0 || r?.empty) && (
+        <span className="flex flex-wrap items-center gap-1.5">
+          {changes.length > 0 && (t.used ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-good"><Check size={13} /> In your form</span>
+              {t.was && <Button size="sm" tone="quiet" title="Put back what the form held before" onClick={onUndo}><Undo2 size={13} /> Undo</Button>}
+            </>
+          ) : (
+            <Button size="sm" tone="primary" onClick={onUse}>{short.length ? "Use it anyway" : "Use it"}</Button>
+          ))}
+          {changes.length > 0 && last && <Button size="sm" disabled={busy} title="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Another one</Button>}
+          {(r?.empty || short.length > 0) && last && <Button size="sm" disabled={busy} title="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Ask again</Button>}
+          {r?.raw && <button type="button" className="text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide what it sent" : "What it sent"}</button>}
+        </span>
+      )}
+      {raw && r?.raw && <pre className="max-h-48 overflow-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-[11px] leading-normal break-words whitespace-pre-wrap text-ink-2">{r.raw}</pre>}
+      {last && r && r.options.length > 0 && (
+        <span className="flex flex-wrap gap-1.5">
+          {r.options.map((o) => <button key={o} type="button" disabled={busy} onClick={() => onOption(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-left text-xs hover:bg-hover disabled:opacity-45">{o}</button>)}
+        </span>
+      )}
     </div>
   );
 }

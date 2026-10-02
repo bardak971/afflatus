@@ -37,6 +37,8 @@ export interface Tables {
     has_sound: number;
     folder_id: string | null;
     generation_id: string | null;
+    /** What it was taken out of, when it is a frame or the sound of a video. */
+    source_id: string | null;
     /** null = not kept: goes to the bin after a day. */
     kept_at: string | null;
     /** set = in the bin. */
@@ -70,6 +72,8 @@ export interface Tables {
     status: "queued" | "running" | "done" | "failed" | "cancelled";
     /** 1: it only loads the models its render would use, and makes nothing. */
     warm: number;
+    /** Who is in it and how it looks, as it was sent (JSON), to be kept with what it makes. */
+    look: string | null;
     priority: number;
     /** A job that waits for another one (a clip that continues the clip before it). */
     depends_on: string | null;
@@ -555,6 +559,19 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0019_trails"] = {
+  async up(db) {
+    // what a frame or a sound was taken out of: its story is that one's
+    await db.schema.alterTable("assets").addColumn("source_id", "text").execute();
+    // who was in it and how it looked, as the job was sent: kept with what it makes
+    await db.schema.alterTable("jobs").addColumn("look", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("assets").dropColumn("source_id").execute();
+    await db.schema.alterTable("jobs").dropColumn("look").execute();
   },
 };
 

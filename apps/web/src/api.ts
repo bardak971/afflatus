@@ -121,6 +121,8 @@ export interface Asset {
   path: string | null;
 }
 export interface AssetDetail extends Asset {
+  /** Who was in it and how it looked, as far back as it is known: what is made from it can start with the same. */
+  look: Look | null;
   generation: null | {
     id: string;
     recipe: string;
@@ -166,7 +168,8 @@ export interface DesignerSession {
 }
 /** What the designer answers: the full new text of the boxes it changes, or one question, or a plan of clips. */
 export interface DesignerReply {
-  kind: "proposal" | "question" | "plan";
+  /** proposal: text to put in the form. question: it needs to know one thing. answer: it only talks. plan: several clips. */
+  kind: "proposal" | "question" | "answer" | "plan";
   note: string;
   changes: Record<string, string>;
   question: string;
@@ -176,6 +179,14 @@ export interface DesignerReply {
   sawPicture?: boolean;
   /** What the tag check did to what was written: tags put right, and tags danbooru does not have. */
   tags?: { fixed: Array<{ from: string; to: string }>; unknown: string[] };
+  /** It was asked a second time, and this is what it sent then. */
+  retried?: boolean;
+  /** It said it changed something and sent no text, twice: its note is not to be believed. */
+  empty?: boolean;
+  /** Parts whose new text is far shorter than what is written (the lengths): it may be a fragment. */
+  short?: Record<string, { was: number; now: number }>;
+  /** What the language model sent, when something was off with it. */
+  raw?: string;
 }
 
 /** A tag of a prompt that danbooru does not have, with what to write instead when that is known. */
@@ -626,6 +637,9 @@ export const api = {
   createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null }) => call<Draft>("POST", "/drafts", body),
   saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; designer?: DesignerSession | null; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
   /** One turn of the conversation with the designer about a form. */
+  /** What the designer will know about a form before anything is said: the pictures whose story it has, and the clip it carries on from. */
+  designerKnows: (recipe: string, values: Record<string, unknown>) =>
+    call<{ pictures: Array<{ what: string; steps: Array<{ title: string; with: string | null; said: boolean }> }>; continues: boolean }>("POST", "/designer/knows", { recipe, values }),
   designer: (body: { recipe: string; values: Record<string, unknown>; messages: Array<{ role: "user" | "assistant"; content: string }>; mode: "chat" | "enhance"; llm?: string; instruction?: string; previous?: string; story?: { clips: string[]; index: number }; look?: Look | null; mood?: string }) =>
     call<DesignerReply>("POST", "/designer", body),
   /** A scene written as several clips: the text of each. */

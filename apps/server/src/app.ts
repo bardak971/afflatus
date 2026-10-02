@@ -1,3 +1,4 @@
+import { castOf, madeIn } from "./provenance";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
@@ -288,7 +289,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const recipe = s.registry.recipe(body.recipe);
     const input = recipe && body.look ? (await compose(s.db, recipe, body.input, body.look)).input : body.input;
     const ids: string[] = [];
-    for (let i = 0; i < body.count; i++) ids.push(await s.queue.enqueue(body.recipe, input, { label: body.label, draft: body.draft, folder: body.folder }));
+    for (let i = 0; i < body.count; i++) ids.push(await s.queue.enqueue(body.recipe, input, { label: body.label, draft: body.draft, folder: body.folder, look: body.look }));
     return { ids };
   });
 
@@ -560,6 +561,8 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       .orderBy("assets.created_at", "desc").limit(24).execute();
     return {
       ...assetView(a),
+      // who was in it, as far back as it is known: what is made from it next can start with the same people
+      look: castOf(await madeIn(s, a.id)),
       generation: g
         ? { id: g.id, recipe: g.recipe_id, family: g.family, inputs: JSON.parse(g.inputs), resolved: JSON.parse(g.resolved), tookMs: g.gen_ms }
         : null,
@@ -627,7 +630,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       .values({
         id, owner_id: OWNER, kind: "audio", origin: "imported", name: video.name ? `${video.name}, its sound` : "The sound of a video", file_key: key, thumb_key: null,
         mime: "audio/mp4", bytes: bytes.length, width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
-        folder_id: video.folder_id, generation_id: null, kept_at: at, deleted_at: null, created_at: at,
+        folder_id: video.folder_id, generation_id: null, source_id: video.id, kept_at: at, deleted_at: null, created_at: at,
       })
       .execute();
     s.queue.events.emit("library");

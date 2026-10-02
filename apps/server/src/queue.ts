@@ -158,7 +158,7 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw new UserError(`there is no recipe called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
@@ -173,7 +173,7 @@ export class Queue {
       .insertInto("jobs")
       .values({
         id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input),
-        status: "queued", warm: opts.warm ? 1 : 0, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
+        status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0,
         draft_id: opts.draft ?? null, folder_id: opts.folder ?? null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
@@ -194,7 +194,7 @@ export class Queue {
     await this.db
       .insertInto("jobs")
       .values({
-        id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, priority: 20, depends_on: null,
+        id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, draft_id: null, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
@@ -301,7 +301,7 @@ export class Queue {
     return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
       clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit) } : undefined,
-      draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm),
+      draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: row.look ? JSON.parse(row.look) : undefined,
     });
   }
 
@@ -741,7 +741,7 @@ export class Queue {
   private async store(
     comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
     outputs: Awaited<ReturnType<typeof waitForOutputs>>,
-    row: Pick<JobRow, "draft_id" | "folder_id">,
+    row: Pick<JobRow, "draft_id" | "folder_id" | "look">,
   ): Promise<string> {
     const files: Array<{ file: OutputFile; kind: "image" | "video" | "audio" }> = [];
     for (const out of resume.outputs) {
@@ -762,7 +762,9 @@ export class Queue {
       .insertInto("generations")
       .values({
         id: generationId, owner_id: OWNER, recipe_id: recipe.id, recipe_version: recipe.version, family: recipe.family,
-        inputs: JSON.stringify(input), resolved: JSON.stringify({ seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}) }),
+        inputs: JSON.stringify(input),
+        // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
+        resolved: JSON.stringify({ seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}) }),
         gen_ms: Date.now() - resume.startedAt, draft_id: row.draft_id, created_at: at,
       })
       .execute();

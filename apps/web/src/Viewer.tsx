@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
 import { askAboutDisk } from "./Confirm";
-import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo } from "./api";
+import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo, type Look } from "./api";
 import { useAsset, useAssetAction, useFamilies, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
 import { formDefaults } from "./form";
 import { Kbd, plainKey } from "./Keys";
@@ -308,6 +308,12 @@ function ChangePicker({ asset, start }: { asset: Asset; start: { mutate(id: stri
 
 /** One item, large, with how it was made and what can be done with it. */
 /** The operations that have a key, by how their recipes are named. */
+/**
+ * Who a new draft made from this starts with: the people, the places and the style it was made with.
+ * (Not its ticked snippets: those were bits of text for the model it was made with.)
+ */
+const castOf = (d: AssetDetail | undefined): Look | null => (d?.id && d.look && (d.look.cast.length || d.look.style) ? { cast: d.look.cast, style: d.look.style ?? null, snippets: [] } : null);
+
 const OPS: Record<string, { ends: string[]; label: string }> = {
   u: { ends: [".sharper"], label: "Upscale 2x" },
   f: { ends: [".fix-face"], label: "Face detailer" },
@@ -359,7 +365,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const carryOn = useMutation({
     mutationFn: () => {
       const slot = carrier!.inputs.find((i) => i.type === "clip" && i.role === "previous")!;
-      return api.createDraft({ recipe: carrier!.id, forms: { [carrier!.id]: { [slot.id]: { asset: asset.id } } } });
+      return api.createDraft({ recipe: carrier!.id, forms: { [carrier!.id]: { [slot.id]: { asset: asset.id } } }, look: castOf(detail.data) });
     },
     onSuccess: (d) => {
       client.setQueryData(["drafts", d.id], d);
@@ -374,7 +380,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const animate = useMutation({
     mutationFn: () => {
       const slot = opener!.inputs.find((i) => i.type === "image" && i.role === "start")!;
-      return api.createDraft({ recipe: opener!.id, forms: { [opener!.id]: { [slot.id]: asset.id } } });
+      return api.createDraft({ recipe: opener!.id, forms: { [opener!.id]: { [slot.id]: asset.id } }, look: castOf(detail.data) });
     },
     onSuccess: (d) => {
       client.setQueryData(["drafts", d.id], d);
@@ -428,7 +434,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     mutationFn: (id: string) => {
       const tool = all.find((r) => r.id === id)!;
       const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
-      return api.createDraft({ recipe: tool.id, forms: { [tool.id]: { ...carried(g, recipe, tool), [slot.id]: asset.id } } });
+      return api.createDraft({ recipe: tool.id, forms: { [tool.id]: { ...carried(g, recipe, tool), [slot.id]: asset.id } }, look: castOf(detail.data) });
     },
     onSuccess: (d) => {
       client.setQueryData(["drafts", d.id], d);

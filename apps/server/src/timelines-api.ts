@@ -140,6 +140,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
         dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
         // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
         clip: { id: clip.id, fit: ask.fit ?? !(next && wanted.has(next.id)) },
+        look: clip.look ?? view.look,
       });
       pending.set(clip.id, id);
       ids.push(id);

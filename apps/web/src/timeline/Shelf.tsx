@@ -8,13 +8,6 @@ import { Select } from "../Select";
 import { Button, SectionTitle, Segmented } from "../ui";
 
 type Tab = "image" | "video" | "audio";
-/** Where each kind can be dragged, said once and short. Files from the computer are dropped on the window itself. */
-const HINT: Record<Tab, string> = {
-  image: "Drag onto a clip (it opens or ends on it) or between clips. Files from your computer: drop them anywhere.",
-  video: "Drag onto the timeline. Files from your computer: drop them anywhere.",
-  audio: "Drag onto a clip or the music row. Files from your computer: drop them anywhere.",
-};
-
 /** Your library, beside the timeline: what can be dragged onto it. */
 export function Shelf({ onAdd, selected }: {
   /** Pictures and videos go at the end of the timeline; a sound goes on the selected clip. */
@@ -81,9 +74,6 @@ export function Shelf({ onAdd, selected }: {
             <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={assets.isFetchingNextPage}>Show more</Button>
           </div>
         )}
-      </div>
-      <div className="border-t border-line px-3 py-2">
-        <span className="text-xs text-ink-3">{HINT[tab]}</span>
       </div>
     </aside>
   );

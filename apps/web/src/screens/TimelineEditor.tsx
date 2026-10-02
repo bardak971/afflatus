@@ -380,6 +380,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       </header>
 
       <div className="flex min-h-0 grow">
+        {/* the media and the player side by side, and under both the row that plays: it starts at the left edge */}
+        <div className="flex min-w-0 grow flex-col">
+        <div className="flex min-h-0 grow">
         <Shelf
           selected={Boolean(current)}
           onAdd={(a) => {
@@ -391,6 +394,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
         <main className="flex min-w-0 grow flex-col">
           <Player ref={player} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} />
+        </main>
+        </div>
           <div className="flex h-12 shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
             <button type="button" aria-label="Previous clip" title="Previous clip" disabled={!t.durationMs} onClick={() => jump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
             <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!t.durationMs} onClick={toggle} className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-ground disabled:opacity-40">
@@ -415,7 +420,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
               <Camera size={13} /> Save this frame
             </Button>
           </div>
-        </main>
+        </div>
 
         {musicOpen && t.music ? (
           <MusicPanel timeline={t} onEdit={(p) => edit.mutate(p)} />
