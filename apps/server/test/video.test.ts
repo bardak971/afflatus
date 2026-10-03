@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { readVideo, tools } from "../src/video";
+import { rifeModelIn } from "../src/queue";
 import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /** A two-second test clip with a tone, made with ffmpeg. These tests are skipped where ffmpeg is not installed. */
@@ -172,5 +173,14 @@ describe.skipIf(!clip)("a range of a video", () => {
     const video = await render(clip!);
     expect((await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 505, action: "copy" })).statusCode).toBe(400);
     expect((await post(t.app, `/api/assets/${video.id}/range`, { startMs: 0, endMs: video.durationMs, action: "copy" })).statusCode).toBe(400);
+  });
+});
+
+describe("the RIFE model a ComfyUI offers", () => {
+  it("is read from an older catalog (choices in the type position) and a newer one (COMBO with options)", () => {
+    expect(rifeModelIn({ FrameInterpolationModelLoader: { input: { required: { model_name: [["film_net.pkl", "rife47.pth"]] } } } })).toBe("rife47.pth");
+    expect(rifeModelIn({ FrameInterpolationModelLoader: { input: { required: { model_name: ["COMBO", { options: ["rife_v4.26.safetensors"] }] } } } })).toBe("rife_v4.26.safetensors");
+    expect(rifeModelIn({ FrameInterpolationModelLoader: { input: { required: { model_name: ["COMBO", { options: [] }] } } } })).toBeNull();
+    expect(rifeModelIn({})).toBeNull();
   });
 });
