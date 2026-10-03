@@ -34,5 +34,5 @@ will not scale past a handful of items, and the todo asked what a draft is next 
 3. **The shelf** (built 2026-10-04): scopes Project · Recent · Kept · All, a search box (the "/" key), a sort; the project's media
    by default plus what the timeline already uses; a draggable edge and a collapse to a rail; grouped by day,
    paged.
-4. **Later**: "Browse the library" from the shelf as a full picker that inserts on click; "Add to timeline N"
+4. **Built 2026-10-04**: "Browse the library" from the shelf as a full picker that inserts on click; "Add to timeline N"
    in a tile's menu.

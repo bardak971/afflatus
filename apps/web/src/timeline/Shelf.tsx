@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Music, PanelLeftClose, PanelLeftOpen, Play, Plus, Search } from "lucide-react";
-import { thumbUrl, type Asset, type Timeline } from "../api";
+import { LibraryBig, Music, PanelLeftClose, PanelLeftOpen, Play, Plus, Search } from "lucide-react";
+import { api, thumbUrl, type Asset, type Timeline } from "../api";
+import { Picker } from "../PictureField";
 import { useAssets, useFolders } from "../data";
 import { clock } from "../format";
 import { useProject } from "../project";
@@ -57,6 +58,8 @@ export function Shelf({ onAdd, selected, timeline }: {
     }
   };
   const [folder, setFolder] = useState("");
+  /** The whole library as a picker: one click adds what is picked. */
+  const [browsing, setBrowsing] = useState(false);
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   useEffect(() => {
@@ -173,7 +176,19 @@ export function Shelf({ onAdd, selected, timeline }: {
         {(scope === "project" || scope === "all") && own.length > 0 && (
           <Select size="sm" label="Folder" value={folder} onChange={setFolder} options={[{ value: "", label: scope === "all" ? "All folders" : "All its folders" }, ...own.map((f) => ({ value: f.id, label: f.name, note: `${f.count}` }))]} />
         )}
+        <Button size="sm" onClick={() => setBrowsing(true)} title="The whole library, large, with a search: one click adds what you pick"><LibraryBig size={13} /> Browse the library</Button>
       </div>
+      {browsing && (
+        <Picker
+          title={tab === "audio" ? (selected ? "Audio for the selected clip" : "Audio (select a clip first)") : tab === "video" ? "Add a video at the end of the timeline" : "Add an image at the end, as a still"}
+          kind={tab}
+          onClose={() => setBrowsing(false)}
+          onPick={(id) => {
+            setBrowsing(false);
+            void api.asset(id).then((a) => onAdd(a)).catch(() => {});
+          }}
+        />
+      )}
       <div className="min-h-0 grow overflow-y-auto px-3 pb-3">
         {(fetched ? assets.isSuccess : true) && !items.length && <div className="py-6 text-center text-xs text-ink-3">{empty}</div>}
         {groups.map((g) => (

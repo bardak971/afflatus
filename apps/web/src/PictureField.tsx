@@ -1,11 +1,12 @@
 import { useExplain } from "./store";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Film, ImagePlus, Music, Upload, X } from "lucide-react";
+import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, fileUrl, thumbUrl, type Asset } from "./api";
 import { useAsset, useAssets } from "./data";
+import { useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
 import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
@@ -27,10 +28,19 @@ const ACCEPT = { image: "image/png,image/jpeg,image/webp", video: "video/mp4,vid
 
 /** Every picture (or every video, or every sound) in the library, to pick one from; or bring one in from the computer. */
 export function Picker({ title, kind = "image", onPick, onClose }: { title: string; kind?: "image" | "video" | "audio"; onPick(id: string): void; onClose(): void }) {
-  const assets = useAssets({ kind });
+  // found by prompt and name; within the project the switcher looks at, or everything
+  const [typed, setTyped] = useState("");
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQ(typed.trim()), 250);
+    return () => clearTimeout(t);
+  }, [typed]);
+  const project = useProject((s) => s.id);
+  const [all, setAll] = useState(false);
+  const assets = useAssets({ kind, q: q || undefined, all: all || undefined });
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
   // where a sound is asked for, a video that has sound will do: its sound is what is used
-  const videos = useAssets({ kind: "video" });
+  const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined });
   const sounding = kind === "audio" ? (videos.data?.pages.flatMap((p) => p.items) ?? []).filter((a) => a.hasSound) : [];
   const file = useRef<HTMLInputElement>(null);
   const upload = useUpload((a) => onPick(a.id));
@@ -46,7 +56,16 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
       <div className="flex max-h-full w-full max-w-4xl flex-col rounded-2xl border border-line-strong bg-panel" onClick={(e) => e.stopPropagation()}>
         <header className="flex h-16 shrink-0 items-center gap-3 border-b border-line pr-3 pl-5">
           <h2 className="text-base font-semibold">{title}</h2>
-          <span className="text-ink-2">Pick one from your library, or bring one in.</span>
+          <span className="hidden text-ink-2 xl:inline">Pick one from your library, or bring one in.</span>
+          <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
+            <Search size={13} className="shrink-0 text-ink-3" />
+            <input autoFocus data-search="picker" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className="min-w-0 grow bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
+          </label>
+          {project !== null && (
+            <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-9 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")} title={all ? "Showing every project. Click for the one the switcher looks at." : "Showing what the switcher looks at. Click for every project."}>
+              {all ? "Everything" : project === "none" ? "Inbox" : "This project"}
+            </button>
+          )}
           <span className="grow" />
           <Button onClick={() => file.current?.click()} disabled={upload.isPending}>
             <Upload size={15} /> {upload.isPending ? "Adding…" : "From your computer"}
