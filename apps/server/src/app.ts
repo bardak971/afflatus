@@ -13,6 +13,7 @@ import { registerDesigner } from "./designer";
 import { registerDrafts } from "./drafts";
 import { compose, lookSchema, registerEntities } from "./entities";
 import { registerFolders } from "./folders";
+import { folderIdsOf, registerProjects } from "./projects";
 import { isLinked } from "./linked";
 import { registerModelInfo } from "./modelInfo";
 import { registerModelPages } from "./modelPages";
@@ -101,6 +102,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   registerModelInfo(app, s);
   registerModelPages(app, s);
   registerFolders(app, s);
+  registerProjects(app, s);
   registerWorkflows(app, s);
   registerTimelines(app, s);
   registerUsage(app, s);
@@ -413,6 +415,8 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     bin: z.string().optional(),
     /** A folder id, or "none" for what is in no folder. */
     folder: z.string().optional(),
+    /** A project id: what is in its folders; "none": the Inbox (in no folder, or in a folder of no project). */
+    project: z.string().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(60),
     /** The `next` value of the previous page. */
     after: z.string().optional(),
@@ -453,6 +457,13 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     if (q.kind) query = query.where("kind", "=", q.kind);
     if (q.folder === "none") query = query.where("folder_id", "is", null);
     else if (q.folder) query = query.where("folder_id", "=", q.folder);
+    else if (q.project === "none") {
+      const inbox = await folderIdsOf(s.db, "none");
+      query = query.where((eb) => (inbox.length ? eb.or([eb("folder_id", "is", null), eb("folder_id", "in", inbox)]) : eb("folder_id", "is", null)));
+    } else if (q.project) {
+      const own = await folderIdsOf(s.db, q.project);
+      query = own.length ? query.where("folder_id", "in", own) : query.where("folder_id", "=", "-");
+    }
     if (q.kept) query = query.where("kept_at", "is not", null);
     if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
     if (q.draft) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("draft_id", "=", q.draft));

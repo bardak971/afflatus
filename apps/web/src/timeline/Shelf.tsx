@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Music, Play, Plus } from "lucide-react";
 import { thumbUrl, type Asset } from "../api";
 import { useAssets, useFolders } from "../data";
+import { useProject } from "../project";
 import { clock } from "../format";
 import { DRAG_TYPE, dragKind } from "../screens/Library";
 import { Select } from "../Select";
@@ -20,7 +21,8 @@ export function Shelf({ onAdd, selected }: {
   const assets = useAssets({ kind: tab, folder: folder || undefined });
   const folders = useFolders();
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
-  const all = folders.data?.items ?? [];
+  const project = useProject((s) => s.id);
+  const all = (folders.data?.items ?? []).filter((f) => (project === null ? true : project === "none" ? f.projectId === null : f.projectId === project));
   const drag = (a: Asset) => (e: React.DragEvent) => {
     e.dataTransfer.setData(DRAG_TYPE, a.id);
     e.dataTransfer.setData(dragKind(a.kind), a.id);

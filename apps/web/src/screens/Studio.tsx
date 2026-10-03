@@ -7,7 +7,8 @@ import { persist } from "zustand/middleware";
 import { hasWildcards } from "@afflatus/core";
 import { api, ApiError, thumbUrl, type Asset, type RecipeInfo, type RunningJob } from "../api";
 import { askAboutDisk } from "../Confirm";
-import { useAssetFamilies, useAssetModels, useAssets, useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useQueue, useRecipes, useSetup, useTimelines } from "../data";
+import { useAssetFamilies, useAssetModels, useAssets, useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSetup, useTimelines } from "../data";
+import { useProject } from "../project";
 import { Designer, WritingHelp, type DesignerTurn } from "../Designer";
 import { useDraft } from "../draft";
 import { estimateFor } from "../estimate";
@@ -513,7 +514,11 @@ export function Studio({ open: forced }: { open?: boolean }) {
     if (place.type === "folder" && folders.isSuccess && !folders.data.items.some((f) => f.id === place.id)) view.set({ place: { type: "all" } });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, folders.data]);
-  const folder = place.type === "folder" ? folders.data?.items.find((f) => f.id === place.id) : undefined;
+  // the folder what is made lands in: the one that is open, else the root of the project the app looks at
+  const projectId = useProject((s) => s.id);
+  const projectsList = useProjects();
+  const rootId = projectId && projectId !== "none" ? projectsList.data?.items.find((p) => p.id === projectId)?.folderId ?? null : null;
+  const folder = place.type === "folder" ? folders.data?.items.find((f) => f.id === place.id) : rootId ? folders.data?.items.find((f) => f.id === rootId) : undefined;
   const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "No folder" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
 
   const draftId = useOpenDraft((s) => s.id);

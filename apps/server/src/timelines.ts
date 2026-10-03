@@ -160,6 +160,9 @@ export interface TimelinePatch {
   look?: Look | null;
   /** The look and mood of the whole video, in words. */
   mood?: string;
+  /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */
+  project?: string | null;
+  folder?: string | null;
 }
 
 export class Timelines {
@@ -228,14 +231,18 @@ export class Timelines {
     return followed || landed ? "fresh" : "stale";
   }
 
-  async list() {
-    const rows = await this.db.selectFrom("timelines").selectAll().where("owner_id", "=", OWNER).orderBy("updated_at", "desc").execute();
+  /** `project`: only the timelines of that project; "none": the Inbox; left out: all. */
+  async list(project?: string) {
+    let q = this.db.selectFrom("timelines").selectAll().where("owner_id", "=", OWNER);
+    if (project === "none") q = q.where("project_id", "is", null);
+    else if (project) q = q.where("project_id", "=", project);
+    const rows = await q.orderBy("updated_at", "desc").execute();
     const items = [];
     for (const t of rows) {
       const all = await this.placed(t.id);
       const first = all.find((p) => p.active || p.still);
       items.push({
-        id: t.id, name: t.name, width: t.width, height: t.height, updatedAt: t.updated_at, clips: all.length,
+        id: t.id, name: t.name, width: t.width, height: t.height, updatedAt: t.updated_at, clips: all.length, projectId: t.project_id, folderId: t.folder_id,
         durationMs: all.reduce((sum, p) => sum + lengthOf(p), 0),
         cover: first?.active?.asset.id ?? first?.still?.id ?? null,
       });
@@ -287,6 +294,8 @@ export class Timelines {
     const exported = await this.assetRow(t.export_asset_id);
     return {
       id: t.id, name: t.name, width: t.width, height: t.height, updatedAt: t.updated_at, durationMs: at, clips,
+      /** The project it belongs to, and the folder its renders land in (null: the project's root, or none). */
+      projectId: t.project_id, folderId: t.folder_id,
       look: t.look ? (JSON.parse(t.look) as Look) : null,
       mood: t.mood ?? "",
       music: music ? { asset: assetView(music), volume: t.music_volume, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck) } : null,
@@ -356,14 +365,14 @@ export class Timelines {
 
   // ---------------------------------------------------------------- editing
 
-  async create(name: string | undefined) {
+  async create(name: string | undefined, project?: string | null, folder?: string | null) {
     const id = newId();
     const at = now();
     const count = Number((await this.db.selectFrom("timelines").select((eb) => eb.fn.countAll().as("n")).executeTakeFirst())?.n ?? 0);
     await this.db
       .insertInto("timelines")
       .values({
-        id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null,
+        id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null,
         music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, export_asset_id: null, look: null, mood: null,
         created_at: at, updated_at: at,
       })
@@ -381,13 +390,15 @@ export class Timelines {
     }
     await this.remember(
       id,
-      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : "the music's settings",
+      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : "the music's settings",
     );
     const within = (n: number, least: number, most: number) => Math.max(least, Math.min(most, Math.round(n)));
     await this.db
       .updateTable("timelines")
       .set({
         ...(patch.name !== undefined ? { name: patch.name.trim() || "Untitled" } : {}),
+        ...(patch.project !== undefined ? { project_id: patch.project } : {}),
+        ...(patch.folder !== undefined ? { folder_id: patch.folder } : {}),
         ...(patch.width !== undefined && patch.height !== undefined ? { width: patch.width, height: patch.height } : {}),
         ...(m?.asset !== undefined ? { music_asset_id: m.asset } : {}),
         ...(m?.volume !== undefined ? { music_volume: within(m.volume, 0, 100) } : {}),

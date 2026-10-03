@@ -17,7 +17,10 @@ import type { Config } from "./config";
 export interface Tables {
   settings: { key: string; value: string; updated_at: string };
   /** `path`: the directory of the disk a folder is linked to (see linked.ts); null for a folder that only exists in the library. */
-  folders: { id: string; owner_id: string; parent_id: string | null; name: string; path: string | null; created_at: string };
+  /** A folder's project is that of its top ancestor; null = the Inbox (in no project). */
+  folders: { id: string; owner_id: string; parent_id: string | null; name: string; path: string | null; project_id: string | null; created_at: string };
+  /** What drafts, timelines and folders are grouped under. `folder_id`: its root folder, where its things land unless another is chosen. */
+  projects: { id: string; owner_id: string; name: string; folder_id: string | null; archived_at: string | null; created_at: string; updated_at: string };
   /** One row per file: a picture, a video or a sound. */
   assets: {
     id: string;
@@ -154,6 +157,9 @@ export interface Tables {
     id: string;
     owner_id: string;
     name: string;
+    /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root, or none). */
+    project_id: string | null;
+    folder_id: string | null;
     width: number | null;
     height: number | null;
     /** One sound under the whole video: the file, how loud (0 to 100), its fades, and whether it gives way to the clips' own sound. */
@@ -243,6 +249,8 @@ export interface Tables {
   drafts: {
     id: string;
     owner_id: string;
+    /** The project it belongs to; null: the Inbox. */
+    project_id: string | null;
     /** What it is for: "new", "asset:<id>" (an edit of something), "clip:<id>" (a timeline clip). */
     target: string;
     /** The recipe the form is on. */
@@ -628,6 +636,32 @@ migrations["0013_model_pages"] = {
 
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
+migrations["0023_projects"] = {
+  async up(db) {
+    await db.schema
+      .createTable("projects")
+      .addColumn("id", "text", (c) => c.primaryKey())
+      .addColumn("owner_id", "text", (c) => c.notNull())
+      .addColumn("name", "text", (c) => c.notNull())
+      .addColumn("folder_id", "text")
+      .addColumn("archived_at", "text")
+      .addColumn("created_at", "text", (c) => c.notNull())
+      .addColumn("updated_at", "text", (c) => c.notNull())
+      .execute();
+    await db.schema.alterTable("folders").addColumn("project_id", "text").execute();
+    await db.schema.alterTable("drafts").addColumn("project_id", "text").execute();
+    await db.schema.alterTable("timelines").addColumn("project_id", "text").execute();
+    await db.schema.alterTable("timelines").addColumn("folder_id", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("timelines").dropColumn("folder_id").execute();
+    await db.schema.alterTable("timelines").dropColumn("project_id").execute();
+    await db.schema.alterTable("drafts").dropColumn("project_id").execute();
+    await db.schema.alterTable("folders").dropColumn("project_id").execute();
+    await db.schema.dropTable("projects").execute();
+  },
+};
+
 migrations["0022_source_range"] = {
   async up(db) {
     await db.schema.alterTable("assets").addColumn("source_range", "text").execute();

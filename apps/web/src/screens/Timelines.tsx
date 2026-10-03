@@ -3,7 +3,8 @@ import { Link, useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, Plus, Trash2 } from "lucide-react";
 import { api, thumbUrl } from "../api";
-import { useTimelines } from "../data";
+import { useProjects, useTimelines } from "../data";
+import { useProject } from "../project";
 import { clock, when } from "../format";
 import { Button, Empty, ErrorNote } from "../ui";
 
@@ -23,6 +24,9 @@ export function Timelines() {
   });
   const remove = useMutation({ mutationFn: api.deleteTimeline, onSuccess: refresh });
   const items = list.data?.items ?? [];
+  const project = useProject((s) => s.id);
+  const projects = useProjects();
+  const nameOf = (id: string | null) => (id ? projects.data?.items.find((p) => p.id === id)?.name ?? null : null);
 
   return (
     <div className="flex min-w-0 grow flex-col">
@@ -52,6 +56,7 @@ export function Timelines() {
                   <span className="truncate font-semibold">{t.name}</span>
                   <span className="text-xs text-ink-2">
                     {t.clips === 0 ? "Empty" : `${t.clips} clip${t.clips > 1 ? "s" : ""}${t.durationMs ? ` · ${clock(t.durationMs)}` : ""}`} · {when(t.updatedAt)}
+                    {project === null && nameOf(t.projectId) ? <span className="text-ink-3"> · {nameOf(t.projectId)}</span> : ""}
                   </span>
                 </Link>
                 {deleting === t.id ? (

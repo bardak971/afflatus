@@ -104,7 +104,7 @@ export class Linked {
       const other = resolve(f.path!);
       if (under(dir, other) || under(other, dir)) throw new LinkedError(`This folder is already linked, or is inside or around "${f.name}", which is.`);
     }
-    const row: Folder = { id: newId(), owner_id: OWNER, parent_id: null, name: (name?.trim() || basename(dir) || dir).slice(0, 120), path: dir, created_at: now() };
+    const row: Folder = { id: newId(), owner_id: OWNER, parent_id: null, name: (name?.trim() || basename(dir) || dir).slice(0, 120), path: dir, project_id: null, created_at: now() };
     await this.db.insertInto("folders").values(row).execute();
     await this.load();
     await this.scan(row.id);
@@ -168,7 +168,8 @@ export class Linked {
         if (e.isDirectory()) {
           let sub = byPath.get(full);
           if (!sub) {
-            sub = { id: newId(), owner_id: OWNER, parent_id: folder.id, name: e.name.slice(0, 120), path: full, created_at: now() };
+            // a sub-directory is in the project of the folder it is under
+            sub = { id: newId(), owner_id: OWNER, parent_id: folder.id, name: e.name.slice(0, 120), path: full, project_id: folder.project_id, created_at: now() };
             await this.db.insertInto("folders").values(sub).execute();
             byPath.set(full, sub);
           }

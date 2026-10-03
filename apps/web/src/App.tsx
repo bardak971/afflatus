@@ -21,6 +21,7 @@ import { Timelines } from "./screens/Timelines";
 import { Workflows } from "./screens/Workflows";
 import { useSystem } from "./store";
 import { StripModel, StripPlace } from "./ModelLoad";
+import { ProjectSwitch } from "./Projects";
 import { ThemeFlip } from "./theme/Appearance";
 import { useTheme } from "./theme/store";
 import { Bar, cx } from "./ui";
@@ -102,6 +103,7 @@ export function App() {
       <div className="flex min-h-0 grow">
         <nav aria-label="Main" className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-3">
           <div className="flex h-9 items-center text-[15px] font-bold tracking-tight">Afflatus</div>
+          <ProjectSwitch />
           {NAV.map((n) => {
             const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
             return (

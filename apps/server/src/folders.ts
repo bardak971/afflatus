@@ -7,8 +7,9 @@ import type { Services } from "./services";
 /** Folders, nested like directories. An item is in one folder or in none. */
 
 const name = z.string().trim().min(1).max(120);
-const createBody = z.strictObject({ name, parentId: z.string().nullable().default(null) });
-const editBody = z.strictObject({ name: name.optional(), parentId: z.string().nullable().optional() });
+/** `project`: of a folder made at the top, which project it belongs to (null: the Inbox); a folder made inside another is in its project. */
+const createBody = z.strictObject({ name, parentId: z.string().nullable().default(null), project: z.string().nullable().optional() });
+const editBody = z.strictObject({ name: name.optional(), parentId: z.string().nullable().optional(), project: z.string().nullable().optional() });
 const moveBody = z.strictObject({ ids: z.array(z.string()).min(1).max(500), folderId: z.string().nullable() });
 
 const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
@@ -35,7 +36,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
       items: rows
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((f) => ({
-          id: f.id, parentId: f.parent_id, name: f.name, count: byFolder.get(f.id) ?? 0,
+          id: f.id, parentId: f.parent_id, name: f.name, count: byFolder.get(f.id) ?? 0, projectId: f.project_id,
           // linked to a directory of the disk; `root`: the one that was linked, not one of its sub-directories
           path: f.path, root: Boolean(f.path) && !rows.some((p) => p.id === f.parent_id && p.path),
         })),
@@ -60,10 +61,10 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     const parent = body.parentId ? await mustExist(body.parentId) : null;
     // inside a linked folder, a new folder is a new directory
     const path = parent?.path ? await s.linked.makeFolder(parent, body.name) : null;
-    const row = { id: newId(), owner_id: OWNER, parent_id: body.parentId, name: path ? path.split(/[\\/]/).pop()! : body.name, path, created_at: now() };
+    const row = { id: newId(), owner_id: OWNER, parent_id: body.parentId, name: path ? path.split(/[\\/]/).pop()! : body.name, path, project_id: parent ? parent.project_id : body.project ?? null, created_at: now() };
     await s.db.insertInto("folders").values(row).execute();
     s.queue.events.emit("library");
-    return { id: row.id, parentId: row.parent_id, name: row.name, count: 0, path: row.path, root: false };
+    return { id: row.id, parentId: row.parent_id, name: row.name, count: 0, path: row.path, root: false, projectId: row.project_id };
   });
 
   app.patch<{ Params: { id: string } }>("/api/folders/:id", async (req) => {
@@ -80,11 +81,22 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
       }
       await mustExist(body.parentId);
     }
+    // its project: the new parent's when it moves, the one named when it is given one at the top
+    const parentProject = body.parentId ? (await mustExist(body.parentId)).project_id : body.parentId === null ? (body.project !== undefined ? body.project : folder.project_id) : undefined;
+    const project = parentProject !== undefined ? parentProject : body.project !== undefined ? body.project : folder.project_id;
+    if (body.project !== undefined && body.project !== null && !(await s.db.selectFrom("projects").select("id").where("id", "=", body.project).executeTakeFirst())) throw bad("this project was not found", 404);
     await s.db
       .updateTable("folders")
-      .set({ name: body.name ?? folder.name, parent_id: body.parentId === undefined ? folder.parent_id : body.parentId })
+      .set({ name: body.name ?? folder.name, parent_id: body.parentId === undefined ? folder.parent_id : body.parentId, project_id: project })
       .where("id", "=", folder.id)
       .execute();
+    // the folders under it follow
+    if (project !== folder.project_id) {
+      const rows = await all();
+      const under = (id: string): string[] => rows.filter((f) => f.parent_id === id).flatMap((f) => [f.id, ...under(f.id)]);
+      const ids = under(folder.id);
+      if (ids.length) await s.db.updateTable("folders").set({ project_id: project }).where("id", "in", ids).execute();
+    }
     s.queue.events.emit("library");
     return { ok: true };
   });

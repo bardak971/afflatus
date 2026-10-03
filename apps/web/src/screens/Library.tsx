@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
 import { api, thumbUrl, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
+import { projectForNew, useProject } from "../project";
 import { clock, size } from "../format";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import { useFolderImport } from "../folderImport";
@@ -142,7 +143,10 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   });
 
   const selected = place.type === "folder" ? place.id : null;
-  const create = useMutation({ mutationFn: (v: { name: string; parent: string | null }) => api.createFolder(v.name, v.parent), onSuccess: refresh });
+  // the folders of the project the app looks at (the Inbox: those in none; All: every one)
+  const project = useProject((s) => s.id);
+  const scoped = (folders.data?.items ?? []).filter((f) => (project === null ? true : project === "none" ? f.projectId === null : f.projectId === project));
+  const create = useMutation({ mutationFn: (v: { name: string; parent: string | null }) => api.createFolder(v.name, v.parent, v.parent ? undefined : projectForNew()), onSuccess: refresh });
   const open = (folders.data?.items ?? []).find((f) => f.id === selected);
   // a whole folder of the computer, brought in with its sub-folders: into the folder that is open, or at the top
   const picker = useRef<HTMLInputElement>(null);
@@ -196,7 +200,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
       {dragging && <div className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-accent-ink">Drop on a folder to move it there</div>}
       <button type="button" onClick={() => onPlace({ type: "all" })} className={row(place.type === "all", "all")}>All</button>
-      {tree(folders.data?.items ?? []).map((f) =>
+      {tree(scoped).map((f) =>
         editing === f.id ? (
           <form key={f.id} onSubmit={submit((name) => rename.mutate({ id: f.id, name }))} style={{ paddingLeft: f.depth * 14 }}>
             <input autoFocus aria-label="Folder name" value={text} onChange={(e) => setText(e.target.value)} onBlur={() => setEditing(null)} className="h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5" />

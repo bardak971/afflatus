@@ -40,6 +40,7 @@ export function useFamilies() {
 }
 
 export const useTimelines = () => useQuery({ queryKey: ["timelines"], queryFn: api.timelines });
+export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: api.projects });
 export const useTimeline = (id: string | undefined) => useQuery({ queryKey: ["timelines", id], queryFn: () => api.timeline(id!), enabled: Boolean(id) });
 export const useEntities = () => useQuery({ queryKey: ["entities"], queryFn: api.entities });
 export const useWorkflows = () => useQuery({ queryKey: ["workflows"], queryFn: api.workflows });

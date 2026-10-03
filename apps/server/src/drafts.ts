@@ -18,12 +18,15 @@ const createBody = z.strictObject({
   count: z.number().int().min(1).max(8).default(1),
   target: z.string().max(100).default("new"),
   look: lookSchema.nullable().optional(),
+  /** The project it is made in; null or left out: the Inbox. */
+  project: z.string().nullable().optional(),
 });
 const saveBody = z.strictObject({
   recipe: z.string().min(1).optional(),
   forms: forms.optional(),
   count: z.number().int().min(1).max(8).optional(),
   look: lookSchema.nullable().optional(),
+  project: z.string().nullable().optional(),
   /** The conversation with the designer about this draft: kept as it is, the server does not read it. */
   chat: z.array(z.unknown()).max(200).optional(),
   /** The language model and the instructions its conversation with the designer is held with; null = the usual ones. */
@@ -56,7 +59,7 @@ function holdsNothing(d: Tables["drafts"]): boolean {
   return Object.values(JSON.parse(d.forms) as Record<string, Record<string, unknown>>).every((form) => Object.keys(form).length === 0);
 }
 
-const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, updatedAt: d.updated_at, empty: holdsNothing(d) });
+const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
 const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],
@@ -72,8 +75,13 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     return d;
   };
 
-  app.get("/api/drafts", async () => {
-    const rows = await s.db.selectFrom("drafts").selectAll().orderBy("updated_at", "desc").limit(LIST_LIMIT).execute();
+  /** `project`: only the drafts of that project; "none": the Inbox; left out: all. */
+  app.get("/api/drafts", async (req) => {
+    const { project } = z.object({ project: z.string().optional() }).parse(req.query);
+    let q = s.db.selectFrom("drafts").selectAll();
+    if (project === "none") q = q.where("project_id", "is", null);
+    else if (project) q = q.where("project_id", "=", project);
+    const rows = await q.orderBy("updated_at", "desc").limit(LIST_LIMIT).execute();
     return { items: rows.map(brief) };
   });
 
@@ -84,7 +92,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     const at = now();
     const row: Tables["drafts"] = {
       id: newId(), owner_id: OWNER, target: body.target, recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
-      name: null, forms: json, count: body.count, chat: null, look: body.look ? JSON.stringify(body.look) : null, created_at: at, updated_at: at,
+      name: null, forms: json, count: body.count, chat: null, look: body.look ? JSON.stringify(body.look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
     };
     await s.db.insertInto("drafts").values(row).execute();
     return full(row);
@@ -102,6 +110,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     if (json.length > MAX_BYTES) throw tooBig();
     const next = {
       recipe_id: recipe, forms: json, count: body.count ?? current.count, title: titleOf(s.registry.recipe(recipe), all), updated_at: now(),
+      ...(body.project !== undefined ? { project_id: body.project } : {}),
       ...(body.look !== undefined ? { look: body.look ? JSON.stringify(body.look) : null } : {}),
       ...(body.chat !== undefined ? { chat: chatJson(body.chat, MAX_BYTES) } : {}),
       ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),

@@ -1,3 +1,4 @@
+import { projectForNew, projectParam } from "./project";
 import type { Known } from "@afflatus/core";
 import type { InputSpec, ModelInfo, VideoTraits } from "@afflatus/core";
 
@@ -174,6 +175,7 @@ export interface DraftBrief {
   updatedAt: string;
   /** Nothing was done in it yet. */
   empty: boolean;
+  projectId: string | null;
 }
 export interface Draft extends DraftBrief {
   /** Recipe id → the values of its form. */
@@ -298,6 +300,8 @@ export interface Folder {
   parentId: string | null;
   name: string;
   count: number;
+  /** The project it is in; null: the Inbox. */
+  projectId: string | null;
   /** The directory of the disk it is linked to, when it is; `root`: the one that was linked, not one of its sub-directories. */
   path: string | null;
   root: boolean;
@@ -371,6 +375,9 @@ export interface Timeline {
   height: number | null;
   updatedAt: string;
   durationMs: number;
+  /** The project it belongs to, and the folder its renders land in (null: the project's root, or none). */
+  projectId: string | null;
+  folderId: string | null;
   clips: Clip[];
   /** Who is in the video and how it looks, for every clip that has no cast of its own. */
   look: Look | null;
@@ -392,6 +399,8 @@ export interface RangeContext {
 export interface TimelineBrief {
   id: string;
   name: string;
+  projectId: string | null;
+  folderId: string | null;
   width: number | null;
   height: number | null;
   updatedAt: string;
@@ -424,6 +433,22 @@ export interface TimelinePatch {
   music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean };
   look?: Look | null;
   mood?: string;
+  /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */
+  project?: string | null;
+  folder?: string | null;
+}
+/** A project: what drafts, timelines and folders are grouped under. */
+export interface Project {
+  id: string;
+  name: string;
+  /** Its root folder, where its things land unless another is chosen. */
+  folderId: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  drafts: number;
+  timelines: number;
+  assets: number;
 }
 /** How long a recipe usually takes on this machine, from what was rendered before each render was put on record. */
 export interface Rate {
@@ -740,6 +765,8 @@ export const api = {
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
   assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string }) => {
     const q = new URLSearchParams({ limit: "40" });
+    // within the project the app looks at, unless a folder, the bin or a draft says where to look
+    if (!opts.folder && !opts.bin && !opts.draft && projectParam()) q.set("project", projectParam()!);
     if (opts.kind) q.set("kind", opts.kind);
     if (opts.bin) q.set("bin", "1");
     if (opts.folder) q.set("folder", opts.folder);
@@ -758,9 +785,11 @@ export const api = {
   bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number }>("POST", "/assets/bulk", { ids, action }),
   bin: (id: string) => call<{ ok: true }>("DELETE", `/assets/${id}`),
   restore: (id: string) => call<Asset>("POST", `/assets/${id}/restore`),
-  drafts: () => call<{ items: DraftBrief[] }>("GET", "/drafts"),
+  /** The drafts of the project the app looks at (see project.ts). */
+  drafts: () => call<{ items: DraftBrief[] }>("GET", `/drafts${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`),
   draft: (id: string) => call<Draft>("GET", `/drafts/${id}`),
-  createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null }) => call<Draft>("POST", "/drafts", body),
+  /** A new draft, in the project the app looks at unless another is named. */
+  createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null; project?: string | null }) => call<Draft>("POST", "/drafts", { ...body, project: body.project === undefined ? projectForNew() : body.project }),
   saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; designer?: DesignerSession | null; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
   /** One turn of the conversation with the designer about a form. */
   /** What the designer will know about a form before anything is said: the pictures whose story it has, and the clip it carries on from. */
@@ -791,7 +820,8 @@ export const api = {
   /** What the files of one model folder say about themselves; `pending` are still being read. */
   modelInfo: (folder: string) => call<{ items: Record<string, ModelInfo>; pending: number }>("GET", `/models/${folder}/info`),
   folders: () => call<{ items: Folder[] }>("GET", "/folders"),
-  createFolder: (name: string, parentId: string | null) => call<Folder>("POST", "/folders", { name, parentId }),
+  /** A folder inside another, or at the top of a project (null: the Inbox). */
+  createFolder: (name: string, parentId: string | null, project?: string | null) => call<Folder>("POST", "/folders", { name, parentId, ...(parentId ? {} : { project: project ?? null }) }),
   /** Link a directory of the disk the server runs on: it becomes a folder, read where it is. */
   linkFolder: (path: string, name?: string) => call<Folder>("POST", "/folders/link", name ? { path, name } : { path }),
   /** Read a linked folder's directory again. */
@@ -818,9 +848,16 @@ export const api = {
   createWorkflow: (body: WorkflowBody) => call<WorkflowBrief>("POST", "/workflows", body),
   saveWorkflow: (id: string, body: WorkflowBody) => call<WorkflowBrief>("PUT", `/workflows/${id}`, body),
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),
-  timelines: () => call<{ items: TimelineBrief[] }>("GET", "/timelines"),
+  /** The timelines of the project the app looks at. */
+  timelines: () => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`),
   timeline: (id: string) => call<Timeline>("GET", `/timelines/${id}`),
-  createTimeline: (name?: string) => call<Timeline>("POST", "/timelines", name ? { name } : {}),
+  /** A new timeline, in the project the app looks at unless another is named. */
+  createTimeline: (name?: string, project?: string | null) => call<Timeline>("POST", "/timelines", { ...(name ? { name } : {}), project: project === undefined ? projectForNew() : project }),
+  projects: () => call<{ items: Project[]; inbox: { drafts: number; timelines: number; assets: number } }>("GET", "/projects"),
+  createProject: (name: string) => call<Project>("POST", "/projects", { name }),
+  editProject: (id: string, patch: { name?: string; archived?: boolean }) => call<Project>("PATCH", `/projects/${id}`, patch),
+  /** The project goes; its drafts, timelines and folders go to the Inbox. */
+  deleteProject: (id: string) => call<{ ok: true }>("DELETE", `/projects/${id}`),
   editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),
   undoTimeline: (id: string) => call<{ undone: string }>("POST", `/timelines/${id}/undo`),
   deleteTimeline: (id: string) => call<{ ok: true }>("DELETE", `/timelines/${id}`),

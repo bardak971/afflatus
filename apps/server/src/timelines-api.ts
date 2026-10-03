@@ -4,6 +4,7 @@ import { RANDOM_SEED } from "@afflatus/core";
 import { compose, lookSchema, withMood } from "./entities";
 import { assetView } from "./media";
 import { rifeModelIn, UserError } from "./queue";
+import { rootFolderOf } from "./projects";
 import type { Services } from "./services";
 import { FROM_PREVIOUS } from "./timelines";
 
@@ -26,6 +27,9 @@ const timelinePatch = z.strictObject({
   look: lookSchema.nullable().optional(),
   /** The look and mood of the whole video, in words: added to what happens in every clip. */
   mood: z.string().max(2000).optional(),
+  /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */
+  project: z.string().nullable().optional(),
+  folder: z.string().nullable().optional(),
 });
 
 const newClip = z.strictObject({
@@ -101,8 +105,12 @@ async function slowEngine(s: Services): Promise<"rife" | "ffmpeg"> {
 export function registerTimelines(app: FastifyInstance, s: Services): void {
   const t = s.timelines;
 
-  app.get("/api/timelines", async () => t.list());
-  app.post("/api/timelines", async (req) => t.create(z.strictObject({ name: z.string().max(200).optional() }).parse(req.body ?? {}).name));
+  app.get("/api/timelines", async (req) => t.list(z.object({ project: z.string().optional() }).parse(req.query).project));
+  app.post("/api/timelines", async (req) => {
+    const body = z.strictObject({ name: z.string().max(200).optional(), project: z.string().nullable().optional() }).parse(req.body ?? {});
+    // its renders land in the project's root folder unless another is chosen later
+    return t.create(body.name, body.project ?? null, await rootFolderOf(s.db, body.project));
+  });
   app.get<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.view(req.params.id));
   app.patch<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.edit(req.params.id, timelinePatch.parse(req.body)));
   app.delete<{ Params: { id: string } }>("/api/timelines/:id", async (req) => {
@@ -164,6 +172,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
           // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
           clip: { id: clip.id, fit: ask.fit ?? !(next && wanted.has(next.id)) },
           look: clip.look ?? view.look,
+          // the render lands in the timeline's folder: its own, else its project's root
+          folder: view.folderId ?? (await rootFolderOf(s.db, view.projectId)) ?? undefined,
         });
         pending.set(clip.id, id);
         ids.push(id);
