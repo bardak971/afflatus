@@ -633,22 +633,20 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
 
   it("regenerates a range: a new clip pinned to the frame before In and the frame at Out, in place of what played", async () => {
     const { tl, a, b } = await twoRendered();
-    const { clip } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "regenerate" });
+    // between two H3 clips: the new clip takes their video as context, extending the one before and ending where the one after begins
+    const { clip, context } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "regenerate" });
+    expect(context).toEqual({ start: "clip", end: "clip" });
     const v = await view(tl);
     expect(v.clips.map((c: { id: string }) => c.id)).toEqual([a, clip, b]);
     const made = v.clips[1];
     expect(made.recipe).toBe("h3.video");
     expect(made.take).toBeNull();
-    expect(made.joined).toBe("cut");
+    expect(made.joined).toBe("continue");
+    expect(v.clips[2].joined).toBe("continue");
     expect(made.inputs.description).toBe("She walks to the window.");
     expect(made.inputs.seconds).toBe(2);
-    // the frames are pictures in the library, from the right moments
-    const first = (await get(t.app, `/api/assets/${made.inputs.start}`)).json();
-    const last = (await get(t.app, `/api/assets/${made.inputs.end}`)).json();
-    expect(first.kind).toBe("image");
-    expect(last.kind).toBe("image");
-    expect(first.source).toMatchObject({ asset: { id: v.clips[0].take.asset.id } });
-    expect(last.source).toMatchObject({ asset: { id: v.clips[2].take.asset.id } });
+    expect(made.inputs.start).toBeUndefined();
+    expect(made.inputs.end).toBeUndefined();
     // what played between went: the first clip stops at 2 s, the second starts a second in
     expect(v.clips[0].lengthMs).toBeCloseTo(2000, -2);
     expect(v.clips[2].take.startMs).toBeCloseTo(1000, -2);
@@ -661,9 +659,20 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     const w = await view(tl);
     expect(w.clips.map((c: { id: string }) => c.id)).toEqual([a, between, b]);
     expect(w.durationMs).toBeCloseTo(6000, -2);
-    expect(w.clips[1].inputs.start).toBeTruthy();
-    expect(w.clips[1].inputs.end).toBeTruthy();
+    expect(w.clips[1].joined).toBe("continue");
     expect(w.undo).toBe("the clip added between");
+    await call("POST", `/api/timelines/${tl}/undo`);
+
+    // after a still there is no motion to carry: the new clip opens on the picture itself
+    const png = (await t.app.inject({ method: "POST", url: "/api/assets?name=card.png", headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(64, 64, [200, 120, 40], [40, 60, 160])) })).json();
+    await call("POST", `/api/timelines/${tl}/clips`, { after: null, asset: png.id });
+    const x = await view(tl);
+    expect(x.clips[0].kind).toBe("still");
+    const r2 = await call("POST", `/api/timelines/${tl}/range`, { inMs: 3000, outMs: 4000, action: "regenerate" });
+    expect(r2.context).toEqual({ start: "frame", end: "clip" });
+    const y = await view(tl);
+    expect(y.clips[1].inputs.start).toBe(png.id);
+    expect(y.clips[1].joined).toBe("cut");
   });
 
   it("copies a range to the library: one video of that part, through the export queue", async () => {

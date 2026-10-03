@@ -66,7 +66,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const entities = useEntities();
   const [note, setNote] = useState<string | null>(null);
   /** The export box: open, what was asked, and the export that was there before (to tell the new one). */
-  const [exp, setExp] = useState<{ scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; before: string | null; asked: boolean } | null>(null);
+  const [exp, setExp] = useState<{ scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; before: string | null; asked: boolean } | null>(null);
   const player = useRef<PlayerHandle>(null);
 
   const t = timeline.data;
@@ -199,7 +199,15 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         setSelected(r.clip);
         setMusicOpen(false);
         setRange(null);
-        setNote("The new clip is selected: change what happens in it, then render it. Undo takes the range back.");
+        const { start, end } = r.context;
+        const how =
+          start === "clip" && end === "clip" ? "it extends the clip before and ends where the clip after begins, so the motion carries across"
+          : start === "clip" ? (end === "frame" ? "it extends the clip before and ends on the frame at Out" : "it extends the clip before; nothing rendered plays after Out")
+          : end === "clip" ? "it opens on the frame at In and ends where the clip after begins"
+          : start === "none" ? "it ends on the frame at Out; nothing plays before In"
+          : end === "none" ? "it opens on the frame at In; nothing rendered plays after Out, so only that frame is pinned"
+          : "it is pinned to the frames at In and Out: the frames will match, the motion may not";
+        setNote(`The new clip is selected: ${how}. Change what happens in it, then render it. Undo takes the range back.`);
       } else if (action === "remove") setRange(null);
       else if (action === "copy") say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
     },
@@ -262,7 +270,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     const busy = rangeAct.isPending;
     return [
       { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: emptyRange ? "In and Out are the same moment" : undefined, run: playRange },
-      { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => setLoopRange((v) => !v) },
+      { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => toggleLoop() },
       "—" as const,
       { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
       { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: "the clips under them become two", run: () => rangeAct.mutate("split") },
@@ -293,7 +301,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       after();
     },
   });
-  const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean }) => api.exportTimeline(id, v), onSuccess: after });
+  const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number } }) => api.exportTimeline(id, v), onSuccess: after });
   const frame = useMutation({ mutationFn: (v: { asset: string; at: number }) => api.frame(v.asset, v.at), onSuccess: (a) => { setOpened(a); void client.invalidateQueries({ queryKey: ["assets"] }); } });
   /**
    * A loop ends where the clip begins: on its opening picture when it has one, else on the first frame
@@ -369,14 +377,23 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     }
   }, []);
   const toggle = useCallback(() => {
+    const r = rangeRef.current;
     if (playing) playingRange.current = false;
-    // Space with a range and the playhead outside it: the range plays
-    else if (rangeRef.current && rangeRef.current.outMs - rangeRef.current.inMs >= 40 && (time < rangeRef.current.inMs || time >= rangeRef.current.outMs - 15)) {
+    else if (r && r.outMs - r.inMs >= 40) {
+      // with a range, Play plays it: from the playhead when it stands inside, else from In; it stops at Out
       playingRange.current = true;
-      player.current?.seek(rangeRef.current.inMs);
+      if (time < r.inMs || time >= r.outMs - 15) player.current?.seek(r.inMs);
     } else if (t && time >= t.durationMs - 30) player.current?.seek(0);
     setPlaying((p) => !p);
   }, [playing, t, time]);
+  /** Loop on or off; turning it on while stopped starts the range. */
+  const toggleLoop = useCallback(() => {
+    const r = rangeRef.current;
+    setLoopRange((on) => !on);
+    if (!loopRef.current && !playing && r && r.outMs - r.inMs >= 40) toggle();
+  }, [playing, toggle]);
+  const toggleLoopNow = useRef(toggleLoop);
+  toggleLoopNow.current = toggleLoop;
   // the range stays within what plays when the timeline changes under it
   const durationMs = t?.durationMs ?? 0;
   useEffect(() => {
@@ -413,21 +430,30 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
       const plain = !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open;
       // I and O: In and Out at the playhead (one alone reaches to the end, or from the start)
+      // I and O: In and Out at the playhead (one alone reaches to the end, or from the start); with Shift: go to In / Out
       if (plain && (e.key === "i" || e.key === "I")) {
         e.preventDefault();
+        if (e.shiftKey) {
+          if (rangeRef.current) player.current?.seek(rangeRef.current.inMs);
+          return;
+        }
         const at = timeRef.current;
         setRange((r) => (r ? { inMs: at, outMs: Math.max(at, r.outMs) } : { inMs: at, outMs: totalRef.current }));
         return;
       }
       if (plain && (e.key === "o" || e.key === "O")) {
         e.preventDefault();
+        if (e.shiftKey) {
+          if (rangeRef.current) player.current?.seek(rangeRef.current.outMs);
+          return;
+        }
         const at = timeRef.current;
         setRange((r) => (r ? { inMs: Math.min(at, r.inMs), outMs: at } : { inMs: 0, outMs: at }));
         return;
       }
       if (plain && (e.key === "l" || e.key === "L") && rangeRef.current) {
         e.preventDefault();
-        setLoopRange((v) => !v);
+        toggleLoopNow.current();
         return;
       }
       if (e.key === "Escape" && !typing && !open && rangeRef.current) {
@@ -539,7 +565,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}
           </Button>
         )}
-        <Button disabled={!t.durationMs} onClick={() => setExp({ scale: 1, music: true, smooth: false, before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}>
+        <Button disabled={!t.durationMs} onClick={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}>
           <Download size={15} /> {t.exporting ? "Exporting…" : "Export video"}
         </Button>
       </header>
@@ -565,16 +591,16 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             const spanned = clips.filter((c) => c.lengthMs > 0 && c.atMs < Math.max(range.outMs, range.inMs + 1) && c.atMs + c.lengthMs > range.inMs).map((c) => clips.indexOf(c) + 1);
             const where = emptyRange ? "a cut" : spanned.length <= 1 ? `clip ${spanned[0] ?? "?"}` : `clips ${spanned[0]}–${spanned.at(-1)}`;
             return (
-              <div role="toolbar" aria-label="Range" className="flex h-11 shrink-0 items-center gap-1.5 overflow-hidden border-t border-line bg-accent-wash/40 px-3 text-sm whitespace-nowrap">
+              <div role="toolbar" aria-label="Range" className="flex h-10 shrink-0 items-center gap-1.5 overflow-hidden border-t border-line bg-accent-wash/40 px-3 text-sm whitespace-nowrap">
                 <span className="shrink-0 font-semibold text-accent">Range</span>
                 <span className="shrink-0 font-mono">{stamp(range.inMs)} <span className="text-ink-3">→</span> {stamp(range.outMs)}</span>
                 <span className="min-w-0 truncate text-ink-2">· {emptyRange ? "" : `${((range.outMs - range.inMs) / 1000).toFixed(1)} s · `}{where}</span>
                 <span className="grow" />
-                {rangeItems().map((it, i) =>
-                  it === "—" ? <span key={i} className="mx-1 h-5 border-l border-line" /> : it.label === "Clear the range" ? (
+                {rangeItems().filter((it): it is Exclude<MenuItem, "—"> => it !== "—" && it.label !== "Play range" && !it.label.startsWith("Loop")).map((it, i) =>
+                  it.label === "Clear the range" ? (
                     <button key={i} type="button" aria-label="Clear the range (Esc)" title="Clear the range (Esc)" onClick={it.run} className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
                   ) : (
-                    <Button key={i} size="sm" tone={it.label === "Play range" ? "primary" : undefined} aria-pressed={it.label.startsWith("Loop") ? loopRange : undefined} aria-label={it.label} disabled={it.disabled} title={[it.label, it.note, it.key ? `(${it.key})` : ""].filter(Boolean).join(" · ")} onClick={it.run} className={cx("shrink-0", it.label.startsWith("Loop") && loopRange && "text-accent")}>
+                    <Button key={i} size="sm" aria-label={it.label} disabled={it.disabled} title={[it.label, it.note].filter(Boolean).join(" · ")} onClick={it.run} className="shrink-0">
                       {it.icon} {SHORT[it.label] ?? it.label}
                     </Button>
                   ),
@@ -584,27 +610,30 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           })()}
           <div className="flex h-12 shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
             <button type="button" aria-label="Previous clip" title="Previous clip" disabled={!t.durationMs} onClick={() => jump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
-            <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!t.durationMs} onClick={toggle} className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-ground disabled:opacity-40">
+            <button type="button" aria-label={playing ? "Pause" : range && !emptyRange ? "Play the range" : "Play"} title={range && !emptyRange ? "Play the range: from the playhead inside it, else from In; stops at Out (Space)" : "Play / pause (Space)"} disabled={!t.durationMs} onClick={toggle} className={cx("flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40", range && !emptyRange ? "bg-accent text-accent-ink" : "bg-ink text-ground")}>
               {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}
             </button>
             <button type="button" aria-label="Next clip" title="Next clip" disabled={!t.durationMs} onClick={() => jump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
+            {range && !emptyRange && (
+              <button type="button" aria-label="Loop the range" aria-pressed={loopRange} title={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={toggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>
+            )}
             <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
             <span className="grow" />
-            <Button size="sm" disabled={!t.durationMs || add.isPending} title="Cuts the clip on screen at this frame, and adds a new clip that extends from it." onClick={() => void continueHere()}>
-              <Link2 size={13} /> Extend from this frame
-            </Button>
-            <Button
-              size="sm"
+            <button type="button" aria-label="Extend from this frame" title="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || add.isPending} onClick={() => void continueHere()} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>
+            <button
+              type="button"
+              aria-label="Save frame"
+              title="Save frame: the frame on screen, as an image in your library"
               disabled={!t.durationMs || frame.isPending}
-              title="Save the frame on screen as an image in your library."
               onClick={() => {
                 const here = player.current?.where();
                 if (here?.clip.take) frame.mutate({ asset: here.clip.take.asset.id, at: Math.round(here.assetMs) });
                 else if (here?.clip.still) setOpened(here.clip.still);
               }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"
             >
-              <Camera size={13} /> Save frame
-            </Button>
+              <Camera size={15} />
+            </button>
           </div>
         </div>
 
@@ -715,7 +744,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         <div role="dialog" aria-modal="true" aria-label="Export video" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setExp(null)}>
           <div className="flex w-full max-w-md flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5" onClick={(e) => e.stopPropagation()}>
             <span className="text-base font-semibold">Export video</span>
-            <span className="text-ink-2">{stamp(t.durationMs)} · {playable} clip{playable > 1 ? "s" : ""} · one MP4 in your library</span>
+            <span className="text-ink-2">{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable} clip${playable > 1 ? "s" : ""}`} · one MP4 in your library</span>
             {exportDone ? (
               <>
                 <span>Done. The video is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}.</span>
@@ -738,7 +767,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                   <Segmented<"1" | "1.5" | "2"> label="Resolution" value={String(exp.scale) as "1" | "1.5" | "2"} onChange={(v) => setExp({ ...exp, scale: Number(v) as 1 | 1.5 | 2 })} options={[{ value: "1", label: "As rendered" }, { value: "1.5", label: "1.5× upscale" }, { value: "2", label: "2× upscale" }]} />
                   <span className="text-xs text-ink-2">Upscaling is done by ffmpeg (lanczos, then a light unsharp), not by a model: every frame is resized and a little sharper. The clips are not rendered again, so it works on a small card.</span>
                 </div>
-                {t.music && <Toggle on={exp.music} onChange={(music) => setExp({ ...exp, music })} label="Include the music" />}
+                {range && !emptyRange && <Toggle on={exp.range} onChange={(only) => setExp({ ...exp, range: only })} label="Only the range" note={`In ${stamp(range.inMs)} to Out ${stamp(range.outMs)}`} />}
+                {t.music && (exp.range && range ? <span className="text-xs text-ink-2">The music is left out of a range: it would start from its beginning, not from In.</span> : <Toggle on={exp.music} onChange={(music) => setExp({ ...exp, music })} label="Include the music" />)}
                 {Math.max(0, ...clips.map((c) => c.take?.asset.fps ?? 0)) < 47 && (
                   <div className="flex flex-col gap-1">
                     <Toggle on={exp.smooth} onChange={(smooth) => setExp({ ...exp, smooth })} label="Frame interpolation" note="48 fps, ffmpeg minterpolate" />
@@ -747,7 +777,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 )}
                 {misfits > 0 && <span className="text-xs text-ink-2">{misfits} clip{misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).</span>}
                 <div className="flex flex-wrap gap-2">
-                  <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth }); }}>Export</Button>
+                  <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined }); }}>Export</Button>
                   <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
                 </div>
               </>

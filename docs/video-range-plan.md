@@ -103,6 +103,12 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
   timeline. Kept: `splitClip` ("Split clip at playhead" in the clip menu, no range needed), the viewer's Trim.
 - The clip menu also gained **Extend from this frame** and **Save frame** (at the playhead, on when it stands
   on that clip).
+- **Context, not just frames** (same day): when the model takes a previous / next clip (H3) and the neighbour is a
+  video, the new clip extends the clip before and the clip after follows it, so the render sees the motion on
+  both sides; otherwise the frames are pinned and the note says so. Wan / LTX would need temporal inpainting
+  (VACE) for real context: a later recipe.
+- **One transport**: Play turns accent with a range and plays it; Loop beside it; Shift+I / O jump; Shift-click
+  a clip reaches the range to it; Export has "Only the range".
 - **Loop** (slice E) is not built: with the range it would be "Regenerate with In and Out swapped"; wanted
   only when asked for.
 

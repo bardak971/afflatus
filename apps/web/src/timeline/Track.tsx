@@ -144,7 +144,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const n = (id: string) => clips.findIndex((c) => c.id === id) + 1;
   const hint = !dragging
     ? clips.length
-      ? "Drag images, videos and audio here from the left. Click a clip to change it; drag its edges to trim it. I and O set a range at the playhead; Shift-drag the ruler."
+      ? "Drag images, videos and audio here from the left. Click a clip to change it; drag its edges to trim it. I and O mark a range."
       : "Your clips will line up here, left to right, in the order they play."
     : !over
       ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : "Drop it on the timeline."
@@ -342,6 +342,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     }}
                     onDragOver={(e) => overClip(e, s)}
                     onClick={(e) => {
+                      // Shift: the range reaches to cover this clip too (or starts as this clip)
+                      if (e.shiftKey && c.lengthMs > 0) {
+                        onRange(range ? { inMs: Math.min(range.inMs, c.atMs), outMs: Math.max(range.outMs, c.atMs + c.lengthMs) } : { inMs: c.atMs, outMs: c.atMs + c.lengthMs });
+                        return;
+                      }
                       onSelect(c.id);
                       const x = xOf(e.clientX);
                       onSeek(playAt(slots, x), Math.max(0, Math.min(totalMs, ((x - PAD) / pps) * 1000)));

@@ -92,6 +92,12 @@ interface Placed {
   sound: AssetRow | null;
 }
 
+/** How a clip regenerated in a range meets its neighbours: with their video as context, on a frame, or nothing there. */
+export interface RangeContext {
+  start: "clip" | "frame" | "none";
+  end: "clip" | "frame" | "none";
+}
+
 /** A clip that plays, on the timeline's clock: where it starts and how long. */
 interface Laid {
   p: Placed;
@@ -1005,21 +1011,30 @@ export class Timelines {
    * first that does. It starts from that clip's words and settings. In = Out on a cut: a clip between
    * the two, nothing removed. The clip is not rendered here: it is selected, and its form is yours first.
    */
-  async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<string> {
+  async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext }> {
     const { laid, total, a, b } = await this.window(timelineId, inMs, outMs);
     const before = a > 0 ? this.before(laid, a) : undefined;
     const after = b < total ? this.at(laid, b) : undefined;
     if (!before && !after) throw refused("The range covers everything: there is no frame to pin the new clip to. Add a clip instead.");
     const takes = (r: Recipe<any>, role: "start" | "end") => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === role);
-    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && (!before || takes(r, "start")) && (!after || takes(r, "end")));
+    const carries = (r: Recipe<any>, role: "previous" | "next") => r.output === "video" && r.inputs.some((i) => i.type === "clip" && i.role === role);
+    /**
+     * How the new clip meets each neighbour: a model that takes the clip before as context extends it
+     * (the motion carries across), else it opens on the frame before In; the same at Out with the clip
+     * after (a still is a picture either way).
+     */
+    const startBy = (r: Recipe<any>): "clip" | "frame" | null => (!before ? null : before.p.clip.kind === "video" && carries(r, "previous") ? "clip" : takes(r, "start") ? "frame" : null);
+    const endBy = (r: Recipe<any>): "clip" | "frame" | null => (!after ? null : after.p.clip.kind === "video" && carries(r, "next") ? "clip" : takes(r, "end") ? "frame" : null);
+    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && (!before || startBy(r)) && (!after || endBy(r)));
     const source = before ?? after!;
     const own = source.p.clip.recipe_id ? this.registry.recipe(source.p.clip.recipe_id) : undefined;
     const recipe = fits(own) ? own : this.registry.recipes().find(fits);
     if (!recipe) {
       throw refused(before && after ? "None of your video models takes a first and a last frame: nothing can be rendered between the clips." : before ? "None of your video models takes a first frame (i2v)." : "None of your video models takes a last frame.");
     }
-    const first = before ? await this.pictureAt(before, a - before.atMs, "end") : null;
-    const last = after ? await this.pictureAt(after, b - after.atMs, "start") : null;
+    const context: RangeContext = { start: before ? startBy(recipe)! : "none", end: after ? endBy(recipe)! : "none" };
+    const first = context.start === "frame" ? await this.pictureAt(before!, a - before!.atMs, "end") : null;
+    const last = context.end === "frame" ? await this.pictureAt(after!, b - after!.atMs, "start") : null;
     await this.remember(timelineId, b - a >= 40 ? "the regenerated range" : "the clip added between");
     if (b - a >= 40) await this.cutOut(timelineId, a, b);
     // where it goes: after the last clip that stops by In
@@ -1044,18 +1059,20 @@ export class Timelines {
     await this.db
       .insertInto("clips")
       .values({
-        id, timeline_id: timelineId, position: index, take_id: null, joined: "cut", recipe_id: recipe.id, inputs: JSON.stringify(inputs),
+        // extending the clip before: the render is given that clip's video up to In
+        id, timeline_id: timelineId, position: index, take_id: null, joined: context.start === "clip" ? "continue" : "cut", recipe_id: recipe.id, inputs: JSON.stringify(inputs),
         kind: "video", still_asset_id: null, still_ms: 3000, sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: source.p.clip.look, chat: null, created_at: at, updated_at: at,
       })
       .execute();
     const order = all.map((p) => p.clip.id);
     order.splice(index, 0, id);
     await this.renumber(timelineId, order);
-    // the clip after it no longer carries on from what was there
+    // the clip after: it follows the new clip when the model can end where it begins (the render is given its video from Out), else it is a cut
     const next = all[index];
-    if (next && next.clip.joined === "continue") await this.db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", next.clip.id).execute();
+    const nextJoined = context.end === "clip" ? "continue" : "cut";
+    if (next && next.clip.joined !== nextJoined) await this.db.updateTable("clips").set({ joined: nextJoined, updated_at: at }).where("id", "=", next.clip.id).execute();
     await this.touch(timelineId);
-    return id;
+    return { clip: id, context };
   }
 
   // ---------------------------------------------------------------- export

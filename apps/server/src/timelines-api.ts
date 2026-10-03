@@ -75,6 +75,8 @@ const exportBody = z.strictObject({
   music: z.boolean().default(true),
   /** Smooth motion: 48 pictures a second, worked out from the pictures there are. Slow. */
   smooth: z.boolean().default(false),
+  /** Only this part of the timeline (In and Out, on its clock). The music is left out. */
+  range: z.object({ inMs: z.number().min(0), outMs: z.number().min(0) }).optional(),
 });
 
 export function registerTimelines(app: FastifyInstance, s: Services): void {
@@ -173,7 +175,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const view = await t.view(req.params.id);
     if (!view.durationMs) throw new UserError("There is nothing to export yet: no clip of this timeline has a take.");
     if (view.exporting) return { id: view.exporting.id };
-    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth }, `${view.name} · export`) };
+    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range }, `${view.name} · export`) };
   });
 
   /** One clip becomes two at a moment of its take (the video's own time): the first plays up to it, the second from it. */
@@ -197,9 +199,9 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     if (body.action === "split") await t.splitRange(id, body.inMs, body.outMs);
     else if (body.action === "remove") await t.removeRange(id, body.inMs, body.outMs);
     else if (body.action === "regenerate") {
-      const clip = await t.regenerateRange(id, body.inMs, body.outMs);
+      const made = await t.regenerateRange(id, body.inMs, body.outMs);
       s.queue.events.emit("timeline");
-      return { clip };
+      return made;
     } else {
       const view = await t.view(id);
       const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
