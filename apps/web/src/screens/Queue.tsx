@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GripVertical, X } from "lucide-react";
-import { secondsInput } from "@afflatus/core";
-import { api, type Job, type RecipeInfo, type SystemLoad } from "../api";
-import { useQueue, useRecipes } from "../data";
-import { about, aboutMs, phaseLabel, took, when } from "../format";
+import { api, type SystemLoad } from "../api";
+import { useQueue } from "../data";
+import { about, aboutMs, phaseLabel, when } from "../format";
 import { allowNotifications, useNotify, useSystem } from "../store";
-import { Bar, Button, cx, Empty, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
+import { Bar, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
 import { LivePreview } from "../LivePreview";
+import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 
 /** The numbers of the machine ComfyUI runs on. Shows what is known: a meter with no source is left out. */
@@ -28,29 +28,13 @@ export function meters(load: SystemLoad | null): Array<{ label: string; value: s
   return out;
 }
 
-const STATUS: Record<Job["status"], string> = { queued: "Queued", running: "Running", done: "Done", failed: "Failed", cancelled: "Cancelled" };
-
 /**
- * After a render ran out of memory: the same job, one size smaller (or, when it has no size to set,
- * shorter). null when the recipe offers nothing to make it lighter.
+ * The queue: what runs now, what comes next and when it will all be done, on the left; what was done,
+ * as the results themselves, on the right (History). The machine's meters sit under the queue, small:
+ * the footer has the ones that matter at every moment.
  */
-export function lighter(recipe: RecipeInfo | undefined, input: Record<string, unknown> | null): { change: Record<string, unknown>; label: string } | null {
-  if (!recipe || !input) return null;
-  const size = recipe.inputs.find((i) => i.type === "number" && /short|resolution|megapixel|size/i.test(`${i.id} ${i.label}`));
-  const length = secondsInput(recipe.inputs);
-  for (const spec of [size, length]) {
-    if (!spec || spec.type !== "number") continue;
-    const now = Number(input[spec.id] ?? spec.default);
-    const next = Math.max(spec.min, Number((now - spec.step * (spec === length ? Math.max(1, Math.round(1 / spec.step)) : 1)).toFixed(4)));
-    if (next < now) return { change: { [spec.id]: next }, label: `Retry at ${next}${spec.unit ?? ""}` };
-  }
-  return null;
-}
-const ranOutOfMemory = (error: string | null) => /out of memory|\boom\b|allocat|not enough memory/i.test(error ?? "");
-
 export function Queue() {
   const queue = useQueue();
-  const recipes = useRecipes();
   const load = useSystem((s) => s.load);
   const notify = useNotify();
   const client = useQueryClient();
@@ -59,15 +43,13 @@ export function Queue() {
   const free = useMutation({ mutationFn: api.freeMemory });
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh });
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q) });
-  const again = useMutation({ mutationFn: (v: { id: string; input?: Record<string, unknown> }) => api.retryJob(v.id, v.input), onSuccess: refresh });
-  const dismiss = useMutation({ mutationFn: api.dismissJob, onSuccess: refresh });
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [refused, setRefused] = useState(false);
   const [tab, setTab] = useState<"queue" | "times">("queue");
   const q = queue.data;
   const m = meters(load);
-  const error = queue.error ?? free.error ?? pause.error ?? cancel.error ?? order.error ?? again.error ?? dismiss.error;
+  const error = queue.error ?? free.error ?? pause.error ?? cancel.error ?? order.error;
 
   const drop = (index: number) => {
     if (!q || !dragged) return;
@@ -78,28 +60,36 @@ export function Queue() {
     setOver(null);
   };
   const waitingMs = q?.waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) ?? 0;
-  const failed = q?.recent.filter((r) => r.status === "failed") ?? [];
-  const finished = q?.recent.filter((r) => r.status !== "failed") ?? [];
+  const switches = (() => {
+    // how many times the model changes down the line: each one costs a load
+    let n = 0;
+    let last: string | null = null;
+    for (const w of q?.waiting ?? []) {
+      if (w.kind !== "render") continue;
+      const model = w.recipe;
+      if (last && model !== last) n++;
+      last = model;
+    }
+    return n;
+  })();
 
   return (
-    <div className="flex min-h-0 grow flex-col overflow-y-auto px-8 pb-8">
-      <header className="flex h-24 shrink-0 items-center gap-5">
-        <div className="grow">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold">Queue</h1>
-            <div className="w-64">
-              <Segmented<"queue" | "times"> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }]} onChange={setTab} />
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-ink-2">
-            <span className={cx("h-2 w-2 rounded-full", q?.online ? "bg-good" : "bg-warn")} />
-            {q?.online ? "ComfyUI online · the meters below are the machine it runs on, live" : "ComfyUI offline. Queued jobs stay in the queue."}
-          </div>
+    <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
+      <header className="flex h-20 shrink-0 items-center gap-5">
+        <h1 className="text-xl font-semibold">Queue</h1>
+        <div className="w-64">
+          <Segmented<"queue" | "times"> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }]} onChange={setTab} />
         </div>
-        {q && !q.paused && <span className="max-w-72 text-right text-xs text-ink-2">Pause when you want to use ComfyUI yourself. Queued jobs stay in the queue.</span>}
+        <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2">
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className={cx("h-2 w-2 rounded-full", q?.online ? "bg-good" : "bg-warn")} />
+            {q?.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
+          </span>
+          {q?.model && <span className="truncate font-mono">{q.model} loaded</span>}
+        </div>
         {q?.online && (
           <Button
-            className="h-12 px-5 text-sm"
+            className="h-10 px-4"
             disabled={free.isPending || Boolean(q.running && q.running.recipe !== "afflatus.export")}
             title="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
             onClick={() => free.mutate()}
@@ -108,65 +98,59 @@ export function Queue() {
           </Button>
         )}
         {q && (
-          <Button tone={q.paused ? "primary" : "plain"} className="h-12 px-5 text-sm" onClick={() => pause.mutate(!q.paused)}>
+          <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" title={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => pause.mutate(!q.paused)}>
             {q.paused ? "Resume queue" : "Pause queue"}
           </Button>
         )}
       </header>
 
-      {tab === "times" && <RenderTimes />}
-
-      {tab === "queue" && m.length > 0 && (
-        <div className="mb-5 grid shrink-0 gap-2.5" style={{ gridTemplateColumns: `repeat(${m.length}, minmax(0, 1fr))` }}>
-          {m.map((x) => (
-            <div key={x.label} className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-panel px-3 py-2.5">
-              <div className="flex items-baseline justify-between">
-                <span className="text-xs text-ink-2">{x.label}</span>
-                <span className={cx("font-mono text-[15px]", x.hot && "text-warn-ink")}>{x.value}</span>
-              </div>
-              <Bar value={x.percent} tone={x.hot ? "warn" : "picture"} />
-            </div>
-          ))}
-        </div>
-      )}
-
       {error && <ErrorNote>{error.message}</ErrorNote>}
-      {tab === "queue" && q?.paused && (
-        <div className="mb-4 rounded-[10px] bg-accent-wash px-4 py-3 font-semibold text-accent">
-          Queue paused. The running render finishes, then nothing new is sent to ComfyUI until you resume. The GPU is yours. Exports go on: they do not use it.
-        </div>
-      )}
+
+      {tab === "times" && <div className="min-h-0 grow overflow-y-auto"><RenderTimes /></div>}
 
       {tab === "queue" && q && (
-        <div className="grid grid-cols-[minmax(0,1fr)_420px] gap-8">
-          <div className="flex flex-col gap-6">
+        <div className="grid min-h-0 grow grid-cols-[400px_minmax(0,1fr)] gap-6">
+          <div className="flex min-h-0 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+            {q.paused && (
+              <div className="rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
+                Paused. The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: no GPU.
+              </div>
+            )}
+
             <section className="flex flex-col gap-2">
               <SectionTitle>{q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running"}</SectionTitle>
               {q.running ? (
-                <div className="flex gap-4 rounded-xl border border-line-strong bg-panel p-3.5">
+                <div className="flex flex-col gap-3 rounded-xl border border-line-strong bg-panel p-3">
                   {/* large enough to judge a render by, and to stop one that is not going where it should; a clip plays with its sound */}
-                  <div className="flex h-[280px] min-w-[158px] max-w-[420px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-raised text-[11px] text-ink-2">
+                  <div data-stage className="flex h-[260px] items-center justify-center overflow-hidden rounded-lg bg-raised text-[11px] text-ink-2">
                     {q.running.previewSeq > 0 ? <LivePreview job={q.running} sound className="h-full w-auto max-w-full object-contain" /> : q.running.kind === "export" ? "no preview" : "no preview yet"}
                   </div>
-                  <div className="flex min-w-0 grow flex-col gap-2">
-                    <div className="text-[15px] font-semibold">{q.running.label}</div>
-                    <div className="text-ink-2">{phaseLabel(q.running.phase)}</div>
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <div className="truncate text-[15px] font-semibold">{q.running.label}</div>
                     <Bar value={q.running.progress * 100} />
-                    <div className="flex items-center justify-between">
-                      <span>{q.running.steps ? `Step ${q.running.step} of ${q.running.steps}` : q.running.kind === "export" ? "No GPU needed" : "Starting"}{q.running.eta ? ` · ${about(q.running.eta)}` : ""}</span>
-                      <Button size="sm" onClick={() => cancel.mutate(q.running!.id)}>Cancel</Button>
+                    <div className="flex items-center justify-between gap-2 text-xs text-ink-2">
+                      <span className="truncate">
+                        {phaseLabel(q.running.phase)}
+                        {q.running.steps ? ` · step ${q.running.step} of ${q.running.steps}` : q.running.kind === "export" ? " · no GPU needed" : ""}
+                        {q.running.eta ? ` · ${about(q.running.eta)}` : ""}
+                      </span>
+                      <Button size="sm" onClick={() => cancel.mutate(q.running!.id)}>Stop</Button>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-line px-4 py-5 text-ink-2">Nothing running.</div>
+                <div className="rounded-xl border border-line px-3.5 py-3 text-sm text-ink-2">Nothing running.</div>
               )}
             </section>
 
             <section className="flex flex-col gap-2" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
-              <div className="flex items-baseline justify-between">
-                <SectionTitle>Queued · {q.waiting.length}{waitingMs ? ` · ${aboutMs(waitingMs)} total` : ""}</SectionTitle>
-                {q.waiting.length > 1 && <span className="text-xs text-ink-2">Drag to reorder. Images go before videos unless you move them.</span>}
+              <div className="flex items-baseline justify-between gap-2">
+                <SectionTitle>Next · {q.waiting.length}</SectionTitle>
+                {q.waiting.length > 0 && (
+                  <span className="truncate text-xs text-ink-2">
+                    {waitingMs ? `${aboutMs(waitingMs)} in all` : ""}{switches ? ` · ${switches} model switch${switches > 1 ? "es" : ""}` : ""}
+                  </span>
+                )}
               </div>
               {q.waiting.map((w, i) => (
                 <div
@@ -187,7 +171,7 @@ export function Queue() {
                     setOver(e.clientY < r.top + r.height / 2 ? i : i + 1);
                   }}
                   className={cx(
-                    "flex items-center gap-2 rounded-[10px] border border-line bg-panel py-2.5 pr-2 pl-2",
+                    "flex items-center gap-2 rounded-[10px] border border-line bg-panel py-2 pr-1.5 pl-1.5",
                     dragged === w.id && "opacity-50",
                     dragged && over === i && "border-t-accent",
                     dragged && over === i + 1 && i === q.waiting.length - 1 && "border-b-accent",
@@ -195,59 +179,20 @@ export function Queue() {
                 >
                   <GripVertical size={15} className="shrink-0 cursor-grab text-ink-3" />
                   <span className="min-w-0 grow">
-                    <span className="block font-semibold">{w.label}</span>
-                    <span className="block text-xs text-ink-2">{w.kind === "export" ? "export · no GPU needed" : `queued ${when(w.createdAt)}`}</span>
+                    <span className="block truncate text-sm font-semibold">{w.label}</span>
+                    <span className="block text-xs text-ink-2">{w.kind === "export" ? "export · no GPU needed" : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}</span>
                   </span>
                   {w.estimateMs ? <span className="shrink-0 text-xs text-ink-2">{aboutMs(w.estimateMs)}</span> : null}
-                  <button type="button" aria-label={`Remove ${w.label} from the queue`} onClick={() => cancel.mutate(w.id)} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">
+                  <button type="button" aria-label={`Remove ${w.label} from the queue`} onClick={() => cancel.mutate(w.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">
                     <X size={15} />
                   </button>
                 </div>
               ))}
-              {!q.waiting.length && <div className="text-ink-2">Nothing queued.</div>}
+              {!q.waiting.length && <div className="rounded-xl border border-line px-3.5 py-3 text-sm text-ink-2">Nothing queued.</div>}
+              {q.waiting.length > 1 && <span className="text-xs text-ink-3">Drag to reorder. Images go before videos unless you move them.</span>}
             </section>
 
-            {failed.length > 0 && (
-              <section className="flex flex-col gap-2">
-                <SectionTitle>{failed.length} render{failed.length > 1 ? "s" : ""} failed</SectionTitle>
-                {failed.map((r) => {
-                  const recipe = recipes.data?.recipes.find((x) => x.id === r.recipe);
-                  const fix = ranOutOfMemory(r.error) ? lighter(recipe, r.input) : null;
-                  return (
-                    <div key={r.id} className="flex flex-col gap-2 rounded-[10px] border border-warn/50 bg-warn-wash px-3.5 py-3">
-                      <div className="font-semibold">{r.label}</div>
-                      <div className="text-warn-ink">{r.error}{fix ? " Out of VRAM." : ""}</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {fix && <Button size="sm" tone="danger" disabled={again.isPending} onClick={() => again.mutate({ id: r.id, input: fix.change }, { onSuccess: () => dismiss.mutate(r.id) })}>{fix.label}</Button>}
-                        <Button size="sm" disabled={again.isPending} onClick={() => again.mutate({ id: r.id }, { onSuccess: () => dismiss.mutate(r.id) })}>Retry unchanged</Button>
-                        <Button size="sm" tone="quiet" onClick={() => dismiss.mutate(r.id)}>Dismiss</Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </section>
-            )}
-          </div>
-
-          <section className="flex flex-col gap-2">
-            <SectionTitle>Finished · {finished.length}</SectionTitle>
-            {finished.map((r) => (
-              <div key={r.id} className="flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 truncate font-semibold">{r.label}</span>
-                  <span className={cx("shrink-0 font-semibold", r.status === "done" ? "text-good" : "text-ink-2")}>{STATUS[r.status]}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs text-ink-2">
-                  <span>
-                    {r.finishedAt ? when(r.finishedAt) : ""}
-                    {r.status === "done" && r.startedAt && r.finishedAt ? ` · took ${took(new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime())}` : ""}
-                  </span>
-                  {r.status === "cancelled" && <button type="button" onClick={() => again.mutate({ id: r.id }, { onSuccess: () => dismiss.mutate(r.id) })} className="underline hover:text-ink">Requeue</button>}
-                </div>
-              </div>
-            ))}
-            {!finished.length && <Empty title="Nothing finished yet" />}
-            <div className="mt-2 flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2.5">
+            <div className="flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
               <Toggle
                 on={notify.whenEmpty}
                 label="Notify when the queue is empty"
@@ -259,7 +204,26 @@ export function Queue() {
               />
               <span className="text-xs text-ink-2">{refused ? "Your browser does not allow notifications from this page. Allow them in its settings, next to the address." : "A notification from your browser. Nothing leaves your computer."}</span>
             </div>
-          </section>
+
+            {m.length > 0 && (
+              <section className="flex flex-col gap-2">
+                <SectionTitle>Machine</SectionTitle>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {m.map((x) => (
+                    <div key={x.label} className="flex flex-col gap-1 rounded-[8px] border border-line bg-panel px-2 py-1.5">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-[11px] text-ink-2">{x.label}</span>
+                        <span className={cx("font-mono text-xs", x.hot && "text-warn-ink")}>{x.value}</span>
+                      </div>
+                      <Bar value={x.percent} tone={x.hot ? "warn" : "picture"} />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+
+          <History />
         </div>
       )}
     </div>

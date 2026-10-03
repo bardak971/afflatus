@@ -769,6 +769,55 @@ export class Queue {
   }
 
   /**
+   * The finished jobs, newest first, with what each made: for the queue's history. `q` looks in the
+   * label and the inputs (the prompt is there), `model` in the inputs too (the model file's name).
+   * Counts say how many of each status there are in all, so that a filter can show its number.
+   */
+  async history(opts: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number } = {}) {
+    const limit = Math.min(200, Math.max(1, opts.limit ?? 60));
+    const offset = Math.max(0, opts.offset ?? 0);
+    // a job that only loaded a model made nothing: not part of the history
+    let query = this.db.selectFrom("jobs").selectAll().where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0);
+    if (opts.status) query = query.where("status", "=", opts.status);
+    if (opts.q?.trim()) {
+      const like = `%${opts.q.trim().replace(/[%_]/g, (c) => `\\${c}`)}%`;
+      query = query.where((eb) => eb.or([eb("label", "like", like), eb("inputs", "like", like)]));
+    }
+    if (opts.model?.trim()) query = query.where("inputs", "like", `%${opts.model.trim().replace(/[%_]/g, (c) => `\\${c}`)}%`);
+    const rows = await query.orderBy("finished_at", "desc").orderBy("created_at", "desc").limit(limit + 1).offset(offset).execute();
+    const more = rows.length > limit;
+    const page = rows.slice(0, limit);
+    // what each made, and how it was settled
+    const genIds = page.map((r) => r.generation_id).filter((g): g is string => Boolean(g));
+    const gens = genIds.length ? await this.db.selectFrom("generations").select(["id", "resolved"]).where("id", "in", genIds).execute() : [];
+    const made = genIds.length
+      ? await this.db.selectFrom("assets").select(["id", "generation_id", "kind", "width", "height", "duration_ms", "kept_at", "deleted_at", "name"]).where("generation_id", "in", genIds).where("origin", "!=", "mask").orderBy("created_at").execute()
+      : [];
+    const counts = Object.fromEntries((await this.db.selectFrom("jobs").select(["status", (eb) => eb.fn.countAll<number>().as("n")]).where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0).groupBy("status").execute()).map((c) => [c.status, Number(c.n)])) as Partial<Record<"done" | "failed" | "cancelled", number>>;
+    const items = page.map((r) => {
+      const recipe = this.registry.recipe(r.recipe_id);
+      const input = r.recipe_id === EXPORT_JOB ? {} : (JSON.parse(r.inputs) as Record<string, unknown>);
+      const promptSpec = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
+      const prompt = promptSpec && typeof input[promptSpec.id] === "string" ? (input[promptSpec.id] as string).trim().slice(0, 240) : "";
+      const resolved = r.generation_id ? (JSON.parse(gens.find((g) => g.id === r.generation_id)?.resolved ?? "{}") as { seed?: number }) : {};
+      const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
+      return {
+        id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
+        kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.warm ? ("load" as const) : ("render" as const),
+        input: r.status === "failed" && r.recipe_id !== EXPORT_JOB ? input : null,
+        createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, tookMs,
+        model: recipe ? modelOf(recipe.inputs, input) : null,
+        prompt,
+        seed: typeof resolved.seed === "number" ? resolved.seed : null,
+        // jobs asked for together ("Make 4"): the same form, the same second
+        batch: `${r.draft_id ?? ""}|${r.recipe_id}|${r.label}|${r.created_at.slice(0, 19)}`,
+        made: made.filter((a) => a.generation_id === r.generation_id).map((a) => ({ id: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, kept: a.kept_at !== null, inBin: a.deleted_at !== null, name: a.name })),
+      };
+    });
+    return { items, more, counts: { done: counts.done ?? 0, failed: counts.failed ?? 0, cancelled: counts.cancelled ?? 0 } };
+  }
+
+  /**
    * The graph a form (or a past render: its inputs and its seed) gives, built without uploading anything:
    * the files a render would send are stood in for by `names` (the file's own name, to be read in the
    * graph), else by a placeholder. Null when the form is not complete enough to build.

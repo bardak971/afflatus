@@ -320,6 +320,17 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   });
 
   app.get("/api/queue", async () => s.queue.status());
+  /** The finished jobs with what they made: the queue's history, filtered and paged. */
+  app.get("/api/jobs", async (req) => {
+    const q = z.object({
+      status: z.enum(["done", "failed", "cancelled"]).optional(),
+      q: z.string().max(200).optional(),
+      model: z.string().max(300).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+      limit: z.coerce.number().int().min(1).max(200).optional(),
+    }).parse(req.query);
+    return s.queue.history(q);
+  });
   app.post("/api/queue/pause", async () => {
     await s.queue.setPaused(true);
     return s.queue.status();

@@ -17,6 +17,7 @@ import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
 import { seedRenderTimes } from "./demo-times";
+import { seedHistory } from "./demo-history";
 import { writeSettings } from "../apps/server/src/settings";
 import { LocalStorage } from "../apps/server/src/storage";
 import { mkdirSync } from "node:fs";
@@ -160,6 +161,7 @@ await writeSettings(db, { comfyUrl: fake.url, llm: { baseUrl: llmUrl, model: "pr
 
 // a few months of pretend render times, so that the "Render times" tab has something to show
 await seedRenderTimes(db);
+await seedHistory(db);
 const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")));
 // WEB_DIR: another build of the web app than the one `pnpm start` serves
 const dist = process.env.WEB_DIR ? join(root, process.env.WEB_DIR) : join(root, "apps/web/dist");

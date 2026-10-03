@@ -7,6 +7,16 @@ import { api, type TimesPeriod } from "./api";
 export const useRecipes = () => useQuery({ queryKey: ["recipes"], queryFn: api.recipes, staleTime: Infinity });
 export const useSetup = () => useQuery({ queryKey: ["setup"], queryFn: () => api.setup(), staleTime: 60_000 });
 export const useQueue = () => useQuery({ queryKey: ["queue"], queryFn: api.queue });
+/** The queue's history, a page at a time; it follows the queue's live events. */
+export function useJobs(filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string }) {
+  return useInfiniteQuery({
+    queryKey: ["queue", "history", filter],
+    queryFn: ({ pageParam }) => api.jobs({ ...filter, offset: pageParam, limit: 60 }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => (last.more ? pages.reduce((n, p) => n + p.items.length, 0) : undefined),
+    placeholderData: keepPreviousData,
+  });
+}
 export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: api.settings });
 
 /**

@@ -384,3 +384,22 @@ describe("the library", () => {
     expect((await get(t.app, "/api/assets/nope")).statusCode).toBe(404);
   });
 });
+
+describe("the queue's history", () => {
+  it("lists finished jobs with what they made, searched and counted", async () => {
+    const id = await enqueue({ steps: 20 });
+    await until(() => submitted().length === 1);
+    complete(fake, submitted()[0]!, 832, 1216);
+    await until(async () => (await statusOf(id)).status === "done");
+    const page = (await get(t.app, "/api/jobs")).json();
+    expect(page.counts).toEqual({ done: 1, failed: 0, cancelled: 0 });
+    expect(page.more).toBe(false);
+    expect(page.items[0]).toMatchObject({ id, status: "done", prompt: "a cat", kind: "render" });
+    expect(page.items[0].made[0]).toMatchObject({ kind: "image", width: 832, height: 1216, kept: false, inBin: false });
+    expect(typeof page.items[0].seed).toBe("number");
+    expect(page.items[0].tookMs).toBeGreaterThanOrEqual(0);
+    expect((await get(t.app, "/api/jobs?status=failed")).json().items).toHaveLength(0);
+    expect((await get(t.app, "/api/jobs?q=cat")).json().items).toHaveLength(1);
+    expect((await get(t.app, "/api/jobs?q=zebra")).json().items).toHaveLength(0);
+  });
+});

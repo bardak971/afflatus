@@ -80,6 +80,22 @@ export interface Job {
   startedAt: string | null;
   finishedAt: string | null;
 }
+/** A finished job as the queue's history shows it: with what it made and how. */
+export interface HistoryJob extends Job {
+  tookMs: number | null;
+  /** The model file's name, when the form has a model picker. */
+  model: string | null;
+  prompt: string;
+  seed: number | null;
+  /** The same for jobs asked for together ("Make 4"): shown as one card. */
+  batch: string;
+  made: Array<{ id: string; kind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; kept: boolean; inBin: boolean; name: string }>;
+}
+export interface HistoryPage {
+  items: HistoryJob[];
+  more: boolean;
+  counts: { done: number; failed: number; cancelled: number };
+}
 export interface RunningJob extends Job {
   progress: number;
   eta: number;
@@ -639,6 +655,8 @@ export const api = {
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
   queue: () => call<QueueStatus>("GET", "/queue"),
+  jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number }) =>
+    call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`),
   pause: () => call<QueueStatus>("POST", "/queue/pause"),
   resume: () => call<QueueStatus>("POST", "/queue/resume"),
   /** `into`: the draft it is sent from, and the folder that is open, where its results are filed. */
