@@ -828,6 +828,13 @@ export class Timelines {
   }
 
   /** A clip's take that plays, with its video and where the clip stands. */
+  /** A clip's timeline as it is on screen, and the clip's place in it. */
+  async whereIs(clipId: string) {
+    const clip = await this.clipRow(clipId);
+    const view = await this.view(clip.timeline_id);
+    return { view, index: view.clips.findIndex((c) => c.id === clipId) };
+  }
+
   async takeOf(clipId: string): Promise<{ clip: ClipRow; take: TakeRow; asset: AssetRow; index: number; timelineId: string }> {
     const clip = await this.clipRow(clipId);
     const all = await this.placed(clip.timeline_id);

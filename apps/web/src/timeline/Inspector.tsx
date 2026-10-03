@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ImagePlus, Link2, Music, Repeat, Scissors, Trash2, X } from "lucide-react";
+import { ChevronDown, ImagePlus, Link2, Music, Repeat, Scissors, Trash2, Wand2, X } from "lucide-react";
+import { secondsInput } from "@afflatus/core";
 import { thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
 import { WritingHelp } from "../Designer";
@@ -11,7 +12,7 @@ import { about, aboutMs, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { Select } from "../Select";
-import { Bar, Button, cx, ErrorNote, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
+import { AutoText, Bar, Button, cx, ErrorNote, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
 import { usePanelWidth } from "../store";
 import { otherShape, pinInputs, shapeOf } from "./model";
 
@@ -68,7 +69,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner, writing, writeError, onWriteBetween }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -99,6 +100,11 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   onPreview(take: Take | null): void;
   /** Open the designer for this clip. */
   onDesigner(): void;
+  /** The designer is writing what happens between the clips around (a clip put between two others). */
+  writing?: boolean;
+  writeError?: string | null;
+  /** Ask the designer to write it (again). */
+  onWriteBetween?(): void;
 }) {
   const panelWidth = usePanelWidth((st) => st.width);
   const all = useRecipes();
@@ -371,8 +377,17 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                   <span><Button size="sm" onClick={() => onPatch({ look: null })}>Use the timeline's again</Button></span>
                 </div>
               );
-              return (
-                <div className="flex flex-col gap-2.5">
+              // a clip that joins its neighbours and is not rendered yet: what matters for the join first, the whole form folded under it
+              const nextJoined = Boolean(after && after.joined === "continue" && after.take);
+              const joins = !take && (carries || Boolean(opens) || Boolean(ends) || nextJoined);
+              const leftFrame = opens ? thumbUrl(opens) : carries && before ? (before.kind === "still" && before.still ? thumbUrl(before.still.id) : before.take ? `/api/assets/${before.take.asset.id}/peek?at=${Math.max(0, Math.round(before.take.endMs - 20))}&h=160` : null) : null;
+              const rightFrame = ends ? thumbUrl(ends) : nextJoined && after?.take ? `/api/assets/${after.take.asset.id}/peek?at=${Math.round(after.take.startMs)}&h=160` : null;
+              const startsHow = carries ? `Extends clip ${index}: its motion carries in` : opens ? `Opens on a picture` : "Starts on its own";
+              const endsHow = nextJoined ? `ends where clip ${index + 2} begins` : ends ? "ends on a picture" : "ends free";
+              const seconds = secondsInput(form.inputs);
+              const landing = recipe.inputs.find((i) => i.id === "landing" && i.type === "choice");
+              const landingOptions = landing && landing.type === "choice" && Array.isArray(landing.options) ? landing.options : [];
+              const formElement = (
                   <Form
                     key={`${clip.id}:${form.id}`}
                     recipe={form}
@@ -396,6 +411,53 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                       />
                     }
                   />
+              );
+              if (!joins) return <div className="flex flex-col gap-2.5">{formElement}</div>;
+              return (
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2.5 rounded-xl border border-accent/40 bg-accent-wash/30 p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{leftFrame ? <img src={leftFrame} alt="" className="h-full w-full object-cover" /> : <span className="text-[10px] text-ink-3">—</span>}</div>
+                      <div className="flex min-w-0 grow flex-col gap-0.5 text-xs">
+                        <span className="font-semibold">Join</span>
+                        <span className="text-ink-2">{startsHow} · {endsHow}.</span>
+                      </div>
+                      <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{rightFrame ? <img src={rightFrame} alt="" className="h-full w-full object-cover" /> : <span className="text-[10px] text-ink-3">—</span>}</div>
+                    </div>
+                    {main && (
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-semibold">What happens <span className="font-normal text-ink-2">· between the two</span></span>
+                        <AutoText rows={3} value={written} disabled={writing} placeholder={main.type === "prompt" ? main.placeholder ?? "What happens in this stretch" : ""} onChange={(e) => onInputs({ ...stored, [main.id]: e.target.value })} className="w-full rounded-lg border border-line bg-raised px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-60" />
+                      </label>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      {writing ? (
+                        <span className="animate-pulse text-ink-2">The designer is writing what happens between…</span>
+                      ) : (
+                        <>
+                          {onWriteBetween && (nextJoined || ends) && <Button size="sm" onClick={onWriteBetween} title="The designer writes the stretch from how the clip before ends to how the clip after starts, in the clip's time."><Wand2 size={13} /> {written ? "Designer: write it again" : "Designer: write it"}</Button>}
+                          <Button size="sm" onClick={onDesigner}>Talk to the designer</Button>
+                        </>
+                      )}
+                      {writeError && <span className="text-warn-ink">{writeError}</span>}
+                    </div>
+                    {seconds && (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold">Duration</span>
+                        <NumberBox label="Duration" value={Number(stored[seconds.id] ?? seconds.default)} min={seconds.min} max={seconds.max} step={seconds.step} unit=" s" onCommit={(v) => onInputs({ ...stored, [seconds.id]: v })} />
+                      </div>
+                    )}
+                    {landing && nextJoined && landingOptions.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="flex items-baseline justify-between text-xs font-semibold">Landing <span className="font-normal text-ink-2">frames of clip {index + 2} it lands on</span></span>
+                        <Segmented label="Landing" value={String(stored.landing ?? (landing.type === "choice" ? landing.default : "22"))} onChange={(v) => onInputs({ ...stored, landing: v })} options={landingOptions.map((o) => ({ value: o, label: o === "5" ? "Tight · 5" : o === "22" ? "Normal · 22" : o === "39" ? "Long · 39" : o }))} />
+                      </div>
+                    )}
+                  </div>
+                  <details className="group rounded-lg border border-line">
+                    <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink"><ChevronDown size={13} className="transition-transform group-open:rotate-180" /> All settings</summary>
+                    <div className="border-t border-line p-2">{formElement}</div>
+                  </details>
                 </div>
               );
             })()}

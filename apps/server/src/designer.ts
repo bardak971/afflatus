@@ -107,6 +107,10 @@ export interface DesignerContext {
   seconds?: number | null;
   /** What the clip before it says happens, when this clip carries on from it. */
   previous?: string;
+  /** What the clip after it says happens, when this clip has to end where that one begins. */
+  next?: string;
+  /** The clip is put between two others, in place of a stretch that was cut out. */
+  between?: boolean;
   /** The whole video this clip is part of: what every clip says happens, in the order they play, and which one is being written. */
   story?: { clips: string[]; index: number };
   opensOnPicture?: boolean;
@@ -149,6 +153,8 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
           .join("\n")}\nKeep it one story: do not show again what an earlier clip already showed, lead into what the next clip needs, and keep the people, the place, the clothes and the mood the same from clip to clip unless the user says otherwise. You only write clip ${ctx.story.index + 1}.`
       : "",
     ctx.previous ? `This clip CONTINUES the clip before it (the model is given that clip's last frames): carry the action on from where it ended, nothing resets. Restate how the people look in a short clause, so they stay the same people even if that clip ended on a close-up. What the clip before says, which has ALREADY HAPPENED and is not to be shown or said again:\n${ctx.previous.slice(0, 2500)}\nWrite ONLY what comes after it: the next action, and new words if someone speaks (never the same line a second time). A text that says again what the clip before says is wrong, however it is reworded.` : "",
+    ctx.between ? "This clip is a BRIDGE put between two clips, in place of a stretch that was cut out: it picks up exactly where the clip before stops and must arrive exactly at how the clip after starts. Write only the action of that stretch, as much as fits in the time the clip has: no new scene, no reset, no ending of its own." : "",
+    ctx.next ? `The clip AFTER this one is already made (the model is given its first frames, or this clip's last frame is its first): the action has to ARRIVE at how it starts, and none of it is shown here. What the clip after says:\n${ctx.next.slice(0, 2500)}` : "",
     ctx.opensOnPicture && !ctx.previous ? "A picture is the FIRST FRAME: the action starts from exactly what it shows." : "",
     ctx.endsOnPicture ? "A picture is the LAST FRAME: the action has to arrive at it." : "",
     ctx.madeFrom?.length
@@ -555,6 +561,41 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
       if (reply.kind === "question") return { note: reply.question, clips: [] };
     }
     throw new DesignerError("The language model did not return a usable plan. Try again, or say it another way.");
+  });
+
+  /**
+   * A clip put between two others, written by the designer: what takes the action from the end of the clip
+   * before to the start of the clip after, in the clip's time. The texts come back with what the form held
+   * when it was asked; the page puts them in unless something was typed meanwhile.
+   */
+  app.post<{ Params: { id: string } }>("/api/clips/:id/between", async (req) => {
+    const { view, index } = await s.timelines.whereIs(req.params.id);
+    const clip = view.clips[index]!;
+    if (!clip.recipe) throw new DesignerError("This clip has no model yet: choose one first.");
+    const recipe = recipeOf(clip.recipe);
+    const mainOf = (r: Recipe<any>) => boxesOf(r).find((b) => !b.optional) ?? boxesOf(r)[0];
+    const sayOf = (c: (typeof view.clips)[number]) => {
+      if (c.kind === "still") return `(a picture held on screen for ${(c.lengthMs / 1000).toFixed(1)} s)`;
+      const r = c.recipe ? s.registry.recipe(c.recipe) : undefined;
+      const m = r ? mainOf(r) : undefined;
+      return m ? String(c.inputs[m.id] ?? "") : "(a video added as it is)";
+    };
+    const before = index > 0 ? view.clips[index - 1] : undefined;
+    const after = view.clips[index + 1];
+    const settings = await readSettings(s.db);
+    const llm = llmInUse(settings);
+    const ctx = await context(recipe, clip.inputs, { previous: before && clip.joined === "continue" ? sayOf(before) : undefined, story: { clips: view.clips.map(sayOf), index }, look: clip.look ?? view.look, mood: view.mood }, false);
+    ctx.next = after && (after.joined === "continue" || ctx.endsOnPicture) ? sayOf(after) : undefined;
+    ctx.between = true;
+    const system = systemPrompt(recipe, s.registry.family(recipe.family), "chat", ctx, undefined, instructionsInUse(settings));
+    const seconds = ctx.seconds ? `${ctx.seconds} seconds` : "the time it has";
+    const ask = `Write what happens in this clip. It is put between the clip before and the clip after: it starts from how the clip before ends and must arrive at how the clip after starts, in ${seconds}. What is written now came from the old clip and describes more than this stretch: replace it with only what happens here.`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const reply = parseReply(await chat(llm, [{ role: "system", content: system }, { role: "user", content: ask }]), recipe, ctx.values);
+      if (reply.kind === "proposal" && Object.keys(reply.changes).length) return { changes: reply.changes, note: reply.note, was: ctx.values };
+      if (reply.kind === "question") return { changes: {}, note: reply.question, was: ctx.values };
+    }
+    throw new DesignerError("The language model did not write the clip. Try again, or write it yourself.");
   });
 
   /** Ask a language model one word, to see that the address, the model and the key work: the one named, else the one in use. */

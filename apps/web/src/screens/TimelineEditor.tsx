@@ -191,6 +191,25 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** Playing the range: it stops at Out (or goes back to In). */
   const playingRange = useRef(false);
   const emptyRange = Boolean(range && range.outMs - range.inMs < 40);
+  // the designer writing a clip put between two others: its texts go into the form unless something was typed there meanwhile
+  const clipsNow = useRef(clips);
+  clipsNow.current = clips;
+  const [writing, setWriting] = useState<string | null>(null);
+  const writeBetween = useMutation({
+    mutationFn: async (v: { clip: string; force: boolean }) => {
+      setWriting(v.clip);
+      return { ...(await api.writeBetween(v.clip)), ...v };
+    },
+    onSuccess: (r) => {
+      const c = clipsNow.current.find((x) => x.id === r.clip);
+      if (!c) return;
+      const current = inputsOf(c);
+      const kept = Object.fromEntries(Object.entries(r.changes).filter(([k]) => r.force || String(current[k] ?? "") === String(r.was[k] ?? "")));
+      if (Object.keys(kept).length) editInputs(c, { ...current, ...kept });
+      if (r.note) setNote(`The designer: ${r.note}`);
+    },
+    onSettled: () => setWriting(null),
+  });
   const rangeAct = useMutation({
     mutationFn: (action: "split" | "remove" | "regenerate" | "copy") => api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action }),
     onSuccess: (r, action) => {
@@ -208,6 +227,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           : end === "none" ? "it opens on the frame at In; nothing rendered plays after Out, so only that frame is pinned"
           : "it is pinned to the frames at In and Out: the frames will match, the motion may not";
         setNote(`The new clip is selected: ${how}. Change what happens in it, then render it. Undo takes the range back.`);
+        // with a clip after to arrive at, the designer writes the stretch; without a language model nothing happens
+        if (end !== "none") writeBetween.mutate({ clip: r.clip, force: false });
       } else if (action === "remove") setRange(null);
       else if (action === "copy") say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
     },
@@ -666,6 +687,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onLoop={() => loop.mutate(current)}
             onDesigner={() => setDesigning(current.id)}
             onPreview={setPreview}
+            writing={writeBetween.isPending && writing === current.id}
+            writeError={writeBetween.isError && writeBetween.variables?.clip === current.id && writeBetween.variables.force ? writeBetween.error.message : null}
+            onWriteBetween={() => writeBetween.mutate({ clip: current.id, force: true })}
           />
         ) : (
           <aside className="flex w-[400px] shrink-0 flex-col gap-3 border-l border-line bg-panel p-5 text-ink-2">
