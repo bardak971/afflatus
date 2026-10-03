@@ -617,8 +617,8 @@ function Loras({ spec, value, options, family, model, onChange, main }: {
         <div key={l.file} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">
           <div className="flex items-center gap-2">
             <ModelLink folder="loras" file={l.file} className="min-w-0 grow font-semibold" />
-            <input type="range" aria-label={`Strength of ${fileLabel(l.file)}`} min={0} max={1.5} step={0.05} value={l.weight} onChange={(e) => set(i, Number(e.target.value))} className="w-24 shrink-0" />
-            <span className="w-9 shrink-0 text-right font-mono text-xs">{l.weight.toFixed(2)}</span>
+            <input type="range" aria-label={`Strength of ${fileLabel(l.file)}`} min={-1} max={2} step={0.05} value={Math.max(-1, Math.min(2, l.weight))} onChange={(e) => set(i, Number(e.target.value))} className="w-24 shrink-0" />
+            <NumberBox label={`Strength of ${fileLabel(l.file)}, typed`} value={l.weight} min={-4} max={4} step={0.05} onCommit={(v) => set(i, v)} className="shrink-0 text-xs" />
             <button type="button" aria-label={`Remove ${fileLabel(l.file)}`} onClick={() => onChange(value.filter((_, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover">
               <X size={14} />
             </button>

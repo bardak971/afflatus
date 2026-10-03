@@ -9,7 +9,7 @@ import { fileLabel } from "../format";
 import { Picker, PictureField, SoundField } from "../PictureField";
 import { ModelLink } from "../ModelLink";
 import { Select } from "../Select";
-import { AutoText, Button, cx, Empty, ErrorNote, SectionTitle } from "../ui";
+import { AutoText, Button, cx, Empty, ErrorNote, NumberBox, SectionTitle } from "../ui";
 
 const field = "w-full rounded-lg border border-line bg-raised px-3 py-2 text-ink placeholder:text-ink-3";
 
@@ -114,8 +114,8 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
                   {m.lora && (
                     <label className="flex items-center gap-2 text-xs text-ink-2">
                       weight
-                      <input type="range" min={0} max={1.5} step={0.05} value={m.weight} onChange={(e) => set({ weight: Number(e.target.value) })} className="w-24" />
-                      <span className="w-8 font-mono">{m.weight.toFixed(2)}</span>
+                      <input type="range" min={-1} max={2} step={0.05} value={Math.max(-1, Math.min(2, m.weight))} onChange={(e) => set({ weight: Number(e.target.value) })} className="w-24" />
+                      <NumberBox label={`Weight of the LoRA of ${name} for ${f.name}, typed`} value={m.weight} min={-4} max={4} step={0.05} onCommit={(v) => set({ weight: v })} />
                     </label>
                   )}
                   {m.lora && <span className="col-span-2 flex min-w-0 items-baseline gap-1.5 text-xs text-ink-2">Model page: <ModelLink folder="loras" file={m.lora} className="min-w-0" /></span>}
