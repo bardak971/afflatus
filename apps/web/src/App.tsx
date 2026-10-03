@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, Redirect, Route, Switch, useLocation } from "wouter";
 import { Film, LayoutGrid, ListOrdered, Plus, Settings2, Users, Workflow } from "lucide-react";
@@ -42,6 +43,15 @@ function Strip() {
   const load = useSystem((s) => s.load);
   const gpu = load?.gpus[0];
   const run = queue.data?.running;
+  // how long the render has been going: a clock that ticks while something runs
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!run) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const elapsedMs = run?.startedAt ? Math.max(0, Date.now() - Date.parse(run.startedAt)) : 0;
+  const elapsed = `${Math.floor(elapsedMs / 60000)}:${String(Math.floor((elapsedMs / 1000) % 60)).padStart(2, "0")}`;
   // a model being fetched into ComfyUI goes on whatever screen is open: it is said here, with the way to it
   const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   return (
@@ -50,8 +60,10 @@ function Strip() {
       {run ? (
         <>
           <span className="font-semibold">{run.label}</span>
-          <span className="text-ink-2">{phaseLabel(run.phase)}{run.steps ? ` · step ${run.step} of ${run.steps}` : ""}{run.eta ? ` · ${about(run.eta)}` : ""}</span>
-          <span className="w-44"><Bar value={run.progress * 100} /></span>
+          <span className="text-ink-2">{phaseLabel(run.phase)}{run.steps ? ` · step ${run.step} of ${run.steps}` : ""}</span>
+          <span className="font-mono text-ink-2" title="How long this render has been running">{elapsed}</span>
+          <span className="text-ink-2">{run.eta ? about(run.eta) : run.progress > 0 ? `${Math.round(run.progress * 100)} %` : "working…"}</span>
+          <span className={cx("w-44", !run.progress && "animate-pulse")} title={run.progress > 0 ? `${Math.round(run.progress * 100)} % of this render` : "No step count from this phase yet"}><Bar value={run.progress * 100} /></span>
         </>
       ) : (
         <span className="text-ink-2">
