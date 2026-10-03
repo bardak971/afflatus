@@ -640,7 +640,11 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
               <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" />
             </button>
           )}
-          {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" />}
+          {a.kind === "video" && (
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" />
+            </div>
+          )}
           {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls />}
           {a.kind === "video" && trim && (
             <Trim
@@ -686,7 +690,11 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
       <div className="flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" onClick={onClose}>
         {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
-        {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => e.stopPropagation()} />}
+        {a.kind === "video" && (
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center" onClick={onClose}>
+            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" onClick={(e) => e.stopPropagation()} />
+          </div>
+        )}
         {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls onClick={(e) => e.stopPropagation()} />}
         {a.kind === "video" && trim && (
           <Trim

@@ -153,7 +153,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
   const crfN = Number(crf) || 10;
 
   return (
-    <div className="flex w-full flex-col gap-2 rounded-xl border border-line-strong bg-panel p-3" onClick={(e) => e.stopPropagation()}>
+    <div className="flex w-full shrink-0 flex-col gap-2 rounded-xl border border-line-strong bg-panel p-3" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 text-xs text-ink-2">
         <Scissors size={14} className="text-accent" />
         <span className="font-semibold text-ink">Trim</span>
@@ -172,7 +172,8 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <img src={strip} alt="" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-90" />
+        {/* stretched to the bar, never cropped: a moment on the bar is the same moment on the strip */}
+        <img src={strip} alt="" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full object-fill opacity-90" />
         {/* what is outside the range is dimmed */}
         <div className="pointer-events-none absolute inset-y-0 left-0 bg-ground/70" style={{ width: pct(range.startMs) }} />
         <div className="pointer-events-none absolute inset-y-0 right-0 bg-ground/70" style={{ width: pct(duration - range.endMs) }} />
