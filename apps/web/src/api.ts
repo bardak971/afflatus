@@ -432,15 +432,23 @@ export interface Rate {
   samples: number;
 }
 export type TimesPeriod = "day" | "week" | "month" | "all";
+/** A window of time to look at, ms since the epoch. */
+export interface TimesWindow { from: number; to: number }
+/** One render among the longest of a stretch of time. */
+export interface TopRender { id: string; name: string; model: string; totalMs: number; status: "done" | "failed" | "cancelled"; assetId: string | null }
 /** The parts of a render's time, in milliseconds. */
 export interface TimeParts { loading: number; sampling: number; refining: number; finishing: number }
 type Line = Array<number | null>;
 /** What the "Render times" tab shows for a period. Every list has one entry per stretch of `times`. */
 export interface TimesSummary {
-  period: TimesPeriod;
-  /** The length of a stretch, in milliseconds, and where each one starts. */
+  period: TimesPeriod | "window";
+  /** The window the figures cover, and the length of a stretch of it, in milliseconds, and where each one starts. */
+  from: number;
+  to: number;
   step: number;
   times: number[];
+  /** Per stretch: how many renders, and the longest of them. */
+  buckets: Array<{ renders: number; top: TopRender[] }>;
   /** How many days each render is kept one by one (0: for good), and when the first one on record was made. */
   keepDays: number;
   since: string | null;
@@ -688,9 +696,9 @@ export const api = {
   retryJob: (id: string, input?: Record<string, unknown>) => call<{ id: string }>("POST", `/jobs/${id}/retry`, input ? { input } : {}),
   dismissJob: (id: string) => call<{ ok: true }>("DELETE", `/jobs/${id}`),
   estimates: () => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates"),
-  renderTimes: (period: TimesPeriod) => call<TimesSummary>("GET", `/renders/summary?period=${period}`),
-  renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number }) =>
-    call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), limit: String(opts.limit ?? 50) })}`),
+  renderTimes: (range: TimesPeriod | TimesWindow) => call<TimesSummary>("GET", typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`),
+  renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }) =>
+    call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`),
   renderRecordSize: () => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size"),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
   advice: (recipe: string, input: Record<string, unknown>) => call<{ items: Advice[] }>("POST", "/advice", { recipe, input }),

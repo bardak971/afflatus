@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Clapperboard, Image as ImageIcon, X } from "lucide-react";
-import { api, thumbUrl, type TimeParts, type TimesPeriod, type TimesSummary } from "../../api";
-import { useRenderTimes } from "../../data";
+import { api, thumbUrl, type RenderItem, type TimeParts, type TimesSummary, type TimesWindow, type TopRender } from "../../api";
+import { useAsset, useRenderTimes } from "../../data";
 import { took, when } from "../../format";
-import { Button, cx, Empty, ErrorNote, SectionTitle, Segmented } from "../../ui";
+import { Button, cx, Empty, ErrorNote, SectionTitle } from "../../ui";
+import { Viewer } from "../../Viewer";
 import { TimeChart, useChartColors } from "./Chart";
 
 /**
@@ -13,12 +14,25 @@ import { TimeChart, useChartColors } from "./Chart";
  * server keeps of every render (apps/server/src/renders.ts).
  */
 
-const PERIODS: Array<{ value: TimesPeriod; label: string }> = [
-  { value: "day", label: "24 hours" },
-  { value: "week", label: "7 days" },
-  { value: "month", label: "30 days" },
-  { value: "all", label: "All time" },
+const HOUR = 3_600_000;
+/** The windows a click gives, each ending now; "All" reaches back to the first render. */
+const PRESETS: Array<{ label: string; ms: number | null }> = [
+  { label: "1H", ms: HOUR }, { label: "3H", ms: 3 * HOUR }, { label: "6H", ms: 6 * HOUR }, { label: "12H", ms: 12 * HOUR }, { label: "24H", ms: 24 * HOUR },
+  { label: "2D", ms: 2 * 24 * HOUR }, { label: "7D", ms: 7 * 24 * HOUR }, { label: "30D", ms: 30 * 24 * HOUR }, { label: "All", ms: null },
 ];
+/** What is looked at: a preset's window ending now, "All", or a window of its own (typed, or dragged on a chart). */
+interface View { preset: string; from: number; to: number }
+const presetView = (label: string): View => {
+  const now = Date.now();
+  const p = PRESETS.find((x) => x.label === label) ?? PRESETS[6]!;
+  return { preset: label, from: p.ms === null ? 0 : now - p.ms, to: now };
+};
+/** A moment as a datetime-local input writes it (local time, to the minute). */
+const toLocalInput = (ms: number) => {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 const PHASES: Array<{ id: keyof TimeParts; label: string; tone: string; color: string }> = [
   { id: "loading", label: "Model load", tone: "bg-ink-3", color: "var(--color-ink-3)" },
   { id: "sampling", label: "Sampling", tone: "bg-accent", color: "var(--color-accent)" },
@@ -89,37 +103,72 @@ function Spark({ values }: { values: number[] }) {
 }
 
 export function RenderTimes() {
-  const [period, setPeriod] = useState<TimesPeriod>("week");
+  const [view, setView] = useState<View>(() => presetView("7D"));
+  const [typed, setTyped] = useState<{ from: string; to: string } | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [only, setOnly] = useState<"all" | "trouble">("all");
+  const [openedId, setOpenedId] = useState<string | null>(null);
+  const opened = useAsset(openedId);
   const tones = useChartColors();
-  const times = useRenderTimes(period);
+  const range: "all" | TimesWindow = view.preset === "All" ? "all" : { from: view.from, to: view.to };
+  const times = useRenderTimes(range);
+  const d = times.data;
+  // the window as the figures have it (the preset's, or the typed or dragged one), for the list and the lanes
+  const win = d ? { from: d.from, to: d.to } : null;
   const renders = useInfiniteQuery({
     // under "assets": read again when a render ends
-    queryKey: ["assets", "renders", model, only],
-    queryFn: ({ pageParam }) => api.renders({ recipe: model ?? undefined, trouble: only === "trouble", before: pageParam, limit: 30 }),
+    queryKey: ["assets", "renders", model, only, win?.from, win?.to],
+    queryFn: ({ pageParam }) => api.renders({ recipe: model ?? undefined, trouble: only === "trouble", before: pageParam, limit: 30, from: win?.from, to: win?.to }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.more ? last.items.at(-1)?.at : undefined),
+    enabled: Boolean(win),
   });
-  const d = times.data;
+  // every render of the window, for the lanes (up to five hundred: the longest keep their place in the chart either way)
+  const lanes = useQuery({
+    queryKey: ["assets", "renders", "lanes", win?.from, win?.to],
+    queryFn: () => api.renders({ from: win!.from, to: win!.to, limit: 500 }),
+    enabled: Boolean(win),
+  });
+  const zoom = (from: number, to: number) => {
+    setTyped(null);
+    setView({ preset: "custom", from, to });
+  };
   if (times.isError) return <ErrorNote>{times.error.message}</ErrorNote>;
   if (!d) return <div className="text-ink-2">Loading render history…</div>;
 
   const t = d.tiles;
   const anything = t.done + t.failed + t.cancelled > 0;
-  const stretch = d.step < DAY ? (period === "day" ? "hour" : "6 hours") : "day";
+  const spanMs = d.to - d.from;
+  const stretch = d.step < HOUR ? `${Math.round(d.step / 60_000)} minutes` : d.step === HOUR ? "hour" : d.step < DAY ? `${Math.round(d.step / HOUR)} hours` : "day";
   const timeLabel = (time: number, full?: boolean) =>
-    new Date(time).toLocaleString(undefined, d.step < DAY ? (full ? { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" } : period === "day" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit" }) : { day: "numeric", month: "short" });
+    new Date(time).toLocaleString(undefined, full
+      ? d.step < DAY ? { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", month: "short", year: "numeric" }
+      : d.step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
   const picked = d.models.find((m) => m.key === model);
   const listed = renders.data?.pages.flatMap((p) => p.items) ?? [];
   const longest = Math.max(1, ...listed.map((r) => r.totalMs));
-  const chart = { times: d.times, timeLabel };
+  const chart = { times: d.times, timeLabel, step: d.step, onBrush: zoom, detail: (i: number) => <TopList bucket={d.buckets[i]} /> };
   const columns = "grid-cols-[minmax(0,1.6fr)_70px_100px_100px_80px_100px_minmax(0,1fr)_110px]";
+  const bounds = typed ?? { from: toLocalInput(d.from), to: toLocalInput(d.to) };
+  const windowSaid = `${timeLabel(d.from, true)} → ${timeLabel(d.to, true)}`;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="w-[340px]"><Segmented<TimesPeriod> label="Period" value={period} options={PERIODS} onChange={setPeriod} /></div>
+        <div role="radiogroup" aria-label="Window" className="flex overflow-hidden rounded-lg border border-line-strong">
+          {PRESETS.map((p) => (
+            <button key={p.label} type="button" role="radio" aria-checked={view.preset === p.label} onClick={() => { setTyped(null); setView(presetView(p.label)); }} className={cx("h-8 px-2.5 text-xs font-semibold", view.preset === p.label ? "bg-accent text-accent-ink" : "text-ink-2 hover:bg-hover hover:text-ink")}>{p.label}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 text-xs">
+          <input type="datetime-local" aria-label="From" value={bounds.from} onChange={(e) => setTyped({ ...bounds, from: e.target.value })} className="h-8 rounded-lg border border-line bg-raised px-2 font-mono text-xs text-ink" />
+          <span className="text-ink-3">→</span>
+          <input type="datetime-local" aria-label="To" value={bounds.to} onChange={(e) => setTyped({ ...bounds, to: e.target.value })} className="h-8 rounded-lg border border-line bg-raised px-2 font-mono text-xs text-ink" />
+          {typed && <Button size="sm" tone="primary" onClick={() => { const from = Date.parse(typed.from); const to = Date.parse(typed.to); if (Number.isFinite(from) && Number.isFinite(to) && to > from) zoom(from, to); }}>Apply</Button>}
+          <Button size="sm" title="Twice the window, around the same middle" onClick={() => { const mid = (d.from + d.to) / 2; zoom(mid - spanMs, Math.min(Date.now(), mid + spanMs)); }}>Wider</Button>
+          {view.preset === "custom" && <Button size="sm" onClick={() => { setTyped(null); setView(presetView("7D")); }}>Back to 7D</Button>}
+        </div>
+        <span className="text-xs text-ink-3">{windowSaid} · a stretch is {d.step < DAY && d.step !== HOUR ? "" : "one "}{stretch} · drag on a chart to zoom in</span>
         {d.since && <span className="text-xs text-ink-3">History since {new Date(d.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}.</span>}
       </div>
 
@@ -146,7 +195,11 @@ export function RenderTimes() {
             <Tile label="Peak GPU temp" value={t.heatPeak === null ? "—" : `${Math.round(t.heatPeak)}°`} note={t.heatUsual === null ? "not reported" : `median ${Math.round(t.heatUsual)}°`} warn={(t.heatPeak ?? 0) >= 80} />
           </div>
 
-          {!anything && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">No renders in this period.</div>}
+          {!anything && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">No renders in this window.</div>}
+
+          {anything && (
+            <Lanes items={lanes.data?.items ?? []} from={d.from} to={d.to} models={d.models.map((m) => m.key)} names={Object.fromEntries(d.models.map((m) => [m.key, m.name]))} timeLabel={timeLabel} onZoom={zoom} onOpen={(id) => setOpenedId(id)} />
+          )}
 
           {anything && (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -219,22 +272,26 @@ export function RenderTimes() {
 
           <section className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-3">
-              <SectionTitle>{d.keepDays ? `Renders, last ${d.keepDays} days` : "Renders"} · {renders.data?.pages[0]?.total ?? 0}</SectionTitle>
+              <SectionTitle>Renders in this window · {renders.data?.pages[0]?.total ?? 0}</SectionTitle>
               {picked && (
                 <button type="button" onClick={() => setModel(null)} className="flex items-center gap-1 rounded-full border border-line-strong px-2.5 py-0.5 text-xs hover:bg-hover">
                   Only {picked.name} <X size={12} />
                 </button>
               )}
-              <div className="w-56"><Segmented<"all" | "trouble"> label="Filter" value={only} options={[{ value: "all", label: "All" }, { value: "trouble", label: "Failed or cancelled" }]} onChange={setOnly} /></div>
+              <div className="flex overflow-hidden rounded-lg border border-line-strong text-xs">
+                {([["all", "All"], ["trouble", "Failed or cancelled"]] as const).map(([v, l]) => (
+                  <button key={v} type="button" aria-pressed={only === v} onClick={() => setOnly(v)} className={cx("h-7 px-2.5 font-semibold", only === v ? "bg-accent text-accent-ink" : "text-ink-2 hover:bg-hover hover:text-ink")}>{l}</button>
+                ))}
+              </div>
               <div className="grow" />
               <Legend />
             </div>
             {renders.isError && <ErrorNote>{renders.error.message}</ErrorNote>}
             <div className="flex flex-col gap-1.5">
               {listed.map((r) => (
-                <div key={r.id} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-[10px] border border-line bg-panel px-3 py-2">
+                <div key={r.id} id={`render-${r.id}`} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-[10px] border border-line bg-panel px-3 py-2 target:border-accent">
                   {r.assetId
-                    ? <img src={thumbUrl(r.assetId)} alt="" loading="lazy" className="h-11 w-11 rounded-md object-cover" />
+                    ? <button type="button" onClick={() => setOpenedId(r.assetId)} title="Open what it made"><img src={thumbUrl(r.assetId)} alt="" loading="lazy" className="h-11 w-11 rounded-md object-cover" /></button>
                     : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" title={r.status === "done" ? "Its output is no longer in the library" : "No output"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate font-medium">{r.name}</span>
@@ -273,7 +330,130 @@ export function RenderTimes() {
           </section>
         </>
       )}
+      {openedId && opened.data && <Viewer asset={opened.data} onClose={() => setOpenedId(null)} />}
     </div>
+  );
+}
+
+/** The longest renders of a stretch, under the pointer: what took the time there. */
+function TopList({ bucket }: { bucket: { renders: number; top: TopRender[] } | undefined }) {
+  if (!bucket || !bucket.renders) return <span className="text-ink-3">no render in this stretch</span>;
+  return (
+    <div className="mt-1 flex flex-col gap-0.5 border-t border-line pt-1">
+      <span className="text-ink-3">{bucket.renders} render{bucket.renders === 1 ? "" : "s"}{bucket.top.length < bucket.renders ? `, the ${bucket.top.length} longest:` : ":"}</span>
+      {bucket.top.map((r) => (
+        <span key={r.id} className="flex items-baseline gap-2">
+          <span className="grow truncate text-ink-2">{r.name}{r.model ? <span className="text-ink-3"> · {r.model.split(" · ")[0]}</span> : ""}</span>
+          <span className={cx("shrink-0 font-mono", r.status !== "done" && "text-warn-ink")}>{took(r.totalMs)}{r.status !== "done" ? ` · ${r.status}` : ""}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The renders of the window as bars, one lane per model, each as long as it took and where it ran: what
+ * took the time, at a glance. Hover for the render, click to open what it made, drag to zoom in.
+ */
+function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
+  items: RenderItem[];
+  from: number;
+  to: number;
+  /** The models in the order of the table, which is also the order of their colours. */
+  models: string[];
+  names: Record<string, string>;
+  timeLabel(time: number, full?: boolean): string;
+  onZoom(from: number, to: number): void;
+  onOpen(assetId: string): void;
+}) {
+  const palette = useChartColors();
+  const [hover, setHover] = useState<RenderItem | null>(null);
+  const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
+  const span = Math.max(1, to - from);
+  const laneOf = useMemo(() => {
+    const seen = [...new Set([...models, ...items.map((r) => r.recipe)])];
+    return Object.fromEntries(seen.map((k, i) => [k, i]));
+  }, [models, items]);
+  const laneKeys = Object.keys(laneOf);
+  const ROW = 18;
+  const height = Math.max(1, laneKeys.length) * ROW + 22;
+  const ticks = 6;
+  return (
+    <section className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-panel p-3.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-[13px] font-semibold">What rendered when</h3>
+        <span className="truncate text-xs text-ink-3">one bar per render, as long as it took · hover for which, click to open what it made, drag to zoom in</span>
+      </div>
+      <div className="grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)] gap-2">
+        <div className="flex flex-col pt-0.5 text-xs text-ink-2" style={{ height }}>
+          {laneKeys.map((k) => <span key={k} className="truncate" style={{ height: ROW, lineHeight: `${ROW}px` }} title={names[k] ?? k}>{(names[k] ?? k).split(" · ")[0]}</span>)}
+        </div>
+        <div
+          className="relative select-none overflow-hidden rounded-md bg-ground"
+          style={{ height, cursor: drag ? "col-resize" : "crosshair" }}
+          onMouseDown={(e) => {
+            if (e.button !== 0) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            setDrag({ x0: e.clientX - rect.left, x1: e.clientX - rect.left });
+          }}
+          onMouseMove={(e) => {
+            if (!drag) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            setDrag({ ...drag, x1: e.clientX - rect.left });
+          }}
+          onMouseUp={(e) => {
+            if (!drag) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const [a, b] = [Math.min(drag.x0, drag.x1), Math.max(drag.x0, drag.x1)];
+            setDrag(null);
+            if (b - a < 6) return;
+            onZoom(from + (a / rect.width) * span, from + (b / rect.width) * span);
+          }}
+          onMouseLeave={() => setDrag(null)}
+        >
+          {Array.from({ length: ticks }, (_x, k) => from + (k / (ticks - 1)) * span).map((time, k) => (
+            <span key={k} className="pointer-events-none absolute bottom-0 border-l border-line pl-1 font-mono text-[10px] text-ink-3" style={{ left: `${(k / (ticks - 1)) * 100}%`, height: "100%", ...(k === ticks - 1 ? { transform: "translateX(-100%)", borderLeft: 0, paddingLeft: 0, paddingRight: 4 } : {}) }}>
+              <span className="absolute bottom-0.5">{timeLabel(time)}</span>
+            </span>
+          ))}
+          {items.map((r) => {
+            const end = Date.parse(r.at);
+            const start = end - r.totalMs;
+            const left = ((Math.max(from, start) - from) / span) * 100;
+            const width = Math.max(0.15, ((Math.min(to, end) - Math.max(from, start)) / span) * 100);
+            const lane = laneOf[r.recipe] ?? 0;
+            const color = palette[models.indexOf(r.recipe) >= 0 ? models.indexOf(r.recipe) % palette.length : lane % palette.length] ?? "currentColor";
+            return (
+              <button
+                key={r.id}
+                type="button"
+                aria-label={`${r.name}, ${took(r.totalMs)}, ${r.status}`}
+                onMouseEnter={() => setHover(r)}
+                onMouseLeave={() => setHover((h) => (h?.id === r.id ? null : h))}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (r.assetId) onOpen(r.assetId);
+                  else document.getElementById(`render-${r.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={cx("absolute rounded-sm", r.status !== "done" && "opacity-60 outline outline-1 outline-warn")}
+                style={{ left: `${left}%`, width: `${width}%`, top: 2 + lane * ROW, height: ROW - 4, background: r.status === "done" ? color : "var(--color-warn)", minWidth: 2 }}
+              />
+            );
+          })}
+          {drag && Math.abs(drag.x1 - drag.x0) >= 2 && <div className="pointer-events-none absolute inset-y-0 border-x border-accent bg-accent/15" style={{ left: Math.min(drag.x0, drag.x1), width: Math.abs(drag.x1 - drag.x0) }} />}
+          {hover && !drag && (
+            <div className="pointer-events-none absolute top-1 right-1 z-10 flex max-w-[360px] flex-col gap-0.5 rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-xs shadow-xl shadow-shade/40">
+              <span className="font-semibold">{hover.name}</span>
+              <span className="truncate text-ink-2">{[hover.model, hover.width && hover.height ? `${hover.width} × ${hover.height}` : "", hover.seconds ? `${hover.seconds} s` : "", `${hover.steps} steps`].filter(Boolean).join(" · ")}</span>
+              <span className="font-mono">{hover.status === "done" ? took(hover.totalMs) : `${hover.status} after ${took(hover.totalMs)}`}{hover.cold ? " · cold start" : ""}</span>
+              <span className="text-ink-3">{timeLabel(Date.parse(hover.at) - hover.totalMs, true)} → {timeLabel(Date.parse(hover.at), true)}</span>
+              <span className="text-ink-3">{[`load ${took(hover.phases.loading)}`, `sampling ${took(hover.phases.sampling)}`, hover.phases.refining > 500 ? `refine ${took(hover.phases.refining)}` : "", `finish ${took(hover.phases.finishing)}`].filter(Boolean).join(" · ")}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

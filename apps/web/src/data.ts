@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type TimesPeriod } from "./api";
+import { api, type TimesPeriod, type TimesWindow } from "./api";
 
 /** The queries the screens share. Live events (live.ts) decide when they refetch. */
 
@@ -54,7 +54,7 @@ export const useFolders = () => useQuery({ queryKey: ["assets", "folders"], quer
 // these follow the library: their keys start with "assets" so that they are refetched with it
 export const useEstimates = () => useQuery({ queryKey: ["assets", "estimates"], queryFn: api.estimates, staleTime: 60_000 });
 /** The record of render times for a period. Read again when a render ends (the library changes then). */
-export const useRenderTimes = (period: TimesPeriod) => useQuery({ queryKey: ["assets", "render-times", period], queryFn: () => api.renderTimes(period), placeholderData: keepPreviousData });
+export const useRenderTimes = (range: TimesPeriod | TimesWindow) => useQuery({ queryKey: ["assets", "render-times", typeof range === "string" ? range : `${Math.round(range.from)}-${Math.round(range.to)}`], queryFn: () => api.renderTimes(range), placeholderData: keepPreviousData });
 export const useStorage = () => useQuery({ queryKey: ["assets", "storage"], queryFn: api.storage });
 export const useAssetFamilies = () => useQuery({ queryKey: ["assets", "families"], queryFn: api.assetFamilies });
 export const useAssetModels = () => useQuery({ queryKey: ["assets", "models"], queryFn: api.assetModels });

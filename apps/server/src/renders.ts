@@ -211,6 +211,13 @@ export async function usualParts(db: Db, recipe: Recipe<any>, input: Record<stri
 // ---------------------------------------------------------------- what the tab shows
 
 export type Period = "day" | "week" | "month" | "all";
+/** A window of time, ms since the epoch. */
+export interface Window { from: number; to: number }
+/** How long a stretch of a chart is for a window: five minutes up to three hours, a quarter up to twelve, an hour up to two days, six hours up to a week, a day beyond. */
+export function stepFor(spanMs: number): number {
+  const H = 3_600_000;
+  return spanMs <= 3 * H ? 5 * 60_000 : spanMs <= 12 * H ? 15 * 60_000 : spanMs <= 48 * H ? H : spanMs <= 7 * DAY + H ? 6 * H : DAY;
+}
 
 const nameOf = (registry: Registry, recipeId: string) => {
   const recipe = registry.recipe(recipeId);
@@ -222,15 +229,18 @@ const nameOf = (registry: Registry, recipeId: string) => {
 /** The parts of a render's time, as they are drawn. */
 const parts = (c: Cell) => ({ loading: c.loadMs, sampling: c.sampleMs, refining: c.refineMs, finishing: c.finishMs });
 
-export async function summary(db: Db, registry: Registry, period: Period, keepDays: number, when = Date.now()) {
+export async function summary(db: Db, registry: Registry, period: Period | Window, keepDays: number, when = Date.now()) {
   const first = (await db.selectFrom("render_stats").select((eb) => eb.fn.min("created_at").as("at")).executeTakeFirst())?.at ?? null;
   const firstDay = (await db.selectFrom("render_days").select((eb) => eb.fn.min("day").as("day")).executeTakeFirst())?.day ?? null;
   const since = firstDay ? `${firstDay}T00:00:00.000Z` : first;
-  // the period cut into stretches: an hour each for a day, six hours for a week, a day beyond
-  const step = period === "day" ? 3_600_000 : period === "week" ? 6 * 3_600_000 : DAY;
-  // days are whole days (UTC), so that a folded day is one stretch; shorter stretches end now
-  const end = step === DAY ? Date.parse(`${dayOf(new Date(when).toISOString())}T00:00:00.000Z`) + DAY : when;
-  const count = period === "day" ? 24 : period === "week" ? 28 : period === "month" ? 30 : Math.max(2, Math.min(730, Math.ceil((end - (since ? Date.parse(since) : end)) / DAY)));
+  // the window: a named period ends now; "all" reaches back to the first render; a window is as given
+  const win: Window = typeof period === "string"
+    ? { from: period === "day" ? when - DAY : period === "week" ? when - 7 * DAY : period === "month" ? when - 30 * DAY : Math.min(when - DAY, since ? Date.parse(since) : when - DAY), to: when }
+    : { from: Math.min(period.from, period.to - 60_000), to: Math.min(period.to, when + 60_000) };
+  // the window cut into stretches by its length; days are whole days (UTC), so that a folded day is one stretch
+  const step = stepFor(win.to - win.from);
+  const end = step === DAY ? Date.parse(`${dayOf(new Date(win.to).toISOString())}T00:00:00.000Z`) + DAY : win.to;
+  const count = Math.max(2, Math.min(730, Math.ceil((end - win.from) / step)));
   const start = end - count * step;
   const times = Array.from({ length: count }, (_x, i) => start + i * step);
   const index = (ms: number) => Math.floor((ms - start) / step);
@@ -293,8 +303,17 @@ export async function summary(db: Db, registry: Registry, period: Period, keepDa
     };
   }).sort((a, b) => b.gpuMs - a.gpuMs);
 
+  // what rendered in each stretch, the longest first: for the pointer, and for the lanes
+  const buckets = stretch.map((s) => {
+    const longest = [...s.rows].sort((a, b) => b.total_ms - a.total_ms);
+    return {
+      renders: s.rows.length + sum(s.days.filter((d) => d.recipe === WHOLE_DAY).map((d) => d.cell.renders)),
+      top: longest.slice(0, 8).map((r) => ({ id: r.id, name: nameOf(registry, r.recipe_id), model: r.model, totalMs: r.total_ms, status: r.status, assetId: r.asset_id })),
+    };
+  });
+
   return {
-    period, step, times, keepDays, since,
+    period: typeof period === "string" ? period : "window", from: start, to: end, step, times, keepDays, since, buckets,
     /** The stretch of time the figures cover: the period, or since the first render when that is later. */
     spanMs: Math.max(step, Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)),
     tiles: {
@@ -317,14 +336,18 @@ export async function summary(db: Db, registry: Registry, period: Period, keepDa
 export type TimesSummary = Awaited<ReturnType<typeof summary>>;
 
 /** The renders that are still rows, newest first: one page of them. */
-export async function list(db: Db, registry: Registry, opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number }) {
-  const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
+export async function list(db: Db, registry: Registry, opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }) {
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 50));
   let q = db.selectFrom("render_stats").selectAll();
   if (opts.recipe) q = q.where("recipe_id", "=", opts.recipe);
   if (opts.trouble) q = q.where("status", "!=", "done");
+  if (opts.from) q = q.where("created_at", ">=", new Date(opts.from).toISOString());
+  if (opts.to) q = q.where("created_at", "<", new Date(opts.to).toISOString());
   let counted = db.selectFrom("render_stats").select((eb) => eb.fn.countAll<number>().as("n"));
   if (opts.recipe) counted = counted.where("recipe_id", "=", opts.recipe);
   if (opts.trouble) counted = counted.where("status", "!=", "done");
+  if (opts.from) counted = counted.where("created_at", ">=", new Date(opts.from).toISOString());
+  if (opts.to) counted = counted.where("created_at", "<", new Date(opts.to).toISOString());
   const total = Number((await counted.executeTakeFirst())?.n ?? 0);
   if (opts.before) q = q.where("created_at", "<", opts.before);
   const rows = await q.orderBy("created_at", "desc").limit(limit + 1).execute();

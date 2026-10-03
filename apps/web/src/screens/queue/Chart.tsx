@@ -66,7 +66,7 @@ function ceiling(max: number): number {
   return max;
 }
 
-export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, children }: {
+export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, children, step, onBrush, detail }: {
   title: string;
   note?: string;
   /** The start of each stretch of time, ms since the epoch. */
@@ -88,12 +88,20 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
   /** A soft fill under each line. Left to itself: only where few lines share the panel. */
   fill?: boolean;
   children?: ReactNode;
+  /** The length of a stretch, so that a drag ends after the last stretch it covers. */
+  step?: number;
+  /** A drag across the panel: look at that window of time alone. */
+  onBrush?(from: number, to: number): void;
+  /** More about the stretch under the pointer, under the figures. */
+  detail?(index: number): ReactNode;
 }) {
   const id = useId().replace(/:/g, "");
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(560);
   const [solo, setSolo] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
+  /** A drag under way: where it began and where the pointer is, in pixels across the panel. */
+  const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
   const palette = useChartColors();
   useEffect(() => {
     const el = box.current;
@@ -147,9 +155,32 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           className="block"
           onMouseMove={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            setHover(Math.max(0, Math.min(n - 1, Math.round(((e.clientX - rect.left - L) / W) * (n - 1)))));
+            const px = e.clientX - rect.left;
+            setHover(Math.max(0, Math.min(n - 1, Math.round(((px - L) / W) * (n - 1)))));
+            if (drag) setDrag({ ...drag, x1: px });
           }}
-          onMouseLeave={() => setHover(null)}
+          onMouseLeave={() => {
+            setHover(null);
+            setDrag(null);
+          }}
+          onMouseDown={(e) => {
+            if (!onBrush || e.button !== 0) return;
+            e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            setDrag({ x0: e.clientX - rect.left, x1: e.clientX - rect.left });
+          }}
+          onMouseUp={() => {
+            if (!drag || !onBrush) return;
+            const [a, b] = [Math.min(drag.x0, drag.x1), Math.max(drag.x0, drag.x1)];
+            setDrag(null);
+            if (b - a < 6 || n < 2) return;
+            const at = (px: number) => Math.max(0, Math.min(n - 1, ((px - L) / W) * (n - 1)));
+            const i0 = Math.floor(at(a));
+            const i1 = Math.ceil(at(b));
+            const span = step ?? (times[1]! - times[0]!);
+            onBrush(times[i0]!, Math.min(times[n - 1]! + span, times[i1]! + (i1 === i0 ? span : 0)));
+          }}
+          style={onBrush ? { cursor: drag ? "col-resize" : "crosshair" } : undefined}
         >
           <defs>
             {stacks.map((s, i) => (
@@ -183,6 +214,9 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
               </g>
             );
           })}
+          {drag && Math.abs(drag.x1 - drag.x0) >= 2 && (
+            <rect pointerEvents="none" x={Math.min(drag.x0, drag.x1)} y={T} width={Math.abs(drag.x1 - drag.x0)} height={H} className="fill-accent/15 stroke-accent" strokeWidth="1" />
+          )}
           {hover !== null && (
             <g pointerEvents="none">
               <line x1={x(hover)} x2={x(hover)} y1={T} y2={T + H} className="stroke-ink-3" strokeWidth="1" />
@@ -190,9 +224,9 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
             </g>
           )}
         </svg>
-        {hover !== null && (
+        {hover !== null && !drag && (
           <div
-            className="pointer-events-none absolute top-1 z-10 flex min-w-40 flex-col gap-1 rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-xs shadow-xl shadow-shade/40"
+            className="pointer-events-none absolute top-1 z-10 flex min-w-40 max-w-[320px] flex-col gap-1 rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-xs shadow-xl shadow-shade/40"
             style={x(hover) > width / 2 ? { right: width - x(hover) + 12 } : { left: x(hover) + 12 }}
           >
             <span className="font-semibold">{timeLabel(times[hover]!, true)}</span>
@@ -203,7 +237,11 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
                 <span className="font-mono">{s.values[hover] === null ? "—" : format(s.values[hover]!)}</span>
               </span>
             ))}
+            {detail?.(hover)}
           </div>
+        )}
+        {drag && Math.abs(drag.x1 - drag.x0) >= 6 && n > 1 && (
+          <span className="pointer-events-none absolute top-1 left-1/2 -translate-x-1/2 rounded-full bg-ground/85 px-2.5 py-0.5 text-[11px] text-ink-2">release to look at this window</span>
         )}
       </div>
       <div className="flex flex-wrap gap-x-3.5 gap-y-1">
