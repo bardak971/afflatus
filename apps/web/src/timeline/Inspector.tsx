@@ -267,7 +267,10 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                       }}
                       className="flex w-[68px] flex-col gap-1 text-left"
                     >
-                      <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
+                      <span className="relative">
+                        <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
+                        {smoothest === t.id && clip.takes.length > 1 && <span className="absolute bottom-1 left-1 rounded bg-good px-1 py-px text-[9px] font-bold leading-tight text-ground" title="The smoothest joins of the takes">smoothest</span>}
+                      </span>
                       <span className={cx("text-[11px]", on ? "font-semibold text-accent" : "text-ink-2")}>{on ? "plays" : `take ${i + 1}`}</span>
                       {(() => {
                         const j = joinOf(t.id);
@@ -277,7 +280,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                           <span className="flex items-center gap-1 font-mono text-[10px] leading-none" title="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
                             {j.in !== null && <span className={bad(j.in) ? "text-warn-ink" : "text-ink-3"}>in ×{j.in}</span>}
                             {j.out !== null && <span className={bad(j.out) ? "text-warn-ink" : "text-ink-3"}>out ×{j.out}</span>}
-                            {smoothest === t.id && <span className="text-good">●</span>}
                           </span>
                         );
                       })()}
@@ -289,7 +291,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 );
               })}
             </div>
-            <span className="text-xs text-ink-3">{clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion); the green dot marks the smoothest." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take. The one you pick plays."}</span>
+            <span className="text-xs text-ink-3">{clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion); the smoothest is marked." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take. The one you pick plays."}</span>
           </div>
         )}
 
