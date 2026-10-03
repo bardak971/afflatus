@@ -392,6 +392,7 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
             return <span key={k} className="truncate" style={{ height: ROW, lineHeight: `${ROW}px` }} title={names[k] ?? k}>{twice ? names[k] ?? k : short}</span>;
           })}
         </div>
+        <div className="relative min-w-0">
         <div
           className="relative select-none overflow-hidden rounded-md bg-ground"
           style={{ height, cursor: drag ? "col-resize" : "crosshair" }}
@@ -446,8 +447,10 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
             );
           })}
           {drag && Math.abs(drag.x1 - drag.x0) >= 2 && <div className="pointer-events-none absolute inset-y-0 border-x border-accent bg-accent/15" style={{ left: Math.min(drag.x0, drag.x1), width: Math.abs(drag.x1 - drag.x0) }} />}
+        </div>
+          {/* outside the box that clips its bars, so that it can hang below a short chart */}
           {hover && !drag && (
-            <div className="pointer-events-none absolute top-1 right-1 z-10 flex max-w-[360px] flex-col gap-0.5 rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-xs shadow-xl shadow-shade/40">
+            <div className="pointer-events-none absolute top-1 right-1 z-20 flex max-w-[360px] flex-col gap-0.5 rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-xs shadow-xl shadow-shade/40">
               <span className="font-semibold">{hover.name}</span>
               <span className="truncate text-ink-2">{[hover.model, hover.width && hover.height ? `${hover.width} × ${hover.height}` : "", hover.seconds ? `${hover.seconds} s` : "", `${hover.steps} steps`].filter(Boolean).join(" · ")}</span>
               <span className="font-mono">{hover.status === "done" ? took(hover.totalMs) : `${hover.status} after ${took(hover.totalMs)}`}{hover.cold ? " · cold start" : ""}</span>
