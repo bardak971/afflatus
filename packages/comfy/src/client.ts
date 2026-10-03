@@ -128,6 +128,13 @@ export class ComfyClient {
     return (await res.json()) as Record<string, unknown>;
   }
 
+  /** ComfyUI's own terminal log: the last few hundred lines it keeps, their colour codes stripped. Read-only. */
+  async logs(): Promise<Array<{ t: string; m: string }>> {
+    const res = await this.request("/internal/logs/raw");
+    const d = (await res.json()) as { entries?: Array<{ t: string; m: string }> };
+    return (d.entries ?? []).map((e) => ({ t: e.t, m: String(e.m).replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").replace(/\r/g, "") }));
+  }
+
   async history(promptId: string): Promise<HistoryEntry | undefined> {
     const h = (await (await this.request(`/history/${encodeURIComponent(promptId)}`)).json()) as Record<string, HistoryEntry>;
     return h[promptId];

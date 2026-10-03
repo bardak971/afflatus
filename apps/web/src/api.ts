@@ -700,6 +700,8 @@ export const api = {
   renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }) =>
     call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`),
   renderRecordSize: () => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size"),
+  /** ComfyUI's terminal log, the last few hundred lines (`t`: when, `m`: the line). */
+  comfyLogs: () => call<{ lines: Array<{ t: string; m: string }> }>("GET", "/comfy/logs"),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
   advice: (recipe: string, input: Record<string, unknown>) => call<{ items: Advice[] }>("POST", "/advice", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>

@@ -93,6 +93,9 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   /** The load of the machine ComfyUI runs on, for the monitor bar. */
   app.get("/api/system", async () => ({ load: await (await s.comfy()).load() }));
 
+  /** ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds. */
+  app.get("/api/comfy/logs", async () => ({ lines: await (await s.comfy()).client.logs() }));
+
   registerDrafts(app, s);
   registerModelSettings(app, s);
   registerModelInfo(app, s);

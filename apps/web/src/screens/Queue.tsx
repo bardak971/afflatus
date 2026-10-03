@@ -9,6 +9,7 @@ import { Bar, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../
 import { LivePreview } from "../LivePreview";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
+import { ComfyLog } from "./queue/Log";
 
 /** The numbers of the machine ComfyUI runs on. Shows what is known: a meter with no source is left out. */
 export function meters(load: SystemLoad | null): Array<{ label: string; value: string; percent: number; hot: boolean }> {
@@ -46,7 +47,7 @@ export function Queue() {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [refused, setRefused] = useState(false);
-  const [tab, setTab] = useState<"queue" | "times">("queue");
+  const [tab, setTab] = useState<"queue" | "times" | "log">("queue");
   const q = queue.data;
   const m = meters(load);
   const error = queue.error ?? free.error ?? pause.error ?? cancel.error ?? order.error;
@@ -77,8 +78,8 @@ export function Queue() {
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
       <header className="flex h-20 shrink-0 items-center gap-5">
         <h1 className="text-xl font-semibold">Queue</h1>
-        <div className="w-64">
-          <Segmented<"queue" | "times"> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }]} onChange={setTab} />
+        <div className="w-[380px]">
+          <Segmented<"queue" | "times" | "log"> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }, { value: "log", label: "ComfyUI log" }]} onChange={setTab} />
         </div>
         <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2">
           <span className="flex shrink-0 items-center gap-1.5">
@@ -107,6 +108,7 @@ export function Queue() {
       {error && <ErrorNote>{error.message}</ErrorNote>}
 
       {tab === "times" && <div className="min-h-0 grow overflow-y-auto"><RenderTimes /></div>}
+      {tab === "log" && <ComfyLog online={Boolean(q?.online)} />}
 
       {tab === "queue" && q && (
         <div className="grid min-h-0 grow grid-cols-[400px_minmax(0,1fr)] gap-6">
