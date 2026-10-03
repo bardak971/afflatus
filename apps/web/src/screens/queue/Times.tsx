@@ -386,7 +386,11 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
       </div>
       <div className="grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)] gap-2">
         <div className="flex flex-col pt-0.5 text-xs text-ink-2" style={{ height }}>
-          {laneKeys.map((k) => <span key={k} className="truncate" style={{ height: ROW, lineHeight: `${ROW}px` }} title={names[k] ?? k}>{(names[k] ?? k).split(" · ")[0]}</span>)}
+          {laneKeys.map((k) => {
+            const short = (names[k] ?? k).split(" · ")[0]!;
+            const twice = laneKeys.filter((o) => (names[o] ?? o).split(" · ")[0] === short).length > 1;
+            return <span key={k} className="truncate" style={{ height: ROW, lineHeight: `${ROW}px` }} title={names[k] ?? k}>{twice ? names[k] ?? k : short}</span>;
+          })}
         </div>
         <div
           className="relative select-none overflow-hidden rounded-md bg-ground"

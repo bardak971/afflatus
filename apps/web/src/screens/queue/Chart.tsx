@@ -140,7 +140,9 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
     if (!real.length) return null;
     return stat === "sum" ? real.reduce((a, b) => a + b, 0) : stat === "last" ? real.at(-1)! : stat === "max" ? Math.max(...real) : real.reduce((a, b) => a + b, 0) / real.length;
   };
-  const ticks = Math.max(2, Math.min(n, Math.floor(W / 86)));
+  // as many labels along the bottom as fit without touching, for labels of the length these are
+  const labelWidth = Math.max(60, (n ? timeLabel(times[0]!).length : 8) * 6.5 + 24);
+  const ticks = Math.max(2, Math.min(n, Math.floor(W / labelWidth)));
 
   return (
     <section className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-panel p-3.5">
