@@ -641,7 +641,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           )}
           {a.kind === "video" && (
             <div className="flex min-h-0 w-full flex-1 items-center justify-center">
-              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" />
+              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" onClick={(e) => { if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
             </div>
           )}
           {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls />}
@@ -691,7 +691,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
         {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "video" && (
           <div className="flex min-h-0 w-full flex-1 items-center justify-center" onClick={onClose}>
-            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" onClick={(e) => e.stopPropagation()} />
+            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" onClick={(e) => { e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
           </div>
         )}
         {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls onClick={(e) => e.stopPropagation()} />}
