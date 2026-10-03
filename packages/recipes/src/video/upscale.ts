@@ -66,9 +66,13 @@ export function pixelUpscale(g: GraphBuilder, images: Ref, input: UpscaleValues,
   g.phase("upscaling");
   if (input.upscale === UPSCALE.model) {
     const model = g.out("UpscaleModelLoader", { model_name: input.upscaleModel });
-    const grown = g.out("ImageUpscaleWithModel", { upscale_model: model, image: images });
+    // a few frames at a time: the model's own 4× output of a whole clip is tens of GB before it is brought down to size
+    const chunked = ctx.has("RebatchImages");
+    const batch = chunked ? g.out("RebatchImages", { images, batch_size: 8 }) : images;
+    const grown = g.out("ImageUpscaleWithModel", { upscale_model: model, image: batch });
     // upscale models enlarge by their own factor (usually 4×): the frames are then brought to the factor asked for
-    return { images: g.out("ImageScale", { image: grown, upscale_method: "lanczos", width: big.width, height: big.height, crop: "disabled" }), loads: [`upscale_models/${input.upscaleModel}`] };
+    const sized = g.out("ImageScale", { image: grown, upscale_method: "lanczos", width: big.width, height: big.height, crop: "disabled" });
+    return { images: chunked ? g.out("RebatchImages", { images: sized, batch_size: 4096 }) : sized, loads: [`upscale_models/${input.upscaleModel}`] };
   }
   if (!ctx.has(RTX_NODE)) throw new Error(`RTX Video Super Resolution needs a node that drives it: ${RTX_NODE} (DaSiWa's "RTX Upscaler & Refiner" pack) is one. Install it in ComfyUI, or pick another upscale route.`);
   return {

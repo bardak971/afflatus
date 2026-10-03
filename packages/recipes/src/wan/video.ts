@@ -167,7 +167,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       ...((input.fast && !picked.distilled) || any(input.loras) || any(input.lorasLow) ? ["LoraLoaderModelOnly"] : []),
     ];
   },
-  optionalNodes: ["FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
+  optionalNodes: ["RebatchImages", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
 
   build(input, ctx) {
     const { slots, uploads, media } = ctx;

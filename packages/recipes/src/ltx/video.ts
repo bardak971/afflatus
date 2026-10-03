@@ -178,7 +178,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     ];
   },
   // which loaders, and which way the clip is made, depend on the files this ComfyUI has
-  optionalNodes: [
+  optionalNodes: ["RebatchImages", 
     "UNETLoader", "DualCLIPLoader", "VAELoader", "CheckpointLoaderSimple", "LTXVAudioVAELoader", "LTXAVTextEncoderLoader", "LoraLoaderModelOnly",
     "LatentUpscaleModelLoader", "LTXVLatentUpsampler", "LTXVImgToVideoInplace", "LTXVAddGuide", "LTXVCropGuides", "ManualSigmas",
     "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",

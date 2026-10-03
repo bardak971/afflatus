@@ -103,7 +103,7 @@ function Spark({ values }: { values: number[] }) {
 }
 
 export function RenderTimes() {
-  const [view, setView] = useState<View>(() => presetView("7D"));
+  const [view, setView] = useState<View>(() => presetView("24H"));
   const [typed, setTyped] = useState<{ from: string; to: string } | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [only, setOnly] = useState<"all" | "trouble">("all");
@@ -166,7 +166,7 @@ export function RenderTimes() {
           <input type="datetime-local" aria-label="To" value={bounds.to} onChange={(e) => setTyped({ ...bounds, to: e.target.value })} className="h-8 rounded-lg border border-line bg-raised px-2 font-mono text-xs text-ink" />
           {typed && <Button size="sm" tone="primary" onClick={() => { const from = Date.parse(typed.from); const to = Date.parse(typed.to); if (Number.isFinite(from) && Number.isFinite(to) && to > from) zoom(from, to); }}>Apply</Button>}
           <Button size="sm" title="Twice the window, around the same middle" onClick={() => { const mid = (d.from + d.to) / 2; zoom(mid - spanMs, Math.min(Date.now(), mid + spanMs)); }}>Wider</Button>
-          {view.preset === "custom" && <Button size="sm" onClick={() => { setTyped(null); setView(presetView("7D")); }}>Back to 7D</Button>}
+          {view.preset === "custom" && <Button size="sm" onClick={() => { setTyped(null); setView(presetView("24H")); }}>Back to 24H</Button>}
         </div>
         <span className="text-xs text-ink-3">{windowSaid} · a stretch is {d.step < DAY && d.step !== HOUR ? "" : "one "}{stretch} · drag on a chart to zoom in</span>
         {d.since && <span className="text-xs text-ink-3">History since {new Date(d.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}.</span>}

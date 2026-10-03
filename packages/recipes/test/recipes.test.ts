@@ -993,8 +993,8 @@ describe("H3's upscale pass", () => {
     expect(node(b, "MMH3SpatialSplitParams")[0]!.inputs).toMatchObject({ upscale_width: 1152, upscale_height: 2048, tile_width: 512, spatial_w_overlap: 128 });
     expect(node(b, "MMH3TemporalSplitParams")[0]!.inputs).toMatchObject({ chunk_length: 85, temporal_overlap: 17 });
     // one light step
-    const sigmas = node(b, "BasicScheduler").find((n) => n.inputs.denoise === 0.2)!;
-    expect(sigmas.inputs.steps).toBe(1);
+    const sigmas = node(b, "BasicScheduler").find((n) => n.inputs.denoise === 0.3)!;
+    expect(sigmas.inputs.steps).toBe(3);
     expect(b.phases[upId]).toBe("refining");
   });
 
@@ -1039,9 +1039,14 @@ describe("the upscale routes of the video forms", () => {
     expect([scaled.inputs.width, scaled.inputs.height]).toEqual([720, 960]);
     // the interpolated frames go in, the enlarged frames go to the file
     const interp = Object.entries(b.graph).find(([, n]) => n.class_type === "FrameInterpolate")![0];
-    expect(node(b, "ImageUpscaleWithModel")[0]!.inputs.image).toEqual([interp, 0]);
+    // the frames go through the upscale model a few at a time, and are made one batch again for the file
+    const chunks = Object.entries(b.graph).filter(([, n]) => n.class_type === "RebatchImages");
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]![1].inputs).toMatchObject({ images: [interp, 0], batch_size: 8 });
+    expect(node(b, "ImageUpscaleWithModel")[0]!.inputs.image).toEqual([chunks[0]![0], 0]);
     const out = Object.entries(b.graph).find(([, n]) => n.class_type === "ImageScale")![0];
-    expect(node(b, "VHS_VideoCombine")[0]!.inputs.images).toEqual([out, 0]);
+    expect(chunks[1]![1].inputs.images).toEqual([out, 0]);
+    expect(node(b, "VHS_VideoCombine")[0]!.inputs.images).toEqual([chunks[1]![0], 0]);
     expect(b.loads).toContain("upscale_models/4x-UltraSharp.pth");
     expect(wanVideo.nodes(parseInput(wanVideo, { prompt: "a", start: "p", upscale: "Pixel: upscale model" }))).toContain("ImageUpscaleWithModel");
   });

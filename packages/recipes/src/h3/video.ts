@@ -181,13 +181,13 @@ export const h3Video = defineRecipe<H3Video>({
     },
     ...upscaleInputs({ latent: true }),
     {
-      id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.05, default: 0.2, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
-      note: "denoising strength of the re-sampling: 0.2 keeps the clip as it is and sharpens it, higher invents more",
+      id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.05, default: 0.3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
+      note: "denoising strength of the re-sampling: 0.2 keeps the clip as it is, 0.3 to 0.4 draws real detail into it, higher invents more. A plain resize of the latent (no H3 latent upscaler file) needs 0.3 or more, else it stays soft",
     },
-    { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 1, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
+    { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling: 1 only sharpens, 3 to 4 add detail; each step is a pass over the whole clip" },
     {
       id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["Auto", "H3's latent upscaler", "Plain resize"], default: "Auto", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
-      note: "H3's own 3D upscaler model when its file is found (Auto), else a bicubic resize of the latent",
+      note: "H3's own 3D upscaler model when its file is found (Auto), else a bicubic resize of the latent, which is soft unless the re-sampling has steps and denoise to work with. The file is one click in Settings → Models, under MiniMax H3",
     },
     { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
     { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
@@ -258,7 +258,7 @@ export const h3Video = defineRecipe<H3Video>({
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: [
+  optionalNodes: ["RebatchImages", 
     "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     "MMH3UltimateUpscale", "MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams", "MMH3SpatialSplitParams", "MMH3TemporalSplitParams",
   ],
