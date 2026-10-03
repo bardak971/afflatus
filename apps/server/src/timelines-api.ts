@@ -184,8 +184,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 
   /** One small picture of a moment: what a hover over the trim bar shows. */
   app.get<{ Params: { id: string }; Querystring: { at?: string } }>("/api/assets/:id/peek", async (req, reply) => {
-    const q = z.object({ at: z.coerce.number().min(0) }).parse(req.query);
-    return reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.peek(req.params.id, q.at)));
+    const q = z.object({ at: z.coerce.number().min(0), h: z.coerce.number().int().min(48).max(480).optional() }).parse(req.query);
+    return reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.peek(req.params.id, q.at, q.h)));
   });
 
   /**

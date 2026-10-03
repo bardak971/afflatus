@@ -42,7 +42,7 @@ const STRIP_FRAMES = 120;
  * it over (its native controls are off while trimming). Keys: I / O set in and out at the playhead,
  * , and . step one frame (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
  */
-export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, onBetween, onExtendHere, onClose }: {
+export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, onBetween, onExtendHere, onRange, onClose }: {
   asset: Asset;
   player: RefObject<HTMLVideoElement | null>;
   busy?: boolean;
@@ -54,6 +54,8 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
   onBetween?(range: Range): void;
   /** A new clip that starts at the playhead's moment. */
   onExtendHere?(atMs: number): void;
+  /** The range as it stands, for whoever shows its frames. */
+  onRange?(range: Range): void;
   onClose(): void;
 }) {
   const duration = asset.durationMs ?? 0;
@@ -70,6 +72,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
   const [hover, setHover] = useState<{ ms: number; x: number; bar: "whole" | "zoom" } | null>(null);
   const [peek, setPeek] = useState<number | null>(null);
   const dragging = useRef<"in" | "out" | "head" | null>(null);
+  useEffect(() => { onRange?.(range); }, [range]); // eslint-disable-line react-hooks/exhaustive-deps
   const seek = useCallback((ms: number) => {
     const v = player.current;
     const to = Math.max(0, Math.min(duration, ms));
@@ -90,14 +93,15 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
     };
     const onPlay = () => { setPlaying(true); tick(); };
     const onPause = () => { setPlaying(false); setAt(v.currentTime * 1000); };
+    const onSeeked = () => setAt(v.currentTime * 1000);
     v.addEventListener("play", onPlay);
     v.addEventListener("pause", onPause);
-    v.addEventListener("seeked", onPause);
+    v.addEventListener("seeked", onSeeked);
     if (!v.paused) onPlay();
     return () => {
       v.removeEventListener("play", onPlay);
       v.removeEventListener("pause", onPause);
-      v.removeEventListener("seeked", onPause);
+      v.removeEventListener("seeked", onSeeked);
       if ("cancelVideoFrameCallback" in v) (v as HTMLVideoElement & { cancelVideoFrameCallback(h: number): void }).cancelVideoFrameCallback(handle);
       else cancelAnimationFrame(handle);
     };
@@ -133,7 +137,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
         case "o": case "O": e.preventDefault(); setRange((r) => ({ startMs: r.startMs, endMs: Math.max(at, r.startMs + frameMs) })); break;
         case ",": case "<": e.preventDefault(); v?.pause(); seek(at - step); break;
         case ".": case ">": e.preventDefault(); v?.pause(); seek(at + step); break;
-        case "l": case "L": e.preventDefault(); setLooping((l) => !l); if (v && v.paused) { seek(range.startMs); void v.play(); } break;
+        case "l": case "L": e.preventDefault(); toggleLoop(); break;
         case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : range); break;
         case " ": e.preventDefault(); if (v) { if (v.paused) void v.play(); else v.pause(); } break;
         case "Home": e.preventDefault(); seek(0); break;
@@ -146,6 +150,15 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
     return () => window.removeEventListener("keydown", onKey);
   }, [at, duration, frameMs, player, range, seek, onClose, zoom, zoomTo]);
 
+  /** Loop on: from the range's start when the playhead is outside it, and playing. Loop off: the video goes on. */
+  const toggleLoop = () => {
+    const v = player.current;
+    if (looping) { setLooping(false); return; }
+    setLooping(true);
+    if (!v) return;
+    if (at < range.startMs - 1 || at > range.endMs - frameMs) seek(range.startMs);
+    if (v.paused) void v.play();
+  };
   const length = range.endMs - range.startMs;
   const frames = Math.round(length / frameMs);
   const whole = range.startMs <= 0 && range.endMs >= duration;
@@ -251,7 +264,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
           {range.endMs < win.endMs && <div className="pointer-events-none absolute inset-y-0 right-0 bg-ground/70" style={{ width: `${Math.max(0, Math.min(100, ((win.endMs - Math.max(range.endMs, win.startMs)) / span) * 100))}%` }} />}
           <div className="pointer-events-none absolute inset-y-0 border-y-2 border-accent" style={{ left: pct(Math.max(range.startMs, win.startMs)), width: `${Math.max(0, Math.min(100, ((Math.min(range.endMs, win.endMs) - Math.max(range.startMs, win.startMs)) / span) * 100))}%` }} />
           {/* the zoomed part, shown on the whole */}
-          {kind === "whole" && zoom && <div className="pointer-events-none absolute inset-y-0 border-x border-ink-strong/60 bg-ink-strong/10" style={{ left: pct(zoom.startMs), width: `${((zoom.endMs - zoom.startMs) / span) * 100}%` }} />}
+          {kind === "whole" && zoom && <div className="pointer-events-none absolute inset-y-0 border-x-2 border-sky-400/80 bg-sky-400/30" style={{ left: pct(zoom.startMs), width: `${((zoom.endMs - zoom.startMs) / span) * 100}%` }} />}
         </div>
         {inWin(range.startMs) && <div role="slider" aria-label="In" aria-valuenow={Math.round(range.startMs)} tabIndex={0} onPointerDown={grab("in")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.startMs) }} />}
         {inWin(range.endMs) && <div role="slider" aria-label="Out" aria-valuenow={Math.round(range.endMs)} tabIndex={0} onPointerDown={grab("out")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.endMs) }} />}
@@ -298,7 +311,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
         <Button size="sm" onClick={() => moveOut(at)} title="Set out at the playhead">Out <Kbd>O</Kbd></Button>
         <Button size="sm" onClick={() => { player.current?.pause(); seek(at - frameMs); }} title="One frame back (Shift: ten)"><Kbd>,</Kbd></Button>
         <Button size="sm" onClick={() => { player.current?.pause(); seek(at + frameMs); }} title="One frame forward (Shift: ten)"><Kbd>.</Kbd></Button>
-        <Button size="sm" className={cx(looping && "border-accent text-accent")} onClick={() => { setLooping(!looping); if (!looping) { seek(range.startMs); void player.current?.play(); } }} title="Loop the range"><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
+        <Button size="sm" className={cx(looping && "border-accent text-accent")} onClick={toggleLoop} title={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
         <Button size="sm" className={cx(zoom && "border-accent text-accent")} onClick={() => zoomTo(zoom ? null : range)} title={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} {zoom ? "Whole" : "Zoom to range"} <Kbd>Z</Kbd></Button>
         <span className="grow" />
         <div className="w-52">

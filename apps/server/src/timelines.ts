@@ -751,10 +751,10 @@ export class Timelines {
   }
 
   /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */
-  async peek(assetId: string, atMs: number): Promise<Uint8Array> {
+  async peek(assetId: string, atMs: number, height?: number): Promise<Uint8Array> {
     const video = await this.assetRow(assetId);
     if (!video || video.kind !== "video") throw missing("this video");
-    return peekAt(await this.storage.get(video.file_key), extOf(video.mime), atMs);
+    return peekAt(await this.storage.get(video.file_key), extOf(video.mime), atMs, height);
   }
 
   /**

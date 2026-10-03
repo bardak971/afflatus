@@ -114,6 +114,31 @@ function OpenInComfy({ asset }: { asset: Asset }) {
   );
 }
 
+/** The frames at in and at out, large enough to judge, beside the video while trimming. Asked for once the handles settle. */
+function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
+  const [shown, setShown] = useState(range);
+  useEffect(() => {
+    const t = setTimeout(() => setShown(range), 220);
+    return () => clearTimeout(t);
+  }, [range]);
+  const stamp = (ms: number) => {
+    const s = Math.max(0, ms) / 1000;
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}.${String(Math.floor((s % 1) * 100)).padStart(2, "0")}`;
+  };
+  return (
+    <div className="flex h-full min-h-0 w-[22%] max-w-[260px] min-w-[120px] shrink-0 flex-col justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+      {[{ label: "In", at: shown.startMs }, { label: "Out", at: shown.endMs }].map((f) => (
+        <div key={f.label} className="flex min-h-0 flex-1 flex-col gap-1">
+          <span className="text-[11px] font-semibold text-ink-2">{f.label} <span className="font-mono font-normal">{stamp(f.at)}</span></span>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-line bg-raised">
+            <img src={`/api/assets/${asset.id}/peek?at=${Math.round(f.at)}&h=480`} alt="" className="max-h-full max-w-full object-contain" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Made({ g, recipe }: { g: NonNullable<AssetDetail["generation"]>; recipe: RecipeInfo | undefined }) {
   const text = (id: string) => (typeof g.inputs[id] === "string" ? (g.inputs[id] as string).trim() : "");
   // the texts are shown whole above; pictures are shown as pictures; a setting that did not apply is left out
@@ -389,8 +414,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   // "made from" and "used to make" lead to other items without leaving the viewer
   const [trail, setTrail] = useState<Asset[]>([]);
   const [info, setInfo] = useState(false);
-  // Trim: in and out on a video, and what is done with the range
+  // Trim: in and out on a video, and what is done with the range; the range's two frames are shown beside the video
   const [trim, setTrim] = useState(false);
+  const [trimRange, setTrimRange] = useState<Range | null>(null);
   const asset = trail.at(-1) ?? first;
   const detail = useAsset(asset.id);
   const recipes = useRecipes();
@@ -640,8 +666,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             </button>
           )}
           {a.kind === "video" && (
-            <div className="flex min-h-0 w-full flex-1 items-center justify-center">
-              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" onClick={(e) => { if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3">
+              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+              {trim && trimRange && <RangeFrames asset={a} range={trimRange} />}
             </div>
           )}
           {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls />}
@@ -657,6 +684,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
               onFrame={(atMs) => frameAt.mutate(atMs)}
               onBetween={opener ? (range) => between.mutate(range) : undefined}
               onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
+              onRange={setTrimRange}
               onClose={() => setTrim(false)}
             />
           )}
@@ -690,8 +718,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
       <div className="flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" onClick={onClose}>
         {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "video" && (
-          <div className="flex min-h-0 w-full flex-1 items-center justify-center" onClick={onClose}>
-            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="max-h-full max-w-full rounded-lg" onClick={(e) => { e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3" onClick={onClose}>
+            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+            {trim && trimRange && <RangeFrames asset={a} range={trimRange} />}
           </div>
         )}
         {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls onClick={(e) => e.stopPropagation()} />}
@@ -707,6 +736,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             onFrame={(atMs) => frameAt.mutate(atMs)}
             onBetween={opener ? (range) => between.mutate(range) : undefined}
             onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
+              onRange={setTrimRange}
             onClose={() => setTrim(false)}
           />
         )}
