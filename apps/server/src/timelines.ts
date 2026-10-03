@@ -1132,7 +1132,7 @@ export class Timelines {
         kept_at: at, deleted_at: null, created_at: at,
       })
       .execute();
-    if (!win) await this.db.updateTable("timelines").set({ export_asset_id: assetId }).where("id", "=", id).execute();
+    await this.db.updateTable("timelines").set({ export_asset_id: assetId }).where("id", "=", id).execute();
     this.events.emit("library");
     this.changed();
     return assetView(await this.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirstOrThrow());

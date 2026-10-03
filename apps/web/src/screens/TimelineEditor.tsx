@@ -747,9 +747,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             <span className="text-ink-2">{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable} clip${playable > 1 ? "s" : ""}`} · one MP4 in your library</span>
             {exportDone ? (
               <>
-                <span>Done. The video is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}.</span>
+                <span>Done. <span className="font-semibold text-ink">{exportDone.name}</span> is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}{exportDone.durationMs ? `, ${stamp(exportDone.durationMs)}` : ""}.</span>
                 <div className="flex flex-wrap gap-2">
-                  <a href={fileUrl(exportDone.id)} download={`${t.name}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 font-semibold text-accent-ink"><Download size={15} /> Download</a>
+                  <a href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 font-semibold text-accent-ink"><Download size={15} /> Download</a>
                   <Button onClick={() => { setOpened(exportDone); setExp(null); }}>Open</Button>
                   <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
                 </div>
