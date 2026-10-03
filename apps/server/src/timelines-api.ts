@@ -80,6 +80,10 @@ const exportBody = z.strictObject({
   smooth: z.boolean().default(false),
   /** Only this part of the timeline (In and Out, on its clock). The music is left out. */
   range: z.object({ inMs: z.number().min(0), outMs: z.number().min(0) }).optional(),
+  /** Crossfade a clip that extends the one before over the frames they share. */
+  blend: z.boolean().default(true),
+  /** Nudge each clip's brightness and tint to the clip before at the join. */
+  match: z.boolean().default(true),
 });
 
 export function registerTimelines(app: FastifyInstance, s: Services): void {
@@ -181,7 +185,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const view = await t.view(req.params.id);
     if (!view.durationMs) throw new UserError("There is nothing to export yet: no clip of this timeline has a take.");
     if (view.exporting) return { id: view.exporting.id };
-    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range }, `${view.name} · export`) };
+    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match }, `${view.name} · export`) };
   });
 
   /** One clip becomes two at a moment of its take (the video's own time): the first plays up to it, the second from it. */

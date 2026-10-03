@@ -264,6 +264,27 @@ export interface ExportPart {
   volume: number;
   /** Of another shape than the frame: true = fills it (edges cut), false = shown whole, with bars. */
   fill: boolean;
+  /**
+   * Crossfaded in from the part before over this long: the part starts that much earlier than where it
+   * plays, on frames that show the same moments as the end of the part before (a clip that extends the
+   * one before it renders those frames again).
+   */
+  blendMs?: number;
+}
+
+/** How long a blended join crossfades, at most. */
+export const BLEND_MS = 400;
+
+/** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
+async function meansOf(file: string, fromSec: number, seconds: number): Promise<{ y: number; u: number; v: number } | null> {
+  const said = await must(tools.ffmpeg, ["-loglevel", "error", "-ss", Math.max(0, fromSec).toFixed(3), "-t", seconds.toFixed(3), "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"]).catch(() => "");
+  const pick = (key: string) => [...said.matchAll(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`, "g"))].map((m) => Number(m[1]));
+  const y = pick("YAVG");
+  const u = pick("UAVG");
+  const v = pick("VAVG");
+  if (!y.length) return null;
+  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+  return { y: mean(y), u: mean(u), v: mean(v) };
 }
 export interface ExportMusic {
   bytes: Uint8Array;
@@ -283,7 +304,14 @@ export interface ExportMusic {
  */
 export async function joinVideos(
   parts: ExportPart[], frame: { width: number; height: number }, fps: number,
-  opts: { scale?: number; music?: ExportMusic; /** Make it this many pictures a second by working out the pictures in between (slow, done on the processor). */ smoothTo?: number; signal?: AbortSignal } = {},
+  opts: {
+    scale?: number; music?: ExportMusic;
+    /** Make it this many pictures a second by working out the pictures in between (slow, done on the processor). */
+    smoothTo?: number;
+    /** Nudge each video part's brightness and tint to the part before it at the join (means over the last and first moments). */
+    match?: boolean;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<Uint8Array> {
   if (!parts.length) throw new CutError("There is nothing to export yet.");
   const scale = opts.scale ?? 1;
@@ -302,16 +330,35 @@ export async function joinVideos(
     const sec = (ms: number) => (ms / 1000).toFixed(3);
     const stereo = "aresample=48000,aformat=channel_layouts=stereo";
     const chains: string[] = [];
+    // colour matching carries along: a part is matched to the part before as it will look, nudge included
+    let carry = { y: 0, u: 0, v: 0 };
+    let prevFile: string | null = null;
+    let prevPart: ExportPart | null = null;
     for (const [i, p] of parts.entries()) {
       const length = sec(p.endMs - p.startMs);
+      const file = join(dir, `part${i}.${p.ext}`);
       const main = await addInput(`part${i}.${p.ext}`, p.bytes, p.kind === "still" ? ["-loop", "1", "-t", length] : []);
       const fit = p.fill
         ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
         : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
+      let tune = "";
+      if (opts.match && p.kind === "video" && prevPart?.kind === "video" && prevFile) {
+        const look = 0.4;
+        const a = await meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look);
+        const b = await meansOf(file, (p.startMs + (p.blendMs ?? 0)) / 1000, look);
+        if (a && b) {
+          // a nudge, never a grade: within a few steps of 255
+          const nudge = (want: number, have: number) => Math.round(Math.max(-14, Math.min(14, want - have)) * 10) / 10;
+          carry = { y: nudge(a.y + carry.y, b.y), u: nudge(a.u + carry.u, b.u), v: nudge(a.v + carry.v, b.v) };
+          if (carry.y || carry.u || carry.v) tune = `,lutyuv=y='clip(val+(${carry.y}),0,255)':u='clip(val+(${carry.u}),0,255)':v='clip(val+(${carry.v}),0,255)'`;
+        } else carry = { y: 0, u: 0, v: 0 };
+      } else carry = { y: 0, u: 0, v: 0 };
+      prevFile = file;
+      prevPart = p;
       chains.push(
         p.kind === "still"
           ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS[v${i}]`
-          : `[${main}:v]trim=start=${sec(p.startMs)}:end=${sec(p.endMs)},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p[v${i}]`,
+          : `[${main}:v]trim=start=${sec(p.startMs)}:end=${sec(p.endMs)},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p${tune}[v${i}]`,
       );
       const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
       if (p.sound === "own" && p.kind === "video" && p.hasSound) {
@@ -323,9 +370,32 @@ export async function joinVideos(
         chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${length}[a${i}]`);
       }
     }
-    const total = parts.reduce((sum, p) => sum + (p.endMs - p.startMs), 0);
     const music = opts.music;
-    chains.push(`${parts.map((_p, i) => `[v${i}][a${i}]`).join("")}concat=n=${parts.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`);
+    // parts that blend into the one before are crossfaded in runs; the runs are then put one after the other
+    const lenOf = (p: ExportPart) => p.endMs - p.startMs;
+    const runs: number[][] = [];
+    parts.forEach((p, i) => {
+      if (i > 0 && p.blendMs && p.blendMs > 0) runs.at(-1)!.push(i);
+      else runs.push([i]);
+    });
+    const outs: string[] = [];
+    let total = 0;
+    for (const run of runs) {
+      let v = `v${run[0]}`;
+      let a = `a${run[0]}`;
+      let len = lenOf(parts[run[0]!]!);
+      for (const j of run.slice(1)) {
+        const x = Math.min(parts[j]!.blendMs!, len - 40, lenOf(parts[j]!) - 40);
+        chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - x)}[vx${j}]`);
+        chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
+        v = `vx${j}`;
+        a = `ax${j}`;
+        len = len - x + lenOf(parts[j]!);
+      }
+      outs.push(`[${v}][${a}]`);
+      total += len;
+    }
+    chains.push(`${outs.join("")}concat=n=${runs.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`);
     // enlarged frames are sharpened a little: scaling alone leaves them soft
     const smooth = opts.smoothTo && opts.smoothTo > fps ? `minterpolate=fps=${opts.smoothTo}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : "";
     chains.push(`[joined]${[smooth, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean).join(",") || "null"}[v]`);

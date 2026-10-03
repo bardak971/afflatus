@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { secondsInput, type Recipe } from "@afflatus/core";
-import { CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinVideos, MOTION_RATE, motionOf, peekAt, rangeKeep } from "./cut";
+import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinVideos, MOTION_RATE, motionOf, peekAt, rangeKeep } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -64,6 +64,10 @@ export interface ExportOptions {
   smooth?: boolean;
   /** Only this part of the timeline, on its clock: a range copied to the library. Without the music. */
   range?: { inMs: number; outMs: number };
+  /** Crossfade a clip that extends the one before over the frames they share (on unless said otherwise). */
+  blend?: boolean;
+  /** Nudge each clip's brightness and tint to the clip before at the join (on unless said otherwise). */
+  match?: boolean;
 }
 
 /** How many changes Undo can go back. */
@@ -1101,7 +1105,7 @@ export class Timelines {
    * The timeline as one video in the library: what plays, start to end, with its sounds and its music.
    * With a range: only that part, as a copy in the library (the music is left out).
    */
-  async export(id: string, opts: { scale?: number; music?: boolean; smooth?: boolean; range?: { inMs: number; outMs: number }; signal?: AbortSignal } = {}) {
+  async export(id: string, opts: { scale?: number; music?: boolean; smooth?: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; signal?: AbortSignal } = {}) {
     const t = await this.row(id);
     const laid = this.laid(await this.placed(id));
     const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
@@ -1114,7 +1118,7 @@ export class Timelines {
     const frame = t.width && t.height ? { width: t.width, height: t.height } : { width: first?.width ?? 576, height: first?.height ?? 1024 };
     const fps = Math.round(Math.max(...all.map((p) => p.active?.asset.fps ?? 24), 1));
     const parts: ExportPart[] = [];
-    for (const l of shown) {
+    for (const [i, l] of shown.entries()) {
       const p = l.p;
       const soundFile = p.clip.sound === "file" && p.sound ? { bytes: await this.storage.get(p.sound.file_key), ext: extOf(p.sound.mime) } : undefined;
       const heard = { sound: p.clip.sound, soundFile, volume: p.clip.volume / 100, fill: Boolean(p.clip.fill) };
@@ -1125,7 +1129,13 @@ export class Timelines {
         parts.push({ kind: "still", bytes: await this.storage.get(p.still!.file_key), ext: extOf(p.still!.mime), startMs: from, endMs: to, hasSound: false, ...heard });
       } else {
         const x = p.active!;
-        parts.push({ kind: "video", bytes: await this.storage.get(x.asset.file_key), ext: extOf(x.asset.mime), startMs: plays(x).start + from, endMs: plays(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard });
+        // a clip that extends the one before rendered the frames they share again: the join is crossfaded over them
+        const before = parts[i - 1];
+        const shared = x.take.head_ms - x.take.trim_start_ms;
+        const blend = opts.blend !== false && before && from === 0 && p.clip.joined === "continue" && shared >= 80
+          ? Math.min(BLEND_MS, shared, before.endMs - before.startMs - 40, to - 40)
+          : 0;
+        parts.push({ kind: "video", bytes: await this.storage.get(x.asset.file_key), ext: extOf(x.asset.mime), startMs: plays(x).start + from - (blend >= 80 ? blend : 0), endMs: plays(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard, ...(blend >= 80 ? { blendMs: blend } : {}) });
       }
     }
     const track = opts.music === false || win ? undefined : await this.assetRow(t.music_asset_id);
@@ -1135,7 +1145,7 @@ export class Timelines {
           volume: t.music_volume / 100, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck),
         }
       : undefined;
-    const bytes = await joinVideos(parts, frame, fps, { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, signal: opts.signal });
+    const bytes = await joinVideos(parts, frame, fps, { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, signal: opts.signal });
     const assetId = newId();
     const key = `assets/${assetId.slice(0, 2)}/${assetId}.mp4`;
     await this.storage.put(key, bytes);

@@ -109,6 +109,11 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
   (VACE) for real context: a later recipe.
 - **One transport**: Play turns accent with a range and plays it; Loop beside it; Shift+I / O jump; Shift-click
   a clip reaches the range to it; Export has "Only the range".
+- **Under the hood, after the first renders** (same day): Landing 5 / 22 / 39 frames of the next clip; 1–3 takes at once;
+  the designer writes the stretch between the anchors; the Join view in the Inspector; In / Out snap to quiet
+  moments (motion measured once per clip, a curve under the ruler); blended joins (crossfade over the shared
+  frames) and colour match at joins in the export, the blend in the preview too. Still open: VACE-style temporal
+  inpainting for Wan / LTX (on the todo, worth unsure).
 - **Loop** (slice E) is not built: with the range it would be "Regenerate with In and Out swapped"; wanted
   only when asked for.
 

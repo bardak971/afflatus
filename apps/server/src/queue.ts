@@ -548,7 +548,7 @@ export class Queue {
     try {
       const opts = JSON.parse(row.inputs) as ExportOptions;
       if (!this.clips) throw new Error("timelines are not available");
-      await this.clips.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, signal: abort.signal });
+      await this.clips.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, signal: abort.signal });
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) {

@@ -832,7 +832,7 @@ export const api = {
   writeBetween: (clip: string) => call<{ changes: Record<string, string>; note: string; was: Record<string, string> }>("POST", `/clips/${clip}/between`),
   renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean; takes?: number }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */
-  exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number } }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
+  exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
   /** One frame of a video, saved as a picture in the library. */
   frame: (video: string, atMs: number) => call<Asset>("POST", `/assets/${video}/frame`, { atMs }),
   /** A range of a video as new videos, in the queue: copied, split out, or removed. */

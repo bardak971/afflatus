@@ -66,7 +66,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const entities = useEntities();
   const [note, setNote] = useState<string | null>(null);
   /** The export box: open, what was asked, and the export that was there before (to tell the new one). */
-  const [exp, setExp] = useState<{ scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; before: string | null; asked: boolean } | null>(null);
+  const [exp, setExp] = useState<{ scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; blend: boolean; match: boolean; before: string | null; asked: boolean } | null>(null);
   const player = useRef<PlayerHandle>(null);
 
   const t = timeline.data;
@@ -340,7 +340,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       after();
     },
   });
-  const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number } }) => api.exportTimeline(id, v), onSuccess: after });
+  const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend: boolean; match: boolean }) => api.exportTimeline(id, v), onSuccess: after });
   const frame = useMutation({ mutationFn: (v: { asset: string; at: number }) => api.frame(v.asset, v.at), onSuccess: (a) => { setOpened(a); void client.invalidateQueries({ queryKey: ["assets"] }); } });
   /**
    * A loop ends where the clip begins: on its opening picture when it has one, else on the first frame
@@ -604,7 +604,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}
           </Button>
         )}
-        <Button disabled={!t.durationMs} onClick={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}>
+        <Button disabled={!t.durationMs} onClick={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}>
           <Download size={15} /> {t.exporting ? "Exporting…" : "Export video"}
         </Button>
       </header>
@@ -819,9 +819,13 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                     <span className="text-xs text-ink-2">The frames in between are worked out by your processor, not by a model: slow (minutes for a short video), and fast motion can smear. Frame interpolation at render time (RIFE, in the clip's form) is better.</span>
                   </div>
                 )}
+                {clips.some((c, i) => i > 0 && c.joined === "continue" && c.take && c.take.headMs > c.take.trimStartMs) && (
+                  <Toggle on={exp.blend} onChange={(blend) => setExp({ ...exp, blend })} label="Blend joins" note="a clip that extends the one before is crossfaded in over the frames they share (up to 0.4 s), with its sound" />
+                )}
+                {playable > 1 && <Toggle on={exp.match} onChange={(match) => setExp({ ...exp, match })} label="Match colours at joins" note="each clip's brightness and tint nudged to the clip before, a few steps at most" />}
                 {misfits > 0 && <span className="text-xs text-ink-2">{misfits} clip{misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).</span>}
                 <div className="flex flex-wrap gap-2">
-                  <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined }); }}>Export</Button>
+                  <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined, blend: exp.blend, match: exp.match }); }}>Export</Button>
                   <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
                 </div>
               </>

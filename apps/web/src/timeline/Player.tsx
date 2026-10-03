@@ -46,6 +46,16 @@ export const Player = forwardRef<PlayerHandle, {
   const next = seq[at + 1];
   const keyOf = (c: Clip) => c.take?.id ?? `still:${c.id}`;
   const startOf = (c: Clip) => c.take?.startMs ?? 0;
+  /** How long the next clip fades in over the end of this one: a clip that extends the one before, over the frames they share (as the export does). */
+  const blendOf = (c: Clip | undefined, from: Clip | undefined) => {
+    if (!c?.take || !from || c.joined !== "continue") return 0;
+    const shared = c.take.headMs - c.take.trimStartMs;
+    const x = Math.min(400, shared, c.lengthMs - 40, from.lengthMs - 40);
+    return x >= 80 ? x : 0;
+  };
+  /** The next clip is fading in, over this many ms. */
+  const [fading, setFading] = useState(0);
+  const fadeOn = useRef(false);
 
   /** The music follows the playhead: at the same moment, as loud as its fades say. */
   const tuneMusic = useCallback(
@@ -68,6 +78,8 @@ export const Player = forwardRef<PlayerHandle, {
       const c = seq[index];
       if (!c) return;
       pos.current = { key: keyOf(c), local, at: performance.now() };
+      fadeOn.current = false;
+      setFading(0);
       setCur(index);
       const el = c.take ? els.current.get(c.take.id) : undefined;
       if (el) el.currentTime = (startOf(c) + local) / 1000;
@@ -146,6 +158,18 @@ export const Player = forwardRef<PlayerHandle, {
         }
         return false;
       }
+      // the clip after fades in over the end of this one, playing the frames they share
+      const blend = blendOf(seq[at + 1], c);
+      if (blend && !fadeOn.current && local >= c.lengthMs - blend) {
+        fadeOn.current = true;
+        const nextEl = seq[at + 1]?.take ? els.current.get(seq[at + 1]!.take!.id) : undefined;
+        if (nextEl) {
+          nextEl.currentTime = Math.max(0, startOf(seq[at + 1]!) - blend) / 1000;
+          nextEl.muted = true;
+          void nextEl.play().catch(() => {});
+        }
+        setFading(blend);
+      }
       if (local >= 0) {
         pos.current = { key: keyOf(c), local, at: t };
         tuneMusic(c.atMs + local);
@@ -218,7 +242,8 @@ export const Player = forwardRef<PlayerHandle, {
                 onTimeUpdate={() => c === now && step.current()}
                 onEnded={() => c === now && step.current()}
                 onClick={() => onPlaying(!playing)}
-                className={cx("absolute inset-0 h-full w-full", c.fill ? "object-cover" : "object-contain", c === now ? "opacity-100" : "pointer-events-none opacity-0")}
+                style={c !== now && fading ? { transition: `opacity ${fading}ms linear` } : undefined}
+                className={cx("absolute inset-0 h-full w-full", c.fill ? "object-cover" : "object-contain", c === now ? "opacity-100" : fading ? "pointer-events-none opacity-100" : "pointer-events-none opacity-0")}
               />
             ) : (
               <img
