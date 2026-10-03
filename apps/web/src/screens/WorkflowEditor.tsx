@@ -53,8 +53,8 @@ function Found({ ok, role, note, children }: { ok: boolean; role: string; note?:
 function rangeOf(c: Control): string {
   if (c.kind === "number") return `a number, ${c.min ?? 0} to ${c.max ?? 100}`;
   if (c.kind === "toggle") return "on or off";
-  if (c.kind === "choice") return c.file ? "one of the files on your ComfyUI" : "one of the choices ComfyUI offers";
-  return "a text";
+  if (c.kind === "choice") return c.file ? "one of the model files in your ComfyUI" : "one of the choices ComfyUI offers";
+  return "text";
 }
 
 export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved: boolean): void }) {
@@ -68,7 +68,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     if (others.length) {
       return `ComfyUI has a file of this name in its "${others.join('", "')}" folder, but this loader only looks in "${folder ?? "its own folder"}". Move the file there, or tell ComfyUI that the folder also holds that kind of model (its extra_model_paths.yaml), then restart ComfyUI.`;
     }
-    return folder ? `This loader only looks in ComfyUI's "${folder}" folders: put the file there, then test again in Settings.` : "It goes in ComfyUI's models folder; then test again in Settings.";
+    return folder ? `This loader only looks in ComfyUI's "models/${folder}" folders: put the file there, then test again in Settings.` : "It goes in ComfyUI's models folder; then test again in Settings.";
   };
   const client = useQueryClient();
   const [title, setTitle] = useState(start.title);
@@ -169,35 +169,35 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     <div className="flex min-h-0 grow flex-col">
       <header className="flex h-20 shrink-0 items-center gap-4 border-b border-line px-8">
         <div className="flex min-w-0 flex-col">
-          <h1 className="text-xl font-semibold">{start.id ? "Change a workflow" : "Import a ComfyUI workflow"}</h1>
-          <div className="truncate text-ink-2">{start.source || start.title} · {found.nodeCount} nodes · studai read it and found the parts below. Correct anything that is wrong.</div>
+          <h1 className="text-xl font-semibold">{start.id ? "Edit workflow" : "Import ComfyUI workflow"}</h1>
+          <div className="truncate text-ink-2">{start.source || start.title} · {found.nodeCount} nodes · studai read it and mapped the parts below. Correct anything that is wrong.</div>
         </div>
         <span className="grow" />
         <Button onClick={() => onDone(false)}>Cancel</Button>
-        <Button tone="primary" disabled={!canSave} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : start.id ? "Save the changes" : "Save this workflow"}</Button>
+        <Button tone="primary" disabled={!canSave} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : start.id ? "Save changes" : "Save workflow"}</Button>
       </header>
 
       <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_minmax(0,1fr)_400px]">
         <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
-          <SectionTitle>What studai found</SectionTitle>
+          <SectionTitle>Mapping</SectionTitle>
 
-          <Found ok={Boolean(b.prompt)} role="Prompt" note={b.prompt ? undefined : "No text to write in was found."}>
+          <Found ok={Boolean(b.prompt)} role="Prompt" note={b.prompt ? undefined : "No text input (CLIP Text Encode or similar) was found."}>
             {textOptions.length > 0 && (
-              <Select size="sm" label="Where the description goes" value={keyOf(b.prompt)} onChange={pickText("prompt")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
+              <Select size="sm" label="Node the prompt goes to" value={keyOf(b.prompt)} onChange={pickText("prompt")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
             )}
           </Found>
           <Found ok={Boolean(b.negative)} role="Negative prompt" note={b.negative ? undefined : "optional"}>
             {textOptions.length > 0 && (
-              <Select size="sm" label="Where what to avoid goes" value={keyOf(b.negative)} onChange={pickText("negative")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
+              <Select size="sm" label="Node the negative prompt goes to" value={keyOf(b.negative)} onChange={pickText("negative")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
             )}
           </Found>
 
           {(["startImage", "endImage"] as const).map((key) => {
             const bound = b[key];
-            const role = key === "startImage" ? (video ? "Start image" : "Image") : "End image";
+            const role = key === "startImage" ? (video ? "First frame" : "Image") : "Last frame";
             if (!found.images.length) return key === "startImage" ? <Found key={key} ok={false} role={role} note="This workflow has no Load Image node." /> : null;
             return (
-              <Found key={key} ok={Boolean(bound)} role={role} note={bound ? (bound.required ? "always needed" : "can be left empty") : undefined}>
+              <Found key={key} ok={Boolean(bound)} role={role} note={bound ? (bound.required ? "required" : "optional") : undefined}>
                 <Select size="sm" label={role} value={bound?.target.node ?? ""} onChange={pickImage(key)} options={[{ value: "", label: "None" }, ...found.images.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
               </Found>
             );
@@ -211,7 +211,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             const idOf = (node: string) => `pic_${node}`.replace(/[^a-zA-Z0-9_]/g, "_");
             const have = b.pictures ?? [];
             return (
-              <Found ok={have.length > 0} role="Other images it loads" note={`${have.length} of ${rest.length} in the form`}>
+              <Found ok={have.length > 0} role="Other Load Image nodes" note={`${have.length} of ${rest.length} in the form`}>
                 {rest.map((i, n) => {
                   const on = have.find((p) => p.target.node === i.node);
                   return (
@@ -223,13 +223,13 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                       />
                       {on ? (
                         <input
-                          aria-label={`Name of the picture slot for ${i.title}`}
+                          aria-label={`Label of the image input for ${i.title}`}
                           value={on.label}
                           onChange={(e) => set({ pictures: have.map((p) => (p === on ? { ...p, label: e.target.value } : p)) })}
                           className={cx(text, "h-8 min-w-0 grow")}
                         />
                       ) : <span className="text-ink-2">{i.title}</span>}
-                      <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · always needed" : " · can be left empty") : ""}</span>
+                      <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · required" : " · optional") : ""}</span>
                     </label>
                   );
                 })}
@@ -239,23 +239,23 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 
           <Found
             ok={Boolean(b.size)}
-            role="Size"
-            note={b.size ? `width and height of node #${b.size.width.node}` : "The workflow works out its own size. Its size settings are in the list on the right."}
+            role="Resolution"
+            note={b.size ? `width and height of node #${b.size.width.node}` : "The workflow sets its own resolution. Its width and height are in the list on the right."}
           />
           {video && (
             <Found
               ok={Boolean(b.length)}
-              role="Length"
-              note={b.length ? `in seconds, at ${b.length.fps} pictures a second` : "The workflow works out its own length. Look for its length setting in the list on the right."}
+              role="Duration"
+              note={b.length ? `in seconds, at ${b.length.fps} fps` : "The workflow sets its own frame count. Look for its length setting in the list on the right."}
             />
           )}
           <Found
             ok={b.seeds.length > 0}
             role="Seed"
-            note={b.seeds.length ? (b.seeds.length > 1 ? `${b.seeds.length} places, all given the same seed` : `node #${b.seeds[0]!.node}`) : "None found: every render would come out the same."}
+            note={b.seeds.length ? (b.seeds.length > 1 ? `${b.seeds.length} nodes, all given the same seed` : `node #${b.seeds[0]!.node}`) : "None found: every render would come out the same."}
           />
 
-          <Found ok={b.loras.length > 0} role="Where LoRAs go" note={found.loraPoints.length ? (b.loras.length > 1 ? "one list for each" : undefined) : "No model loader was found."}>
+          <Found ok={b.loras.length > 0} role="LoRA loaders" note={found.loraPoints.length ? (b.loras.length > 1 ? "one list for each" : undefined) : "No model loader was found."}>
             {found.loraPoints.map((p) => (
               <label key={p.node} className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={b.loras.some((x) => x.node === p.node)} onChange={() => toggleLoras(p.node)} className="accent-accent" />
@@ -266,36 +266,36 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             ))}
           </Found>
 
-          <Found ok role="The result" note={`a ${b.result.kind === "image" ? "picture" : b.result.kind === "video" ? (b.result.sound ? "video with sound" : "video without sound") : "sound"}`}>
+          <Found ok role="Output" note={`${b.result.kind === "image" ? "an image" : b.result.kind === "video" ? (b.result.sound ? "a video with audio" : "a video without audio") : "audio"}`}>
             {found.outputs.length > 1 && (
               <Select
                 size="sm"
-                label="Which node gives the result"
+                label="Output node"
                 value={b.result.node}
                 onChange={(node) => {
                   const o = found.outputs.find((x) => x.node === node);
                   if (o) set({ result: { node: o.node, kind: o.kind, sound: o.sound } });
                 }}
-                options={found.outputs.map((o) => ({ value: o.node, label: o.title, note: `#${o.node} · ${o.kind === "image" ? "picture" : o.kind}` }))}
+                options={found.outputs.map((o) => ({ value: o.node, label: o.title, note: `#${o.node} · ${o.kind}` }))}
               />
             )}
-            {found.outputs.length > 1 && <span className="text-xs text-ink-2">This workflow saves {found.outputs.length} things. Only this one goes to your library.</span>}
-            {!result && <ErrorNote>The node that gave the result is no longer in the workflow.</ErrorNote>}
+            {found.outputs.length > 1 && <span className="text-xs text-ink-2">This workflow has {found.outputs.length} output nodes. Only this one goes to your library.</span>}
+            {!result && <ErrorNote>The output node is no longer in the workflow.</ErrorNote>}
           </Found>
         </section>
 
         <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
           <input
-            aria-label="Find a switch or a setting"
-            placeholder={`Search ${found.toggles.length ? `${found.toggles.length} switches and ` : ""}${found.candidates.length} settings`}
+            aria-label="Search switches and widgets"
+            placeholder={`Search ${found.toggles.length ? `${found.toggles.length} switches and ` : ""}${found.candidates.length} widgets`}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className={cx(text, "sticky top-0 z-10 h-9 shrink-0 shadow-[0_0_0_8px_var(--color-ground)]")}
           />
           {found.toggles.length > 0 && (
             <>
-              <SectionTitle>Switches</SectionTitle>
-              <div className="text-ink-2">Parts of this workflow that can be turned on and off. Each ticked one becomes a switch in the form. {b.toggles.length} of {found.toggles.length} ticked.</div>
+              <SectionTitle>Switches (bypass groups)</SectionTitle>
+              <div className="text-ink-2">Parts of this workflow that can be bypassed. Each ticked one becomes a switch in the form. {b.toggles.length} of {found.toggles.length} ticked.</div>
               {!switches.length && <div className="text-ink-2">No switch matches.</div>}
               {switches.map((t) => {
                 const ticked = b.toggles.find((x) => x.id === t.id);
@@ -307,13 +307,13 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                       <>
                         <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => changeSwitch(t.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />
                         <button type="button" aria-pressed={Boolean(ticked.front)} onClick={() => changeSwitch(t.id, { front: !ticked.front })} className="h-7 shrink-0 rounded-md border border-line px-2 text-xs text-ink-2 hover:text-ink">
-                          {ticked.front ? "Shown up front" : "Under All settings"}
+                          {ticked.front ? "Shown up front" : "Under Advanced"}
                         </button>
                       </>
                     ) : (
                       <span className="min-w-0 grow truncate font-semibold">{t.label}</span>
                     )}
-                    <span className="shrink-0 text-xs text-ink-2">{t.default ? "on" : "off"} in the file · {nodes} node{nodes === 1 ? "" : "s"}</span>
+                    <span className="shrink-0 text-xs text-ink-2">{t.default ? "active" : "bypassed"} in the file · {nodes} node{nodes === 1 ? "" : "s"}</span>
                   </div>
                 );
               })}
@@ -326,7 +326,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             const on = (b.stages?.length ?? 0) > 1;
             return (
               <>
-                <SectionTitle>{hires ? "Hires fix" : "Running only part of it"}</SectionTitle>
+                <SectionTitle>{hires ? "Hires fix" : "Partial run"}</SectionTitle>
                 <div className={cx("flex items-center gap-2.5 rounded-lg border px-3 py-2", on ? "border-accent/50 bg-accent-wash" : "border-line bg-panel")}>
                   <input type="checkbox" aria-label={hires ? "Add a Hires fix switch" : "Add a Run choice"} checked={on} onChange={() => set({ stages: on ? [] : found.stages })} className="accent-accent" />
                   <span className="min-w-0 grow font-semibold">{hires ? "Hires fix" : "Run"}</span>
@@ -334,15 +334,15 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                 </div>
                 <div className="text-ink-2">
                   {hires
-                    ? "This workflow is a base pass, then an upscale and a second pass over the larger picture. Ticked, the form gets a Hires fix switch: off runs the base pass only, and the settings of the upscale and the second pass are hidden."
-                    : `This workflow has a preview at ${found.stages.length} points on the way. Ticked, the form gets a "Run" choice (${found.stages.map((st) => st.label).join(" / ")}): what comes after the chosen point is not run.`}
+                    ? "This workflow is a base pass, then an upscale and a second sampling pass over the larger latent. Ticked, the form gets a Hires fix switch: off runs the base pass only, and the upscale and second-pass widgets are hidden."
+                    : `This workflow has a Preview node at ${found.stages.length} points on the way. Ticked, the form gets a "Run" choice (${found.stages.map((st) => st.label).join(" / ")}): what comes after the chosen point is not run.`}
                 </div>
                 <div className="pt-3" />
               </>
             );
           })()}
-          <SectionTitle>Settings you can change from studai</SectionTitle>
-          <div className="text-ink-2">Tick a setting to get a control for it. {b.controls.length} ticked. Everything else stays as it is in the file.</div>
+          <SectionTitle>Widgets exposed in the form</SectionTitle>
+          <div className="text-ink-2">Tick a widget to get a control for it. {b.controls.length} ticked. Everything else stays as it is in the file.</div>
           {groups.map(([node, items]) => (
             <div key={node} className="flex flex-col gap-1">
               <div className="pt-1.5 text-xs text-ink-2">{items[0]!.title} <span className="text-ink-3">#{node}</span></div>
@@ -356,48 +356,48 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                       <>
                         <input aria-label="Name of the control" value={ticked.label} onChange={(e) => change(c.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />
                         <button type="button" aria-pressed={Boolean(ticked.front)} onClick={() => change(c.id, { front: !ticked.front })} className="h-7 shrink-0 rounded-md border border-line px-2 text-xs text-ink-2 hover:text-ink">
-                          {ticked.front ? "Shown up front" : "Under All settings"}
+                          {ticked.front ? "Shown up front" : "Under Advanced"}
                         </button>
                       </>
                     ) : (
                       <span className="min-w-0 grow truncate font-semibold">{c.label}</span>
                     )}
-                    {!ticked && <span className="shrink-0 text-xs text-ink-2">{used ? "already used on the left" : `${rangeOf(c)}${c.off ? " · in a part that is off" : ""}`}</span>}
+                    {!ticked && <span className="shrink-0 text-xs text-ink-2">{used ? "already mapped on the left" : `${rangeOf(c)}${c.off ? " · in a bypassed part" : ""}`}</span>}
                   </div>
                 );
               })}
             </div>
           ))}
-          {!groups.length && <div className="text-ink-2">{filter ? "No setting matches." : "This workflow has no other setting that can be typed in."}</div>}
+          {!groups.length && <div className="text-ink-2">{filter ? "No widget matches." : "This workflow has no other widget that can be exposed."}</div>}
         </section>
 
         <section className="flex min-h-0 flex-col gap-3.5 overflow-y-auto bg-panel p-5">
-          <SectionTitle>How its form will look</SectionTitle>
+          <SectionTitle>Form preview</SectionTitle>
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="wf-title" className="text-xs font-semibold">Its name</label>
-            <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Picture to video" className={text} />
+            <label htmlFor="wf-title" className="text-xs font-semibold">Name</label>
+            <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="i2v" className={text} />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="wf-model" className="text-xs font-semibold">The model it uses</label>
+            <label htmlFor="wf-model" className="text-xs font-semibold">Model</label>
             <input id="wf-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Wan 2.2" className={text} />
-            <span className={cx("text-xs", model.trim() ? "text-ink-2" : "text-accent")}>{model.trim() ? "Workflows with the same model name are grouped together." : "Say which model it uses (\"Wan 2.2\", \"Qwen Image\") to be able to save."}</span>
+            <span className={cx("text-xs", model.trim() ? "text-ink-2" : "text-accent")}>{model.trim() ? "Workflows with the same model name are grouped together." : "Name the model it uses (\"Wan 2.2\", \"Qwen Image\") to be able to save."}</span>
           </div>
 
           <div className="flex flex-col gap-1.5 text-xs">
             {found.missingNodes.length ? (
               <div role="alert" className="flex flex-col gap-1.5 rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">
-                <span>Your ComfyUI is missing {found.missingNodes.length} kind{found.missingNodes.length > 1 ? "s" : ""} of node this workflow uses. You can save it, but it cannot run until they are installed (ComfyUI's Manager has "Install missing custom nodes").</span>
+                <span>Your ComfyUI is missing {found.missingNodes.length} node type{found.missingNodes.length > 1 ? "s" : ""} this workflow uses. You can save it, but it cannot run until they are installed (ComfyUI-Manager has "Install missing custom nodes").</span>
                 {found.missingNodes.map((n) => (
                   <span key={n}>
                     <span className="font-semibold">{n}</span>
                     {found.packs[n]
-                      ? <> · from the pack <a className={link} href={`https://registry.comfy.org/nodes/${encodeURIComponent(found.packs[n]!)}`} target="_blank" rel="noreferrer">{found.packs[n]}</a></>
-                      : <> · <a className={link} href={`https://github.com/search?q=${encodeURIComponent(`"${n}" comfyui`)}&type=code`} target="_blank" rel="noreferrer">look for it</a></>}
+                      ? <> · from the node pack <a className={link} href={`https://registry.comfy.org/nodes/${encodeURIComponent(found.packs[n]!)}`} target="_blank" rel="noreferrer">{found.packs[n]}</a></>
+                      : <> · <a className={link} href={`https://github.com/search?q=${encodeURIComponent(`"${n}" comfyui`)}&type=code`} target="_blank" rel="noreferrer">search GitHub</a></>}
                   </span>
                 ))}
               </div>
             ) : (
-              <span className="text-good">Every node it uses is installed on your ComfyUI.</span>
+              <span className="text-good">Every node type it uses is installed in your ComfyUI.</span>
             )}
             {found.missingFiles.map((f) => {
               const now = String(graph[f.node]?.inputs[f.input] ?? f.file);
@@ -407,20 +407,20 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                   <span>
                     {replaced ? "Replaced: " : "Your ComfyUI does not have "}
                     <span className="font-semibold break-all">{fileLabel(f.file)}</span> ({f.label}).
-                    {!replaced && " Use another file, or get this one:"}
+                    {!replaced && " Use another file, or download this one:"}
                   </span>
                   <Select
                     size="sm"
                     label={`File to use instead of ${fileLabel(f.file)}`}
-                    placeholder="Use this file instead…"
+                    placeholder="Replace with…"
                     value={replaced ? now : ""}
                     onChange={(file) => replaceFile(f, file || f.file)}
-                    options={[...(replaced ? [{ value: "", label: "Back to the file it names" }] : []), ...f.options.map((o) => ({ value: o, label: fileLabel(o), note: o.split(/[\\/]/).slice(0, -1).join("/") || undefined }))]}
+                    options={[...(replaced ? [{ value: "", label: "Back to the file the workflow names" }] : []), ...f.options.map((o) => ({ value: o, label: fileLabel(o), note: o.split(/[\\/]/).slice(0, -1).join("/") || undefined }))]}
                   />
                   {!replaced && (
                     <span>
                       {f.url
-                        ? <a className={link} href={f.url} target="_blank" rel="noreferrer">Download it (the link is in the workflow)</a>
+                        ? <a className={link} href={f.url} target="_blank" rel="noreferrer">Download it (the URL is in the workflow)</a>
                         : <>Search for it on {searchLinks(f.file).map((l, i) => <span key={l.url}>{i > 0 && " or "}<a className={link} href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)}</>}
                       . {where(f)}
                       <GetFile file={f.file} folder={folderOfFileInput(f.classType, f.input)} url={f.url} hints={hintsFor(f.node)} />
@@ -437,11 +437,11 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                 <div key={keyOf(c)} className={cx("flex flex-col gap-1.5 rounded-lg px-3 py-2", replaced ? "border border-line text-ink-2" : "bg-warn-wash text-warn-ink")}>
                   <span>
                     {replaced ? <>Replaced: <span className="font-semibold">{c.value}</span> by <span className="font-semibold">{now}</span> as {what} ({c.title}).</> : (
-                      <>Your ComfyUI does not offer <span className="font-semibold">{c.value}</span> as {what} ({c.title} #{c.node}). It comes from a node pack this ComfyUI does not have, and the render would be refused. Use another:</>
+                      <>Your ComfyUI does not offer <span className="font-semibold">{c.value}</span> as {what} ({c.title} #{c.node}). It comes from a node pack this ComfyUI does not have, and the prompt would be rejected. Use another:</>
                     )}
                   </span>
                   <div className="flex flex-wrap items-center gap-2">
-                    {!replaced && c.nearest && <Button size="sm" tone="primary" onClick={() => replaceFile(c, c.nearest!)}>Use {c.nearest}, the closest</Button>}
+                    {!replaced && c.nearest && <Button size="sm" tone="primary" onClick={() => replaceFile(c, c.nearest!)}>Use {c.nearest}, the closest match</Button>}
                     <div className="min-w-48 grow">
                       <Select
                         size="sm"
@@ -458,7 +458,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             })}
             {(found.relocated ?? []).map((r) => (
               <div key={keyOf(r)} className="rounded-lg border border-line px-3 py-2 text-ink-2">
-                <span className="font-semibold break-all text-ink">{fileLabel(r.file)}</span> is on your ComfyUI in another folder ({r.found.split(/[\\/]/).slice(0, -1).join("/") || "the top one"}): it is used from there.
+                <span className="font-semibold break-all text-ink">{fileLabel(r.file)}</span> is in your ComfyUI in another folder ({r.found.split(/[\\/]/).slice(0, -1).join("/") || "the top one"}): it is used from there.
               </div>
             ))}
             {found.missingFiles.length > 0 && found.links.length > 0 && (
@@ -471,7 +471,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             )}
             {found.missingWhenOn.length > 0 && (
               <span className="text-ink-2">
-                Parts that are switched off use nodes your ComfyUI does not have: {found.missingWhenOn.map((n) => (found.packs[n] ? `${n} (pack ${found.packs[n]})` : n)).join(", ")}. Those switches will not work until they are installed.
+                Bypassed parts use node types your ComfyUI does not have: {found.missingWhenOn.map((n) => (found.packs[n] ? `${n} (pack ${found.packs[n]})` : n)).join(", ")}. Those switches will not work until they are installed.
               </span>
             )}
             {found.notes.map((n) => <ErrorNote key={n}>{n}</ErrorNote>)}
@@ -481,16 +481,16 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             {shown.map(({ spec, value }) => (
               <Field key={spec.id} spec={spec} value={value} options={found.candidates.find((c) => c.id === spec.id)?.offers} onChange={(v) => setValues((old) => ({ ...old, [spec.id]: v }))} />
             ))}
-            {preview && !preview.inputs.length && <span className="text-ink-2">Nothing to fill in: it would always make the same thing.</span>}
-            {!preview && <ErrorNote>This mapping cannot be shown. Check the parts on the left.</ErrorNote>}
+            {preview && !preview.inputs.length && <span className="text-ink-2">No inputs: it would always generate the same output.</span>}
+            {!preview && <ErrorNote>This mapping cannot be previewed. Check the mapping on the left.</ErrorNote>}
           </div>
 
           {preview?.traits && (
             <div className="flex flex-col gap-1 text-xs text-ink-2">
-              <span className="font-semibold text-ink">In a timeline, a clip made with it</span>
-              <span>{preview.traits.startFrame ? "can open on a picture, and continue from the last frame of the clip before" : "cannot open on a picture"}</span>
-              <span>{preview.traits.endFrame ? "can end on a picture" : "cannot end on a picture"}</span>
-              <span>{preview.traits.sound ? "has sound" : "has no sound"}</span>
+              <span className="font-semibold text-ink">In a timeline, a clip generated with it</span>
+              <span>{preview.traits.startFrame ? "takes a first frame, and can extend the previous clip from its last frame" : "takes no first frame"}</span>
+              <span>{preview.traits.endFrame ? "takes a last frame" : "takes no last frame"}</span>
+              <span>{preview.traits.sound ? "has audio" : "has no audio"}</span>
             </div>
           )}
 

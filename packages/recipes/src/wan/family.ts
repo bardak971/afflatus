@@ -13,7 +13,7 @@ const HF = "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/
 export const wan = defineFamily({
   id: "wan",
   name: "Wan 2.2",
-  summary: "Video without sound. Opens on a picture, ends on one, or is made from words alone.",
+  summary: "Video without audio. i2v from a first frame, first and last frame, or t2v.",
   promptStyle: "sentences",
   slots: [
     {
@@ -39,42 +39,42 @@ export const wan = defineFamily({
     },
     {
       id: "t2vHigh", label: "t2v high-noise model", folder: "diffusion_models", detect: ["wan2[._]2_t2v_high_noise_14b", "wan.?2[._]?2.*t2v.*high"], optional: true,
-      hint: "Without the two words-to-video models, a clip needs a start image. Put wan2.2_t2v_high_noise_14B_*.safetensors in ComfyUI's models/diffusion_models folder.",
+      hint: "Without the two t2v models, a clip needs a first frame. Put wan2.2_t2v_high_noise_14B_*.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors", url: `${HF}/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors` },
     },
     {
       id: "t2vLow", label: "t2v low-noise model", folder: "diffusion_models", detect: ["wan2[._]2_t2v_low_noise_14b", "wan.?2[._]?2.*t2v.*low"], optional: true,
-      hint: "Without the two words-to-video models, a clip needs a start image. Put wan2.2_t2v_low_noise_14B_*.safetensors in ComfyUI's models/diffusion_models folder.",
+      hint: "Without the two t2v models, a clip needs a first frame. Put wan2.2_t2v_low_noise_14B_*.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors", url: `${HF}/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors` },
     },
     {
       id: "i2vTurboHigh", label: "Turbo LoRA (i2v, high noise)", folder: "loras", detect: ["wan.?2[._]?2.*i2v.*lightx2v.*high", "lightx2v.*i2v.*high"], optional: true,
-      hint: "Without the two turbo LoRAs, Turbo is off for a model that is not distilled itself, and clips take the full number of steps. Put the lightx2v 4-step LoRAs for Wan 2.2 I2V in ComfyUI's models/loras folder.",
+      hint: "Without the two turbo LoRAs, Turbo is off for a model that is not distilled itself, and clips take the full step count. Put the lightx2v 4-step LoRAs for Wan 2.2 I2V in ComfyUI's models/loras folder.",
       get: { file: "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors", url: `${HF}/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors` },
     },
     {
       id: "i2vTurboLow", label: "Turbo LoRA (i2v, low noise)", folder: "loras", detect: ["wan.?2[._]?2.*i2v.*lightx2v.*low", "lightx2v.*i2v.*low"], optional: true,
-      hint: "The low-noise half of the turbo LoRAs for picture to video.",
+      hint: "The low-noise half of the turbo LoRAs for i2v.",
       get: { file: "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors", url: `${HF}/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors` },
     },
     {
       id: "t2vTurboHigh", label: "Turbo LoRA (t2v, high noise)", folder: "loras", detect: ["wan.?2[._]?2.*t2v.*lightx2v.*high", "lightx2v.*t2v.*high"], optional: true,
-      hint: "The turbo LoRAs for words to video: without them those clips take the full number of steps.",
+      hint: "The turbo LoRAs for t2v: without them those clips take the full step count.",
       get: { file: "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors", url: `${HF}/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors` },
     },
     {
       id: "t2vTurboLow", label: "Turbo LoRA (t2v, low noise)", folder: "loras", detect: ["wan.?2[._]?2.*t2v.*lightx2v.*low", "lightx2v.*t2v.*low"], optional: true,
-      hint: "The low-noise half of the turbo LoRAs for words to video.",
+      hint: "The low-noise half of the turbo LoRAs for t2v.",
       get: { file: "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors", url: `${HF}/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors` },
     },
     {
       id: "tinyVae", label: "Tiny VAE (live preview)", folder: "vae_approx", detect: ["tae.?w2[._]1"], optional: true,
-      hint: "Optional, 23 MB: with taew2_1.safetensors in ComfyUI's models/vae_approx folder, the animated live preview shows the real picture. Without it, it is a small, rough colour preview.",
+      hint: "Optional, 23 MB: with taew2_1.safetensors (tiny VAE) in ComfyUI's models/vae_approx folder, the animated live preview shows the real frames. Without it, it is a small, rough colour preview.",
       get: { file: "taew2_1.safetensors", url: "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/taew2_1.safetensors" },
     },
     {
       id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
-      hint: "Without it, clips stay at 16 pictures a second. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
+      hint: "Without it, no frame interpolation: clips stay at 16 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
   ],
   loraMatch: ["wan"],

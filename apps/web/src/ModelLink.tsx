@@ -89,10 +89,10 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
       <button
         ref={button}
         type="button"
-        title={`${file}\nClick for its page on Civitai or Hugging Face`}
+        title={`${file}\nClick for its model page on Civitai or Hugging Face`}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${label}: its page`}
+        aria-label={`${label}: model page`}
         onClick={toggle}
         className={cx("truncate text-left underline decoration-line-strong decoration-dotted underline-offset-4 hover:decoration-ink", className)}
       >
@@ -102,27 +102,27 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
         <div
           ref={panel}
           role="menu"
-          aria-label={`The page of ${label}`}
+          aria-label={`Model page of ${label}`}
           style={{ left: place.left, top: place.top, bottom: place.bottom }}
           className="fixed z-[75] flex max-h-[min(420px,80vh)] w-[340px] flex-col gap-0.5 overflow-y-auto rounded-xl border border-line-strong bg-panel p-1.5 text-sm shadow-2xl shadow-shade/60"
         >
           {page ? (
             <>
-              <span className="px-2 pt-1 text-xs font-semibold text-ink-2">Its page</span>
+              <span className="px-2 pt-1 text-xs font-semibold text-ink-2">Model page</span>
               {CIVITAI.test(page.url)
                 ? [out(onSite(page.url, "com"), "Open on civitai.com", page.title), out(onSite(page.url, "red"), "Open on civitai.red", page.title)]
                 : out(page.url, `Open on ${new URL(page.url).hostname.replace(/^www\./, "")}`, page.title)}
-              <button type="button" className={cx(item, "text-ink-2")} disabled={set.isPending} onClick={() => { set.mutate({ url: null }); find.reset(); }}>That is not its page</button>
+              <button type="button" className={cx(item, "text-ink-2")} disabled={set.isPending} onClick={() => { set.mutate({ url: null }); find.reset(); }}>Wrong page: unlink</button>
             </>
           ) : (
             <>
-              {(find.isPending || pages.isPending) && <span className="px-2 py-1.5 text-ink-2">Looking for its page…</span>}
+              {(find.isPending || pages.isPending) && <span className="px-2 py-1.5 text-ink-2">Searching for its model page…</span>}
               {find.isError && <span className="px-2 py-1.5 text-warn-ink">{find.error.message}</span>}
               {find.data && !find.data.lookups && (
-                <span className="px-2 py-1.5 text-ink-2">Looking files up on Civitai is turned off. <Link href="/settings" className="underline" onClick={() => setOpen(false)}>Turn it on in Settings</Link>, or search by hand below.</span>
+                <span className="px-2 py-1.5 text-ink-2">Civitai lookups are turned off. <Link href="/settings" className="underline" onClick={() => setOpen(false)}>Turn them on in Settings</Link>, or search manually below.</span>
               )}
-              {find.data?.lookups && !candidates.length && <span className="px-2 py-1.5 text-ink-2">Nothing was found under this name. Search by hand below, then paste its address to keep it.</span>}
-              {candidates.length > 0 && <span className="px-2 pt-1 text-xs font-semibold text-ink-2">No file of exactly this name was found. It may be one of these:</span>}
+              {find.data?.lookups && !candidates.length && <span className="px-2 py-1.5 text-ink-2">No match for this filename. Search manually below, then paste the page URL to link it.</span>}
+              {candidates.length > 0 && <span className="px-2 pt-1 text-xs font-semibold text-ink-2">No exact filename match. It may be one of these:</span>}
               {candidates.map((c) => (
                 <span key={c.url} className="flex items-center gap-1">
                   <a href={c.url} target="_blank" rel="noreferrer" className={cx(item, "min-w-0 grow")}>
@@ -132,10 +132,10 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
                       <span className="truncate text-xs text-ink-2">{[c.about, c.site].filter(Boolean).join(" · ")}</span>
                     </span>
                   </a>
-                  <button type="button" className="shrink-0 rounded-md border border-line-strong px-2 py-1 text-xs hover:bg-hover" disabled={set.isPending} onClick={() => set.mutate({ url: c.url, title: c.title })}>This is it</button>
+                  <button type="button" className="shrink-0 rounded-md border border-line-strong px-2 py-1 text-xs hover:bg-hover" disabled={set.isPending} onClick={() => set.mutate({ url: c.url, title: c.title })}>Link</button>
                 </span>
               ))}
-              <span className="px-2 pt-1.5 text-xs font-semibold text-ink-2">Search by hand</span>
+              <span className="px-2 pt-1.5 text-xs font-semibold text-ink-2">Search manually</span>
               {out(`https://civitai.com/search/models?query=${words}`, "Search civitai.com")}
               {out(`https://civitai.red/search/models?query=${words}`, "Search civitai.red")}
               {out(`https://huggingface.co/models?search=${words}`, "Search Hugging Face")}
@@ -146,8 +146,8 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
                   if (own.trim()) set.mutate({ url: own.trim() });
                 }}
               >
-                <input aria-label="The address of its page" value={own} placeholder="Or paste the address of its page" onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 text-xs placeholder:text-ink-3" />
-                <button type="submit" disabled={!own.trim() || set.isPending} className="shrink-0 rounded-md border border-line-strong px-2 py-1 text-xs hover:bg-hover disabled:opacity-45">Keep</button>
+                <input aria-label="Model page URL" value={own} placeholder="Or paste the model page URL" onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 text-xs placeholder:text-ink-3" />
+                <button type="submit" disabled={!own.trim() || set.isPending} className="shrink-0 rounded-md border border-line-strong px-2 py-1 text-xs hover:bg-hover disabled:opacity-45">Link</button>
               </form>
               {set.isError && <span className="px-2 py-1 text-xs text-warn-ink">{set.error.message}</span>}
             </>

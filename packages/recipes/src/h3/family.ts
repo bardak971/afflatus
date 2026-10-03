@@ -11,7 +11,7 @@ const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";
 export const h3 = defineFamily({
   id: "h3",
   name: "MiniMax H3",
-  summary: "Video with sound. Opens on a picture, ends on one, or continues another clip.",
+  summary: "Video with audio. i2v from a first frame, first and last frame, or extending a previous clip.",
   promptStyle: "sections",
   slots: [
     {
@@ -38,12 +38,12 @@ export const h3 = defineFamily({
     {
       // the turbo LoRA of the reference model is another file and does not fit this one
       id: "turbo", label: "Turbo LoRA", folder: "loras", detect: ["^(?!.*ref2v).*minimax_h3.*turbo"], optional: true,
-      hint: "Without it, Fast is off and clips take the full number of steps. Put the MiniMax H3 turbo LoRA in ComfyUI's models/loras folder.",
+      hint: "Without it, Turbo is off and clips take the full step count. Put the MiniMax H3 turbo LoRA in ComfyUI's models/loras folder.",
       get: { file: "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", url: "https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" },
     },
     {
       id: "refUnet", label: "Reference model (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", "minimax.?h3.*hybrid(?!.*turbo)", "minimax.?h3.*hybrid"], optional: true,
-      hint: "Without it, clips cannot follow reference pictures or a voice. Put minimax_h3_ref2va_*.safetensors, or a hybrid MiniMax H3 fine-tune, in ComfyUI's models/diffusion_models folder.",
+      hint: "Without it, clips cannot follow reference images or a voice sample. Put minimax_h3_ref2va_*.safetensors, or a hybrid MiniMax H3 fine-tune, in ComfyUI's models/diffusion_models folder.",
       get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
     },
     {
@@ -53,15 +53,15 @@ export const h3 = defineFamily({
     },
     {
       id: "latentUpscaler", label: "Latent upscaler (upscale pass)", folder: "latent_upscale_models", detect: ["minimax.?h3.?latent.?upscaler"], optional: true,
-      hint: "Optional: with minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, the upscale pass enlarges the clip with H3's own upscaler. Without it, the clip is resized and re-sampled, which is still sharper than a pixel upscale.",
+      hint: "Optional: with minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, the refine pass uses H3's own latent upscaler. Without it, the clip is resized and re-sampled, which is still sharper than a pixel upscale.",
     },
     {
       id: "tinyVae", label: "Tiny VAE (live preview)", folder: "vae_approx", detect: ["^taeh3\\.safetensors$"], optional: true,
-      hint: "Optional: with taeh3.safetensors in ComfyUI's models/vae_approx folder, the animated live preview is sharper. Without it, it is a rough colour preview.",
+      hint: "Optional: with taeh3.safetensors (tiny VAE) in ComfyUI's models/vae_approx folder, the animated live preview is sharper. Without it, it is a rough colour preview.",
     },
     {
       id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
-      hint: "Without it, clips stay at 24 pictures a second. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
+      hint: "Without it, no frame interpolation: clips stay at 24 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
   ],
   loraMatch: ["minimax", "\\bh3\\b"],

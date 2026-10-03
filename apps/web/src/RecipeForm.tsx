@@ -63,7 +63,7 @@ function TextFold({ spec, value, children }: { spec: Extract<InputSpec, { type: 
     return (
       <div className="flex flex-col gap-1">
         {children}
-        <button type="button" onClick={() => set(id, false)} className="self-end rounded-md px-1 text-xs text-ink-2 hover:text-ink hover:underline">Fold it away</button>
+        <button type="button" onClick={() => set(id, false)} className="self-end rounded-md px-1 text-xs text-ink-2 hover:text-ink hover:underline">Collapse</button>
       </div>
     );
   }
@@ -339,7 +339,7 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
         {render(i)}
         {isChanged && (
           <button type="button" onClick={() => onClear([i.id])} className="mt-1 rounded-md px-1 text-xs text-accent hover:underline">
-            Changed · put it back
+            Changed · reset
           </button>
         )}
       </div>
@@ -416,15 +416,15 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
             <div className="flex flex-col gap-2 text-xs text-ink-2">
               <span>
                 {differs.length
-                  ? `${differs.length} setting${differs.length > 1 ? "s differ" : " differs"} from what ${model} starts with. They apply to this draft only.`
+                  ? `${differs.length} setting${differs.length > 1 ? "s differ" : " differs"} from ${model}'s defaults. They apply to this draft only.`
                   : hasSaved
-                    ? `These are the settings you saved for ${model}.`
-                    : `Nothing is saved for ${model} yet: these are the usual starting values.`}
+                    ? `These are the defaults you saved for ${model}.`
+                    : `No defaults saved for ${model} yet: these are the recipe's.`}
               </span>
               <span className="flex flex-wrap gap-1.5">
-                {differs.length > 0 && <Button size="sm" tone="quiet" onClick={() => save.mutate()} disabled={save.isPending}>Save for {model}</Button>}
-                {differs.length > 0 && <Button size="sm" onClick={() => onClear(differs.map((i) => i.id))}>Put all back</Button>}
-                {hasSaved && !differs.length && <Button size="sm" onClick={() => forget.mutate()} disabled={forget.isPending}>Forget what is saved for it</Button>}
+                {differs.length > 0 && <Button size="sm" tone="quiet" onClick={() => save.mutate()} disabled={save.isPending}>Save as defaults for {model}</Button>}
+                {differs.length > 0 && <Button size="sm" onClick={() => onClear(differs.map((i) => i.id))}>Reset all</Button>}
+                {hasSaved && !differs.length && <Button size="sm" onClick={() => forget.mutate()} disabled={forget.isPending}>Forget saved defaults</Button>}
               </span>
               {(save.isError || forget.isError) && <ErrorNote>{(save.error ?? forget.error)?.message}</ErrorNote>}
             </div>

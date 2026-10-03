@@ -29,10 +29,10 @@ export function Banners() {
     if (seenJobs.current) {
       for (const j of over) {
         if (seenJobs.current.has(j.id)) continue;
-        if (j.status === "failed") push({ id: `job:${j.id}`, tone: "bad", title: `${j.label} failed`, text: j.error ?? undefined, href: "/queue", go: "Open the queue" });
+        if (j.status === "failed") push({ id: `job:${j.id}`, tone: "bad", title: `${j.label} failed`, text: j.error ?? undefined, href: "/queue", go: "Open queue" });
         // a model loaded ahead has nothing to show: the form says it is loaded
         else if (j.kind === "load") continue;
-        else if (!showsResults(path)) push({ id: `job:${j.id}`, tone: "good", title: `${j.label} is done`, href: j.kind === "export" ? "/timelines" : "/", go: j.kind === "export" ? "Open the timelines" : "Open the library" });
+        else if (!showsResults(path)) push({ id: `job:${j.id}`, tone: "good", title: `${j.label} done`, href: j.kind === "export" ? "/timelines" : "/", go: j.kind === "export" ? "Open timelines" : "Open library" });
       }
     }
     seenJobs.current = new Set(over.map((j) => j.id));
@@ -45,8 +45,8 @@ export function Banners() {
       for (const d of list) {
         if (seenDownloads.current.get(d.id) === d.status) continue;
         const name = d.file.split(/[\\/]/).pop() ?? d.file;
-        if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} is in ComfyUI now`, href: "/settings", go: "Open Settings" });
-        if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `The download of ${name} failed`, text: d.error, href: "/settings", go: "Open Settings" });
+        if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings", go: "Open settings" });
+        if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" });
       }
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));

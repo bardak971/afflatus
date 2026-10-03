@@ -316,7 +316,7 @@ function SizeField({ spec, value: size, values, onChange }: { spec: Extract<Inpu
             <ArrowLeftRight size={14} />
           </button>
           <NumberBox label="Height, in pixels" value={size.height} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(height) => onChange({ width: size.width, height: snap(height) })} />
-          <span className="text-xs">wide × high</span>
+          <span className="text-xs">width × height</span>
         </div>
       )}
     </div>

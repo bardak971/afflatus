@@ -33,16 +33,16 @@ function Pictures({ value, onChange, what }: { value: string[]; onChange(value: 
       {value.map((id) => (
         <div key={id} className="relative">
           <img src={thumbUrl(id)} alt="" className="h-28 w-24 rounded-lg border border-line object-cover" />
-          <button type="button" aria-label="Take this picture out" onClick={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/85 text-ink-2 hover:text-ink"><X size={11} /></button>
+          <button type="button" aria-label="Remove this image" onClick={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/85 text-ink-2 hover:text-ink"><X size={11} /></button>
         </div>
       ))}
       {value.length < 9 && (
-        <button type="button" aria-label={`Add a picture of ${what}`} onClick={() => setPicking(true)} className="flex h-28 w-24 flex-col items-center justify-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink">
+        <button type="button" aria-label={`Add a reference image of ${what}`} onClick={() => setPicking(true)} className="flex h-28 w-24 flex-col items-center justify-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink">
           <Plus size={16} />
-          <span className="text-xs">Add a picture</span>
+          <span className="text-xs">Add image</span>
         </button>
       )}
-      {picking && <Picker title={`A picture of ${what}`} onClose={() => setPicking(false)} onPick={(id) => { if (!value.includes(id)) onChange([...value, id]); setPicking(false); }} />}
+      {picking && <Picker title={`A reference image of ${what}`} onClose={() => setPicking(false)} onPick={(id) => { if (!value.includes(id)) onChange([...value, id]); setPicking(false); }} />}
     </div>
   );
 }
@@ -50,14 +50,14 @@ function Pictures({ value, onChange, what }: { value: string[]; onChange(value: 
 function Words({ tags, sentence, onChange, who }: { tags: string; sentence: string; onChange(patch: { tags?: string; sentence?: string }): void; who: string }) {
   return (
     <div className="flex flex-col gap-2">
-      <SectionTitle>{who}, in words</SectionTitle>
-      <span className="text-ink-2">Some models read tags, others read sentences. studai uses the one the model needs.</span>
+      <SectionTitle>{who}, as prompt text</SectionTitle>
+      <span className="text-ink-2">Some models read danbooru tags, others natural-language prompts. studai uses the one the model needs.</span>
       <label className="flex flex-col gap-1">
-        <span className="text-xs font-semibold">As tags</span>
+        <span className="text-xs font-semibold">Tags</span>
         <AutoText rows={1} value={tags} placeholder="brown hair, green eyes, freckles" onChange={(e) => onChange({ tags: e.target.value })} className={field} />
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-xs font-semibold">As a sentence</span>
+        <span className="text-xs font-semibold">Natural language</span>
         <AutoText rows={1} value={sentence} placeholder="She has brown hair, green eyes and freckles." onChange={(e) => onChange({ sentence: e.target.value })} className={field} />
       </label>
     </div>
@@ -75,24 +75,24 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
   return (
     <>
       <div className="flex flex-col gap-2">
-        <SectionTitle>Pictures of {name}</SectionTitle>
-        <span className="text-ink-2">Used by models that take reference pictures. Two or three angles hold a face better than one.</span>
+        <SectionTitle>Reference images of {name}</SectionTitle>
+        <span className="text-ink-2">Used by models that take reference images. Two or three angles hold a face better than one.</span>
         <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} />
       </div>
-      <SoundField label="Voice" note="A few seconds of them speaking. Models that make sound give the person this voice." optional value={def.voice} onChange={(voice) => onChange({ ...def, voice: voice ?? null })} />
+      <SoundField label="Voice sample" note="A few seconds of them speaking. Models that generate audio give the person this voice." optional value={def.voice} onChange={(voice) => onChange({ ...def, voice: voice ?? null })} />
       <Words who={`How ${name} looks`} tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
 
       <div className="flex flex-col gap-2">
-        <SectionTitle>What each model uses</SectionTitle>
+        <SectionTitle>Per model</SectionTitle>
         <span className="text-ink-2">A LoRA is optional. It is a file you already have: studai does not train one.</span>
         {families.map((f) => {
           const can = takes(f, recipes.data?.recipes ?? []);
           const m = def.models[f.id] ?? { lora: null, weight: 0.8, trigger: "" };
           const set = (patch: Partial<typeof m>) => onChange({ ...def, models: { ...def.models, [f.id]: { ...m, ...patch } } });
           const uses = [
-            can.pictures && def.pictures.length ? `${Math.min(3, def.pictures.length)} of the pictures` : "",
-            can.voice && def.voice ? "the voice" : "",
-            can.tags ? "the tags" : "the sentence",
+            can.pictures && def.pictures.length ? `${Math.min(3, def.pictures.length)} reference image${Math.min(3, def.pictures.length) > 1 ? "s" : ""}` : "",
+            can.voice && def.voice ? "voice sample" : "",
+            can.tags ? "tags" : "natural language",
             m.lora ? `LoRA ${fileLabel(m.lora)} at ${m.weight.toFixed(2)}` : "",
           ].filter(Boolean).join(" · ");
           return (
@@ -113,18 +113,18 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
                   />
                   {m.lora && (
                     <label className="flex items-center gap-2 text-xs text-ink-2">
-                      strength
+                      weight
                       <input type="range" min={0} max={1.5} step={0.05} value={m.weight} onChange={(e) => set({ weight: Number(e.target.value) })} className="w-24" />
                       <span className="w-8 font-mono">{m.weight.toFixed(2)}</span>
                     </label>
                   )}
-                  {m.lora && <span className="col-span-2 flex min-w-0 items-baseline gap-1.5 text-xs text-ink-2">Its page: <ModelLink folder="loras" file={m.lora} className="min-w-0" /></span>}
-                  {can.tags && m.lora && <input aria-label={`Trigger word for ${f.name}`} placeholder="Its trigger word, if it has one" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "col-span-2 h-9 py-0")} />}
+                  {m.lora && <span className="col-span-2 flex min-w-0 items-baseline gap-1.5 text-xs text-ink-2">Model page: <ModelLink folder="loras" file={m.lora} className="min-w-0" /></span>}
+                  {can.tags && m.lora && <input aria-label={`Trigger words for ${f.name}`} placeholder="Trigger words, if it has any" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "col-span-2 h-9 py-0")} />}
                   {can.tags && m.lora && !m.trigger.trim() && (() => {
                     const known = words.of(m.lora);
                     return known.words && known.from !== "training" ? (
                       <button type="button" onClick={() => set({ trigger: known.words.slice(0, 200) })} className="col-span-2 truncate text-left text-xs text-accent hover:underline" title={known.words}>
-                        Use its own: {known.words}
+                        Use its trigger words: {known.words}
                       </button>
                     ) : null;
                   })()}
@@ -132,7 +132,7 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
               ) : (
                 <span className="text-xs text-ink-3">This model takes no LoRA.</span>
               )}
-              {!can.pictures && !can.lora && <span className="text-xs text-ink-3">It has no way to take a picture or a LoRA of {name}: only the words are used.</span>}
+              {!can.pictures && !can.lora && <span className="text-xs text-ink-3">It takes neither reference images nor a LoRA of {name}: only the prompt text is used.</span>}
             </div>
           );
         })}
@@ -140,20 +140,20 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
 
       <div className="flex flex-col gap-2">
         <SectionTitle>Outfits</SectionTitle>
-        <span className="text-ink-2">Pick one when you add {name} to a picture or a clip. Each has words and, if you like, a picture of the clothes.</span>
+        <span className="text-ink-2">Pick one when you add {name} to an image or a clip. Each has prompt text and, if you like, a reference image of the clothes.</span>
         {def.outfits.map((o) => (
           <div key={o.id} className="flex flex-col gap-2 rounded-lg border border-line p-3">
             <div className="flex items-center gap-2">
               <input aria-label="Name of the outfit" value={o.name} placeholder="Summer dress" onChange={(e) => setOutfit(o.id, { name: e.target.value })} className={cx(field, "h-9 py-0 font-semibold")} />
               <button type="button" aria-label={`Remove the outfit ${o.name}`} onClick={() => onChange({ ...def, outfits: def.outfits.filter((x) => x.id !== o.id) })} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><Trash2 size={14} /></button>
             </div>
-            <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="As tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={field} />
-            <AutoText rows={1} aria-label="The outfit as a sentence" value={o.sentence} placeholder="As a sentence: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={field} />
-            <PictureField label="A picture of the clothes" optional value={o.picture} onChange={(picture) => setOutfit(o.id, { picture: picture ?? null })} />
+            <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="Tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={field} />
+            <AutoText rows={1} aria-label="The outfit in natural language" value={o.sentence} placeholder="Natural language: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={field} />
+            <PictureField label="Reference image of the clothes" optional value={o.picture} onChange={(picture) => setOutfit(o.id, { picture: picture ?? null })} />
           </div>
         ))}
         <span><Button size="sm" onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: crypto.randomUUID(), name: "", tags: "", sentence: "", picture: null }] })}><Plus size={13} /> New outfit</Button></span>
-        <span className="text-xs text-ink-3">Without an outfit, {name} is "as in the pictures": no words about clothes are added.</span>
+        <span className="text-xs text-ink-3">Without an outfit, {name} is "as in the reference images": nothing about clothes is added to the prompt.</span>
       </div>
     </>
   );
@@ -163,8 +163,8 @@ function PlaceEditor({ def, name, onChange }: { def: PlaceDef; name: string; onC
   return (
     <>
       <div className="flex flex-col gap-2">
-        <SectionTitle>Pictures of {name}</SectionTitle>
-        <span className="text-ink-2">Used by models that take reference pictures: the clip happens there.</span>
+        <SectionTitle>Reference images of {name}</SectionTitle>
+        <span className="text-ink-2">Used by models that take reference images: the clip happens there.</span>
         <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} />
       </div>
       <Words who={name} tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
@@ -179,8 +179,8 @@ function StyleEditor({ def, onChange }: { def: StyleDef; onChange(def: StyleDef)
   const lorasOf = (family: string) => setup.data?.recipes.find((s) => recipes.data?.recipes.find((r) => r.id === s.id)?.family === family && s.options.loras)?.options.loras ?? [];
   return (
     <div className="flex flex-col gap-2">
-      <SectionTitle>What it is, for each model</SectionTitle>
-      <span className="text-ink-2">A style is LoRAs and words. Set it up for the models you use it with; for the others it adds nothing.</span>
+      <SectionTitle>Per model</SectionTitle>
+      <span className="text-ink-2">A style is LoRAs and prompt text. Set it up for the models you use it with; for the others it adds nothing.</span>
       {families.map((f) => {
         const can = takes(f, recipes.data?.recipes ?? []);
         const m = def.models[f.id] ?? { loras: [], words: "" };
@@ -190,7 +190,7 @@ function StyleEditor({ def, onChange }: { def: StyleDef; onChange(def: StyleDef)
             <span className="font-semibold">{f.name}</span>
             {can.lora && <Field spec={{ id: "loras", type: "loras", label: "LoRAs", max: 4 }} value={m.loras} options={lorasOf(f.id)} family={f} onChange={(loras) => set({ loras: loras as StyleDef["models"][string]["loras"] })} />}
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold">Words {can.tags ? "(tags)" : "(a sentence)"}</span>
+              <span className="text-xs font-semibold">Prompt text {can.tags ? "(tags)" : "(natural language)"}</span>
               <AutoText rows={1} value={m.words} placeholder={can.tags ? "film grain, warm light" : "Shot on film, in warm evening light."} onChange={(e) => set({ words: e.target.value })} className={field} />
             </label>
           </div>
@@ -230,10 +230,10 @@ const remember = (key: string, value: unknown) => {
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 /** One line about an item, under its name. */
 function summaryOf(e: Entity, recipes: RecipeInfo[]): string {
-  if (e.kind === "person") return `${plural(e.def.pictures.length, "picture")}, ${e.def.voice ? "a voice" : "no voice"}, ${plural(e.def.outfits.length, "outfit")}`;
-  if (e.kind === "place") return plural(e.def.pictures.length, "picture");
+  if (e.kind === "person") return `${plural(e.def.pictures.length, "reference image")}, ${e.def.voice ? "voice sample" : "no voice sample"}, ${plural(e.def.outfits.length, "outfit")}`;
+  if (e.kind === "place") return plural(e.def.pictures.length, "reference image");
   if (e.kind === "style") return `set up for ${plural(Object.values(e.def.models).filter((m) => m.loras.length || m.words.trim()).length, "model")}`;
-  if (e.kind === "preset") return `${recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here"} · ${plural(Object.keys(e.def.inputs).length, "setting")} kept`;
+  if (e.kind === "preset") return `${recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here"} · ${plural(Object.keys(e.def.inputs).length, "parameter")} kept`;
   return e.def.text;
 }
 /** Everything an item is found by. */
@@ -261,7 +261,7 @@ function DeleteButton({ label, onDelete, className }: { label: string; onDelete(
 }
 
 const cell = "w-full rounded-md border border-transparent bg-transparent px-2 text-ink placeholder:text-ink-3 hover:border-line focus:border-accent focus:bg-raised";
-const STYLE_WORDS = { any: "Any prompt", tags: "Tags", sentences: "Sentences" } as const;
+const STYLE_WORDS = { any: "Any prompt", tags: "Tags", sentences: "Natural language" } as const;
 
 /**
  * One snippet as a row that is changed where it stands. Its name and its category are kept when the
@@ -314,7 +314,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
         className={cx(cell, "h-8 text-ink-2")}
       />
       <AutoText
-        aria-label={`Text of ${snippet.name}`} rows={1} value={text} placeholder="Its text. {a|b|c} picks one each time"
+        aria-label={`Text of ${snippet.name}`} rows={1} value={text} placeholder="Its text. {a|b|c} is a wildcard: one is picked each time"
         onChange={(e) => {
           const value = e.target.value;
           setText(value);
@@ -328,7 +328,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
         className={cx(cell, "py-1.5 leading-normal")}
       />
       <Select
-        size="sm" className="h-8" label={`The kind of prompt ${snippet.name} is written for`}
+        size="sm" className="h-8" label={`The prompt style ${snippet.name} is written for`}
         value={snippet.def.style ?? "any"}
         onChange={(v) => commit({ style: v === "any" ? null : (v as "tags" | "sentences") })}
         options={(["any", "tags", "sentences"] as const).map((v) => ({ value: v, label: STYLE_WORDS[v] }))}
@@ -438,12 +438,12 @@ function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: string 
       )}
       {(create.isError || move.isError || removeAll.isError) && <ErrorNote>{(create.error ?? move.error ?? removeAll.error)?.message}</ErrorNote>}
       {snippets.length === 0 && (
-        <Empty title="No snippets yet">A snippet is a bit of text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is added after what you write each time something is made; the dice ticks one of each category at random.</Empty>
+        <Empty title="No snippets yet">A snippet is a bit of prompt text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is appended to your prompt each time you generate; the dice ticks one of each category at random.</Empty>
       )}
       {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches">No snippet has these words in its name, its category or its text.</Empty>}
       {found.length > 0 && (
         <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] gap-1.5 px-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">
-          <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Written for</span><span className="w-8" />
+          <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Prompt style</span><span className="w-8" />
         </div>
       )}
       {categories.filter((c) => found.some((s) => s.def.category === c)).map((c) => {
@@ -597,7 +597,7 @@ export function People() {
               <span className={cx("shrink-0 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>{saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : "Could not save"}</span>
               {removing ? (
                 <>
-                  <span className="text-xs text-ink-2">{editing.kind === "person" || editing.kind === "place" ? "Its pictures stay in your library." : "It cannot be brought back."}</span>
+                  <span className="text-xs text-ink-2">{editing.kind === "person" || editing.kind === "place" ? "Its reference images stay in your library." : "It cannot be brought back."}</span>
                   <Button size="sm" tone="danger" onClick={() => remove.mutate(editing.id)}>Delete</Button>
                   <Button size="sm" tone="quiet" onClick={() => setRemoving(false)}>Cancel</Button>
                 </>
@@ -610,9 +610,9 @@ export function People() {
             {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
             {editing.kind === "preset" && (
               <div className="flex flex-col gap-2 text-ink-2">
-                <span>A whole setup kept under a name: the model, its form, and who is in it. Use it from the form in Studio, under "Made with".</span>
+                <span>Generation parameters kept under a name: the model, its form, and the references. Use it from the form in Studio, under "Model".</span>
                 <span>Model: <span className="text-ink">{recipes.data?.recipes.find((r) => r.id === editing.def.recipe)?.title ?? "a model that is no longer here"}</span></span>
-                <span>Settings kept: <span className="text-ink">{Object.keys(editing.def.inputs).length}</span></span>
+                <span>Parameters kept: <span className="text-ink">{Object.keys(editing.def.inputs).length}</span></span>
               </div>
             )}
           </div>
@@ -620,7 +620,7 @@ export function People() {
           <SnippetTable snippets={all.filter((e): e is Snippet => e.kind === "snippet")} query={query} />
         ) : (
           <>
-            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is a whole setup kept under a name: the model, its form, and who is in it. Save one from the form in Studio, under "Made with".</Empty>}
+            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is generation parameters kept under a name: the model, its form, and the references. Save one from the form in Studio, under "Model".</Empty>}
             {mine.length > 0 && found.length === 0 && <Empty title="Nothing matches">None of your {here.title.toLowerCase()} has these words.</Empty>}
             {(tab === "person" || tab === "place") && (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3.5">
@@ -657,9 +657,9 @@ export function People() {
             )}
             {mine.length === 0 && tab !== "preset" && (
               <div className="pt-4 text-center text-ink-2">
-                {tab === "person" ? "A person is some pictures, a voice and a few words. studai gives each model what it can take: tags or a sentence, a LoRA, reference pictures, the voice."
-                  : tab === "place" ? "A place is some pictures and a few words: the clip or the picture happens there."
-                  : "A style is LoRAs and words, set up for the models you use it with."}
+                {tab === "person" ? "A person is reference images, a voice sample and prompt text. studai gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
+                  : tab === "place" ? "A place is reference images and prompt text: the clip or the image happens there."
+                  : "A style is LoRAs and prompt text, set up for the models you use it with."}
               </div>
             )}
           </>

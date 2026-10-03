@@ -123,8 +123,8 @@ export class Downloads {
   async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
-    if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw Object.assign(new Error(`"${name}" is not a model file studai can fetch.`), { statusCode: 400 });
-    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw Object.assign(new Error("that is not a model folder"), { statusCode: 400 });
+    if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw Object.assign(new Error(`"${name}" is not a model file studai can download.`), { statusCode: 400 });
+    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw Object.assign(new Error("that is not a models folder"), { statusCode: 400 });
     const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (d.status === "starting" || d.status === "downloading" || d.status === "saving"));
     if (busy) return this.list().find((v) => v.id === busy.id)!;
 
@@ -144,7 +144,7 @@ export class Downloads {
         url: `${self.replace(/\/+$/, "")}/api/downloads/fetch/${d.id}?t=${d.token}`,
         filename: name,
       });
-      if (res.status === 404) throw new Error("This ComfyUI has no ComfyUI-Manager, which does the downloading. Install it in ComfyUI, then try again.");
+      if (res.status === 404) throw new Error("This ComfyUI has no ComfyUI-Manager, which does the downloading. Install the custom node, then try again.");
       if (!res.ok) throw new Error(`ComfyUI-Manager refused the download (${res.status}: ${(await res.text()).slice(0, 160)})`);
       await post("/v2/manager/queue/start", {});
     } catch (err) {

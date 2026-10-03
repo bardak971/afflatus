@@ -17,13 +17,13 @@ const PERIODS: Array<{ value: TimesPeriod; label: string }> = [
   { value: "day", label: "24 hours" },
   { value: "week", label: "7 days" },
   { value: "month", label: "30 days" },
-  { value: "all", label: "Everything" },
+  { value: "all", label: "All time" },
 ];
 const PHASES: Array<{ id: keyof TimeParts; label: string; tone: string; color: string }> = [
-  { id: "loading", label: "Loading the model", tone: "bg-ink-3", color: "var(--color-ink-3)" },
+  { id: "loading", label: "Model load", tone: "bg-ink-3", color: "var(--color-ink-3)" },
   { id: "sampling", label: "Sampling", tone: "bg-accent", color: "var(--color-accent)" },
-  { id: "refining", label: "Second pass", tone: "bg-picture", color: "var(--color-picture)" },
-  { id: "finishing", label: "Decoding, smoothing, saving", tone: "bg-good", color: "var(--color-good)" },
+  { id: "refining", label: "Refine pass / hires fix", tone: "bg-picture", color: "var(--color-picture)" },
+  { id: "finishing", label: "VAE decode, interpolation, encoding", tone: "bg-good", color: "var(--color-good)" },
 ];
 const DAY = 86_400_000;
 
@@ -103,7 +103,7 @@ export function RenderTimes() {
   });
   const d = times.data;
   if (times.isError) return <ErrorNote>{times.error.message}</ErrorNote>;
-  if (!d) return <div className="text-ink-2">Reading the record…</div>;
+  if (!d) return <div className="text-ink-2">Loading render history…</div>;
 
   const t = d.tiles;
   const anything = t.done + t.failed + t.cancelled > 0;
@@ -120,68 +120,68 @@ export function RenderTimes() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-[340px]"><Segmented<TimesPeriod> label="Period" value={period} options={PERIODS} onChange={setPeriod} /></div>
-        {d.since && <span className="text-xs text-ink-3">On record since {new Date(d.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}.</span>}
+        {d.since && <span className="text-xs text-ink-3">History since {new Date(d.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}.</span>}
       </div>
 
       {!d.since && (
-        <Empty title="No render on record yet">
-          From now on every render is timed here: how long it took, where the time went (loading the model, sampling, finishing), and what the GPU was at. The estimates on the buttons are made from it. What was rendered before only has its total, and is not shown.
+        <Empty title="No render history yet">
+          From now on every render is timed here: total time, time per phase (model load, sampling, VAE decode), and GPU load. The estimates on the buttons are made from it. Earlier renders only have their total, and are not shown.
         </Empty>
       )}
 
       {d.since && (
         <>
           <div className="grid grid-cols-4 gap-2.5 xl:grid-cols-6">
-            <Tile label="Renders" value={String(t.done)} note={`${t.images} picture${t.images === 1 ? "" : "s"} · ${t.videos} video${t.videos === 1 ? "" : "s"}`} />
-            <Tile label="Video made" value={long(t.videoMs)} note="the length of all the clips" />
-            <Tile label="Failed · stopped" value={`${t.failed} · ${t.cancelled}`} note={`${long(t.lostMs)} of GPU time for nothing`} warn={t.failed > 0} />
-            <Tile label="GPU time" value={long(t.gpuMs)} note={`the longest render: ${long(t.longestMs)}`} />
+            <Tile label="Renders" value={String(t.done)} note={`${t.images} image${t.images === 1 ? "" : "s"} · ${t.videos} video${t.videos === 1 ? "" : "s"}`} />
+            <Tile label="Video generated" value={long(t.videoMs)} note="total duration of all clips" />
+            <Tile label="Failed · cancelled" value={`${t.failed} · ${t.cancelled}`} note={`${long(t.lostMs)} of GPU time lost`} warn={t.failed > 0} />
+            <Tile label="GPU time" value={long(t.gpuMs)} note={`longest render: ${long(t.longestMs)}`} />
             <Tile label="GPU busy" value={pct(t.gpuMs / Math.max(1, d.spanMs))} note="of the period, with studai's renders" />
-            <Tile label="Wait in the queue" value={maybe(t.waitedUsualMs)} note={`slow ones: ${maybe(t.waitedSlowMs)}`} />
-            <Tile label="Loading models" value={pct(t.loadMs / Math.max(1, t.gpuMs))} note={`${long(t.loadMs)} of the GPU time`} />
-            <Tile label="Models loaded" value={`${t.loads} time${t.loads === 1 ? "" : "s"}`} note={t.loadUsualMs === null ? undefined : `${long(t.loadUsualMs)} each, usually`} />
-            <Tile label="Estimates" value={t.off === null ? "—" : `± ${pct(t.off)}`} note="how far off they usually are" />
+            <Tile label="Queue wait" value={maybe(t.waitedUsualMs)} note={`p90: ${maybe(t.waitedSlowMs)}`} />
+            <Tile label="Model load" value={pct(t.loadMs / Math.max(1, t.gpuMs))} note={`${long(t.loadMs)} of the GPU time`} />
+            <Tile label="Model loads" value={`${t.loads} time${t.loads === 1 ? "" : "s"}`} note={t.loadUsualMs === null ? undefined : `${long(t.loadUsualMs)} each, median`} />
+            <Tile label="Estimate error" value={t.off === null ? "—" : `± ${pct(t.off)}`} note="how far off the estimates usually are" />
             <Tile label="Most used" value={d.models[0]?.name.split(" · ")[0] ?? "—"} note={d.models[0] ? `${pct(d.models[0].gpuMs / Math.max(1, t.gpuMs))} of the GPU time` : undefined} />
-            <Tile label="Peak GPU memory" value={t.vramPeak === null ? "—" : `${Math.round(t.vramPeak)} %`} note={t.vramUsual === null ? "nothing reports it" : `usually ${Math.round(t.vramUsual)} %`} />
-            <Tile label="Hottest" value={t.heatPeak === null ? "—" : `${Math.round(t.heatPeak)}°`} note={t.heatUsual === null ? "nothing reports it" : `usually ${Math.round(t.heatUsual)}°`} warn={(t.heatPeak ?? 0) >= 80} />
+            <Tile label="Peak VRAM" value={t.vramPeak === null ? "—" : `${Math.round(t.vramPeak)} %`} note={t.vramUsual === null ? "not reported" : `median ${Math.round(t.vramUsual)} %`} />
+            <Tile label="Peak GPU temp" value={t.heatPeak === null ? "—" : `${Math.round(t.heatPeak)}°`} note={t.heatUsual === null ? "not reported" : `median ${Math.round(t.heatUsual)}°`} warn={(t.heatPeak ?? 0) >= 80} />
           </div>
 
-          {!anything && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">Nothing was rendered in this period.</div>}
+          {!anything && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">No renders in this period.</div>}
 
           {anything && (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               <TimeChart
-                {...chart} title="Render time, by model" note={`the usual one of each ${stretch} · click a name to look at it alone`} format={long} axisFormat={brief}
+                {...chart} title="Render time by model" note={`median per ${stretch} · click a name to isolate it`} format={long} axisFormat={brief}
                 series={d.models.map((m) => ({ name: m.name, values: m.usual }))}
               />
               <TimeChart
-                {...chart} title="Slower or faster than usual" note="seconds per step against the model's own usual: 100 % is as ever" format={(v) => `${Math.round(v)} %`} bottom={50} fill={false}
-                series={[...d.models.map((m) => ({ name: m.name, values: m.pace })), { name: "as ever", values: d.times.map(() => 100), color: "var(--color-ink-3)", dashed: true }]}
+                {...chart} title="Speed vs. the model's median" note="seconds per step (s/it) against the model's own median: 100 % is as usual" format={(v) => `${Math.round(v)} %`} bottom={50} fill={false}
+                series={[...d.models.map((m) => ({ name: m.name, values: m.pace })), { name: "as usual", values: d.times.map(() => 100), color: "var(--color-ink-3)", dashed: true }]}
               />
               <TimeChart
                 {...chart} title="Finished" note={`per ${stretch}`} format={(v) => String(Math.round(v))} stacked stat="sum"
                 series={[
-                  { name: "Pictures", values: d.finished.images, color: "var(--color-picture)" },
+                  { name: "Images", values: d.finished.images, color: "var(--color-picture)" },
                   { name: "Videos", values: d.finished.videos, color: tones[0] },
-                  { name: "Failed or stopped", values: d.finished.bad, color: "var(--color-warn)" },
+                  { name: "Failed or cancelled", values: d.finished.bad, color: "var(--color-warn)" },
                 ]}
               />
               <TimeChart
-                {...chart} title="Where the GPU time went" note={`per ${stretch}`} format={long} axisFormat={brief} stacked stat="sum"
+                {...chart} title="GPU time by phase" note={`per ${stretch}`} format={long} axisFormat={brief} stacked stat="sum"
                 series={PHASES.map((p) => ({ name: p.label, values: d.phases[p.id], color: p.id === "sampling" ? tones[0] : p.color }))}
               />
               <TimeChart
-                {...chart} title="Wait in the queue" note="from Make to the render starting" format={long} axisFormat={brief}
+                {...chart} title="Queue wait" note="from Generate to the render starting" format={long} axisFormat={brief}
                 series={[
-                  { name: "Usual", values: d.wait.usual, color: tones[0] },
-                  { name: "Slow ones (9 in 10 were faster)", values: d.wait.slow, color: "var(--color-warn)" },
+                  { name: "Median", values: d.wait.usual, color: tones[0] },
+                  { name: "p90 (9 in 10 were faster)", values: d.wait.slow, color: "var(--color-warn)" },
                 ]}
               />
               <TimeChart
-                {...chart} title="GPU memory and heat" note={`the highest of each ${stretch}`} format={(v) => String(Math.round(v))} top={100} bottom={40} stat="max"
+                {...chart} title="VRAM and GPU temperature" note={`peak per ${stretch}`} format={(v) => String(Math.round(v))} top={100} bottom={40} stat="max"
                 series={[
-                  { name: "GPU memory, %", values: d.gpu.vram, color: "var(--color-picture)" },
-                  { name: "Heat, °C", values: d.gpu.heat, color: "var(--color-warn)" },
+                  { name: "VRAM, %", values: d.gpu.vram, color: "var(--color-picture)" },
+                  { name: "Temperature, °C", values: d.gpu.heat, color: "var(--color-warn)" },
                 ]}
               />
             </div>
@@ -189,10 +189,10 @@ export function RenderTimes() {
 
           {d.models.length > 0 && (
             <section className="flex flex-col gap-2">
-              <SectionTitle>By model · click one to look closer</SectionTitle>
+              <SectionTitle>By model · click one for details</SectionTitle>
               <div className="overflow-hidden rounded-xl border border-line">
                 <div className={cx("grid items-center gap-3 border-b border-line bg-panel px-4 py-2 text-xs text-ink-2", columns)}>
-                  <span>Model</span><span className="text-right">Renders</span><span className="text-right">Usual time</span><span className="text-right">Slow ones</span><span className="text-right">s/it</span><span className="text-right">Model load</span><span>Share of GPU time</span><span>Lately</span>
+                  <span>Model</span><span className="text-right">Renders</span><span className="text-right">Median</span><span className="text-right">p90</span><span className="text-right">s/it</span><span className="text-right">Model load</span><span>Share of GPU time</span><span>Trend</span>
                 </div>
                 {d.models.map((m) => (
                   <div key={m.key}>
@@ -213,19 +213,19 @@ export function RenderTimes() {
                   </div>
                 ))}
               </div>
-              <span className="text-xs text-ink-3">Usual time: the middle one of the renders whose model was already loaded. Slow ones: nine in ten were faster. s/it: seconds per step, as ComfyUI shows it.</span>
+              <span className="text-xs text-ink-3">Median: the middle render time, model already loaded (warm). p90: nine in ten renders were faster. s/it: seconds per step, as ComfyUI shows it.</span>
             </section>
           )}
 
           <section className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-3">
-              <SectionTitle>{d.keepDays ? `Each render of the last ${d.keepDays} days` : "Each render"} · {renders.data?.pages[0]?.total ?? 0}</SectionTitle>
+              <SectionTitle>{d.keepDays ? `Renders, last ${d.keepDays} days` : "Renders"} · {renders.data?.pages[0]?.total ?? 0}</SectionTitle>
               {picked && (
                 <button type="button" onClick={() => setModel(null)} className="flex items-center gap-1 rounded-full border border-line-strong px-2.5 py-0.5 text-xs hover:bg-hover">
                   Only {picked.name} <X size={12} />
                 </button>
               )}
-              <div className="w-56"><Segmented<"all" | "trouble"> label="Which renders" value={only} options={[{ value: "all", label: "All" }, { value: "trouble", label: "Failed or stopped" }]} onChange={setOnly} /></div>
+              <div className="w-56"><Segmented<"all" | "trouble"> label="Filter" value={only} options={[{ value: "all", label: "All" }, { value: "trouble", label: "Failed or cancelled" }]} onChange={setOnly} /></div>
               <div className="grow" />
               <Legend />
             </div>
@@ -235,7 +235,7 @@ export function RenderTimes() {
                 <div key={r.id} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-[10px] border border-line bg-panel px-3 py-2">
                   {r.assetId
                     ? <img src={thumbUrl(r.assetId)} alt="" loading="lazy" className="h-11 w-11 rounded-md object-cover" />
-                    : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" title={r.status === "done" ? "What it made is no longer in the library" : "It made nothing"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
+                    : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" title={r.status === "done" ? "Its output is no longer in the library" : "No output"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate font-medium">{r.name}</span>
                     <span className="truncate text-xs text-ink-2" title={r.model}>
@@ -246,15 +246,15 @@ export function RenderTimes() {
                     <PhaseBar phases={r.phases} scale={r.totalMs / longest} />
                     <span className="truncate text-xs text-ink-3">
                       {[
-                        !r.whole ? "studai started while it was rendering: only its total is known" : r.cold ? `model loaded first: ${took(r.phases.loading)}` : "model already loaded",
+                        !r.whole ? "studai started while it was rendering: only its total is known" : r.cold ? `cold start, model load ${took(r.phases.loading)}` : "warm (model already loaded)",
                         r.stepMs === null ? "" : `${pace(r.stepMs)} s/it`,
-                        r.waitedMs > 1000 ? `waited ${long(r.waitedMs)}` : "",
+                        r.waitedMs > 1000 ? `queued ${long(r.waitedMs)}` : "",
                       ].filter(Boolean).join(" · ")}
                     </span>
                   </div>
                   <div className="flex flex-col items-end">
-                    <span className={cx("font-mono text-[15px]", r.status !== "done" && "text-warn-ink")}>{r.status === "done" ? took(r.totalMs) : r.status === "failed" ? "Failed" : "Stopped"}</span>
-                    <span className="text-xs text-ink-3">{r.status !== "done" ? `after ${took(r.totalMs)}` : r.expectedMs ? `expected ${took(r.expectedMs)}` : "nothing to expect it by"}</span>
+                    <span className={cx("font-mono text-[15px]", r.status !== "done" && "text-warn-ink")}>{r.status === "done" ? took(r.totalMs) : r.status === "failed" ? "Failed" : "Cancelled"}</span>
+                    <span className="text-xs text-ink-3">{r.status !== "done" ? `after ${took(r.totalMs)}` : r.expectedMs ? `estimated ${took(r.expectedMs)}` : "no estimate"}</span>
                   </div>
                   <div className="flex flex-col items-end text-xs text-ink-2">
                     <span>{when(r.at)}</span>
@@ -262,12 +262,12 @@ export function RenderTimes() {
                   </div>
                 </div>
               ))}
-              {renders.isSuccess && !listed.length && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">Nothing here.</div>}
+              {renders.isSuccess && !listed.length && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">No renders.</div>}
               {renders.hasNextPage && <div><Button size="sm" onClick={() => renders.fetchNextPage()} disabled={renders.isFetchingNextPage}>More</Button></div>}
               <span className="text-xs text-ink-3">
                 {d.keepDays
-                  ? `A render is kept one by one for ${d.keepDays} days (a choice in Settings). Older ones are folded into the daily figures the panels above are drawn from, which are kept for good.`
-                  : "Every render is kept one by one for good (a choice in Settings)."}
+                  ? `Individual renders are kept for ${d.keepDays} days (a setting in Settings). Older ones are folded into the daily aggregates the charts above are drawn from, which are kept for good.`
+                  : "Every individual render is kept for good (a setting in Settings)."}
               </span>
             </div>
           </section>
@@ -285,9 +285,9 @@ function ModelDetail({ model: m, times, timeLabel, stretch }: { model: TimesSumm
       <TimeChart
         title={`${m.name}: render time`} note={`per ${stretch}`} times={times} timeLabel={timeLabel} format={long} axisFormat={brief}
         series={[
-          { name: "Usual, model already loaded", values: m.usual },
-          { name: "Slow ones (9 in 10 were faster)", values: m.slow, color: "var(--color-warn)" },
-          { name: "Model loaded first", values: m.cold, color: "var(--color-ink-3)" },
+          { name: "Median, warm (model already loaded)", values: m.usual },
+          { name: "p90 (9 in 10 were faster)", values: m.slow, color: "var(--color-warn)" },
+          { name: "Cold start (model loaded first)", values: m.cold, color: "var(--color-ink-3)" },
         ]}
       />
       <TimeChart
@@ -296,7 +296,7 @@ function ModelDetail({ model: m, times, timeLabel, stretch }: { model: TimesSumm
       />
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
-          <SectionTitle>Where its time goes (model already loaded)</SectionTitle>
+          <SectionTitle>Time by phase (warm)</SectionTitle>
           <PhaseBar phases={m.phases} className="!h-3.5" />
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
             {PHASES.filter((p) => m.phases[p.id] > 500).map((p) => (
@@ -306,19 +306,19 @@ function ModelDetail({ model: m, times, timeLabel, stretch }: { model: TimesSumm
         </div>
         {s && (
           <div className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-panel px-3.5 py-3">
-            <SectionTitle>What the button will say</SectionTitle>
+            <SectionTitle>Estimate on the Generate button</SectionTitle>
             <span className="text-xs text-ink-2">
-              For {[s.width && s.height ? `${s.width} × ${s.height}` : "", s.seconds ? `${s.seconds} s` : "", `${s.steps} step${s.steps === 1 ? "" : "s"}`].filter(Boolean).join(", ")}, the setting used most ({s.samples} render{s.samples === 1 ? "" : "s"}):
+              For {[s.width && s.height ? `${s.width} × ${s.height}` : "", s.seconds ? `${s.seconds} s` : "", `${s.steps} step${s.steps === 1 ? "" : "s"}`].filter(Boolean).join(", ")}, the most used parameters ({s.samples} render{s.samples === 1 ? "" : "s"}):
             </span>
-            <div className="flex items-baseline justify-between"><span>Model already loaded</span><span className="font-mono text-[15px]">about {took(s.warmMs)}</span></div>
-            <div className="flex items-baseline justify-between"><span>Model to load first</span><span className="font-mono text-[15px]">about {took(s.warmMs + s.loadMs)}</span></div>
+            <div className="flex items-baseline justify-between"><span>Warm (model already loaded)</span><span className="font-mono text-[15px]">about {took(s.warmMs)}</span></div>
+            <div className="flex items-baseline justify-between"><span>Cold start (model load first)</span><span className="font-mono text-[15px]">about {took(s.warmMs + s.loadMs)}</span></div>
             <span className="text-xs text-ink-3">
               {[
                 s.stepMs === null ? `sampling ${took(s.sampleMs)}` : `sampling ${took(s.sampleMs)} at ${pace(s.stepMs)} s/it`,
-                s.refineMs > 500 ? `second pass ${took(s.refineMs)}` : "",
-                `${took(s.finishMs)} to finish`,
-                s.loadMs ? `${took(s.loadMs)} more when the model loads` : "",
-              ].filter(Boolean).join(" + ")}. Other settings are guessed from the model's usual, by the second of video when it is one.
+                s.refineMs > 500 ? `refine pass ${took(s.refineMs)}` : "",
+                `VAE decode and encoding ${took(s.finishMs)}`,
+                s.loadMs ? `model load ${took(s.loadMs)} on a cold start` : "",
+              ].filter(Boolean).join(" + ")}. Other parameters are scaled from the model's median, per second of video when it is one.
             </span>
           </div>
         )}

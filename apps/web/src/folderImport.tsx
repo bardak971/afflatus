@@ -78,14 +78,14 @@ export function FolderImportNote() {
     <div role="status" className="fixed bottom-14 left-24 z-[60] flex w-80 flex-col gap-1.5 rounded-xl border border-line-strong bg-panel px-3.5 py-2.5 shadow-2xl shadow-shade/60">
       <div className="flex items-center gap-2">
         <FolderUp size={14} className="shrink-0 text-ink-2" />
-        <span className="min-w-0 grow truncate font-semibold">{run.over ? `"${run.name}" is in your library` : `Bringing in "${run.name}"`}</span>
+        <span className="min-w-0 grow truncate font-semibold">{run.over ? `"${run.name}" is in your library` : `Importing "${run.name}"`}</span>
         {run.over && <button type="button" aria-label="Close" onClick={dismiss} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={13} /></button>}
       </div>
       {!run.over && <Bar value={run.total ? (run.done / run.total) * 100 : 0} />}
       <span className="text-xs text-ink-2">
-        {run.total === 0 ? "It holds no picture, video or sound." : `${run.done} of ${run.total}`}
-        {run.failed > 0 && <span className="text-warn-ink"> · {run.failed} could not be read</span>}
-        {run.skipped > 0 && ` · ${run.skipped} other file${run.skipped === 1 ? "" : "s"} left out`}
+        {run.total === 0 ? "It holds no image, video or audio file." : `${run.done} of ${run.total}`}
+        {run.failed > 0 && <span className="text-warn-ink"> · {run.failed} failed</span>}
+        {run.skipped > 0 && ` · ${run.skipped} other file${run.skipped === 1 ? "" : "s"} skipped`}
       </span>
     </div>
   );

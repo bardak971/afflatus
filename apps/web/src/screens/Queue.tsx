@@ -15,20 +15,20 @@ export function meters(load: SystemLoad | null): Array<{ label: string; value: s
   if (!load) return [];
   const out: Array<{ label: string; value: string; percent: number; hot: boolean }> = [];
   const pct = (label: string, v: number | undefined) => v !== undefined && out.push({ label, value: `${Math.round(v)}%`, percent: v, hot: false });
-  pct("Processor", load.cpu);
-  pct("Memory", load.ram?.percent);
-  pct("Disk space", load.disks[0]?.percent);
+  pct("CPU", load.cpu);
+  pct("RAM", load.ram?.percent);
+  pct("Disk", load.disks[0]?.percent);
   const gpu = load.gpus[0];
   if (gpu) {
-    pct("GPU load", gpu.load);
-    pct("GPU memory", gpu.vramPercent);
+    pct("GPU", gpu.load);
+    pct("VRAM", gpu.vramPercent);
     // a GPU is built to run warm; past 80° it is worth a glance
-    if (gpu.temperature !== undefined) out.push({ label: "GPU heat", value: `${Math.round(gpu.temperature)}°`, percent: gpu.temperature, hot: gpu.temperature >= 80 });
+    if (gpu.temperature !== undefined) out.push({ label: "GPU temp", value: `${Math.round(gpu.temperature)}°`, percent: gpu.temperature, hot: gpu.temperature >= 80 });
   }
   return out;
 }
 
-const STATUS: Record<Job["status"], string> = { queued: "Waiting", running: "Rendering", done: "Done", failed: "Failed", cancelled: "Stopped" };
+const STATUS: Record<Job["status"], string> = { queued: "Queued", running: "Running", done: "Done", failed: "Failed", cancelled: "Cancelled" };
 
 /**
  * After a render ran out of memory: the same job, one size smaller (or, when it has no size to set,
@@ -42,7 +42,7 @@ export function lighter(recipe: RecipeInfo | undefined, input: Record<string, un
     if (!spec || spec.type !== "number") continue;
     const now = Number(input[spec.id] ?? spec.default);
     const next = Math.max(spec.min, Number((now - spec.step * (spec === length ? Math.max(1, Math.round(1 / spec.step)) : 1)).toFixed(4)));
-    if (next < now) return { change: { [spec.id]: next }, label: `Try again at ${next}${spec.unit ?? ""}` };
+    if (next < now) return { change: { [spec.id]: next }, label: `Retry at ${next}${spec.unit ?? ""}` };
   }
   return null;
 }
@@ -88,28 +88,28 @@ export function Queue() {
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-semibold">Queue</h1>
             <div className="w-64">
-              <Segmented<"queue" | "times"> label="What to look at" value={tab} options={[{ value: "queue", label: "Now and next" }, { value: "times", label: "Render times" }]} onChange={setTab} />
+              <Segmented<"queue" | "times"> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }]} onChange={setTab} />
             </div>
           </div>
           <div className="flex items-center gap-2 text-ink-2">
             <span className={cx("h-2 w-2 rounded-full", q?.online ? "bg-good" : "bg-warn")} />
-            {q?.online ? "ComfyUI is on · the numbers below are the computer it runs on, live" : "ComfyUI is not answering. Waiting jobs stay in line."}
+            {q?.online ? "ComfyUI online · the meters below are the machine it runs on, live" : "ComfyUI offline. Queued jobs stay in the queue."}
           </div>
         </div>
-        {q && !q.paused && <span className="max-w-72 text-right text-xs text-ink-2">Pause when you want to use ComfyUI yourself. Waiting jobs stay in line.</span>}
+        {q && !q.paused && <span className="max-w-72 text-right text-xs text-ink-2">Pause when you want to use ComfyUI yourself. Queued jobs stay in the queue.</span>}
         {q?.online && (
           <Button
             className="h-12 px-5 text-sm"
             disabled={free.isPending || Boolean(q.running && q.running.recipe !== "studai.export")}
-            title="Unloads ComfyUI's models from the graphics card and from memory, for a game or another program. The next render loads what it needs again. Not while a render is under way."
+            title="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
             onClick={() => free.mutate()}
           >
-            {free.isPending ? "Freeing…" : free.isSuccess ? "Memory freed" : "Free the GPU memory"}
+            {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : "Unload models (free VRAM)"}
           </Button>
         )}
         {q && (
           <Button tone={q.paused ? "primary" : "plain"} className="h-12 px-5 text-sm" onClick={() => pause.mutate(!q.paused)}>
-            {q.paused ? "Resume the queue" : "Pause: I need the GPU"}
+            {q.paused ? "Resume queue" : "Pause queue"}
           </Button>
         )}
       </header>
@@ -133,7 +133,7 @@ export function Queue() {
       {error && <ErrorNote>{error.message}</ErrorNote>}
       {tab === "queue" && q?.paused && (
         <div className="mb-4 rounded-[10px] bg-accent-wash px-4 py-3 font-semibold text-accent">
-          Paused. The clip that is rendering finishes, then nothing new is sent to ComfyUI until you resume. The GPU is yours. Exports go on: they do not use it.
+          Queue paused. The running render finishes, then nothing new is sent to ComfyUI until you resume. The GPU is yours. Exports go on: they do not use it.
         </div>
       )}
 
@@ -141,7 +141,7 @@ export function Queue() {
         <div className="grid grid-cols-[minmax(0,1fr)_420px] gap-8">
           <div className="flex flex-col gap-6">
             <section className="flex flex-col gap-2">
-              <SectionTitle>{q.running?.kind === "export" ? "Exporting now" : q.running?.kind === "load" ? "Loading a model now" : "Rendering now"}</SectionTitle>
+              <SectionTitle>{q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running"}</SectionTitle>
               {q.running ? (
                 <div className="flex gap-4 rounded-xl border border-line-strong bg-panel p-3.5">
                   {/* large enough to judge a render by, and to stop one that is not going where it should; a clip plays with its sound */}
@@ -154,19 +154,19 @@ export function Queue() {
                     <Bar value={q.running.progress * 100} />
                     <div className="flex items-center justify-between">
                       <span>{q.running.steps ? `Step ${q.running.step} of ${q.running.steps}` : q.running.kind === "export" ? "No GPU needed" : "Starting"}{q.running.eta ? ` · ${about(q.running.eta)}` : ""}</span>
-                      <Button size="sm" onClick={() => cancel.mutate(q.running!.id)}>Stop it</Button>
+                      <Button size="sm" onClick={() => cancel.mutate(q.running!.id)}>Cancel</Button>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-line px-4 py-5 text-ink-2">Nothing is rendering.</div>
+                <div className="rounded-xl border border-line px-4 py-5 text-ink-2">Nothing running.</div>
               )}
             </section>
 
             <section className="flex flex-col gap-2" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
               <div className="flex items-baseline justify-between">
-                <SectionTitle>Waiting · {q.waiting.length}{waitingMs ? ` · ${aboutMs(waitingMs)} in all` : ""}</SectionTitle>
-                {q.waiting.length > 1 && <span className="text-xs text-ink-2">Drag to change the order. Pictures go before videos unless you move them.</span>}
+                <SectionTitle>Queued · {q.waiting.length}{waitingMs ? ` · ${aboutMs(waitingMs)} total` : ""}</SectionTitle>
+                {q.waiting.length > 1 && <span className="text-xs text-ink-2">Drag to reorder. Images go before videos unless you move them.</span>}
               </div>
               {q.waiting.map((w, i) => (
                 <div
@@ -196,7 +196,7 @@ export function Queue() {
                   <GripVertical size={15} className="shrink-0 cursor-grab text-ink-3" />
                   <span className="min-w-0 grow">
                     <span className="block font-semibold">{w.label}</span>
-                    <span className="block text-xs text-ink-2">{w.kind === "export" ? "an export · no GPU needed" : `added ${when(w.createdAt)}`}</span>
+                    <span className="block text-xs text-ink-2">{w.kind === "export" ? "export · no GPU needed" : `queued ${when(w.createdAt)}`}</span>
                   </span>
                   {w.estimateMs ? <span className="shrink-0 text-xs text-ink-2">{aboutMs(w.estimateMs)}</span> : null}
                   <button type="button" aria-label={`Remove ${w.label} from the queue`} onClick={() => cancel.mutate(w.id)} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">
@@ -204,7 +204,7 @@ export function Queue() {
                   </button>
                 </div>
               ))}
-              {!q.waiting.length && <div className="text-ink-2">Nothing is waiting.</div>}
+              {!q.waiting.length && <div className="text-ink-2">Nothing queued.</div>}
             </section>
 
             {failed.length > 0 && (
@@ -216,10 +216,10 @@ export function Queue() {
                   return (
                     <div key={r.id} className="flex flex-col gap-2 rounded-[10px] border border-warn/50 bg-warn-wash px-3.5 py-3">
                       <div className="font-semibold">{r.label}</div>
-                      <div className="text-warn-ink">{r.error}{fix ? " It was too heavy for the card's memory." : ""}</div>
+                      <div className="text-warn-ink">{r.error}{fix ? " Out of VRAM." : ""}</div>
                       <div className="flex flex-wrap gap-1.5">
                         {fix && <Button size="sm" tone="danger" disabled={again.isPending} onClick={() => again.mutate({ id: r.id, input: fix.change }, { onSuccess: () => dismiss.mutate(r.id) })}>{fix.label}</Button>}
-                        <Button size="sm" disabled={again.isPending} onClick={() => again.mutate({ id: r.id }, { onSuccess: () => dismiss.mutate(r.id) })}>Try again as it was</Button>
+                        <Button size="sm" disabled={again.isPending} onClick={() => again.mutate({ id: r.id }, { onSuccess: () => dismiss.mutate(r.id) })}>Retry unchanged</Button>
                         <Button size="sm" tone="quiet" onClick={() => dismiss.mutate(r.id)}>Dismiss</Button>
                       </div>
                     </div>
@@ -242,7 +242,7 @@ export function Queue() {
                     {r.finishedAt ? when(r.finishedAt) : ""}
                     {r.status === "done" && r.startedAt && r.finishedAt ? ` · took ${took(new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime())}` : ""}
                   </span>
-                  {r.status === "cancelled" && <button type="button" onClick={() => again.mutate({ id: r.id }, { onSuccess: () => dismiss.mutate(r.id) })} className="underline hover:text-ink">Queue it again</button>}
+                  {r.status === "cancelled" && <button type="button" onClick={() => again.mutate({ id: r.id }, { onSuccess: () => dismiss.mutate(r.id) })} className="underline hover:text-ink">Requeue</button>}
                 </div>
               </div>
             ))}
@@ -250,7 +250,7 @@ export function Queue() {
             <div className="mt-2 flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2.5">
               <Toggle
                 on={notify.whenEmpty}
-                label="Tell me when the queue is empty"
+                label="Notify when the queue is empty"
                 onChange={async (on) => {
                   if (on && !(await allowNotifications())) return setRefused(true);
                   setRefused(false);

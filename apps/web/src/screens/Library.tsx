@@ -52,7 +52,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: 
         if (onSelect && (selecting || e.ctrlKey || e.metaKey || e.shiftKey)) onSelect(e.shiftKey);
         else onOpen();
       }}
-      aria-label={`Open ${asset.kind === "image" ? "picture" : asset.kind}`}
+      aria-label={`Open ${asset.kind}`}
       data-stage
       className={cx("group relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
     >
@@ -60,8 +60,8 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: 
         <span
           role="checkbox"
           aria-checked={Boolean(selected)}
-          aria-label="Tick it, to move, keep or delete several at once"
-          title="Tick it (also Ctrl + click; Shift + click ticks everything in between)"
+          aria-label="Select, to move, keep or delete several at once"
+          title="Select (also Ctrl + click; Shift + click selects the range)"
           onClick={(e) => {
             e.stopPropagation();
             onSelect(e.shiftKey);
@@ -80,18 +80,18 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: 
       ) : (
         <span className="flex h-full flex-col items-center justify-center gap-1.5 text-ink-2">
           {asset.kind === "video" ? <Play size={20} /> : <Music size={20} />}
-          {asset.kind === "video" ? "Video" : "Sound"}
+          {asset.kind === "video" ? "Video" : "Audio"}
         </span>
       )}
       {asset.kind === "video" && (
         <span className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">
           <Play size={10} fill="currentColor" />
           {asset.durationMs ? clock(asset.durationMs) : "Video"}
-          {asset.durationMs !== null && !asset.hasSound && <VolumeX size={11} aria-label="No sound" className="text-ink-2" />}
+          {asset.durationMs !== null && !asset.hasSound && <VolumeX size={11} aria-label="No audio" className="text-ink-2" />}
         </span>
       )}
       {!asset.kept && !asset.inBin && (
-        <span title="Deleted then unless you keep it." className="absolute top-2 right-2 rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold text-warn-on">{left(asset)}</span>
+        <span title="Goes to the bin then unless you keep it." className="absolute top-2 right-2 rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold text-warn-on">{left(asset)}</span>
       )}
     </button>
   );
@@ -191,8 +191,8 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
 
   return (
     <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
-      {dragging && <div className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-accent-ink">Drop it on a folder to file it</div>}
-      <button type="button" onClick={() => onPlace({ type: "all" })} className={row(place.type === "all", "all")}>Everything</button>
+      {dragging && <div className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-accent-ink">Drop on a folder to move it there</div>}
+      <button type="button" onClick={() => onPlace({ type: "all" })} className={row(place.type === "all", "all")}>All</button>
       {tree(folders.data?.items ?? []).map((f) =>
         editing === f.id ? (
           <form key={f.id} onSubmit={submit((name) => rename.mutate({ id: f.id, name }))} style={{ paddingLeft: f.depth * 14 }}>
@@ -221,7 +221,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
                     </>
                   ) : (
                     <>
-                      <button type="button" disabled={look.isPending} title="Read the folder on your disk again: what was added appears, what was removed is gone" onClick={() => look.mutate(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><RefreshCw size={12} /> {look.isPending ? "Looking…" : "Look again"}</button>
+                      <button type="button" disabled={look.isPending} title="Scan the folder on your disk again: what was added appears, what was removed is gone" onClick={() => look.mutate(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><RefreshCw size={12} /> {look.isPending ? "Scanning…" : "Rescan"}</button>
                       {f.root && <button type="button" onClick={() => { setEditing(f.id); setText(f.name); }} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={12} /> Rename</button>}
                       {f.root && <button type="button" onClick={() => setDeleting(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Unlink size={12} /> Unlink</button>}
                     </>
@@ -233,7 +233,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
               <div className="flex items-center gap-1 py-1 pl-1.5">
                 {deleting === f.id ? (
                   <>
-                    <span className="text-xs text-ink-2">Its items move up.</span>
+                    <span className="text-xs text-ink-2">Its items move to the parent folder.</span>
                     <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Delete</button>
                     <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
                   </>
@@ -248,21 +248,21 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
           </div>
         ),
       )}
-      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", "unfiled")} {...drop("unfiled", null)}>Not filed yet</button>
+      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", "unfiled")} {...drop("unfiled", null)}>No folder</button>
 
       {adding ? (
         <form className="flex flex-col gap-1" onSubmit={submit((name) => (adding === "link" ? link.mutate(name) : create.mutate({ name, parent: adding === "inside" ? selected : null })))}>
           <input
             autoFocus
-            aria-label={adding === "link" ? "The folder's address on the disk" : "Name of the new folder"}
-            placeholder={adding === "link" ? "Its address on the disk, for example D:\\pictures\\shoots" : adding === "inside" && open ? `Name of the folder inside ${open.name}` : "Name of the new folder"}
+            aria-label={adding === "link" ? "Folder path on the disk" : "New folder name"}
+            placeholder={adding === "link" ? "Folder path, for example D:\\images\\shoots" : adding === "inside" && open ? `New folder name, inside ${open.name}` : "New folder name"}
             value={text}
             spellCheck={false}
             onChange={(e) => setText(e.target.value)}
             onBlur={() => { if (!text.trim()) setAdding(false); }}
             className={cx("h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5", adding === "link" && "font-mono text-xs")}
           />
-          {adding === "link" && <span className="px-1 text-xs text-ink-3">A folder the computer studai runs on can read. Its pictures, videos and sounds show here and are used where they are; nothing is copied. Press Enter.</span>}
+          {adding === "link" && <span className="px-1 text-xs text-ink-3">A folder the computer studai runs on can read. Its images, videos and audio files show here and are used in place; nothing is copied. Press Enter.</span>}
         </form>
       ) : (
         <>
@@ -272,17 +272,17 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
             </button>
           )}
           <button type="button" onClick={() => { setAdding("top"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-ink-2 hover:bg-raised hover:text-ink">
-            <FolderPlus size={14} /> {open ? "New folder at the top" : "New folder"}
+            <FolderPlus size={14} /> {open ? "New top-level folder" : "New folder"}
           </button>
         </>
       )}
       {!adding && (
-        <button type="button" title="A folder of the disk studai runs on, shown here with its sub-folders. Its files are used where they are." onClick={() => { setAdding("link"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
-          <Link2 size={14} className="shrink-0" /> <span className="truncate">Link a folder of this computer</span>
+        <button type="button" title="A folder of the disk studai runs on, shown here with its sub-folders. Its files are used in place, nothing is copied." onClick={() => { setAdding("link"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
+          <Link2 size={14} className="shrink-0" /> <span className="truncate">Link a local folder</span>
         </button>
       )}
-      <button type="button" title="Every picture, video and sound in a folder of your computer is copied into the library, with its sub-folders" onClick={() => picker.current?.click()} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
-        <FolderUp size={14} className="shrink-0" /> <span className="truncate">Bring in a folder from your computer{open ? `, into ${open.name}` : ""}</span>
+      <button type="button" title="Every image, video and audio file in a folder of your computer is copied into the library, with its sub-folders" onClick={() => picker.current?.click()} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
+        <FolderUp size={14} className="shrink-0" /> <span className="truncate">Import a folder{open ? ` into ${open.name}` : ""}</span>
       </button>
       <input
         ref={picker}
@@ -316,18 +316,18 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
             </>
           ) : (
             <button type="button" disabled={empty.isPending} title="Everything in the bin is erased now, files and all, instead of after its 7 days." onClick={() => setEmptying(true)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink">
-              <Trash2 size={12} /> {empty.isPending ? "Emptying…" : `Empty it now · ${size(storage.data.bin.bytes)}`}
+              <Trash2 size={12} /> {empty.isPending ? "Emptying…" : `Empty bin · ${size(storage.data.bin.bytes)}`}
             </button>
           )}
         </div>
       )}
       {storage.data && (
-        <Link href="/settings" title="Where the space goes, and how to get some back: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
+        <Link href="/settings" title="Disk usage breakdown and how to free space: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
           {size(storage.data.total)} used
           {storage.data.idleTakes.bytes + storage.data.bin.bytes > 0 ? ` · ${size(storage.data.idleTakes.bytes + storage.data.bin.bytes)} could be freed` : ""}
         </Link>
       )}
-      <div className="px-2.5 pt-1 text-xs text-ink-3">Drag a picture onto a folder to file it: filing by hand keeps it. What you make while a folder is open lands in it, and still has a day to be kept.</div>
+      <div className="px-2.5 pt-1 text-xs text-ink-3">Drag an image onto a folder to move it there: moving it by hand keeps it. What you generate while a folder is open lands in it, and still has a day to be kept.</div>
     </div>
   );
 }

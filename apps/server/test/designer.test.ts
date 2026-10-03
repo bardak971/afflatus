@@ -498,17 +498,17 @@ describe("what the designer knows of what studai made", () => {
 
     // a new clip that opens on the saved frame
     const opens = await knows({ start: frame });
-    expect(opens.pictures[0].steps.map((x: { title: string }) => x.title)).toEqual(["txt2img", "Video with sound"]);
+    expect(opens.pictures[0].steps.map((x: { title: string }) => x.title)).toEqual(["txt2img", "Video with audio"]);
     // a new clip that carries on from the video itself, as "Continue this clip" sets it up in Studio
     // it is given that clip's whole story: the picture it opened on, then the clip itself
     const carries = await knows({ previous: { asset: clip } });
     expect(carries.continues).toBe(true);
-    expect(carries.pictures).toEqual([{ what: "The clip this one carries on from", steps: [{ title: "txt2img", with: "SDXL", said: true }, { title: "Video with sound", with: "MiniMax H3", said: true }] }]);
+    expect(carries.pictures).toEqual([{ what: "The clip this one carries on from", steps: [{ title: "txt2img", with: "SDXL", said: true }, { title: "Video with audio", with: "MiniMax H3", said: true }] }]);
     llm.answers.push("kind: proposal\ndescription: She leans on the railing.\nnote: ok");
     await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "", previous: { asset: clip } }, messages: [{ role: "user", content: "what next" }] });
     expect(system()).toContain("CONTINUES the clip before it");
     expect(system()).toContain("She walks to the railing and says hello.");
-    expect(system()).toContain("The clip this one carries on from was made here, in 2 steps, the oldest first:\n1. txt2img with SDXL: 1girl, terrace\n2. Video with sound with MiniMax H3: She walks to the railing and says hello.\n   Sound effects: waves, a light wind");
+    expect(system()).toContain("The clip this one carries on from was made here, in 2 steps, the oldest first:\n1. txt2img with SDXL: 1girl, terrace\n2. Video with audio with MiniMax H3: She walks to the railing and says hello.\n   Sound effects: waves, a light wind");
 
     // something studai did not make has no story
     const mine = await item("mine1", "image", { origin: "uploaded" });

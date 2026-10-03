@@ -131,16 +131,16 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const n = (id: string) => clips.findIndex((c) => c.id === id) + 1;
   const hint = !dragging
     ? clips.length
-      ? "Drag pictures, videos and sounds here from the left. Click a clip to change it; drag its edges to shorten it."
+      ? "Drag images, videos and audio here from the left. Click a clip to change it; drag its edges to trim it."
       : "Your clips will line up here, left to right, in the order they play."
     : !over
-      ? dragging === "sound" ? "Drop it on a clip to replace its sound, or on the music row." : "Drop it on the timeline."
+      ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : "Drop it on the timeline."
       : over.kind === "insert"
-        ? `Drop to ${dragging === "clip" ? "move it" : dragging === "picture" ? "hold this picture on screen" : "put it"} ${over.index === 0 ? "at the start" : over.index >= clips.length ? "at the end" : `between clip ${over.index} and clip ${over.index + 1}`}.`
+        ? `Drop to ${dragging === "clip" ? "move it" : dragging === "picture" ? "add this image as a still" : "insert it"} ${over.index === 0 ? "at the start" : over.index >= clips.length ? "at the end" : `between clip ${over.index} and clip ${over.index + 1}`}.`
         : over.kind === "pin"
-          ? over.where === "mid" ? `Drop to make clip ${n(over.clip)} pass through this picture at ${over.atS} s.` : `Drop to make clip ${n(over.clip)} ${over.where === "start" ? "open" : "end"} on this picture.`
+          ? over.where === "mid" ? `Drop to make this image a keyframe of clip ${n(over.clip)} at ${over.atS} s.` : `Drop to make this image the ${over.where === "start" ? "first" : "last"} frame of clip ${n(over.clip)}.`
           : over.kind === "sound"
-            ? `Drop to replace the sound of clip ${n(over.clip)}.`
+            ? `Drop to replace the audio of clip ${n(over.clip)}.`
             : "Drop to play it under the whole video.";
   const lineAt = over?.kind === "insert" ? (over.index < slots.length ? slots[over.index]!.left : end) : null;
 
@@ -195,8 +195,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     <div data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
       <div className="flex">
         <div className="relative w-[64px] shrink-0 border-r border-line text-[11px] font-semibold text-ink-2" style={{ height: HEIGHT }}>
-          <span className="absolute left-3" style={{ top: ROW.top + ROW.height / 2 - 8 }}>Picture</span>
-          <span className="absolute left-3" style={{ top: SOUND.top + 1 }}>Sound</span>
+          <span className="absolute left-3" style={{ top: ROW.top + ROW.height / 2 - 8 }}>Video</span>
+          <span className="absolute left-3" style={{ top: SOUND.top + 1 }}>Audio</span>
           <span className="absolute left-3" style={{ top: MUSIC.top + 3 }}>Music</span>
         </div>
         <div
@@ -262,7 +262,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               }
               const pinned = over?.kind === "pin" && over.clip === c.id ? over.where : null;
               const through = pins.mid && pins.midAt && typeof c.inputs[pins.mid] === "string" ? { asset: c.inputs[pins.mid] as string, part: Math.max(0.15, Math.min(0.85, (Number(c.inputs[pins.midAt] ?? 2.5) * 1000) / Math.max(1, s.lengthMs))) } : null;
-              const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "A sound file" : "") : c.sound === "file" ? c.soundAsset?.name || "A sound file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Its own sound" : "Silent";
+              const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
               return (
                 <div key={c.id}>
                   <button
@@ -306,11 +306,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                       {c.job ? (
                         <span className="flex min-w-0 grow flex-col gap-1 rounded bg-ground/85 px-1.5 py-1 text-[11px]">
                           <span className="flex items-center gap-1">
-                            <span className="min-w-0 grow truncate font-semibold">{live ? phaseLabel(live.phase) : "Waiting"}</span>
+                            <span className="min-w-0 grow truncate font-semibold">{live ? phaseLabel(live.phase) : "Queued"}</span>
                             <button
                               type="button"
-                              aria-label={live ? `Stop the render of clip ${s.index + 1}` : `Take clip ${s.index + 1} out of the queue`}
-                              title={live ? "Stop this render" : "Take it out of the queue"}
+                              aria-label={live ? `Stop the render of clip ${s.index + 1}` : `Remove clip ${s.index + 1} from the queue`}
+                              title={live ? "Stop render" : "Remove from queue"}
                               onPointerDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -329,18 +329,18 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                             {s.planned ? (c.failed ? "The render failed" : s.width > 100 ? "Not rendered yet" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
                           </span>
                           <span className="flex shrink-0 items-center gap-1">
-                            {c.kind === "still" && s.width > 70 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Picture</span>}
-                            {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Your file</span>}
-                            {otherShape(c, timeline) && s.width > 120 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-warn-ink">other shape</span>}
+                            {c.kind === "still" && s.width > 70 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Still</span>}
+                            {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Imported</span>}
+                            {otherShape(c, timeline) && s.width > 120 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-warn-ink">other aspect ratio</span>}
                             {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
                           </span>
                         </>
                       )}
                     </span>
                     {/* pictures pinned to its start and its end */}
-                    {opens && <img src={thumbUrl(opens)} alt="" title="Opens on this picture" draggable={false} className="absolute top-6 left-3.5 h-7 w-7 rounded border-2 border-picture object-cover" />}
-                    {ends && <img src={thumbUrl(ends)} alt="" title="Ends on this picture" draggable={false} className="absolute top-6 right-3.5 h-7 w-7 rounded border-2 border-picture object-cover" />}
-                    {through && <img src={thumbUrl(through.asset)} alt="" title="Passes through this picture" draggable={false} className="absolute top-6 h-7 w-7 -translate-x-1/2 rounded border-2 border-picture object-cover" style={{ left: `${through.part * 100}%` }} />}
+                    {opens && <img src={thumbUrl(opens)} alt="" title="First frame" draggable={false} className="absolute top-6 left-3.5 h-7 w-7 rounded border-2 border-picture object-cover" />}
+                    {ends && <img src={thumbUrl(ends)} alt="" title="Last frame" draggable={false} className="absolute top-6 right-3.5 h-7 w-7 rounded border-2 border-picture object-cover" />}
+                    {through && <img src={thumbUrl(through.asset)} alt="" title="Keyframe" draggable={false} className="absolute top-6 h-7 w-7 -translate-x-1/2 rounded border-2 border-picture object-cover" style={{ left: `${through.part * 100}%` }} />}
                     {pinned && <span aria-hidden className={cx("absolute inset-y-0 w-2 bg-accent", pinned === "start" ? "left-0" : pinned === "end" ? "right-0" : "left-1/2 -translate-x-1/2")} />}
                   </button>
 
@@ -348,9 +348,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   {on && !s.planned && !c.job && (
                     <>
                       {c.kind === "video" && (
-                        <span role="separator" aria-label="Drag to cut from the start of the clip" title="Drag to cut from the start" onPointerDown={(e) => startPull(e, s, "start")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-l-lg bg-accent" style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
+                        <span role="separator" aria-label="Drag to trim the start of the clip" title="Drag to trim the start" onPointerDown={(e) => startPull(e, s, "start")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-l-lg bg-accent" style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
                       )}
-                      <span role="separator" aria-label="Drag to change where the clip ends" title={c.kind === "still" ? "Drag to hold the picture for a shorter or a longer time" : "Drag to cut from the end"} onPointerDown={(e) => startPull(e, s, "end")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-r-lg bg-accent" style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
+                      <span role="separator" aria-label="Drag to trim the end of the clip" title={c.kind === "still" ? "Drag to change the still's duration" : "Drag to trim the end"} onPointerDown={(e) => startPull(e, s, "end")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-r-lg bg-accent" style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
                     </>
                   )}
 
@@ -359,8 +359,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     <button
                       type="button"
                       onClick={() => onSelect(c.id)}
-                      title={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? (c.join === "fresh" ? `Flows on from clip ${s.index}` : `Will flow on from clip ${s.index}`) : "A cut"}
-                      aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : c.joined === "continue" ? `The join before clip ${s.index + 1}: it flows on from clip ${s.index}` : `The join before clip ${s.index + 1}: a cut`}
+                      title={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? (c.join === "fresh" ? `Extends clip ${s.index}` : `Will extend clip ${s.index}`) : "A cut"}
+                      aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : c.joined === "continue" ? `The join before clip ${s.index + 1}: it extends clip ${s.index}` : `The join before clip ${s.index + 1}: a cut`}
                       style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
                       className={cx(
                         "absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
@@ -376,7 +376,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     type="button"
                     onClick={() => onSelect(c.id)}
                     onDragOver={(e) => overClip(e, s)}
-                    aria-label={`Sound of clip ${s.index + 1}: ${heard || "none yet"}`}
+                    aria-label={`Audio of clip ${s.index + 1}: ${heard || "none yet"}`}
                     style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
                     className={cx(
                       "absolute flex items-center gap-1 overflow-hidden rounded px-1.5 text-[10px]",
@@ -407,7 +407,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               type="button"
               onClick={() => timeline.music && onSelectMusic()}
               onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? { kind: "music" } : null)}
-              aria-label={timeline.music ? `Music: ${timeline.music.asset.name || "a sound"}` : "Music: none. Drop a sound here."}
+              aria-label={timeline.music ? `Music: ${timeline.music.asset.name || "an audio file"}` : "Music: none. Drop an audio file here."}
               aria-pressed={musicSelected}
               style={{
                 left: PAD + 1, top: MUSIC.top, height: MUSIC.height,
@@ -420,7 +420,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               )}
             >
               <Music size={11} className="shrink-0" />
-              <span className="truncate">{timeline.music ? timeline.music.asset.name || "Music" : "Drop a sound here to play it under the whole video"}</span>
+              <span className="truncate">{timeline.music ? timeline.music.asset.name || "Music" : "Drop an audio file here to play it under the whole video"}</span>
             </button>
 
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}

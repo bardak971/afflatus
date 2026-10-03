@@ -12,7 +12,7 @@ const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolv
 export const qwen = defineFamily({
   id: "qwen",
   name: "Qwen Image",
-  summary: "Pictures from plain sentences, with text that reads right. Qwen Image Edit changes a picture from an instruction.",
+  summary: "txt2img from natural-language prompts, with legible text rendering. Qwen Image Edit is the edit model: instruction-based image editing.",
   promptStyle: "sentences",
   slots: [
     {
@@ -35,7 +35,7 @@ export const qwen = defineFamily({
     },
     {
       id: "turbo", label: "Turbo LoRA (Lightning)", folder: "loras", detect: ["^(?!.*edit).*qwen.?image.*lightning"], optional: true,
-      hint: "Without it, Turbo is off and pictures take the full number of steps. Put a Qwen-Image-Lightning LoRA in ComfyUI's models/loras folder.",
+      hint: "Without it, Turbo is off and images take the full step count. Put a Qwen-Image-Lightning LoRA in ComfyUI's models/loras folder.",
       get: { file: "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning/resolve/main/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors" },
     },
     {
@@ -45,7 +45,7 @@ export const qwen = defineFamily({
     },
     {
       id: "editTurbo", label: "Turbo LoRA for Edit (Lightning)", folder: "loras", detect: ["qwen.?image.?edit.*lightning"], optional: true,
-      hint: "Without it, Edit takes the full number of steps. Put a Qwen-Image-Edit-Lightning LoRA in ComfyUI's models/loras folder.",
+      hint: "Without it, Edit takes the full step count. Put a Qwen-Image-Edit-Lightning LoRA in ComfyUI's models/loras folder.",
       get: { file: "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors" },
     },
   ],
@@ -139,7 +139,7 @@ export const qwenEdit = defineRecipe<QwenEdit>({
   family: "qwen",
   version: 1,
   title: "Edit",
-  summary: "Changes a picture from an instruction (\"make the jacket red\", \"put her in the place of image 2\"), with Qwen Image Edit. The rest of the picture is kept.",
+  summary: "Instruction-based editing (\"make the jacket red\", \"put her in the place of image 2\") with Qwen Image Edit. The rest of the image is kept.",
   output: "image",
   needs: ["edit"],
   inputs: [

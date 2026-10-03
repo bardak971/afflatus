@@ -70,18 +70,18 @@ export function playAt(slots: Slot[], x: number): number {
 
 /** A clip's name on the track: the start of what happens in it, or what it is. */
 export function titleOf(clip: Clip, recipe: RecipeInfo | undefined): string {
-  if (clip.kind === "still") return clip.still?.name || "Picture";
+  if (clip.kind === "still") return clip.still?.name || "Still";
   const main = recipe?.inputs.find((i) => i.type === "prompt");
   const text = main ? String(clip.inputs[main.id] ?? "").trim() : "";
-  return text || (recipe ? "New clip" : clip.take?.asset.name || "Your video");
+  return text || (recipe ? "New clip" : clip.take?.asset.name || "Imported video");
 }
 
 export type Shape = "tall" | "wide" | "square";
 export const shapeOf = (width: number, height: number): Shape => (Math.abs(width / height - 1) < 0.04 ? "square" : width > height ? "wide" : "tall");
 /** The frames a timeline can be given by name. A model fits its own size inside them. */
 export const SHAPES: Record<Shape, { label: string; width: number; height: number }> = {
-  tall: { label: "Tall", width: 576, height: 1024 },
-  wide: { label: "Wide", width: 1024, height: 576 },
+  tall: { label: "Portrait", width: 576, height: 1024 },
+  wide: { label: "Landscape", width: 1024, height: 576 },
   square: { label: "Square", width: 768, height: 768 },
 };
 

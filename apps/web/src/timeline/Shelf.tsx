@@ -26,27 +26,27 @@ export function Shelf({ onAdd, selected }: {
     e.dataTransfer.setData(dragKind(a.kind), a.id);
     e.dataTransfer.effectAllowed = "copy";
   };
-  const what = (a: Asset) => (a.kind === "video" ? "Add this video at the end of the timeline" : a.kind === "image" ? "Add this picture at the end, held on screen" : selected ? "Use this sound on the selected clip" : "Select a clip first, or drag this sound onto one");
+  const what = (a: Asset) => (a.kind === "video" ? "Add this video at the end of the timeline" : a.kind === "image" ? "Add this image at the end, as a still" : selected ? "Use this audio on the selected clip" : "Select a clip first, or drag this audio file onto one");
 
   return (
     <aside className="flex w-[224px] shrink-0 flex-col border-r border-line bg-panel">
       <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
         <SectionTitle>Your media</SectionTitle>
-        <Segmented<Tab> label="What to show" value={tab} onChange={setTab} options={[{ value: "image", label: "Pictures" }, { value: "video", label: "Videos" }, { value: "audio", label: "Sounds" }]} />
+        <Segmented<Tab> label="Media type" value={tab} onChange={setTab} options={[{ value: "image", label: "Images" }, { value: "video", label: "Videos" }, { value: "audio", label: "Audio" }]} />
         {all.length > 0 && (
           <Select size="sm" label="Folder" value={folder} onChange={setFolder} options={[{ value: "", label: "All folders" }, ...all.map((f) => ({ value: f.id, label: f.name, note: `${f.count}` }))]} />
         )}
       </div>
       <div className="min-h-0 grow overflow-y-auto px-3 pb-3">
         {assets.isSuccess && !items.length && (
-          <div className="py-6 text-center text-xs text-ink-3">{tab === "audio" ? "No sounds yet. Bring one in from your computer." : `No ${tab === "image" ? "pictures" : "videos"} here yet.`}</div>
+          <div className="py-6 text-center text-xs text-ink-3">{tab === "audio" ? "No audio yet. Import a file from your computer." : `No ${tab === "image" ? "images" : "videos"} here yet.`}</div>
         )}
         {tab === "audio" ? (
           <div className="flex flex-col gap-1.5">
             {items.map((a) => (
               <button key={a.id} type="button" draggable onDragStart={drag(a)} onClick={() => onAdd(a)} title={what(a)} aria-label={what(a)} className="flex h-10 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 text-left hover:border-accent">
                 <Music size={13} className="shrink-0 text-ink-2" />
-                <span className="min-w-0 grow truncate text-xs">{a.name || "A sound"}</span>
+                <span className="min-w-0 grow truncate text-xs">{a.name || "Audio file"}</span>
                 {a.durationMs ? <span className="shrink-0 font-mono text-[11px] text-ink-2">{clock(a.durationMs)}</span> : null}
               </button>
             ))}

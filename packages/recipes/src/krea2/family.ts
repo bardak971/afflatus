@@ -10,7 +10,7 @@ const HF = "https://huggingface.co/Comfy-Org/Krea-2/resolve/main";
 export const krea2 = defineFamily({
   id: "krea2",
   name: "Krea 2",
-  summary: "Pictures from plain sentences, in 8 steps. Follows the style of reference images with its style-reference LoRA.",
+  summary: "txt2img from natural-language prompts, in 8 steps. Follows the style of reference images with its style-reference LoRA.",
   promptStyle: "sentences",
   slots: [
     {
@@ -32,7 +32,7 @@ export const krea2 = defineFamily({
     },
     {
       id: "styleRef", label: "Style reference LoRA", folder: "loras", detect: ["krea.?2.*style.?ref"], optional: true,
-      hint: "Without it, pictures cannot follow the style of reference images. Put krea2_style_reference.safetensors in ComfyUI's models/loras folder.",
+      hint: "Without it, images cannot follow the style of reference images. Put krea2_style_reference.safetensors in ComfyUI's models/loras folder.",
       get: { file: "krea2_style_reference.safetensors", url: `${HF}/loras/krea2_style_reference.safetensors` },
     },
   ],

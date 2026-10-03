@@ -77,8 +77,8 @@ export const ltxVideo = defineRecipe<LtxVideo>({
   id: "ltx.video",
   family: "ltx",
   version: 1,
-  title: "Video with sound",
-  summary: "From words, from an opening picture, or from a first to a last picture. The sound is made with it.",
+  title: "Video with audio",
+  summary: "t2v, or i2v from a first frame or a first and last frame. Audio generated with it.",
   output: "video",
   traits: {
     startFrame: true, endFrame: true, midFrames: false, continues: "frame", endAnchor: false, sound: true,

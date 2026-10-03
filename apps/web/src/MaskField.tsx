@@ -23,7 +23,7 @@ const load = (src: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("the picture could not be opened"));
+    img.onerror = () => reject(new Error("the image could not be opened"));
     img.src = src;
   });
 
@@ -56,7 +56,7 @@ export function MaskField({ label, note, picture, value, onChange }: {
         {explain && <Note text={note} />}
       </div>
       {!picture ? (
-        <div className="flex h-[72px] items-center justify-center rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-3">Choose the picture first.</div>
+        <div className="flex h-[72px] items-center justify-center rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-3">Choose the image first.</div>
       ) : has ? (
         <div className="flex items-center gap-3 rounded-lg border border-line bg-raised p-2">
           <span className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-md">

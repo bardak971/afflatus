@@ -125,9 +125,9 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
    */
   app.get<{ Querystring: { file?: string; folder?: string; hints?: string } }>("/api/civitai/find", async (req) => {
     const settings = await readSettings(s.db);
-    if (!settings.civitaiLookups) throw Object.assign(new Error("Looking things up on Civitai is turned off. Turn it on in Settings."), { statusCode: 400 });
+    if (!settings.civitaiLookups) throw Object.assign(new Error("Civitai lookups are turned off. Turn them on in Settings."), { statusCode: 400 });
     const file = String(req.query.file ?? "").split(/[\\/]/).pop() ?? "";
-    if (!file.replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i, "")) throw Object.assign(new Error("which file?"), { statusCode: 400 });
+    if (!file.replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i, "")) throw Object.assign(new Error("no filename given"), { statusCode: 400 });
     // Hugging Face is asked for the file itself, by its exact name; Civitai for models whose names are close
     const hints = String(req.query.hints ?? "").split("|").map((h) => h.trim()).filter(Boolean).slice(0, 3);
     const [exact, civitai] = await Promise.all([
@@ -170,7 +170,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     // which form: the one asked for, else the one that uses the model the picture was made with
     const targets = targetsFor(found.settings, s.registry.recipes(), optionsOf);
     const recipe = s.registry.recipe(targets.find((t) => t.id === wanted)?.id ?? targets[0]?.id ?? "sdxl.text-to-picture");
-    if (!recipe) throw Object.assign(new Error("there is nothing to fill with these settings"), { statusCode: 400 });
+    if (!recipe) throw Object.assign(new Error("no model takes these generation parameters"), { statusCode: 400 });
     return { settings: { ...fill(found.settings, recipe, optionsOf(recipe.id), Boolean(scan?.comfy.online)), targets }, workflow: found.workflow, why: null };
   };
   app.post<{ Querystring: { recipe?: string } }>("/api/embedded", { bodyLimit: UPLOAD_LIMIT }, async (req) => {
@@ -208,13 +208,13 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     }).parse(req.body);
     const settings = await readSettings(s.db);
     if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Settings."), { statusCode: 400 });
-    if (!b.civitai === !b.url) throw Object.assign(new Error("say where from: a Civitai version or an address"), { statusCode: 400 });
+    if (!b.civitai === !b.url) throw Object.assign(new Error("a source is needed: a Civitai version or a URL"), { statusCode: 400 });
     const comfy = await s.comfy();
     // the address ComfyUI will fetch from: the one this page was opened at, unless one is set
     const self = process.env.PUBLIC_URL?.trim() || `${req.protocol}://${req.headers.host}`;
     const local = (host: string) => /^(localhost|127\.|\[::1\]|::1)/.test(host);
     if (!process.env.PUBLIC_URL && local(new URL(self).hostname) && !local(new URL(comfy.url).hostname)) {
-      throw Object.assign(new Error("ComfyUI runs on another machine and cannot reach studai at this address. Open studai by its network address, or set PUBLIC_URL to it."), { statusCode: 400 });
+      throw Object.assign(new Error("ComfyUI runs on another machine and cannot reach studai at this URL. Open studai by its network URL, or set PUBLIC_URL to it."), { statusCode: 400 });
     }
     const name = b.file.split(/[\\/]/).pop()!;
     const keepPage = async (saved: string) => {
@@ -224,8 +224,8 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
         .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: b.page!.url, title: b.page!.title })).execute();
     };
     if (b.url) {
-      if (!name) throw Object.assign(new Error("under which name?"), { statusCode: 400 });
-      if (!/^https:\/\//.test(b.url) && !process.env.CIVITAI_URL) throw Object.assign(new Error("only https addresses are fetched"), { statusCode: 400 });
+      if (!name) throw Object.assign(new Error("no filename given"), { statusCode: 400 });
+      if (!/^https:\/\//.test(b.url) && !process.env.CIVITAI_URL) throw Object.assign(new Error("only https URLs are downloaded"), { statusCode: 400 });
       const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url });
       await keepPage(started.file);
       return started;
@@ -266,7 +266,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   app.delete<{ Params: { id: string } }>("/api/downloads/:id", async (req) => {
     const stopped = s.downloads.stop(req.params.id);
     if (stopped === false) throw notFound("that download");
-    if (stopped === "late") throw Object.assign(new Error("All of it has arrived: ComfyUI is saving the file now."), { statusCode: 409 });
+    if (stopped === "late") throw Object.assign(new Error("Download complete: ComfyUI is saving the file now."), { statusCode: 409 });
     return { ok: true };
   });
 
@@ -349,7 +349,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   });
 
   app.post<{ Params: { id: string } }>("/api/jobs/:id/cancel", async (req) => {
-    if (!(await s.queue.cancel(req.params.id))) throw notFound("a job to stop");
+    if (!(await s.queue.cancel(req.params.id))) throw notFound("a job to cancel");
     return { ok: true };
   });
 
@@ -521,11 +521,11 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const picture = bytes && (await readPicture(bytes));
     const media = bytes && !picture ? await probeMedia(bytes) : null;
     if (!bytes || (!picture && !media)) {
-      throw Object.assign(new Error("This file is not a picture, a video or a sound studai can read. Pictures: PNG, JPEG, WebP. Videos and sounds are read with ffmpeg, which has to be installed where studai runs."), { statusCode: 400 });
+      throw Object.assign(new Error("This file is not an image, a video or an audio file studai can read. Images: PNG, JPEG, WebP. Video and audio are read with ffmpeg, which has to be installed where studai runs."), { statusCode: 400 });
     }
     // the part of a picture painted over to redo it: kept, but it is not something to look at in the library
     const mask = req.query.as === "mask";
-    if (mask && !picture) throw Object.assign(new Error("the painted part has to be a picture"), { statusCode: 400 });
+    if (mask && !picture) throw Object.assign(new Error("the mask has to be an image"), { statusCode: 400 });
     const id = newId();
     const mime = picture?.mime ?? media!.mime;
     const key = `assets/${id.slice(0, 2)}/${id}.${extOf(mime)}`;
@@ -623,7 +623,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   /** The sound of a video, as a sound of its own in the library (for a clip's sound, the music, a voice). */
   app.post<{ Params: { id: string } }>("/api/assets/:id/sound", async (req) => {
     const video = await asset(req.params.id);
-    if (video.kind !== "video" || !video.has_sound) throw Object.assign(new Error("This has no sound to take."), { statusCode: 400 });
+    if (video.kind !== "video" || !video.has_sound) throw Object.assign(new Error("This video has no audio to extract."), { statusCode: 400 });
     const bytes = await soundOf(await s.storage.get(video.file_key), extOf(video.mime));
     const id = newId();
     const key = `assets/${id.slice(0, 2)}/${id}.m4a`;
@@ -632,7 +632,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     await s.db
       .insertInto("assets")
       .values({
-        id, owner_id: OWNER, kind: "audio", origin: "imported", name: video.name ? `${video.name}, its sound` : "The sound of a video", file_key: key, thumb_key: null,
+        id, owner_id: OWNER, kind: "audio", origin: "imported", name: video.name ? `${video.name}, audio` : "Audio extracted from a video", file_key: key, thumb_key: null,
         mime: "audio/mp4", bytes: bytes.length, width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
         folder_id: video.folder_id, generation_id: null, source_id: video.id, kept_at: at, deleted_at: null, created_at: at,
       })

@@ -35,7 +35,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
   family: "sdxl",
   version: 1,
   title: "txt2img",
-  summary: "Text to image: a picture from a prompt of tags, with optional hires fix.",
+  summary: "Text to image: an image from a tag prompt, with optional hires fix.",
   output: "image",
   inputs: [
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "terrace at sunset, woman holding a cup, warm light" },

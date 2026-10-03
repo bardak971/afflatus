@@ -59,10 +59,10 @@ export function StripPlace() {
   return (
     <span
       className="flex min-w-0 items-center gap-1.5 text-ink-2"
-      title={place === "unfiled" ? "Open a folder to have what you make land in it." : place.path ? `What you make lands in this folder. Kept results become files in ${place.path}` : "What you make lands in the folder that is open."}
+      title={place === "unfiled" ? "Open a folder to have your outputs land in it." : place.path ? `Outputs land in this folder. Kept outputs become files in ${place.path}` : "Outputs land in the folder that is open."}
     >
       <Folder size={13} className="shrink-0" />
-      {place === "unfiled" ? <span>Results are not filed</span> : <span className="max-w-64 truncate">Results go to <span className="font-semibold text-ink">{place.name}</span></span>}
+      {place === "unfiled" ? <span>Output: no folder</span> : <span className="max-w-64 truncate">Output: <span className="font-semibold text-ink">{place.name}</span></span>}
     </span>
   );
 }
@@ -84,7 +84,7 @@ export function StripModel() {
 function Held({ name }: { name: string | null }) {
   if (!name) return null;
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model studai last had ComfyUI load. A render with it starts at once. "Free the GPU memory" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
+    <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model studai last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
       <MemoryStick size={13} className="shrink-0 text-good" />
       <span className="max-w-72 truncate">{name}</span>
     </span>
@@ -125,7 +125,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
   if (!running && !waiting && (state === undefined || state === null) && !load.isError) return <Held name={held} />;
   if (!running && !waiting && state) {
     return held ? <Held name={held} /> : (
-      <span className="flex items-center gap-1.5 text-ink-2" title="What studai last had ComfyUI load is what this form uses: the render starts sampling at once.">
+      <span className="flex items-center gap-1.5 text-ink-2" title="This form's model is what ComfyUI has loaded: the render starts sampling at once.">
         <MemoryStick size={13} className="shrink-0 text-good" /> Model loaded
       </span>
     );
@@ -135,22 +135,22 @@ function OfForm({ recipe, input, look }: OpenForm) {
       <MemoryStick size={13} className="shrink-0" />
       {running || waiting ? (
         <>
-          <span className="truncate">{running ? "Loading the model…" : "The model loads when its turn comes"}</span>
-          <button type="button" className="shrink-0 font-semibold text-ink underline" disabled={stop.isPending} onClick={() => stop.mutate([(running ?? waiting)!.id])}>Stop</button>
+          <span className="truncate">{running ? "Loading model…" : "Model load queued"}</span>
+          <button type="button" className="shrink-0 font-semibold text-ink underline" disabled={stop.isPending} onClick={() => stop.mutate([(running ?? waiting)!.id])}>Cancel</button>
         </>
       ) : (
         <>
-          <span className="flex min-w-0 items-center gap-1" title={held ? `${held} is what ComfyUI holds. This form renders with another model.` : "ComfyUI holds no model that studai had it load."}>
-            {held ? <><span className="max-w-56 truncate">{held}</span><span className="shrink-0">is loaded, not this form's model</span></> : "This form's model is not loaded"}
+          <span className="flex min-w-0 items-center gap-1" title={held ? `${held} is the model ComfyUI has loaded. This form renders with another model.` : "ComfyUI has no model loaded by studai."}>
+            {held ? <><span className="max-w-56 truncate">{held}</span><span className="shrink-0">loaded, not this form's model</span></> : "Model not loaded"}
           </span>
           <button
             type="button"
             className={cx("shrink-0 font-semibold text-ink underline disabled:text-ink-3 disabled:no-underline")}
-            title="Load this form's checkpoint (or diffusion model, text encoder and VAE) into ComfyUI's memory now, while you write. One step is run and nothing is made; the render then starts at once."
+            title="Load this form's checkpoint (or diffusion model, text encoder and VAE) into VRAM now, while you write. One step is run and nothing is saved; the render then starts at once."
             disabled={load.isPending}
             onClick={() => load.mutate()}
           >
-            Load it now
+            Load model
           </button>
         </>
       )}

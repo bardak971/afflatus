@@ -44,7 +44,7 @@ const useStudio = create<{
 }>()(persist((set) => ({ form: false, size: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "studai.studio" }));
 
 const KINDS = [
-  { id: "all", label: "Everything", kind: undefined },
+  { id: "all", label: "All", kind: undefined },
   { id: "image", label: "Images", kind: "image" },
   { id: "video", label: "Videos", kind: "video" },
   { id: "audio", label: "Audio", kind: "audio" },
@@ -56,7 +56,7 @@ function LiveTile({ job, onClick, on, title }: { job: RunningJob; onClick?(): vo
   const stop = useStop();
   return (
     <div data-stage className={cx("relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", on ? "border-2 border-accent" : "border-line-strong")}>
-      <button type="button" onClick={onClick} disabled={!onClick} aria-label={title ?? "What is being made now"} title={title} className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+      <button type="button" onClick={onClick} disabled={!onClick} aria-label={title ?? "Running job"} title={title} className="absolute inset-0 flex flex-col items-center justify-center gap-2">
         <LivePreview job={job} className="absolute inset-0 h-full w-full object-cover opacity-80" />
         <div className="relative flex w-full flex-col items-center gap-1.5 bg-ground/60 px-2 py-2 text-center">
           <div className="text-xs font-semibold">{phaseLabel(job.phase)}</div>
@@ -65,8 +65,8 @@ function LiveTile({ job, onClick, on, title }: { job: RunningJob; onClick?(): vo
       </button>
       <button
         type="button"
-        aria-label="Stop this render"
-        title="Stop this render. Nothing is added."
+        aria-label="Cancel this render"
+        title="Cancel this render. Nothing is saved."
         disabled={stop.isPending}
         onClick={() => stop.mutate([job.id])}
         className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-lg border border-line-strong bg-ground/80 text-ink hover:border-warn hover:text-warn"
@@ -111,10 +111,10 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
       const has = new Set(recipe.inputs.map((i) => i.id));
       for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
       const missing = recipe.inputs.find((i) => i.type === "image" && !i.optional && !input[i.id]);
-      if (missing) throw new ApiError(`Choose the ${missing.label.toLowerCase()} first.`);
+      if (missing) throw new ApiError(`Select the ${missing.label.toLowerCase()} first.`);
       // a prompt shown as an example is not a prompt: nothing is made from somebody else's text by accident
       const unwritten = recipe.inputs.find((i) => i.type === "prompt" && i.example && !String(input[i.id] ?? "").trim());
-      if (unwritten) throw new ApiError(`Write the ${unwritten.label.toLowerCase()} first.`);
+      if (unwritten) throw new ApiError(`Fill in the ${unwritten.label.toLowerCase()} first.`);
       await api.enqueue(recipe.id, input, count, draft.look, { draft: draft.id, folder: folder?.id });
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }),
@@ -135,7 +135,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const noun = recipe?.output === "image" ? "picture" : recipe?.output === "video" ? "video" : "sound";
+  const noun = recipe?.output === "image" ? "image" : recipe?.output === "video" ? "video" : "audio clip";
   // pictures or videos: the models of the other kind are out of the way; the last one used of each kind is remembered
   const kinds = [...new Set(all.map((r) => r.output))];
   const [lastOf, setLastOf] = useState<Record<string, string>>({});
@@ -199,7 +199,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
       <div className="flex items-center gap-2">
         {kinds.length > 1 && (
           <Segmented
-            label="What to make"
+            label="Output type"
             value={recipe.output}
             options={kinds.map((k) => ({ value: k, label: k === "image" ? "Image" : k === "video" ? "Video" : "Audio" }))}
             onChange={(k) => pick(lastOf[k] ?? all.find((r) => r.output === k)!.id)}
@@ -213,7 +213,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
           value={group.key}
           onChange={pickModel}
           options={groups.map((g) => ({
-            value: g.key, label: g.name, group: g.builtIn ? "Models" : "Only from your workflows",
+            value: g.key, label: g.name, group: g.builtIn ? "Models" : "Your workflows",
             note: g.recipes.some((r) => !why(r)) ? `${g.recipes.length} operation${g.recipes.length === 1 ? "" : "s"}` : "not ready",
             detail: g.builtIn ? g.summary : g.recipes.map((r) => r.title).join(" · "), search: g.recipes.map((r) => r.title).join(" "),
           }))}
@@ -258,13 +258,13 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         className="h-9"
         icon={<Bookmark size={13} className="shrink-0" />}
         label="Presets"
-        placeholder={presets.length ? "Use a preset, or save this as one" : "Save all this as a preset"}
+        placeholder={presets.length ? "Load a preset, or save this as one" : "Save as preset"}
         value=""
         onChange={(id) => {
           const p = presets.find((x) => x.id === id);
           if (p?.kind === "preset") d.apply(p.def.recipe, p.def.inputs, p.def.look ?? null);
         }}
-        options={presets.map((p) => ({ value: p.id, label: p.name, note: p.kind === "preset" ? recipeLabel(recipes.data?.families.find((f) => f.id === all.find((r) => r.id === p.def.recipe)?.family)?.name, all.find((r) => r.id === p.def.recipe)?.title ?? "a model that is gone") : "" }))}
+        options={presets.map((p) => ({ value: p.id, label: p.name, note: p.kind === "preset" ? recipeLabel(recipes.data?.families.find((f) => f.id === all.find((r) => r.id === p.def.recipe)?.family)?.name, all.find((r) => r.id === p.def.recipe)?.title ?? "model no longer installed") : "" }))}
         footer={(close) => (
           <form
             className="flex items-center gap-1.5"
@@ -276,7 +276,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
               close();
             }}
           >
-            <input aria-label="Name of a new preset" placeholder="Save all this as: type a name" value={presetName} onChange={(e) => setPresetName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 placeholder:text-ink-3" />
+            <input aria-label="New preset name" placeholder="Save as preset: name" value={presetName} onChange={(e) => setPresetName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 placeholder:text-ink-3" />
             <Button size="sm" tone="quiet" type="submit" disabled={!presetName.trim()}>Save</Button>
           </form>
         )}
@@ -301,8 +301,8 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
           >
             <input
               autoFocus
-              aria-label="Name of the draft"
-              placeholder="A name (empty: what is written in it)"
+              aria-label="Draft name"
+              placeholder="Draft name (empty: the start of the prompt)"
               value={naming}
               maxLength={80}
               onChange={(e) => setNaming(e.target.value)}
@@ -319,8 +319,8 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         ) : (
           <div className="min-w-0 grow">
             <Select
-              label="Your drafts"
-              searchHint="Search your drafts"
+              label="Drafts"
+              searchHint="Search drafts"
               className="h-9 font-semibold"
               value={draft?.id ?? ""}
               onChange={(id) => void d.switchTo(id)}
@@ -330,8 +330,8 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
           </div>
         )}
         <button type="button" aria-label="Rename this draft" title="Rename this draft" disabled={!draft} onClick={() => setNaming(draft?.name ?? "")} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
-        <button type="button" aria-label="Delete this draft" title="Delete this draft. What it made stays in your library." disabled={!draft} onClick={() => draft && void d.remove(draft.id)} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={13} /></button>
-        <button type="button" title="A new draft: an empty form. This one is kept." onClick={() => void d.startNew()} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
+        <button type="button" aria-label="Delete this draft" title="Delete this draft. Its outputs stay in your library." disabled={!draft} onClick={() => draft && void d.remove(draft.id)} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={13} /></button>
+        <button type="button" title="New draft: an empty form. This one is kept." onClick={() => void d.startNew()} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
         <button type="button" aria-label="Close the form" title="Close the form: the library takes the whole width" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink"><ChevronLeft size={15} /></button>
       </div>
 
@@ -370,22 +370,22 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         {send.isError && <ErrorNote>{send.error.message}</ErrorNote>}
         {blocked && (
           <ErrorNote>
-            {blocked} <Link href="/settings" className="font-semibold underline">Open Settings</Link>
+            {blocked} <Link href="/settings" className="font-semibold underline">Open settings</Link>
           </ErrorNote>
         )}
         {recipe && recipe.inputs.some((i) => i.type === "prompt" && hasWildcards(String(whole[i.id] ?? ""))) && (
-          <span className="text-xs text-ink-2">{"{a|b|c}"}: one is picked for each {noun}{count === 1 ? ". Make several to see them vary." : "."}</span>
+          <span className="text-xs text-ink-2">{"{a|b|c}"} wildcard: one option is picked for each {noun}{count === 1 ? ". Generate several to see them vary." : "."}</span>
         )}
         {recipe && draft && !blocked && <FormModel recipe={recipe} input={whole} look={draft.look} />}
         <ResultsPlace folder={folder ? { name: folder.name, path: folder.path } : null} />
         <div className="flex items-center gap-2.5">
           <div className="flex h-11 shrink-0 items-center rounded-lg border border-line">
-            <button type="button" aria-label="One fewer" onClick={() => d.setCount(count - 1)} className="flex h-full w-9 items-center justify-center"><Minus size={14} /></button>
+            <button type="button" aria-label="Batch count: one fewer" onClick={() => d.setCount(count - 1)} className="flex h-full w-9 items-center justify-center"><Minus size={14} /></button>
             <span className="w-6 text-center font-bold">{count}</span>
-            <button type="button" aria-label="One more" onClick={() => d.setCount(count + 1)} className="flex h-full w-9 items-center justify-center"><Plus size={14} /></button>
+            <button type="button" aria-label="Batch count: one more" onClick={() => d.setCount(count + 1)} className="flex h-full w-9 items-center justify-center"><Plus size={14} /></button>
           </div>
           <Button tone="primary" className="h-11 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || send.isPending} onClick={() => send.mutate()}>
-            <span title="Ctrl + Enter">{send.isPending ? "Sending…" : `Make ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>
+            <span title="Ctrl + Enter">{send.isPending ? "Queuing…" : `Generate ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>
           </Button>
         </div>
       </div>
@@ -431,7 +431,7 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
   const shown = chosen ?? (live ? undefined : items[0]);
 
   if (assets.isSuccess && !items.length && !running && !waiting) {
-    return <Empty title="Nothing made with this draft yet">Write what you want in the form and press Make. What this draft makes shows here, its newest result large. "Everything here" shows the whole folder.</Empty>;
+    return <Empty title="No output from this draft yet">Write a prompt in the form and press Generate. This draft's outputs show here, the newest one large. "Whole folder" shows everything in the folder.</Empty>;
   }
   return (
     <div className="flex h-full min-h-0 gap-4">
@@ -442,14 +442,14 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
             <div className="flex w-72 flex-col items-center gap-1.5 text-center">
               <span className="font-semibold">{phaseLabel(running.phase)}{running.steps ? ` · step ${running.step} of ${running.steps}` : ""}{running.eta ? ` · ${about(running.eta)}` : ""}</span>
               <div className="w-full"><Bar value={running.progress * 100} /></div>
-              {waiting > 0 && <span className="text-xs text-ink-2">{waiting} more waiting</span>}
+              {waiting > 0 && <span className="text-xs text-ink-2">{waiting} more queued</span>}
               <div className="flex flex-wrap justify-center gap-2 pt-1">
-                <Button size="sm" onClick={() => stop.mutate([running.id])} disabled={stop.isPending} title={waiting ? "Stop this one. Nothing is added; the next one starts." : "Stop this render. Nothing is added."}>
-                  <Square size={11} fill="currentColor" /> Stop this render
+                <Button size="sm" onClick={() => stop.mutate([running.id])} disabled={stop.isPending} title={waiting ? "Cancel this render. Nothing is saved; the next queued job starts." : "Cancel this render. Nothing is saved."}>
+                  <Square size={11} fill="currentColor" /> Cancel render
                 </Button>
                 {waiting > 0 && (
-                  <Button size="sm" onClick={() => stop.mutate([...inLine.map((j) => j.id), running.id])} disabled={stop.isPending} title="Stop this one and take the ones that wait out of the queue.">
-                    Stop all {waiting + 1}
+                  <Button size="sm" onClick={() => stop.mutate([...inLine.map((j) => j.id), running.id])} disabled={stop.isPending} title="Cancel this render and remove the queued jobs from the queue.">
+                    Cancel all {waiting + 1}
                   </Button>
                 )}
               </div>
@@ -474,8 +474,8 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
         {running && <LiveTile job={running} on={Boolean(live)} onClick={() => setPicked("live")} />}
         {waiting > 0 && (
           <span className="flex items-center justify-between gap-1 rounded-lg border border-dashed border-line-strong py-1 pr-1 pl-2 text-xs text-ink-2">
-            {waiting} waiting
-            <button type="button" aria-label={`Take the ${waiting} that wait out of the queue`} title="Take them out of the queue" disabled={stop.isPending} onClick={() => stop.mutate(inLine.map((j) => j.id))} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-warn">
+            {waiting} queued
+            <button type="button" aria-label={`Remove the ${waiting} queued jobs from the queue`} title="Remove from the queue" disabled={stop.isPending} onClick={() => stop.mutate(inLine.map((j) => j.id))} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-warn">
               <X size={13} />
             </button>
           </span>
@@ -511,7 +511,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, folders.data]);
   const folder = place.type === "folder" ? folders.data?.items.find((f) => f.id === place.id) : undefined;
-  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "Not filed yet" : place.type === "folder" ? folder?.name ?? "A folder" : "Everything";
+  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "No folder" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
 
   const draftId = useOpenDraft((s) => s.id);
   const openDraft = useOpenDraft((s) => s.open);
@@ -645,7 +645,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
             type="button"
             aria-haspopup="dialog"
             aria-expanded={Boolean(foldersOpen)}
-            title="Your folders, the bin, and what is not filed yet"
+            title="Folders, the bin, and items in no folder"
             onClick={() => setFoldersOpen(foldersOpen ? false : "click")}
             className={cx("flex h-9 max-w-64 shrink-0 items-center gap-2 rounded-lg border bg-raised px-3 text-sm font-semibold", foldersOpen ? "border-accent" : "border-line-strong")}
           >
@@ -655,9 +655,9 @@ export function Studio({ open: forced }: { open?: boolean }) {
           </button>
           {view.form && draftId && (
             <Segmented
-              label="What the right side shows"
+              label="Results shown"
               value={view.scope}
-              options={[{ value: "draft", label: "This draft" }, { value: "all", label: "Everything here" }]}
+              options={[{ value: "draft", label: "This draft" }, { value: "all", label: "Whole folder" }]}
               onChange={(scope) => view.set({ scope })}
             />
           )}
@@ -675,38 +675,38 @@ export function Studio({ open: forced }: { open?: boolean }) {
           <span className="grow" />
           {!draftOnly && picked.length > 0 && (
             <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
-              <span className="font-semibold whitespace-nowrap">{picked.length} ticked</span>
-              {picked.length < items.length && <button type="button" onClick={() => setPicked(items.map((a) => a.id))} className="text-xs text-ink-2 underline hover:text-ink">all {items.length} shown</button>}
+              <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
+              {picked.length < items.length && <button type="button" onClick={() => setPicked(items.map((a) => a.id))} className="text-xs text-ink-2 underline hover:text-ink">select all {items.length}</button>}
               {place.type === "bin" ? (
-                <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Put them back</Button>
+                <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Restore</Button>
               ) : (
                 <>
                   <div className="w-44">
                     <Select
-                      size="sm" label="Move the ticked items to a folder" placeholder="Move to a folder" searchHint="Search your folders" value=""
+                      size="sm" label="Move the selected items to a folder" placeholder="Move to folder" searchHint="Search folders" value=""
                       onChange={(to) => moveTo.mutate(to === "__none__" ? null : to)}
-                      options={[...folderOptions, { value: "__none__", label: "Out of any folder" }]}
+                      options={[...folderOptions, { value: "__none__", label: "No folder" }]}
                     />
                   </div>
                   {chosen.some((a) => !a.kept) && <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} /> Keep</Button>}
-                  {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} title="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Stop keeping</Button>}
+                  {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} title="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Unkeep</Button>}
                   <Button size="sm" disabled={bulk.isPending} title="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} /> Bin</Button>
                 </>
               )}
-              <button type="button" aria-label="Untick everything" title="Untick everything (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+              <button type="button" aria-label="Clear selection" title="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
             </div>
           )}
           {!draftOnly && picked.length === 0 && (
             <>
               <label className="flex h-9 w-64 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
                 <Search size={14} className="shrink-0 text-ink-3" />
-                <input aria-label="Search your library" placeholder="Search by what you wrote, or by name" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+                <input aria-label="Search the library" placeholder="Search prompts and names" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
                 {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
               </label>
               {!view.form && (families.data?.items.length ?? 0) > 0 && (
                 <div className="w-40 shrink-0">
                   <Select
-                    size="sm" className={cx("h-9", made && "border-accent")} label="Made with this model" searchHint="Search the models your library was made with" value={made} onChange={setMade}
+                    size="sm" className={cx("h-9", made && "border-accent")} label="Filter by model" searchHint="Search models used in the library" value={made} onChange={setMade}
                     options={[
                       { value: "", label: "Any model" },
                       ...families.data!.items.map((f) => ({ value: `f:${f}`, label: familyName(f), group: "Model family" })),
@@ -718,7 +718,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
               {!view.form && (usedModels.data?.loras.length ?? 0) > 0 && (
                 <div className="w-36 shrink-0">
                   <Select
-                    size="sm" className={cx("h-9", lora && "border-accent")} label="Made with this LoRA" searchHint="Search the LoRAs your library was made with" value={lora} onChange={setLora}
+                    size="sm" className={cx("h-9", lora && "border-accent")} label="Filter by LoRA" searchHint="Search LoRAs used in the library" value={lora} onChange={setLora}
                     options={[{ value: "", label: "Any LoRA" }, ...usedModels.data!.loras.map((l) => ({ value: l.file, label: fileLabel(l.file), note: String(l.count), search: l.file }))]}
                   />
                 </div>
@@ -726,7 +726,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
               <button type="button" aria-pressed={kept} onClick={() => setKept(!kept)} className={cx("flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
                 <Star size={13} fill={kept ? "currentColor" : "none"} /> Kept only
               </button>
-              <Segmented label="How large the tiles are" value={view.size} options={[{ value: "S", label: "S" }, { value: "M", label: "M" }, { value: "L", label: "L" }]} onChange={(size) => view.set({ size })} />
+              <Segmented label="Thumbnail size" value={view.size} options={[{ value: "S", label: "S" }, { value: "M", label: "M" }, { value: "L", label: "L" }]} onChange={(size) => view.set({ size })} />
             </>
           )}
           {!view.form && (
@@ -745,7 +745,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
               {(bulk.isError || moveTo.isError) && <ErrorNote>{(bulk.error ?? moveTo.error)?.message}</ErrorNote>}
               {showTimelines && (
                 <>
-                  {timelines.isSuccess && !timelines.data.items.length && <Empty title="No timeline yet">A timeline plays clips one after the other. Start one in Timelines.</Empty>}
+                  {timelines.isSuccess && !timelines.data.items.length && <Empty title="No timeline yet">A timeline sequences clips one after the other. Create one in Timelines.</Empty>}
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3.5">
                     {timelines.data?.items.map((t) => (
                       <Link key={t.id} href={`/timelines/${t.id}`} className="flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel hover:border-accent">
@@ -762,14 +762,14 @@ export function Studio({ open: forced }: { open?: boolean }) {
                 </>
               )}
               {!showTimelines && assets.isSuccess && !items.length && !running && (
-                <Empty title={filtered ? "Nothing matches" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}>
+                <Empty title={filtered ? "No match" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}>
                   {filtered
-                    ? "Nothing here was made with these words, this model, this LoRA or was kept. Change the search or the filters."
+                    ? "Nothing here matches this search, model, LoRA or Kept filter. Change the search or the filters."
                     : place.type === "bin"
-                      ? "Things you delete wait here a week before they are removed for good."
+                      ? "Items you bin wait here a week before they are deleted for good."
                       : place.type === "folder"
-                        ? "What you make while it is open lands in it. Or drag pictures onto it from Everything."
-                        : "Pictures and videos you make appear here. Start with Create."}
+                        ? "What you generate while it is open lands in it. Or drag images onto it from All."
+                        : "Images and videos you generate appear here. Start with Create."}
                 </Empty>
               )}
               <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${TILE[view.size]})` }}>
@@ -777,7 +777,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
                 {!showTimelines && running && running.kind === "render" && place.type !== "bin" && !filtered && (
                   <LiveTile
                     job={running}
-                    title={running.draftId ? "Open the draft that is making it" : undefined}
+                    title={running.draftId ? "Open the draft it was queued from" : undefined}
                     // to the draft it comes from: the form opens on it, with what it has made beside it
                     onClick={running.draftId ? () => {
                       openDraft(running.draftId);

@@ -7,7 +7,7 @@ import { defineFamily } from "@studai/core";
 export const klein = defineFamily({
   id: "klein",
   name: "FLUX.2 Klein",
-  summary: "Photo-like pictures from plain sentences. Follows reference pictures and changes a picture from an instruction.",
+  summary: "Photorealistic txt2img from natural-language prompts. Follows reference images and does instruction-based editing.",
   promptStyle: "sentences",
   slots: [
     {

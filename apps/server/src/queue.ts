@@ -163,7 +163,7 @@ export class Queue {
 
   async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
-    if (!recipe) throw new UserError(`there is no recipe called ${recipeId}`);
+    if (!recipe) throw new UserError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
     const input = parseInput(recipe, opts.warm ? withTexts(recipe, rawInput) : rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
@@ -244,7 +244,7 @@ export class Queue {
    * under way (its model is in use); the next render loads what it needs again.
    */
   async freeMemory(): Promise<void> {
-    if (this.running?.gpu) throw new UserError("A render is under way and its model is in use. Wait for it, or stop it first.");
+    if (this.running?.gpu) throw new UserError("A render is under way and its model is loaded. Wait for it, or cancel it first.");
     await (await this.comfy()).client.free();
     await this.loaded(null);
     // every open screen says which model is loaded: they are told it no longer is
@@ -631,7 +631,7 @@ export class Queue {
     const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
     const chosen = settled(recipe, input, catalog);
     const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
-    if (missing.length) throw new Error(`ComfyUI is missing nodes this needs: ${missing.join(", ")}`);
+    if (missing.length) throw new Error(`ComfyUI is missing custom nodes this needs: ${missing.join(", ")}`);
     const slots = await this.slots(comfy, recipe);
 
     // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
@@ -650,14 +650,14 @@ export class Queue {
         if (spec.role === "mask") {
           // only the part that was painted is redone: where it is comes from the mask itself
           const painted = await maskBox(bytes);
-          if (painted && !painted.box) throw new Error("The mask is empty. Paint over the part to redo.");
+          if (painted && !painted.box) throw new Error("The mask is empty. Paint over the part to inpaint.");
           if (painted?.box) media[spec.id] = { width: painted.width, height: painted.height, box: painted.box };
         }
       } else if (spec.type === "clip" && value) {
         // of the clip it joins onto, the recipe gets a few frames with their sound, cut at the chosen moment
         const { asset: assetId, at } = value as ClipValue;
         const asset = await this.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
-        if (!asset || asset.kind !== "video") throw new Error(`the clip this one ${spec.role === "previous" ? "carries on from" : "arrives at"} is no longer in your library`);
+        if (!asset || asset.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
         const bytes = await this.storage.get(asset.file_key);
         const facts = asset.duration_ms && asset.width && asset.height
           ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
@@ -678,7 +678,7 @@ export class Queue {
             media[`${spec.id}.${i}`] = { width: clip.width, height: clip.height, frames: clip.frames, fps: 24, hasSound: clip.hasSound };
             continue;
           }
-          if (!asset || asset.kind !== "image") throw new Error("a reference picture is no longer in your library");
+          if (!asset || asset.kind !== "image") throw new Error("a reference image is no longer in your library");
           const bytes = await this.storage.get(asset.file_key);
           uploads[`${spec.id}.${i}`] = await comfy.client.upload(bytes, extOf(asset.mime));
           media[`${spec.id}.${i}`] = { width: asset.width ?? 0, height: asset.height ?? 0 };
@@ -705,7 +705,7 @@ export class Queue {
       if (spec.type !== "image" || spec.role !== "mask" || !spec.of) continue;
       const mask = media[spec.id];
       const picture = media[spec.of];
-      if (mask && picture?.width && (mask.width !== picture.width || mask.height !== picture.height)) throw new Error("The mask was painted on another picture. Paint it again on this one.");
+      if (mask && picture?.width && (mask.width !== picture.width || mask.height !== picture.height)) throw new Error("The mask was painted on another image. Paint it again on this one.");
     }
 
     const seed = typeof input.seed === "number" && input.seed !== RANDOM_SEED ? input.seed : randomSeed();
@@ -714,7 +714,7 @@ export class Queue {
     relocateFiles(built.graph, catalog);
     const problems = checkGraph(built, catalog, { files: true, uploaded: Object.values(uploads) });
     if (problems.length) {
-      const fix = recipe.id.startsWith("workflow.") ? " To fix it: Workflows, then Change on this workflow." : "";
+      const fix = recipe.id.startsWith("workflow.") ? " To fix it: Workflows, then Edit on this workflow." : "";
       throw new Error(`this cannot run on your ComfyUI: ${problems.slice(0, 3).join("; ")}.${fix}`);
     }
 
@@ -736,8 +736,8 @@ export class Queue {
     await comfy.monitor.ready();
     if (row.warm) {
       const warm = warmGraph(built);
-      if (!warm) throw new Error("this loads no model: there is nothing to load ahead");
-      if (!(WARM_SINK in catalog)) throw new Error(`ComfyUI is missing the ${WARM_SINK} node, which loading a model ahead needs. Update ComfyUI.`);
+      if (!warm) throw new Error("this loads no model: there is nothing to preload");
+      if (!(WARM_SINK in catalog)) throw new Error(`ComfyUI is missing the ${WARM_SINK} node, which preloading a model needs. Update ComfyUI.`);
       const promptId = await comfy.client.submit(warm.graph, { preview: "latent2rgb" });
       return { promptId, seed, outputs: [], totalSteps: 1, phases: warm.phases, passes: warm.pass ? [warm.pass] : [], clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now() };
     }
@@ -756,7 +756,7 @@ export class Queue {
     const scanned = (await comfy.scan()).families.find((f) => f.id === recipe.family);
     for (const s of scanned?.slots ?? []) {
       if (s.file) slots[s.id] = s.file;
-      else if (!s.optional) throw new Error(`a file ${this.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`);
+      else if (!s.optional) throw new Error(`a model file ${this.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`);
     }
     return slots;
   }
@@ -821,7 +821,7 @@ export class Queue {
       const ofKind = returned.filter((file) => mimeOfFile(file.filename).startsWith(`${out.kind}/`));
       for (const file of ofKind.length ? ofKind : returned) files.push({ file, kind: out.kind });
     }
-    if (!files.length) throw new Error("ComfyUI finished but returned no result");
+    if (!files.length) throw new Error("ComfyUI finished but returned no output");
 
     const generationId = newId();
     const at = now();

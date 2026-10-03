@@ -38,7 +38,7 @@ export function Timelines() {
         {(list.isError || create.isError || remove.isError) && <ErrorNote>{(list.error ?? create.error ?? remove.error)?.message}</ErrorNote>}
         {list.isSuccess && !items.length && (
           <Empty title="No timeline yet">
-            A timeline plays clips one after the other. Each clip can carry on from the one before it, so the motion and the voices continue across the cut. Start with New timeline.
+            A timeline plays clips one after the other. Each clip can extend the previous clip, so the motion and the voices continue across the cut. Start with New timeline.
           </Empty>
         )}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3.5">

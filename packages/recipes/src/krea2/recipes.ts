@@ -37,7 +37,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
   family: "krea2",
   version: 1,
   title: "txt2img",
-  summary: "Text to image, from a prompt in plain sentences, with optional hires fix. With reference images, it follows their style.",
+  summary: "Text to image, from a natural-language prompt, with optional hires fix. With reference images, it follows their style.",
   output: "image",
   inputs: [
     krea2Model,
@@ -156,7 +156,7 @@ export const krea2Redraw = defineRecipe<Krea2Redraw>({
   family: "krea2",
   version: 1,
   title: "img2img",
-  summary: "Image to image: a picture redrawn from a prompt. The denoising strength says how far it may go from the original.",
+  summary: "Image to image: an image redrawn from a prompt. The denoising strength says how far it may go from the original.",
   output: "image",
   inputs: [
     krea2Model,
@@ -207,7 +207,7 @@ export const krea2PaintOver = defineRecipe<Krea2PaintOver>({
   family: "krea2",
   version: 1,
   title: "Inpaint",
-  summary: "Paint a mask over a part of a picture and prompt what goes there. Only the masked part is redrawn.",
+  summary: "Paint a mask over a part of an image and prompt what goes there. Only the masked part is redrawn.",
   output: "image",
   inputs: [
     krea2Model,
@@ -272,7 +272,7 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
   family: "krea2",
   version: 1,
   title: "Upscale 2x",
-  summary: "Upscales a picture to twice its size with an upscale model, then a light img2img pass so it does not look smeared.",
+  summary: "Upscales an image to twice its size with an upscale model, then a low-denoise img2img pass so it does not look smeared.",
   output: "image",
   inputs: [
     krea2Model,

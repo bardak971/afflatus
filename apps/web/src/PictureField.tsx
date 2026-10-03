@@ -22,7 +22,7 @@ function useUpload(onDone: (asset: Asset) => void) {
   });
 }
 
-const WORD = { image: "picture", video: "video", audio: "sound" } as const;
+const WORD = { image: "image", video: "video", audio: "audio file" } as const;
 const ACCEPT = { image: "image/png,image/jpeg,image/webp", video: "video/mp4,video/webm", audio: "audio/*" } as const;
 
 /** Every picture (or every video, or every sound) in the library, to pick one from; or bring one in from the computer. */
@@ -75,7 +75,7 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
               {items.map((a) => (
                 <button key={a.id} type="button" onClick={() => onPick(a.id)} className="flex h-11 items-center gap-3 rounded-lg border border-line bg-raised px-3 text-left hover:border-accent">
                   <Music size={15} className="shrink-0 text-ink-2" />
-                  <span className="min-w-0 grow truncate">{a.name || "A sound"}</span>
+                  <span className="min-w-0 grow truncate">{a.name || "Audio"}</span>
                   {a.durationMs ? <span className="shrink-0 font-mono text-xs text-ink-2">{clock(a.durationMs)}</span> : null}
                 </button>
               ))}
@@ -83,10 +83,10 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
           )}
           {sounding.length > 0 && (
             <>
-              <div className="pt-2 text-xs font-semibold text-ink-2">Or the sound of a video</div>
+              <div className="pt-2 text-xs font-semibold text-ink-2">Or the audio of a video</div>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2.5">
                 {sounding.map((a) => (
-                  <button key={a.id} type="button" aria-label={a.name ? `Use the sound of ${a.name}` : "Use the sound of this video"} onClick={() => onPick(a.id)} className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent">
+                  <button key={a.id} type="button" aria-label={a.name ? `Use the audio of ${a.name}` : "Use the audio of this video"} onClick={() => onPick(a.id)} className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent">
                     <img src={thumbUrl(a.id)} alt="" loading="lazy" className="h-full w-full object-cover" />
                     <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold"><Music size={11} /> {a.durationMs ? clock(a.durationMs) : "sound"}</span>
                   </button>
@@ -104,7 +104,7 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
               <button
                 key={a.id}
                 type="button"
-                aria-label={a.name ? `Use ${a.name}` : kind === "image" ? "Use this picture" : "Use this video"}
+                aria-label={a.name ? `Use ${a.name}` : kind === "image" ? "Use this image" : "Use this video"}
                 onClick={() => onPick(a.id)}
                 className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent"
               >
@@ -287,16 +287,16 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
         <div key={ref.asset} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
           <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
           <div className="min-w-0 grow">
-            {roles.length === 1 && <span className="text-ink-2">{video ? `Video ${i + 1}` : `Picture ${i + 1}`}: {ROLE_WORDS[ref.role].label.toLowerCase()}</span>}
+            {roles.length === 1 && <span className="text-ink-2">{video ? `Video ${i + 1}` : `Image ${i + 1}`}: {ROLE_WORDS[ref.role].label.toLowerCase()}</span>}
             {roles.length > 1 && <Select
               size="sm"
-              label={`What picture ${i + 1} shows`}
+              label={`What image ${i + 1} shows`}
               value={ref.role}
               onChange={(role) => onChange(value.map((v, j) => (j === i ? { ...v, role: role as ReferenceRole } : v)))}
               options={roles.map((r) => ({ value: r, label: ROLE_WORDS[r].label, note: ROLE_WORDS[r].note }))}
             />}
           </div>
-          <button type="button" aria-label={`Remove reference ${video ? "video" : "picture"} ${i + 1}`} onClick={() => onChange(value.filter((_v, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+          <button type="button" aria-label={`Remove reference ${video ? "video" : "image"} ${i + 1}`} onClick={() => onChange(value.filter((_v, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
         </div>
       ))}
       {value.length < max && (
@@ -355,7 +355,7 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
         <div {...drop.props} className={cx("flex flex-col gap-2 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
           <div className="flex items-center gap-2">
             <Music size={14} className="shrink-0 text-ink-2" />
-            <span className="min-w-0 grow truncate">{asset.data?.name || "A sound"}{asset.data?.durationMs ? ` · ${clock(asset.data.durationMs)}` : ""}</span>
+            <span className="min-w-0 grow truncate">{asset.data?.name || "Audio"}{asset.data?.durationMs ? ` · ${clock(asset.data.durationMs)}` : ""}</span>
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
             {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
           </div>
@@ -367,14 +367,14 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
               <NumberBox label={`${label}: the part used starts at, in seconds`} value={part.start} min={0} max={total ? Math.max(0, Math.floor((total - 2) * 2) / 2) : 600} step={0.5} unit="s" onCommit={part.onStart} />
               <span>for</span>
               <NumberBox label={`${label}: the part used lasts, in seconds`} value={part.seconds} min={2} max={15} step={0.5} unit="s" onCommit={part.onSeconds} />
-              {total !== null && lasts < part.seconds && <span>(the sound ends at {total.toFixed(1)} s: {lasts.toFixed(1)} s are used)</span>}
+              {total !== null && lasts < part.seconds && <span>(the audio ends at {total.toFixed(1)} s: {lasts.toFixed(1)} s are used)</span>}
             </div>
           )}
         </div>
       ) : (
         <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>
           <Music size={15} />
-          <span>Choose a sound, or drop one here</span>
+          <span>Choose an audio file, or drop one here</span>
         </button>
       )}
       {explain && <Note text={note} />}

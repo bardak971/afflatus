@@ -87,38 +87,38 @@ export function DropTray() {
     try {
       if (zone === "library") {
         const good = media(files);
-        if (!good.length) return setSaid({ text: "The library takes pictures, videos and sounds.", bad: true });
-        setSaid({ text: good.length > 1 ? `Adding ${good.length} files…` : "Adding it…" });
+        if (!good.length) return setSaid({ text: "The library takes images, videos and audio files.", bad: true });
+        setSaid({ text: good.length > 1 ? `Importing ${good.length} files…` : "Importing…" });
         const added = await bringIn(good);
         // one file: shown large right away, with everything that can be done with it
         if (added.length === 1) hand({ show: added[0]!.id });
         go("/");
-        setSaid({ text: added.length > 1 ? `${added.length} files are in your library.` : "It is in your library." });
+        setSaid({ text: added.length > 1 ? `${added.length} files imported into your library.` : "Imported into your library." });
       } else if (zone === "settings") {
-        setSaid({ text: "Reading what it was made with…" });
+        setSaid({ text: "Reading generation parameters…" });
         const data = await api.embedded(first);
         setSaid(null);
         setFound({ file: first, data });
       } else if (zone === "workflow") {
         if (fileKind(first) === "json") hand({ workflow: first });
         else {
-          setSaid({ text: "Looking for a workflow in it…" });
+          setSaid({ text: "Looking for an embedded workflow…" });
           const data = await api.embedded(first);
-          if (!data.workflow) return setSaid({ text: "This file carries no ComfyUI workflow. Pictures and videos saved by ComfyUI do; most sites remove it.", bad: true });
+          if (!data.workflow) return setSaid({ text: "This file carries no ComfyUI workflow. Images and videos saved by ComfyUI do; most sites strip it.", bad: true });
           hand({ workflow: workflowFile(first.name, data.workflow) });
           setSaid(null);
         }
         go("/workflows");
       } else if (zone === "timeline" && timeline) {
         const good = media(files);
-        if (!good.length) return setSaid({ text: "A timeline takes pictures, videos and sounds.", bad: true });
+        if (!good.length) return setSaid({ text: "A timeline takes images, videos and audio files.", bad: true });
         setSaid({ text: "Adding…" });
         for (const a of await bringIn(good)) {
           if (a.kind === "audio") await api.editTimeline(timeline, { music: { asset: a.id } });
           else await api.addClip(timeline, { asset: a.id, ...(a.kind === "image" ? { as: "still" as const } : {}) });
         }
         await client.invalidateQueries({ queryKey: ["timelines"] });
-        setSaid({ text: "It is on the timeline." });
+        setSaid({ text: "Added to the timeline." });
       }
     } catch (err) {
       fail(err);
@@ -128,21 +128,21 @@ export function DropTray() {
   const zones: Array<{ id: Zone; icon: ReactNode; label: string; hint: string }> = [];
   if (kind && kind !== "json") {
     zones.push({
-      id: "library", icon: <ImagePlus size={22} />, label: "Add to my library",
-      hint: kind === "audio" ? "to use as a voice, a clip's sound or music" : kind === "video" ? "it opens with what can be done: continue it, take its sound, put it on a timeline" : "it opens with what can be done: change it, make a video from it, use it as a reference",
+      id: "library", icon: <ImagePlus size={22} />, label: "Import to library",
+      hint: kind === "audio" ? "to use as a voice sample, a clip's audio or music" : kind === "video" ? "it opens in the viewer: extend it, extract its audio, add it to a timeline" : "it opens in the viewer: img2img, inpaint, i2v, use as a reference image",
     });
   }
   if (timeline && kind && kind !== "json") {
     zones.push({
-      id: "timeline", icon: kind === "audio" ? <Music size={22} /> : <Film size={22} />, label: kind === "audio" ? "Music of this timeline" : "Put it on this timeline",
-      hint: kind === "audio" ? "it plays under every clip" : kind === "video" ? "at the end, as it is" : "at the end, held on screen. Drop it on a clip instead to make the clip open or end on it",
+      id: "timeline", icon: kind === "audio" ? <Music size={22} /> : <Film size={22} />, label: kind === "audio" ? "Music track of this timeline" : "Add to this timeline",
+      hint: kind === "audio" ? "it plays under every clip" : kind === "video" ? "at the end, as it is" : "at the end, as a still. Drop it on a clip instead to make it the clip's first or last frame",
     });
   }
-  if (kind === "image" || kind === "other") zones.push({ id: "settings", icon: <FileDown size={22} />, label: "Use its settings", hint: "PNG info: its prompt, checkpoint, LoRAs and settings fill a new form" });
+  if (kind === "image" || kind === "other") zones.push({ id: "settings", icon: <FileDown size={22} />, label: "PNG info", hint: "its generation parameters (prompt, checkpoint, LoRAs, sampling settings) fill a new form" });
   if (kind && kind !== "audio") {
     zones.push({
-      id: "workflow", icon: <Workflow size={22} />, label: kind === "json" ? "Import this workflow" : "Import its workflow",
-      hint: kind === "json" ? "it becomes something to create with" : "what ComfyUI saves carries its workflow: it becomes something to create with",
+      id: "workflow", icon: <Workflow size={22} />, label: kind === "json" ? "Import this workflow" : "Import embedded workflow",
+      hint: kind === "json" ? "it is added to your workflows, to generate with" : "files saved by ComfyUI carry their workflow: it is added to your workflows, to generate with",
     });
   }
 
@@ -150,7 +150,7 @@ export function DropTray() {
     <>
       {kind && zones.length > 0 && (
         <div className="pointer-events-none fixed inset-x-0 bottom-14 z-[70] flex flex-col items-center gap-2">
-          <span className="rounded-full bg-ground/90 px-3 py-1 text-xs text-ink-2">Drop it on what to do with it</span>
+          <span className="rounded-full bg-ground/90 px-3 py-1 text-xs text-ink-2">Drop on an action</span>
           <div className="pointer-events-auto flex gap-3 rounded-2xl border border-line-strong bg-panel/95 p-3 shadow-2xl">
             {zones.map((z) => (
               <div

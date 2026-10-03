@@ -78,7 +78,7 @@ describe("painting over a part of a picture", () => {
     const empty = await upload(await painted(400, 600), "as=mask");
     expect(await refusal("sdxl.paint-over", { source: picture.id, mask: empty.id, prompt: "a", checkpoint: CHECKPOINT })).toContain("The mask is empty");
     const other = await upload(await painted(300, 300, { left: 10, top: 10, width: 50, height: 50 }), "as=mask");
-    expect(await refusal("sdxl.paint-over", { source: picture.id, mask: other.id, prompt: "a", checkpoint: CHECKPOINT })).toContain("painted on another picture");
+    expect(await refusal("sdxl.paint-over", { source: picture.id, mask: other.id, prompt: "a", checkpoint: CHECKPOINT })).toContain("painted on another image");
   });
 
   it("with FLUX.2 Klein draws the part anew at full strength and touches it up below", async () => {

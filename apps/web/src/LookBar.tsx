@@ -42,7 +42,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between">
         <span className="text-xs font-semibold">{title}</span>
-        <Link href="/kit#people" className="text-xs text-ink-2 underline hover:text-ink">{all.some((e) => e.kind !== "preset") ? "Change them" : "Add people, places and styles"}</Link>
+        <Link href="/kit#people" className="text-xs text-ink-2 underline hover:text-ink">{all.some((e) => e.kind !== "preset") ? "Edit in the Prompt kit" : "Add people, places and styles"}</Link>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {now.cast.map((member) => {
@@ -58,8 +58,8 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
               {outfits.length > 0 && (
                 <button
                   type="button"
-                  title={`Outfit: ${worn?.name ?? "as in the pictures"}. Click for the next one.`}
-                  aria-label={`Outfit of ${e.name}: ${worn?.name ?? "as in the pictures"}. Click for the next one.`}
+                  title={`Outfit: ${worn?.name ?? "as in the reference images"}. Click for the next one.`}
+                  aria-label={`Outfit of ${e.name}: ${worn?.name ?? "as in the reference images"}. Click for the next one.`}
                   onClick={() => {
                     const order = [null, ...outfits.map((o) => o.id)];
                     const next = order[(order.indexOf(member.outfit ?? null) + 1) % order.length];
@@ -67,10 +67,10 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
                   }}
                   className="rounded-full bg-raised px-2 py-0.5 text-xs text-ink-2 hover:text-ink"
                 >
-                  {worn?.name ?? "as in the pictures"}
+                  {worn?.name ?? "as in the references"}
                 </button>
               )}
-              <button type="button" aria-label={`Take ${e.name} out`} onClick={() => onChange({ ...now, cast: now.cast.filter((c) => c.id !== e.id) })} className="flex h-6 w-6 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={12} /></button>
+              <button type="button" aria-label={`Remove ${e.name}`} onClick={() => onChange({ ...now, cast: now.cast.filter((c) => c.id !== e.id) })} className="flex h-6 w-6 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={12} /></button>
             </span>
           );
         })}
@@ -102,25 +102,25 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
             />
           </div>
         )}
-        {!castable.length && !styles.length && !now.cast.length && <span className="text-xs text-ink-3">None yet. A person is written once (pictures, a voice, words) and used with every model.</span>}
+        {!castable.length && !styles.length && !now.cast.length && <span className="text-xs text-ink-3">None yet. A person is written once (reference images, a voice sample, prompt text) and used with every model.</span>}
       </div>
       {active && recipe && (
         <button type="button" aria-expanded={showing} onClick={() => setShowing(!showing)} className="self-start text-xs text-ink-2 underline hover:text-ink">
-          {showing ? "Hide what is sent" : "See what is sent"}
+          {showing ? "Hide final prompt" : "Show final prompt"}
         </button>
       )}
       {showing && active && recipe && (
         <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised p-2.5 text-xs">
-          {sent.isLoading && <span className="text-ink-2">Working it out…</span>}
+          {sent.isLoading && <span className="text-ink-2">Composing…</span>}
           {sent.isError && <span className="text-warn-ink">{sent.error.message}</span>}
           {sent.data && (
             <>
               {main && <span><span className="text-ink-2">{main.label}: </span><Marked text={String(sent.data.input[main.id] ?? "")} added={sent.data.added.words} /></span>}
               {subject && sent.data.input[subject.id] ? <span><span className="text-ink-2">{subject.label}: </span><Marked text={String(sent.data.input[subject.id])} added={sent.data.added.words} /></span> : null}
               {sent.data.added.loras.length > 0 && <span><span className="text-ink-2">LoRAs added: </span>{sent.data.added.loras.map((l) => `${fileLabel(l.file)} (${l.from})`).join(", ")}</span>}
-              {sent.data.added.references > 0 && <span><span className="text-ink-2">Reference pictures added: </span>{sent.data.added.references}</span>}
-              {sent.data.added.voice && <span><span className="text-ink-2">Voice: </span>{sent.data.added.voice}</span>}
-              {!sent.data.added.words.length && !sent.data.added.loras.length && !sent.data.added.references && !sent.data.added.voice && <span className="text-ink-2">Nothing of them fits this model: no words, LoRA or pictures are set for it.</span>}
+              {sent.data.added.references > 0 && <span><span className="text-ink-2">Reference images added: </span>{sent.data.added.references}</span>}
+              {sent.data.added.voice && <span><span className="text-ink-2">Voice sample: </span>{sent.data.added.voice}</span>}
+              {!sent.data.added.words.length && !sent.data.added.loras.length && !sent.data.added.references && !sent.data.added.voice && <span className="text-ink-2">Nothing of them fits this model: no prompt text, LoRA or reference images are set for it.</span>}
               {sent.data.added.skipped.map((s) => <span key={s} className="text-warn-ink">{s}</span>)}
             </>
           )}

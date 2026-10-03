@@ -74,17 +74,17 @@ export function AppearanceCard() {
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-[15px] font-bold">Appearance</h2>
         <div className="w-64">
-          <Segmented label="Which theme is up" value={choice.mode} onChange={(mode) => choice.set({ mode })} options={[{ value: "dark", label: "Night" }, { value: "light", label: "Day" }, { value: "system", label: "As the system" }]} />
+          <Segmented label="Theme mode" value={choice.mode} onChange={(mode) => choice.set({ mode })} options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }]} />
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold">Night theme</span>
+        <span className="text-xs font-semibold">Dark theme</span>
         <div className="flex flex-wrap gap-1">
           {night.map((t) => <ThemeTile key={t.id} theme={t} accent={choice.accents[t.family]} on={choice.night === t.id} onPick={() => choice.set({ night: t.id, mode: choice.mode === "light" ? "dark" : choice.mode })} />)}
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold">Day theme <span className="font-normal text-ink-2">pictures and videos stay on a dark stage</span></span>
+        <span className="text-xs font-semibold">Light theme <span className="font-normal text-ink-2">images and videos stay on a dark stage</span></span>
         <div className="flex flex-wrap gap-1">
           {day.map((t) => <ThemeTile key={t.id} theme={t} accent={choice.accents[t.family]} on={choice.day === t.id} onPick={() => choice.set({ day: t.id, mode: choice.mode === "dark" ? "light" : choice.mode })} />)}
         </div>
@@ -102,8 +102,8 @@ export function ThemeFlip() {
   return (
     <button
       type="button"
-      aria-label={light ? "Switch to the night theme" : "Switch to the day theme"}
-      title={light ? "Night theme" : "Day theme"}
+      aria-label={light ? "Switch to the dark theme" : "Switch to the light theme"}
+      title={light ? "Dark theme" : "Light theme"}
       onClick={() => choice.set({ mode: light ? "dark" : "light" })}
       className="flex h-10 w-10 items-center justify-center rounded-[10px] text-ink-2 hover:bg-hover hover:text-ink"
     >

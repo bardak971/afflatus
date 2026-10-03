@@ -389,12 +389,12 @@ describe.skipIf(!three)("a timeline", () => {
     // what is written in a clip's form in one go is one step, however many times it was saved on the way
     await call("PATCH", `/api/clips/${a}`, { inputs: { description: "Something" } });
     await call("PATCH", `/api/clips/${a}`, { inputs: { description: "Something else." } });
-    expect((await view(id)).undo).toBe("what was changed in the form of clip 1");
+    expect((await view(id)).undo).toBe("the parameters of clip 1");
     await call("POST", `/api/timelines/${id}/undo`);
     v = await view(id);
     // the form was empty before (the test renders with its own words)
     expect(v.clips[0].inputs.description).toBeUndefined();
-    expect(v.undo).toBe("the new length");
+    expect(v.undo).toBe("the new duration");
   });
 
   it("shows a clip's frames side by side for the track, and takes videos from the computer", async () => {

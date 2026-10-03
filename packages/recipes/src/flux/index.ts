@@ -11,7 +11,7 @@ import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/reci
 export const flux = defineFamily({
   id: "flux",
   name: "FLUX.1",
-  summary: "Pictures from plain sentences: FLUX.1 dev, Krea dev, schnell and their fine-tunes. Kontext edits a picture from an instruction.",
+  summary: "txt2img from natural-language prompts: FLUX.1 dev, Krea dev, schnell and their fine-tunes. Kontext is the edit model: instruction-based image editing.",
   promptStyle: "sentences",
   slots: [
     {
@@ -111,7 +111,7 @@ export const fluxEdit = defineRecipe<FluxEdit>({
   family: "flux",
   version: 1,
   title: "Edit",
-  summary: "Changes a picture from an instruction (\"make the jacket red\", \"turn it into a watercolour\"), with FLUX.1 Kontext. The rest of the picture is kept.",
+  summary: "Instruction-based editing (\"make the jacket red\", \"turn it into a watercolour\") with FLUX.1 Kontext. The rest of the image is kept.",
   output: "image",
   needs: ["kontext"],
   inputs: [

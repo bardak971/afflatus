@@ -55,13 +55,13 @@ function Strip() {
         </>
       ) : (
         <span className="text-ink-2">
-          {queue.data?.online === false ? "ComfyUI is not answering" : queue.data?.paused ? "The queue is paused" : "Nothing rendering"}
+          {queue.data?.online === false ? "ComfyUI offline" : queue.data?.paused ? "Queue paused" : "Idle"}
         </span>
       )}
-      {queue.data && queue.data.waiting.length > 0 && <span className="shrink-0 text-ink-2">{queue.data.waiting.length} waiting</span>}
+      {queue.data && queue.data.waiting.length > 0 && <span className="shrink-0 text-ink-2">{queue.data.waiting.length} queued</span>}
       <span className="grow" />
       {fetching.length > 0 && (
-        <Link href="/settings" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being fetched into ComfyUI. It goes on if this page is closed. Open Settings to see it or stop it.">
+        <Link href="/settings" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
           {fetching.length === 1 ? `Downloading ${fetching[0]!.file.split(/[\\/]/).pop()}` : `Downloading ${fetching.length} files`}
           {fetching.length === 1 && fetching[0]!.total > 0 && ` · ${Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100)}%`}
         </Link>
@@ -71,12 +71,12 @@ function Strip() {
       {gpu && (
         // every number keeps the room of three digits: what is beside it does not move when they change
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">
-          {gpu.load !== undefined && `GPU ${pad(gpu.load)}% · `}memory {pad(gpu.vramPercent)}%
+          {gpu.load !== undefined && `GPU ${pad(gpu.load)}% · `}VRAM {pad(gpu.vramPercent)}%
           {gpu.temperature !== undefined && <> · <span className={cx(gpu.temperature >= 80 && "text-warn-ink")}>{Math.round(gpu.temperature)}°</span></>}
         </span>
       )}
-      <button type="button" title="Every key the app answers to" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Keys <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
-      <Link href="/queue" className="inline-flex h-7 items-center rounded-md border border-line-strong px-2.5 font-semibold">Open the queue</Link>
+      <button type="button" title="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Shortcuts <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
+      <Link href="/queue" className="inline-flex h-7 items-center rounded-md border border-line-strong px-2.5 font-semibold">Open queue</Link>
     </footer>
   );
 }
@@ -122,7 +122,7 @@ export function App() {
           {/* the screen's old address still leads to it */}
           <Route path="/setup"><Redirect to="/settings" /></Route>
           <Route>
-            <div className="p-8 text-ink-2">There is no such page. <Link href="/" className="underline">Back to Studio</Link></div>
+            <div className="p-8 text-ink-2">Page not found. <Link href="/" className="underline">Back to Studio</Link></div>
           </Route>
         </Switch>
       </div>

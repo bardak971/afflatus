@@ -3,8 +3,8 @@ import { defineFamily, defineRecipe, GraphBuilder } from "@studai/core";
 /** Things done to a picture that need no picture model: nothing is drawn, so there is no prompt. */
 export const tools = defineFamily({
   id: "tools",
-  name: "Picture tools",
-  summary: "Small jobs on a picture you have, done without a picture model.",
+  name: "Image tools",
+  summary: "Small operations on an existing image, done without a diffusion model.",
   promptStyle: "sentences",
   slots: [],
   loraMatch: [],
@@ -23,8 +23,8 @@ export const removeBackground = defineRecipe<RemoveBackground>({
   id: "tools.remove-background",
   family: "tools",
   version: 1,
-  title: "Remove the background",
-  summary: "Keeps what is in front and makes the rest see-through. The result is a PNG.",
+  title: "Remove background",
+  summary: "Keeps the foreground and makes the rest transparent. The output is a PNG.",
   output: "image",
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image" },

@@ -82,7 +82,7 @@ export function TabProgress() {
       : unseen === "failed"
         ? `✗ failed · ${NAME}`
         : waiting
-          ? `${paused ? "Paused" : "Waiting"}: ${waiting} · ${NAME}`
+          ? `${paused ? "Paused" : "Queued"}: ${waiting} · ${NAME}`
           : unseen === "done"
             ? `✓ done · ${NAME}`
             : NAME;

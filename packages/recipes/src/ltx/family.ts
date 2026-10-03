@@ -13,7 +13,7 @@ import { defineFamily } from "@studai/core";
 export const ltx = defineFamily({
   id: "ltx",
   name: "LTX 2.3",
-  summary: "Video with sound. Made from words, opens on a picture, or goes from one picture to another.",
+  summary: "Video with audio. t2v, i2v from a first frame, or from a first to a last frame.",
   promptStyle: "sentences",
   slots: [
     {
@@ -45,7 +45,7 @@ export const ltx = defineFamily({
     },
     {
       id: "upscaler", label: "Latent upscaler (×2)", folder: "latent_upscale_models", detect: ["ltx.?2[._]?3.*spatial.?upscaler"], optional: true,
-      hint: "Without it, clips are made in one pass at full size, which is slower and softer. Put ltx-2.3-spatial-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder.",
+      hint: "Without it, clips are generated in one pass at full resolution, which is slower and softer. Put ltx-2.3-spatial-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder.",
       get: { file: "ltx-2.3-spatial-upscaler-x2-1.1.safetensors", url: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" },
     },
     {
@@ -55,12 +55,12 @@ export const ltx = defineFamily({
     },
     {
       id: "tinyVae", label: "Tiny VAE (live preview)", folder: "vae_approx", detect: ["tae.?ltx.?2.?3", "tae.?ltx"], optional: true,
-      hint: "Optional, 24 MB: with taeltx2_3.safetensors in ComfyUI's models/vae_approx folder, the animated live preview shows the real picture. Without it, it is a few blurred patches of colour (LTX's latent is 32 times smaller than the clip).",
+      hint: "Optional, 24 MB: with taeltx2_3.safetensors (tiny VAE) in ComfyUI's models/vae_approx folder, the animated live preview shows the real frames. Without it, it is a few blurred patches of colour (LTX's latent is 32 times smaller than the clip).",
       get: { file: "taeltx2_3.safetensors", url: "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/taeltx2_3.safetensors" },
     },
     {
       id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
-      hint: "Without it, clips stay at 25 pictures a second. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
+      hint: "Without it, no frame interpolation: clips stay at 25 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
   ],
   loraMatch: ["ltx"],

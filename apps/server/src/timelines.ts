@@ -335,11 +335,11 @@ export class Timelines {
     const m = patch.music;
     if (m?.asset) {
       const sound = await this.assetRow(m.asset);
-      if (!sound || (sound.kind !== "audio" && !(sound.kind === "video" && sound.has_sound))) throw refused("The music has to be a sound, or a video that has sound.");
+      if (!sound || (sound.kind !== "audio" && !(sound.kind === "video" && sound.has_sound))) throw refused("The music has to be an audio file, or a video with audio.");
     }
     await this.remember(
       id,
-      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new shape" : patch.look !== undefined ? "the change of cast" : patch.mood !== undefined ? "the look and mood" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : "the music's settings",
+      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : "the music's settings",
     );
     const within = (n: number, least: number, most: number) => Math.max(least, Math.min(most, Math.round(n)));
     await this.db
@@ -436,7 +436,7 @@ export class Timelines {
       joined = "cut";
     } else if (asset?.kind === "image" && opts.as === "clip") {
       const recipe = this.recipeWithStart(recipeId);
-      if (!recipe) throw refused("None of your video recipes can open on a picture.");
+      if (!recipe) throw refused("None of your video models takes a first frame (i2v).");
       recipeId = recipe.id;
       inputs = { ...this.settingsOf(recipe, all, index), [recipe.inputs.find((i) => i.type === "image" && i.role === "start")!.id]: asset.id };
       joined = "cut";
@@ -446,13 +446,13 @@ export class Timelines {
       recipeId = null;
       joined = "cut";
     } else if (asset) {
-      throw refused("Only videos and pictures go on the picture row. A sound goes on a clip, or on the music row.");
+      throw refused("Only videos and images go on the video track. Audio goes on a clip, or on the music track.");
     } else {
       const recipe = recipeId ? this.registry.recipe(recipeId) : undefined;
       if (recipe) inputs = this.settingsOf(recipe, all, index);
     }
 
-    await this.remember(timelineId, kind === "still" ? "the picture added" : "the clip added");
+    await this.remember(timelineId, kind === "still" ? "the image added" : "the clip added");
     await this.db
       .insertInto("clips")
       .values({
@@ -491,17 +491,17 @@ export class Timelines {
 
   async editClip(id: string, patch: ClipPatch) {
     const clip = await this.clipRow(id);
-    if (patch.recipe !== undefined && !this.registry.recipe(patch.recipe)) throw refused(`there is no recipe called ${patch.recipe}`);
+    if (patch.recipe !== undefined && !this.registry.recipe(patch.recipe)) throw refused(`there is no model or operation called ${patch.recipe}`);
     if (patch.take !== undefined) {
       const take = await this.db.selectFrom("takes").select("id").where("id", "=", patch.take).where("clip_id", "=", id).executeTakeFirst();
       if (!take) throw missing("this take");
     }
     if (patch.soundAsset) {
       const sound = await this.assetRow(patch.soundAsset);
-      if (!sound || (sound.kind !== "audio" && !(sound.kind === "video" && sound.has_sound))) throw refused("That is not a sound, nor a video that has sound.");
+      if (!sound || (sound.kind !== "audio" && !(sound.kind === "video" && sound.has_sound))) throw refused("That is not an audio file, nor a video with audio.");
     }
-    if (patch.sound === "file" && !(patch.soundAsset ?? clip.sound_asset_id)) throw refused("Choose the sound file first.");
-    if ((patch.stillMs !== undefined || patch.animate) && clip.kind !== "still") throw refused("This clip is not a picture.");
+    if (patch.sound === "file" && !(patch.soundAsset ?? clip.sound_asset_id)) throw refused("Choose the audio file first.");
+    if ((patch.stillMs !== undefined || patch.animate) && clip.kind !== "still") throw refused("This clip is not a still image.");
 
     const keys = Object.keys(patch).filter((k) => patch[k as keyof ClipPatch] !== undefined);
     if (keys.length && keys.every((k) => k === "chat" || k === "designer")) {
@@ -518,7 +518,7 @@ export class Timelines {
       const going = this.writing.get(clip.timeline_id);
       if (!(going && going.clip === id && going.seq === top?.seq && Date.now() - going.at < 60_000)) {
         const n = (await this.db.selectFrom("clips").select("id").where("timeline_id", "=", clip.timeline_id).orderBy("position").execute()).findIndex((c) => c.id === id) + 1;
-        const seq = await this.remember(clip.timeline_id, `what was changed in the form of clip ${n}`);
+        const seq = await this.remember(clip.timeline_id, `the parameters of clip ${n}`);
         this.writing.set(clip.timeline_id, { clip: id, seq, at: Date.now() });
       } else going.at = Date.now();
     } else if (keys.length) {
@@ -526,18 +526,18 @@ export class Timelines {
         clip.timeline_id,
         patch.after !== undefined ? "the clip moved"
           : patch.take !== undefined ? "the other take"
-          : patch.trimStartMs !== undefined || patch.trimEndMs !== undefined || patch.stillMs !== undefined ? "the new length"
+          : patch.trimStartMs !== undefined || patch.trimEndMs !== undefined || patch.stillMs !== undefined ? "the new duration"
           : patch.joined !== undefined ? (patch.joined === "cut" ? "the cut" : "the join")
-          : patch.animate ? "the picture turned into a clip"
-          : patch.sound !== undefined || patch.soundAsset !== undefined || patch.volume !== undefined ? "the sound change"
+          : patch.animate ? "the image animated (i2v)"
+          : patch.sound !== undefined || patch.soundAsset !== undefined || patch.volume !== undefined ? "the audio change"
           : patch.fill !== undefined ? "the fit in the frame"
-          : patch.look !== undefined ? "the change of cast"
+          : patch.look !== undefined ? "the change of characters"
           : "the change of model",
       );
     }
 
     const animate = patch.animate ? this.recipeWithStart(null) : undefined;
-    if (patch.animate && !animate) throw refused("None of your video recipes can open on a picture.");
+    if (patch.animate && !animate) throw refused("None of your video models takes a first frame (i2v).");
     await this.db
       .updateTable("clips")
       .set({
@@ -560,7 +560,7 @@ export class Timelines {
     if (patch.soundAsset) await this.keep(patch.soundAsset);
     if (patch.trimStartMs !== undefined || patch.trimEndMs !== undefined) {
       const takeId = patch.take ?? clip.take_id;
-      if (!takeId) throw refused("There is nothing to shorten yet: this clip has no take.");
+      if (!takeId) throw refused("There is nothing to trim yet: this clip has no take.");
       await this.db
         .updateTable("takes")
         .set({
@@ -581,7 +581,7 @@ export class Timelines {
 
   async removeClip(id: string) {
     const clip = await this.clipRow(id);
-    await this.remember(clip.timeline_id, clip.kind === "still" ? "the picture removed" : "the clip removed");
+    await this.remember(clip.timeline_id, clip.kind === "still" ? "the image removed" : "the clip removed");
     await this.db.deleteFrom("clips").where("id", "=", id).execute();
     await this.renumber(clip.timeline_id, (await this.placed(clip.timeline_id)).map((p) => p.clip.id));
     await this.touch(clip.timeline_id);
@@ -664,7 +664,7 @@ export class Timelines {
       }
     }
     if (startSpec && plan.input[startSpec.id] === FROM_PREVIOUS) {
-      throw refused("This clip opens on the last frame of the clip before it, and that clip has no take yet.");
+      throw refused("This clip extends the previous clip from its last frame, and that clip has no take yet.");
     }
     const after = i < all.length - 1 ? all[i + 1]! : null;
     if (fit && nextSpec && after?.active && after.clip.joined === "continue") {

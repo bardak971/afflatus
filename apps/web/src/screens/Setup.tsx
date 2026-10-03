@@ -26,8 +26,8 @@ function StorageCard() {
   const parts = s ? [
     { label: "Videos that play, or are in your library", bytes: s.videos, tone: "bg-accent" },
     { label: "Takes that never play", bytes: s.idleTakes.bytes, tone: "bg-warn" },
-    { label: "Pictures", bytes: s.pictures, tone: "bg-picture" },
-    { label: "Sounds", bytes: s.sounds, tone: "bg-good" },
+    { label: "Images", bytes: s.pictures, tone: "bg-picture" },
+    { label: "Audio", bytes: s.sounds, tone: "bg-good" },
     { label: "Bin", bytes: s.bin.bytes, tone: "bg-ink-3" },
   ] : [];
   return (
@@ -75,7 +75,7 @@ function StorageCard() {
       )}
       {(idle.isError || empty.isError) && <ErrorNote>{(idle.error ?? empty.error)?.message}</ErrorNote>}
       <div className="text-xs text-ink-3">
-        Results you do not keep go to the bin after 24 hours{s && s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.
+        Outputs you do not keep go to the bin after 24 hours{s && s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.
       </div>
       <RenderRecord />
     </section>
@@ -154,8 +154,8 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
     <div className={cx("flex flex-col gap-3 rounded-lg border p-3", inUse && !only ? "border-accent/60" : "border-line")}>
       <div className="flex items-center gap-2">
         <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 grow flex-col text-left" aria-expanded={open}>
-          <span className="truncate font-semibold">{form.name.trim() || form.model.trim() || "A new language model"}</span>
-          <span className="truncate font-mono text-xs text-ink-2">{[form.name.trim() ? form.model : "", form.baseUrl].filter(Boolean).join(" · ") || "no address yet"}</span>
+          <span className="truncate font-semibold">{form.name.trim() || form.model.trim() || "New LLM"}</span>
+          <span className="truncate font-mono text-xs text-ink-2">{[form.name.trim() ? form.model : "", form.baseUrl].filter(Boolean).join(" · ") || "no base URL yet"}</span>
         </button>
         {test.isSuccess && !dirty && <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-good"><span className="h-2 w-2 rounded-full bg-good" /> Answering</span>}
         {!only && (inUse
@@ -171,15 +171,15 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
               <input value={form.name} placeholder="Local Qwen, the fast one…" onChange={(e) => setForm({ ...form, name: e.target.value })} className={cx(field, "font-sans text-sm")} />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-2">Address</span>
+              <span className="text-xs text-ink-2">Base URL</span>
               <input value={form.baseUrl} placeholder="http://127.0.0.1:1234/v1" spellCheck={false} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className={field} />
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-xs text-ink-2">Model name</span>
-              <input value={form.model} placeholder="as the address lists it" spellCheck={false} onChange={(e) => setForm({ ...form, model: e.target.value })} className={field} />
+              <input value={form.model} placeholder="as /v1/models lists it" spellCheck={false} onChange={(e) => setForm({ ...form, model: e.target.value })} className={field} />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-2">Key {llm.hasApiKey ? "(one is saved)" : "(if it asks for one)"}</span>
+              <span className="text-xs text-ink-2">API key {llm.hasApiKey ? "(one is saved)" : "(if it asks for one)"}</span>
               <input type="password" value={form.apiKey} placeholder={llm.hasApiKey ? "leave empty to keep it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={field} />
             </label>
           </div>
@@ -198,8 +198,8 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
           <Toggle
             on={form.vision}
             onChange={(on) => setForm({ ...form, vision: on })}
-            label="It can read pictures"
-            note={form.vision ? "The designer is shown the picture a form opens on before it writes. Turn this off if the model answers with an error about pictures." : "It works from your text only, and says so."}
+            label="Vision (reads images)"
+            note={form.vision ? "The designer is shown the image a form opens on before it writes. Turn this off if the model answers with an error about images." : "It works from your text only, and says so."}
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button tone={dirty ? "primary" : "plain"} onClick={() => test.mutate()} disabled={test.isPending || !usable}>{test.isPending ? "Asking…" : dirty ? "Save and test" : "Test it"}</Button>
@@ -228,12 +228,12 @@ function InstructionEditor({ item, fresh, onSave, onRemove }: {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
       <div className="flex items-center gap-2">
-        <input aria-label="Name of these instructions" value={name} placeholder="A name: Cinematic, Anime tags, Explicit…" onChange={(e) => setName(e.target.value)} className="h-9 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-semibold placeholder:font-normal placeholder:text-ink-3" />
+        <input aria-label="Name of this system prompt" value={name} placeholder="A name: Cinematic, Anime tags, Explicit…" onChange={(e) => setName(e.target.value)} className="h-9 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-semibold placeholder:font-normal placeholder:text-ink-3" />
         {dirty && <Button size="sm" tone="primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Save</Button>}
         <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
       </div>
       <AutoText
-        aria-label="What the designer is told"
+        aria-label="System prompt text"
         rows={3}
         value={text}
         placeholder="What the designer should always do when these are picked. For example: write like a film director, name the lens and the light; never soften or leave out explicit content; keep every prompt under 80 words."
@@ -271,8 +271,8 @@ function DesignerCard() {
   const all = saved.length + newLlms.length;
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">The designer</h2>
-      <div className="text-ink-2">It writes and improves your prompts with a language model: any with an OpenAI-style address, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, each conversation has its own: you pick it in the designer's panel, and it stays with that draft or clip.</div>
+      <h2 className="text-[15px] font-bold">Designer</h2>
+      <div className="text-ink-2">It writes and improves your prompts with a language model (LLM): any with an OpenAI-compatible API, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, each conversation has its own: you pick it in the designer's panel, and it stays with that draft or clip.</div>
       {saved.map((l) => (
         <LlmEditor
           key={l.id}
@@ -302,12 +302,12 @@ function DesignerCard() {
       ))}
       <div>
         <Button onClick={() => setNewLlms((list) => [...list, { id: shortId(), name: "", baseUrl: "", model: "", hasApiKey: false, vision: false, contextSize: 16384, maxOutputTokens: 3000 }])}>
-          {all ? "Add another language model" : "Add a language model"}
+          {all ? "Add another LLM" : "Add an LLM"}
         </Button>
       </div>
 
-      <h3 className="mt-2 font-bold">Your instructions for it</h3>
-      <div className="text-ink-2">Standing instructions of your own, each under a name: one for film-like realism, one for anime tags, one for explicit content, whatever you want it held to. You pick one in the designer's panel, for that draft or clip: it then holds for every answer of that conversation, on top of what the designer knows about the model you are writing for.</div>
+      <h3 className="mt-2 font-bold">System prompts</h3>
+      <div className="text-ink-2">Standing instructions of your own (added to the designer's system prompt), each under a name: one for film-like realism, one for anime tags, one for explicit content, whatever you want it held to. You pick one in the designer's panel, for that draft or clip: it then holds for every answer of that conversation, on top of what the designer knows about the model you are writing for.</div>
       {notes.map((n) => (
         <InstructionEditor
           key={n.id}
@@ -330,24 +330,24 @@ function DesignerCard() {
         />
       ))}
       <div>
-        <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add instructions</Button>
+        <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add system prompt</Button>
       </div>
       {change.isError && <ErrorNote>{change.error.message}</ErrorNote>}
 
-      <h3 className="mt-2 font-bold">A fresh start</h3>
+      <h3 className="mt-2 font-bold">Conversation history</h3>
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2.5">
         <span className="min-w-0 grow basis-64 text-ink-2">
           {forget.isSuccess
-            ? `Forgotten: ${forget.data.forgotten} conversation${forget.data.forgotten === 1 ? "" : "s"}.`
-            : "Forget every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is forgotten with \"Start over\" in the designer's panel."}
+            ? `Cleared: ${forget.data.forgotten} conversation${forget.data.forgotten === 1 ? "" : "s"}.`
+            : "Clear every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is cleared with \"Start over\" in the designer's panel."}
         </span>
         {forgetting ? (
           <span className="flex items-center gap-1.5">
-            <Button size="sm" tone="danger" disabled={forget.isPending} onClick={() => { forget.mutate(); setForgetting(false); }}>Forget them all</Button>
+            <Button size="sm" tone="danger" disabled={forget.isPending} onClick={() => { forget.mutate(); setForgetting(false); }}>Clear all</Button>
             <Button size="sm" tone="quiet" onClick={() => setForgetting(false)}>Cancel</Button>
           </span>
         ) : (
-          <Button size="sm" onClick={() => { forget.reset(); setForgetting(true); }}>Forget every conversation</Button>
+          <Button size="sm" onClick={() => { forget.reset(); setForgetting(true); }}>Clear every conversation</Button>
         )}
       </div>
       {forget.isError && <ErrorNote>{forget.error.message}</ErrorNote>}
@@ -374,17 +374,17 @@ function CivitaiCard() {
   const downloads = useDownloads();
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">Finding missing files</h2>
-      <Toggle on={fetching} onChange={(v) => save.mutate({ downloadModels: v })} label="Download missing files into ComfyUI" />
+      <h2 className="text-[15px] font-bold">Missing models</h2>
+      <Toggle on={fetching} onChange={(v) => save.mutate({ downloadModels: v })} label="Download missing models into ComfyUI (ComfyUI-Manager)" />
       <div className="text-xs text-ink-3">
         {fetching
-          ? "A missing model file gets a \"Download\" button: from the address the workflow's author gave, or from Civitai once it is found there. ComfyUI-Manager saves it in the right folder; the file passes through studai, which shows how far it is. Nothing is downloaded until you press the button."
-          : "Off: studai never asks ComfyUI to download anything. Missing files only get links to open in your browser."}
+          ? "A missing model file gets a \"Download\" button: from the URL the workflow's author gave, or from Civitai once it is found there. ComfyUI-Manager saves it in the right models folder; the file passes through studai, which shows the progress. Nothing is downloaded until you press the button."
+          : "Off: studai never asks ComfyUI to download anything. Missing models only get links to open in your browser."}
       </div>
       {fetching && downloads.data && (
         <div className={cx("text-xs", downloads.data.manager.found ? "text-good" : "text-warn-ink")}>
           {downloads.data.manager.found
-            ? `ComfyUI-Manager ${downloads.data.manager.version ?? ""} is there to do it.`
+            ? `ComfyUI-Manager ${downloads.data.manager.version ?? ""} found.`
             : "This needs ComfyUI-Manager in your ComfyUI, and it was not found (or ComfyUI is not answering)."}
         </div>
       )}
@@ -393,20 +393,20 @@ function CivitaiCard() {
           {downloads.data!.items.map((d) => <DownloadRow key={d.id} d={d} named />)}
         </div>
       )}
-      <Toggle on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Look for missing files on Hugging Face and Civitai" />
+      <Toggle on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Search Hugging Face and Civitai for missing models" />
       <div className="text-xs text-ink-3">
         {on
-          ? "When a model file is missing, \"Find it\" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. Only the name is sent, and only when you press the button. What is found is shown with a link, and with a Download button when downloading is turned on above."
-          : "Off: studai never contacts Hugging Face or Civitai. Missing files still get links that open a search in your browser."}
+          ? "When a model file is missing, \"Search\" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. Only the filename is sent, and only when you press the button. What is found is shown with a link, and with a Download button when downloading is turned on above."
+          : "Off: studai never contacts Hugging Face or Civitai. Missing models still get links that open a search in your browser."}
       </div>
       {on && (
         <div className="flex items-end gap-2">
           <label className="flex min-w-0 grow flex-col gap-1.5">
-            <span className="text-xs text-ink-2">Civitai key {settings.data?.hasCivitaiKey ? "(one is saved)" : "(only needed for models hidden without an account)"}</span>
+            <span className="text-xs text-ink-2">Civitai API key {settings.data?.hasCivitaiKey ? "(one is saved)" : "(only needed for models hidden without an account)"}</span>
             <input type="password" value={key} autoComplete="off" placeholder={settings.data?.hasCivitaiKey ? "leave empty to keep it" : "none"} onChange={(e) => setKey(e.target.value)} className="h-10 min-w-0 rounded-lg border border-line bg-raised px-3 font-mono text-xs placeholder:font-sans placeholder:text-ink-3" />
           </label>
           <Button onClick={() => save.mutate({ civitaiKey: key })} disabled={!key || save.isPending}>Save</Button>
-          {settings.data?.hasCivitaiKey && <Button onClick={() => save.mutate({ civitaiKey: "" })} disabled={save.isPending}>Forget it</Button>}
+          {settings.data?.hasCivitaiKey && <Button onClick={() => save.mutate({ civitaiKey: "" })} disabled={save.isPending}>Remove key</Button>}
         </div>
       )}
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
@@ -453,8 +453,8 @@ function LinkCard() {
   const field = "h-10 min-w-0 rounded-lg border border-line bg-raised px-3 text-xs placeholder:text-ink-3";
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">Get a model from a link</h2>
-      <div className="text-ink-2">Paste the address of a model's page on Civitai (civitai.com or civitai.red), or of a file on Hugging Face. studai shows what it is and downloads the file you pick into the ComfyUI folder you choose.</div>
+      <h2 className="text-[15px] font-bold">Download a model from a URL</h2>
+      <div className="text-ink-2">Paste the URL of a model page on Civitai (civitai.com or civitai.red), or of a file on Hugging Face. studai shows what it is and downloads the file you pick into the ComfyUI models folder you choose.</div>
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -463,8 +463,8 @@ function LinkCard() {
           if (link.trim()) look.mutate(link.trim());
         }}
       >
-        <input aria-label="The address of the model" value={link} placeholder="https://civitai.com/models/…  or  https://huggingface.co/…/resolve/main/….safetensors" spellCheck={false} onChange={(e) => setLink(e.target.value)} className={cx(field, "grow font-mono")} />
-        <Button type="submit" disabled={!link.trim() || look.isPending}>{look.isPending ? "Looking…" : "Look it up"}</Button>
+        <input aria-label="Model URL" value={link} placeholder="https://civitai.com/models/…  or  https://huggingface.co/…/resolve/main/….safetensors" spellCheck={false} onChange={(e) => setLink(e.target.value)} className={cx(field, "grow font-mono")} />
+        <Button type="submit" disabled={!link.trim() || look.isPending}>{look.isPending ? "Resolving…" : "Resolve"}</Button>
       </form>
       {look.isError && <ErrorNote>{look.error.message}</ErrorNote>}
       {found && (
@@ -495,12 +495,12 @@ function LinkCard() {
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-xs text-ink-2">Into ComfyUI's folder</span>
-              <Select label="The ComfyUI folder it goes into" placeholder="Choose a folder" value={folder} onChange={setFolder} options={found.folders.map((f) => ({ value: f, label: f, note: f === found.folder ? "suggested" : undefined }))} />
+              <span className="text-xs text-ink-2">Models folder</span>
+              <Select label="The ComfyUI models folder it goes into" placeholder="Choose a folder" value={folder} onChange={setFolder} options={found.folders.map((f) => ({ value: f, label: f, note: f === found.folder ? "suggested" : undefined }))} />
             </label>
             <label className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-xs text-ink-2">Saved as</span>
-              <input aria-label="The name it is saved under" value={saveAs} spellCheck={false} onChange={(e) => setSaveAs(e.target.value)} className={cx(field, "font-mono")} />
+              <span className="text-xs text-ink-2">Filename</span>
+              <input aria-label="Filename it is saved under" value={saveAs} spellCheck={false} onChange={(e) => setSaveAs(e.target.value)} className={cx(field, "font-mono")} />
             </label>
           </div>
           {found.why && <div className="text-xs text-ink-2">{found.why}</div>}
@@ -509,7 +509,7 @@ function LinkCard() {
             <Button tone="primary" disabled={!folder || !file || start.isPending} onClick={() => start.mutate()}>
               {start.isPending ? "Starting…" : `Download into ComfyUI${chosen?.bytes ? ` · ${size(chosen.bytes)}` : ""}`}
             </Button>
-            {start.isSuccess && <span className="text-ink-2">Started: it shows under "Finding missing files" above, and at the bottom of every screen.</span>}
+            {start.isSuccess && <span className="text-ink-2">Started: it shows under "Missing models" above, and at the bottom of every screen.</span>}
           </div>
           {start.isError && <ErrorNote>{start.error.message}</ErrorNote>}
         </div>
@@ -525,13 +525,13 @@ function WritingCard() {
   const save = useMutation({ mutationFn: api.saveSettings, onSuccess: (saved) => client.setQueryData(["settings"], saved) });
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">Writing prompts</h2>
-      <Toggle on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against danbooru's list" />
+      <h2 className="text-[15px] font-bold">Prompts</h2>
+      <Toggle on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
       <div className="text-xs text-ink-3">
-        For prompts written in tags (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of studai's: nothing is sent anywhere.
+        For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of studai's: nothing is sent anywhere.
       </div>
       <div className="text-xs text-ink-3">
-        In every prompt: <span className="font-mono text-ink-2">{"{red|black|white}"}</span> picks one of the choices for each result, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no weights).
+        In every prompt: <span className="font-mono text-ink-2">{"{red|black|white}"}</span> is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).
       </div>
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
     </section>
@@ -550,8 +550,8 @@ function NotifyCard() {
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
       <h2 className="text-[15px] font-bold">Notifications</h2>
-      <Toggle on={notify.eachRender} onChange={(on) => void set({ eachRender: on })} label="Tell me when a render finishes" />
-      <Toggle on={notify.whenEmpty} onChange={(on) => void set({ whenEmpty: on })} label="Tell me when the queue is empty" />
+      <Toggle on={notify.eachRender} onChange={(on) => void set({ eachRender: on })} label="Notify when a render finishes" />
+      <Toggle on={notify.whenEmpty} onChange={(on) => void set({ whenEmpty: on })} label="Notify when the queue is empty" />
       <div className="text-xs text-ink-3">
         {refused ? "Your browser does not allow notifications from this page. Allow them in its settings, next to the address." : "A notification from your browser, while a studai tab is open in it. Nothing leaves your computer. This is set per browser."}
       </div>
@@ -583,7 +583,7 @@ function ModelSwitches() {
   return (
     <>
       <h2 className="text-[15px] font-bold">Models</h2>
-      <div className="text-ink-2">Off: left out of the lists to choose from. What you made with it stays.</div>
+      <div className="text-ink-2">Off: left out of the model lists. What you generated with it stays.</div>
       <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
         {shown.map((f) => {
           const mine = recipes.data.recipes.filter((r) => r.family === f.id);
@@ -602,8 +602,8 @@ function ModelSwitches() {
                 <span className="shrink-0 text-xs text-ink-3">{imported ? `${mine.length} workflow${mine.length > 1 ? "s" : ""}` : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
                 <span className="grow" />
                 {!found && (slots.length ? (
-                  <button type="button" aria-expanded={open} title="What it needs, and where to get it" onClick={() => setNeeds(open ? null : f.id)} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warn-ink hover:underline">
-                    {slots.length} file{slots.length > 1 ? "s" : ""} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
+                  <button type="button" aria-expanded={open} title="The model files it needs, and where to get them" onClick={() => setNeeds(open ? null : f.id)} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warn-ink hover:underline">
+                    {slots.length} model file{slots.length > 1 ? "s" : ""} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
                   </button>
                 ) : (
                   <span className="shrink-0 text-xs text-warn-ink">not ready</span>
@@ -611,14 +611,14 @@ function ModelSwitches() {
                 {byHand && (
                   <button
                     type="button"
-                    title="Set by hand. Click to let it follow its files again: on when they are on ComfyUI, off when they are not."
+                    title="Set manually. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."
                     onClick={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
                     className="shrink-0 rounded-md border border-line-strong px-1.5 py-0.5 text-[11px] font-semibold text-ink-2 hover:text-ink"
                   >
-                    by hand ×
+                    manual ×
                   </button>
                 )}
-                <Toggle bare on={on} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={`${name} in the lists to choose from`} />
+                <Toggle bare on={on} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={`${name} in the model lists`} />
               </div>
               {open && slots.length > 0 && (
                 <div className="flex flex-col gap-2 border-t border-line bg-raised px-3 py-2.5 text-xs text-ink-2">
@@ -671,7 +671,7 @@ export function Setup() {
     <div className="flex min-h-0 grow flex-col overflow-y-auto px-8 pb-8">
       <header className="flex h-20 shrink-0 flex-col justify-center">
         <h1 className="text-xl font-semibold">Settings</h1>
-        <div className="text-ink-2">What studai is connected to, and what is ready.</div>
+        <div className="text-ink-2">ComfyUI connection, models, and what is ready.</div>
       </header>
 
       <div className="grid grid-cols-2 items-start gap-5">
@@ -686,7 +686,7 @@ export function Setup() {
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="comfy-url" className="text-xs text-ink-2">Where ComfyUI runs</label>
+            <label htmlFor="comfy-url" className="text-xs text-ink-2">ComfyUI URL</label>
             <div className="flex gap-2">
               <input
                 id="comfy-url"
@@ -695,7 +695,7 @@ export function Setup() {
                 spellCheck={false}
                 className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
               />
-              <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Asking…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>
+              <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>
             </div>
           </div>
           {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
@@ -703,8 +703,8 @@ export function Setup() {
           {comfy?.online && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-ink-2">
               <dt>Version</dt><dd className="text-ink">{comfy.version}</dd>
-              <dt>Graphics card</dt><dd className="text-ink">{comfy.device}</dd>
-              <dt>Card memory</dt><dd className="text-ink">{gb(comfy.vramTotal)} ({gb(comfy.vramFree)} free)</dd>
+              <dt>GPU</dt><dd className="text-ink">{comfy.device}</dd>
+              <dt>VRAM</dt><dd className="text-ink">{gb(comfy.vramTotal)} ({gb(comfy.vramFree)} free)</dd>
               <dt>Node types</dt><dd className="text-ink">{comfy.nodes}</dd>
             </dl>
           )}
@@ -712,8 +712,8 @@ export function Setup() {
           {settings.data && (
             <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
               <span className="min-w-0">
-                Unload its models after
-                <span className="block text-xs text-ink-2">{settings.data.unloadAfterMinutes > 0 ? "minutes without a render: the graphics card's memory is given back. The next render loads them again." : "0 = never: they stay loaded until something else needs the room. \"Free the GPU memory\" in the Queue does it by hand."}</span>
+                Unload models after
+                <span className="block text-xs text-ink-2">{settings.data.unloadAfterMinutes > 0 ? "minutes without a render: the VRAM is freed. The next render loads them again." : "0 = never: they stay loaded until something else needs the VRAM. \"Unload models\" in the Queue does it manually."}</span>
               </span>
               <NumberBox
                 label="Minutes without a render before ComfyUI's models are unloaded"
@@ -747,12 +747,12 @@ export function Setup() {
             const s = setup.data?.recipes.find((x) => x.id === r.id);
             const family = recipes.data?.families.find((f) => f.id === r.family);
             const problems = [
-              ...(s?.missingNodes.length ? [`Missing nodes: ${s.missingNodes.join(", ")}`] : []),
+              ...(s?.missingNodes.length ? [`Missing custom nodes: ${s.missingNodes.join(", ")}`] : []),
 
-              ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.id.startsWith("workflow.") ? " Fix it in Workflows, with Change." : ""}`),
+              ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.id.startsWith("workflow.") ? " Fix it in Workflows, with Edit." : ""}`),
               ...(s?.emptyInputs ?? []).map((id) => {
                 const input = r.inputs.find((i) => i.id === id);
-                return `ComfyUI has no file to pick for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
+                return `ComfyUI has no model file for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
               }),
             ];
             const find = (file: string) => encodeURIComponent(fileLabel(file));
@@ -784,11 +784,11 @@ export function Setup() {
                     Your ComfyUI does not have <span className="font-semibold break-all">{fileLabel(file)}</span>. Search for it on{" "}
                     <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a> or{" "}
                     <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
-                    {r.id.startsWith("workflow.") && <>, or pick another file for it: <Link href="/workflows" className="font-semibold underline">Workflows</Link>, then Change</>}.
+                    {r.id.startsWith("workflow.") && <>, or pick another file for it: <Link href="/workflows" className="font-semibold underline">Workflows</Link>, then Edit</>}.
                     <GetFile file={file} folder={folder} url={url} hints={family?.name ? [family.name] : []} />
                   </div>
                 ))}
-                {s?.limitedBy.length ? <div className="text-ink-2">Some options are off, missing nodes: {s.limitedBy.join(", ")}</div> : null}
+                {s?.limitedBy.length ? <div className="text-ink-2">Some options are off, missing custom nodes: {s.limitedBy.join(", ")}</div> : null}
                 {s?.ready && (
                   <div className="text-xs text-ink-2">
                     {Object.entries(s.options).map(([k, v]) => `${r.inputs.find((i) => i.id === k)?.label ?? k}: ${v.length}`).join(" · ")}

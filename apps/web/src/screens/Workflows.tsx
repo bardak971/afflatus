@@ -19,7 +19,7 @@ async function readFile(file: File): Promise<Editing> {
   try {
     json = JSON.parse(await file.text());
   } catch {
-    throw new ApiError("This file could not be read. A workflow is a .json file.");
+    throw new ApiError("This file could not be parsed. A workflow is a .json file.");
   }
   const shared = json && typeof json === "object" && "graph" in json && "bindings" in json ? (json as { graph: unknown; wiring?: unknown; bindings: unknown; title?: unknown; model?: unknown }) : null;
   // the server answers with the workflow in the form studai keeps, whatever form the file was in
@@ -27,10 +27,10 @@ async function readFile(file: File): Promise<Editing> {
   let bindings: Bindings | null = inspection.suggested;
   if (shared) {
     const parsed = bindingsSchema.safeParse(shared.bindings);
-    if (!parsed.success) throw new ApiError("This looks like a workflow shared from studai, but its settings could not be read.");
+    if (!parsed.success) throw new ApiError("This looks like a workflow shared from studai, but its bindings could not be read.");
     bindings = parsed.data;
   }
-  if (!bindings) throw new ApiError("This workflow saves nothing: it has no node that saves or shows a picture, a video or a sound.");
+  if (!bindings) throw new ApiError("This workflow has no output: no Save or Preview node for an image, a video or audio.");
   return {
     id: null,
     source: file.name,
@@ -61,7 +61,7 @@ async function share(w: WorkflowBrief): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-const KIND = { image: "Picture", video: "Video", audio: "Sound" } as const;
+const KIND = { image: "Image", video: "Video", audio: "Audio" } as const;
 
 export function Workflows() {
   const list = useWorkflows();
@@ -90,7 +90,7 @@ export function Workflows() {
   const tryIt = useMutation({
     mutationFn: (workflow: string) => {
       const recipe = recipes.data?.recipes.find((r) => r.id === workflow);
-      if (!recipe) throw new Error("This workflow is not in the list of things to create yet. Reload the page.");
+      if (!recipe) throw new Error("This workflow is not in the model list yet. Reload the page.");
       return api.createDraft({ recipe: recipe.id });
     },
     onSuccess: (d) => {
@@ -132,11 +132,11 @@ export function Workflows() {
       <header className="flex h-20 shrink-0 items-center gap-4">
         <div className="flex flex-col">
           <h1 className="text-xl font-semibold">Models and workflows</h1>
-          <div className="text-ink-2">Everything studai can make pictures and videos with. Each one appears under "Made with" in Studio's form.</div>
+          <div className="text-ink-2">Everything studai can generate images and videos with. Each one appears under "Model" in Studio's form.</div>
         </div>
         <span className="grow" />
         <Button tone="primary" onClick={() => input.current?.click()} disabled={open.isPending}>
-          <FileUp size={15} /> {open.isPending ? "Reading…" : "Import a ComfyUI workflow"}
+          <FileUp size={15} /> {open.isPending ? "Reading…" : "Import ComfyUI workflow"}
         </Button>
         <input
           ref={input}
@@ -168,7 +168,7 @@ export function Workflows() {
                   <div className="flex min-w-0 grow flex-col">
                     <span className="truncate text-[15px] font-semibold">{recipeLabel(w.model, w.title)}</span>
                     <span className="truncate text-xs text-ink-2">
-                      {w.source ? `from ${w.source} · ` : ""}{w.nodes} nodes{pictures ? ` · takes ${pictures} picture${pictures > 1 ? "s" : ""}` : ""} · {controls} control{controls === 1 ? "" : "s"}
+                      {w.source ? `from ${w.source} · ` : ""}{w.nodes} nodes{pictures ? ` · ${pictures} image input${pictures > 1 ? "s" : ""}` : ""} · {controls} control{controls === 1 ? "" : "s"}
                     </span>
                   </div>
                   <span className={cx("shrink-0 font-semibold", problem ? "text-warn-ink" : "text-good")}>{setup.isSuccess ? (problem ? "Not ready" : "Ready") : ""}</span>
@@ -177,15 +177,15 @@ export function Workflows() {
                 <div className="flex flex-wrap items-center gap-1.5">
                   {removing === w.id ? (
                     <>
-                      <span className="text-xs text-ink-2">What you made with it stays in your library.</span>
+                      <span className="text-xs text-ink-2">What you generated with it stays in your library.</span>
                       <Button size="sm" tone="danger" onClick={() => { remove.mutate(w.id); setRemoving(null); }}>Remove</Button>
                       <Button size="sm" onClick={() => setRemoving(null)}>Cancel</Button>
                     </>
                   ) : (
                     <>
                       <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} title="Opens the form with this workflow picked, on a new draft.">Try it</Button>
-                      <Button size="sm" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Change</Button>
-                      <Button size="sm" onClick={() => shareIt.mutate(w)}>Share as a file</Button>
+                      <Button size="sm" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>
+                      <Button size="sm" onClick={() => shareIt.mutate(w)}>Export</Button>
                       <Button size="sm" onClick={() => setRemoving(w.id)}>Remove</Button>
                     </>
                   )}
@@ -230,11 +230,11 @@ export function Workflows() {
           </button>
 
           <div className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-            <h2 className="text-[15px] font-bold">How to bring a workflow from ComfyUI</h2>
+            <h2 className="text-[15px] font-bold">How to import a workflow from ComfyUI</h2>
             {[
               "Build it and check it works in ComfyUI, as usual.",
               "Find its file: ComfyUI keeps the workflows you save in its user/default/workflows folder. A file saved with Workflow, then \"Export (API)\", works too.",
-              "Drop the file here. studai shows which parts it found (the description, the pictures, the result, the switches) and you correct what is wrong.",
+              "Drop the file here. studai shows which parts it found (the prompt, the image inputs, the output, the bypass switches) and you correct what is wrong.",
             ].map((step, i) => (
               <div key={step} className="flex gap-3">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-hover text-xs font-bold">{i + 1}</span>
@@ -242,7 +242,7 @@ export function Workflows() {
               </div>
             ))}
             <div className="text-xs text-ink-3">
-              Prefer the file ComfyUI saves: it keeps the parts that are switched off, so they become switches here. An exported file only has what was switched on.
+              Prefer the file ComfyUI saves: it keeps the bypassed and muted nodes, so they become switches here. An API export only has what was active.
             </div>
             <div className="text-xs text-ink-3">You can also import a workflow someone shared from their studai.</div>
           </div>

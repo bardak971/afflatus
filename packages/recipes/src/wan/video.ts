@@ -73,7 +73,7 @@ export const wanVideo = defineRecipe<WanVideo>({
   family: "wan",
   version: 1,
   title: "Video",
-  summary: "From a picture, from a first and a last picture, or from words alone. No sound.",
+  summary: "i2v from a first frame, from a first and last frame, or t2v. No audio.",
   output: "video",
   traits: {
     startFrame: true, endFrame: true, midFrames: false, continues: "frame", endAnchor: false, sound: false,

@@ -65,8 +65,8 @@ export const askAboutDisk = (files: Array<{ name: string; path: string | null }>
   if (!onDisk.length) return Promise.resolve(true);
   const one = onDisk.length === 1;
   return ask({
-    title: one ? "Take this file out of its folder on your disk?" : `Take these ${onDisk.length} files out of their folders on your disk?`,
-    text: `${one ? onDisk[0]!.path : `${onDisk.slice(0, 4).map((f) => f.path).join("\n")}${onDisk.length > 4 ? `\nand ${onDisk.length - 4} more` : ""}`}\n\n${one ? "It is a file" : "They are files"} of a linked folder: sending ${one ? "it" : "them"} to the bin removes ${one ? "it" : "them"} from that folder on your disk. For a week ${one ? "it" : "they"} can be put back from the bin; after that ${one ? "it is" : "they are"} gone.`,
-    yes: one ? "Take it out" : "Take them out",
+    title: one ? "Remove this file from its folder on your disk?" : `Remove these ${onDisk.length} files from their folders on your disk?`,
+    text: `${one ? onDisk[0]!.path : `${onDisk.slice(0, 4).map((f) => f.path).join("\n")}${onDisk.length > 4 ? `\nand ${onDisk.length - 4} more` : ""}`}\n\n${one ? "It is a file" : "They are files"} of a linked folder: sending ${one ? "it" : "them"} to the bin removes ${one ? "it" : "them"} from that folder on your disk. For a week ${one ? "it" : "they"} can be restored from the bin; after that ${one ? "it is" : "they are"} gone.`,
+    yes: "Move to bin",
   });
 };

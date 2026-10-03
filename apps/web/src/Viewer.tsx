@@ -16,8 +16,8 @@ import { useBanners, useOpenDraft } from "./store";
 import { Button, cx, SectionTitle } from "./ui";
 import { ModelLink } from "./ModelLink";
 
-const ROLES: Record<string, string> = { start: "Start image", end: "End image", source: "Image", previous: "The clip it continues", next: "The clip it flows into",
-  mid: "Mid image", mask: "Mask", person: "Reference: a person", place: "Reference: a place", clothing: "Reference: clothes", object: "Reference: an object", style: "Reference: a look", voice: "Voice", sound: "Sound",
+const ROLES: Record<string, string> = { start: "First frame", end: "Last frame", source: "Source image", previous: "Previous clip", next: "Next clip",
+  mid: "Keyframe", mask: "Mask", person: "Reference: person", place: "Reference: place", clothing: "Reference: clothing", object: "Reference: object", style: "Reference: style", voice: "Voice sample", sound: "Audio",
 };
 const mb = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
 const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP", "video/mp4": "MP4", "video/webm": "WebM", "audio/wav": "WAV", "audio/mpeg": "MP3", "audio/flac": "FLAC", "audio/mp4": "M4A", "audio/ogg": "OGG" };
@@ -94,7 +94,7 @@ function Made({ g, recipe }: { g: NonNullable<AssetDetail["generation"]>; recipe
         {typeof g.resolved.seed === "number" && <Row label="Seed"><span className="font-mono">{g.resolved.seed}</span></Row>}
         {settings.map((i) => <Row key={i.id} label={i.label}>{valueOf(i, g.inputs[i.id])}</Row>)}
         {switches.length > 0 && (
-          <Row label="Switched on">
+          <Row label="Enabled">
             {switches.some((i) => g.inputs[i.id]) ? switches.filter((i) => g.inputs[i.id]).map((i) => i.label).join(", ") : `None of the ${switches.length}`}
           </Row>
         )}
@@ -102,7 +102,7 @@ function Made({ g, recipe }: { g: NonNullable<AssetDetail["generation"]>; recipe
       </dl>
       {g.resolved.loads && g.resolved.loads.length > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-ink-2">Model files it loaded</span>
+          <span className="text-xs text-ink-2">Model files loaded</span>
           {g.resolved.loads.map((f) => <span key={f} title={f} className="truncate">{fileLabel(f)}</span>)}
         </div>
       )}
@@ -115,9 +115,9 @@ function Strip({ items, onOpen }: { items: Array<{ asset: Asset; caption?: strin
   return (
     <div className="flex flex-wrap gap-2">
       {items.map(({ asset, caption }) => (
-        <button key={`${asset.id}${caption}`} type="button" onClick={() => onOpen(asset)} aria-label={caption ? `Open the ${caption.toLowerCase()}` : "Open it"} className="flex w-[76px] flex-col gap-1 text-left">
+        <button key={`${asset.id}${caption}`} type="button" onClick={() => onOpen(asset)} aria-label={caption ? `Open: ${caption.toLowerCase()}` : "Open"} className="flex w-[76px] flex-col gap-1 text-left">
           {asset.kind === "audio"
-            ? <span className="flex h-[76px] w-[76px] items-center justify-center rounded-md border border-line bg-raised text-ink-2">Sound</span>
+            ? <span className="flex h-[76px] w-[76px] items-center justify-center rounded-md border border-line bg-raised text-ink-2">Audio</span>
             : <img src={thumbUrl(asset.id)} alt="" loading="lazy" className="h-[76px] w-[76px] rounded-md border border-line object-cover hover:border-accent" />}
           {caption && <span className="text-[11px] leading-tight text-ink-2">{caption}</span>}
         </button>
@@ -147,12 +147,12 @@ function FolderPicker({ asset }: { asset: Asset }) {
   };
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs text-ink-2">Folder{asset.folderId ? "" : " (filing it keeps it)"}</span>
+      <span className="text-xs text-ink-2">Folder{asset.folderId ? "" : " (moving it to a folder keeps it)"}</span>
       <Select
         label="Folder"
         value={asset.folderId ?? ""}
         onChange={(id) => move.mutate(id || null)}
-        options={[{ value: "", label: "Not filed" }, ...all.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
+        options={[{ value: "", label: "No folder" }, ...all.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
         footer={(close) => (
           <form
             className="flex items-center gap-1.5"
@@ -166,8 +166,8 @@ function FolderPicker({ asset }: { asset: Asset }) {
           >
             <FolderPlus size={14} className="ml-1.5 shrink-0 text-ink-2" />
             <input
-              aria-label="Name of a new folder"
-              placeholder="New folder: type its name"
+              aria-label="New folder name"
+              placeholder="New folder name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
@@ -203,14 +203,14 @@ function TimelinePicker({ asset }: { asset: Asset }) {
       <Select
         dashed
         icon={<Film size={15} className="shrink-0" />}
-        label="Add to a timeline"
-        placeholder={add.isPending ? "Adding…" : "Add to a timeline"}
+        label="Add to timeline"
+        placeholder={add.isPending ? "Adding…" : "Add to timeline"}
         value=""
         onChange={(id) => add.mutate(id)}
         options={(timelines.data?.items ?? []).map((t) => ({ value: t.id, label: t.name, note: t.clips ? `${t.clips} clip${t.clips > 1 ? "s" : ""}` : "empty" }))}
         footer={(close) => (
           <button type="button" onClick={() => { add.mutate(""); close(); }} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-hover">
-            <Plus size={14} className="text-ink-2" /> A new timeline
+            <Plus size={14} className="text-ink-2" /> New timeline
           </button>
         )}
       />
@@ -248,9 +248,9 @@ function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
       <Select
         dashed
         icon={<Star size={15} className="shrink-0" />}
-        label="Use as a reference image"
-        placeholder={start.isPending ? "Opening…" : "Use as a reference image"}
-        searchHint="the model to use it with"
+        label="Use as reference image"
+        placeholder={start.isPending ? "Opening…" : "Use as reference image"}
+        searchHint="Search models"
         value=""
         onChange={(id) => start.mutate(id)}
         options={ways.map((r) => {
@@ -300,16 +300,16 @@ function ChangePicker({ madeWith, keys, start }: {
       <Select
         dashed
         icon={<Wand2 size={15} className="shrink-0" />}
-        label="Change this picture"
-        placeholder={start.isPending ? "Opening…" : "Change this picture"}
-        searchHint="what to do, or the model to do it with"
+        label="Image tools"
+        placeholder={start.isPending ? "Opening…" : "Image tools"}
+        searchHint="Search tools or models"
         value=""
         onChange={(id) => start.mutate(id)}
         options={ways.map((r) => {
           const family = recipes.data?.families.find((f) => f.id === r.family);
           const why = setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), online) : null;
           const note = [keys[r.id] ? `key ${keys[r.id]!.toUpperCase()}` : "", why ? "not ready" : ""].filter(Boolean).join(" · ") || undefined;
-          if (own.has(r.id)) return { value: r.id, label: r.title, note, detail: r.summary, group: `${mine!.name} · what it was made with`, search: `${family?.name ?? ""} ${mine!.name}`, marked: true };
+          if (own.has(r.id)) return { value: r.id, label: r.title, note, detail: r.summary, group: `${mine!.name} · source model`, search: `${family?.name ?? ""} ${mine!.name}`, marked: true };
           return { value: r.id, label: r.title, note, detail: r.summary, group: family?.name ?? "Your workflows", search: family?.name };
         })}
       />
@@ -329,7 +329,7 @@ const castOf = (d: AssetDetail | undefined): Look | null => (d?.id && d.look && 
 const OPS: Record<string, { ends: string[]; label: string }> = {
   u: { ends: [".sharper"], label: "Upscale 2x" },
   f: { ends: [".fix-face"], label: "Face detailer" },
-  b: { ends: ["tools.remove-background"], label: "Remove the background" },
+  b: { ends: ["tools.remove-background"], label: "Remove background" },
   i: { ends: [".paint-over"], label: "Inpaint" },
   e: { ends: [".edit", ".redraw"], label: "Edit" },
   r: { ends: [".change-shape"], label: "Outpaint" },
@@ -473,9 +473,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     },
     onSuccess: (label) => {
       void client.invalidateQueries({ queryKey: ["queue"] });
-      say({ id: `key:${Date.now()}`, tone: "good", title: `${label} is queued`, href: "/queue", go: "Open the queue" });
+      say({ id: `key:${Date.now()}`, tone: "good", title: `${label} queued`, href: "/queue", go: "Open queue" });
     },
-    onError: (err, job) => say({ id: `key:${Date.now()}`, tone: "bad", title: `${job.label} could not be queued`, text: err.message, href: "/settings", go: "Open Settings" }),
+    onError: (err, job) => say({ id: `key:${Date.now()}`, tone: "bad", title: `${job.label} could not be queued`, text: err.message, href: "/settings", go: "Open settings" }),
   });
   const quick = (key: string) => {
     const tool = toolFor(key);
@@ -524,7 +524,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     else if (e.key === "Delete") void toBin();
     else if (k === "d") download();
     else if (k === "l" && g && recipe) again.mutate(g);
-    else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" });
+    else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" });
     else if (a.kind === "image" && (k === "u" || k === "f" || k === "b")) quick(k);
     else if (a.kind === "image" && (k === "i" || k === "e" || k === "r") && toolFor(k)) openTool.mutate(toolFor(k)!.id);
     else if (a.kind === "image" && k === "m" && opener) animate.mutate();
@@ -542,7 +542,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const mainText = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
   const prompt = typeof g?.inputs[mainText] === "string" ? (g.inputs[mainText] as string) : "";
-  const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Made with a recipe that is no longer here" : a.origin === "uploaded" ? "Added from your computer" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "A timeline, exported" : a.origin === "frame" ? "A frame of a video" : a.origin === "imported" && a.kind === "audio" ? "The sound of a video" : "Added by you";
+  const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
   const sources = detail.data?.id === asset.id ? detail.data.sources : [];
   const usedIn = detail.data?.id === asset.id ? detail.data.usedIn : [];
@@ -552,31 +552,31 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
       <div className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
         <div className="flex min-h-0 grow items-center justify-center">
           {a.kind === "image" && (
-            <button type="button" onClick={onDetails} title="Everything about it, and everything that can be done with it" className="flex h-full max-w-full items-center justify-center">
-              <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Picture"} className="max-h-full max-w-full rounded-lg object-contain" />
+            <button type="button" onClick={onDetails} title="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
+              <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" />
             </button>
           )}
           {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls className="max-h-full max-w-full rounded-lg" />}
           {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls />}
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
-          <Button size="sm" onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")} title={a.kept ? "It is kept" : "Not kept: it goes to the bin after a day"}>
+          <Button size="sm" onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")} title={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
             <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
           </Button>
           {g && recipe && (
-            <Button size="sm" disabled={queued.isPending} title="The same settings with a new seed, queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" })}>Variation <Kbd>V</Kbd></Button>
+            <Button size="sm" disabled={queued.isPending} title="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" })}>Variation <Kbd>V</Kbd></Button>
           )}
           {a.kind === "image" && (["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-            <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}, queued at once with what the picture was made with.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
+            <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
           ))}
           {a.kind === "image" && (["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
-            <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: a new draft in the form, with this picture.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
+            <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: a new draft in the form, with this image as the source.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
           ))}
-          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title={`A new video that opens on this picture, with ${openerName}: the video model used last.`} onClick={() => animate.mutate()}><Clapperboard size={13} /> Video <Kbd>M</Kbd></Button>}
-          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title={fromLastFrame ? "A new clip that opens on the last frame of this one, on the same model and settings." : "A new clip whose first moments are the last moments of this one."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Continue it <Kbd>C</Kbd></Button>}
-          {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video where you want, then save that frame as a picture." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save the frame <Kbd>G</Kbd></Button>}
-          {onDetails && <Button size="sm" onClick={onDetails} title="How it was made, where it is filed, and everything else that can be done with it">Details</Button>}
-          <Button size="sm" onClick={() => void toBin()} title="Move it to the bin, and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
+          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
+          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
+          {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
+          {onDetails && <Button size="sm" onClick={onDetails} title="Generation parameters, folder, lineage and every action">Details</Button>}
+          <Button size="sm" onClick={() => void toBin()} title="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
         </div>
       </div>
     );
@@ -585,7 +585,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   return (
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
       <div className="flex min-w-0 grow items-center justify-center p-6" onClick={onClose}>
-        {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Picture"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
+        {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls className="max-h-full max-w-full rounded-lg" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls onClick={(e) => e.stopPropagation()} />}
       </div>
@@ -593,18 +593,18 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
       <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
         <div className="flex min-h-14 shrink-0 items-center gap-1 border-b border-line p-2">
           {trail.length > 0 && (
-            <button type="button" aria-label="Back to the item before" onClick={() => setTrail(trail.slice(0, -1))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><ChevronLeft size={16} /></button>
+            <button type="button" aria-label="Back to the previous item" onClick={() => setTrail(trail.slice(0, -1))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><ChevronLeft size={16} /></button>
           )}
           <span className={cx("min-w-0 grow font-semibold", trail.length === 0 && "pl-2")}>{title}</span>
-          {at >= 0 && items!.length > 1 && <span className="shrink-0 text-xs text-ink-2" title="The arrow keys go to the item before and after">{at + 1} of {items!.length} <Kbd>←</Kbd> <Kbd>→</Kbd></span>}
-          <button type="button" aria-label="Keys" title="Every key (?)" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">?</button>
+          {at >= 0 && items!.length > 1 && <span className="shrink-0 text-xs text-ink-2" title="Arrow keys: previous and next item">{at + 1} of {items!.length} <Kbd>←</Kbd> <Kbd>→</Kbd></span>}
+          <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">?</button>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </div>
         <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
           {a.inBin ? (
             <div className="flex items-center justify-between gap-3 rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">
               <span>In the bin.</span>
-              <Button size="sm" tone="danger" onClick={() => restore.mutate(undefined)}><Undo2 size={14} /> Put it back</Button>
+              <Button size="sm" tone="danger" onClick={() => restore.mutate(undefined)}><Undo2 size={14} /> Restore</Button>
             </div>
           ) : (
             !a.kept && (
@@ -616,37 +616,37 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           )}
 
           <div className="flex flex-col gap-2">
-            <SectionTitle>The {a.kind === "image" ? "picture" : a.kind === "video" ? "video" : "sound"}</SectionTitle>
+            <SectionTitle>{a.kind === "image" ? "Image" : a.kind === "video" ? "Video" : "Audio"}</SectionTitle>
             <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5">
               {a.name && <Row label="Name">{a.name}</Row>}
-              {a.width && a.height ? <Row label="Size">{a.width} × {a.height}</Row> : null}
-              {a.kind === "video" && a.durationMs ? <Row label="Length">{(a.durationMs / 1000).toFixed(1)} s{a.fps ? `, ${Math.round(a.fps)} pictures a second` : ""}</Row> : null}
-              {a.kind === "video" && a.durationMs ? <Row label="Sound">{a.hasSound ? "Yes" : "No"}</Row> : null}
-              {g?.resolved.overlap?.headMs ? <Row label="Its start">The first {(g.resolved.overlap.headMs / 1000).toFixed(1)} s repeat the end of the clip it continues. A timeline skips them.</Row> : null}
-              {g?.resolved.overlap?.tailMs ? <Row label="Its end">The last {(g.resolved.overlap.tailMs / 1000).toFixed(1)} s repeat the start of the clip it flows into. A timeline skips them.</Row> : null}
+              {a.width && a.height ? <Row label="Resolution">{a.width} × {a.height}</Row> : null}
+              {a.kind === "video" && a.durationMs ? <Row label="Duration">{(a.durationMs / 1000).toFixed(1)} s{a.fps ? `, ${Math.round(a.fps)} fps` : ""}</Row> : null}
+              {a.kind === "video" && a.durationMs ? <Row label="Audio">{a.hasSound ? "Yes" : "No"}</Row> : null}
+              {g?.resolved.overlap?.headMs ? <Row label="Head overlap">The first {(g.resolved.overlap.headMs / 1000).toFixed(1)} s repeat the end of the previous clip. A timeline skips them.</Row> : null}
+              {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap">The last {(g.resolved.overlap.tailMs / 1000).toFixed(1)} s repeat the start of the next clip. A timeline skips them.</Row> : null}
               <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
-              {a.path && <Row label={a.inBin ? "It was at" : "On your disk"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
-              <Row label="Made">{made.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
-              {g && <Row label="It took">{took(g.tookMs)}</Row>}
+              {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
+              <Row label="Created">{made.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
+              {g && <Row label="Render time">{took(g.tookMs)}</Row>}
             </dl>
           </div>
 
           {g && (
             <div className="flex flex-col gap-2.5">
-              <SectionTitle>How it was made</SectionTitle>
+              <SectionTitle>Generation parameters</SectionTitle>
               <Made g={g} recipe={recipe} />
             </div>
           )}
 
           {sources.length > 0 && (
             <div className="flex flex-col gap-2">
-              <SectionTitle>Made from</SectionTitle>
+              <SectionTitle>Source</SectionTitle>
               <Strip items={sources.map((s) => ({ asset: s.asset, caption: ROLES[s.role] ?? s.role }))} onOpen={(next) => setTrail([...trail, next])} />
             </div>
           )}
           {usedIn.length > 0 && (
             <div className="flex flex-col gap-2">
-              <SectionTitle>Used to make</SectionTitle>
+              <SectionTitle>Used in</SectionTitle>
               <Strip items={usedIn.map((u) => ({ asset: u }))} onOpen={(next) => setTrail([...trail, next])} />
             </div>
           )}
@@ -659,7 +659,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           {!a.inBin && a.kind === "image" && (
             <div className="flex flex-wrap gap-1.5">
               {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-                <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}, queued at once with what the picture was made with.`} onClick={() => quick(k)}>
+                <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>
                   {OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd>
                 </Button>
               ))}
@@ -670,39 +670,39 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           <div className="flex flex-col gap-2">
             {g && recipe && (
               <div className="flex gap-2">
-                <Button className="grow" onClick={() => again.mutate(g)} disabled={again.isPending} title="Its settings in a new draft in the form.">Make more like it <Kbd>L</Kbd></Button>
-                <Button onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "A variation" })} disabled={queued.isPending} title="The same settings with a new seed, queued at once.">Variation <Kbd>V</Kbd></Button>
+                <Button className="grow" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft.">Reuse parameters <Kbd>L</Kbd></Button>
+                <Button onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once.">Variation <Kbd>V</Kbd></Button>
               </div>
             )}
             {a.kind === "image" && !a.inBin && opener && (
-              <Button onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video that opens on this picture, with ${openerName}: the video model used last.`}>
-                <Clapperboard size={15} /> Make a video from it <Kbd>M</Kbd>
+              <Button onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`}>
+                <Clapperboard size={15} /> Image to video (i2v) <Kbd>M</Kbd>
               </Button>
             )}
             {a.kind === "audio" && !a.inBin && follower && (
-              <Button onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice.">
-                <Music size={15} /> Use as a voice
+              <Button onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample.">
+                <Music size={15} /> Use as voice sample
               </Button>
             )}
             {a.kind !== "audio" && !a.inBin && !g && (
-              <Button onClick={() => setInfo(true)} title="What this file says about how it was made: its prompt, checkpoint, LoRAs and settings, whether your ComfyUI has them, and sending them to a form.">
+              <Button onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form.">
                 <FileSearch size={15} /> PNG info <Kbd>P</Kbd>
               </Button>
             )}
             {a.kind === "video" && !a.inBin && (
-              <Button onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video where you want, then save that frame as a picture in your library.">
-                <Camera size={15} /> {saveFrame.isPending ? "Saving…" : "Save the frame shown"} <Kbd>G</Kbd>
+              <Button onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library.">
+                <Camera size={15} /> {saveFrame.isPending ? "Saving…" : "Save frame"} <Kbd>G</Kbd>
               </Button>
             )}
             {a.kind === "video" && !a.inBin && a.hasSound && (
-              <Button onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its sound as a sound of its own in your library: for another clip, or as music.">
-                <Music size={15} /> {takeSound.isPending ? "Taking…" : "Take its sound"}
+              <Button onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music.">
+                <Music size={15} /> {takeSound.isPending ? "Extracting…" : "Extract audio"}
               </Button>
             )}
             {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError) && <span className="text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error)?.message}</span>}
             {a.kind === "video" && !a.inBin && carrier && (
-              <Button onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip that opens on the last frame of this one, on the same model and settings. The frame is saved as a picture in your library." : "A new clip whose first moments are the last moments of this one. You can pick the frame it starts from."}>
-                <Link2 size={15} /> Continue it <Kbd>C</Kbd>
+              <Button onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."}>
+                <Link2 size={15} /> Extend <Kbd>C</Kbd>
               </Button>
             )}
             {!a.inBin && (
@@ -721,7 +721,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           </div>
         </div>
       </aside>
-      {info && <PngInfo name={asset.name || "This file"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} />}
+      {info && <PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} />}
     </div>
   );
 }

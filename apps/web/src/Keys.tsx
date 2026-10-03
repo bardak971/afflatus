@@ -28,39 +28,39 @@ export function plainKey(e: KeyboardEvent, opts: { over?: string } = {}): boolea
 /** Keys held together are written with " + " between them; keys that do the two halves of one thing with two spaces. */
 const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> }> = [
   {
-    where: "An item that is open",
-    note: "A picture, a video or a sound: opened from the grid, or shown large under \"This draft\".",
+    where: "Viewer (any item)",
+    note: "An image, a video or an audio file: opened from the grid, or shown large under \"This draft\".",
     keys: [
-      ["←  →", "The item before, the item after"], ["S", "Keep it, or stop keeping it"], ["Del", "Move it to the bin, and go to the next one"], ["D", "Download the file"],
-      ["L", "Load its settings into the form (make more like it)"], ["V", "Variation: the same settings with a new seed, queued at once"],
+      ["←  →", "Previous item, next item"], ["S", "Keep / unkeep"], ["Del", "Move to the bin, and go to the next one"], ["D", "Download the file"],
+      ["L", "Reuse parameters: open the form with the same generation parameters"], ["V", "Variation: same parameters, new seed, queued at once"],
       ["Esc", "Close"],
     ],
   },
   {
-    where: "A picture that is open",
-    note: "What is queued at once uses the model the picture was made with, and its settings.",
+    where: "Viewer (image)",
+    note: "What is queued at once uses the model the image was generated with, and its generation parameters.",
     keys: [
-      ["U", "Upscale 2x, queued at once"], ["F", "Face detailer, queued at once"], ["B", "Remove the background, queued at once"],
+      ["U", "Upscale 2x, queued at once"], ["F", "Face detailer, queued at once"], ["B", "Remove background, queued at once"],
       ["I", "Inpaint: a new draft in the form"], ["E", "Edit / img2img: a new draft in the form"], ["R", "Outpaint to another aspect ratio: a new draft in the form"],
-      ["M", "Make a video from it"], ["P", "PNG info (for a file that was brought in)"],
+      ["M", "Image to video (i2v)"], ["P", "PNG info (for an imported file)"],
     ],
   },
-  { where: "A video that is open", keys: [["C", "Continue it in a new clip"], ["G", "Save the frame shown as a picture"]] },
+  { where: "Viewer (video)", keys: [["C", "Extend: a new clip that carries on from this one"], ["G", "Save frame as an image"]] },
   {
-    where: "The grid, in Studio",
-    note: "Ticking several items: to move, keep or delete them together.",
+    where: "Grid, in Studio",
+    note: "Selecting several items: to move, keep or bin them together.",
     keys: [
-      ["Ctrl + Click", "Tick an item (or click the circle on it)"], ["Shift + Click", "Tick everything from the last one ticked to this one"],
-      ["Ctrl + A", "Tick everything shown"], ["Del", "Send what is ticked to the bin"], ["Esc", "Untick everything"],
+      ["Ctrl + Click", "Select an item (or click the circle on it)"], ["Shift + Click", "Select the range from the last selected item to this one"],
+      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"],
     ],
   },
-  { where: "The form, in Studio", keys: [["Ctrl + Enter", "Make"]] },
+  { where: "Form, in Studio", keys: [["Ctrl + Enter", "Generate"]] },
   {
-    where: "A prompt",
-    keys: [["Ctrl + ↑  ↓", "The weight of the tag the cursor is in, or of what is selected: (red dress:1.1)"], ["{a|b|c}", "Written in the text: one of the choices is picked for each result"]],
+    where: "Prompt",
+    keys: [["Ctrl + ↑  ↓", "Prompt weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
-  { where: "A timeline", keys: [["Space", "Play or pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has the focus"]] },
-  { where: "Everywhere", keys: [["?", "This list"], ["Esc", "Close what is open"]] },
+  { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"]] },
+  { where: "Everywhere", keys: [["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 
 /** A key as a cap, as on a keyboard. */
@@ -103,11 +103,11 @@ export function KeysHelp() {
   }, []);
   if (!open) return null;
   return (
-    <div role="dialog" aria-modal="true" aria-label="Keys" data-keys-help className="fixed inset-0 z-[90] flex items-center justify-center bg-ground/85 p-6" onClick={() => setOpen(false)}>
+    <div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" data-keys-help className="fixed inset-0 z-[90] flex items-center justify-center bg-ground/85 p-6" onClick={() => setOpen(false)}>
       <div className="flex max-h-full w-full max-w-[1500px] flex-col rounded-2xl border border-line-strong bg-panel" onClick={(e) => e.stopPropagation()}>
         <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line pr-3 pl-6">
-          <h2 className="text-lg font-semibold">Keys</h2>
-          <span className="grow text-ink-2">They act when you are not typing in a box.</span>
+          <h2 className="text-lg font-semibold">Keyboard shortcuts</h2>
+          <span className="grow text-ink-2">They act when the focus is not in a text field.</span>
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </header>
         {/* cards that fill columns one after the other: as many columns as the window has room for */}

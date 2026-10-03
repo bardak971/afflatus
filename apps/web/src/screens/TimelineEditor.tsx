@@ -127,9 +127,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** The whole form of a clip as it would be sent, or why it cannot be rendered yet. */
   const ready = useCallback(
     (c: Clip): { input?: Record<string, unknown>; why?: string } => {
-      if (c.kind === "still") return { why: "A picture is not rendered." };
+      if (c.kind === "still") return { why: "A still is not rendered." };
       const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
-      if (!recipe) return { why: c.recipe ? "The model this clip was made with is no longer here. Choose another one." : "Choose what renders this clip." };
+      if (!recipe) return { why: c.recipe ? "The model this clip was generated with is no longer here. Choose another one." : "Choose a model for this clip." };
       const status = setup.data?.recipes.find((r) => r.id === recipe.id);
       const blocked = setup.isSuccess ? notReady(status, comfyOnline) : null;
       if (blocked) return { why: blocked };
@@ -190,7 +190,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     onSuccess: (r) => {
       // what the server has now is what counts: what was typed was saved before the undo
       setEdits({});
-      setNote(`Took back: ${r.undone}.`);
+      setNote(`Undone: ${r.undone}.`);
       after();
     },
   });
@@ -321,7 +321,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       </div>
     );
   }
-  if (!t || !shown) return <div className="grow p-8 text-ink-2">Opening the timeline…</div>;
+  if (!t || !shown) return <div className="grow p-8 text-ink-2">Loading timeline…</div>;
 
   const why = current ? ready(current).why ?? null : null;
   const head = placeOf(slots, time);
@@ -336,7 +336,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       <header className="flex h-[56px] shrink-0 items-center gap-2.5 border-b border-line px-3">
         <Link href="/timelines" aria-label="Back to the timelines" className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><ArrowLeft size={17} /></Link>
         <input
-          aria-label="Name of the timeline"
+          aria-label="Timeline name"
           value={name ?? t.name}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => {
@@ -347,16 +347,16 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           className="h-9 w-56 rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
         />
         <span className="shrink-0 text-ink-2">{clips.length === 0 ? "Empty" : `${stamp(total)} · ${clips.length} clip${clips.length > 1 ? "s" : ""}`}</span>
-        <div className="w-44 shrink-0" title={t.width && t.height ? `The video is ${t.width} × ${t.height}. Click to change its shape.` : "The first clip that is rendered decides the shape. Click to choose one."}>
+        <div className="w-44 shrink-0" title={t.width && t.height ? `The video is ${t.width} × ${t.height}. Click to change its aspect ratio.` : "The first clip that is rendered decides the aspect ratio. Click to choose one."}>
         <Select
           size="sm"
-          label="Shape of the video"
+          label="Aspect ratio"
           value={shape}
           onChange={(v) => edit.mutate(v === "first" ? { width: null, height: null } : v === "own" ? {} : { width: SHAPES[v as Shape].width, height: SHAPES[v as Shape].height })}
           options={[
             ...(Object.keys(SHAPES) as Shape[]).map((k) => ({ value: k as string, label: SHAPES[k].label, note: `${SHAPES[k].width} × ${SHAPES[k].height}` })),
             ...(shape === "own" ? [{ value: "own", label: SHAPES[shapeOf(t.width!, t.height!)].label, note: `${t.width} × ${t.height}` }] : []),
-            { value: "first", label: "The first clip decides", detail: "The video takes the shape of the first clip that is rendered." },
+            { value: "first", label: "The first clip decides", detail: "The video takes the aspect ratio of the first clip that is rendered." },
           ]}
         />
         </div>
@@ -388,7 +388,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onAdd={(a) => {
             if (a.kind !== "audio") return add.mutate({ asset: a.id });
             if (current) patch.mutate({ clip: current.id, patch: { soundAsset: a.id } });
-            else setNote("Select a clip first, or drag the sound onto a clip or onto the music row.");
+            else setNote("Select a clip first, or drag the audio onto a clip or onto the music track.");
           }}
         />
 
@@ -404,20 +404,20 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             <button type="button" aria-label="Next clip" title="Next clip" disabled={!t.durationMs} onClick={() => jump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
             <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
             <span className="grow" />
-            <Button size="sm" disabled={!t.durationMs || add.isPending} title="The clip on screen is cut at this frame, and a new clip continues from it." onClick={() => void continueHere()}>
-              <Link2 size={13} /> Continue from this frame
+            <Button size="sm" disabled={!t.durationMs || add.isPending} title="Cuts the clip on screen at this frame, and adds a new clip that extends from it." onClick={() => void continueHere()}>
+              <Link2 size={13} /> Extend from this frame
             </Button>
             <Button
               size="sm"
               disabled={!t.durationMs || frame.isPending}
-              title="Save the frame on screen as a picture in your library."
+              title="Save the frame on screen as an image in your library."
               onClick={() => {
                 const here = player.current?.where();
                 if (here?.clip.take) frame.mutate({ asset: here.clip.take.asset.id, at: Math.round(here.assetMs) });
                 else if (here?.clip.still) setOpened(here.clip.still);
               }}
             >
-              <Camera size={13} /> Save this frame
+              <Camera size={13} /> Save frame
             </Button>
           </div>
         </div>
@@ -454,18 +454,18 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           />
         ) : (
           <aside className="flex w-[400px] shrink-0 flex-col gap-3 border-l border-line bg-panel p-5 text-ink-2">
-            <span className="text-base font-semibold text-ink">{clips.length ? "Pick a clip" : "Start your video"}</span>
+            <span className="text-base font-semibold text-ink">{clips.length ? "Select a clip" : "Start your video"}</span>
             {clips.length ? (
-              <span>Click a clip on the timeline to see how it was made, change it, or make another take of it. Click the music to set how loud it is.</span>
+              <span>Click a clip on the timeline to see its generation parameters, change them, or render another take. Click the music to set its volume.</span>
             ) : (
               <>
-                <span>A timeline plays clips one after the other. Each clip can flow on from the one before it: the motion and the voices continue across the join.</span>
-                <span className="font-semibold text-ink">Start from a picture</span>
+                <span>A timeline plays clips one after the other. Each clip can extend the previous clip: the motion and the voices continue across the join.</span>
+                <span className="font-semibold text-ink">Start from an image</span>
                 <span>It becomes the first frame of your video.</span>
-                <span><Button onClick={() => setPicking(true)} disabled={add.isPending}><ImagePlus size={15} /> Choose a picture</Button></span>
+                <span><Button onClick={() => setPicking(true)} disabled={add.isPending}><ImagePlus size={15} /> Choose an image</Button></span>
                 <span className="font-semibold text-ink">Or describe a scene</span>
                 <span>Write what should happen. The designer splits it into clips you can change before anything is rendered.</span>
-                <AutoText rows={3} aria-label="The scene" value={idea} placeholder="A woman has coffee on a terrace at sunset, walks to the railing and waves at a boat." onChange={(e) => setIdea(e.target.value)} className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 text-ink placeholder:text-ink-3" />
+                <AutoText rows={3} aria-label="Scene" value={idea} placeholder="A woman has coffee on a terrace at sunset, walks to the railing and waves at a boat." onChange={(e) => setIdea(e.target.value)} className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 text-ink placeholder:text-ink-3" />
                 <span className="flex items-center gap-2">
                   <span className="w-28"><Select size="sm" label="How many clips" value={String(planned)} onChange={(v) => setPlanned(Number(v))} options={[2, 3, 4, 5, 6, 8].map((n) => ({ value: String(n), label: `${n} clips` }))} /></span>
                   <Button tone="primary" onClick={() => plan.mutate()} disabled={!idea.trim() || plan.isPending}>{plan.isPending ? "Planning…" : "Plan the clips"}</Button>
@@ -520,40 +520,40 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       />
 
       {exp && (
-        <div role="dialog" aria-modal="true" aria-label="Export the video" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setExp(null)}>
+        <div role="dialog" aria-modal="true" aria-label="Export video" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setExp(null)}>
           <div className="flex w-full max-w-md flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5" onClick={(e) => e.stopPropagation()}>
-            <span className="text-base font-semibold">Export the video</span>
+            <span className="text-base font-semibold">Export video</span>
             <span className="text-ink-2">{stamp(t.durationMs)} · {playable} clip{playable > 1 ? "s" : ""} · one MP4 in your library</span>
             {exportDone ? (
               <>
                 <span>Done. The video is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}.</span>
                 <div className="flex flex-wrap gap-2">
-                  <a href={fileUrl(exportDone.id)} download={`${t.name}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 font-semibold text-accent-ink"><Download size={15} /> Download it</a>
-                  <Button onClick={() => { setOpened(exportDone); setExp(null); }}>Open it</Button>
+                  <a href={fileUrl(exportDone.id)} download={`${t.name}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 font-semibold text-accent-ink"><Download size={15} /> Download</a>
+                  <Button onClick={() => { setOpened(exportDone); setExp(null); }}>Open</Button>
                   <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
                 </div>
               </>
             ) : t.exporting || exportIt.isPending ? (
               <>
-                <span>{t.exporting?.status === "queued" ? "Waiting in the queue, after the renders that were asked for before it." : "Exporting."} It runs in the queue, you can keep working.</span>
+                <span>{t.exporting?.status === "queued" ? "Queued, after the renders that were asked for before it." : "Exporting."} It runs in the queue, you can keep working.</span>
                 <div><Button tone="quiet" onClick={() => setExp(null)}>Close</Button></div>
               </>
             ) : (
               <>
-                {exp.asked && t.exportFailed && <ErrorNote>The export gave nothing: {t.exportFailed}</ErrorNote>}
+                {exp.asked && t.exportFailed && <ErrorNote>The export failed: {t.exportFailed}</ErrorNote>}
                 <div className="flex flex-col gap-1.5">
-                  <span className="flex items-baseline justify-between text-xs font-semibold"><span>Size</span><span className="font-normal text-ink-2">{exportSize(exp.scale)}</span></span>
-                  <Segmented<"1" | "1.5" | "2"> label="Size" value={String(exp.scale) as "1" | "1.5" | "2"} onChange={(v) => setExp({ ...exp, scale: Number(v) as 1 | 1.5 | 2 })} options={[{ value: "1", label: "As rendered" }, { value: "1.5", label: "1.5× larger" }, { value: "2", label: "2× larger" }]} />
-                  <span className="text-xs text-ink-2">Enlarging makes every frame bigger and a little sharper at the end. The clips are not rendered again, so it works on a small card.</span>
+                  <span className="flex items-baseline justify-between text-xs font-semibold"><span>Resolution</span><span className="font-normal text-ink-2">{exportSize(exp.scale)}</span></span>
+                  <Segmented<"1" | "1.5" | "2"> label="Resolution" value={String(exp.scale) as "1" | "1.5" | "2"} onChange={(v) => setExp({ ...exp, scale: Number(v) as 1 | 1.5 | 2 })} options={[{ value: "1", label: "As rendered" }, { value: "1.5", label: "1.5× upscale" }, { value: "2", label: "2× upscale" }]} />
+                  <span className="text-xs text-ink-2">Upscaling is done by ffmpeg (lanczos, then a light unsharp), not by a model: every frame is resized and a little sharper. The clips are not rendered again, so it works on a small card.</span>
                 </div>
                 {t.music && <Toggle on={exp.music} onChange={(music) => setExp({ ...exp, music })} label="Include the music" />}
                 {Math.max(0, ...clips.map((c) => c.take?.asset.fps ?? 0)) < 47 && (
                   <div className="flex flex-col gap-1">
-                    <Toggle on={exp.smooth} onChange={(smooth) => setExp({ ...exp, smooth })} label="Smooth motion" note="48 pictures a second" />
-                    <span className="text-xs text-ink-2">The pictures in between are worked out by your processor, not by the model: slow (minutes for a short video), and fast motion can smear. A clip rendered with "Smooth motion" on is better.</span>
+                    <Toggle on={exp.smooth} onChange={(smooth) => setExp({ ...exp, smooth })} label="Frame interpolation" note="48 fps, ffmpeg minterpolate" />
+                    <span className="text-xs text-ink-2">The frames in between are worked out by your processor, not by a model: slow (minutes for a short video), and fast motion can smear. Frame interpolation at render time (RIFE, in the clip's form) is better.</span>
                   </div>
                 )}
-                {misfits > 0 && <span className="text-xs text-ink-2">{misfits} clip{misfits > 1 ? "s have" : " has"} another shape and will be shown with bars.</span>}
+                {misfits > 0 && <span className="text-xs text-ink-2">{misfits} clip{misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).</span>}
                 <div className="flex flex-wrap gap-2">
                   <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth }); }}>Export</Button>
                   <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
@@ -626,7 +626,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       })()}
       {picking && (
         <Picker
-          title="Start from a picture"
+          title="Start from an image"
           onClose={() => setPicking(false)}
           onPick={(asset) => {
             add.mutate({ asset, as: "clip" });

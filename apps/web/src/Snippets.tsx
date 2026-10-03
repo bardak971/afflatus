@@ -172,41 +172,41 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
                   ))}
                 </div>
               )}
-              <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} picks one each time" : "A sentence or two. {a|b} picks one each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="rounded-md border border-line bg-ground px-2 py-1.5 text-[13px] placeholder:text-ink-3" />
+              <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} is a wildcard: one is picked each time" : "A sentence or two. {a|b} is a wildcard: one is picked each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="rounded-md border border-line bg-ground px-2 py-1.5 text-[13px] placeholder:text-ink-3" />
               {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
               <div className="flex items-center justify-end gap-1.5">
-                <span className="mr-auto text-xs text-ink-3">{text.trim() ? "Starts with what is written in the form." : ""}</span>
+                <span className="mr-auto text-xs text-ink-3">{text.trim() ? "Starts with the prompt in the form." : ""}</span>
                 <Button size="sm" tone="quiet" onClick={() => setAdding(null)}>Cancel</Button>
-                <Button size="sm" tone="primary" type="submit" disabled={!adding.name.trim() || !adding.text.trim() || save.isPending}>Keep it</Button>
+                <Button size="sm" tone="primary" type="submit" disabled={!adding.name.trim() || !adding.text.trim() || save.isPending}>Save</Button>
               </div>
             </form>
           )}
           <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto p-2">
-            {all.length === 0 && !adding && <span className="p-2 text-ink-2">No snippets yet. Keep a bit of text under a name with "New": a pose, a light, a camera move. Tick it and it is added to what you write each time.</span>}
+            {all.length === 0 && !adding && <span className="p-2 text-ink-2">No snippets yet. Keep a bit of prompt text under a name with "New": a pose, a light, a camera move. Tick it and it is appended to your prompt each time.</span>}
             {found && (found.length ? <div className="flex flex-wrap gap-1.5 p-1">{found.map(chip)}</div> : <span className="p-2 text-ink-2">Nothing matches.</span>)}
             {!found && groups.map(([cat, items]) => group(`c:${cat}`, cat || (groups.length > 1 ? "No category" : "All"), items, groups.length <= 3))}
-            {!found && others.length > 0 && group("other-style", `Written for prompts in ${style === "tags" ? "sentences" : "tags"}`, others, false)}
+            {!found && others.length > 0 && group("other-style", `Written for ${style === "tags" ? "natural-language" : "tag"} prompts`, others, false)}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-3 py-2 text-xs text-ink-2">
-            <span>{tickedHere.length ? `${tickedHere.length} ticked: added after what you write, each time` : "Tick a snippet: it is added after what you write, each time"}</span>
+            <span>{tickedHere.length ? `${tickedHere.length} ticked: appended to your prompt, each time` : "Tick a snippet: it is appended to your prompt, each time"}</span>
             <span className="grow" />
             {tickedHere.length > 0 && (
               <>
                 <button
                   type="button"
-                  title="Write their text into the prompt and untick them: for when you want to change the words"
+                  title="Insert their text into the prompt and untick them: for when you want to edit the words"
                   className="text-accent hover:underline"
                   onClick={() => {
                     onInsert(tickedHere.map((s) => s.def.text.trim()).filter(Boolean).join(style === "tags" ? ", " : " "));
                     set(ticked.filter((id) => !tickedHere.some((s) => s.id === id)));
                   }}
                 >
-                  Write them in
+                  Insert into prompt
                 </button>
                 <button type="button" className="hover:text-ink hover:underline" onClick={() => set([])}>Untick all</button>
               </>
             )}
-            <Link href="/kit#snippets" className="underline hover:text-ink" onClick={() => setOpen(false)}>Edit them in the Prompt kit</Link>
+            <Link href="/kit#snippets" className="underline hover:text-ink" onClick={() => setOpen(false)}>Edit in the Prompt kit</Link>
           </div>
         </Popover>
       )}

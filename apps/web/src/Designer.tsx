@@ -161,7 +161,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <WandSparkles size={15} className="text-accent" />
         <span className="font-semibold">Designer</span>
-        <span className="min-w-0 truncate text-xs text-ink-2">{story && story.clips.length > 1 ? `clip ${story.index + 1} of ${story.clips.length}: it knows the whole video · ` : ""}{sees === true ? "it has looked at your picture" : sees === false && values && recipe.inputs.some((i) => i.type === "image" && typeof values[i.id] === "string") ? "it works from your text only" : ""}</span>
+        <span className="min-w-0 truncate text-xs text-ink-2">{story && story.clips.length > 1 ? `clip ${story.index + 1} of ${story.clips.length}: it knows the whole video · ` : ""}{sees === true ? "it has looked at your image" : sees === false && values && recipe.inputs.some((i) => i.type === "image" && typeof values[i.id] === "string") ? "it works from your text only" : ""}</span>
         <span className="grow" />
         <button type="button" aria-label="Close the designer" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
       </div>
@@ -170,29 +170,29 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
           <Select
             size="sm"
             className="min-w-0 grow basis-0"
-            label="The language model that writes"
-            searchHint="Search your language models"
+            label="LLM"
+            searchHint="Search your LLMs"
             value={using.llm ?? ""}
             onChange={(id) => choose({ llm: id })}
-            options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "reads pictures · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
-            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Add or change language models in Settings</Link>}
+            options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "vision · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
+            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Add or edit LLMs in Settings</Link>}
           />
           <Select
             size="sm"
             className="min-w-0 grow basis-0"
-            label="Your instructions for the designer"
-            searchHint="Search your instructions"
+            label="System prompt"
+            searchHint="Search your system prompts"
             value={using.instruction || "none"}
             onChange={(id) => choose({ instruction: id === "none" ? "" : id })}
-            options={[{ value: "none", label: "No instructions", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
-            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Write your own instructions in Settings</Link>}
+            options={[{ value: "none", label: "No system prompt", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
+            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Write your own system prompts in Settings</Link>}
           />
           <Button
             size="sm"
             tone="quiet"
             className="shrink-0"
             disabled={!turns.length || say.isPending}
-            title="Forget this conversation and start again. What is in your form stays."
+            title="Clear this conversation and start again. What is in your form stays."
             onClick={() => { onTurns([]); say.reset(); }}
           >
             <RotateCcw size={13} /> Start over
@@ -202,19 +202,19 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
         {remember.isError && <ErrorNote>{remember.error.message}</ErrorNote>}
         {!ready && settings.isSuccess && (
-          <ErrorNote>The designer has no language model yet. <Link href="/settings" className="font-semibold underline">Give it one in Settings</Link>: any address that speaks the OpenAI way works, on your computer or elsewhere.</ErrorNote>
+          <ErrorNote>The designer has no LLM yet. <Link href="/settings" className="font-semibold underline">Add one in Settings</Link>: any OpenAI-compatible API works, on your computer or elsewhere.</ErrorNote>
         )}
         {!turns.length && ready && (
           <div className="text-ink-2">
-            Say what you want in your own words: "a woman has coffee on a terrace at sunset", "make the light warmer", "longer and more detailed". Or just ask: "what would make this more dramatic?", "give me three ideas for what she says". The designer writes it the way {recipe.title.toLowerCase().includes("video") ? "this video model" : "this model"} reads best. Nothing changes in your form until you press "Use it".
+            Say what you want in your own words: "a woman has coffee on a terrace at sunset", "make the light warmer", "longer and more detailed". Or just ask: "what would make this more dramatic?", "give me three ideas for what she says". The designer writes it the way {recipe.title.toLowerCase().includes("video") ? "this video model" : "this model"} reads best. Nothing changes in your form until you press "Apply".
           </div>
         )}
         {!turns.length && ready && knows.data && (knows.data.pictures.length > 0 || knows.data.continues) && (
           <div className="flex flex-col gap-2 rounded-xl border border-line p-3">
-            <span className="text-xs font-semibold text-good">It knows how this was made</span>
+            <span className="text-xs font-semibold text-good">It knows the generation parameters</span>
             {knows.data.pictures.map((p) => (
               <span key={p.what} className="text-xs text-ink-2">
-                <span className="text-ink">{p.what}</span>: {p.steps.map((x) => `${x.title}${x.with ? ` · ${x.with}` : ""}`).join(" → ")}. It is given {p.steps.filter((x) => x.said).length > 1 ? "the texts" : "the text"} of {p.steps.filter((x) => x.said).length > 1 ? "those steps" : "that step"}.
+                <span className="text-ink">{p.what}</span>: {p.steps.map((x) => `${x.title}${x.with ? ` · ${x.with}` : ""}`).join(" → ")}. It is given {p.steps.filter((x) => x.said).length > 1 ? "the prompts" : "the prompt"} of {p.steps.filter((x) => x.said).length > 1 ? "those steps" : "that step"}.
               </span>
             ))}
             <span className="flex flex-wrap gap-1.5">
@@ -241,7 +241,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             />
           ),
         )}
-        {say.isPending && <div className="self-start rounded-xl border border-line px-3 py-2 text-ink-2">Writing…</div>}
+        {say.isPending && <div className="self-start rounded-xl border border-line px-3 py-2 text-ink-2">Generating…</div>}
         {say.isError && <ErrorNote>{say.error.message}</ErrorNote>}
         <div ref={end} />
       </div>
@@ -293,7 +293,7 @@ function Changed({ was, now }: { was: string; now: string }) {
       </div>
       {marked && (
         <button type="button" className="self-start text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setPlain(!plain)}>
-          {plain ? "Show what changed" : "Show the text alone"}
+          {plain ? "Show diff" : "Show plain text"}
         </button>
       )}
     </div>
@@ -324,7 +324,7 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
         <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
           <TriangleAlert size={14} className="mt-px shrink-0" />
           <span>
-            <span className="font-semibold">It sent no text, twice.</span> Nothing was changed, whatever it says above. The language model may be declining what you asked: try other instructions or another model (at the top of this panel), or say it another way.
+            <span className="font-semibold">It sent no text, twice.</span> Nothing was changed, whatever it says above. The LLM may be refusing what you asked: try another system prompt or another LLM (at the top of this panel), or say it another way.
           </span>
         </div>
       )}
@@ -338,7 +338,7 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
         <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
           <TriangleAlert size={14} className="mt-px shrink-0" />
           <span>
-            <span className="font-semibold">Much shorter than what you have</span> ({short.map(([id, n]) => `${label(id)}: ${n.now} characters in place of ${n.was}`).join("; ")}). It may be only the line that changed: using it replaces the whole text.
+            <span className="font-semibold">Much shorter than what you have</span> ({short.map(([id, n]) => `${label(id)}: ${n.now} characters in place of ${n.was}`).join("; ")}). It may be only the line that changed: applying it replaces the whole prompt.
           </span>
         </div>
       )}
@@ -346,13 +346,13 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
         <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
           <TriangleAlert size={14} className="mt-px shrink-0" />
           <span>
-            <span className="font-semibold">This is the clip before, written again.</span> A clip that carries on should say what happens next. Tell it what comes next in a few words ("she sits down and laughs"), or ask again.
+            <span className="font-semibold">This is the previous clip, written again.</span> A clip that extends it should say what happens next. Tell it what comes next in a few words ("she sits down and laughs"), or ask again.
           </span>
         </div>
       )}
       {r?.tags && (
         <span className="text-xs text-ink-2">
-          {r.tags.fixed.length > 0 && <>Put right against danbooru's tags: {r.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}
+          {r.tags.fixed.length > 0 && <>Fixed against the danbooru tag list: {r.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}
           {r.tags.unknown.length > 0 && <span className="text-warn-ink">Not danbooru tags: {r.tags.unknown.join(", ")}.</span>}
         </span>
       )}
@@ -360,15 +360,15 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
         <span className="flex flex-wrap items-center gap-1.5">
           {changes.length > 0 && (t.used ? (
             <>
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-good"><Check size={13} /> In your form</span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-good"><Check size={13} /> Applied</span>
               {t.was && <Button size="sm" tone="quiet" title="Put back what the form held before" onClick={onUndo}><Undo2 size={13} /> Undo</Button>}
             </>
           ) : (
-            <Button size="sm" tone="primary" onClick={onUse}>{short.length || r?.repeats ? "Use it anyway" : "Use it"}</Button>
+            <Button size="sm" tone="primary" onClick={onUse}>{short.length || r?.repeats ? "Apply anyway" : "Apply"}</Button>
           ))}
-          {changes.length > 0 && last && <Button size="sm" disabled={busy} title="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Another one</Button>}
-          {(r?.empty || r?.repeats || short.length > 0) && last && <Button size="sm" disabled={busy} title="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Ask again</Button>}
-          {r?.raw && <button type="button" className="text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide what it sent" : "What it sent"}</button>}
+          {changes.length > 0 && last && <Button size="sm" disabled={busy} title="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Regenerate</Button>}
+          {(r?.empty || r?.repeats || short.length > 0) && last && <Button size="sm" disabled={busy} title="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Retry</Button>}
+          {r?.raw && <button type="button" className="text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide raw response" : "Raw response"}</button>}
         </span>
       )}
       {raw && r?.raw && <pre className="max-h-48 overflow-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-[11px] leading-normal break-words whitespace-pre-wrap text-ink-2">{r.raw}</pre>}
@@ -400,7 +400,7 @@ export function WritingHelp({ recipe, text, look, onLook, onInsert, onDesigner }
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
-        <Button size="sm" onClick={onDesigner}><WandSparkles size={13} /> Ask the designer</Button>
+        <Button size="sm" onClick={onDesigner}><WandSparkles size={13} /> Designer</Button>
         <Snippets style={main.style} look={look} onLook={onLook} text={text} onInsert={onInsert} />
       </div>
       <TickedSnippets look={look} onLook={onLook} />

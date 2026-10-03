@@ -25,7 +25,7 @@ export const kleinPicture = defineRecipe<KleinPicture>({
   family: "klein",
   version: 1,
   title: "txt2img",
-  summary: "Text to image, from a prompt in plain sentences. With reference images of a person, a place or clothes, it keeps them.",
+  summary: "Text to image, from a natural-language prompt. With reference images of a person, a place or clothes, it keeps them.",
   output: "image",
   inputs: [
     kleinModel,
@@ -139,7 +139,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
   family: "klein",
   version: 1,
   title: "Inpaint",
-  summary: "Paint a mask over a part of a picture and prompt what changes there. Only the masked part is redrawn.",
+  summary: "Paint a mask over a part of an image and prompt what changes there. Only the masked part is redrawn.",
   output: "image",
   inputs: [
     kleinModel,
@@ -228,7 +228,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
   family: "klein",
   version: 2,
   title: "Outpaint",
-  summary: "Extends a picture to another aspect ratio by drawing what is beyond its edges. Nothing is cropped and what was there stays.",
+  summary: "Extends an image to another aspect ratio by generating what is beyond its edges. Nothing is cropped and what was there stays.",
   output: "image",
   inputs: [
     kleinModel,
@@ -283,7 +283,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   family: "klein",
   version: 1,
   title: "Upscale 2x",
-  summary: "For photos: upscales to twice the size with an upscale model, then a light img2img pass so it looks photographed, not smeared.",
+  summary: "For photos: upscales to twice the size with an upscale model, then a low-denoise img2img pass so it looks photographed, not smeared.",
   output: "image",
   inputs: [
     kleinModel,
@@ -445,7 +445,7 @@ export const kleinVariation = defineRecipe<KleinVariation>({
   family: "klein",
   version: 1,
   title: "Variation",
-  summary: "The same picture taken again: the same people, place, clothes and light, with a slightly different pose, expression and angle. Make several and keep the best.",
+  summary: "The same image regenerated: the same people, place, clothes and light, with a slightly different pose, expression and angle. Generate several and keep the best.",
   output: "image",
   inputs: [
     kleinModel,

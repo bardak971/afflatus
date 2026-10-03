@@ -108,8 +108,8 @@ export const h3Video = defineRecipe<H3Video>({
   id: "h3.video",
   family: "h3",
   version: 2,
-  title: "Video with sound",
-  summary: "From words, from a first and a last picture, with people and places from reference pictures, or continuing another clip.",
+  title: "Video with audio",
+  summary: "t2v, or i2v from a first and last frame, with reference images, or extending a previous clip. Audio included.",
   output: "video",
   traits: {
     startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,

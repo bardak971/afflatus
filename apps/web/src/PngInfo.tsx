@@ -77,7 +77,7 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
         </header>
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
           {failed && <ErrorNote>{failed}</ErrorNote>}
-          {!data && !failed && <div className="text-ink-2">Reading it…</div>}
+          {!data && !failed && <div className="text-ink-2">Reading metadata…</div>}
           {data && !s && <div className="text-ink-2">{data.why}</div>}
           {s && (
             <>
@@ -88,14 +88,14 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-semibold text-ink-2">Checkpoint</span>
                 {s.model
-                  ? <Line found={s.model.found} name={s.model.name} missing={s.missing.find((m) => m.folder === "checkpoints")} instead="The checkpoint picked in the form is used instead." />
-                  : <span className="text-ink-2">It does not say which.</span>}
+                  ? <Line found={s.model.found} name={s.model.name} missing={s.missing.find((m) => m.folder === "checkpoints")} instead="The checkpoint selected in the form is used instead." />
+                  : <span className="text-ink-2">Not in the metadata.</span>}
               </div>
               {s.loras.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                   <span className="text-xs font-semibold text-ink-2">LoRAs</span>
                   {s.loras.map((l) => (
-                    <Line key={l.name} found={l.found} name={`${l.name} · ${l.weight}`} missing={s.missing.find((m) => m.folder === "loras" && fileLabel(m.file) === l.name)} instead="It is left out." />
+                    <Line key={l.name} found={l.found} name={`${l.name} · ${l.weight}`} missing={s.missing.find((m) => m.folder === "loras" && fileLabel(m.file) === l.name)} instead="It is skipped." />
                   ))}
                 </div>
               )}
@@ -103,14 +103,14 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
               <div className="flex flex-col gap-1.5 border-t border-line pt-3">
                 <span className="text-xs font-semibold text-ink-2">Send to</span>
                 <Select
-                  label="Which form these settings fill"
+                  label="Target form"
                   value={s.recipe}
                   onChange={(id) => void load(id)}
                   options={s.targets.map((t) => ({ value: t.id, label: nameOf(t.id), note: t.why }))}
                 />
                 <span className="text-xs text-ink-3">
-                  {s.targets[0]?.why && s.targets[0].id === s.recipe ? `Picked because ${s.targets[0].why}.` : "Settings only mean the same thing with the model they were made for."}
-                  {" "}What goes into that form: {[
+                  {s.targets[0]?.why && s.targets[0].id === s.recipe ? `Picked because ${s.targets[0].why}.` : "Parameters only mean the same thing with the model they were made for."}
+                  {" "}Parameters sent: {[
                     s.input.size ? `${(s.input.size as { width: number }).width} × ${(s.input.size as { height: number }).height}` : "",
                     ...Object.entries(s.input).filter(([k, v]) => typeof v === "number" && k !== "seed").map(([k, v]) => `${k.replace(/^ctl_[0-9_]+?_(?=[a-z])/, "")} ${v}`),
                     s.input.seed !== undefined ? `seed ${s.input.seed}` : "",
@@ -122,11 +122,11 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
         </div>
         <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3">
           {data?.workflow ? (
-            <Button onClick={() => { hand({ workflow: workflowFile(name, data.workflow) }); onClose(); go("/workflows"); }}>Import its workflow instead</Button>
+            <Button onClick={() => { hand({ workflow: workflowFile(name, data.workflow) }); onClose(); go("/workflows"); }}>Import embedded workflow</Button>
           ) : null}
           <span className="grow" />
           <Button onClick={onClose}>Close</Button>
-          {s && <Button tone="primary" onClick={() => void send()}>Send to the form</Button>}
+          {s && <Button tone="primary" onClick={() => void send()}>Send to form</Button>}
         </footer>
       </div>
     </div>
@@ -137,7 +137,7 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
 function Line({ found, name, missing, instead }: { found: boolean; name: string; missing?: { file: string; folder: string; civitai?: number }; instead: string }) {
   return (
     <div className={cx("flex flex-col rounded-lg border px-3 py-2", found ? "border-line" : "border-warn/50 bg-warn-wash text-warn-ink")}>
-      <span><span className="font-semibold break-all">{name}</span> {found ? <span className="text-good">· on your ComfyUI</span> : <>· not on your ComfyUI. {instead}</>}</span>
+      <span><span className="font-semibold break-all">{name}</span> {found ? <span className="text-good">· installed</span> : <>· not installed on your ComfyUI. {instead}</>}</span>
       {!found && missing && <GetFile file={missing.file} folder={missing.folder} civitai={missing.civitai} />}
     </div>
   );

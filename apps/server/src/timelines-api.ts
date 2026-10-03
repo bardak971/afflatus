@@ -124,7 +124,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       const ask = wanted.get(clip.id);
       if (!ask) continue;
       const recipe = clip.recipe ? s.registry.recipe(clip.recipe) : undefined;
-      if (!recipe) throw new UserError(clip.kind === "still" ? `Clip ${i + 1} is a picture: there is nothing to render.` : `Clip ${i + 1} is a video you added: there is nothing to render it with.`);
+      if (!recipe) throw new UserError(clip.kind === "still" ? `Clip ${i + 1} is a still image: there is nothing to render.` : `Clip ${i + 1} is an imported video: there is no model to render it with.`);
       // what a timeline fills in itself is not the form's to say
       const own = new Set(recipe.inputs.filter((x) => x.type !== "clip").map((x) => x.id));
       // the cast and the style: the clip's own, else the timeline's, worked into its form
@@ -156,7 +156,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/plan", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1), clips: z.array(z.record(z.string(), z.string())).min(1).max(12) }).parse(req.body);
-    if (!s.registry.recipe(b.recipe)) throw new UserError(`there is no recipe called ${b.recipe}`);
+    if (!s.registry.recipe(b.recipe)) throw new UserError(`there is no model or operation called ${b.recipe}`);
     const made: string[] = [];
     for (const text of b.clips) {
       const id = await t.addClip(req.params.id, { recipe: b.recipe });

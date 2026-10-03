@@ -4,7 +4,7 @@ import { defineFamily } from "@studai/core";
 export const sdxl = defineFamily({
   id: "sdxl",
   name: "SDXL",
-  summary: "Illustrious, NoobAI, Pony and other SDXL checkpoints. Prompts are tags.",
+  summary: "Illustrious, NoobAI, Pony and other SDXL checkpoints. Prompts are danbooru tags.",
   promptStyle: "tags",
   // the checkpoint is picked per generation, so it is an input of each recipe, not a slot
   slots: [],
