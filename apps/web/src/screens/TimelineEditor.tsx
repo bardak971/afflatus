@@ -698,6 +698,53 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
               <Camera size={15} />
             </button>
           </div>
+
+        {/* the track under the stage, so that the inspector keeps the whole height on the right */}
+        <Track
+          timeline={shown}
+          recipes={videoRecipes}
+          pps={pps}
+          onZoom={setPps}
+          selected={musicOpen ? null : selected}
+          musicSelected={musicOpen}
+          time={time}
+          running={running}
+          onStop={(job) => stop.mutate(job)}
+          busy={add.isPending}
+          onSelect={(clipId) => {
+            setSelected(clipId);
+            setMusicOpen(false);
+          }}
+          onSelectMusic={() => setMusicOpen(true)}
+          cursorMs={cursor}
+          onSeek={(ms, trackMs) => {
+            player.current?.seek(ms);
+            // after the seek, which says where the player is: the playhead stays exactly where it was put
+            if (trackMs !== undefined) setCursor(trackMs);
+          }}
+          onMove={(clip, afterId) => patch.mutate({ clip, patch: { after: afterId } })}
+          onInsert={(asset, afterId) => add.mutate({ after: afterId, asset })}
+          onPin={(clip, where, asset, atS) => {
+            const pins = pinInputs(recipes.data?.recipes.find((r) => r.id === clip.recipe));
+            const input = pins[where];
+            if (!input) return;
+            editInputs(clip, { ...inputsOf(clip), [input]: asset, ...(where === "mid" && pins.midAt && atS ? { [pins.midAt]: atS } : {}) });
+            setSelected(clip.id);
+            setMusicOpen(false);
+          }}
+          onClipSound={(clip, asset) => patch.mutate({ clip, patch: { soundAsset: asset } })}
+          onMusic={(asset) => {
+            edit.mutate({ music: { asset } });
+            setMusicOpen(true);
+          }}
+          onTrim={(clip, p) => patch.mutate({ clip: clip.id, patch: p })}
+          onNewClip={(afterId) => newClip(afterId)}
+          onMenu={(clip, e) => clipMenu.open(e, clip)}
+          range={range}
+          onRange={setRange}
+          onRangeMenu={(e) => rangeMenu.open(e, true)}
+          snapQuiet={snapQuiet}
+        />
         </div>
 
         {musicOpen && t.music ? (
@@ -759,51 +806,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      <Track
-        timeline={shown}
-        recipes={videoRecipes}
-        pps={pps}
-        onZoom={setPps}
-        selected={musicOpen ? null : selected}
-        musicSelected={musicOpen}
-        time={time}
-        running={running}
-        onStop={(job) => stop.mutate(job)}
-        busy={add.isPending}
-        onSelect={(clipId) => {
-          setSelected(clipId);
-          setMusicOpen(false);
-        }}
-        onSelectMusic={() => setMusicOpen(true)}
-        cursorMs={cursor}
-        onSeek={(ms, trackMs) => {
-          player.current?.seek(ms);
-          // after the seek, which says where the player is: the playhead stays exactly where it was put
-          if (trackMs !== undefined) setCursor(trackMs);
-        }}
-        onMove={(clip, afterId) => patch.mutate({ clip, patch: { after: afterId } })}
-        onInsert={(asset, afterId) => add.mutate({ after: afterId, asset })}
-        onPin={(clip, where, asset, atS) => {
-          const pins = pinInputs(recipes.data?.recipes.find((r) => r.id === clip.recipe));
-          const input = pins[where];
-          if (!input) return;
-          editInputs(clip, { ...inputsOf(clip), [input]: asset, ...(where === "mid" && pins.midAt && atS ? { [pins.midAt]: atS } : {}) });
-          setSelected(clip.id);
-          setMusicOpen(false);
-        }}
-        onClipSound={(clip, asset) => patch.mutate({ clip, patch: { soundAsset: asset } })}
-        onMusic={(asset) => {
-          edit.mutate({ music: { asset } });
-          setMusicOpen(true);
-        }}
-        onTrim={(clip, p) => patch.mutate({ clip: clip.id, patch: p })}
-        onNewClip={(afterId) => newClip(afterId)}
-        onMenu={(clip, e) => clipMenu.open(e, clip)}
-        range={range}
-        onRange={setRange}
-        onRangeMenu={(e) => rangeMenu.open(e, true)}
-        snapQuiet={snapQuiet}
-      />
       {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject)} onClose={clipMenu.close} />}
       {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" items={rangeItems()} onClose={rangeMenu.close} />}
 
