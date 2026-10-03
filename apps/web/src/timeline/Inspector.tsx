@@ -404,7 +404,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               );
               // a clip that joins its neighbours and is not rendered yet: what matters for the join first, the whole form folded under it
               const nextJoined = Boolean(after && after.joined === "continue" && after.take);
-              const joins = !take && (carries || Boolean(opens) || Boolean(ends) || nextJoined);
+              // the Join view is for a clip put between two others: something to arrive at, not merely a clip that extends the one before
+              const joins = !take && (nextJoined || Boolean(ends));
               const leftFrame = opens ? thumbUrl(opens) : carries && before ? (before.kind === "still" && before.still ? thumbUrl(before.still.id) : before.take ? `/api/assets/${before.take.asset.id}/peek?at=${Math.max(0, Math.round(before.take.endMs - 20))}&h=160` : null) : null;
               const rightFrame = ends ? thumbUrl(ends) : nextJoined && after?.take ? `/api/assets/${after.take.asset.id}/peek?at=${Math.round(after.take.startMs)}&h=160` : null;
               const startsHow = carries ? `Extends clip ${index}: its motion carries in` : opens ? `Opens on a picture` : "Starts on its own";
@@ -442,12 +443,12 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-col gap-2.5 rounded-xl border border-accent/40 bg-accent-wash/30 p-3">
                     <div className="flex items-center gap-2">
-                      <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{leftFrame ? <img src={leftFrame} alt="" className="h-full w-full object-cover" /> : <span className="text-[10px] text-ink-3">—</span>}</div>
+                      <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{leftFrame ? <img src={leftFrame} alt="" className="h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span className="text-[10px] text-ink-3">—</span>}</div>
                       <div className="flex min-w-0 grow flex-col gap-0.5 text-xs">
                         <span className="font-semibold">Join</span>
                         <span className="text-ink-2">{startsHow} · {endsHow}.</span>
                       </div>
-                      <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{rightFrame ? <img src={rightFrame} alt="" className="h-full w-full object-cover" /> : <span className="text-[10px] text-ink-3">—</span>}</div>
+                      <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{rightFrame ? <img src={rightFrame} alt="" className="h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span className="text-[10px] text-ink-3">—</span>}</div>
                     </div>
                     {main && (
                       <label className="flex flex-col gap-1.5">
