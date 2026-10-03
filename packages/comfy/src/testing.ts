@@ -31,6 +31,8 @@ export interface FakeComfy {
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */
   installed: Array<{ folder: string; file: string; bytes: number }>;
+  /** Files written into ComfyUI's user data, by path ("workflows/studai/x.json"). */
+  userdata: Record<string, unknown>;
   /** Broadcast a websocket message to every connected client, as ComfyUI does. */
   send(type: string, data: unknown): void;
   /** Broadcast a binary frame (a live preview). */
@@ -107,7 +109,7 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">>
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: Omit<FakeComfy, "url" | "close" | "send" | "sendBinary"> = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], metadata: {}, sockets: [], installed: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], metadata: {}, sockets: [], installed: [], userdata: {},
     catalog: init.catalog ?? {},
     models: init.models ?? {},
   };
@@ -175,6 +177,11 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
         return res.end(file);
       }
     }
+    if (req.method === "HEAD") {
+      // no custom node pack serves example workflows in the pretend ComfyUI
+      res.writeHead(404);
+      return res.end();
+    }
     if (req.method === "POST") {
       const raw = await body(req);
       if (path === "/prompt") {
@@ -196,6 +203,11 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
         return json(200, {});
       }
       if (path === "/free") return json(200, {});
+      if (path.startsWith("/userdata/")) {
+        const file = decodeURIComponent(path.slice("/userdata/".length));
+        fake.userdata[file] = JSON.parse(raw.toString("utf-8"));
+        return json(200, { path: file, size: raw.length, modified: Date.now() });
+      }
       if (path === "/v2/manager/queue/install_model" && init.manager) {
         const task = JSON.parse(raw.toString("utf-8")) as (typeof installs)[number] & { client_id?: string; ui_id?: string };
         if (!task.client_id || !task.ui_id || /[\\/:]/.test(task.filename)) {

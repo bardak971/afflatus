@@ -3,3 +3,4 @@ export * from "./inspect";
 export * from "./recipe";
 export * from "./editor";
 export * from "./wiring";
+export * from "./toEditor";

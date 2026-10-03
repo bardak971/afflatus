@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
 import { askAboutDisk } from "./Confirm";
-import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type RecipeInfo, type Look } from "./api";
+import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo, type Look } from "./api";
 import { useAsset, useAssetAction, useFamilies, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
 import { formDefaults } from "./form";
 import { Kbd, plainKey } from "./Keys";
@@ -76,6 +76,43 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** How it was made: every setting of the form it came from, in the form's order. */
+/**
+ * The result's graph in ComfyUI's editor: built again from its generation parameters and seed, put where
+ * ComfyUI opens it. The tab is opened before the request, or the browser would block it as a pop-up.
+ */
+function OpenInComfy({ asset }: { asset: Asset }) {
+  const setup = useSetup();
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const open = useMutation({
+    mutationFn: async () => {
+      const tab = window.open("", "_blank");
+      try {
+        const r = await api.openRender(asset.id);
+        if (tab) tab.location.href = r.url;
+        return r;
+      } catch (err) {
+        tab?.close();
+        throw err;
+      }
+    },
+    onSuccess: setOpened,
+  });
+  const online = setup.data?.comfy.online ?? false;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div>
+        <Button size="sm" onClick={() => open.mutate()} disabled={open.isPending || !online} title={online ? "Its graph, built again from these parameters, in ComfyUI's editor. The images and sounds it used are named, not carried over." : "ComfyUI is not running."}>Open in ComfyUI</Button>
+      </div>
+      {open.isError && <span className="text-xs text-warn-ink">{open.error.message}</span>}
+      {opened && !opened.direct && (
+        <span className="text-xs text-ink-2">
+          Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: open the Workflows sidebar there (key W) and pick it under studai.{opened.restart ? " Restart ComfyUI once: from then on it opens straight away." : ""}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Made({ g, recipe }: { g: NonNullable<AssetDetail["generation"]>; recipe: RecipeInfo | undefined }) {
   const text = (id: string) => (typeof g.inputs[id] === "string" ? (g.inputs[id] as string).trim() : "");
   // the texts are shown whole above; pictures are shown as pictures; a setting that did not apply is left out
@@ -635,6 +672,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             <div className="flex flex-col gap-2.5">
               <SectionTitle>Generation parameters</SectionTitle>
               <Made g={g} recipe={recipe} />
+              {recipe && <OpenInComfy asset={a} />}
             </div>
           )}
 

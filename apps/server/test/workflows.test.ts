@@ -131,6 +131,16 @@ describe("an imported workflow", () => {
     const asset = (await get(t.app, "/api/assets")).json().items[0];
     expect(asset).toMatchObject({ kind: "video", mime: "video/mp4", origin: "generated" });
     expect((await get(t.app, `/api/assets/${asset.id}`)).json().generation).toMatchObject({ recipe: id, family: "workflow-wan-2-2", inputs: { seconds: 3 } });
+
+    // the result's graph in ComfyUI's editor: built again with the same seed, written as an editor file
+    const opened = await post(t.app, `/api/assets/${asset.id}/open`);
+    expect(opened.statusCode).toBe(200);
+    const path = `workflows/studai/Render ${asset.name || asset.id.slice(0, 8)}.json`;
+    expect(opened.json()).toMatchObject({ direct: false, path });
+    const file = fake.userdata[path] as { nodes: Array<{ id: number; type: string; widgets_values?: unknown[] }> };
+    const sampler = file.nodes.find((n) => n.type === "KSampler")!;
+    expect(sampler.widgets_values![0]).toBe(graph["57"]!.inputs.seed);
+    expect(sampler.widgets_values![2]).toBe(8);
   });
 
   it("files the video when the node also hands back a picture of its last frame", async () => {
@@ -263,5 +273,61 @@ describe("a workflow imported from the editor's own file", () => {
     expect(again.toggles.map((x: { id: string }) => x.id)).toEqual(["sw_3_enabled"]);
     expect(again.suggested.prompt).toEqual({ node: "3:6", input: "text" });
     expect(again.wiring.modes).toEqual({ "3:20": "bypass" });
+  });
+});
+
+describe("opening a workflow in ComfyUI", () => {
+  it("writes the editor's own file, kept at import, into ComfyUI's workflows folder", async () => {
+    const found = (await inspect(editorFile)).json();
+    expect(found.editor).toEqual(editorFile);
+    const saved = (await post(t.app, "/api/workflows", { title: "Mine", model: "Wan 2.2", source: "mine.json", graph: found.graph, wiring: found.wiring, editor: found.editor, bindings: found.suggested })).json();
+    const res = await post(t.app, `/api/workflows/${saved.id}/open`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ url: fake.url, path: "workflows/studai/Mine.json", direct: false });
+    expect(fake.userdata["workflows/studai/Mine.json"]).toEqual(editorFile);
+  });
+
+  it("writes the graph as the editor would save it when there is no editor file", async () => {
+    const { id } = await importWan("Wan · from the API file");
+    const res = await post(t.app, `/api/workflows/${id}/open`);
+    expect(res.statusCode).toBe(200);
+    const file = fake.userdata["workflows/studai/Wan · from the API file.json"] as { nodes: Array<{ type: string; widgets_values: unknown }>; links: unknown[]; version: number };
+    expect(file.version).toBe(0.4);
+    expect(file.nodes.map((n) => n.type)).toContain("VHS_VideoCombine");
+    expect(file.nodes.find((n) => n.type === "LoadImage")?.widgets_values).toEqual(["first.png", "image"]);
+    expect(file.links.length).toBeGreaterThan(5);
+  });
+});
+
+describe("opening a workflow in ComfyUI through its folder", () => {
+  it("writes the helper pack and the file, and falls back to the sidebar until ComfyUI has started with the pack", async () => {
+    const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "studai-comfy-"));
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(dir, "custom_nodes"));
+    try {
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyDir: dir } });
+      const { id } = await importWan("Wan for the pack");
+      const res = await post(t.app, `/api/workflows/${id}/open`);
+      expect(res.statusCode).toBe(200);
+      // the pretend ComfyUI does not serve the pack yet: the sidebar way, with a word about the restart
+      expect(res.json()).toMatchObject({ url: fake.url, direct: false, restart: true, path: "workflows/studai/Wan for the pack.json" });
+      const written = JSON.parse(await readFile(join(dir, "custom_nodes", "studai-workflows", "example_workflows", `${id.replace(/^workflow\./, "")}.json`), "utf-8")) as { nodes: unknown[] };
+      expect(written.nodes.length).toBe(12);
+      expect(await readFile(join(dir, "custom_nodes", "studai-workflows", "__init__.py"), "utf-8")).toContain("NODE_CLASS_MAPPINGS = {}");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a folder that is not ComfyUI's", async () => {
+    const { tmpdir } = await import("node:os");
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyDir: tmpdir() } });
+    const { id } = await importWan("Wan elsewhere");
+    const res = await post(t.app, `/api/workflows/${id}/open`);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.json())).toContain("custom_nodes");
   });
 });

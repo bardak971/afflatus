@@ -769,34 +769,41 @@ export class Queue {
   }
 
   /**
+   * The graph a form (or a past render: its inputs and its seed) gives, built without uploading anything:
+   * the files a render would send are stood in for by `names` (the file's own name, to be read in the
+   * graph), else by a placeholder. Null when the form is not complete enough to build.
+   */
+  async builtOf(recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string> } = {}): Promise<BuiltGraph | null> {
+    const recipe = this.registry.recipe(recipeId);
+    if (!recipe) return null;
+    const input = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
+    const comfy = await this.comfy();
+    const catalog = await comfy.catalog();
+    const uploads: Record<string, string> = {};
+    const media: Record<string, MediaFacts> = {};
+    const standIn = (key: string, asset: string) => {
+      uploads[key] = opts.names?.[asset] ?? "stand-in";
+      media[key] = { width: 1024, height: 1024 };
+    };
+    for (const spec of recipe.inputs as InputSpec[]) {
+      const value = input[spec.id];
+      if ((spec.type === "image" || spec.type === "audio" || spec.type === "clip") && typeof value === "string") standIn(spec.id, value);
+      else if (spec.type === "references" && Array.isArray(value)) value.forEach((v, i) => standIn(`${spec.id}.${i}`, typeof v === "string" ? v : String((v as { asset?: string })?.asset ?? "")));
+    }
+    const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: await this.slots(comfy, recipe), uploads, media, has: (cls: string) => cls in catalog });
+    relocateFiles(built.graph, catalog);
+    return built;
+  }
+
+  /**
    * Whether the base models a form would use are the ones ComfyUI was last asked to load. Null when it
    * cannot be told (the form is not complete enough to build its graph, ComfyUI is away). It is what
    * this app last asked for: a ComfyUI that was restarted since, or used from elsewhere, is not seen.
    */
   async isLoaded(recipeId: string, rawInput: unknown): Promise<boolean | null> {
     try {
-      const recipe = this.registry.recipe(recipeId);
-      if (!recipe) return null;
-      const input = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
-      const comfy = await this.comfy();
-      const catalog = await comfy.catalog();
-      // nothing is uploaded: the files a render would send are stood in for, the models do not depend on them
-      const uploads: Record<string, string> = {};
-      const media: Record<string, MediaFacts> = {};
-      for (const spec of recipe.inputs as InputSpec[]) {
-        const value = input[spec.id];
-        if ((spec.type === "image" || spec.type === "audio" || spec.type === "clip") && typeof value === "string") {
-          uploads[spec.id] = "stand-in";
-          media[spec.id] = { width: 1024, height: 1024 };
-        } else if (spec.type === "references" && Array.isArray(value)) {
-          value.forEach((_, i) => {
-            uploads[`${spec.id}.${i}`] = "stand-in";
-            media[`${spec.id}.${i}`] = { width: 1024, height: 1024 };
-          });
-        }
-      }
-      const built = recipe.build(settled(recipe, input, catalog), { seed: 1, slots: await this.slots(comfy, recipe), uploads, media, has: (cls: string) => cls in catalog });
-      relocateFiles(built.graph, catalog);
+      const built = await this.builtOf(recipeId, rawInput);
+      if (!built) return null;
       const base = baseModels(built);
       return base.length ? this.holding(base) : null;
     } catch {

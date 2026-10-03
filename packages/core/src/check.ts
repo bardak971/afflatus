@@ -7,8 +7,10 @@ import { isRef, type BuiltGraph } from "./graph";
 export type NodeCatalog = Record<string, NodeInfo>;
 export interface NodeInfo {
   input: { required?: Record<string, unknown>; optional?: Record<string, unknown> };
-  /** The type of each output ("MODEL", "IMAGE", …). */
-  output: string[];
+  /** The type of each output ("MODEL", "IMAGE", …); a list of choices for an output that is one (a sampler name). */
+  output: Array<string | string[]>;
+  /** The name of each output, when it differs from its type ("Filenames"). */
+  output_name?: string[];
   /** The node saves or shows something: a graph is run for its output nodes. */
   output_node?: boolean;
   /** The name ComfyUI shows for it: what a node is titled until someone renames it. */

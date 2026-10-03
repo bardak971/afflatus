@@ -2,8 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ComfyUnreachable } from "@studai/comfy";
 import { isRef, type Graph } from "@studai/core";
-import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, wiring as wiringSchema, workflowDef, type Bindings, type WorkflowDef } from "@studai/workflows";
+import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type WorkflowDef } from "@studai/workflows";
 import type { Services } from "./services";
+import { openInComfy } from "./comfyOpen";
 
 /**
  * Importing a ComfyUI workflow: read it, show what was found, save it with the mapping the user
@@ -16,6 +17,7 @@ const saveBody = z.strictObject({
   source: z.string().max(200).default(""),
   graph: graphSchema,
   wiring: wiringSchema.optional(),
+  editor: z.unknown().optional(),
   bindings,
 });
 
@@ -91,7 +93,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     if (fromFile) {
       const read = fromEditor(body, catalog);
       if (!Object.keys(read.graph).length) throw bad("No node that ComfyUI can run was found in this file.");
-      return { ...(await withElsewhere(inspect(read.graph, catalog, read.wiring, read.notes))), graph: read.graph, wiring: read.wiring };
+      return { ...(await withElsewhere(inspect(read.graph, catalog, read.wiring, read.notes))), graph: read.graph, wiring: read.wiring, editor: body };
     }
     if (held?.success) return { ...(await withElsewhere(inspect(held.data.graph as Graph, catalog, held.data.wiring))), graph: held.data.graph, wiring: held.data.wiring };
     return { ...(await withElsewhere(inspect(exported!, catalog))), graph: exported };
@@ -126,6 +128,22 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     const def = workflowDef.parse({ id: current.id, ...body });
     await s.registry.save(def);
     return brief(def);
+  });
+
+  /**
+   * Show the workflow in ComfyUI's editor (see comfyOpen.ts for how): the editor's own file when the
+   * import kept it, else the graph studai runs written as the editor writes a file.
+   */
+  app.post<{ Params: { id: string } }>("/api/workflows/:id/open", async (req) => {
+    const def = s.registry.workflow(req.params.id);
+    if (!def) throw bad("this workflow was not found", 404);
+    const comfy = await s.comfy();
+    let file = def.editor;
+    if (!file) {
+      const titles = Object.fromEntries(Object.entries(def.graph).flatMap(([id, n]) => (typeof n._meta === "object" && n._meta && typeof (n._meta as { title?: unknown }).title === "string" ? [[id, (n._meta as { title: string }).title]] : [])));
+      file = toEditor(def.graph as Graph, await comfy.catalog(), { titles });
+    }
+    return openInComfy(s, def.id.replace(/^workflow\./, ""), def.title, file);
   });
 
   /** What was made with it stays in the library; drafts on it stay too, and say the workflow is gone. */

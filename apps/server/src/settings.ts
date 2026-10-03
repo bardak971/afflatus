@@ -22,6 +22,11 @@ const instructionSchema = z.object({ id: z.string().min(1).max(40), name: z.stri
 /** Everything the setup page edits. Stored as one JSON value per key. */
 export const settingsSchema = z.object({
   comfyUrl: z.string().url().default("http://127.0.0.1:8188"),
+  /**
+   * ComfyUI's own folder on the computer studai runs on (the one with main.py), when they share a disk.
+   * Lets studai put a workflow where ComfyUI's page opens it straight away. Empty when ComfyUI is elsewhere.
+   */
+  comfyDir: z.string().max(400).default(""),
   /** ComfyUI's models are unloaded after this many minutes without a render. 0: never, they stay until something else needs the room. */
   unloadAfterMinutes: z.number().min(0).max(24 * 60).default(0),
   /** The language models of the prompt designer. None = the designer is off. */
@@ -113,6 +118,7 @@ export function publicSettings(s: Settings) {
   const used = llmInUse(s);
   return {
     comfyUrl: s.comfyUrl,
+    comfyDir: s.comfyDir,
     unloadAfterMinutes: s.unloadAfterMinutes,
     /** The model in use, the short way: what tells whether the designer can work. */
     llm: { baseUrl: used?.baseUrl ?? "", model: used?.model ?? "", hasApiKey: Boolean(used?.apiKey), vision: used?.vision ?? false },

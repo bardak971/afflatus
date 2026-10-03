@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileUp } from "lucide-react";
 import { bindings as bindingsSchema, type Bindings } from "@studai/workflows";
 import { api, ApiError, type WorkflowBrief } from "../api";
-import { useRecipes, useSetup, useWorkflows } from "../data";
+import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
 import { notReady, recipeLabel } from "../format";
 import { useHandover, useOpenDraft } from "../store";
 import { Button, cx, ErrorNote, SectionTitle } from "../ui";
@@ -38,6 +38,7 @@ async function readFile(file: File): Promise<Editing> {
     model: typeof shared?.model === "string" ? shared.model : "",
     graph: inspection.graph,
     wiring: inspection.wiring,
+    editor: inspection.editor,
     inspection,
     bindings,
   };
@@ -47,7 +48,7 @@ async function readFile(file: File): Promise<Editing> {
 async function reopen(id: string): Promise<Editing> {
   const def = await api.workflow(id);
   const inspection = await api.inspectWorkflow({ graph: def.graph, wiring: def.wiring });
-  return { id: def.id, source: def.source, title: def.title, model: def.model, graph: def.graph, wiring: def.wiring, inspection, bindings: def.bindings };
+  return { id: def.id, source: def.source, title: def.title, model: def.model, graph: def.graph, wiring: def.wiring, editor: def.editor, inspection, bindings: def.bindings };
 }
 
 /** The workflow with its mapping, as a file someone else can import into their studai. */
@@ -67,6 +68,7 @@ export function Workflows() {
   const list = useWorkflows();
   const recipes = useRecipes();
   const setup = useSetup();
+  const settings = useSettings();
   const client = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -84,6 +86,23 @@ export function Workflows() {
     open.mutate(handed);
   }, [handed]); // eslint-disable-line react-hooks/exhaustive-deps
   const shareIt = useMutation({ mutationFn: share });
+  // the workflow in ComfyUI's editor: written into its workflows folder, then ComfyUI opened in a new tab.
+  // The tab is opened before the request, or the browser would block it as a pop-up.
+  const [opened, setOpened] = useState<{ id: string; direct: boolean; path?: string; restart?: boolean } | null>(null);
+  const openInComfy = useMutation({
+    mutationFn: async (w: WorkflowBrief) => {
+      const tab = window.open("", "_blank");
+      try {
+        const r = await api.openWorkflow(w.id);
+        if (tab) tab.location.href = r.url;
+        return { id: w.id, ...r };
+      } catch (err) {
+        tab?.close();
+        throw err;
+      }
+    },
+    onSuccess: setOpened,
+  });
   const [, go] = useLocation();
   const openDraft = useOpenDraft((s) => s.open);
   // straight to the form on a new draft with the workflow picked: nothing is rendered until Generate is pressed
@@ -110,7 +129,7 @@ export function Workflows() {
   const comfyOnline = setup.data?.comfy.online ?? false;
   const why = (recipeId: string) => (setup.isSuccess ? notReady(setup.data.recipes.find((r) => r.id === recipeId), comfyOnline) : null);
   const builtIn = (recipes.data?.families ?? []).filter((f) => !f.id.startsWith("workflow-"));
-  const error = open.error ?? edit.error ?? shareIt.error ?? tryIt.error ?? remove.error ?? list.error;
+  const error = open.error ?? edit.error ?? shareIt.error ?? tryIt.error ?? remove.error ?? openInComfy.error ?? list.error;
 
   const drop = {
     onDragOver: (e: DragEvent) => {
@@ -186,10 +205,21 @@ export function Workflows() {
                       <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} title="Opens the form with this workflow picked, on a new draft.">Try it</Button>
                       <Button size="sm" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>
                       <Button size="sm" onClick={() => shareIt.mutate(w)}>Export</Button>
+                      <Button size="sm" onClick={() => openInComfy.mutate(w)} disabled={openInComfy.isPending || !comfyOnline} title={comfyOnline ? "Writes the workflow into ComfyUI's workflows folder and opens ComfyUI: pick it in the Workflows sidebar." : "ComfyUI is not running."}>Open in ComfyUI</Button>
                       <Button size="sm" onClick={() => setRemoving(w.id)}>Remove</Button>
                     </>
                   )}
                 </div>
+                {opened?.id === w.id && !opened.direct && (
+                  <div className="text-xs text-ink-2">
+                    Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: in ComfyUI, open the Workflows sidebar (key W) and pick it under studai.
+                    {opened.restart
+                      ? " Restart ComfyUI once: from then on it opens straight away."
+                      : settings.data && !settings.data.comfyDir
+                        ? " To have it open straight away, set the ComfyUI folder in Settings (same computer only)."
+                        : ""}
+                  </div>
+                )}
               </div>
             );
           })}

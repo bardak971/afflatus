@@ -645,9 +645,17 @@ export function Setup() {
   const recipes = useRecipes();
   const client = useQueryClient();
   const [url, setUrl] = useState("");
+  const [dir, setDir] = useState("");
   useEffect(() => {
-    if (settings.data) setUrl(settings.data.comfyUrl);
+    if (settings.data) {
+      setUrl(settings.data.comfyUrl);
+      setDir(settings.data.comfyDir);
+    }
   }, [settings.data]);
+  const saveDir = useMutation({
+    mutationFn: () => api.saveSettings({ comfyDir: dir.trim() }),
+    onSuccess: (saved) => client.setQueryData(["settings"], saved),
+  });
 
   /** Save the address if it changed, then ask ComfyUI again. Only reads: nothing is queued or loaded. */
   const test = useMutation({
@@ -709,6 +717,21 @@ export function Setup() {
             </dl>
           )}
           <div className="text-xs text-ink-3">Testing only reads what ComfyUI has. It never starts a render or loads a model.</div>
+          <div className="flex flex-col gap-1.5 border-t border-line pt-3">
+            <label htmlFor="comfy-dir" className="text-xs text-ink-2">ComfyUI folder on this computer <span className="text-ink-3">(optional: the one with main.py; lets "Open in ComfyUI" show the workflow straight away)</span></label>
+            <div className="flex gap-2">
+              <input
+                id="comfy-dir"
+                value={dir}
+                onChange={(e) => setDir(e.target.value)}
+                placeholder="D:\\ComfyUI  —  empty when ComfyUI runs elsewhere"
+                spellCheck={false}
+                className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
+              />
+              <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
+            </div>
+            {saveDir.isError && <ErrorNote>{saveDir.error.message}</ErrorNote>}
+          </div>
           {settings.data && (
             <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
               <span className="min-w-0">

@@ -157,6 +157,7 @@ function Strip({ parts, open, query, setQuery, found }: {
           <Search size={13} className="shrink-0 text-ink-2" />
           <input
             ref={box}
+            data-search="form"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             // what is typed here is for the form alone: the screen's keys must not react to it
@@ -164,7 +165,6 @@ function Strip({ parts, open, query, setQuery, found }: {
             placeholder="Find a setting (steps, cfg, shift, crf, tile…)"
             aria-label="Find a setting"
             className="min-w-0 grow bg-transparent placeholder:text-ink-3"
-            style={{ outline: "none" }}
           />
           {query.trim() && <span className="shrink-0 text-ink-3">{found}</span>}
           <button type="button" aria-label="Stop searching" onClick={stop} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={13} /></button>
@@ -188,6 +188,7 @@ function Strip({ parts, open, query, setQuery, found }: {
       {!searching && (
         <button
           type="button"
+          data-search-opener
           onClick={() => setSearching(true)}
           aria-label="Find a setting"
           title="Find a setting by its name"

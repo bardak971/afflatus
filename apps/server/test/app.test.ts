@@ -100,7 +100,7 @@ describe("settings", () => {
     expect((await put({ comfyUrl: "http://10.0.0.5:8188", llm: { baseUrl: "http://llm/v1", model: "m", apiKey: "secret" }, civitaiKey: "k" })).statusCode).toBe(200);
     const res = await get(t.app, "/api/settings");
     expect(res.json()).toEqual({
-      comfyUrl: "http://10.0.0.5:8188", llm: { baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false },
+      comfyUrl: "http://10.0.0.5:8188", comfyDir: "", llm: { baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false },
       llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000 }],
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "",
       tagCheck: true, families: {}, hasCivitaiKey: true, civitaiLookups: false, downloadModels: false, renderHistoryDays: 90,

@@ -60,7 +60,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     keys: [["Ctrl + ↑  ↓", "Prompt weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
   { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"]] },
-  { where: "Everywhere", keys: [["/", "Search bar of the view (library, Prompt kit, snippets, workflow editor)"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
+  { where: "Everywhere", keys: [["/  :", "Find a setting in the open form; else the search bar of the view (library, Prompt kit, snippets, workflow editor)"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 
 /** A key as a cap, as on a keyboard. */
@@ -92,14 +92,22 @@ export function KeysHelp() {
         e.preventDefault();
         setOpen((o) => !o);
       }
-      // "/" goes to the search bar of the view: the one on top when a panel with its own is open
-      if (e.key === "/" && plainKey(e)) {
-        const bars = [...document.querySelectorAll<HTMLInputElement>("input[data-search]")].filter((el) => el.getClientRects().length > 0);
-        const bar = bars[bars.length - 1];
-        if (bar) {
+      // "/" goes to the search bar of the view: the one on top when a panel with its own is open.
+      // On AZERTY "/" shares its key with ":": that key works with or without Shift.
+      if ((e.key === "/" || e.key === ":") && plainKey(e)) {
+        const shown = (el: Element) => el.getClientRects().length > 0;
+        // a form on screen has a search of its own (behind its magnifier): that one, wherever the mouse is; else the view's bar
+        const form = [...document.querySelectorAll<HTMLElement>("input[data-search=form], button[data-search-opener]")].filter(shown)[0];
+        const bars = [...document.querySelectorAll<HTMLInputElement>("input[data-search]:not([data-search=form])")].filter(shown);
+        const target = form ?? bars[bars.length - 1];
+        if (target) {
           e.preventDefault();
-          bar.focus();
-          bar.select();
+          if (target instanceof HTMLInputElement) {
+            target.focus();
+            target.select();
+          } else {
+            target.click();
+          }
         }
       }
     };

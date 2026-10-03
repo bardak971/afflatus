@@ -20,6 +20,8 @@ export interface Editing {
   graph: WorkflowDef["graph"];
   /** What the editor's own file knew (switched-off parts, switches), when the workflow came from one. */
   wiring?: Wiring;
+  /** The editor's own file itself, kept so that ComfyUI can open the workflow as it was. */
+  editor?: unknown;
   inspection: Inspection;
   bindings: Bindings;
 }
@@ -146,7 +148,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 
   const save = useMutation({
     mutationFn: () => {
-      const body = { title: title.trim(), model: model.trim(), source: start.source, graph, wiring: start.wiring, bindings: b };
+      const body = { title: title.trim(), model: model.trim(), source: start.source, graph, wiring: start.wiring, editor: start.editor, bindings: b };
       return start.id ? api.saveWorkflow(start.id, body) : api.createWorkflow(body);
     },
     onSuccess: async () => {

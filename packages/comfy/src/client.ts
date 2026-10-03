@@ -190,6 +190,22 @@ export class ComfyClient {
     return `${r.subfolder ? `${r.subfolder}/` : ""}${r.name} [temp]`;
   }
 
+  /**
+   * Write a file into ComfyUI's user data (user/default/<path>): "workflows/studai/x.json" is what its
+   * Workflows sidebar lists. Replaces a file of that name.
+   */
+  async storeUserData(path: string, body: unknown): Promise<void> {
+    await this.request(`/userdata/${encodeURIComponent(path)}?overwrite=true`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 30_000);
+  }
+
+  /** Whether ComfyUI serves this example workflow of a custom node pack (it does once it started with the pack there). */
+  async servesTemplate(pack: string, name: string): Promise<boolean> {
+    const res = await this.fetcher(`${this.baseUrl}/api/workflow_templates/${encodeURIComponent(pack)}/${encodeURIComponent(name)}.json`, { method: "HEAD", signal: AbortSignal.timeout(META_TIMEOUT) }).catch((err) => {
+      throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl}: ${(err as Error).message}`);
+    });
+    return res.ok;
+  }
+
   /** Download one output file of a finished prompt. */
   async view(file: OutputFile): Promise<Uint8Array> {
     const q = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });

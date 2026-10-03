@@ -160,6 +160,8 @@ export const workflowDef = z.object({
   graph,
   /** Present when the workflow came from the editor's own file. */
   wiring: wiring.optional(),
+  /** The editor's own file, as it was imported: what "Open in ComfyUI" opens, exact to the pixel. */
+  editor: z.unknown().optional(),
   bindings,
 });
 export type WorkflowDef = z.infer<typeof workflowDef>;

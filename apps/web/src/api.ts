@@ -121,6 +121,13 @@ export interface Asset {
   /** Of a file of a linked folder: where it is on the disk (in the bin: where it was). */
   path: string | null;
 }
+/** Where ComfyUI shows a workflow studai put there: straight from the address, or from its Workflows sidebar. */
+export interface Opened {
+  url: string;
+  direct: boolean;
+  path?: string;
+  restart?: boolean;
+}
 export interface AssetDetail extends Asset {
   /** Who was in it and how it looked, as far back as it is known: what is made from it can start with the same. */
   look: Look | null;
@@ -292,6 +299,8 @@ export interface WorkflowBody {
   source: string;
   graph: WorkflowDef["graph"];
   wiring?: Wiring;
+  /** The editor's own file, when the workflow came from one. */
+  editor?: unknown;
   bindings: Bindings;
 }
 /** One render of a clip. `startMs` to `endMs` is the part of its video that plays. */
@@ -517,6 +526,8 @@ export interface LlmInfo {
 }
 export interface Settings {
   comfyUrl: string;
+  /** ComfyUI's folder on studai's computer, when they share one; empty otherwise. */
+  comfyDir: string;
   /** ComfyUI's models are unloaded after this many minutes without a render; 0 for never. */
   unloadAfterMinutes: number;
   /** The model in use, the short way. */
@@ -762,7 +773,11 @@ export const api = {
   workflows: () => call<{ items: WorkflowBrief[] }>("GET", "/workflows"),
   workflow: (id: string) => call<WorkflowDef>("GET", `/workflows/${id}`),
   /** Takes the file as it is (ComfyUI's own save, an export) or a workflow studai holds; answers with it in the form studai keeps. */
-  inspectWorkflow: (file: unknown) => call<Inspection & { graph: WorkflowDef["graph"]; wiring?: Wiring }>("POST", "/workflows/inspect", file),
+  inspectWorkflow: (file: unknown) => call<Inspection & { graph: WorkflowDef["graph"]; wiring?: Wiring; editor?: unknown }>("POST", "/workflows/inspect", file),
+  /** Put the workflow in ComfyUI's own workflows folder; where ComfyUI is, and the file's path there. */
+  openWorkflow: (id: string) => call<Opened>("POST", `/workflows/${id}/open`),
+  /** Show a result's graph in ComfyUI's editor: built again from its generation parameters. */
+  openRender: (assetId: string) => call<Opened>("POST", `/assets/${assetId}/open`),
   createWorkflow: (body: WorkflowBody) => call<WorkflowBrief>("POST", "/workflows", body),
   saveWorkflow: (id: string, body: WorkflowBody) => call<WorkflowBrief>("PUT", `/workflows/${id}`, body),
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),
