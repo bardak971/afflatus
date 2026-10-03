@@ -8,7 +8,7 @@ import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
 import { GetFile } from "../GetFile";
 import { Select } from "../Select";
-import { Button, cx, ErrorNote, SectionTitle, Toggle as Switch } from "../ui";
+import { Button, cx, ErrorNote, SectionTitle, Toggle as Switch, Note } from "../ui";
 
 /** A workflow being imported or changed: the file, what was found in it, and the mapping so far. */
 export interface Editing {
@@ -42,7 +42,7 @@ function Found({ ok, role, note, children }: { ok: boolean; role: string; note?:
           {ok ? <Check size={12} strokeWidth={3} /> : <Minus size={12} strokeWidth={3} />}
         </span>
         <span className="font-semibold">{role}</span>
-        {note && <span className="text-xs text-ink-2">{note}</span>}
+        <Note text={note} />
       </div>
       {children}
     </div>

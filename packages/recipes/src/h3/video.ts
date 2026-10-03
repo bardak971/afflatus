@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, REFERENCE_ROLES, type ClipValue, type LoraValue, type MediaFacts, type Ref, type ReferenceValue, type SizeValue, type Variant } from "@studai/core";
-import { H3_FPS, h3Canvas, h3Frames } from "./family";
+import { H3_FORM_PIXELS, H3_FPS, h3Canvas, h3Frames } from "./family";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
 /** The sampler left to the recipe: the one that suits the steps (euler for a turbo's few, res_multistep otherwise). */
@@ -38,6 +38,14 @@ export interface H3Video {
   smooth: boolean;
   quick: boolean;
   cache: boolean;
+  upscale: boolean;
+  upscaleBy: number;
+  upscaleDenoise: number;
+  upscaleSteps: number;
+  upscaleTile: number;
+  upscaleOverlap: number;
+  upscaleChunk: number;
+  upscaleWith: string;
   cacheThreshold: number;
   cacheStart: number;
   cacheEnd: number;
@@ -113,25 +121,25 @@ export const h3Video = defineRecipe<H3Video>({
       note: "MiniMax's own, or a fine-tune of it",
     },
     {
-      id: "description", type: "prompt", weights: false, label: "What happens", style: "sentences",
+      id: "description", type: "prompt", weights: false, label: "Prompt", style: "sentences",
       placeholder: "She walks to the railing and looks out at the sea. The camera follows her slowly. (S1) says <d>[English] What a view.</d> softly.",
     },
-    { id: "soundscape", type: "prompt", weights: false, label: "Sounds", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
+    { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
     { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, placeholder: "none" },
-    { id: "start", type: "image", role: "start", label: "Start image", note: "the first frame", optional: true },
-    { id: "end", type: "image", role: "end", label: "End image", note: "the last frame", optional: true },
-    { id: "mid", type: "image", role: "mid", at: "midAt", label: "A picture it passes through", optional: true, advanced: true },
-    { id: "midAt", type: "number", label: "It passes through it at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
+    { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
+    { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame", optional: true },
+    { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", optional: true, advanced: true },
+    { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
     {
-      id: "previous", type: "clip", role: "previous", label: "Continues from", optional: true, frames: H3_JOIN_FRAMES, fps: H3_FPS,
+      id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: H3_JOIN_FRAMES, fps: H3_FPS,
       note: "the motion and the voices of that clip continue into this one",
     },
     {
-      id: "next", type: "clip", role: "next", label: "Flows into", optional: true, frames: H3_JOIN_FRAMES, fps: H3_FPS, advanced: true,
+      id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: H3_JOIN_FRAMES, fps: H3_FPS, advanced: true,
       note: "this clip ends exactly where that one begins",
     },
     {
-      id: "references", type: "references", label: "Who and what is in it", max: H3_REFERENCES, roles: [...REFERENCE_ROLES],
+      id: "references", type: "references", label: "Reference images", max: H3_REFERENCES, roles: [...REFERENCE_ROLES],
       note: "pictures of a person, a place, clothes, an object or a look: they are followed, they are not frames of the clip",
     },
     {
@@ -139,18 +147,19 @@ export const h3Video = defineRecipe<H3Video>({
       note: "short videos of the person: how they look, move and sound. The first 3 seconds of each are used; a video's own sound is taken as their voice unless a voice sample is given",
     },
     {
-      id: "voice", type: "audio", role: "voice", label: "Voice", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds" },
+      id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds" },
       note: "someone speaking: the person in the clip speaks with that voice. Only the part you set is used: 5 to 10 seconds of clean speech carry a voice best",
     },
-    { id: "voiceStart", type: "number", label: "The voice sample starts at", min: 0, max: 600, step: 0.5, default: 0, unit: " s", showWhen: "voice" },
-    { id: "voiceSeconds", type: "number", label: "The voice sample lasts", min: 2, max: 15, step: 0.5, default: 8, unit: " s", showWhen: "voice" },
+    { id: "voiceStart", type: "number", label: "Voice sample: start", min: 0, max: 600, step: 0.5, default: 0, unit: " s", showWhen: "voice" },
+    { id: "voiceSeconds", type: "number", label: "Voice sample: length", min: 2, max: 15, step: 0.5, default: 8, unit: " s", showWhen: "voice" },
     {
-      id: "subject", type: "prompt", weights: false, label: "How the person looks", style: "sentences", optional: true, showWhen: "references", holds: "subject",
+      id: "subject", type: "prompt", weights: false, label: "Subject description", style: "sentences", optional: true, showWhen: "references", holds: "subject",
       placeholder: "brown hair, green eyes, freckles", note: "in a few words, to help the pictures",
     },
-    { id: "seconds", type: "number", label: "Length", min: 2, max: 15, step: 0.5, default: 5, unit: " s" },
+    { id: "seconds", type: "number", label: "Duration", min: 2, max: 15, step: 0.5, default: 5, unit: " s" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "tall", grid: 32, min: 256, max: 1344, ratioOnly: true,
+      short: "short", maxPixels: H3_FORM_PIXELS, decidedBy: ["start", "end", "previous", "next"], scaledBy: { on: "upscale", by: "upscaleBy" },
       note: "an opening picture or a clip it joins decides the shape instead",
       shapes: [
         { id: "tall", label: "Tall", width: 576, height: 1024 },
@@ -158,7 +167,27 @@ export const h3Video = defineRecipe<H3Video>({
         { id: "wide", label: "Wide", width: 1024, height: 576 },
       ],
     },
-    { id: "short", type: "number", label: "Resolution", note: "the short side: 480p, 576p (the usual one), 768p. Larger is sharper and slower", min: 384, max: 768, step: 96, default: 576, unit: "p" },
+    {
+      id: "short", type: "number", label: "Resolution", min: 384, max: 1088, step: 32, default: 576, unit: "p", picks: [480, 576, 768, 1088],
+      note: "the short side of the frame. 576p is the usual one. Past 768p the model is beyond what it was trained for: slower, and it may drift",
+    },
+    {
+      id: "upscale", type: "toggle", label: "Upscale pass", default: false, section: "out",
+      note: "after the clip is made, it is enlarged in latent space and re-sampled lightly, in tiles, so the new detail is generated rather than stretched. The sound is kept. About as long again as the clip itself. Needs the MMH3 Ultimate Upscale node pack",
+    },
+    { id: "upscaleBy", type: "number", label: "Upscale factor", min: 1.25, max: 3, step: 0.25, default: 2, unit: " ×", showWhen: "upscale", section: "out", note: "2 makes 576p into about 1152p" },
+    {
+      id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.05, default: 0.2, showWhen: "upscale", advanced: true,
+      note: "denoising strength of the re-sampling: 0.2 keeps the clip as it is and sharpens it, higher invents more",
+    },
+    { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 1, showWhen: "upscale", advanced: true },
+    {
+      id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["Auto", "H3's latent upscaler", "Plain resize"], default: "Auto", showWhen: "upscale", advanced: true,
+      note: "H3's own 3D upscaler model when its file is found (Auto), else a bicubic resize of the latent",
+    },
+    { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: "upscale", advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
+    { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: "upscale", advanced: true },
+    { id: "upscaleChunk", type: "number", label: "Upscale temporal chunk", min: 17, max: 255, step: 17, default: 85, showWhen: "upscale", advanced: true, note: "the clip is re-sampled in stretches of this many frames, overlapping by 17" },
     { id: "fast", type: "toggle", label: "Turbo", note: "8 steps, about twice as fast: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
     {
       id: "turboSteps", type: "number", label: "Turbo steps", min: 2, max: 16, step: 1, default: 8, showWhen: "fast", advanced: true, perModel: true,
@@ -179,15 +208,15 @@ export const h3Video = defineRecipe<H3Video>({
       note: "0 picks it: 4.5 with Turbo, 4 without",
     },
     {
-      id: "turboIn", type: "choice", label: "Turbo model (distilled)", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
+      id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "made for 4 to 8 steps: no turbo LoRA is added. Auto reads it from the file name",
     },
     {
       id: "hybrid", type: "choice", label: "Hybrid model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "it follows reference pictures and voices itself; otherwise those clips use MiniMax's reference model. Auto reads it from the file name",
     },
-    { id: "smooth", type: "toggle", label: "Smooth: 48 fps", note: "frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
-    { id: "sharpRefs", type: "toggle", label: "Reference pictures at full size", note: "holds a face better, several times slower", default: false, advanced: true },
+    { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
+    { id: "sharpRefs", type: "toggle", label: "Reference images at full resolution", note: "holds a face better, several times slower", default: false, advanced: true },
     { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
@@ -197,11 +226,11 @@ export const h3Video = defineRecipe<H3Video>({
       id: "quick", type: "toggle", label: "Comfy Kitchen attention", default: true, advanced: true,
       note: "a faster attention for INT8 models (ModelAttentionBackend), on Nvidia and AMD cards. Turn it off if renders fail on another machine",
     },
-    { id: "cacheThreshold", type: "number", label: "Step cache: how alike", note: "a step that would change the clip by less than this is skipped: higher skips more, faster and softer", min: 0.01, max: 0.5, step: 0.01, default: 0.05, showWhen: "cache", advanced: true },
-    { id: "cacheStart", type: "number", label: "Step cache: from", note: "where in the render skipping may begin: the first steps decide the clip and are never skipped below this", min: 0, max: 0.9, step: 0.05, default: 0.15, showWhen: "cache", advanced: true },
-    { id: "cacheEnd", type: "number", label: "Step cache: until", note: "where skipping stops, so that the last steps finish the detail", min: 0.1, max: 1, step: 0.05, default: 0.9, showWhen: "cache", advanced: true },
-    { id: "cacheSteps", type: "number", label: "Step cache: steps in a row", note: "how many steps may be skipped one after the other", min: 1, max: 6, step: 1, default: 2, showWhen: "cache", advanced: true },
-    { id: "crf", type: "number", label: "Encoding quality (CRF)", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
+    { id: "cacheThreshold", type: "number", label: "Step cache threshold", note: "a step that would change the clip by less than this is skipped: higher skips more, faster and softer", min: 0.01, max: 0.5, step: 0.01, default: 0.05, showWhen: "cache", advanced: true },
+    { id: "cacheStart", type: "number", label: "Step cache start", note: "where in the render skipping may begin: the first steps decide the clip and are never skipped below this", min: 0, max: 0.9, step: 0.05, default: 0.15, showWhen: "cache", advanced: true },
+    { id: "cacheEnd", type: "number", label: "Step cache end", note: "where skipping stops, so that the last steps finish the detail", min: 0.1, max: 1, step: 0.05, default: 0.9, showWhen: "cache", advanced: true },
+    { id: "cacheSteps", type: "number", label: "Step cache max skips", note: "how many steps may be skipped one after the other", min: 1, max: 6, step: 1, default: 2, showWhen: "cache", advanced: true },
+    { id: "crf", type: "number", label: "CRF", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
     { id: "loras", type: "loras", label: "LoRAs", max: 6 },
     { id: "seed", type: "seed", label: "Seed" },
   ],
@@ -223,7 +252,10 @@ export const h3Video = defineRecipe<H3Video>({
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: ["MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
+  optionalNodes: [
+    "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
+    "MMH3UltimateUpscale", "MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams", "MMH3SpatialSplitParams", "MMH3TemporalSplitParams",
+  ],
 
   build(input, ctx) {
     const { slots, uploads, media } = ctx;
@@ -245,8 +277,8 @@ export const h3Video = defineRecipe<H3Video>({
       : like && (input.previous || input.next)
         ? h3Canvas(like.width, like.height, Math.min(like.width, like.height))
         : like
-          ? h3Canvas(like.width, like.height, input.short)
-          : h3Canvas(input.shape.width, input.shape.height, input.short);
+          ? h3Canvas(like.width, like.height, input.short, H3_FORM_PIXELS)
+          : h3Canvas(input.shape.width, input.shape.height, input.short, H3_FORM_PIXELS);
 
     const g = new GraphBuilder();
     const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
@@ -348,9 +380,38 @@ export const h3Video = defineRecipe<H3Video>({
       latent_image: latent,
     });
 
+    // the upscale pass: the finished latent enlarged, then re-sampled lightly, one stretch of frames and one
+    // tile at a time (the node offloads the model between the two, so both fit where one does). The sound
+    // is carried through untouched. The same model, sampler and conditioning as the clip
+    let finished: Ref = [sampled, 0];
+    const upscaling = input.upscale && ctx.has("MMH3UltimateUpscale");
+    if (upscaling) {
+      const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
+      const big = { width: r32(width * input.upscaleBy), height: r32(height * input.upscaleBy) };
+      const withModel = input.upscaleWith !== "Plain resize" && Boolean(slots.latentUpscaler) && ctx.has("MMH3LatentUpscaleWithModelParams");
+      if (input.upscaleWith === "H3's latent upscaler" && !withModel) throw new Error("H3's latent upscaler was not found: put minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, or set the upscale pass to a plain resize.");
+      g.phase("upscaling");
+      const enlarge = withModel
+        ? g.out("MMH3LatentUpscaleWithModelParams", { model_name: slots.latentUpscaler, ...big, device: "cuda", precision: "fp16", offload_model: true })
+        : g.out("MMH3LatentUpscaleParams", { method: "bicubic", ...big });
+      const tiles = g.out("MMH3SpatialSplitParams", {
+        upscale_width: big.width, upscale_height: big.height, tile_size_mode: "specific_size", tile_width: input.upscaleTile, tile_height: input.upscaleTile, grid_rows: 2, grid_cols: 2,
+        spatial_w_overlap: input.upscaleOverlap, spatial_h_overlap: input.upscaleOverlap, fade_width: 64, fade_height: 64, min_tile_size: 256,
+        overlap_mode: "later", overlap_blend: "linear", masked_area_noise: 0, brightness_match: false, dynamic_fade: "off", dynamic_fade_min: 32,
+      });
+      const stretches = g.out("MMH3TemporalSplitParams", { chunk_length: input.upscaleChunk, temporal_overlap: 17, anchor_strength: 0.999 });
+      g.phase("refining");
+      finished = g.out("MMH3UltimateUpscale", {
+        model, conditioning: positive, latent: [sampled, 0], noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
+        sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
+        sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps: input.upscaleSteps, denoise: input.upscaleDenoise }),
+        cfg: 1, latent_upscale_param: enlarge, temporal_split_param: stretches, spatial_split_param: tiles,
+      });
+    }
+
     g.phase("decoding");
-    let images = g.out("VAEDecode", { samples: [sampled, 0], vae });
-    const audio = g.out("VAEDecodeAudio", { samples: [sampled, 0], vae: audioVae });
+    let images = g.out("VAEDecode", { samples: finished, vae });
+    const audio = g.out("VAEDecodeAudio", { samples: finished, vae: audioVae });
     const smooth = input.smooth && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
     if (smooth) {
       g.phase("interpolating");
@@ -380,7 +441,9 @@ export const h3Video = defineRecipe<H3Video>({
     const small = card.vramGb <= 13;
     const tiny = card.vramGb <= 9;
     const gb = Math.round(card.vramGb);
-    if (input.short >= 768 && input.seconds > 6 && small) out.push({ input: "short", level: "heavy" as const, text: `probably too big for a ${gb} GB card at this length` });
+    if (input.short > 768) out.push({ input: "short", level: "heavy" as const, text: "past what the model was trained for: slower, and it may drift" });
+    if (input.upscale) out.push({ input: "upscale", level: "slow" as const, text: "about as long again as the clip itself" });
+    else if (input.short >= 768 && input.seconds > 6 && small) out.push({ input: "short", level: "heavy" as const, text: `probably too big for a ${gb} GB card at this length` });
     else if (input.short > (tiny ? 480 : 576) && small) out.push({ input: "short", level: "slow" as const, text: `slow on your ${gb} GB card` });
     if (input.seconds > 8 && small) out.push({ input: "seconds", level: "slow" as const, text: `long clips slow down a lot on a ${gb} GB card: two clips that flow on are faster` });
     if (input.sharpRefs && input.references.length) out.push({ input: "sharpRefs", level: "slow" as const, text: "several times slower" });
@@ -443,6 +506,8 @@ export const h3Video = defineRecipe<H3Video>({
         input: { description: "a", start: "p1", mid: "p2", midAt: 2.5 },
         slots: all, uploads: { start: "a.png", mid: "m.png" }, media: { start: picture },
       },
+      { name: "with the upscale pass, plain resize", input: { description: "a", upscale: true }, slots: all },
+      { name: "with the upscale pass, H3's upscaler", input: { description: "a", upscale: true, upscaleBy: 1.5, fast: false }, slots: { ...all, latentUpscaler: "minimax_h3_latent_upscaler_3d_fp16.safetensors" } },
       {
         name: "a voice only, with the picture of who speaks",
         input: { description: "a", start: "p1", voice: "v1" },

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type OutputFile, type WaitOptions } from "@studai/comfy";
-import { baseModels, mainModel, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
+import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@studai/comfy";
+import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
 import { cutFrames, referenceClip, frameAt, soundPart } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
@@ -10,6 +10,7 @@ import { extOf, mimeOfFile, pngSize } from "./media";
 import type { Storage } from "./storage";
 import { makeThumb, maskBox, readPicture, thumbKey } from "./thumbs";
 import { estimateMs, rates, type Rate } from "./estimates";
+import { guessFor, known, usualParts } from "./renders";
 import { EXPORT_JOB, type ExportOptions, type TakeLinks, type Timelines } from "./timelines";
 import { readVideo } from "./video";
 
@@ -38,6 +39,8 @@ interface Resume {
   /** A timeline clip: the takes it was joined onto, and what else it was made from. */
   links?: TakeLinks;
   sources?: Array<{ asset: string; role: string }>;
+  /** For the record of render times: what it is filed under, whether its model had to load, and what was expected of it. */
+  timing?: { model: string; modelFile: string; timeKey: string; cold: boolean; expectedMs: number | null; expect: { laterMs?: number; finishMs?: number } };
 }
 
 /** A form's values with something in every text that must be written: to load its models, what the text says does not matter. */
@@ -313,11 +316,20 @@ export class Queue {
     return Number(r.numDeletedRows) > 0;
   }
 
-  private known: { at: number; rates: Record<string, Rate> } | null = null;
+  private known: { at: number; rates: Record<string, Rate>; record: Record<string, Known> } | null = null;
   /** How long things usually take, worked out at most twice a minute. */
-  private async usual(): Promise<Record<string, Rate>> {
-    if (!this.known || Date.now() - this.known.at > 30_000) this.known = { at: Date.now(), rates: await rates(this.db) };
-    return this.known.rates;
+  private async usual() {
+    if (!this.known || Date.now() - this.known.at > 30_000) this.known = { at: Date.now(), rates: await rates(this.db), record: await known(this.db) };
+    return this.known;
+  }
+
+  /**
+   * About how long a render will take: from the record of renders like it (and then with what loading
+   * its model adds, when it is not the one loaded), else from the totals of before there was a record.
+   */
+  private expected(usual: { rates: Record<string, Rate>; record: Record<string, Known> }, recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): number | null {
+    const g = guessFor(usual.record, recipe, input);
+    return g ? g.ms + (cold ? g.loadMs : 0) : estimateMs(usual.rates, recipe, input);
   }
 
   async setPaused(paused: boolean): Promise<void> {
@@ -350,9 +362,16 @@ export class Queue {
       .limit(20)
       .execute();
     const usual = await this.usual();
+    // down the line, a job whose model is not the one before it has to load it first
+    let held = this.lastLoads === null ? null : new Set(this.lastLoads.split("|").map(modelName));
     const brief = (r: JobRow) => {
       const recipe = this.registry.recipe(r.recipe_id);
-      return { ...plain(r), estimateMs: r.status === "queued" && recipe && !r.warm ? estimateMs(usual, recipe, JSON.parse(r.inputs) as Record<string, unknown>) : null };
+      if (r.status !== "queued" || !recipe || r.warm) return { ...plain(r), estimateMs: null };
+      const input = JSON.parse(r.inputs) as Record<string, unknown>;
+      const model = modelOf(recipe.inputs, input);
+      const cold = Boolean(model && held && !held.has(model));
+      if (model) held = new Set([model]);
+      return { ...plain(r), estimateMs: this.expected(usual, recipe, input, cold) };
     };
     const plain = (r: JobRow) => ({
       id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
@@ -497,6 +516,10 @@ export class Queue {
     const recipe = this.registry.recipe(row.recipe_id);
     if (!recipe) return this.finish(row.id, "failed", { error: `the recipe ${row.recipe_id} no longer exists` });
     let resume = row.resume ? (JSON.parse(row.resume) as Resume) : null;
+    // a render this process finds already under way is not measured from its first moment
+    const whole = !resume;
+    let measured: Measured | null = null;
+    let made: string | undefined;
     const attempts = row.attempts + (resume ? 0 : 1);
     // claim it in one statement: a cancel that landed while ComfyUI was being pinged wins
     const claimed = await this.db
@@ -526,22 +549,26 @@ export class Queue {
       }
       comfy.monitor.ensure();
       // after a restart this process has a new client id: the monitor then listens under the one that queued it
-      comfy.monitor.track({ promptId: resume.promptId, totalSteps: resume.totalSteps, phases: resume.phases, passes: resume.passes, clientId: resume.clientId });
+      comfy.monitor.track({ promptId: resume.promptId, totalSteps: resume.totalSteps, phases: resume.phases, passes: resume.passes, clientId: resume.clientId, expect: resume.timing?.expect });
       comfy.monitor.onChange = () => this.events.emit("progress");
       let outputs;
       try {
         outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal });
       } finally {
+        measured = comfy.monitor.measured(resume.promptId);
         comfy.monitor.untrack(resume.promptId);
       }
+      const tookMs = Date.now() - resume.startedAt;
       if (row.warm) {
         // the models are loaded, which is all that was asked
         await this.finish(row.id, "done");
         return;
       }
       const generationId = await this.store(comfy, recipe, resume.input ?? input, resume, outputs, row);
+      made = generationId;
       if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {});
       await this.finish(row.id, "done", { generationId });
+      await this.note(row, recipe, resume, measured, "done", whole, tookMs, generationId);
       this.events.emit("library");
     } catch (err) {
       const message = (err as Error).message;
@@ -549,16 +576,50 @@ export class Queue {
         // shutting down: leave the row as it is, the next start picks it up
       } else if (err instanceof ComfyCancelled || abort.signal.aborted) {
         await this.finish(row.id, "cancelled", { error: "stopped by you" });
+        if (resume && !made && !row.warm) await this.note(row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
       } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && attempts < this.opts.maxAttempts) {
         console.warn(`[queue] job ${row.id} lost (${message}), queued again`);
         await this.db.updateTable("jobs").set({ status: "queued", resume: null, updated_at: now() }).where("id", "=", row.id).execute();
         this.events.emit("queue");
       } else {
         await this.finish(row.id, "failed", { error: message.slice(0, 600) });
+        // what never reached ComfyUI took no GPU time: only a render that was under way is put on record
+        if (resume && !made && !row.warm) await this.note(row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
       }
     } finally {
       this.running = null;
       void this.armIdle();
+    }
+  }
+
+  /** Put a render on the record of render times. Never in the way of the render itself: a failure here is only said. */
+  private async note(row: JobRow, recipe: Recipe<any>, resume: Resume, measured: Measured | null, status: "done" | "failed" | "cancelled", whole: boolean, totalMs: number, generationId?: string): Promise<void> {
+    try {
+      const made = generationId ? await this.db.selectFrom("assets").select(["id", "kind", "width", "height", "duration_ms"]).where("generation_id", "=", generationId).orderBy("created_at").executeTakeFirst() : undefined;
+      const spent = measured?.phases ?? {};
+      const of = (...phases: string[]) => Math.round(phases.reduce((n, p) => n + (spent[p] ?? 0), 0));
+      const load = of("waiting", "loading");
+      const sample = of("sampling");
+      const refine = of("upscaling", "refining", "detailing");
+      // what is left is the finishing: decoding, smoothing, saving (and anything a workflow of its own does that has no name here)
+      const finish = measured ? Math.max(0, Math.round(totalMs) - load - sample - refine) : 0;
+      await this.db
+        .insertInto("render_stats")
+        .values({
+          id: row.id, owner_id: OWNER, recipe_id: recipe.id, family: recipe.family,
+          model: resume.timing?.model ?? "", model_file: resume.timing?.modelFile ?? "", time_key: resume.timing?.timeKey ?? "",
+          kind: made?.kind ?? null, width: made?.width ?? null, height: made?.height ?? null, duration_ms: made?.duration_ms ?? null,
+          steps: resume.totalSteps, status, whole: whole && measured ? 1 : 0, cold: resume.timing?.cold ? 1 : 0,
+          waited_ms: Math.max(0, resume.startedAt - new Date(row.created_at).getTime()),
+          total_ms: Math.round(totalMs), load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish,
+          step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null,
+          vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, created_at: now(),
+        })
+        .onConflict((oc) => oc.column("id").doNothing())
+        .execute();
+      this.known = null;
+    } catch (err) {
+      console.warn(`[queue] the time of job ${row.id} was not put on record: ${(err as Error).message}`);
     }
   }
 
@@ -660,10 +721,16 @@ export class Queue {
     // Another base model is coming: ComfyUI's memory is cleared for it. A graph with no base model of
     // its own (an upscale, a background removal) changes nothing: what is loaded stays, and stays noted.
     const base = baseModels(built);
+    const cold = base.length > 0 && !this.holding(base);
     if (base.length) {
-      if (!this.holding(base)) await comfy.client.free().catch(() => {});
+      if (cold) await comfy.client.free().catch(() => {});
       await this.loaded(base.join("|"), mainModel(built));
     }
+    const timing: Resume["timing"] = {
+      model: mainModel(built) ?? "", modelFile: modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase(),
+      timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: this.expected(await this.usual(), recipe, chosen, cold),
+      expect: await usualParts(this.db, recipe, chosen).catch(() => ({})),
+    };
 
     comfy.monitor.ensure();
     await comfy.monitor.ready();
@@ -677,7 +744,7 @@ export class Queue {
     const promptId = await comfy.client.submit(built.graph, { preview: "latent2rgb" });
     return {
       promptId, seed, outputs: built.outputs, totalSteps: built.totalSteps, phases: built.phases, passes: built.passes,
-      clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now(),
+      clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now(), timing,
       ...(plan ? { input, links: plan.links, sources: plan.sources } : {}),
       ...(built.overlap ? { overlap: built.overlap } : {}),
     };

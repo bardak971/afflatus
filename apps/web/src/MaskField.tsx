@@ -3,7 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 import { Brush, Eraser, Minus, Plus, Undo2, X } from "lucide-react";
 import { api, fileUrl, thumbUrl } from "./api";
 import { useAsset } from "./data";
-import { Button, cx, ErrorNote, NumberBox, Segmented } from "./ui";
+import { Button, cx, ErrorNote, NumberBox, Segmented, Note, Help } from "./ui";
+import { useExplain } from "./store";
 
 /** The paint is kept on a canvas no larger than this on its long side: enough to follow an outline, light enough to undo. */
 const WORK_EDGE = 1600;
@@ -38,6 +39,7 @@ export function MaskField({ label, note, picture, value, onChange }: {
   value: string | null;
   onChange(value: string | undefined): void;
 }) {
+  const explain = useExplain((st) => st.on);
   const [painting, setPainting] = useState(false);
   const mask = useAsset(value);
   // painted on another picture than the one in the form now: it no longer says anything
@@ -50,8 +52,8 @@ export function MaskField({ label, note, picture, value, onChange }: {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-semibold">{label}</span>
-        {note && <span className="text-xs text-ink-2">{note}</span>}
+        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
+        {explain && <Note text={note} />}
       </div>
       {!picture ? (
         <div className="flex h-[72px] items-center justify-center rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-3">Choose the picture first.</div>

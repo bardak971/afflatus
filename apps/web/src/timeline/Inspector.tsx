@@ -11,7 +11,8 @@ import { about, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { Select } from "../Select";
-import { Bar, Button, cx, ErrorNote, NumberBox, SectionTitle, Segmented, Toggle } from "../ui";
+import { Bar, Button, cx, ErrorNote, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
+import { usePanelWidth } from "../store";
 import { otherShape, pinInputs, shapeOf } from "./model";
 
 /** A slider that says its value while it moves and saves it when it is let go. */
@@ -39,7 +40,8 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
   const [picking, setPicking] = useState(false);
   if (!m) return null;
   return (
-    <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
+    <aside style={{ width: usePanelWidth.getState().width }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
+      <PanelEdge side="left" />
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
         <Music size={15} className="text-accent" />
         <span className="font-semibold">Music</span>
@@ -94,6 +96,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   /** Open the designer for this clip. */
   onDesigner(): void;
 }) {
+  const panelWidth = usePanelWidth((st) => st.width);
   const all = useRecipes();
   const setup = useSetup();
   const entities = useEntities();
@@ -133,7 +136,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const heard = clip.sound === "file" ? "file" : clip.sound === "muted" && hasOwn ? "muted" : "own";
 
   return (
-    <aside data-designer-stays className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
+    <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
+      <PanelEdge side="left" />
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <span className="font-semibold">{still ? "Picture" : "Clip"} {index + 1}</span>
         <span className="text-ink-2">{clip.lengthMs ? `${(clip.lengthMs / 1000).toFixed(1)} s` : "not rendered yet"}</span>

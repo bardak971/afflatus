@@ -963,3 +963,57 @@ describe("Wan: the models fit the way the clip is made", () => {
     expect(() => build(words, { clip: "c.safetensors", vae: "v.safetensors" }, true)).toThrow(/do not look at the start image/);
   });
 });
+
+describe("H3's upscale pass", () => {
+  const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors" };
+  const node = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const build = (over: Record<string, unknown>, more: Record<string, string> = {}, has: (c: string) => boolean = () => true) =>
+    h3Video.build(parseInput(h3Video, { description: "a", ...over }), dryContext({ slots: { ...slots, ...more }, has }));
+
+  it("is off by itself: the clip is decoded as it was sampled", () => {
+    const b = build({});
+    expect(node(b, "MMH3UltimateUpscale")).toHaveLength(0);
+    expect(node(b, "VAEDecode")[0]!.inputs.samples).toEqual(node(b, "VAEDecode")[0]!.inputs.samples);
+  });
+
+  it("enlarges the finished latent and re-samples it lightly, in tiles and stretches, with the sound carried through", () => {
+    const b = build({ upscale: true, short: 576 });
+    const up = node(b, "MMH3UltimateUpscale")[0]!;
+    expect(up.inputs).toMatchObject({ cfg: 1 });
+    // what was sampled goes in; what comes out is what is decoded, video and sound alike
+    const sampled = node(b, "SamplerCustomAdvanced")[0]!;
+    const sampledId = Object.entries(b.graph).find(([, n]) => n === sampled)![0];
+    expect(up.inputs.latent).toEqual([sampledId, 0]);
+    const upId = Object.entries(b.graph).find(([, n]) => n === up)![0];
+    expect(node(b, "VAEDecode")[0]!.inputs.samples).toEqual([upId, 0]);
+    expect(node(b, "VAEDecodeAudio")[0]!.inputs.samples).toEqual([upId, 0]);
+    // twice the frame, on the model's grid; without the upscaler's file, a plain resize
+    expect(node(b, "MMH3LatentUpscaleParams")[0]!.inputs).toMatchObject({ method: "bicubic", width: 1152, height: 2048 });
+    expect(node(b, "MMH3LatentUpscaleWithModelParams")).toHaveLength(0);
+    expect(node(b, "MMH3SpatialSplitParams")[0]!.inputs).toMatchObject({ upscale_width: 1152, upscale_height: 2048, tile_width: 512, spatial_w_overlap: 128 });
+    expect(node(b, "MMH3TemporalSplitParams")[0]!.inputs).toMatchObject({ chunk_length: 85, temporal_overlap: 17 });
+    // one light step
+    const sigmas = node(b, "BasicScheduler").find((n) => n.inputs.denoise === 0.2)!;
+    expect(sigmas.inputs.steps).toBe(1);
+    expect(b.phases[upId]).toBe("refining");
+  });
+
+  it("uses H3's own upscaler when its file is there, and says so when it is asked for but missing", () => {
+    const b = build({ upscale: true, upscaleBy: 1.5 }, { latentUpscaler: "minimax_h3_latent_upscaler_3d.safetensors" });
+    expect(node(b, "MMH3LatentUpscaleWithModelParams")[0]!.inputs).toMatchObject({ model_name: "minimax_h3_latent_upscaler_3d.safetensors", width: 864, height: 1536, offload_model: true });
+    expect(node(b, "MMH3LatentUpscaleParams")).toHaveLength(0);
+    expect(node(build({ upscale: true, upscaleWith: "Plain resize" }, { latentUpscaler: "x.safetensors" }), "MMH3LatentUpscaleParams")).toHaveLength(1);
+    expect(() => build({ upscale: true, upscaleWith: "H3's latent upscaler" })).toThrow(/latent_upscale_models/);
+    // without the node pack, the pass is left out rather than refused
+    expect(node(build({ upscale: true }, {}, (c) => !c.startsWith("MMH3")), "MMH3UltimateUpscale")).toHaveLength(0);
+  });
+
+  it("the frame: the short side in the shape's proportions, past 768p when asked, and a picture decides it instead", () => {
+    expect(h3Canvas(576, 1024, 1088, 1088 * 1920)).toEqual({ width: 1088, height: 1920 });
+    // the old cap still holds where nothing asked for more (a timeline's canvas)
+    expect(h3Canvas(1080, 1920, 1080).width * h3Canvas(1080, 1920, 1080).height).toBeLessThanOrEqual(768 * 1344);
+    const spec = h3Video.inputs.find((i) => i.id === "shape")!;
+    expect(spec).toMatchObject({ type: "size", short: "short", maxPixels: 1088 * 1920, decidedBy: ["start", "end", "previous", "next"] });
+    expect(h3Video.inputs.find((i) => i.id === "short")).toMatchObject({ max: 1088, picks: [480, 576, 768, 1088] });
+  });
+});

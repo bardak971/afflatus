@@ -39,7 +39,7 @@ export const flux = defineFamily({
       get: { file: "ae.safetensors", url: "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" },
     },
     {
-      id: "kontext", label: "Kontext (the model that edits)", folder: "diffusion_models", detect: ["flux.?1.*kontext", "kontext"], optional: true,
+      id: "kontext", label: "Kontext model", folder: "diffusion_models", detect: ["flux.?1.*kontext", "kontext"], optional: true,
       hint: "Without it there is no Edit. Put flux1-dev-kontext_*.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "flux1-dev-kontext_fp8_scaled.safetensors", url: "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors" },
     },

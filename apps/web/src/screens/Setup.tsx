@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type LlmInfo, type Settings } from "../api";
 import { useFamilies, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { Link } from "wouter";
@@ -9,7 +9,7 @@ import { allowNotifications, useNotify } from "../store";
 import { DownloadRow, GetFile, useDownloads } from "../GetFile";
 import { Select } from "../Select";
 import { AppearanceCard } from "../theme/Appearance";
-import { AutoText, Button, cx, ErrorNote, NumberBox, Toggle } from "../ui";
+import { AutoText, Button, cx, ErrorNote, NumberBox, Segmented, Toggle } from "../ui";
 
 /** Where the space goes, and the two ways to get some back. */
 function StorageCard() {
@@ -77,7 +77,45 @@ function StorageCard() {
       <div className="text-xs text-ink-3">
         Results you do not keep go to the bin after 24 hours{s && s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.
       </div>
+      <RenderRecord />
     </section>
+  );
+}
+
+const KEEP_FOR = [{ value: "30", label: "30 days" }, { value: "90", label: "90 days" }, { value: "365", label: "A year" }, { value: "0", label: "For good" }];
+
+/** The record of render times (Queue, "Render times"): how long each render is kept one by one, how much room it takes, and a way to forget it. */
+function RenderRecord() {
+  const client = useQueryClient();
+  const settings = useSettings();
+  const record = useQuery({ queryKey: ["assets", "render-record-size"], queryFn: api.renderRecordSize });
+  const [forgetting, setForgetting] = useState(false);
+  const forget = useMutation({ mutationFn: api.clearRenderRecord, onSuccess: () => client.invalidateQueries({ queryKey: ["assets"] }) });
+  const keep = useMutation({ mutationFn: (days: number) => api.saveSettings({ renderHistoryDays: days }), onSuccess: (saved) => client.setQueryData(["settings"], saved) });
+  const r = record.data;
+  const days = settings.data?.renderHistoryDays ?? 90;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          Render times{r ? `: ${r.renders} render${r.renders === 1 ? "" : "s"} one by one${r.days ? `, ${r.days} day${r.days === 1 ? "" : "s"} as figures` : ""} · ${size(r.bytes)}` : ""}
+        </span>
+        <div className="w-72"><Segmented label="How long each render is kept one by one" value={String(days)} options={KEEP_FOR} onChange={(v) => keep.mutate(Number(v))} /></div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-3">
+        <span>What the Queue's "Render times" and the estimates on the buttons are made from. Older renders are folded into one line per model and day, kept for good: the charts still reach back, the list does not.</span>
+        {forgetting ? (
+          <span className="flex items-center gap-1.5">
+            <span className="text-ink-2">The estimates start again from nothing.</span>
+            <Button size="sm" tone="danger" disabled={forget.isPending} onClick={() => { forget.mutate(); setForgetting(false); }}>Forget them</Button>
+            <Button size="sm" tone="quiet" onClick={() => setForgetting(false)}>Cancel</Button>
+          </span>
+        ) : (
+          <Button size="sm" onClick={() => setForgetting(true)} disabled={!r || (!r.renders && !r.days)}>Forget every render time</Button>
+        )}
+      </div>
+      {(forget.isError || keep.isError) && <ErrorNote>{(forget.error ?? keep.error)?.message}</ErrorNote>}
+    </div>
   );
 }
 

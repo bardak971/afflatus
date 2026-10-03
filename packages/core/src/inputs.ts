@@ -21,6 +21,12 @@ interface Base {
    * user can save a value per model; it then replaces the default whenever that model is picked.
    */
   perModel?: boolean;
+  /**
+   * Where the form shows it: "out" with what comes out (the size, the length); among the settings,
+   * "speed" (steps, CFG, sampling), "file" (frames a second, saving) or "rare". Left out: the form
+   * reads it from the input's name.
+   */
+  section?: "out" | "speed" | "file" | "rare";
 }
 
 export interface PromptInput extends Base {
@@ -80,6 +86,13 @@ export interface SizeInput extends Base {
    * short side"). The form then offers shapes, not pixels to type.
    */
   ratioOnly?: boolean;
+  /** With `ratioOnly`: the number input that gives the short side, and the most pixels the frame may have, so the form can say what frame comes out (see frameOf). */
+  short?: string;
+  maxPixels?: number;
+  /** Inputs that decide the shape when they hold something (a start image, a clip joined): the shape then does nothing, and says so. */
+  decidedBy?: string[];
+  /** A pass that enlarges what comes out: the toggle that turns it on and the number it multiplies by, so the form can say the final frame. */
+  scaledBy?: { on: string; by: string };
 }
 export interface NumberInput extends Base {
   type: "number";
@@ -88,6 +101,8 @@ export interface NumberInput extends Base {
   step: number;
   default: number;
   unit?: string;
+  /** Values offered as one click under the slider (the usual resolutions), the number staying typeable. */
+  picks?: number[];
 }
 export interface ToggleInput extends Base {
   type: "toggle";

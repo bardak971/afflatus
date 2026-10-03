@@ -116,8 +116,8 @@ export interface MaskSettings {
   maskBlur: number;
 }
 export const MASK_INPUTS: InputSpec[] = [
-  { id: "maskGrow", type: "number", label: "Grow the mask", note: "how far past what you painted the new part reaches when it is put back. 0 picks it from the size of the part", min: 0, max: 64, step: 1, default: 0, unit: " px", advanced: true },
-  { id: "maskBlur", type: "number", label: "Soften the mask's edge", note: "how wide the blend between the new part and the picture is: more hides a seam, less keeps the new part exact. 0 picks it from the size of the part", min: 0, max: 31, step: 1, default: 0, unit: " px", advanced: true },
+  { id: "maskGrow", type: "number", label: "Mask grow (dilate)", note: "how far past what you painted the new part reaches when it is put back. 0 picks it from the size of the part", min: 0, max: 64, step: 1, default: 0, unit: " px", advanced: true },
+  { id: "maskBlur", type: "number", label: "Mask blur", note: "how wide the blend between the new part and the picture is: more hides a seam, less keeps the new part exact. 0 picks it from the size of the part", min: 0, max: 31, step: 1, default: 0, unit: " px", advanced: true },
 ];
 
 /** The face detailer's own settings: the same whichever model redraws the face. */
@@ -131,11 +131,11 @@ export interface FaceSettings {
 }
 export const FACE_INPUTS: InputSpec[] = [
   { id: "faceThreshold", type: "number", label: "Detection threshold", note: "how sure the detector must be that it is a face. Lower finds more: small or turned faces, and more mistakes", min: 0.1, max: 0.95, step: 0.05, default: 0.5, advanced: true },
-  { id: "faceCrop", type: "number", label: "Room around the face", note: "how much around the face is redrawn with it, in face sizes: 3 takes in the hair and the neck", min: 1, max: 6, step: 0.5, default: 3, unit: "×", advanced: true },
-  { id: "faceGrow", type: "number", label: "Grow the face area", note: "the area that is found, made larger by this much before it is redrawn", min: 0, max: 64, step: 1, default: 10, unit: " px", advanced: true },
-  { id: "faceSize", type: "number", label: "Size the face is redrawn at", note: "a face smaller than this is enlarged to it first: larger is sharper and slower", min: 256, max: 1536, step: 64, default: 768, unit: " px", advanced: true },
-  { id: "faceMax", type: "number", label: "Largest size it is redrawn at", note: "a face larger than this is brought down to it", min: 512, max: 2048, step: 64, default: 1024, unit: " px", advanced: true },
-  { id: "faceFeather", type: "number", label: "Soft edge", note: "how softly the redrawn face is blended back", min: 0, max: 64, step: 1, default: 5, unit: " px", advanced: true },
+  { id: "faceCrop", type: "number", label: "Face crop factor", note: "how much around the face is redrawn with it, in face sizes: 3 takes in the hair and the neck", min: 1, max: 6, step: 0.5, default: 3, unit: "×", advanced: true },
+  { id: "faceGrow", type: "number", label: "Face mask dilation", note: "the area that is found, made larger by this much before it is redrawn", min: 0, max: 64, step: 1, default: 10, unit: " px", advanced: true },
+  { id: "faceSize", type: "number", label: "Face guide size", note: "a face smaller than this is enlarged to it first: larger is sharper and slower", min: 256, max: 1536, step: 64, default: 768, unit: " px", advanced: true },
+  { id: "faceMax", type: "number", label: "Face max size", note: "a face larger than this is brought down to it", min: 512, max: 2048, step: 64, default: 1024, unit: " px", advanced: true },
+  { id: "faceFeather", type: "number", label: "Mask feather", note: "how softly the redrawn face is blended back", min: 0, max: 64, step: 1, default: 5, unit: " px", advanced: true },
 ];
 
 /** How much "Upscale" enlarges. */

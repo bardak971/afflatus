@@ -1,3 +1,4 @@
+import { useExplain } from "./store";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Upload, X } from "lucide-react";
@@ -7,7 +8,7 @@ import { api, fileUrl, thumbUrl, type Asset } from "./api";
 import { useAsset, useAssets } from "./data";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
-import { Button, cx, Empty, ErrorNote, NumberBox } from "./ui";
+import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
 
 /** Send a picture from this computer to the library, then hand it over. */
 function useUpload(onDone: (asset: Asset) => void) {
@@ -141,7 +142,7 @@ export function PictureField({ label, optional, value, onChange }: {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-semibold">{label}</span>
+        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span></span>
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (
@@ -160,7 +161,7 @@ export function PictureField({ label, optional, value, onChange }: {
           className={cx("flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}
         >
           <ImagePlus size={17} />
-          <span>{upload.isPending ? "Adding…" : "Choose a picture, or drop one here"}</span>
+          <span>{upload.isPending ? "Adding…" : "Choose an image, or drop one here"}</span>
         </button>
       )}
       {upload.isError && <ErrorNote>{upload.error.message}</ErrorNote>}
@@ -194,6 +195,7 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
   value: ClipValue | null;
   onChange(value: ClipValue | undefined): void;
 }) {
+  const explain = useExplain((st) => st.on);
   const [picking, setPicking] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const asset = useAsset(value?.asset ?? null);
@@ -203,7 +205,7 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-semibold">{label}</span>
+        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (
@@ -232,7 +234,7 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
           <span>Choose a video, or drop one here</span>
         </button>
       )}
-      {note && <span className="text-xs text-ink-2">{note}</span>}
+      {explain && <Note text={note} />}
       {picking && (
         <Picker
           title={label}
@@ -271,13 +273,14 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
   value: ReferenceValue[];
   onChange(value: ReferenceValue[]): void;
 }) {
+  const explain = useExplain((st) => st.on);
   const [picking, setPicking] = useState(false);
   const add = (asset: string) => !value.some((v) => v.asset === asset) && value.length < max && onChange([...value, { asset, role: roles[0]! }]);
   const drop = useDropZone([video ? DRAG_VIDEO : DRAG_PICTURE], add);
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-semibold">{label}</span>
+        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         <span className="text-xs text-ink-2">{value.length} of {max}</span>
       </div>
       {value.map((ref, i) => (
@@ -304,10 +307,10 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
           className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}
         >
           <ImagePlus size={15} />
-          <span>{video ? "Add a reference video, or drop one here" : "Add a reference picture, or drop one here"}</span>
+          <span>{video ? "Add a reference video, or drop one here" : "Add a reference image, or drop one here"}</span>
         </button>
       )}
-      {note && <span className="text-xs text-ink-2">{note}</span>}
+      {explain && <Note text={note} />}
       {picking && (
         <Picker
           title={label}
@@ -333,6 +336,7 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
   /** Only a part of the sound is used: where it starts and how long it is, in seconds. */
   part?: { start: number; seconds: number; onStart(seconds: number): void; onSeconds(seconds: number): void };
 }) {
+  const explain = useExplain((st) => st.on);
   const [picking, setPicking] = useState(false);
   const asset = useAsset(value);
   // a sound of the library, or a video that has sound
@@ -344,7 +348,7 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-semibold">{label}</span>
+        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (
@@ -373,7 +377,7 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
           <span>Choose a sound, or drop one here</span>
         </button>
       )}
-      {note && <span className="text-xs text-ink-2">{note}</span>}
+      {explain && <Note text={note} />}
       {picking && (
         <Picker
           title={label}

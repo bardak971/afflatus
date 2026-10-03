@@ -39,7 +39,7 @@ export const qwen = defineFamily({
       get: { file: "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning/resolve/main/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors" },
     },
     {
-      id: "edit", label: "Qwen Image Edit (the model that edits)", folder: "diffusion_models", detect: ["qwen.?image.?edit.*2511", "qwen.?image.?edit"], optional: true,
+      id: "edit", label: "Qwen Image Edit model", folder: "diffusion_models", detect: ["qwen.?image.?edit.*2511", "qwen.?image.?edit"], optional: true,
       hint: "Without it there is no Edit. Put qwen_image_edit_2511_*.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "qwen_image_edit_2511_fp8mixed.safetensors", url: `${HF_EDIT}/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors` },
     },
@@ -147,7 +147,7 @@ export const qwenEdit = defineRecipe<QwenEdit>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the sofa's leather to the fur of image 2, keep everything else the same." },
     {
-      id: "references", type: "references", label: "More images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],
+      id: "references", type: "references", label: "Additional images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],
       note: "something to take from: a person, a place, clothes, an object, a look. Call them \"image 2\" and \"image 3\" in the instruction",
     },
     ...kit.inputs.map((i) => (i.id === "steps" ? { ...i, default: 40, note: "40 in ComfyUI's template" } : i.id === "fast" ? { ...i, note: "4 steps at CFG 1, with the Lightning LoRA made for Edit" } : i) as InputSpec),

@@ -252,7 +252,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
   const estimates = useEstimates();
   /** About how long a clip takes to render, from past renders of its model. */
-  const takes = (c: Clip) => estimateFor(estimates.data?.rates, recipes.data?.recipes.find((r) => r.id === c.recipe), ready(c).input ?? inputsOf(c));
+  const takes = (c: Clip) => estimateFor(estimates.data, recipes.data?.recipes.find((r) => r.id === c.recipe), ready(c).input ?? inputsOf(c))?.ms ?? null;
   const allMs = missing.reduce((sum, c) => sum + (takes(c) ?? 0), 0);
 
   /** Where the playhead was put by hand on the track (it can stand on a clip that is not rendered yet); null while it follows what plays. */

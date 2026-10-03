@@ -63,6 +63,59 @@ export interface Tables {
   };
   /** Which assets a generation used, and as what: the lineage. */
   generation_inputs: { generation_id: string; asset_id: string; role: string };
+  /**
+   * How long a render took, and where the time went: one row per render that ran on ComfyUI, finished
+   * or not. Kept one by one for a while (a setting), then folded into `render_days`.
+   */
+  render_stats: {
+    /** The job's id. */
+    id: string;
+    owner_id: string;
+    recipe_id: string;
+    family: string;
+    /** The model it was made with, as a person would name it; and its file, as renders are compared. Empty when it has none of its own. */
+    model: string;
+    model_file: string;
+    /** What of its settings decides how long it takes (see timeKey). */
+    time_key: string;
+    kind: "image" | "video" | "audio" | null;
+    width: number | null;
+    height: number | null;
+    /** Of a video or a sound: its length. */
+    duration_ms: number | null;
+    steps: number;
+    status: "done" | "failed" | "cancelled";
+    /** 1: measured from its first moment (0: this process started while it was already rendering). */
+    whole: number;
+    /** 1: the model had to be loaded first. */
+    cold: number;
+    waited_ms: number;
+    total_ms: number;
+    load_ms: number;
+    sample_ms: number;
+    refine_ms: number;
+    finish_ms: number;
+    /** Of the first sampling pass; null when fewer than two steps were timed. */
+    step_ms: number | null;
+    /** What was expected before it started; null when nothing was known. */
+    expected_ms: number | null;
+    /** Percent of the GPU's memory, and degrees; null when nothing reports them. */
+    vram_peak: number | null;
+    heat_peak: number | null;
+    /** What it made (the first of them), to show beside its figures while it is still in the library. */
+    asset_id: string | null;
+    created_at: string;
+  };
+  /** The renders of one model on one day (UTC), folded: what the charts are drawn from once the rows are gone. Recipe "*" is the day as a whole. */
+  render_days: {
+    day: string;
+    recipe_id: string;
+    model_file: string;
+    model: string;
+    family: string;
+    /** JSON: the figures of the day (see Cell in renders.ts). */
+    figures: string;
+  };
   jobs: {
     id: string;
     owner_id: string;
@@ -559,6 +612,57 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0020_render_times"] = {
+  async up(db) {
+    await db.schema
+      .createTable("render_stats")
+      .addColumn("id", "text", (c) => c.primaryKey())
+      .addColumn("owner_id", "text", (c) => c.notNull())
+      .addColumn("recipe_id", "text", (c) => c.notNull())
+      .addColumn("family", "text", (c) => c.notNull())
+      .addColumn("model", "text", (c) => c.notNull())
+      .addColumn("model_file", "text", (c) => c.notNull())
+      .addColumn("time_key", "text", (c) => c.notNull())
+      .addColumn("kind", "text")
+      .addColumn("width", "integer")
+      .addColumn("height", "integer")
+      .addColumn("duration_ms", "integer")
+      .addColumn("steps", "integer", (c) => c.notNull())
+      .addColumn("status", "text", (c) => c.notNull())
+      .addColumn("whole", "integer", (c) => c.notNull())
+      .addColumn("cold", "integer", (c) => c.notNull())
+      .addColumn("waited_ms", "integer", (c) => c.notNull())
+      .addColumn("total_ms", "integer", (c) => c.notNull())
+      .addColumn("load_ms", "integer", (c) => c.notNull())
+      .addColumn("sample_ms", "integer", (c) => c.notNull())
+      .addColumn("refine_ms", "integer", (c) => c.notNull())
+      .addColumn("finish_ms", "integer", (c) => c.notNull())
+      .addColumn("step_ms", "real")
+      .addColumn("expected_ms", "integer")
+      .addColumn("vram_peak", "real")
+      .addColumn("heat_peak", "real")
+      .addColumn("asset_id", "text")
+      .addColumn("created_at", "text", (c) => c.notNull())
+      .execute();
+    await db.schema.createIndex("render_stats_at").on("render_stats").column("created_at").execute();
+    await db.schema.createIndex("render_stats_recipe").on("render_stats").columns(["recipe_id", "created_at"]).execute();
+    await db.schema
+      .createTable("render_days")
+      .addColumn("day", "text", (c) => c.notNull())
+      .addColumn("recipe_id", "text", (c) => c.notNull())
+      .addColumn("model_file", "text", (c) => c.notNull())
+      .addColumn("model", "text", (c) => c.notNull())
+      .addColumn("family", "text", (c) => c.notNull())
+      .addColumn("figures", "text", (c) => c.notNull())
+      .addPrimaryKeyConstraint("render_days_pk", ["day", "recipe_id", "model_file"])
+      .execute();
+  },
+  async down(db) {
+    await db.schema.dropTable("render_days").execute();
+    await db.schema.dropTable("render_stats").execute();
   },
 };
 

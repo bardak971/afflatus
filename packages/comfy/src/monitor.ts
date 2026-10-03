@@ -15,6 +15,23 @@ export interface Tracking {
    * the prompt was already running). ComfyUI sends a prompt's progress only to the client that queued it.
    */
   clientId?: string;
+  /**
+   * What renders like this one usually take after the first sampling pass, from the record of past
+   * renders: the passes that follow it, and the finishing (decoding, smoothing, saving). The time left
+   * counts them; without them it is the steps left at the pace so far.
+   */
+  expect?: { laterMs?: number; finishMs?: number };
+}
+
+/** What was measured while a prompt ran: what the record of render times is made of. */
+export interface Measured {
+  /** Milliseconds in each phase. "loading" is everything before the first step: the model, the text, the pictures. */
+  phases: Record<string, number>;
+  /** Milliseconds per step of the first sampling pass; null when fewer than two steps were timed. */
+  stepMs: number | null;
+  /** The highest share of the GPU's memory in use, in percent, and the hottest it got; null when nothing reports them. */
+  vramPeak: number | null;
+  heatPeak: number | null;
 }
 
 export interface Progress {
@@ -46,6 +63,13 @@ interface Tracked extends Tracking {
   samplingAt: number | null;
   stepsAtStart: number;
   preview: Preview;
+  /** The phase time is being counted for, and since when. */
+  clock: { phase: string; at: number };
+  spent: Record<string, number>;
+  /** The first node that reported steps: when its first and its latest step were reported, and which they were. */
+  firstPass: { node: string; phase: string; firstAt: number; firstValue: number; lastAt: number; lastValue: number } | null;
+  vramPeak: number | null;
+  heatPeak: number | null;
 }
 
 const SAMPLER_PHASES: ReadonlyArray<string> = ["sampling", "refining", "detailing"];
@@ -115,6 +139,7 @@ export class Monitor {
     this.tracked.set(t.promptId, {
       ...t, totalSteps: Math.max(1, t.totalSteps), done: 0, node: null, value: 0, max: 0, phase: "waiting",
       executing: null, samplingAt: null, stepsAtStart: 0, preview: { seq: 0 },
+      clock: { phase: "waiting", at: Date.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null,
     });
     if (t.clientId && t.clientId !== this.client.clientId) this.listenAs(t.clientId, t.promptId);
   }
@@ -161,6 +186,18 @@ export class Monitor {
     if (at > 0 && r.done === 0 && !r.node) r.done = r.passes!.slice(0, at).reduce((sum, p) => sum + p.steps, 0);
   }
 
+  /** The phase a prompt is in, as it is shown. ComfyUI loads the weights inside the first sampler: until it reports a step, that sampler is still "loading". */
+  private static phaseOf(r: Tracked): string {
+    return SAMPLER_PHASES.includes(r.phase) && !r.samplingAt ? "loading" : r.phase;
+  }
+
+  /** Count the time since the last message for the phase it was spent in. Called before a message changes the phase. */
+  private static tick(r: Tracked): void {
+    const at = Date.now();
+    r.spent[r.clock.phase] = (r.spent[r.clock.phase] ?? 0) + (at - r.clock.at);
+    r.clock.at = at;
+  }
+
   progress(promptId: string): Progress {
     const r = this.tracked.get(promptId);
     if (!r) return { progress: 0, eta: 0, phase: "waiting", step: 0, steps: 0 };
@@ -169,14 +206,32 @@ export class Monitor {
     let eta = 0;
     if (r.samplingAt && steps > r.stepsAtStart) {
       const perStep = (Date.now() - r.samplingAt) / 1000 / (steps - r.stepsAtStart);
-      eta = Math.max(0, (r.totalSteps - steps) * perStep + 2);
+      const finish = (r.expect?.finishMs ?? 2000) / 1000;
+      const first = r.passes?.[0];
+      // a second pass does not go at the pace of the first: what it usually takes is known from past renders
+      if (first && r.passes!.length > 1 && r.expect?.laterMs !== undefined && steps < first.steps) eta = (first.steps - steps) * perStep + r.expect.laterMs / 1000 + finish;
+      else eta = Math.max(0, (r.totalSteps - steps) * perStep + finish);
     }
-    // ComfyUI loads the weights inside the first sampler: until it reports a step, that sampler is still "loading"
-    const loading = SAMPLER_PHASES.includes(r.phase) && !r.samplingAt;
     return {
-      progress: Math.min(0.99, steps / r.totalSteps), eta, phase: loading ? "loading" : r.phase,
+      progress: Math.min(0.99, steps / r.totalSteps), eta, phase: Monitor.phaseOf(r) as Progress["phase"],
       step: Math.min(r.totalSteps, steps), steps: r.totalSteps,
     };
+  }
+
+  /** What was measured of a prompt so far. Read it before the prompt is untracked. */
+  measured(promptId: string): Measured | null {
+    const r = this.tracked.get(promptId);
+    if (!r) return null;
+    Monitor.tick(r);
+    const phases = { ...r.spent };
+    const p = r.firstPass;
+    const stepMs = p && p.lastValue > p.firstValue ? (p.lastAt - p.firstAt) / (p.lastValue - p.firstValue) : null;
+    // the first step is only reported once it is done: its time was counted as loading, and is a step's
+    if (p && stepMs && (phases.loading ?? 0) > stepMs) {
+      phases.loading = phases.loading! - stepMs;
+      phases[p.phase] = (phases[p.phase] ?? 0) + stepMs;
+    }
+    return { phases, stepMs, vramPeak: r.vramPeak, heatPeak: r.heatPeak };
   }
 
   preview(promptId: string): Preview {
@@ -205,6 +260,7 @@ export class Monitor {
     const load = systemLoadFrom(msg.type, msg.data);
     if (load) {
       this.system = load;
+      this.peaks(load);
       this.onSystem(load);
       return;
     }
@@ -215,6 +271,7 @@ export class Monitor {
       : msg.type === "kj_preview_override" ? this.current
       : about ? this.tracked.get(about) : undefined;
     if (!r) return;
+    Monitor.tick(r);
     if (msg.type === "kj_preview_override") {
       if (typeof d.image !== "string" || !d.image) return;
       // before its first step, each sampling pass sends what it starts from: noise, and on a pass that is
@@ -247,8 +304,20 @@ export class Monitor {
         r.stepsAtStart = r.done + r.value;
       }
       if (r.phases[node]) r.phase = r.phases[node];
+      if (!r.firstPass) r.firstPass = { node, phase: r.phase, firstAt: Date.now(), firstValue: r.value, lastAt: Date.now(), lastValue: r.value };
+      else if (r.firstPass.node === node && r.value > r.firstPass.lastValue) Object.assign(r.firstPass, { lastAt: Date.now(), lastValue: r.value });
       this.current = r;
     } else return;
+    r.clock.phase = Monitor.phaseOf(r);
     this.onChange(r.promptId);
+  }
+
+  /** The highest the GPU's memory and heat got while a prompt was running. */
+  peaks(load: SystemLoad): void {
+    const r = this.current;
+    const gpu = load.gpus[0];
+    if (!r || !gpu) return;
+    if (gpu.vramTotal > 0) r.vramPeak = Math.max(r.vramPeak ?? 0, gpu.vramPercent);
+    if (gpu.temperature !== undefined) r.heatPeak = Math.max(r.heatPeak ?? 0, gpu.temperature);
   }
 }

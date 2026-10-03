@@ -26,6 +26,8 @@ import { makeThumb, readPicture, thumbKey } from "./thumbs";
 import { probeMedia, soundOf } from "./cut";
 import { rates } from "./estimates";
 import { registerUsage } from "./usage";
+import { registerRenders } from "./renders-api";
+import { registerMetrics } from "./metrics";
 import { readVideo } from "./video";
 import { registerWorkflows } from "./workflows";
 
@@ -97,6 +99,8 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   registerWorkflows(app, s);
   registerTimelines(app, s);
   registerUsage(app, s);
+  registerRenders(app, s);
+  registerMetrics(app, s);
   registerEntities(app, s);
   registerDesigner(app, s);
   registerTags(app);
@@ -280,7 +284,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   });
 
   /** How long things usually take on this machine, per recipe: for "about 2 min" on buttons. */
-  app.get("/api/estimates", async () => ({ rates: await rates(s.db) }));
+
 
   // ---------------------------------------------------------------- queue
 

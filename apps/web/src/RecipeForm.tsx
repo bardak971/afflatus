@@ -1,16 +1,17 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, HelpCircle } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { isShown, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@studai/core";
+import { isShown, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@studai/core";
 import { api, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDragged } from "./dragging";
 import { Field, sameValue } from "./fields";
 import { formDefaults } from "./form";
 import { fileLabel } from "./format";
-import { Button, cx, ErrorNote } from "./ui";
+import { useExplain } from "./store";
+import { Button, cx, ErrorNote, Segmented } from "./ui";
 
 /**
  * Which parts of a form are open. Kept for every form and every visit: a part folded once stays
@@ -39,7 +40,7 @@ export function Part({ id, title, summary, warn, needs, children }: {
   const set = useParts((s) => s.set);
   const open = kept || Boolean(needs);
   return (
-    <section className={cx("rounded-[10px] border", open ? "border-line-strong" : "border-line bg-raised")}>
+    <section data-part={id} className={cx("scroll-mt-12 rounded-[10px] border", open ? "border-line-strong" : "border-line bg-raised")}>
       <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left">
         <span className="flex min-w-0 grow flex-col gap-0.5">
           <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
@@ -76,6 +77,73 @@ function TextFold({ spec, value, children }: { spec: Extract<InputSpec, { type: 
 }
 
 const isLoras = (v: unknown): v is LoraValue[] => Array.isArray(v);
+
+/** The groups the settings are shown in, in order, and what each is about. */
+type Group = "speed" | "upscale" | "file" | "rare";
+/** Where a setting goes: what its recipe says, else what its name says. */
+function groupOf(i: InputSpec): Group {
+  if (i.section === "speed" || i.section === "file" || i.section === "rare") return i.section;
+  const id = i.id;
+  if (/^upscale/i.test(id)) return "upscale";
+  if (/fps|crf|smooth|encod|format|quality$|frame.?rate/i.test(id)) return "file";
+  if (/preview|quick|^tile|loraStrength|sharpRefs|attention|offload|device|precision|cache(Threshold|Start|End|Steps)/i.test(id)) return "rare";
+  return "speed";
+}
+
+/**
+ * The strip at the top of a form: its parts in the order they are touched, the one in view marked;
+ * a click opens a part and scrolls to it. Beside them, whether the form explains its settings.
+ */
+function Strip({ parts, open }: { parts: Array<{ id: string; label: string }>; open(id: string): void }) {
+  const [current, setCurrent] = useState<string | null>(null);
+  const explain = useExplain();
+  const self = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // the nearest thing that scrolls: the form's parts scroll inside it
+    let root = self.current?.parentElement ?? null;
+    while (root && !/auto|scroll/.test(getComputedStyle(root).overflowY)) root = root.parentElement;
+    if (!root) return;
+    const elements = parts.map((p) => root.querySelector<HTMLElement>(`[data-part="${p.id}"]`)).filter((e): e is HTMLElement => e !== null);
+    // the part nearest the top of what is shown is the current one
+    const tell = () => {
+      const top = root.getBoundingClientRect().top + 56;
+      let best: string | null = null;
+      for (const el of elements) if (el.getBoundingClientRect().top <= top + 1) best = el.dataset.part ?? null;
+      setCurrent(best ?? elements[0]?.dataset.part ?? null);
+    };
+    tell();
+    root.addEventListener("scroll", tell, { passive: true });
+    return () => root.removeEventListener("scroll", tell);
+  }, [parts]);
+  return (
+    <div ref={self} className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center gap-x-1 gap-y-0.5 rounded-lg border border-line bg-raised/95 px-1 py-1 shadow-md shadow-shade/20 backdrop-blur">
+      {parts.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          onClick={() => {
+            open(p.id);
+            requestAnimationFrame(() => document.querySelector(`[data-part="${p.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+          }}
+          className={cx("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+        >
+          {p.label}
+        </button>
+      ))}
+      <span className="grow" />
+      <button
+        type="button"
+        aria-pressed={explain.on}
+        title={explain.on ? "The settings are explained under each one. Click to keep the explanations behind a ? instead." : "Explanations sit behind a ? beside each setting. Click to show them in full."}
+        onClick={() => explain.set(!explain.on)}
+        aria-label="Explain the settings"
+        className={cx("flex h-6 w-6 shrink-0 items-center justify-center rounded-full", explain.on ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}
+      >
+        <HelpCircle size={14} />
+      </button>
+    </div>
+  );
+}
 
 /**
  * The text a form is about: the one that must be written, else its first text. A negative prompt is
@@ -153,22 +221,30 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
     );
   };
 
-  // ---- which input goes in which part
+  // ---- which input goes in which chapter
   // the negative prompt sits under the prompt in every form that has one, wherever its recipe filed it
   // (a form with no prompt of its own keeps it with its other settings)
   const underPrompt = (i: InputSpec) => i.type === "prompt" && i.id === "negative" && Boolean(mainText);
-  const front = shown.filter((i) => !i.advanced || underPrompt(i));
-  const advanced = shown.filter((i) => i.advanced && !underPrompt(i));
   const length = secondsInput(recipe.inputs);
-  const isOut = (i: InputSpec) => i.type === "size" || i.type === "seed" || (i.type === "number" && (i.id === length?.id || i.unit?.trim() === "p"));
+  const isOut = (i: InputSpec) => i.section === "out" || i.type === "size" || i.type === "seed" || (i.type === "number" && (i.id === length?.id || i.unit?.trim() === "p"));
+  const isMedia = (i: InputSpec) => i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio";
+  const front = shown.filter((i) => !i.advanced || underPrompt(i) || isMedia(i));
   const texts = front.filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt" && i.id !== mainText?.id);
-  const from = front.filter((i) => i.type === "image" || i.type === "clip");
-  const inIt = front.filter((i) => i.type === "references" || i.type === "audio" || i.type === "loras");
+  // the inputs: the frames the clip is built on, and what it is shown
+  const frames = shown.filter((i) => i.type === "image" || i.type === "clip");
+  const refs = shown.filter((i) => i.type === "references" || i.type === "audio");
+  const loras = front.filter((i) => i.type === "loras");
   const out = front.filter(isOut);
   // the model's file and the operation's own settings (how much an img2img may redraw, which upscaler)
   const knobs = front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i)));
+  // the settings, by what they are about
+  const tuning = shown.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && !isOut(i));
+  const sampling = tuning.filter((i) => groupOf(i) === "speed");
+  const upscaling = tuning.filter((i) => groupOf(i) === "upscale");
+  const encoding = tuning.filter((i) => groupOf(i) === "file");
+  const rare = tuning.filter((i) => groupOf(i) === "rare");
 
-  // while something of the library is dragged, a part that has a place for it is open: the place is there to be dropped on
+  // while something of the library is dragged, a chapter that has a place for it is open: the place is there to be dropped on
   const dragged = useDragged((s) => s.types);
   const takes = (i: InputSpec) =>
     (i.type === "image" && i.role !== "mask" && dragged.includes(DRAG_PICTURE)) ||
@@ -176,7 +252,7 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
     (i.type === "references" && dragged.includes(i.media === "video" ? DRAG_VIDEO : DRAG_PICTURE)) ||
     (i.type === "audio" && (dragged.includes(DRAG_SOUND) || dragged.includes(DRAG_HAS_SOUND)));
 
-  // ---- what each part holds, in a few words
+  // ---- what each chapter holds, in a few words
   const said = (i: InputSpec): string => {
     const v = values[i.id];
     if (i.type === "model") return fileLabel(String(v ?? ""));
@@ -185,40 +261,62 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
     if (i.type === "choice") return fileLabel(String(v ?? ""));
     return "";
   };
-  const madeWith = [madeSummary, ...knobs.map(said)].filter(Boolean).join(" · ");
-  const chosen = from.filter((i) => values[i.id]);
-  const missing = from.some((i) => (i.type === "image" || i.type === "clip") && !i.optional && !values[i.id]);
-  const fromSaid = chosen.length ? chosen.map((i) => i.label).join(", ") : missing ? "Nothing chosen yet" : "Nothing: it starts from the prompt alone";
-  const inSaid = [
+  const loraCount = loras.reduce((n, i) => n + ((values[i.id] as LoraValue[] | undefined)?.length ?? 0), 0);
+  const modelSaid = [madeSummary, ...knobs.map(said), loraCount ? count(loraCount, "LoRA") : ""].filter(Boolean).join(" · ");
+  const framesChosen = frames.filter((i) => values[i.id]);
+  const missing = frames.some((i) => !i.optional && !values[i.id]);
+  const refsSaid = [
     lookSummary,
-    ...inIt.map((i) => {
+    ...refs.map((i) => {
       const v = values[i.id];
-      if (i.type === "references") return Array.isArray(v) && v.length ? count((v as ReferenceValue[]).length, i.media === "video" ? "reference video" : "reference picture") : "";
-      if (i.type === "audio") return v ? i.label.toLowerCase() : "";
-      return isLoras(v) && v.length ? count(v.length, "LoRA") : "";
+      if (i.type === "references") return Array.isArray(v) && v.length ? count((v as ReferenceValue[]).length, i.media === "video" ? "reference video" : "reference image") : "";
+      return v ? i.label.toLowerCase() : "";
     }),
-  ].filter(Boolean).join(" · ") || "Nobody and nothing added";
+  ].filter(Boolean);
+  const kind = recipe.output === "video" ? "vid" : recipe.output === "image" ? "img" : "audio";
+  const framesSaid = framesChosen.length ? framesChosen.map((i) => i.label.toLowerCase()).join(", ") : missing ? "nothing chosen yet" : frames.length ? `txt2${kind}` : "";
+  const inputsSaid = [framesSaid, ...refsSaid].filter(Boolean).join(" · ") || "none";
   const outSaid = out.map((i) => {
     const v = values[i.id];
     if (i.type === "size") {
       const s = v as SizeValue | undefined;
       const shape = i.shapes.find((x) => x.width === s?.width && x.height === s?.height);
-      return i.ratioOnly ? shape?.label ?? `${s?.width} : ${s?.height}` : `${shape ? `${shape.label} ` : ""}${s?.width} × ${s?.height}`;
+      if (!i.ratioOnly) return `${shape ? `${shape.label} ` : ""}${s?.width} × ${s?.height}`;
+      // what the short side and the proportions give: a picture or a clip in the form decides instead
+      const decided = (i.decidedBy ?? []).some((id) => { const x = values[id]; return Array.isArray(x) ? x.length > 0 : Boolean(x); });
+      const short = i.short ? Number(values[i.short]) : NaN;
+      const frame = !decided && s && Number.isFinite(short) && short > 0 ? frameOf(s, short, { grid: i.grid, maxPixels: i.maxPixels ?? Infinity }) : null;
+      const ratio = shape?.label ?? `${s?.width} : ${s?.height}`;
+      const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
+      const by = i.scaledBy && values[i.scaledBy.on] ? Number(values[i.scaledBy.by] ?? 2) : 0;
+      const up = frame && by ? ` → ${r32(frame.width * by)} × ${r32(frame.height * by)} · ${megapixels(r32(frame.width * by), r32(frame.height * by))}` : "";
+      return frame ? `${ratio} · ${frame.width} × ${frame.height} · ${megapixels(frame.width, frame.height)}${up}` : decided ? "size of the input image" : ratio;
     }
-    if (i.type === "seed") return Number(v ?? -1) === -1 ? "random seed" : `seed ${v}`;
-    if (i.type === "number") return `${v}${i.unit ?? ""}`;
+    if (i.type === "seed") return Number(v ?? -1) === -1 ? "seed: random" : `seed ${v}`;
+    // a pass that enlarges: said with the frame, not on its own
+    if (out.some((o) => o.type === "size" && (o.scaledBy?.on === i.id || o.scaledBy?.by === i.id))) return "";
+    if (i.type === "toggle") return v ? i.label.toLowerCase() : "";
+    if (i.type === "number") {
+      // the short side is already in the frame said for the shape, unless a picture decides the shape
+      const sizeOf = out.find((o): o is Extract<InputSpec, { type: "size" }> => o.type === "size" && o.short === i.id);
+      const decided = (sizeOf?.decidedBy ?? []).some((id) => { const x = values[id]; return Array.isArray(x) ? x.length > 0 : Boolean(x); });
+      if (sizeOf && !decided) return "";
+      return `${v}${i.unit ?? ""}`;
+    }
     return "";
   }).filter(Boolean).join(" · ");
-  const changed = advanced.filter((i) => !sameValue(values[i.id], defaults[i.id]));
-  const key = (id: string) => advanced.find((i) => i.id === id);
-  const allSaid = [
-    key("steps") ? `${values.steps} steps` : "",
+  const changedIn = (list: InputSpec[]) => list.filter((i) => !sameValue(values[i.id], defaults[i.id]));
+  const key = (id: string) => sampling.find((i) => i.id === id);
+  const samplingSaid = [
+    key("steps") ? `${values.steps} steps` : key("turboSteps") && values.fast ? `${values.turboSteps} steps` : "",
+    key("fast") && values.fast ? "Turbo" : "",
     key("cfg") ? `CFG ${values.cfg}` : "",
     // a sampler left to the recipe says so: "Auto" alone would say nothing
-    key("sampler") ? (values.sampler === "Auto" ? "sampler picked for you" : fileLabel(String(values.sampler ?? ""))) : "",
-  ].filter(Boolean).join(" · ") || count(advanced.length, "setting");
+    key("sampler") ? (values.sampler === "Auto" ? "sampler: auto" : fileLabel(String(values.sampler ?? ""))) : "",
+  ].filter(Boolean).join(" · ") || count(sampling.length + upscaling.length, "setting");
+  const changedMark = (list: InputSpec[]) => (changedIn(list).length ? <span className="text-accent"> · {changedIn(list).length} changed</span> : null);
 
-  // what belongs to the model, whatever part of the form it is in (the size and the negative prompt are up front)
+  // what belongs to the model, whatever chapter of the form it is in (the size and the negative prompt are up front)
   const perModel = recipe.inputs.filter((i) => i.perModel);
   const differs = perModel.filter((i) => !sameValue(values[i.id], defaults[i.id]));
   const refetch = () => client.invalidateQueries({ queryKey: ["model-settings"] });
@@ -233,44 +331,87 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
   const forget = useMutation({ mutationFn: () => api.forgetModelSettings(recipe.family, file), onSuccess: refetch });
   const model = fileLabel(file) || "this model";
 
+  /** A setting, with a mark and a way back when it differs from what the model starts with. */
+  const setting = (i: InputSpec) => {
+    const isChanged = !sameValue(values[i.id], defaults[i.id]);
+    return (
+      <div key={i.id} className={cx("border-l-2 pl-2.5", isChanged ? "border-accent" : "border-transparent")}>
+        {render(i)}
+        {isChanged && (
+          <button type="button" onClick={() => onClear([i.id])} className="mt-1 rounded-md px-1 text-xs text-accent hover:underline">
+            Changed · put it back
+          </button>
+        )}
+      </div>
+    );
+  };
+  const heading = (title: string, note: string) => (
+    <div className="flex items-baseline gap-2 border-b border-line pb-1">
+      <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
+      <span className="truncate text-xs text-ink-3">{note}</span>
+    </div>
+  );
+
+  // the two tabs of the inputs: frames, and references; the one looked at is remembered
+  const onRefs = useParts((st) => st.open["inputs:references"] ?? false);
+  const setPart = useParts((st) => st.set);
+  const hasFrames = frames.length > 0;
+  const hasRefs = refs.length > 0 || Boolean(look);
+  const refsCount = refsSaid.length;
+  const tab = hasFrames && hasRefs ? (onRefs ? "references" : "frames") : hasFrames ? "frames" : "references";
+  // something dragged in: the tab that takes it comes forward
+  const refsTake = refs.some(takes);
+  const framesTake = frames.some(takes);
+  const shownTab = framesTake ? "frames" : refsTake ? "references" : tab;
+
+  const parts = [
+    ...(made || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
+    ...(mainText ? [{ id: "prompt", label: "Prompt" }] : []),
+    ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
+    ...(sampling.length || upscaling.length ? [{ id: "sampling", label: "Sampling" }] : []),
+    ...(out.length || encoding.length ? [{ id: "output", label: "Output" }] : []),
+    ...(rare.length ? [{ id: "advanced", label: "Advanced" }] : []),
+  ];
+
   return (
     <>
-      {(made || knobs.length > 0) && (
-        <Part id="made" title="Made with" summary={madeWith || recipe.title} warn={warnOf(knobs)}>
+      <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true)} />
+      {(made || knobs.length > 0 || loras.length > 0) && (
+        <Part id="model" title="Model" summary={modelSaid || recipe.title} warn={warnOf([...knobs, ...loras])}>
           {made}
           {knobs.map(render)}
-        </Part>
-      )}
-      {from.length > 0 && (
-        <Part id="from" title="Starts from" summary={fromSaid} warn={warnOf(from)} needs={missing || from.some(takes)}>
-          {from.map(render)}
+          {loras.map(render)}
         </Part>
       )}
       {mainText && (
-        <div className="flex flex-col gap-1.5">
+        <div data-part="prompt" className="flex scroll-mt-12 flex-col gap-1.5">
           {helpers}
           {isShown(mainText, values) && render(mainText)}
           {texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}
         </div>
       )}
-      {(look || inIt.length > 0) && (
-        <Part id="in" title="In it" summary={inSaid} warn={warnOf(inIt)} needs={inIt.some(takes)}>
-          {look}
-          {inIt.map(render)}
+      {(hasFrames || hasRefs) && (
+        <Part id="inputs" title="Inputs" summary={inputsSaid} warn={warnOf([...frames, ...refs])} needs={missing || framesTake || refsTake}>
+          {hasFrames && hasRefs && (
+            <div className="w-full">
+              <Segmented<"frames" | "references">
+                label="Which inputs"
+                value={shownTab}
+                options={[
+                  { value: "frames", label: framesChosen.length ? `Frames · ${framesChosen.length}` : "Frames" },
+                  { value: "references", label: refsCount ? `References · ${refsCount}` : "References" },
+                ]}
+                onChange={(v) => setPart("inputs:references", v === "references")}
+              />
+            </div>
+          )}
+          {shownTab === "frames" && frames.map(render)}
+          {shownTab === "references" && look}
+          {shownTab === "references" && refs.map(render)}
         </Part>
       )}
-      {out.length > 0 && (
-        <Part id="out" title="Comes out as" summary={outSaid} warn={warnOf(out)}>
-          {out.map(render)}
-        </Part>
-      )}
-      {advanced.length > 0 && (
-        <Part
-          id="all"
-          title="All settings"
-          summary={<>{allSaid}{changed.length > 0 && <span className="text-accent"> · {changed.length} changed</span>}</>}
-          warn={warnOf(advanced)}
-        >
+      {(sampling.length > 0 || upscaling.length > 0) && (
+        <Part id="sampling" title="Sampling" summary={<>{samplingSaid}{changedMark([...sampling, ...upscaling])}</>} warn={warnOf([...sampling, ...upscaling])}>
           {perModel.length > 0 && file && (
             <div className="flex flex-col gap-2 text-xs text-ink-2">
               <span>
@@ -288,19 +429,21 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
               {(save.isError || forget.isError) && <ErrorNote>{(save.error ?? forget.error)?.message}</ErrorNote>}
             </div>
           )}
-          {advanced.map((i) => {
-            const isChanged = !sameValue(values[i.id], defaults[i.id]);
-            return (
-              <div key={i.id} className={cx("border-l-2 pl-2.5", isChanged ? "border-accent" : "border-transparent")}>
-                {render(i)}
-                {isChanged && (
-                  <button type="button" onClick={() => onClear([i.id])} className="mt-1 rounded-md px-1 text-xs text-accent hover:underline">
-                    Changed · put it back
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          {sampling.map(setting)}
+          {upscaling.length > 0 && heading("Upscale pass", "the second sampling, over the enlarged latent")}
+          {upscaling.map(setting)}
+        </Part>
+      )}
+      {(out.length > 0 || encoding.length > 0) && (
+        <Part id="output" title="Output" summary={<>{outSaid}{changedMark(encoding)}</>} warn={warnOf([...out, ...encoding])}>
+          {out.map(render)}
+          {encoding.length > 0 && heading("Encode", "frame rate, frame interpolation, compression")}
+          {encoding.map(setting)}
+        </Part>
+      )}
+      {rare.length > 0 && (
+        <Part id="advanced" title="Advanced" summary={<>{count(rare.length, "setting")}{changedMark(rare)}</>} warn={warnOf(rare)}>
+          {rare.map(setting)}
         </Part>
       )}
     </>

@@ -280,7 +280,7 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "sentences", optional: true, default: "" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER },
     FACTOR_INPUT,
-    { id: "refine", type: "toggle", label: "img2img pass after upscaling", note: "a light pass with the model; skipped when the result is larger than about 3 megapixels", default: true },
+    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; skipped when the result is larger than about 3 megapixels", default: true },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true },
     ...krea2Inputs,
   ],

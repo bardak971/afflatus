@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftRight, Check, ChevronDown, Copy, Minus, Pencil, Plus, X } from "lucide-react";
-import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@studai/core";
+import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@studai/core";
 import { api, type FamilyInfo, type ModelInfo, type ModelWords, type TagIssue } from "./api";
 import { useModelInfo, useModelWords, useSettings } from "./data";
 import { fileLabel } from "./format";
@@ -10,8 +10,9 @@ import { ClipField, PictureField, ReferencesField, SoundField } from "./PictureF
 import { Popover } from "./Popover";
 import { appendTo, nudgeWeight, removeFrom, replaceTag, wordsIn } from "./promptText";
 import { Select, type Option } from "./Select";
-import { AutoText, cx, NumberBox, Segmented, Toggle } from "./ui";
+import { AutoText, cx, NumberBox, Segmented, Toggle, Help, Note } from "./ui";
 import { ModelLink } from "./ModelLink";
+import { useExplain } from "./store";
 
 /**
  * One control per input type. This file is the only place that knows how an input is drawn: a recipe
@@ -227,11 +228,16 @@ function FileSelect({ id, label, value, files, folder, placeholder, match, onCha
 
 export const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-function Label({ htmlFor, children, note }: { htmlFor?: string; children: string; note?: string }) {
+/** A field's name, with its explanation (a line, or a ? on hover) and, apart from that, what must always be seen beside it ("0 of 6", "set by the start image"). */
+function Label({ htmlFor, children, note, aside }: { htmlFor?: string; children: string; note?: string; aside?: string }) {
+  const explain = useExplain((s) => s.on);
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <label htmlFor={htmlFor} className="shrink-0 text-xs font-semibold">{children}</label>
-      {note && <span className="text-right text-xs text-ink-2">{note}</span>}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <label htmlFor={htmlFor} className="shrink-0 text-xs font-semibold">{children}</label>
+        {note && !explain && <Help text={note} />}
+      </span>
+      {(aside || (note && explain)) && <span className="min-w-0 text-right text-xs text-ink-2">{aside ?? note}</span>}
     </div>
   );
 }
@@ -248,8 +254,18 @@ const RATIOS: Array<{ label: string; w: number; h: number }> = [
  * list (at the same number of pixels, so the amount of detail and the time stay about the same), and the
  * width and height themselves, typed. A recipe that only takes the proportions gets no pixels to type.
  */
-function SizeField({ spec, value: size, onChange }: { spec: Extract<InputSpec, { type: "size" }>; value: SizeValue; onChange(value: SizeValue): void }) {
+function SizeField({ spec, value: size, values, onChange }: { spec: Extract<InputSpec, { type: "size" }>; value: SizeValue; values?: Record<string, unknown>; onChange(value: SizeValue): void }) {
   const shape = spec.shapes.find((s) => s.width === size.width && s.height === size.height);
+  // a recipe that takes the proportions alone: the frame that comes out is the short side asked for, in these proportions
+  const short = spec.ratioOnly && spec.short ? Number(values?.[spec.short]) : NaN;
+  const frameOfShape = (s: { width: number; height: number }) => (Number.isFinite(short) && short > 0 ? frameOf(s, short, { grid: spec.grid, maxPixels: spec.maxPixels ?? Infinity }) : null);
+  const comesOut = frameOfShape(size);
+  // a pass that enlarges it afterwards: the frame it ends at
+  const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
+  const scaled = comesOut && spec.scaledBy && values?.[spec.scaledBy.on] ? { width: r32(comesOut.width * Number(values[spec.scaledBy.by] ?? 2)), height: r32(comesOut.height * Number(values[spec.scaledBy.by] ?? 2)) } : null;
+  // what decides the shape instead, when something is there: a start image, a clip joined
+  const decidedBy = (spec.decidedBy ?? []).find((id) => { const v = values?.[id]; return Array.isArray(v) ? v.length > 0 : Boolean(v); });
+  const deciderLabel = decidedBy ? (/previous|next|clip/i.test(decidedBy) ? "the clip it joins" : "the start image") : null;
   const snap = (n: number) => Math.min(spec.max, Math.max(spec.min, Math.round(n / spec.grid) * spec.grid));
   // the pixels to keep when the proportions change: those of the size now, or of the recipe's own shape before one is set
   const first = spec.shapes.find((s) => s.id === spec.default) ?? spec.shapes[0]!;
@@ -260,10 +276,10 @@ function SizeField({ spec, value: size, onChange }: { spec: Extract<InputSpec, {
   };
   const others = RATIOS.map((r) => ({ ...r, ...sized(r) })).filter((r) => !spec.shapes.some((s) => s.width === r.width && s.height === r.height));
   const picked = others.find((r) => r.width === size.width && r.height === size.height);
-  const megapixels = (size.width * size.height) / 1e6;
+  const said = (w: number, h: number) => `${w} × ${h} · ${megapixels(w, h)}`;
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label note={spec.note ?? (spec.ratioOnly ? undefined : `${megapixels.toFixed(megapixels < 10 ? 1 : 0)} megapixels`)}>{spec.label}</Label>
+    <div className={cx("flex flex-col gap-1.5", deciderLabel && "opacity-60")} title={deciderLabel ? `${deciderLabel[0]!.toUpperCase()}${deciderLabel.slice(1)} decides the shape: this does nothing now.` : undefined}>
+      <Label note={spec.note} aside={deciderLabel ? `set by ${deciderLabel}${spec.ratioOnly ? ": only the resolution counts" : ""}` : spec.ratioOnly ? undefined : said(size.width, size.height)}>{spec.label}</Label>
       <div className="flex flex-wrap items-center gap-2">
         <Segmented label={spec.label} value={shape?.id ?? ""} options={spec.shapes.map((s) => ({ value: s.id, label: s.label }))} onChange={(shapeId) => {
           const s = spec.shapes.find((x) => x.id === shapeId)!;
@@ -272,17 +288,27 @@ function SizeField({ spec, value: size, onChange }: { spec: Extract<InputSpec, {
         <div className="min-w-40 grow">
           <Select
             size="sm"
-            label="Aspect ratio"
-            placeholder="Aspect ratio"
+            label="More shapes"
+            placeholder="More shapes…"
+            searchHint="a proportion, 16:9, portrait…"
             value={picked ? picked.label : ""}
             onChange={(label) => {
               const r = others.find((x) => x.label === label);
               if (r) onChange({ width: r.width, height: r.height });
             }}
-            options={others.map((r) => ({ value: r.label, label: r.label, note: spec.ratioOnly ? undefined : `${r.width} × ${r.height}` }))}
+            options={others.map((r) => {
+              const f = spec.ratioOnly ? frameOfShape(r) : r;
+              return { value: r.label, label: r.label, note: f ? `${f.width} × ${f.height}` : undefined };
+            })}
           />
         </div>
       </div>
+      {comesOut && !deciderLabel && (
+        <span className="text-xs text-ink-2">
+          Comes out as <span className="font-mono text-ink">{said(comesOut.width, comesOut.height)}</span>{comesOut.width !== Math.round(short) && comesOut.height !== Math.round(short) ? " (held within what the model takes)" : ""}
+          {scaled && <>, upscaled to <span className="font-mono text-ink">{said(scaled.width, scaled.height)}</span></>}
+        </span>
+      )}
       {!spec.ratioOnly && (
         <div className="flex items-center gap-2 text-ink-2">
           <NumberBox label="Width, in pixels" value={size.width} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(width) => onChange({ width: snap(width), height: size.height })} />
@@ -321,6 +347,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
   main?: MainText;
 }) {
   const id = useId();
+  const explain = useExplain((st) => st.on);
   switch (spec.type) {
     case "prompt":
       return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} />;
@@ -328,7 +355,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
     case "model":
       return (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={id} note={spec.note ?? (options?.length ? `${options.length} on your ComfyUI` : undefined)}>{spec.label}</Label>
+          <Label htmlFor={id} note={spec.note} aside={options?.length ? `${options.length} on your ComfyUI` : undefined}>{spec.label}</Label>
           <FileSelect id={id} label={spec.label} value={String(value ?? "")} onChange={onChange} files={options ?? []} folder={spec.folder} match={spec.match} placeholder={options?.length ? "Choose a model" : `Nothing found in models/${spec.folder}`} />
         </div>
       );
@@ -337,18 +364,27 @@ export function Field({ spec, value, values, options, family, model, onChange, o
       return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} model={model} onChange={onChange} main={main} />;
 
     case "size":
-      return <SizeField spec={spec} value={(value as SizeValue | undefined) ?? { width: 0, height: 0 }} onChange={onChange} />;
+      return <SizeField spec={spec} value={(value as SizeValue | undefined) ?? { width: 0, height: 0 }} values={values} onChange={onChange} />;
 
     case "number": {
       const n = Number(value ?? spec.default);
       return (
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between gap-3">
-            <label htmlFor={id}>{spec.label}</label>
+            <span className="flex items-center gap-1.5"><label htmlFor={id}>{spec.label}</label>{spec.note && !explain && <Help text={spec.note} />}</span>
             <NumberBox label={`${spec.label}, typed`} value={n} min={spec.min} max={spec.max} step={spec.step} unit={spec.unit} onCommit={onChange} />
           </div>
           <input id={id} type="range" min={spec.min} max={spec.max} step={spec.step} value={n} onChange={(e) => onChange(Number(e.target.value))} className="w-full" />
-          {spec.note && <span className="text-xs text-ink-2">{spec.note}</span>}
+          {spec.picks && (
+            <div className="flex flex-wrap gap-1">
+              {spec.picks.map((p) => (
+                <button key={p} type="button" onClick={() => onChange(p)} className={cx("rounded-md border px-2 py-0.5 font-mono text-xs", p === n ? "border-accent text-accent" : "border-line text-ink-2 hover:bg-hover hover:text-ink")}>
+                  {p}{spec.unit?.trim() ?? ""}
+                </button>
+              ))}
+            </div>
+          )}
+          {explain && <Note text={spec.note} />}
         </div>
       );
     }
@@ -576,7 +612,7 @@ function Loras({ spec, value, options, family, model, onChange, main }: {
   }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model]);
   return (
     <div className="flex flex-col gap-1.5">
-      <Label note={`${value.length} of ${spec.max}`}>{spec.label}</Label>
+      <Label aside={`${value.length} of ${spec.max}`}>{spec.label}</Label>
       {value.map((l, i) => (
         <div key={l.file} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">
           <div className="flex items-center gap-2">

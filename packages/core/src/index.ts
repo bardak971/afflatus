@@ -5,4 +5,6 @@ export * from "./check";
 export * from "./fuzzy";
 export * from "./models";
 export * from "./warm";
+export * from "./timing";
+export * from "./frame";
 export * from "./wildcards";

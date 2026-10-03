@@ -1,4 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
+import { HelpCircle } from "lucide-react";
+import { PANEL, useExplain, usePanelWidth } from "./store";
 
 /** The few shapes every screen shares, so that a button looks the same wherever it is. */
 
@@ -109,8 +112,80 @@ export function Toggle({ on, onChange, label, note, bare }: { on: boolean; onCha
         <span className={cx("block h-4 w-4 rounded-full transition-[margin]", on ? "ml-4 bg-knob" : "bg-white")} />
       </button>
       {!bare && <span>{label}</span>}
-      {!bare && note && <span className="text-xs text-ink-2">{note}</span>}
+      {!bare && <Note text={note} />}
     </div>
+  );
+}
+
+/**
+ * A small ? that tells something on hover or focus: where a line of explanation would be noise. The
+ * text is drawn over everything (not inside the panel, which would cut it), under the ? when there is
+ * room and above it otherwise, kept on the screen.
+ */
+export function Help({ text, className }: { text: string; className?: string }) {
+  const [at, setAt] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  const show = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const width = 272;
+    const left = Math.max(8, Math.min(r.left - 8, window.innerWidth - width - 8));
+    // under it when there is room for a few lines, else above
+    setAt(window.innerHeight - r.bottom > 120 ? { left, top: r.bottom + 6 } : { left, bottom: window.innerHeight - r.top + 6 });
+  };
+  return (
+    <span className={cx("inline-flex shrink-0 items-center", className)}>
+      <button
+        type="button"
+        aria-label={text}
+        onMouseEnter={(e) => show(e.currentTarget)}
+        onFocus={(e) => show(e.currentTarget)}
+        onMouseLeave={() => setAt(null)}
+        onBlur={() => setAt(null)}
+        className="flex h-4 w-4 items-center justify-center rounded-full text-ink-3 hover:text-ink focus:text-ink"
+      >
+        <HelpCircle size={13} />
+      </button>
+      {at && createPortal(
+        <span role="tooltip" style={{ left: at.left, top: at.top, bottom: at.bottom, width: 272 }} className="pointer-events-none fixed z-[80] rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-left text-xs leading-snug font-normal normal-case tracking-normal text-ink shadow-xl shadow-shade/40">
+          {text}
+        </span>,
+        document.body,
+      )}
+    </span>
+  );
+}
+
+/** A control's explanation: a line while forms explain themselves, else a ? that tells on hover. Nothing when there is nothing to say. */
+export function Note({ text, className }: { text?: string; className?: string }) {
+  const on = useExplain((s) => s.on);
+  if (!text) return null;
+  return on ? <span className={cx("text-xs text-ink-2", className)}>{text}</span> : <Help text={text} className={className} />;
+}
+
+/** The edge of a side panel: dragged, it makes the panel wider or narrower (remembered). `side`: which edge of the panel it is. */
+export function PanelEdge({ side }: { side: "left" | "right" }) {
+  const set = usePanelWidth((s) => s.set);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Drag to make the panel wider or narrower"
+      title="Drag to make the panel wider or narrower"
+      onPointerDown={(e) => {
+        const startX = e.clientX;
+        const startWidth = usePanelWidth.getState().width;
+        const target = e.currentTarget;
+        target.setPointerCapture(e.pointerId);
+        const move = (ev: PointerEvent) => set(startWidth + (side === "right" ? ev.clientX - startX : startX - ev.clientX));
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      }}
+      onDoubleClick={() => set(PANEL.usual)}
+      className={cx("absolute top-0 bottom-0 z-20 w-1.5 cursor-col-resize hover:bg-accent/40 active:bg-accent/60", side === "right" ? "-right-0.5" : "-left-0.5")}
+    />
   );
 }
 

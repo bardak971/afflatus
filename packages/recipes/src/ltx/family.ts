@@ -1,3 +1,4 @@
+import { frameOf } from "@studai/core";
 import { defineFamily } from "@studai/core";
 
 /**
@@ -17,24 +18,24 @@ export const ltx = defineFamily({
   slots: [
     {
       // the distilled one before the full one: it needs no LoRA and is the one made for 8 steps
-      id: "checkpoint", label: "Model in one file (checkpoint)", folder: "checkpoints", detect: ["ltx.?2[._]?3.*distilled", "ltx.?2[._]?3"], unless: "unet",
+      id: "checkpoint", label: "Checkpoint (single file)", folder: "checkpoints", detect: ["ltx.?2[._]?3.*distilled", "ltx.?2[._]?3"], unless: "unet",
       hint: "Put ltx-2.3-22b-distilled-fp8.safetensors in ComfyUI's models/checkpoints folder. Or have the model in separate files: a diffusion model, the two VAEs and the text projection.",
       get: { file: "ltx-2.3-22b-distilled-fp8.safetensors", url: "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-distilled-fp8.safetensors" },
     },
     {
-      id: "unet", label: "Model in separate files: diffusion model", folder: "diffusion_models", detect: ["ltx.?2[._]?3"], unless: "checkpoint",
+      id: "unet", label: "Diffusion model (split files)", folder: "diffusion_models", detect: ["ltx.?2[._]?3"], unless: "checkpoint",
       hint: "Only when the model is not one checkpoint: put an LTX 2.3 diffusion model (a fine-tune, usually) in ComfyUI's models/diffusion_models folder.",
     },
     {
-      id: "videoVae", label: "Model in separate files: video VAE", folder: "vae", detect: ["ltx.?2?[._]?3.*video.?vae"], unless: "checkpoint",
+      id: "videoVae", label: "Video VAE (split files)", folder: "vae", detect: ["ltx.?2?[._]?3.*video.?vae"], unless: "checkpoint",
       hint: "Only when the model is not one checkpoint: put LTX 2.3's video VAE (LTX23_video_vae_*.safetensors) in ComfyUI's models/vae folder.",
     },
     {
-      id: "audioVae", label: "Model in separate files: audio VAE", folder: "vae", detect: ["ltx.?2?[._]?3.*audio.?vae"], unless: "checkpoint",
+      id: "audioVae", label: "Audio VAE (split files)", folder: "vae", detect: ["ltx.?2?[._]?3.*audio.?vae"], unless: "checkpoint",
       hint: "Only when the model is not one checkpoint: put LTX 2.3's audio VAE (LTX23_audio_vae_*.safetensors) in ComfyUI's models/vae folder.",
     },
     {
-      id: "projection", label: "Model in separate files: text projection", folder: "text_encoders", detect: ["ltx.?2[._]?3.*text.?projection"], unless: "checkpoint",
+      id: "projection", label: "Text projection (split files)", folder: "text_encoders", detect: ["ltx.?2[._]?3.*text.?projection"], unless: "checkpoint",
       hint: "Only when the model is not one checkpoint: put ltx-2.3_text_projection_*.safetensors in ComfyUI's models/text_encoders folder.",
     },
     {
@@ -53,12 +54,12 @@ export const ltx = defineFamily({
       get: { file: "ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors", url: "https://huggingface.co/Comfy-Org/ltx-2.3/resolve/main/split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors" },
     },
     {
-      id: "tinyVae", label: "Tiny VAE for the live preview", folder: "vae_approx", detect: ["tae.?ltx.?2.?3", "tae.?ltx"], optional: true,
+      id: "tinyVae", label: "Tiny VAE (live preview)", folder: "vae_approx", detect: ["tae.?ltx.?2.?3", "tae.?ltx"], optional: true,
       hint: "Optional, 24 MB: with taeltx2_3.safetensors in ComfyUI's models/vae_approx folder, the animated live preview shows the real picture. Without it, it is a few blurred patches of colour (LTX's latent is 32 times smaller than the clip).",
       get: { file: "taeltx2_3.safetensors", url: "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/taeltx2_3.safetensors" },
     },
     {
-      id: "rife", label: "Smooth motion (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
+      id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
       hint: "Without it, clips stay at 25 pictures a second. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
   ],
@@ -77,7 +78,7 @@ More detail does not mean more actions: a few actions, described precisely.`,
 
 export const LTX_FPS = 25;
 /** The largest canvas offered: a little over 1080p on the short edge is far more than a home card takes. Edges are multiples of 64. */
-const LTX_MAX_PIXELS = 1920 * 1088;
+export const LTX_MAX_PIXELS = 1920 * 1088;
 
 /** How many frames make `seconds` at 25 a second, on a count the model takes (8k + 1). */
 export function ltxFrames(seconds: number): number {
@@ -90,14 +91,5 @@ export function ltxFrames(seconds: number): number {
  * multiples of 64, so that the first pass can be made at half that size (the model's grid is 32).
  */
 export function ltxCanvas(width: number, height: number, short: number): { width: number; height: number } {
-  const r = width / height;
-  let w = r >= 1 ? short * r : short;
-  let h = r >= 1 ? short : short / r;
-  if (w * h > LTX_MAX_PIXELS) {
-    const k = Math.sqrt(LTX_MAX_PIXELS / (w * h));
-    w *= k;
-    h *= k;
-  }
-  const r64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
-  return { width: r64(w), height: r64(h) };
+  return frameOf({ width, height }, short, { grid: 64, maxPixels: LTX_MAX_PIXELS });
 }

@@ -44,6 +44,11 @@ export const settingsSchema = z.object({
   civitaiLookups: z.boolean().default(false),
   /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. Off: studai never asks ComfyUI to download anything. */
   downloadModels: z.boolean().default(false),
+  /**
+   * How many days the time of each render is kept one by one. Older ones are folded into figures per
+   * model and day, which stay for good. 0: each one is kept for good.
+   */
+  renderHistoryDays: z.number().int().min(0).max(3650).default(90),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -120,5 +125,6 @@ export function publicSettings(s: Settings) {
     hasCivitaiKey: Boolean(s.civitaiKey),
     civitaiLookups: s.civitaiLookups,
     downloadModels: s.downloadModels,
+    renderHistoryDays: s.renderHistoryDays,
   };
 }

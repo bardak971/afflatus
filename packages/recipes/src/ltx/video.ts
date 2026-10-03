@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@studai/core";
-import { LTX_FPS, ltxCanvas, ltxFrames } from "./family";
+import { LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
 
 /** The schedule LTX's authors give for the distilled model: 8 steps, written out. */
 export const LTX_SIGMAS = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0";
@@ -90,14 +90,15 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       note: "a diffusion model in a file of its own (a fine-tune, usually). Left alone with none there, the one checkpoint is used",
     },
     {
-      id: "prompt", type: "prompt", label: "What happens", style: "sentences",
+      id: "prompt", type: "prompt", label: "Prompt", style: "sentences",
       placeholder: "A medium close-up. She turns to the camera and says quietly: \"What a view.\" Wind, and waves far below.",
     },
-    { id: "start", type: "image", role: "start", label: "Start image", note: "the first frame", optional: true },
-    { id: "end", type: "image", role: "end", label: "End image", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
-    { id: "seconds", type: "number", label: "Length", min: 1, max: 20, step: 0.5, default: 5, unit: " s" },
+    { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
+    { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
+    { id: "seconds", type: "number", label: "Duration", min: 1, max: 20, step: 0.5, default: 5, unit: " s" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "wide", grid: 64, min: 256, max: 1920, ratioOnly: true,
+      short: "short", maxPixels: LTX_MAX_PIXELS, decidedBy: ["start", "end"],
       note: "a start image decides the shape instead",
       shapes: [
         { id: "tall", label: "Tall", width: 704, height: 1280 },
@@ -105,16 +106,16 @@ export const ltxVideo = defineRecipe<LtxVideo>({
         { id: "wide", label: "Wide", width: 1280, height: 704 },
       ],
     },
-    { id: "short", type: "number", label: "Resolution", note: "the short side: 704 is about 720p. Larger is sharper and much slower", min: 384, max: 1088, step: 64, default: 704, unit: "p" },
+    { id: "short", type: "number", label: "Resolution", note: "the short side of the frame: 704 is about 720p, 1088 about 1080p. Larger is sharper and much slower", min: 384, max: 1088, step: 64, default: 704, unit: "p", picks: [512, 704, 832, 1088] },
     {
-      id: "twoPass", type: "toggle", label: "Two passes", default: true, advanced: true,
+      id: "twoPass", type: "toggle", label: "Two-pass (latent upscale)", default: true, advanced: true,
       note: "half the size first, enlarged with the latent upscaler, then 3 steps that refine: faster and sharper. Off, or without the upscaler, or with an end image: one pass at full size",
     },
     {
-      id: "refineStrength", type: "number", label: "Second pass: how much it redraws", min: 0.3, max: 1, step: 0.05, default: 0.85, showWhen: "twoPass", advanced: true,
+      id: "refineStrength", type: "number", label: "Refine denoise", min: 0.3, max: 1, step: 0.05, default: 0.85, showWhen: "twoPass", advanced: true,
       note: "where the refining pass starts: 0.85 is LTX's own. Lower keeps the enlarged clip closer to the first pass, higher lets it change more",
     },
-    { id: "refineSteps", type: "number", label: "Second pass: steps", note: "3 is LTX's own", min: 1, max: 8, step: 1, default: 3, showWhen: "twoPass", advanced: true },
+    { id: "refineSteps", type: "number", label: "Refine steps", note: "3 is LTX's own", min: 1, max: 8, step: 1, default: 3, showWhen: "twoPass", advanced: true },
     {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "made for 8 steps as it is: no distilled LoRA is added. Auto reads it from the file name",
@@ -139,24 +140,24 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       default: "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, pc game, console game, video game, cartoon, childish, ugly",
       note: "only acts with a CFG scale above 1",
     },
-    { id: "startStrength", type: "number", label: "How firmly it opens on the start image", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "start", advanced: true, note: "lower lets the first frames move away from the picture sooner" },
-    { id: "endStrength", type: "number", label: "How firmly it ends on the end image", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "end", advanced: true },
+    { id: "startStrength", type: "number", label: "First frame strength", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "start", advanced: true, note: "lower lets the first frames move away from the picture sooner" },
+    { id: "endStrength", type: "number", label: "Last frame strength", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "end", advanced: true },
     {
-      id: "compression", type: "number", label: "Picture roughened by", min: 0, max: 50, step: 1, default: 18, advanced: true,
+      id: "compression", type: "number", label: "Input image compression (CRF)", min: 0, max: 50, step: 1, default: 18, advanced: true,
       note: "the start and end pictures are compressed like a video frame before the model sees them: a picture that is too clean gives a clip that does not move. 0 leaves them as they are",
     },
     {
       id: "loraStrength", type: "number", label: "Distilled LoRA strength", min: 0, max: 1.5, step: 0.05, default: 0.5, advanced: true, perModel: true,
       note: "only for a model that is not distilled: how strongly the distilled LoRA is put on it. 0.5 is what ComfyUI's template uses",
     },
-    { id: "tile", type: "number", label: "Decoding: tile size", note: "the clip is turned into pictures piece by piece: smaller pieces need less memory and take longer", min: 256, max: 2048, step: 32, default: 768, unit: " px", advanced: true },
-    { id: "tileFrames", type: "number", label: "Decoding: frames at a time", note: "fewer needs less memory. 4096 is all of them at once", min: 16, max: 4096, step: 8, default: 4096, advanced: true },
-    { id: "crf", type: "number", label: "Encoding quality (CRF)", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
+    { id: "tile", type: "number", label: "VAE decode tile size", note: "the clip is turned into pictures piece by piece: smaller pieces need less memory and take longer", min: 256, max: 2048, step: 32, default: 768, unit: " px", advanced: true },
+    { id: "tileFrames", type: "number", label: "VAE decode temporal tile", note: "fewer needs less memory. 4096 is all of them at once", min: 16, max: 4096, step: 8, default: 4096, advanced: true },
+    { id: "crf", type: "number", label: "CRF", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step, without its sound. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",
     },
-    { id: "smooth", type: "toggle", label: "Smooth: 50 fps", note: "frames interpolated with RIFE, from 25 to 50 a second", default: false, advanced: true },
+    { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE, from 25 to 50 a second", default: false, advanced: true },
     { id: "loras", type: "loras", label: "LoRAs", max: 6 },
     { id: "seed", type: "seed", label: "Seed" },
   ],

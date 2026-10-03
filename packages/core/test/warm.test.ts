@@ -112,3 +112,19 @@ describe("the graph that loads a render's models", () => {
     expect(warmGraph({ graph, phases: {}, outputs: [{ node: "2", kind: "image", role: "result" }], totalSteps: 1, loads: [] })).toBeNull();
   });
 });
+
+describe("the frame of a video", () => {
+  it("keeps the short side, follows the proportions, lands on the grid and stays within the most pixels the model takes", async () => {
+    const { frameOf, megapixels } = await import("../src/frame");
+    expect(frameOf({ width: 576, height: 1024 }, 576, { grid: 32, maxPixels: 768 * 1344 })).toEqual({ width: 576, height: 1024 });
+    expect(frameOf({ width: 16, height: 9 }, 720, { grid: 16, maxPixels: 1280 * 720 })).toEqual({ width: 1280, height: 720 });
+    // too many pixels for the model: the whole shrinks, keeping its proportions
+    const held = frameOf({ width: 16, height: 9 }, 1080, { grid: 16, maxPixels: 1280 * 720 });
+    expect(held.width * held.height).toBeLessThanOrEqual(1280 * 720);
+    expect(held.width / held.height).toBeCloseTo(16 / 9, 1);
+    // asked for more, with room for it
+    expect(frameOf({ width: 9, height: 16 }, 1088, { grid: 32, maxPixels: 1088 * 1920 })).toEqual({ width: 1088, height: 1920 });
+    expect(megapixels(576, 1024)).toBe("0.59 MP");
+    expect(megapixels(1152, 2048)).toBe("2.4 MP");
+  });
+});

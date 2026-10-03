@@ -7,6 +7,7 @@ import { readSettings } from "./settings";
 import { Linked, RoutedStorage } from "./linked";
 import type { Storage } from "./storage";
 import { sweep } from "./sweep";
+import { fold } from "./renders";
 import { Timelines } from "./timelines";
 
 /** Everything the routes need, built once at start (and once per test). */
@@ -53,6 +54,8 @@ export async function createServices(db: Db, dbKind: DbKind, own: Storage, queue
   const runSweep = () =>
     sweep(db, storage)
       .then((r) => (r.binned || r.erased) && queue.events.emit("library"))
+      // the times of renders older than they are kept one by one become figures per model and day
+      .then(async () => fold(db, (await readSettings(db)).renderHistoryDays))
       .catch((err) => console.warn("[sweep]", (err as Error).message));
   const sweeper = setInterval(runSweep, 60 * 60_000);
   sweeper.unref();

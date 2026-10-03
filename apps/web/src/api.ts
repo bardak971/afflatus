@@ -1,3 +1,4 @@
+import type { Known } from "@studai/core";
 import type { InputSpec, ModelInfo, VideoTraits } from "@studai/core";
 
 export type { ModelInfo };
@@ -391,11 +392,79 @@ export interface TimelinePatch {
   look?: Look | null;
   mood?: string;
 }
-/** How long a recipe usually takes on this machine, from what was rendered before. */
+/** How long a recipe usually takes on this machine, from what was rendered before each render was put on record. */
 export interface Rate {
   perJobMs: number;
   perSecondMs: number | null;
   samples: number;
+}
+export type TimesPeriod = "day" | "week" | "month" | "all";
+/** The parts of a render's time, in milliseconds. */
+export interface TimeParts { loading: number; sampling: number; refining: number; finishing: number }
+type Line = Array<number | null>;
+/** What the "Render times" tab shows for a period. Every list has one entry per stretch of `times`. */
+export interface TimesSummary {
+  period: TimesPeriod;
+  /** The length of a stretch, in milliseconds, and where each one starts. */
+  step: number;
+  times: number[];
+  /** How many days each render is kept one by one (0: for good), and when the first one on record was made. */
+  keepDays: number;
+  since: string | null;
+  spanMs: number;
+  tiles: {
+    done: number; images: number; videos: number; failed: number; cancelled: number;
+    videoMs: number; lostMs: number; gpuMs: number; longestMs: number;
+    loadMs: number; loads: number; loadUsualMs: number | null;
+    waitedUsualMs: number | null; waitedSlowMs: number | null; off: number | null;
+    vramPeak: number | null; vramUsual: number | null; heatPeak: number | null; heatUsual: number | null;
+  };
+  finished: { images: number[]; videos: number[]; bad: number[] };
+  phases: { loading: number[]; sampling: number[]; refining: number[]; finishing: number[] };
+  wait: { usual: Line; slow: Line };
+  gpu: { vram: Line; heat: Line };
+  models: Array<{
+    /** The recipe's id. */
+    key: string;
+    name: string;
+    kind: "image" | "video" | "audio" | null;
+    renders: number;
+    usualMs: number | null; slowMs: number | null; stepMs: number | null; loadMs: number | null; gpuMs: number;
+    trend: number[];
+    usual: Line; slow: Line; cold: Line;
+    /** Its pace against its own usual, in percent: 100 is as ever. */
+    pace: Line;
+    phases: TimeParts;
+    /** The setting used most, and what its render is made of. */
+    setting: { width: number | null; height: number | null; seconds: number | null; steps: number; model: string; samples: number; stepMs: number | null; sampleMs: number; refineMs: number; finishMs: number; warmMs: number; loadMs: number } | null;
+    files: Array<{ file: string; name: string; renders: number; stepMs: number | null; step: Line }>;
+  }>;
+}
+/** One render on record. */
+export interface RenderItem {
+  id: string;
+  at: string;
+  recipe: string;
+  name: string;
+  model: string;
+  kind: "image" | "video" | "audio" | null;
+  width: number | null;
+  height: number | null;
+  seconds: number | null;
+  steps: number;
+  stepMs: number | null;
+  phases: TimeParts;
+  totalMs: number;
+  expectedMs: number | null;
+  cold: boolean;
+  /** Measured from its first moment (not when studai started while it was already rendering). */
+  whole: boolean;
+  waitedMs: number;
+  vram: number | null;
+  heat: number | null;
+  status: "done" | "failed" | "cancelled";
+  /** What it made, while that is still in the library. */
+  assetId: string | null;
 }
 /** Where the space goes. */
 export interface Storage {
@@ -468,6 +537,8 @@ export interface Settings {
   civitaiLookups: boolean;
   /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. */
   downloadModels: boolean;
+  /** How many days the time of each render is kept one by one; 0 for good. Older ones become daily figures. */
+  renderHistoryDays: number;
 }
 /** What a dropped file carries about how it was made. */
 export interface Embedded {
@@ -578,7 +649,12 @@ export const api = {
   /** A finished job again; `input` changes some of what it was asked. */
   retryJob: (id: string, input?: Record<string, unknown>) => call<{ id: string }>("POST", `/jobs/${id}/retry`, input ? { input } : {}),
   dismissJob: (id: string) => call<{ ok: true }>("DELETE", `/jobs/${id}`),
-  estimates: () => call<{ rates: Record<string, Rate> }>("GET", "/estimates"),
+  estimates: () => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates"),
+  renderTimes: (period: TimesPeriod) => call<TimesSummary>("GET", `/renders/summary?period=${period}`),
+  renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number }) =>
+    call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), limit: String(opts.limit ?? 50) })}`),
+  renderRecordSize: () => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size"),
+  clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
   advice: (recipe: string, input: Record<string, unknown>) => call<{ items: Advice[] }>("POST", "/advice", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(

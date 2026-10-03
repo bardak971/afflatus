@@ -103,7 +103,7 @@ describe("settings", () => {
       comfyUrl: "http://10.0.0.5:8188", llm: { baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false },
       llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000 }],
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "",
-      tagCheck: true, families: {}, hasCivitaiKey: true, civitaiLookups: false, downloadModels: false,
+      tagCheck: true, families: {}, hasCivitaiKey: true, civitaiLookups: false, downloadModels: false, renderHistoryDays: 90,
     });
     expect(res.body).not.toContain("secret");
     // model families switched on or off by hand are kept by id; one not named follows its files

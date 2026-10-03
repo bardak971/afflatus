@@ -22,8 +22,8 @@ import { carryAcross, carryOver, modelGroups } from "../picker";
 import { Popover } from "../Popover";
 import { appendTo } from "../promptText";
 import { Select } from "../Select";
-import { useHandover, useOpenDraft } from "../store";
-import { Bar, Button, cx, Empty, ErrorNote, ScrollColumn, Segmented } from "../ui";
+import { useHandover, useOpenDraft, usePanelWidth } from "../store";
+import { Bar, Button, cx, Empty, ErrorNote, ScrollColumn, Segmented, PanelEdge } from "../ui";
 import { Viewer } from "../Viewer";
 import { DRAG_TYPE, FolderPanel, Tile, type Place } from "./Library";
 
@@ -45,9 +45,9 @@ const useStudio = create<{
 
 const KINDS = [
   { id: "all", label: "Everything", kind: undefined },
-  { id: "image", label: "Pictures", kind: "image" },
+  { id: "image", label: "Images", kind: "image" },
   { id: "video", label: "Videos", kind: "video" },
-  { id: "audio", label: "Sounds", kind: "audio" },
+  { id: "audio", label: "Audio", kind: "audio" },
   { id: "timeline", label: "Timelines", kind: undefined },
 ] as const;
 const TILE = { S: "minmax(120px,1fr)", M: "minmax(170px,1fr)", L: "minmax(250px,1fr)" };
@@ -188,8 +188,9 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
     onSuccess: () => client.invalidateQueries({ queryKey: ["entities"] }),
   });
   const estimates = useEstimates();
+  const loadedNow = useQueue().data?.model ?? null;
   const whole = recipe && draft ? { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], draft.forms[recipe.id]).defaults, ...draft.forms[recipe.id] } : {};
-  const each = estimateFor(estimates.data?.rates, recipe, whole);
+  const each = estimateFor(estimates.data, recipe, whole, loadedNow);
   const titleOf = (x: { id: string; name: string | null; title: string }) =>
     x.name || (x.id === draft?.id && mainText ? String(draft.forms[draft.recipe]?.[mainText.id] ?? "").trim().slice(0, 60) : x.title) || "No prompt yet";
 
@@ -200,7 +201,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
           <Segmented
             label="What to make"
             value={recipe.output}
-            options={kinds.map((k) => ({ value: k, label: k === "image" ? "Picture" : k === "video" ? "Video" : "Sound" }))}
+            options={kinds.map((k) => ({ value: k, label: k === "image" ? "Image" : k === "video" ? "Video" : "Audio" }))}
             onChange={(k) => pick(lastOf[k] ?? all.find((r) => r.output === k)!.id)}
           />
         )}
@@ -285,8 +286,10 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
   );
   const takesLook = recipe?.inputs.some((i) => i.type === "prompt" || i.type === "loras" || i.type === "references");
 
+  const panelWidth = usePanelWidth((s) => s.width);
   return (
-    <aside aria-label="Create" data-designer-stays className="flex w-[408px] shrink-0 flex-col border-r border-line bg-panel">
+    <aside aria-label="Create" data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-r border-line bg-panel">
+      <PanelEdge side="right" />
       <div className="flex h-[60px] shrink-0 items-center gap-1.5 border-b border-line px-3">
         {naming !== null && draft ? (
           <form
@@ -382,7 +385,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
             <button type="button" aria-label="One more" onClick={() => d.setCount(count + 1)} className="flex h-full w-9 items-center justify-center"><Plus size={14} /></button>
           </div>
           <Button tone="primary" className="h-11 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || send.isPending} onClick={() => send.mutate()}>
-            <span title="Ctrl + Enter">{send.isPending ? "Sending…" : `Make ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each * count)}` : ""}`}</span>
+            <span title="Ctrl + Enter">{send.isPending ? "Sending…" : `Make ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>
           </Button>
         </div>
       </div>

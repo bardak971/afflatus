@@ -58,3 +58,15 @@ export const useHandover = create<{ workflow: File | null; show: string | null; 
 export const useOpenDraft = create<{ id: string | null; open(id: string | null): void }>()(
   persist((set) => ({ id: null, open: (id) => set({ id }) }), { name: "studai.open-draft" }),
 );
+
+/**
+ * Whether forms explain their settings in full, a line under each control, or keep the explanations
+ * behind a small ? that tells on hover. On at first: a form explains itself until it is known.
+ */
+export const useExplain = create<{ on: boolean; set(on: boolean): void }>()(persist((set) => ({ on: true, set: (on) => set({ on }) }), { name: "studai.explain" }));
+
+/** How wide the side panel that holds a form is, in pixels: dragged by its edge, remembered. */
+export const PANEL = { least: 380, most: 720, usual: 440 };
+export const usePanelWidth = create<{ width: number; set(width: number): void }>()(
+  persist((set) => ({ width: PANEL.usual, set: (width) => set({ width: Math.max(PANEL.least, Math.min(PANEL.most, Math.round(width))) }) }), { name: "studai.panel-width" }),
+);

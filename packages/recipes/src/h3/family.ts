@@ -1,3 +1,4 @@
+import { frameOf } from "@studai/core";
 import { defineFamily } from "@studai/core";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
@@ -20,42 +21,46 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_fl2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors` },
     },
     {
-      id: "clip", label: "Text reader", folder: "text_encoders", detect: ["qwen3vl.*minimax", "minimax.*h3"],
+      id: "clip", label: "Text encoder", folder: "text_encoders", detect: ["qwen3vl.*minimax", "minimax.*h3"],
       hint: "Put qwen3vl_32b_minimax_h3_*.safetensors in ComfyUI's models/text_encoders folder.",
       get: { file: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", url: `${HF}/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` },
     },
     {
-      id: "videoVae", label: "Picture decoder", folder: "vae", detect: ["minimax_h3_video_vae.*fp16", "minimax_h3_video_vae"],
+      id: "videoVae", label: "VAE (image)", folder: "vae", detect: ["minimax_h3_video_vae.*fp16", "minimax_h3_video_vae"],
       hint: "Put minimax_h3_video_vae_*.safetensors in ComfyUI's models/vae folder.",
       get: { file: "minimax_h3_video_vae_int8_convrot.safetensors", url: `${HF}/vae/minimax_h3_video_vae_int8_convrot.safetensors` },
     },
     {
-      id: "audioVae", label: "Sound decoder", folder: "vae", detect: ["minimax_h3_audio_vae"],
+      id: "audioVae", label: "VAE (audio)", folder: "vae", detect: ["minimax_h3_audio_vae"],
       hint: "Put minimax_h3_audio_vae_*.safetensors in ComfyUI's models/vae folder.",
       get: { file: "minimax_h3_audio_vae_fp32.safetensors", url: `${HF}/vae/minimax_h3_audio_vae_fp32.safetensors` },
     },
     {
       // the turbo LoRA of the reference model is another file and does not fit this one
-      id: "turbo", label: "Fast mode (turbo LoRA)", folder: "loras", detect: ["^(?!.*ref2v).*minimax_h3.*turbo"], optional: true,
+      id: "turbo", label: "Turbo LoRA", folder: "loras", detect: ["^(?!.*ref2v).*minimax_h3.*turbo"], optional: true,
       hint: "Without it, Fast is off and clips take the full number of steps. Put the MiniMax H3 turbo LoRA in ComfyUI's models/loras folder.",
       get: { file: "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", url: "https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" },
     },
     {
-      id: "refUnet", label: "Reference model (people, places, voices)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", "minimax.?h3.*hybrid(?!.*turbo)", "minimax.?h3.*hybrid"], optional: true,
+      id: "refUnet", label: "Reference model (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", "minimax.?h3.*hybrid(?!.*turbo)", "minimax.?h3.*hybrid"], optional: true,
       hint: "Without it, clips cannot follow reference pictures or a voice. Put minimax_h3_ref2va_*.safetensors, or a hybrid MiniMax H3 fine-tune, in ComfyUI's models/diffusion_models folder.",
       get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
     },
     {
-      id: "refTurbo", label: "Fast mode for the reference model", folder: "loras", detect: ["minimax_h3.*ref2v.*turbo"], optional: true,
+      id: "refTurbo", label: "Turbo LoRA (reference model)", folder: "loras", detect: ["minimax_h3.*ref2v.*turbo"], optional: true,
       hint: "Optional: a turbo LoRA made for the reference model. Without it, the usual turbo LoRA is used for clips with references too.",
       get: { file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", url: `${HF}/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` },
     },
     {
-      id: "tinyVae", label: "Tiny VAE for the live preview", folder: "vae_approx", detect: ["^taeh3\\.safetensors$"], optional: true,
+      id: "latentUpscaler", label: "Latent upscaler (upscale pass)", folder: "latent_upscale_models", detect: ["minimax.?h3.?latent.?upscaler"], optional: true,
+      hint: "Optional: with minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, the upscale pass enlarges the clip with H3's own upscaler. Without it, the clip is resized and re-sampled, which is still sharper than a pixel upscale.",
+    },
+    {
+      id: "tinyVae", label: "Tiny VAE (live preview)", folder: "vae_approx", detect: ["^taeh3\\.safetensors$"], optional: true,
       hint: "Optional: with taeh3.safetensors in ComfyUI's models/vae_approx folder, the animated live preview is sharper. Without it, it is a rough colour preview.",
     },
     {
-      id: "rife", label: "Smooth motion (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
+      id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
       hint: "Without it, clips stay at 24 pictures a second. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
   ],
@@ -75,8 +80,10 @@ More detail does not mean more actions: describe the same few actions precisely.
 });
 
 export const H3_FPS = 24;
-/** H3's largest canvas: 768 × 1344 pixels. Both edges are multiples of 32. */
-const H3_MAX_PIXELS = 768 * 1344;
+/** H3's largest canvas in one pass as it was trained: 768 × 1344 pixels. Both edges are multiples of 32. */
+export const H3_MAX_PIXELS = 768 * 1344;
+/** What a form may ask for: up to 1080p, past what the model was trained for, for cards that have the room. */
+export const H3_FORM_PIXELS = 1088 * 1920;
 
 /** How many frames make `seconds` at 24 a second, rounded up to a count the model takes (17k + 5). */
 export function h3Frames(seconds: number): number {
@@ -85,23 +92,7 @@ export function h3Frames(seconds: number): number {
   return n;
 }
 
-/** The canvas for a shape: `short` pixels on the short edge, the shape's proportions, within what the model takes. */
-export function h3Canvas(width: number, height: number, short: number): { width: number; height: number } {
-  const r = width / height;
-  let w = r >= 1 ? short * r : short;
-  let h = r >= 1 ? short : short / r;
-  if (w * h > H3_MAX_PIXELS) {
-    const k = Math.sqrt(H3_MAX_PIXELS / (w * h));
-    w *= k;
-    h *= k;
-  }
-  const r32 = (n: number) => Math.max(32, Math.round(n / 32) * 32);
-  let W = r32(w);
-  let H = r32(h);
-  // rounding can land just over the largest the model takes: the long edge gives way (both, for a square)
-  while (W * H > H3_MAX_PIXELS) {
-    if (W >= H) W -= 32;
-    if (H > W || W + 32 === H) H -= 32;
-  }
-  return { width: W, height: H };
+/** The canvas for a shape: `short` pixels on the short edge, the shape's proportions, within `maxPixels` (what the model takes, unless a form asks for more). */
+export function h3Canvas(width: number, height: number, short: number, maxPixels = H3_MAX_PIXELS): { width: number; height: number } {
+  return frameOf({ width, height }, short, { grid: 32, maxPixels });
 }

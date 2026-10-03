@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@studai/core";
-import { WAN_FPS, wanCanvas, wanFrames } from "./family";
+import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
 
 /**
  * Wan's own negative prompt, as its authors give it (in Chinese: washed-out colours, overexposure, a
@@ -89,14 +89,15 @@ export const wanVideo = defineRecipe<WanVideo>({
       note: "the last steps: the detail. The low-noise file that goes with the one above",
     },
     {
-      id: "prompt", type: "prompt", label: "What happens", style: "sentences",
+      id: "prompt", type: "prompt", label: "Prompt", style: "sentences",
       placeholder: "She turns to the camera and smiles, her hair moving in the wind. The camera pushes in slowly.",
     },
-    { id: "start", type: "image", role: "start", label: "Start image", note: "the first frame. Without one, the clip is made from the words alone, which needs words-to-video (T2V) models: picture-to-video (I2V) ones make a gray clip without a picture", optional: true },
-    { id: "end", type: "image", role: "end", label: "End image", note: "the last frame", optional: true },
-    { id: "seconds", type: "number", label: "Length", min: 1, max: 10, step: 0.5, default: 5, unit: " s", note: "the model is made for about 5 seconds: longer clips drift" },
+    { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame. Without one, the clip is made from the words alone, which needs words-to-video (T2V) models: picture-to-video (I2V) ones make a gray clip without a picture", optional: true },
+    { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame", optional: true },
+    { id: "seconds", type: "number", label: "Duration", min: 1, max: 10, step: 0.5, default: 5, unit: " s", note: "the model is made for about 5 seconds: longer clips drift" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "tall", grid: 16, min: 256, max: 1280, ratioOnly: true,
+      short: "short", maxPixels: WAN_FORM_PIXELS, decidedBy: ["start", "end"],
       note: "a start image decides the shape instead",
       shapes: [
         { id: "tall", label: "Tall", width: 480, height: 832 },
@@ -104,16 +105,19 @@ export const wanVideo = defineRecipe<WanVideo>({
         { id: "wide", label: "Wide", width: 832, height: 480 },
       ],
     },
-    { id: "short", type: "number", label: "Resolution", note: "the short side: 480p (the usual one) to 720p. Larger is sharper and much slower", min: 320, max: 720, step: 16, default: 480, unit: "p" },
+    {
+      id: "short", type: "number", label: "Resolution", min: 320, max: 1080, step: 16, default: 480, unit: "p", picks: [480, 576, 720, 1080],
+      note: "the short side of the frame. Wan is made for 480p and 720p. Past 720p it is beyond what it was trained for: much slower, and it may drift",
+    },
     { id: "fast", type: "toggle", label: "Turbo", note: "4 steps at CFG 1: with the lightx2v LoRAs, or as it is with a model made for it", default: true, advanced: true, perModel: true },
     {
-      id: "turboIn", type: "choice", label: "Turbo model (distilled)", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
+      id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "made for a few steps: no turbo LoRA is added. Auto reads it from the file name",
     },
     { id: "turboSteps", type: "number", label: "Turbo steps", note: "4 is what the turbo LoRAs are made for; some fine-tunes ask for 6 or 8", min: 2, max: 12, step: 1, default: 4, showWhen: "fast", advanced: true, perModel: true },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
-      id: "split", type: "number", label: "Steps on the high-noise model", min: 0.1, max: 0.9, step: 0.05, default: 0.5, advanced: true, perModel: true,
+      id: "split", type: "number", label: "High-noise steps (share)", min: 0.1, max: 0.9, step: 0.05, default: 0.5, advanced: true, perModel: true,
       note: "the share of the steps the first model makes before the second takes over: 0.5 is half",
     },
     {
@@ -130,16 +134,16 @@ export const wanVideo = defineRecipe<WanVideo>({
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: WAN_NEGATIVE, advanced: true, perModel: true,
       note: "only acts with a CFG scale above 1, so not with Turbo. The starting text is Wan's own, in Chinese",
     },
-    { id: "smooth", type: "toggle", label: "Smooth: twice the frames", note: "frames interpolated with RIFE: 32 a second in place of 16", default: true, advanced: true },
+    { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE: 32 a second in place of 16", default: true, advanced: true },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",
     },
     {
-      id: "fps", type: "number", label: "Frames per second", min: 8, max: 60, step: 1, default: WAN_FPS, advanced: true,
+      id: "fps", type: "number", label: "Frame rate (fps)", min: 8, max: 60, step: 1, default: WAN_FPS, advanced: true,
       note: "Wan makes 16 pictures for a second of motion. Another figure plays the same pictures faster or slower: 24 makes the motion quicker and the clip shorter. Doubled when Smooth is on",
     },
-    { id: "crf", type: "number", label: "Encoding quality (CRF)", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
+    { id: "crf", type: "number", label: "CRF", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
     { id: "loras", type: "loras", label: "LoRAs (high noise)", max: 6, note: "Wan LoRAs come in two files: the HIGH one here" },
     { id: "lorasLow", type: "loras", label: "LoRAs (low noise)", max: 6, note: "and the LOW one here. A LoRA in one file goes in both" },
     { id: "seed", type: "seed", label: "Seed" },
@@ -176,8 +180,8 @@ export const wanVideo = defineRecipe<WanVideo>({
     const { width, height } = ctx.canvas
       ? wanCanvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height, 720))
       : like?.width
-        ? wanCanvas(like.width, like.height, input.short)
-        : wanCanvas(input.shape.width, input.shape.height, input.short);
+        ? wanCanvas(like.width, like.height, input.short, WAN_FORM_PIXELS)
+        : wanCanvas(input.shape.width, input.shape.height, input.short, WAN_FORM_PIXELS);
     const frames = wanFrames(input.seconds);
 
     const g = new GraphBuilder();

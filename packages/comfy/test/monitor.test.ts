@@ -103,6 +103,54 @@ describe("Monitor", () => {
     expect(monitor.progress("p1").steps).toBe(0);
   });
 
+  it("measures a render: the time of each phase, of a step, and the GPU's peaks", async () => {
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const gpu = (percent: number, temperature: number) => fake.send("dasiwa.system_monitor", { gpus: [{ name: "GPU", memory_used: percent, memory_total: 100, memory_percent: percent, temperature }] });
+    monitor.track(tracking);
+    fake.send("execution_start", { prompt_id: "p1" });
+    fake.send("executing", { prompt_id: "p1", node: "5" });
+    await until(() => monitor.progress("p1").phase === "loading");
+    gpu(60, 61);
+    await pause(200);
+    // three steps, 40 ms apart: the first one is reported once it is done
+    for (const value of [1, 2, 3]) {
+      fake.send("progress", { prompt_id: "p1", node: "5", value, max: 3 });
+      await until(() => monitor.progress("p1").step === value);
+      if (value < 3) await pause(40);
+    }
+    gpu(93, 74);
+    gpu(88, 70);
+    fake.send("executing", { prompt_id: "p1", node: "9" });
+    await until(() => monitor.progress("p1").phase === "decoding");
+    await pause(50);
+
+    const m = monitor.measured("p1")!;
+    expect(m.stepMs).toBeGreaterThan(30);
+    expect(m.stepMs).toBeLessThan(90);
+    // the step that was under way while "loading" is counted as a step, not as loading
+    expect(m.phases.loading).toBeGreaterThan(100);
+    expect(m.phases.loading).toBeLessThan(200);
+    expect(m.phases.sampling).toBeGreaterThan(2 * 30);
+    expect(m.phases.decoding).toBeGreaterThanOrEqual(45);
+    expect(m.vramPeak).toBe(93);
+    expect(m.heatPeak).toBe(74);
+    monitor.untrack("p1");
+    expect(monitor.measured("p1")).toBeNull();
+  });
+
+  it("counts what follows the first pass in the time left, when past renders say how long that takes", async () => {
+    monitor.track({ ...tracking, passes: [{ node: "5", steps: 20 }, { node: "8", steps: 10 }], expect: { laterMs: 60_000, finishMs: 30_000 } });
+    fake.send("execution_start", { prompt_id: "p1" });
+    fake.send("progress", { prompt_id: "p1", node: "5", value: 1, max: 20 });
+    await until(() => monitor.progress("p1").step === 1);
+    await new Promise((r) => setTimeout(r, 30));
+    fake.send("progress", { prompt_id: "p1", node: "5", value: 11, max: 20 });
+    await until(() => monitor.progress("p1").step === 11);
+    // nine steps of a few milliseconds, then the minute of the second pass and the half minute of finishing
+    expect(monitor.progress("p1").eta).toBeGreaterThan(90);
+    expect(monitor.progress("p1").eta).toBeLessThan(92);
+  });
+
   it("picks up the machine's load from a monitor extension's broadcast", async () => {
     expect(monitor.system).toBeNull();
     fake.send("dasiwa.system_monitor", {

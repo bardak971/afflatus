@@ -16,6 +16,7 @@ import type { Graph, NodeCatalog } from "@studai/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
+import { seedRenderTimes } from "./demo-times";
 import { writeSettings } from "../apps/server/src/settings";
 import { LocalStorage } from "../apps/server/src/storage";
 import { mkdirSync } from "node:fs";
@@ -157,6 +158,8 @@ const db = openSqlite(join(dataDir, "studai.db"));
 await migrate(db);
 await writeSettings(db, { comfyUrl: fake.url, llm: { baseUrl: llmUrl, model: "pretend-designer", apiKey: "", vision: false } });
 
+// a few months of pretend render times, so that the "Render times" tab has something to show
+await seedRenderTimes(db);
 const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")));
 // WEB_DIR: another build of the web app than the one `pnpm start` serves
 const dist = process.env.WEB_DIR ? join(root, process.env.WEB_DIR) : join(root, "apps/web/dist");

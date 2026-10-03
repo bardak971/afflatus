@@ -6,8 +6,9 @@ import { api, type Job, type RecipeInfo, type SystemLoad } from "../api";
 import { useQueue, useRecipes } from "../data";
 import { about, aboutMs, phaseLabel, took, when } from "../format";
 import { allowNotifications, useNotify, useSystem } from "../store";
-import { Bar, Button, cx, Empty, ErrorNote, SectionTitle, Toggle } from "../ui";
+import { Bar, Button, cx, Empty, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
 import { LivePreview } from "../LivePreview";
+import { RenderTimes } from "./queue/Times";
 
 /** The numbers of the machine ComfyUI runs on. Shows what is known: a meter with no source is left out. */
 export function meters(load: SystemLoad | null): Array<{ label: string; value: string; percent: number; hot: boolean }> {
@@ -63,6 +64,7 @@ export function Queue() {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [refused, setRefused] = useState(false);
+  const [tab, setTab] = useState<"queue" | "times">("queue");
   const q = queue.data;
   const m = meters(load);
   const error = queue.error ?? free.error ?? pause.error ?? cancel.error ?? order.error ?? again.error ?? dismiss.error;
@@ -83,7 +85,12 @@ export function Queue() {
     <div className="flex min-h-0 grow flex-col overflow-y-auto px-8 pb-8">
       <header className="flex h-24 shrink-0 items-center gap-5">
         <div className="grow">
-          <h1 className="text-xl font-semibold">Queue</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-semibold">Queue</h1>
+            <div className="w-64">
+              <Segmented<"queue" | "times"> label="What to look at" value={tab} options={[{ value: "queue", label: "Now and next" }, { value: "times", label: "Render times" }]} onChange={setTab} />
+            </div>
+          </div>
           <div className="flex items-center gap-2 text-ink-2">
             <span className={cx("h-2 w-2 rounded-full", q?.online ? "bg-good" : "bg-warn")} />
             {q?.online ? "ComfyUI is on · the numbers below are the computer it runs on, live" : "ComfyUI is not answering. Waiting jobs stay in line."}
@@ -107,7 +114,9 @@ export function Queue() {
         )}
       </header>
 
-      {m.length > 0 && (
+      {tab === "times" && <RenderTimes />}
+
+      {tab === "queue" && m.length > 0 && (
         <div className="mb-5 grid shrink-0 gap-2.5" style={{ gridTemplateColumns: `repeat(${m.length}, minmax(0, 1fr))` }}>
           {m.map((x) => (
             <div key={x.label} className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-panel px-3 py-2.5">
@@ -122,13 +131,13 @@ export function Queue() {
       )}
 
       {error && <ErrorNote>{error.message}</ErrorNote>}
-      {q?.paused && (
+      {tab === "queue" && q?.paused && (
         <div className="mb-4 rounded-[10px] bg-accent-wash px-4 py-3 font-semibold text-accent">
           Paused. The clip that is rendering finishes, then nothing new is sent to ComfyUI until you resume. The GPU is yours. Exports go on: they do not use it.
         </div>
       )}
 
-      {q && (
+      {tab === "queue" && q && (
         <div className="grid grid-cols-[minmax(0,1fr)_420px] gap-8">
           <div className="flex flex-col gap-6">
             <section className="flex flex-col gap-2">
