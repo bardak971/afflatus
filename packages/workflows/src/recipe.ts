@@ -60,7 +60,7 @@ export function scaleAfterModel(g: Graph, t: Target): { upscale: string; factor:
 type Under = InputSpec["showWhen"];
 
 function controlSpec(c: Control, under: Under): InputSpec {
-  const base = { id: c.id, label: c.label, advanced: !c.front, ...(under ? { showWhen: under } : {}) };
+  const base = { id: c.id, label: c.label, advanced: !c.front, ...(under ? { showWhen: under } : {}), ...(c.help ? { note: c.help } : {}) };
   switch (c.kind) {
     case "number": return { ...base, type: "number", min: c.min ?? 0, max: c.max ?? 100, step: c.step ?? 1, default: Number(c.default) };
     case "toggle": return { ...base, type: "toggle", default: Boolean(c.default), ...(c.captions ? { captions: c.captions } : {}) };
@@ -235,7 +235,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   };
   for (const c of b.controls) if (!under(c.target.node)) inputs.push(controlInput(c, fromStage(c.target.node)));
   for (const t of b.toggles) {
-    inputs.push({ id: t.id, type: "toggle", label: t.label, default: t.default, advanced: !t.front, ...(t.captions ? { captions: t.captions } : {}) });
+    inputs.push({ id: t.id, type: "toggle", label: t.label, default: t.default, advanced: !t.front, ...(t.captions ? { captions: t.captions } : {}), ...(t.help ? { note: t.help } : {}) });
     for (const c of b.controls) {
       const u = under(c.target.node);
       if (u?.toggle === t) inputs.push({ ...controlInput(c, u.when), advanced: !t.front });

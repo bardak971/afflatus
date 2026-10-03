@@ -55,6 +55,8 @@ export interface Inspection {
   stages: Array<{ node: string; label: string }>;
   /** What could not be read with certainty, for the person importing. */
   notes: string[];
+  /** What each kind of node the workflow uses does, in its author's words, for the kinds that have one. */
+  about: Record<string, string>;
 }
 
 type NodeMeta = { _meta?: { title?: string } };
@@ -167,7 +169,9 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     const plain = input.replace(/_/g, " ");
     const label = givenLabel(node, input) ?? (name ? (isPrimitive(source, catalog, node) ? name : `${name} · ${plain}`) : plain);
     const also = editor?.shared[`${node}.${input}`];
-    const base = { id: `ctl_${node}_${input}`.replace(/[^a-zA-Z0-9_]/g, "_"), label, target: { node, input }, ...(own ? { front: true } : {}), ...(also?.length ? { also } : {}) };
+    // the node author's word on the input: shown as the control's "?"
+    const help = typeof o.tooltip === "string" && o.tooltip.trim() ? o.tooltip.trim() : undefined;
+    const base = { id: `ctl_${node}_${input}`.replace(/[^a-zA-Z0-9_]/g, "_"), label, target: { node, input }, ...(own ? { front: true } : {}), ...(also?.length ? { also } : {}), ...(help ? { help } : {}) };
     if ((type === "INT" || type === "FLOAT") && typeof value === "number") {
       const step = typeof o.step === "number" ? o.step : type === "INT" ? 1 : 0.01;
       return { ...base, kind: "number", default: value, min: typeof o.min === "number" ? o.min : 0, max: typeof o.max === "number" ? o.max : Math.max(100, value), step };
@@ -339,7 +343,29 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
   const chosen = lists.length ? lists.slice(0, 4) : loraPoints.length <= 2 ? loraPoints : [];
 
   // ---- everything else that could be a control
-  const toggles = editor?.toggles ?? [];
+  /** What a kind of node does, when its author said. */
+  const aboutOf = (classType: string | undefined) => {
+    const d = classType ? catalog[classType]?.description : undefined;
+    return typeof d === "string" && d.trim() ? d.trim() : undefined;
+  };
+  const about: Record<string, string> = {};
+  for (const n of Object.values(source)) {
+    const d = aboutOf(n.class_type);
+    if (d) about[n.class_type] = d;
+  }
+  // a switch is explained by what the nodes it switches do, each kind once
+  const toggles: Toggle[] = (editor?.toggles ?? []).map((t) => {
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (const e of t.effects) for (const id of e.nodes) {
+      const type = source[id]?.class_type;
+      const d = aboutOf(type);
+      if (!type || !d || seen.has(type)) continue;
+      seen.add(type);
+      lines.push(`${titleOf(id)}: ${d}`);
+    }
+    return lines.length ? { ...t, help: lines.slice(0, 3).join(" ") } : t;
+  });
   const bound = new Set<string>();
   const mark = (t?: Target) => t && bound.add(`${t.node}.${t.input}`);
   [prompt?.target, negative?.target, ...seeds, size?.width, size?.height, length?.target, ...toggles.flatMap((t) => t.writes)].forEach(mark);
@@ -505,5 +531,5 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     : null;
 
   const packs = Object.fromEntries([...missingNodes, ...missingWhenOn].flatMap((c) => (editor?.packs[c] ? [[c, editor.packs[c]!]] : [])));
-  return { nodeCount: Object.keys(source).length, missingNodes, missingWhenOn, missingFiles, missingChoices, relocated, stages, packs, links: editor?.links ?? [], outputs, texts, images, loraPoints, toggles, suggested, candidates, notes };
+  return { nodeCount: Object.keys(source).length, missingNodes, missingWhenOn, missingFiles, missingChoices, relocated, stages, packs, links: editor?.links ?? [], outputs, texts, images, loraPoints, toggles, suggested, candidates, notes, about };
 }

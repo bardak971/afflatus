@@ -1,3 +1,4 @@
+import { cx } from "./ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 
@@ -89,6 +90,7 @@ function Caps({ keys }: { keys: string }) {
 /** The list of keys, opened with "?" from anywhere: every place of the app as a card, side by side. */
 export function KeysHelp() {
   const [open, setOpen] = useState(false);
+  const [all, setAll] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") return setOpen(false);
@@ -145,17 +147,31 @@ export function KeysHelp() {
     };
   }, []);
   if (!open) return null;
+  // the cards that apply to what is on screen: a viewer that is open, a trim bar, the timeline's track, a form, the Studio grid
+  const has = (sel: string) => Boolean(document.querySelector(sel));
+  const viewer = has('[role=dialog][aria-label="Item"]');
+  const onPage = (where: string) => {
+    if (where.startsWith("Viewer")) return viewer;
+    if (where.startsWith("Trim")) return has('[data-bar="whole"]');
+    if (where === "Timeline") return has("[data-designer-floor]");
+    if (where.startsWith("Grid")) return (location.pathname === "/" || location.pathname === "/create") && !viewer;
+    if (where.startsWith("Form")) return has("input[data-search=form], button[data-search-opener]");
+    if (where === "Prompt") return has("textarea");
+    return true;
+  };
+  const shown = all ? KEYS : KEYS.filter((g) => onPage(g.where));
   return (
     <div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" data-keys-help className="fixed inset-0 z-[90] flex items-center justify-center bg-ground/85 p-6" onClick={() => setOpen(false)}>
       <div className="flex max-h-full w-full max-w-[1500px] flex-col rounded-2xl border border-line-strong bg-panel" onClick={(e) => e.stopPropagation()}>
         <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line pr-3 pl-6">
           <h2 className="text-lg font-semibold">Keyboard shortcuts</h2>
-          <span className="grow text-ink-2">They act when the focus is not in a text field.</span>
+          <span className="grow text-ink-2">{all ? "Every screen's keys. They act when the focus is not in a text field." : "The keys of what is on screen now. They act when the focus is not in a text field."}</span>
+          <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-8 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>{all ? "This screen only" : "Every screen"}</button>
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </header>
         {/* cards that fill columns one after the other: as many columns as the window has room for */}
         <div className="min-h-0 columns-1 gap-4 overflow-y-auto p-5 md:columns-2 xl:columns-3 2xl:columns-4">
-          {KEYS.map((group) => (
+          {shown.map((group) => (
             <section key={group.where} className="mb-3.5 flex break-inside-avoid flex-col gap-2.5 rounded-xl border border-line bg-raised p-3.5">
               <div className="flex flex-col gap-0.5">
                 <h3 className="text-sm font-semibold">{group.where}</h3>

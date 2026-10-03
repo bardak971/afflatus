@@ -5,6 +5,7 @@ import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, fileUrl, thumbUrl, type Asset } from "./api";
+import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
 import { useProject } from "./project";
 import { clock } from "./format";
@@ -106,7 +107,7 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2.5">
                 {sounding.map((a) => (
                   <button key={a.id} type="button" aria-label={a.name ? `Use the audio of ${a.name}` : "Use the audio of this video"} onClick={() => onPick(a.id)} className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent">
-                    <img src={thumbUrl(a.id)} alt="" loading="lazy" className="h-full w-full object-cover" />
+                    <HoverVideo asset={a.id} video />
                     <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold"><Music size={11} /> {a.durationMs ? clock(a.durationMs) : "sound"}</span>
                   </button>
                 ))}
@@ -127,7 +128,7 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
                 onClick={() => onPick(a.id)}
                 className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent"
               >
-                <img src={thumbUrl(a.id)} alt="" loading="lazy" className="h-full w-full object-cover" />
+                <HoverVideo asset={a.id} video={a.kind === "video"} />
                 {a.durationMs ? <span className="absolute bottom-1.5 left-1.5 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">{clock(a.durationMs)}</span> : null}
               </button>
             ))}

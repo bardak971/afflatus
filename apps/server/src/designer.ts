@@ -566,10 +566,13 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
   /**
    * A clip put between two others, written by the designer: what takes the action from the end of the clip
    * before to the start of the clip after, in the clip's time. The texts come back with what the form held
-   * when it was asked; the page puts them in unless something was typed meanwhile.
+   * when it was asked; the page puts them in unless something was typed meanwhile. `arrive`: the clip
+   * whose start this one must reach, when it is not the next (a loop clip arrives at the clip under In).
    */
   app.post<{ Params: { id: string } }>("/api/clips/:id/between", async (req) => {
+    const b = z.object({ arrive: z.string().optional() }).parse(req.body ?? {});
     const { view, index } = await s.timelines.whereIs(req.params.id);
+    const loopTo = b.arrive ? view.clips.findIndex((c) => c.id === b.arrive) : -1;
     const clip = view.clips[index]!;
     if (!clip.recipe) throw new DesignerError("This clip has no model yet: choose one first.");
     const recipe = recipeOf(clip.recipe);
@@ -581,15 +584,17 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
       return m ? String(c.inputs[m.id] ?? "") : "(a video added as it is)";
     };
     const before = index > 0 ? view.clips[index - 1] : undefined;
-    const after = view.clips[index + 1];
+    const after = loopTo >= 0 ? view.clips[loopTo] : view.clips[index + 1];
     const settings = await readSettings(s.db);
     const llm = llmInUse(settings);
     const ctx = await context(recipe, clip.inputs, { previous: before && clip.joined === "continue" ? sayOf(before) : undefined, story: { clips: view.clips.map(sayOf), index }, look: clip.look ?? view.look, mood: view.mood }, false);
-    ctx.next = after && (after.joined === "continue" || ctx.endsOnPicture) ? sayOf(after) : undefined;
+    ctx.next = after && (loopTo >= 0 || after.joined === "continue" || ctx.endsOnPicture) ? sayOf(after) : undefined;
     ctx.between = true;
     const system = systemPrompt(recipe, s.registry.family(recipe.family), "chat", ctx, undefined, instructionsInUse(settings));
     const seconds = ctx.seconds ? `${ctx.seconds} seconds` : "the time it has";
-    const ask = `Write what happens in this clip. It is put between the clip before and the clip after: it starts from how the clip before ends and must arrive at how the clip after starts, in ${seconds}. What is written now came from the old clip and describes more than this stretch: replace it with only what happens here.`;
+    const ask = loopTo >= 0
+      ? `Write what happens in this clip. It closes a loop: it starts from how the clip before ends and must arrive at how clip ${loopTo + 1} starts (the clip after, in this prompt), in ${seconds}, so that the stretch plays round without a jump: a return to the first position, the same framing, nothing new begun. What is written now came from the old clip and describes more than this: replace it with only the return.`
+      : `Write what happens in this clip. It is put between the clip before and the clip after: it starts from how the clip before ends and must arrive at how the clip after starts, in ${seconds}. What is written now came from the old clip and describes more than this stretch: replace it with only what happens here.`;
     for (let attempt = 0; attempt < 2; attempt++) {
       const reply = parseReply(await chat(llm, [{ role: "system", content: system }, { role: "user", content: ask }]), recipe, ctx.values);
       if (reply.kind === "proposal" && Object.keys(reply.changes).length) return { changes: reply.changes, note: reply.note, was: ctx.values };

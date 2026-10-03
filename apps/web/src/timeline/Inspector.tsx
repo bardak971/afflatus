@@ -70,7 +70,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner, writing, writeError, onWriteBetween }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, writing, writeError, onWriteBetween }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -96,7 +96,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   /** Stop the render of this clip that is under way, or take it out of the queue. */
   onStop(): void;
   /** Make the clip end where it begins: on its opening picture, or on the first frame of its take. */
-  onLoop(): void;
   /** A take is hovered: show it in the player without choosing it. */
   onPreview(take: Take | null): void;
   /** Open the designer for this clip. */
@@ -203,38 +202,15 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           </>
         )}
 
-        {before && !still && (
-          <div className={cx("flex flex-col gap-2 rounded-lg border p-3", clip.join === "stale" ? "border-warn bg-warn-wash" : "border-line")}>
-            {clip.join === "stale" ? (
-              <>
-                <span className="font-semibold text-warn-ink">This clip no longer follows clip {index}</span>
-                <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
-                <span className="flex flex-wrap gap-1.5">
-                  {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(fit, count)}>Re-render{takes ? ` · ${takes}` : ""}</Button>}
-                  <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
-                </span>
-              </>
-            ) : carries ? (
-              <>
-                <span className="flex items-center gap-2 font-semibold"><Link2 size={14} className="text-accent" /> {take ? "Extends" : "Will extend"} clip {index}</span>
-                <span className="text-xs text-ink-2">
-                  {!canCarry
-                    ? "The model of this clip cannot extend another clip: it will start on its own."
-                    : before.kind === "still"
-                      ? `Its first frame is the image of clip ${index}.`
-                      : recipe?.traits?.continues === "clip"
-                        ? `It starts from the last moments of clip ${index}: the motion and the voices continue across the join.`
-                        : `Its first frame is the last frame of clip ${index}.`}
-                </span>
-                <span><Button size="sm" onClick={() => onPatch({ joined: "cut" })}><Scissors size={13} /> Make it a cut</Button></span>
-              </>
-            ) : (
-              <>
-                <span className="flex items-center gap-2 font-semibold"><Scissors size={14} className="text-ink-2" /> Cut</span>
-                <span className="text-xs text-ink-2">Nothing ties it to clip {index}: it starts on its own.</span>
-                {canCarry && <span><Button size="sm" onClick={() => onPatch({ joined: "continue" })}><Link2 size={13} /> Extend clip {index}</Button></span>}
-              </>
-            )}
+        {/* how it joins the clip before is on the track: the dot between them switches cut and extend; only a broken join is said here */}
+        {before && !still && clip.join === "stale" && (
+          <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-wash p-3">
+            <span className="font-semibold text-warn-ink">This clip no longer follows clip {index}</span>
+            <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
+            <span className="flex flex-wrap gap-1.5">
+              {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(fit, count)}>Re-render{takes ? ` · ${takes}` : ""}</Button>}
+              <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
+            </span>
           </div>
         )}
 
@@ -345,16 +321,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               {pins.start && !carries && !opens && <Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> First frame</Button>}
               {pins.mid && !through && <Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button>}
               {pins.end && !ends && <Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button>}
-              {pins.end && !loops && (
-                <Button
-                  size="sm"
-                  disabled={!opens && !take}
-                  title={opens ? "The last frame will be the first frame, so the clip can be played round and round." : take ? "The last frame will be the first frame of its take, so the clip can be played round and round." : "Give the clip a first frame, or render it once: a loop ends where the clip begins."}
-                  onClick={onLoop}
-                >
-                  <Repeat size={13} /> Make it loop
-                </Button>
-              )}
             </div>
             <Note text={`${carries && pins.start ? `It extends clip ${index}, so it needs no first frame. ` : ""}Or drop an image on the clip: near its start for the first frame, near its end for the last frame${pins.mid ? ", in the middle for a keyframe" : ""}.${take ? " A pinned frame counts from the next take." : ""}`} />
           </div>

@@ -8,7 +8,7 @@ import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
 import { GetFile } from "../GetFile";
 import { Select } from "../Select";
-import { Button, cx, ErrorNote, SectionTitle, Toggle as Switch, Note } from "../ui";
+import { Button, cx, ErrorNote, Help, SectionTitle, Toggle as Switch, Note } from "../ui";
 
 /** A workflow being imported or changed: the file, what was found in it, and the mapping so far. */
 export interface Editing {
@@ -305,6 +305,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                 return (
                   <div key={t.id} className={cx("flex items-center gap-2.5 rounded-lg border px-3 py-2", ticked ? "border-accent/50 bg-accent-wash" : "border-line bg-panel")}>
                     <input type="checkbox" aria-label={`Add the switch ${t.label}`} checked={Boolean(ticked)} onChange={() => toggleSwitch(t)} className="accent-accent" />
+                    {t.help && <Help text={t.help} />}
                     {ticked ? (
                       <>
                         <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => changeSwitch(t.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />
@@ -344,16 +345,20 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             );
           })()}
           <SectionTitle>Widgets exposed in the form</SectionTitle>
-          <div className="text-ink-2">Tick a widget to get a control for it. {b.controls.length} ticked. Everything else stays as it is in the file.</div>
+          <div className="text-ink-2">Tick a widget to get a control for it. {b.controls.length} ticked. Everything else stays as it is in the file. A "?" is what the node's author says about it; it follows the widget into the form.</div>
           {groups.map(([node, items]) => (
             <div key={node} className="flex flex-col gap-1">
-              <div className="pt-1.5 text-xs text-ink-2">{items[0]!.title} <span className="text-ink-3">#{node}</span></div>
+              <div className="flex items-center gap-1.5 pt-1.5 text-xs text-ink-2">
+                <span>{items[0]!.title} <span className="text-ink-3">#{node}</span></span>
+                {found.about?.[items[0]!.classType] && <Help text={found.about[items[0]!.classType]!} />}
+              </div>
               {items.map((c) => {
                 const ticked = b.controls.find((x) => x.id === c.id);
                 const used = taken.has(keyOf(c.target));
                 return (
                   <div key={c.id} className={cx("flex items-center gap-2.5 rounded-lg border px-3 py-2", ticked ? "border-accent/50 bg-accent-wash" : "border-line bg-panel", used && "opacity-50")}>
                     <input type="checkbox" aria-label={`Add a control for ${c.label}`} checked={Boolean(ticked)} disabled={used} onChange={() => toggleControl(c)} className="accent-accent" />
+                    {c.help && <Help text={c.help} />}
                     {ticked ? (
                       <>
                         <input aria-label="Name of the control" value={ticked.label} onChange={(e) => change(c.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />

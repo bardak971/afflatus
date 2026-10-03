@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LibraryBig, Music, PanelLeftClose, PanelLeftOpen, Play, Plus, Search } from "lucide-react";
 import { api, thumbUrl, type Asset, type Timeline } from "../api";
+import { HoverVideo } from "../HoverVideo";
 import { Picker } from "../PictureField";
 import { useAssets, useFolders } from "../data";
 import { clock } from "../format";
@@ -208,7 +209,7 @@ export function Shelf({ onAdd, selected, timeline }: {
               <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2">
                 {g.items.map((a) => (
                   <div key={a.id} draggable onDragStart={drag(a)} className="group relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent">
-                    <img src={thumbUrl(a.id)} alt={a.name} loading="lazy" draggable={false} className="h-full w-full object-cover" />
+                    <HoverVideo asset={a.id} video={a.kind === "video"} alt={a.name} />
                     {a.kind === "video" && (
                       <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-ground/80 px-1 py-px text-[10px] font-semibold">
                         <Play size={8} fill="currentColor" />

@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, X } from "lucide-react";
 import { api, thumbUrl, type HistoryJob } from "../../api";
+import { HoverVideo } from "../../HoverVideo";
 import { useAsset, useJobs, useRecipes } from "../../data";
 import { clock, fileLabel, took, when } from "../../format";
 import { Select } from "../../Select";
@@ -168,7 +169,7 @@ function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): v
               {m.kind === "audio" ? (
                 <span className="absolute inset-0 flex items-center justify-center text-ink-2"><Music size={20} /></span>
               ) : (
-                <img src={thumbUrl(m.id)} alt="" loading="lazy" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
+                <HoverVideo asset={m.id} video={m.kind === "video"} />
               )}
               {m.kind === "video" && (
                 <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">

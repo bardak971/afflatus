@@ -54,7 +54,7 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, range, onRange, onRangeMenu, snapQuiet }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onJoin, range, onRange, onRangeMenu, snapQuiet }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -85,6 +85,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onNewClip(after: string | undefined): void;
   /** A right-click on a clip: its menu. */
   onMenu?(clip: Clip, e: React.MouseEvent): void;
+  /** The join dot before a clip was clicked: it extends the clip before, or is a cut. */
+  onJoin?(clip: Clip, joined: "continue" | "cut"): void;
   /** In and Out, on the clock of what plays; null = no range. */
   range: TimeRange | null;
   onRange(range: TimeRange | null): void;
@@ -566,22 +568,29 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     </>
                   )}
 
-                  {/* how it starts: flowing on from the clip before, or a cut */}
-                  {s.index > 0 && c.kind === "video" && (
+                  {/* how it starts: flowing on from the clip before, or a cut; a click switches, when the model can extend */}
+                  {s.index > 0 && c.kind === "video" && (() => {
+                    const r = recipeOf(c);
+                    const prev = clips[s.index - 1];
+                    const canCarry = Boolean(r?.traits?.continues) || (prev?.kind === "still" && Boolean(pinInputs(r).start));
+                    const toggles = c.join !== "stale" && canCarry && Boolean(onJoin);
+                    return (
                     <button
                       type="button"
-                      onClick={() => onSelect(c.id)}
-                      title={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? (c.join === "fresh" ? `Extends clip ${s.index}` : `Will extend clip ${s.index}`) : "A cut"}
+                      onClick={() => (toggles ? onJoin!(c, c.joined === "continue" ? "cut" : "continue") : onSelect(c.id))}
+                      title={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${toggles ? ". Click: make it a cut" : ""}` : `A cut${toggles ? `. Click: extend clip ${s.index}` : r && c.kind === "video" ? ": this model cannot extend a clip" : ""}`}
                       aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : c.joined === "continue" ? `The join before clip ${s.index + 1}: it extends clip ${s.index}` : `The join before clip ${s.index + 1}: a cut`}
                       style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
                       className={cx(
                         "absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
+                        toggles && "hover:scale-110 hover:border-accent",
                         c.join === "stale" ? "border-warn bg-warn text-warn-on" : c.joined === "continue" ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
                       )}
                     >
                       {c.join === "stale" ? <TriangleAlert size={11} /> : c.joined === "continue" ? <Link2 size={11} /> : <Scissors size={10} />}
                     </button>
-                  )}
+                    );
+                  })()}
 
                   {/* its sound */}
                   <button

@@ -33,6 +33,16 @@ describe("inspect: the default text-to-picture workflow", () => {
     // what is already bound is not offered twice
     expect(found.candidates.some((c) => ["seed", "width", "height", "text"].includes(c.target.input))).toBe(false);
   });
+
+  it("carries what the node's author says about a widget, for the form's \"?\"", () => {
+    const by = (input: string) => found.candidates.find((c) => c.target.node === "3" && c.target.input === input)!;
+    expect(by("steps").help).toBe("The number of steps used in the denoising process.");
+    expect(by("cfg").help).toMatch(/Classifier-Free Guidance/);
+    expect(found.about.KSampler).toMatch(/denoise the latent image/);
+    // the word follows the control into the form input
+    const recipe = recipeFromWorkflow(defOf(sdxl, "SDXL", "SDXL"));
+    expect(recipe.inputs.find((i) => i.id === "ctl_3_steps")?.note).toBe("The number of steps used in the denoising process.");
+  });
 });
 
 describe("inspect: a video workflow with a first and a last picture", () => {

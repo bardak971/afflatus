@@ -2,6 +2,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
+import { HoverVideo } from "../HoverVideo";
 import { api, thumbUrl, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
 import { projectForNew, useProject } from "../project";
@@ -80,7 +81,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
         </span>
       )}
       {asset.kind === "image" || (asset.kind === "video" && !noFrame) ? (
-        <img src={thumbUrl(asset.id)} alt="" loading="lazy" draggable={false} onError={() => setNoFrame(true)} className="h-full w-full object-cover" />
+        <HoverVideo asset={asset.id} video={asset.kind === "video"} onNoFrame={() => setNoFrame(true)} />
       ) : (
         <span className="flex h-full flex-col items-center justify-center gap-1.5 text-ink-2">
           {asset.kind === "video" ? <Play size={20} /> : <Music size={20} />}

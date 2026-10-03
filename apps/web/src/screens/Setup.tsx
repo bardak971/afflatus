@@ -172,7 +172,13 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
               <input value={form.name} placeholder="Local Qwen, the fast one…" onChange={(e) => setForm({ ...form, name: e.target.value })} className={cx(field, "font-sans text-sm")} />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-ink-2">Base URL</span>
+              <span className="flex items-baseline justify-between text-xs text-ink-2">
+                <span>Base URL</span>
+                <span className="flex gap-1.5">
+                  <button type="button" title="Ollama serves the OpenAI format at this address on the computer it runs on. Then the model name as `ollama list` shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:11434/v1", name: form.name || "Ollama" })} className="rounded border border-line-strong px-1.5 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">Ollama</button>
+                  <button type="button" title="LM Studio's local server, at its usual address. Then the model name as its server page shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:1234/v1", name: form.name || "LM Studio" })} className="rounded border border-line-strong px-1.5 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">LM Studio</button>
+                </span>
+              </span>
               <input value={form.baseUrl} placeholder="http://127.0.0.1:1234/v1" spellCheck={false} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className={field} />
             </label>
             <label className="flex flex-col gap-1.5">
@@ -773,7 +779,8 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
       ))}
       {extra.map((x) => (
         <div key={x.id} className="text-ink-2">
-          <span className="font-semibold">{x.label}</span>: not there. {x.hint}
+          <span className="mr-1.5 rounded bg-raised px-1.5 py-px text-[10px] font-bold tracking-wide text-ink-3 uppercase">optional</span>
+          <span className="font-semibold">{x.label}</span> is not installed; the operation runs without it. {x.hint}
           {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
         </div>
       ))}
@@ -826,7 +833,16 @@ function ReadyList() {
               <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [family.id]: !open })} className="flex h-11 items-center gap-3 px-3 text-left hover:bg-hover">
                 <span className="truncate font-semibold">{family.name}</span>
                 <span className="grow" />
-                <span className={cx("shrink-0 text-xs font-semibold", !setup.data ? "text-ink-3" : all ? "text-good" : "text-warn-ink")}>{setup.data ? (all ? `${mine.length} ready` : `${good} of ${mine.length} ready`) : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
+                {(() => {
+                  // files the family does not need, but some option of it would use: said as what they are
+                  const extras = (setup.data?.families.find((x) => x.id === family.id)?.slots ?? []).filter((x) => x.optional && !x.file && x.get).length;
+                  return (
+                    <span className="flex shrink-0 items-baseline gap-2 text-xs">
+                      {setup.data && all && extras > 0 && <span className="text-ink-3">{extras} optional file{extras > 1 ? "s" : ""} to add</span>}
+                      <span className={cx("font-semibold", !setup.data ? "text-ink-3" : all ? "text-good" : "text-warn-ink")}>{setup.data ? (all ? `${mine.length} ready` : `${good} of ${mine.length} ready`) : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
+                    </span>
+                  );
+                })()}
                 <ChevronDown size={14} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
               </button>
               {open && <div className="flex flex-col divide-y divide-line border-t border-line bg-raised">{mine.map((r) => <ReadyRow key={r.id} r={r} />)}</div>}

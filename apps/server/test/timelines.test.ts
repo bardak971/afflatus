@@ -675,6 +675,35 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(y.clips[1].joined).toBe("cut");
   });
 
+  it("loops a range: a short clip after Out that returns to the frame at In", async () => {
+    const { tl, a, b } = await twoRendered();
+    const { clip, context, arrive } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 1000, outMs: 4000, action: "loop" });
+    expect(context).toEqual({ start: "clip", end: "frame" });
+    expect(arrive).toBe(a);
+    const v = await view(tl);
+    // Out inside the second clip: it is split there; the loop clip follows the part in the range, the rest comes after as a cut
+    expect(v.clips).toHaveLength(4);
+    expect(v.clips[0].id).toBe(a);
+    expect(v.clips[1].id).toBe(b);
+    expect(v.clips[1].lengthMs).toBeCloseTo(1000, -2);
+    const made = v.clips[2];
+    expect(made.id).toBe(clip);
+    expect(made.recipe).toBe("h3.video");
+    expect(made.take).toBeNull();
+    expect(made.joined).toBe("continue");
+    expect(made.inputs.start).toBeUndefined();
+    expect(typeof made.inputs.end).toBe("string");
+    // a second and a half, or the least the model allows
+    expect(made.inputs.seconds).toBe(2);
+    expect(v.clips[3].joined).toBe("cut");
+    expect(v.undo).toBe("the loop clip");
+    await call("POST", `/api/timelines/${tl}/undo`);
+    expect((await view(tl)).clips).toHaveLength(2);
+    // nothing to play round
+    const bad = await t.app.inject({ method: "POST", url: `/api/timelines/${tl}/range`, payload: { inMs: 2000, outMs: 2000, action: "loop" } });
+    expect(bad.statusCode).toBe(400);
+  });
+
   it("scores how smoothly each take meets the clips around it", async () => {
     const { tl, a, b } = await twoRendered();
     const first = (await get(t.app, `/api/clips/${a}/joins`)).json().items as Array<{ take: string; in: number | null; out: number | null }>;

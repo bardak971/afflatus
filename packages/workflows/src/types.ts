@@ -43,6 +43,8 @@ export const control = z.object({
   also: z.array(target).optional(),
   /** Shown with the main inputs instead of under "All settings": a control the workflow's author made on purpose. */
   front: z.boolean().optional(),
+  /** What the input is for, in the node author's words: ComfyUI's tooltip for it, read when the workflow was imported. */
+  help: z.string().optional(),
 });
 export type Control = z.infer<typeof control>;
 
@@ -66,6 +68,8 @@ export const toggle = z.object({
   /** Places in the workflow that read the same on/off value. */
   writes: z.array(target).default([]),
   front: z.boolean().optional(),
+  /** What the nodes it switches do, from their descriptions in ComfyUI. */
+  help: z.string().optional(),
 });
 export type Toggle = z.infer<typeof toggle>;
 

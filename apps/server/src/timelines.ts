@@ -1227,6 +1227,65 @@ export class Timelines {
     return { clip: id, context };
   }
 
+  /**
+   * A clip added after Out that brings the picture back to the frame at In, so that the range plays round:
+   * it extends the clip at Out (or opens on its last frame) and ends on the frame at In, on a model that
+   * takes a last frame. Out inside a clip: that clip is split there first. The clip after, if any, follows
+   * as a cut. Short by default (a second and a half, or the least the model allows). Not rendered here: it
+   * is selected, and its form is yours first. `arrive` is the clip under In, for the designer.
+   */
+  async loopRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; arrive: string }> {
+    const { laid, a, b } = await this.window(timelineId, inMs, outMs);
+    if (b - a < 40) throw refused("Set In and Out apart: a loop needs something to play round.");
+    const source = this.before(laid, b)!;
+    const target = this.at(laid, a) ?? this.before(laid, a)!;
+    const takes = (r: Recipe<any>, role: "start" | "end") => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === role);
+    const carries = (r: Recipe<any>) => r.output === "video" && r.inputs.some((i) => i.type === "clip" && i.role === "previous");
+    const startBy = (r: Recipe<any>): "clip" | "frame" | null => (source.p.clip.kind === "video" && carries(r) ? "clip" : takes(r, "start") ? "frame" : null);
+    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && startBy(r) && takes(r, "end"));
+    const own = source.p.clip.recipe_id ? this.registry.recipe(source.p.clip.recipe_id) : undefined;
+    const recipe = fits(own) ? own : this.registry.recipes().find(fits);
+    if (!recipe) throw refused("None of your video models takes a last frame: nothing can bring the range back to its start.");
+    const context: RangeContext = { start: startBy(recipe)!, end: "frame" };
+    const first = context.start === "frame" ? await this.pictureAt(source, b - source.atMs, "end") : null;
+    const last = await this.pictureAt(target, a - target.atMs, "start");
+    await this.remember(timelineId, "the loop clip");
+    // Out inside a clip: split there, so that the loop clip comes right after what plays in the range
+    if (b < source.atMs + source.lengthMs - 40) await this.splitAt(timelineId, source.p, b - source.atMs);
+    const all = await this.placed(timelineId);
+    const anchor = [...this.laid(all)].reverse().find((l) => l.atMs + l.lengthMs <= b + 50);
+    const index = anchor ? anchor.index + 1 : 0;
+    const srcInputs = JSON.parse(source.p.clip.inputs) as Record<string, unknown>;
+    const inputs: Record<string, unknown> = own?.id === recipe.id
+      ? Object.fromEntries(Object.entries(srcInputs).filter(([id]) => recipe.inputs.some((i) => i.id === id && !["prompt", "image", "clip", "seed"].includes(i.type))))
+      : this.settingsOf(recipe, all, index);
+    const mainOf = (r: Recipe<any>) => r.inputs.find((i) => i.type === "prompt" && !i.optional) ?? r.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
+    const from = own ? mainOf(own) : undefined;
+    const to = mainOf(recipe);
+    if (from && to && typeof srcInputs[from.id] === "string") inputs[to.id] = srcInputs[from.id];
+    if (first) inputs[recipe.inputs.find((i) => i.type === "image" && i.role === "start")!.id] = first.id;
+    inputs[recipe.inputs.find((i) => i.type === "image" && i.role === "end")!.id] = last.id;
+    const seconds = secondsInput(recipe.inputs);
+    if (seconds) inputs[seconds.id] = Number(Math.max(seconds.min, Math.min(seconds.max, Math.round(1.5 / seconds.step) * seconds.step)).toFixed(3));
+    const id = newId();
+    const at = now();
+    await this.db
+      .insertInto("clips")
+      .values({
+        id, timeline_id: timelineId, position: index, take_id: null, joined: context.start === "clip" ? "continue" : "cut", recipe_id: recipe.id, inputs: JSON.stringify(inputs),
+        kind: "video", still_asset_id: null, still_ms: 3000, sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: source.p.clip.look, chat: null, created_at: at, updated_at: at,
+      })
+      .execute();
+    const order = all.map((p) => p.clip.id);
+    order.splice(index, 0, id);
+    await this.renumber(timelineId, order);
+    // what came after Out does not follow the loop clip: it ends on In's frame, not on that clip
+    const next = all[index];
+    if (next && next.clip.joined !== "cut") await this.db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", next.clip.id).execute();
+    await this.touch(timelineId);
+    return { clip: id, context, arrive: target.p.clip.id };
+  }
+
   // ---------------------------------------------------------------- slow motion
 
   /** The range of a video as one small file to hand to ComfyUI: cut to the frame, at its own frame rate. */

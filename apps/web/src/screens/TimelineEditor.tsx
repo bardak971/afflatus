@@ -214,9 +214,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   clipsNow.current = clips;
   const [writing, setWriting] = useState<string | null>(null);
   const writeBetween = useMutation({
-    mutationFn: async (v: { clip: string; force: boolean }) => {
+    mutationFn: async (v: { clip: string; force: boolean; arrive?: string }) => {
       setWriting(v.clip);
-      return { ...(await api.writeBetween(v.clip)), ...v };
+      return { ...(await api.writeBetween(v.clip, v.arrive)), ...v };
     },
     onSuccess: (r) => {
       const c = clipsNow.current.find((x) => x.id === r.clip);
@@ -229,7 +229,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     onSettled: () => setWriting(null),
   });
   const rangeAct = useMutation({
-    mutationFn: (ask: "split" | "remove" | "regenerate" | "copy" | { slow: 2 | 4; inMs?: number; outMs?: number }) =>
+    mutationFn: (ask: "split" | "remove" | "regenerate" | "loop" | "copy" | { slow: 2 | 4; inMs?: number; outMs?: number }) =>
       typeof ask === "string"
         ? api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: ask })
         : api.timelineRange(id, { inMs: ask.inMs ?? range!.inMs, outMs: ask.outMs ?? range!.outMs, action: "slow", factor: ask.slow }),
@@ -261,6 +261,12 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         setNote(`The new clip is selected: ${how}. Change what happens in it, then render it. Undo takes the range back.`);
         // with a clip after to arrive at, the designer writes the stretch; without a language model nothing happens
         if (end !== "none") writeBetween.mutate({ clip: r.clip, force: false });
+      } else if (action === "loop" && "clip" in r && "context" in r) {
+        setSelected(r.clip);
+        setMusicOpen(false);
+        setNote(`The loop clip is selected, after Out: ${r.context.start === "clip" ? "it extends the clip at Out" : "it opens on the frame at Out"} and ends on the frame at In, so the range plays round. Keep it short, then render it; Undo takes it out.`);
+        // the designer writes the return towards the clip under In
+        writeBetween.mutate({ clip: r.clip, force: false, arrive: r.arrive });
       } else if (action === "remove") setRange(null);
       else if (action === "copy") say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
     },
@@ -297,6 +303,20 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       { label: "Set range to this clip", key: "I  O", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
       ...(c.take ? [splitHere(c)] : []),
       { label: "Duplicate clip", icon: <Copy size={14} />, disabled: duplicate.isPending, note: "a copy right after it, with its takes", run: () => duplicate.mutate(c.id) },
+      // a clip that plays round: its last frame pinned to its first (the model has to take a last frame)
+      ...(c.kind === "video" && recipe && pinInputs(recipe).end ? (() => {
+        const pins = pinInputs(recipe);
+        const stored = inputsOf(c);
+        const flows = index > 0 && c.joined === "continue";
+        const opens = !flows && pins.start && typeof stored[pins.start] === "string" ? (stored[pins.start] as string) : null;
+        const ends = typeof stored[pins.end!] === "string" ? (stored[pins.end!] as string) : null;
+        const loops = Boolean(ends && ends === opens);
+        return [{
+          label: "Make it loop", icon: <Repeat size={14} />, disabled: loops || (!opens && !c.take) || loop.isPending,
+          note: loops ? "it loops already: its last frame is its first" : opens ? "its last frame becomes its first frame, so it plays round and round" : c.take ? "its last frame becomes the first frame of its take, so it plays round and round; from the next take" : "give it a first frame, or render it once",
+          run: () => loop.mutate(c),
+        }];
+      })() : []),
       ...(c.lengthMs > 0 ? [
         { label: "Extend from this frame", icon: <Link2 size={14} />, disabled: !onClip(c) || add.isPending, note: onClip(c) ? "cuts it here; a new clip carries on" : "put the playhead on this clip", run: () => { const here = onClip(c); if (here) void continueFrom(c, here.localMs); } },
         { label: "Save frame", icon: <Camera size={14} />, disabled: !onClip(c) || frame.isPending, note: onClip(c) ? "the frame at the playhead, to your library" : "put the playhead on this clip", run: () => { const here = onClip(c); if (!here) return; if (c.take) frame.mutate({ asset: c.take.asset.id, at: Math.round(here.assetMs) }); else if (c.still) setOpened(c.still); } },
@@ -333,6 +353,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => toggleLoop() },
       "—" as const,
       { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
+      { label: "Loop back to In", icon: <Repeat size={14} />, disabled: emptyRange || busy, note: "a short new clip after Out that returns to the frame at In: the range plays round", run: () => rangeAct.mutate("loop") },
       { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: "the clips under them become two", run: () => rangeAct.mutate("split") },
       { label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") },
       { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
@@ -683,7 +704,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 <span className="min-w-0 truncate text-ink-2">· {emptyRange ? "" : `${((range.outMs - range.inMs) / 1000).toFixed(1)} s · `}{where}</span>
                 <button type="button" aria-label="Snap to quiet moments" aria-pressed={snapQuiet} title={snapQuiet ? "In and Out snap to quiet moments of the clips (the ticks under the ruler), to cuts and to the playhead. Click to snap to cuts and the playhead only." : "Snapping to quiet moments is off: In and Out snap to cuts and to the playhead. Click to snap to quiet moments too."} onClick={toggleSnapQuiet} className={cx("ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", snapQuiet ? "bg-accent-wash text-accent" : "text-ink-3 hover:bg-hover hover:text-ink")}><Magnet size={14} /></button>
                 <span className="grow" />
-                {rangeItems().filter((it): it is Exclude<MenuItem, "—"> => it !== "—" && it.label !== "Play range" && !it.label.startsWith("Loop")).map((it, i) =>
+                {rangeItems().filter((it): it is Exclude<MenuItem, "—"> => it !== "—" && it.key !== "Space" && it.key !== "L").map((it, i) =>
                   it.label === "Clear the range" ? (
                     <button key={i} type="button" aria-label="Clear the range (Esc)" title="Clear the range (Esc)" onClick={it.run} className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
                   ) : (
@@ -752,6 +773,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             if (trackMs !== undefined) setCursor(trackMs);
           }}
           onMove={(clip, afterId) => patch.mutate({ clip, patch: { after: afterId } })}
+          onJoin={(clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } })}
           onInsert={(asset, afterId) => add.mutate({ after: afterId, asset })}
           onPin={(clip, where, asset, atS) => {
             const pins = pinInputs(recipes.data?.recipes.find((r) => r.id === clip.recipe));
@@ -802,7 +824,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             }}
             onRemoveTake={(takeId) => removeTake.mutate(takeId)}
             onStop={() => current.job && stop.mutate(current.job.id)}
-            onLoop={() => loop.mutate(current)}
             onDesigner={() => setDesigning(current.id)}
             onPreview={setPreview}
             writing={writeBetween.isPending && writing === current.id}

@@ -15,6 +15,8 @@ export interface NodeInfo {
   output_node?: boolean;
   /** The name ComfyUI shows for it: what a node is titled until someone renames it. */
   display_name?: string;
+  /** What the node does, in its author's words (ComfyUI's core nodes have one; many custom nodes do not). */
+  description?: string;
 }
 
 /** The choices a node offers for one input, or null when the input isn't a list of choices. */

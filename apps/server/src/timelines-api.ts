@@ -229,11 +229,12 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * The range between In and Out, on the timeline's clock. "split": the clips under In and Out each become
    * two there. "remove": what plays between them goes, the clips after close the gap. "regenerate": it is
    * replaced by a new clip to render, pinned to the frame before In and the frame at Out (In = Out on a
-   * cut: a clip between the two); the clip comes back selected, not rendered. "copy": that part of the
-   * timeline as one video in the library, through the export queue.
+   * cut: a clip between the two); the clip comes back selected, not rendered. "loop": a new clip after Out
+   * that returns to the frame at In, so the range plays round. "copy": that part of the timeline as one
+   * video in the library, through the export queue.
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/range", async (req) => {
-    const body = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "copy", "slow"]), scale: z.number().min(1).max(2).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() }).parse(req.body);
+    const body = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "loop", "copy", "slow"]), scale: z.number().min(1).max(2).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() }).parse(req.body);
     const id = req.params.id;
     if (body.action === "slow") {
       // the parts become clips of their own; each slowed video arrives as the take of its clip
@@ -253,6 +254,10 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     else if (body.action === "remove") await t.removeRange(id, body.inMs, body.outMs);
     else if (body.action === "regenerate") {
       const made = await t.regenerateRange(id, body.inMs, body.outMs);
+      s.queue.events.emit("timeline");
+      return made;
+    } else if (body.action === "loop") {
+      const made = await t.loopRange(id, body.inMs, body.outMs);
       s.queue.events.emit("timeline");
       return made;
     } else {
