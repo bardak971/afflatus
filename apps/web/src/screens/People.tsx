@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bookmark, ChevronDown, ChevronRight, MapPin, Plus, Search, Sparkles, Trash2, User, X } from "lucide-react";
-import { fuzzyFilter, type InputSpec } from "@studai/core";
+import { fuzzyFilter, type InputSpec } from "@afflatus/core";
 import { api, thumbUrl, type Entity, type FamilyInfo, type Outfit, type PersonDef, type PlaceDef, type RecipeInfo, type StyleDef } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
 import { Field, useLoraWordsOf } from "../fields";
@@ -51,7 +51,7 @@ function Words({ tags, sentence, onChange, who }: { tags: string; sentence: stri
   return (
     <div className="flex flex-col gap-2">
       <SectionTitle>{who}, as prompt text</SectionTitle>
-      <span className="text-ink-2">Some models read danbooru tags, others natural-language prompts. studai uses the one the model needs.</span>
+      <span className="text-ink-2">Some models read danbooru tags, others natural-language prompts. Afflatus uses the one the model needs.</span>
       <label className="flex flex-col gap-1">
         <span className="text-xs font-semibold">Tags</span>
         <AutoText rows={1} value={tags} placeholder="brown hair, green eyes, freckles" onChange={(e) => onChange({ tags: e.target.value })} className={field} />
@@ -84,7 +84,7 @@ function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; o
 
       <div className="flex flex-col gap-2">
         <SectionTitle>Per model</SectionTitle>
-        <span className="text-ink-2">A LoRA is optional. It is a file you already have: studai does not train one.</span>
+        <span className="text-ink-2">A LoRA is optional. It is a file you already have: Afflatus does not train one.</span>
         {families.map((f) => {
           const can = takes(f, recipes.data?.recipes ?? []);
           const m = def.models[f.id] ?? { lora: null, weight: 0.8, trigger: "" };
@@ -209,8 +209,8 @@ const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode }> = [
   { id: "snippet", title: "Snippets", add: "New snippet", icon: <Bookmark size={22} /> },
   { id: "preset", title: "Presets", add: "", icon: <Bookmark size={22} /> },
 ];
-const TAB_KEY = "studai.kit.tab";
-const OPEN_KEY = "studai.kit.categories";
+const TAB_KEY = "afflatus.kit.tab";
+const OPEN_KEY = "afflatus.kit.categories";
 const remembered = <T,>(key: string, otherwise: T): T => {
   try {
     const raw = localStorage.getItem(key);
@@ -657,7 +657,7 @@ export function People() {
             )}
             {mine.length === 0 && tab !== "preset" && (
               <div className="pt-4 text-center text-ink-2">
-                {tab === "person" ? "A person is reference images, a voice sample and prompt text. studai gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
+                {tab === "person" ? "A person is reference images, a voice sample and prompt text. Afflatus gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
                   : tab === "place" ? "A place is reference images and prompt text: the clip or the image happens there."
                   : "A style is LoRAs and prompt text, set up for the models you use it with."}
               </div>

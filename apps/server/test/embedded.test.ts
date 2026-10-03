@@ -1,6 +1,6 @@
 import { crc32 } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makePng, startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
+import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { parseA1111, readEmbedded } from "../src/embedded";
 import { sameModel } from "../src/fromPicture";
 import { sdxl } from "../../../packages/workflows/test/fixtures";

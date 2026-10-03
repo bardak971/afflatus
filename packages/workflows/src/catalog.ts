@@ -1,4 +1,4 @@
-import type { NodeCatalog } from "@studai/core";
+import type { NodeCatalog } from "@afflatus/core";
 
 /** Reading one input's entry in ComfyUI's node catalog: [type, options?]. */
 

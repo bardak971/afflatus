@@ -1,5 +1,5 @@
 {
-  "name": "@studai/workflows",
+  "name": "@afflatus/workflows",
   "version": "0.0.1",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@studai/core": "workspace:*",
+    "@afflatus/core": "workspace:*",
     "zod": "^4.6.5"
   }
 }

@@ -1,5 +1,5 @@
-import { frameOf } from "@studai/core";
-import { defineFamily } from "@studai/core";
+import { frameOf } from "@afflatus/core";
+import { defineFamily } from "@afflatus/core";
 
 /**
  * LTX 2.3: video with sound, from words, from a picture, or between a first and a last picture.

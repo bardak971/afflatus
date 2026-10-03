@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, ChevronDown, ChevronRight, Dices, Plus, Search, X } from "lucide-react";
-import { fuzzyFilter } from "@studai/core";
+import { fuzzyFilter } from "@afflatus/core";
 import { api, type Entity, type Look } from "./api";
 import { useEntities } from "./data";
 import { Popover } from "./Popover";
@@ -10,7 +10,7 @@ import { AutoText, Button, cx, ErrorNote } from "./ui";
 
 type Snippet = Extract<Entity, { kind: "snippet" }>;
 const none: Look = { cast: [], style: null, snippets: [] };
-const OPEN_KEY = "studai.snippets.open";
+const OPEN_KEY = "afflatus.snippets.open";
 
 const readOpen = (): Record<string, boolean> => {
   try {

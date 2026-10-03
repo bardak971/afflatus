@@ -2,7 +2,7 @@ import { useExplain } from "./store";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Upload, X } from "lucide-react";
-import type { ClipValue, ReferenceRole, ReferenceValue } from "@studai/core";
+import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, fileUrl, thumbUrl, type Asset } from "./api";
 import { useAsset, useAssets } from "./data";

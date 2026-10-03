@@ -1,4 +1,4 @@
-import { secondsOf, type Recipe } from "@studai/core";
+import { secondsOf, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 
 /**

@@ -13,7 +13,7 @@ import { tools } from "./video";
  * From these come two things: settings that can fill a form, and a workflow that can be imported.
  */
 
-/** Settings read from a file, in studai's own terms. Model and LoRAs are names, not yet files of a ComfyUI. */
+/** Settings read from a file, in Afflatus's own terms. Model and LoRAs are names, not yet files of a ComfyUI. */
 export interface FoundSettings {
   source: "a1111" | "comfyui";
   prompt: string;
@@ -139,7 +139,7 @@ function exifUserComment(exif: Buffer): string | null {
 
 /** The tags of a video or sound file, read with ffprobe. Empty when ffprobe is not installed. */
 async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
-  const dir = await mkdtemp(join(tmpdir(), "studai-tags-"));
+  const dir = await mkdtemp(join(tmpdir(), "afflatus-tags-"));
   try {
     const file = join(dir, "in.bin");
     await writeFile(file, bytes);

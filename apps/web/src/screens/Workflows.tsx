@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileUp } from "lucide-react";
-import { bindings as bindingsSchema, type Bindings } from "@studai/workflows";
+import { bindings as bindingsSchema, type Bindings } from "@afflatus/workflows";
 import { api, ApiError, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
 import { notReady, recipeLabel } from "../format";
@@ -12,7 +12,7 @@ import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 
 /**
  * Read a file the user chose: a workflow as ComfyUI saves it, one saved with "Export (API)", or one
- * shared from another studai (the same workflow with its mapping already made).
+ * shared from another Afflatus (the same workflow with its mapping already made).
  */
 async function readFile(file: File): Promise<Editing> {
   let json: unknown;
@@ -22,12 +22,12 @@ async function readFile(file: File): Promise<Editing> {
     throw new ApiError("This file could not be parsed. A workflow is a .json file.");
   }
   const shared = json && typeof json === "object" && "graph" in json && "bindings" in json ? (json as { graph: unknown; wiring?: unknown; bindings: unknown; title?: unknown; model?: unknown }) : null;
-  // the server answers with the workflow in the form studai keeps, whatever form the file was in
+  // the server answers with the workflow in the form Afflatus keeps, whatever form the file was in
   const inspection = await api.inspectWorkflow(shared ? { graph: shared.graph, wiring: shared.wiring } : json);
   let bindings: Bindings | null = inspection.suggested;
   if (shared) {
     const parsed = bindingsSchema.safeParse(shared.bindings);
-    if (!parsed.success) throw new ApiError("This looks like a workflow shared from studai, but its bindings could not be read.");
+    if (!parsed.success) throw new ApiError("This looks like a workflow shared from Afflatus, but its bindings could not be read.");
     bindings = parsed.data;
   }
   if (!bindings) throw new ApiError("This workflow has no output: no Save or Preview node for an image, a video or audio.");
@@ -51,13 +51,13 @@ async function reopen(id: string): Promise<Editing> {
   return { id: def.id, source: def.source, title: def.title, model: def.model, graph: def.graph, wiring: def.wiring, editor: def.editor, inspection, bindings: def.bindings };
 }
 
-/** The workflow with its mapping, as a file someone else can import into their studai. */
+/** The workflow with its mapping, as a file someone else can import into their Afflatus. */
 async function share(w: WorkflowBrief): Promise<void> {
   const { id: _id, ...def } = await api.workflow(w.id);
   const url = URL.createObjectURL(new Blob([JSON.stringify(def, null, 2)], { type: "application/json" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${w.title.replace(/[^\w .-]+/g, "").trim() || "workflow"}.studai.json`;
+  a.download = `${w.title.replace(/[^\w .-]+/g, "").trim() || "workflow"}.afflatus.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -151,7 +151,7 @@ export function Workflows() {
       <header className="flex h-20 shrink-0 items-center gap-4">
         <div className="flex flex-col">
           <h1 className="text-xl font-semibold">Models and workflows</h1>
-          <div className="text-ink-2">Everything studai can generate images and videos with. Each one appears under "Model" in Studio's form.</div>
+          <div className="text-ink-2">Everything Afflatus can generate images and videos with. Each one appears under "Model" in Studio's form.</div>
         </div>
         <span className="grow" />
         <Button tone="primary" onClick={() => input.current?.click()} disabled={open.isPending}>
@@ -212,7 +212,7 @@ export function Workflows() {
                 </div>
                 {opened?.id === w.id && !opened.direct && (
                   <div className="text-xs text-ink-2">
-                    Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: in ComfyUI, open the Workflows sidebar (key W) and pick it under studai.
+                    Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: in ComfyUI, open the Workflows sidebar (key W) and pick it under "afflatus".
                     {opened.restart
                       ? " Restart ComfyUI once: from then on it opens straight away."
                       : settings.data && !settings.data.comfyDir
@@ -227,7 +227,7 @@ export function Workflows() {
             <div className="rounded-xl border border-line bg-panel px-4 py-3 text-ink-2">None yet. A workflow you build in ComfyUI can be used here like any built-in model.</div>
           )}
 
-          <div className="pt-3"><SectionTitle>Built into studai · {builtIn.length}</SectionTitle></div>
+          <div className="pt-3"><SectionTitle>Built into Afflatus · {builtIn.length}</SectionTitle></div>
           {builtIn.map((f) => {
             const mine = recipes.data?.recipes.filter((r) => r.family === f.id) ?? [];
             const problems = mine.map((r) => why(r.id)).filter(Boolean);
@@ -264,7 +264,7 @@ export function Workflows() {
             {[
               "Build it and check it works in ComfyUI, as usual.",
               "Find its file: ComfyUI keeps the workflows you save in its user/default/workflows folder. A file saved with Workflow, then \"Export (API)\", works too.",
-              "Drop the file here. studai shows which parts it found (the prompt, the image inputs, the output, the bypass switches) and you correct what is wrong.",
+              "Drop the file here. Afflatus shows which parts it found (the prompt, the image inputs, the output, the bypass switches) and you correct what is wrong.",
             ].map((step, i) => (
               <div key={step} className="flex gap-3">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-hover text-xs font-bold">{i + 1}</span>
@@ -274,7 +274,7 @@ export function Workflows() {
             <div className="text-xs text-ink-3">
               Prefer the file ComfyUI saves: it keeps the bypassed and muted nodes, so they become switches here. An API export only has what was active.
             </div>
-            <div className="text-xs text-ink-3">You can also import a workflow someone shared from their studai.</div>
+            <div className="text-xs text-ink-3">You can also import a workflow someone shared from their Afflatus.</div>
           </div>
         </aside>
       </div>

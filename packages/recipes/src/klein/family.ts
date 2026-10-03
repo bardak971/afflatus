@@ -1,4 +1,4 @@
-import { defineFamily } from "@studai/core";
+import { defineFamily } from "@afflatus/core";
 
 /**
  * FLUX.2 Klein: pictures from plain sentences, and changes to a picture you have. It reads up to six

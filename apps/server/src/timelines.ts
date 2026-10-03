@@ -1,7 +1,7 @@
 import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import type { Recipe } from "@studai/core";
+import type { Recipe } from "@afflatus/core";
 import { CutError, filmStrip, frameAt, joinVideos, type ExportMusic, type ExportPart } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
@@ -38,7 +38,7 @@ const near = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 4
 export const FROM_PREVIOUS = "the-clip-before";
 
 /** The recipe id of a job that exports a timeline instead of rendering something. */
-export const EXPORT_JOB = "studai.export";
+export const EXPORT_JOB = "afflatus.export";
 export interface ExportOptions {
   timeline: string;
   /** Enlarge every frame at the end: 1 (as rendered), 1.5 or 2. */
@@ -399,7 +399,7 @@ export class Timelines {
   }
 
   /**
-   * A new clip: empty (to render), a video from the library (it plays as it is; one studai made can be
+   * A new clip: empty (to render), a video from the library (it plays as it is; one Afflatus made can be
    * rendered again), or a picture: held on screen as a still, or (`as: "clip"`) the opening picture of a
    * clip to render. It goes after `after`, or at the end.
    */

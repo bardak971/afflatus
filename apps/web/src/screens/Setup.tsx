@@ -355,7 +355,7 @@ function DesignerCard() {
   );
 }
 
-/** Whether studai may ask Civitai where a missing file can be had. Off unless turned on here. */
+/** Whether Afflatus may ask Civitai where a missing file can be had. Off unless turned on here. */
 function CivitaiCard() {
   const settings = useSettings();
   const client = useQueryClient();
@@ -378,8 +378,8 @@ function CivitaiCard() {
       <Toggle on={fetching} onChange={(v) => save.mutate({ downloadModels: v })} label="Download missing models into ComfyUI (ComfyUI-Manager)" />
       <div className="text-xs text-ink-3">
         {fetching
-          ? "A missing model file gets a \"Download\" button: from the URL the workflow's author gave, or from Civitai once it is found there. ComfyUI-Manager saves it in the right models folder; the file passes through studai, which shows the progress. Nothing is downloaded until you press the button."
-          : "Off: studai never asks ComfyUI to download anything. Missing models only get links to open in your browser."}
+          ? "A missing model file gets a \"Download\" button: from the URL the workflow's author gave, or from Civitai once it is found there. ComfyUI-Manager saves it in the right models folder; the file passes through Afflatus, which shows the progress. Nothing is downloaded until you press the button."
+          : "Off: Afflatus never asks ComfyUI to download anything. Missing models only get links to open in your browser."}
       </div>
       {fetching && downloads.data && (
         <div className={cx("text-xs", downloads.data.manager.found ? "text-good" : "text-warn-ink")}>
@@ -397,7 +397,7 @@ function CivitaiCard() {
       <div className="text-xs text-ink-3">
         {on
           ? "When a model file is missing, \"Search\" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. Only the filename is sent, and only when you press the button. What is found is shown with a link, and with a Download button when downloading is turned on above."
-          : "Off: studai never contacts Hugging Face or Civitai. Missing models still get links that open a search in your browser."}
+          : "Off: Afflatus never contacts Hugging Face or Civitai. Missing models still get links that open a search in your browser."}
       </div>
       {on && (
         <div className="flex items-end gap-2">
@@ -454,7 +454,7 @@ function LinkCard() {
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
       <h2 className="text-[15px] font-bold">Download a model from a URL</h2>
-      <div className="text-ink-2">Paste the URL of a model page on Civitai (civitai.com or civitai.red), or of a file on Hugging Face. studai shows what it is and downloads the file you pick into the ComfyUI models folder you choose.</div>
+      <div className="text-ink-2">Paste the URL of a model page on Civitai (civitai.com or civitai.red), or of a file on Hugging Face. Afflatus shows what it is and downloads the file you pick into the ComfyUI models folder you choose.</div>
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -528,7 +528,7 @@ function WritingCard() {
       <h2 className="text-[15px] font-bold">Prompts</h2>
       <Toggle on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
       <div className="text-xs text-ink-3">
-        For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of studai's: nothing is sent anywhere.
+        For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of Afflatus's: nothing is sent anywhere.
       </div>
       <div className="text-xs text-ink-3">
         In every prompt: <span className="font-mono text-ink-2">{"{red|black|white}"}</span> is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).
@@ -553,7 +553,7 @@ function NotifyCard() {
       <Toggle on={notify.eachRender} onChange={(on) => void set({ eachRender: on })} label="Notify when a render finishes" />
       <Toggle on={notify.whenEmpty} onChange={(on) => void set({ whenEmpty: on })} label="Notify when the queue is empty" />
       <div className="text-xs text-ink-3">
-        {refused ? "Your browser does not allow notifications from this page. Allow them in its settings, next to the address." : "A notification from your browser, while a studai tab is open in it. Nothing leaves your computer. This is set per browser."}
+        {refused ? "Your browser does not allow notifications from this page. Allow them in its settings, next to the address." : "A notification from your browser, while a Afflatus tab is open in it. Nothing leaves your computer. This is set per browser."}
       </div>
     </section>
   );

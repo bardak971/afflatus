@@ -8,13 +8,13 @@ importers:
 
   .:
     devDependencies:
-      '@studai/comfy':
+      '@afflatus/comfy':
         specifier: workspace:*
         version: link:packages/comfy
-      '@studai/core':
+      '@afflatus/core':
         specifier: workspace:*
         version: link:packages/core
-      '@studai/recipes':
+      '@afflatus/recipes':
         specifier: workspace:*
         version: link:packages/recipes
       '@types/node':
@@ -38,16 +38,16 @@ importers:
       '@fastify/static':
         specifier: ^10.1.5
         version: 10.1.5
-      '@studai/comfy':
+      '@afflatus/comfy':
         specifier: workspace:*
         version: link:../../packages/comfy
-      '@studai/core':
+      '@afflatus/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@studai/recipes':
+      '@afflatus/recipes':
         specifier: workspace:*
         version: link:../../packages/recipes
-      '@studai/workflows':
+      '@afflatus/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
       fastify:
@@ -78,10 +78,10 @@ importers:
       '@fontsource-variable/jetbrains-mono':
         specifier: ^5.2.8
         version: 5.3.0
-      '@studai/core':
+      '@afflatus/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@studai/workflows':
+      '@afflatus/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
       '@tanstack/react-query':
@@ -124,7 +124,7 @@ importers:
 
   packages/comfy:
     dependencies:
-      '@studai/core':
+      '@afflatus/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -143,13 +143,13 @@ importers:
 
   packages/recipes:
     dependencies:
-      '@studai/core':
+      '@afflatus/core':
         specifier: workspace:*
         version: link:../core
 
   packages/workflows:
     dependencies:
-      '@studai/core':
+      '@afflatus/core':
         specifier: workspace:*
         version: link:../core
       zod:

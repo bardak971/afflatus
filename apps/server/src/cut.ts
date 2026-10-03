@@ -18,7 +18,7 @@ function must(tool: string, args: string[], opts: { timeout?: number; signal?: A
     execFile(tool, args, { encoding: "utf8", timeout: opts.timeout ?? 120_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal: opts.signal }, (err, stdout, stderr) => {
       if (!err) return done(stdout);
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        return fail(new CutError("This needs ffmpeg, which was not found on the machine studai runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
+        return fail(new CutError("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
       }
       if (err.name === "AbortError") return fail(new CutError("stopped by you"));
       const last = String(stderr).trim().split(/\r?\n/).pop() ?? "";
@@ -28,7 +28,7 @@ function must(tool: string, args: string[], opts: { timeout?: number; signal?: A
 }
 
 async function inTemp<T>(work: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), "studai-cut-"));
+  const dir = await mkdtemp(join(tmpdir(), "afflatus-cut-"));
   try {
     return await work(dir);
   } finally {

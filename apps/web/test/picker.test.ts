@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { InputSpec } from "@studai/core";
+import type { InputSpec } from "@afflatus/core";
 import type { RecipeInfo } from "../src/api";
 import { carryAcross, carryOver, followOn, modelGroups, usedLast } from "../src/picker";
 

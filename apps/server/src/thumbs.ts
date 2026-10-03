@@ -6,7 +6,7 @@ let loading: Promise<Sharp | null> | null = null;
 
 /**
  * The image library, loaded on first use. It ships prebuilt for the common platforms; where it does
- * not load, studai still works and the library shows full-size pictures instead of thumbnails.
+ * not load, Afflatus still works and the library shows full-size pictures instead of thumbnails.
  */
 function sharp(): Promise<Sharp | null> {
   loading ??= import("sharp").then(

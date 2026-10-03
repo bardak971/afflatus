@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
-import { startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
-import type { NodeCatalog } from "@studai/core";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import type { NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../src/app";
 import { migrate, openSqlite, type Db } from "../src/db";
 import type { QueueOptions } from "../src/queue";
@@ -43,7 +43,7 @@ export async function makeApp(opts: { db?: Db; dir?: string; comfyUrl?: string }
   const db = opts.db ?? openSqlite(":memory:");
   await migrate(db);
   await writeSettings(db, { comfyUrl: opts.comfyUrl ?? NOWHERE });
-  const dir = opts.dir ?? mkdtempSync(join(tmpdir(), "studai-test-"));
+  const dir = opts.dir ?? mkdtempSync(join(tmpdir(), "afflatus-test-"));
   const services = await createServices(db, "sqlite", new LocalStorage(dir), FAST);
   const app = buildApp(services);
   return {

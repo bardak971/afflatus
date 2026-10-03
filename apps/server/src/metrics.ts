@@ -24,26 +24,26 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
 
     // ---- now
     const q = await s.queue.status();
-    head("studai_queue_jobs", "gauge", "Jobs in studai's queue, by state");
-    put("studai_queue_jobs", { state: "queued" }, q.waiting.length);
-    put("studai_queue_jobs", { state: "running" }, q.running ? 1 : 0);
+    head("afflatus_queue_jobs", "gauge", "Jobs in Afflatus's queue, by state");
+    put("afflatus_queue_jobs", { state: "queued" }, q.waiting.length);
+    put("afflatus_queue_jobs", { state: "running" }, q.running ? 1 : 0);
     // asked now: the queue only knows ComfyUI is away once a job found it so
     const load = await (await s.comfy()).load().catch(() => null);
-    head("studai_comfy_online", "gauge", "1 when ComfyUI answers");
-    put("studai_comfy_online", {}, load ? 1 : 0);
-    head("studai_gpu_busy", "gauge", "1 while a studai render holds the GPU");
-    put("studai_gpu_busy", {}, q.running && q.running.kind !== "export" ? 1 : 0);
+    head("afflatus_comfy_online", "gauge", "1 when ComfyUI answers");
+    put("afflatus_comfy_online", {}, load ? 1 : 0);
+    head("afflatus_gpu_busy", "gauge", "1 while a Afflatus render holds the GPU");
+    put("afflatus_gpu_busy", {}, q.running && q.running.kind !== "export" ? 1 : 0);
     const gpu = load?.gpus[0];
     if (gpu) {
-      head("studai_gpu_memory_percent", "gauge", "Share of the GPU's memory in use, as ComfyUI's machine reports it");
-      put("studai_gpu_memory_percent", {}, gpu.vramPercent);
+      head("afflatus_gpu_memory_percent", "gauge", "Share of the GPU's memory in use, as ComfyUI's machine reports it");
+      put("afflatus_gpu_memory_percent", {}, gpu.vramPercent);
       if (gpu.temperature !== undefined) {
-        head("studai_gpu_temperature_celsius", "gauge", "The GPU's temperature");
-        put("studai_gpu_temperature_celsius", {}, gpu.temperature);
+        head("afflatus_gpu_temperature_celsius", "gauge", "The GPU's temperature");
+        put("afflatus_gpu_temperature_celsius", {}, gpu.temperature);
       }
       if (gpu.load !== undefined) {
-        head("studai_gpu_load_percent", "gauge", "The GPU's load");
-        put("studai_gpu_load_percent", {}, gpu.load);
+        head("afflatus_gpu_load_percent", "gauge", "The GPU's load");
+        put("afflatus_gpu_load_percent", {}, gpu.load);
       }
     }
 
@@ -80,22 +80,22 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
       return [id, { family, title: recipe?.title ?? id }];
     }));
     const tag = (id: string) => ({ recipe: id, family: names[id]!.family, title: names[id]!.title });
-    head("studai_renders_total", "counter", "Renders that ran on ComfyUI, by recipe and how they ended");
-    for (const [id, v] of by) for (const status of ["done", "failed", "cancelled"] as const) put("studai_renders_total", { ...tag(id), status }, v[status]);
-    head("studai_render_model_loads_total", "counter", "Renders that had to load their model first");
-    for (const [id, v] of by) put("studai_render_model_loads_total", tag(id), v.cold);
-    head("studai_render_seconds_total", "counter", "GPU time of renders, by recipe and phase");
-    for (const [id, v] of by) for (const phase of ["load", "sample", "refine", "finish"] as const) put("studai_render_seconds_total", { ...tag(id), phase: { load: "loading", sample: "sampling", refine: "refining", finish: "finishing" }[phase] }, v[phase] / 1000);
-    head("studai_render_wait_seconds_total", "counter", "Time renders waited in the queue before starting");
-    for (const [id, v] of by) put("studai_render_wait_seconds_total", tag(id), v.waited / 1000);
-    head("studai_video_seconds_total", "counter", "Length of the videos made");
-    for (const [id, v] of by) put("studai_video_seconds_total", tag(id), v.video / 1000);
-    head("studai_render_duration_seconds", "histogram", "How long finished renders took, by recipe");
+    head("afflatus_renders_total", "counter", "Renders that ran on ComfyUI, by recipe and how they ended");
+    for (const [id, v] of by) for (const status of ["done", "failed", "cancelled"] as const) put("afflatus_renders_total", { ...tag(id), status }, v[status]);
+    head("afflatus_render_model_loads_total", "counter", "Renders that had to load their model first");
+    for (const [id, v] of by) put("afflatus_render_model_loads_total", tag(id), v.cold);
+    head("afflatus_render_seconds_total", "counter", "GPU time of renders, by recipe and phase");
+    for (const [id, v] of by) for (const phase of ["load", "sample", "refine", "finish"] as const) put("afflatus_render_seconds_total", { ...tag(id), phase: { load: "loading", sample: "sampling", refine: "refining", finish: "finishing" }[phase] }, v[phase] / 1000);
+    head("afflatus_render_wait_seconds_total", "counter", "Time renders waited in the queue before starting");
+    for (const [id, v] of by) put("afflatus_render_wait_seconds_total", tag(id), v.waited / 1000);
+    head("afflatus_video_seconds_total", "counter", "Length of the videos made");
+    for (const [id, v] of by) put("afflatus_video_seconds_total", tag(id), v.video / 1000);
+    head("afflatus_render_duration_seconds", "histogram", "How long finished renders took, by recipe");
     for (const [id, v] of by) {
-      BUCKETS.forEach((le, i) => put("studai_render_duration_seconds_bucket", { ...tag(id), le: String(le) }, v.hist[i]!));
-      put("studai_render_duration_seconds_bucket", { ...tag(id), le: "+Inf" }, v.done);
-      put("studai_render_duration_seconds_count", tag(id), v.done);
-      put("studai_render_duration_seconds_sum", tag(id), v.doneTotal / 1000);
+      BUCKETS.forEach((le, i) => put("afflatus_render_duration_seconds_bucket", { ...tag(id), le: String(le) }, v.hist[i]!));
+      put("afflatus_render_duration_seconds_bucket", { ...tag(id), le: "+Inf" }, v.done);
+      put("afflatus_render_duration_seconds_count", tag(id), v.done);
+      put("afflatus_render_duration_seconds_sum", tag(id), v.doneTotal / 1000);
     }
     reply.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
     return `${lines.join("\n")}\n`;

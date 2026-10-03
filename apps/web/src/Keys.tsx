@@ -113,10 +113,10 @@ export function KeysHelp() {
     };
     const onAsk = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    window.addEventListener("studai:keys", onAsk);
+    window.addEventListener("afflatus:keys", onAsk);
     return () => {
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("studai:keys", onAsk);
+      window.removeEventListener("afflatus:keys", onAsk);
     };
   }, []);
   if (!open) return null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseModels, checkGraph, dryContext, parseInput, schemaFor, warmGraph, type Graph, type NodeCatalog } from "@studai/core";
+import { baseModels, checkGraph, dryContext, parseInput, schemaFor, warmGraph, type Graph, type NodeCatalog } from "@afflatus/core";
 import { factorOfUpscaler, inspect, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
 import { catalog, flux, panel, sdxl, wan } from "./fixtures";
 

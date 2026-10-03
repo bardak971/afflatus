@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { NodeCatalog } from "@studai/core";
+import type { NodeCatalog } from "@afflatus/core";
 import { leftoverNames, stripFileLists } from "../src";
 
 describe("stripFileLists", () => {

@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@studai/core";
+import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
 import { pixelUpscale, upscaleInputs, upscaleNodes } from "../video/upscale";
 
@@ -329,7 +329,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     g.phase("encoding");
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
-      images, audio: heard, frame_rate: smooth ? LTX_FPS * 2 : LTX_FPS, loop_count: 0, filename_prefix: "studai/video", format: "video/h264-mp4",
+      images, audio: heard, frame_rate: smooth ? LTX_FPS * 2 : LTX_FPS, loop_count: 0, filename_prefix: "Afflatus/video", format: "video/h264-mp4",
       pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
     });
 

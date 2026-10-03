@@ -1,4 +1,4 @@
-import { baseLabel, type ModelInfo } from "@studai/core";
+import { baseLabel, type ModelInfo } from "@afflatus/core";
 
 export { baseLabel, type ModelInfo };
 

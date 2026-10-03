@@ -1,4 +1,4 @@
-import type { InputSpec, Recipe } from "@studai/core";
+import type { InputSpec, Recipe } from "@afflatus/core";
 import { stemOf, type FoundSettings } from "./embedded";
 
 /**

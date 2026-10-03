@@ -1,7 +1,7 @@
-import { isRef, type Graph, type NodeCatalog, type NodeInfo, type Ref } from "@studai/core";
+import { isRef, type Graph, type NodeCatalog, type NodeInfo, type Ref } from "@afflatus/core";
 
 /**
- * A graph as ComfyUI's editor saves it, made from the graph studai runs (the "API" form), so that the
+ * A graph as ComfyUI's editor saves it, made from the graph Afflatus runs (the "API" form), so that the
  * editor can open it: its Workflows sidebar only takes the editor's own files. The editor's file names
  * widgets by position, so the order comes from ComfyUI's node list, with the rules its front end
  * applies: a seed gets a "control after generate" value after it; an image or video to upload gets
@@ -85,7 +85,7 @@ const ROW = 24;
  */
 export function toEditor(graph: Graph, catalog: NodeCatalog, opts: { titles?: Record<string, string>; id?: string } = {}): EditorFile {
   const ids = Object.keys(graph);
-  // the editor numbers nodes: studai's ids are kept when they are numbers, else given in order
+  // the editor numbers nodes: Afflatus's ids are kept when they are numbers, else given in order
   const numbered = new Map<string, number>();
   let next = 1;
   for (const id of ids) if (/^\d+$/.test(id)) numbered.set(id, Number(id));

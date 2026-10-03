@@ -1,4 +1,4 @@
-import { defineFamily } from "@studai/core";
+import { defineFamily } from "@afflatus/core";
 
 /** SDXL and everything built on it: Illustrious, NoobAI, Pony. One checkpoint file holds model, CLIP and VAE. */
 export const sdxl = defineFamily({

@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
-import type { Graph } from "@studai/core";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import type { Graph } from "@afflatus/core";
 import { sweep } from "../src/sweep";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 

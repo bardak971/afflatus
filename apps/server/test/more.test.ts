@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { FakeComfy } from "@studai/comfy/testing";
+import type { FakeComfy } from "@afflatus/comfy/testing";
 import { now } from "../src/db";
 import { forgetHuggingFace } from "../src/huggingface";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
@@ -284,7 +284,7 @@ describe("where the space goes", () => {
 
 /** A short clip with a tone, made with ffmpeg. */
 function makeClip(): Uint8Array | null {
-  const dir = mkdtempSync(join(tmpdir(), "studai-clip-"));
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
   const file = join(dir, "clip.mp4");
   const made = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=192x320:rate=24:duration=2", "-f", "lavfi", "-i", "sine=frequency=330:duration=2", "-c:a", "aac", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", file]);
   const bytes = made.status === 0 ? new Uint8Array(readFileSync(file)) : null;

@@ -3,18 +3,18 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
-import type { Graph } from "@studai/core";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import type { Graph } from "@afflatus/core";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { cutFrames, frameAt, referenceClip } from "../src/cut";
 import { pngSize } from "../src/media";
 import { readVideo } from "../src/video";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
-import { makePng } from "@studai/comfy/testing";
+import { makePng } from "@afflatus/comfy/testing";
 
 /** A test clip made with ffmpeg: a moving pattern and a tone. These tests are skipped where ffmpeg is not installed. */
 function makeClip(seconds: number, opts: { fps?: number; sound?: boolean; size?: string } = {}): Uint8Array | null {
-  const dir = mkdtempSync(join(tmpdir(), "studai-clip-"));
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
   const file = join(dir, "clip.mp4");
   const made = spawnSync("ffmpeg", [
     "-y", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc2=size=${opts.size ?? "192x320"}:rate=${opts.fps ?? 24}:duration=${seconds}`,
@@ -27,7 +27,7 @@ function makeClip(seconds: number, opts: { fps?: number; sound?: boolean; size?:
 }
 /** A tone as a sound file. */
 function makeTone(seconds: number): Uint8Array | null {
-  const dir = mkdtempSync(join(tmpdir(), "studai-tone-"));
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-tone-"));
   const file = join(dir, "tone.wav");
   const made = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", `sine=frequency=440:duration=${seconds}`, file]);
   const bytes = made.status === 0 ? new Uint8Array(readFileSync(file)) : null;
@@ -41,7 +41,7 @@ const silent = makeClip(2, { sound: false });
 
 /** How many frames a video has, counted by ffprobe. */
 function frames(bytes: Uint8Array): number {
-  const dir = mkdtempSync(join(tmpdir(), "studai-count-"));
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-count-"));
   const file = join(dir, "v.mp4");
   writeFileSync(file, bytes);
   const out = spawnSync("ffprobe", ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file], { encoding: "utf8" });
@@ -232,7 +232,7 @@ describe.skipIf(!three)("a timeline", () => {
     const first = (await view(id)).clips[1].take.asset.id;
     const tl = await call("POST", "/api/timelines", {});
     const c = (await call("POST", `/api/timelines/${tl.id}/clips`, { asset: first })).timeline.clips[0];
-    // it was made by studai: it comes with its form and the part of it that repeats another clip stays skipped
+    // it was made by afflatus: it comes with its form and the part of it that repeats another clip stays skipped
     expect(c).toMatchObject({ joined: "cut", recipe: "h3.video", inputs: { description: "She walks to the window." }, take: { headMs: 917 } });
     expect(c.inputs.previous).toBeUndefined();
 

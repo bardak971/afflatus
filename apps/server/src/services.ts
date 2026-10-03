@@ -29,7 +29,7 @@ export interface Services {
 }
 
 export async function createServices(db: Db, dbKind: DbKind, own: Storage, queueOptions: QueueOptions = DEFAULT_QUEUE_OPTIONS): Promise<Services> {
-  // studai's own files and the files of linked folders are read through the same door
+  // Afflatus's own files and the files of linked folders are read through the same door
   const storage = new RoutedStorage(own);
   const registry = new Registry(db);
   let current: Comfy | null = null;
@@ -48,7 +48,7 @@ export async function createServices(db: Db, dbKind: DbKind, own: Storage, queue
   queue.clips = timelines;
   const linked = new Linked(db, storage, queue.events);
   await linked.load();
-  // what changed in the linked directories while studai was not running: read in the background
+  // what changed in the linked directories while Afflatus was not running: read in the background
   void linked.scanAll();
   // unkept results to the bin after a day, the bin emptied after a week: checked at start and every hour
   const runSweep = () =>

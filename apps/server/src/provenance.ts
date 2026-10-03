@@ -1,11 +1,11 @@
-import type { InputSpec, LoraValue, Recipe } from "@studai/core";
+import type { InputSpec, LoraValue, Recipe } from "@afflatus/core";
 import { lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
 
 /**
- * How something in the library came to be, as far back as studai knows: a picture that was upscaled
+ * How something in the library came to be, as far back as Afflatus knows: a picture that was upscaled
  * was a picture before, which was made from a prompt; a frame saved from a video is that video's, which
- * opened on a picture. Each step is a render studai made, with what it was told.
+ * opened on a picture. Each step is a render Afflatus made, with what it was told.
  */
 export interface Step {
   recipe: string;
@@ -35,7 +35,7 @@ const lookOf = (raw: unknown): Look | null => {
   return parsed.success && (parsed.data.cast.length || parsed.data.style) ? parsed.data : null;
 };
 
-/** The steps something was made in, the oldest first. Nothing for what studai did not make (an upload, a file of a linked folder). */
+/** The steps something was made in, the oldest first. Nothing for what Afflatus did not make (an upload, a file of a linked folder). */
 export async function madeIn(s: Pick<Services, "db" | "registry">, assetId: string): Promise<Step[]> {
   const steps: Step[] = [];
   const seen = new Set<string>();

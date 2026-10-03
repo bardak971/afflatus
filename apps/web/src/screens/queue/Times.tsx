@@ -136,7 +136,7 @@ export function RenderTimes() {
             <Tile label="Video generated" value={long(t.videoMs)} note="total duration of all clips" />
             <Tile label="Failed · cancelled" value={`${t.failed} · ${t.cancelled}`} note={`${long(t.lostMs)} of GPU time lost`} warn={t.failed > 0} />
             <Tile label="GPU time" value={long(t.gpuMs)} note={`longest render: ${long(t.longestMs)}`} />
-            <Tile label="GPU busy" value={pct(t.gpuMs / Math.max(1, d.spanMs))} note="of the period, with studai's renders" />
+            <Tile label="GPU busy" value={pct(t.gpuMs / Math.max(1, d.spanMs))} note="of the period, with Afflatus's renders" />
             <Tile label="Queue wait" value={maybe(t.waitedUsualMs)} note={`median · p90: ${maybe(t.waitedSlowMs)}`} />
             <Tile label="Model load" value={pct(t.loadMs / Math.max(1, t.gpuMs))} note={`${long(t.loadMs)} of the GPU time`} />
             <Tile label="Model loads" value={`${t.loads} time${t.loads === 1 ? "" : "s"}`} note={t.loadUsualMs === null ? undefined : `${long(t.loadUsualMs)} each, median`} />
@@ -246,7 +246,7 @@ export function RenderTimes() {
                     <PhaseBar phases={r.phases} scale={r.totalMs / longest} />
                     <span className="truncate text-xs text-ink-3">
                       {[
-                        !r.whole ? "studai started while it was rendering: only its total is known" : r.cold ? `cold start, model load ${took(r.phases.loading)}` : "warm (model already loaded)",
+                        !r.whole ? "Afflatus started while it was rendering: only its total is known" : r.cold ? `cold start, model load ${took(r.phases.loading)}` : "warm (model already loaded)",
                         r.stepMs === null ? "" : `${pace(r.stepMs)} s/it`,
                         r.waitedMs > 1000 ? `queued ${long(r.waitedMs)}` : "",
                       ].filter(Boolean).join(" · ")}

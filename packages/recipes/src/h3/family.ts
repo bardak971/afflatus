@@ -1,5 +1,5 @@
-import { frameOf } from "@studai/core";
-import { defineFamily } from "@studai/core";
+import { frameOf } from "@afflatus/core";
+import { defineFamily } from "@afflatus/core";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
 const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";

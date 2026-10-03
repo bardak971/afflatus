@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makePng } from "@studai/comfy/testing";
+import { makePng } from "@afflatus/comfy/testing";
 import { sweep } from "../src/sweep";
 import { get, makeApp, type TestApp } from "./helpers";
 

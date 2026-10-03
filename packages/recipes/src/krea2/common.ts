@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, LoraValue, Ref } from "@studai/core";
+import type { BuildContext, GraphBuilder, InputSpec, LoraValue, Ref } from "@afflatus/core";
 
 /** What every Krea 2 recipe asks for besides its own inputs. */
 export interface Krea2Base {

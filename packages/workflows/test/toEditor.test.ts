@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { fromEditor, toEditor } from "../src";
 import { catalog, sdxl, wan } from "./fixtures";
 
-describe("a graph studai runs, as the editor's own file", () => {
+describe("a graph Afflatus runs, as the editor's own file", () => {
   const file = toEditor(sdxl, catalog);
   const node = (type: string) => file.nodes.find((n) => n.type === type)!;
 
-  it("keeps every node, numbered as studai numbered them", () => {
+  it("keeps every node, numbered as Afflatus numbered them", () => {
     expect(file.nodes.map((n) => n.id).sort((a, b) => a - b)).toEqual([3, 4, 5, 6, 7, 8, 9]);
     expect(file.last_node_id).toBe(9);
     expect(file.version).toBe(0.4);

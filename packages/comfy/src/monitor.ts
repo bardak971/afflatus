@@ -1,4 +1,4 @@
-import type { Phase } from "@studai/core";
+import type { Phase } from "@afflatus/core";
 import type { ComfyClient } from "./client";
 import { systemLoadFrom, type SystemLoad } from "./system";
 

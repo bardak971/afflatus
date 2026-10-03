@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { crc32, deflateSync } from "node:zlib";
 import { WebSocketServer } from "ws";
-import type { Graph, NodeCatalog } from "@studai/core";
+import type { Graph, NodeCatalog } from "@afflatus/core";
 import type { HistoryEntry } from "./client";
 
 /**
@@ -31,7 +31,7 @@ export interface FakeComfy {
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */
   installed: Array<{ folder: string; file: string; bytes: number }>;
-  /** Files written into ComfyUI's user data, by path ("workflows/studai/x.json"). */
+  /** Files written into ComfyUI's user data, by path ("workflows/afflatus/x.json"). */
   userdata: Record<string, unknown>;
   /** Broadcast a websocket message to every connected client, as ComfyUI does. */
   send(type: string, data: unknown): void;

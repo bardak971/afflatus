@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makePng, startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
+import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { chatJson, repeated } from "../src/designer";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -404,7 +404,7 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     expect(last[1]!.image_url!.url).toMatch(/^data:image\/(webp|png);base64,/);
   });
 
-  it("knows the prompt a picture was made from, when the clip opens on a picture studai made", async () => {
+  it("knows the prompt a picture was made from, when the clip opens on a picture Afflatus made", async () => {
     await useLlm();
     // a picture made here, from a prompt of tags
     const job = (await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "1girl, red dress, terrace at sunset, holding a cup", checkpoint: CHECKPOINT } })).json().ids[0] as string;
@@ -441,7 +441,7 @@ options: even warmer | add seagulls | "the camera pushes in"`);
   });
 });
 
-describe("what the designer knows of what studai made", () => {
+describe("what the designer knows of what Afflatus made", () => {
   /** Rows as the queue would have left them: a render, and what came out of it. */
   let n = 0;
   const at = () => new Date(Date.UTC(2026, 0, 1, 0, 0, n++)).toISOString();
@@ -510,7 +510,7 @@ describe("what the designer knows of what studai made", () => {
     expect(system()).toContain("She walks to the railing and says hello.");
     expect(system()).toContain("The clip this one carries on from was made here, in 2 steps, the oldest first:\n1. txt2img with SDXL: 1girl, terrace\n2. Video with audio with MiniMax H3: She walks to the railing and says hello.\n   Sound effects: waves, a light wind");
 
-    // something studai did not make has no story
+    // something Afflatus did not make has no story
     const mine = await item("mine1", "image", { origin: "uploaded" });
     expect(await knows({ start: mine })).toEqual({ pictures: [], continues: false });
   });

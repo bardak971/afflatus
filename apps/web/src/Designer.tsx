@@ -138,7 +138,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   };
   const last = [...turns].reverse().find((t) => t.role === "assistant")?.reply;
   const sees = last?.sawPicture;
-  // What it knows of the pictures and the clip the form holds, from how studai made them: asked for
+  // What it knows of the pictures and the clip the form holds, from how Afflatus made them: asked for
   // when those change, not as the texts are typed.
   const media = JSON.stringify(recipe.inputs.filter((i) => i.type === "image" || i.type === "clip").map((i) => [i.id, values[i.id] ?? null]));
   const knows = useQuery({

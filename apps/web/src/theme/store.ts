@@ -16,7 +16,7 @@ export interface ThemeChoice {
   accents: Record<string, string>;
 }
 export const useThemeChoice = create<ThemeChoice & { set(patch: Partial<ThemeChoice>): void }>()(
-  persist((set) => ({ mode: "dark", day: "latte", night: "studai", accents: {}, set: (patch) => set(patch) }), { name: "studai.theme" }),
+  persist((set) => ({ mode: "dark", day: "latte", night: "afflatus", accents: {}, set: (patch) => set(patch) }), { name: "afflatus.theme" }),
 );
 
 const systemDark = () => (typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)").matches : true);
@@ -36,10 +36,10 @@ export function applyTheme(c: ThemeChoice): void {
   const stage = theme.stage ? themeById(theme.stage) : theme;
   // the same accent on the stage when its theme has one by that name
   const onStage = tokensOf(stage, c.accents[stage.family]);
-  let style = document.getElementById("studai-theme");
+  let style = document.getElementById("afflatus-theme");
   if (!style) {
     style = document.createElement("style");
-    style.id = "studai-theme";
+    style.id = "afflatus-theme";
     document.head.appendChild(style);
   }
   style.textContent = [
@@ -50,7 +50,7 @@ export function applyTheme(c: ThemeChoice): void {
   document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", theme.light ? "light" : "dark");
   // for the next load: the page's colour before any script has run, so that it does not flash
   try {
-    localStorage.setItem("studai.theme.paint", JSON.stringify({ ground: tokens.ground, ink: tokens.ink, light: theme.light }));
+    localStorage.setItem("afflatus.theme.paint", JSON.stringify({ ground: tokens.ground, ink: tokens.ink, light: theme.light }));
   } catch {
     // a browser that keeps nothing: the theme still shows, a moment later on load
   }

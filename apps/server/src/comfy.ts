@@ -1,12 +1,12 @@
-import { ComfyClient, Monitor, scan, systemLoadFromStatus, type Scan, type SystemLoad } from "@studai/comfy";
-import type { NodeCatalog } from "@studai/core";
+import { ComfyClient, Monitor, scan, systemLoadFromStatus, type Scan, type SystemLoad } from "@afflatus/comfy";
+import type { NodeCatalog } from "@afflatus/core";
 import type { Registry } from "./registry";
 
 const SCAN_TTL_MS = 60_000;
 const CATALOG_TTL_MS = 10 * 60_000;
 
 /**
- * The one ComfyUI studai talks to: its client, its websocket monitor, and what was last learned
+ * The one ComfyUI Afflatus talks to: its client, its websocket monitor, and what was last learned
  * about it. Rebuilt when the address in the settings changes.
  */
 export class Comfy {

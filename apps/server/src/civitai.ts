@@ -56,7 +56,7 @@ const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 /** The words of a file's name: "qwen3vl_4b_fp8_scaled" → qwen3vl, 4b, fp8, scaled. */
 export const wordsOf = (file: string) => [...new Set((file.split(/[\\/]/).pop() ?? file).replace(STEM, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2))];
 
-const headers = (key: string) => ({ Accept: "application/json", "User-Agent": "studai", ...(key ? { Authorization: `Bearer ${key}` } : {}) });
+const headers = (key: string) => ({ Accept: "application/json", "User-Agent": "afflatus", ...(key ? { Authorization: `Bearer ${key}` } : {}) });
 
 /**
  * The models both sites find for a file's name, the likeliest first: the one that has a file of exactly

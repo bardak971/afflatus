@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { FakeComfy } from "@studai/comfy/testing";
-import { guess, timeKey } from "@studai/core";
+import type { FakeComfy } from "@afflatus/comfy/testing";
+import { guess, timeKey } from "@afflatus/core";
 import { cellOf, fold, known, list, merge, summary, type RenderRow } from "../src/renders";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
@@ -246,14 +246,14 @@ describe("the figures as Prometheus reads them", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/plain");
     const body = res.body;
-    expect(body).toContain('studai_renders_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",status="done"} 3');
-    expect(body).toContain('studai_renders_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",status="failed"} 1');
-    expect(body).toContain('studai_render_model_loads_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img"} 1');
-    expect(body).toContain('studai_render_seconds_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",phase="loading"} 34');
-    expect(body).toContain('studai_render_duration_seconds_bucket{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",le="40"} 2');
-    expect(body).toContain('studai_render_duration_seconds_bucket{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",le="+Inf"} 3');
-    expect(body).toContain('studai_render_duration_seconds_sum{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img"} 100');
-    expect(body).toMatch(/studai_queue_jobs\{state="queued"\} 0/);
-    expect(body).toMatch(/studai_comfy_online 1/);
+    expect(body).toContain('afflatus_renders_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",status="done"} 3');
+    expect(body).toContain('afflatus_renders_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",status="failed"} 1');
+    expect(body).toContain('afflatus_render_model_loads_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img"} 1');
+    expect(body).toContain('afflatus_render_seconds_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",phase="loading"} 34');
+    expect(body).toContain('afflatus_render_duration_seconds_bucket{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",le="40"} 2');
+    expect(body).toContain('afflatus_render_duration_seconds_bucket{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",le="+Inf"} 3');
+    expect(body).toContain('afflatus_render_duration_seconds_sum{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img"} 100');
+    expect(body).toMatch(/afflatus_queue_jobs\{state="queued"\} 0/);
+    expect(body).toMatch(/afflatus_comfy_online 1/);
   });
 });

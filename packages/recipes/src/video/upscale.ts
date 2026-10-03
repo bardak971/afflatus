@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@studai/core";
+import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
 
 /**
  * The upscale routes a video form offers, as one choice: none; a pixel upscale model (ESRGAN and the

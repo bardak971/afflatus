@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { FakeComfy } from "@studai/comfy/testing";
+import type { FakeComfy } from "@afflatus/comfy/testing";
 import { openSqlite } from "../src/db";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 

@@ -75,7 +75,7 @@ function Strip() {
           {gpu.temperature !== undefined && <> · <span className={cx(gpu.temperature >= 80 && "text-warn-ink")}>{Math.round(gpu.temperature)}°</span></>}
         </span>
       )}
-      <button type="button" title="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Shortcuts <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
+      <button type="button" title="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Shortcuts <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
       <Link href="/queue" className="inline-flex h-7 items-center rounded-md border border-line-strong px-2.5 font-semibold">Open queue</Link>
     </footer>
   );
@@ -89,7 +89,7 @@ export function App() {
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">
         <nav aria-label="Main" className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-3">
-          <div className="flex h-9 items-center text-[15px] font-bold tracking-tight">studai</div>
+          <div className="flex h-9 items-center text-[15px] font-bold tracking-tight">Afflatus</div>
           {NAV.map((n) => {
             const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
             return (

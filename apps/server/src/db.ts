@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Kysely, PostgresDialect, SqliteDialect, type SqliteDatabase } from "kysely";
@@ -275,7 +275,16 @@ export function openDb(config: Config): { db: Db; kind: DbKind } {
     return { db: new Kysely<Tables>({ dialect: new PostgresDialect({ pool }) }), kind: "postgres" };
   }
   mkdirSync(config.dataDir, { recursive: true });
-  return { db: openSqlite(join(config.dataDir, "studai.db")), kind: "sqlite" };
+  return { db: openSqlite(takeOver(config.dataDir)), kind: "sqlite" };
+}
+
+/** The database file: the one written under the app's earlier name (studai.db) is renamed once, with its journal. */
+export function takeOver(dataDir: string): string {
+  const file = join(dataDir, "afflatus.db");
+  if (!existsSync(file) && existsSync(join(dataDir, "studai.db"))) {
+    for (const tail of ["", "-wal", "-shm"]) if (existsSync(join(dataDir, `studai.db${tail}`))) renameSync(join(dataDir, `studai.db${tail}`), `${file}${tail}`);
+  }
+  return file;
 }
 
 /** ":memory:" for tests. */
@@ -612,6 +621,16 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+// the app's earlier name, in the kind of an export job
+migrations["0021_afflatus"] = {
+  async up(db) {
+    await db.updateTable("jobs").set({ recipe_id: "afflatus.export" }).where("recipe_id", "=", "studai.export").execute();
+  },
+  async down(db) {
+    await db.updateTable("jobs").set({ recipe_id: "studai.export" }).where("recipe_id", "=", "afflatus.export").execute();
   },
 };
 

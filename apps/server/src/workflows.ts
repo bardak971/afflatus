@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { ComfyUnreachable } from "@studai/comfy";
-import { isRef, type Graph } from "@studai/core";
-import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type WorkflowDef } from "@studai/workflows";
+import { ComfyUnreachable } from "@afflatus/comfy";
+import { isRef, type Graph } from "@afflatus/core";
+import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type WorkflowDef } from "@afflatus/workflows";
 import type { Services } from "./services";
 import { openInComfy } from "./comfyOpen";
 
@@ -21,7 +21,7 @@ const saveBody = z.strictObject({
   bindings,
 });
 
-/** A workflow studai already holds (saved, or shared as a file): its nodes, and what its editor file knew. */
+/** A workflow Afflatus already holds (saved, or shared as a file): its nodes, and what its editor file knew. */
 const heldBody = z.object({ graph: graphSchema, wiring: wiringSchema.optional() });
 
 const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
@@ -59,9 +59,9 @@ const brief = (d: WorkflowDef) => ({ id: d.id, title: d.title, model: d.model, s
 
 export function registerWorkflows(app: FastifyInstance, s: Services): void {
   /**
-   * What studai finds in a workflow, before anything is saved. Takes the file ComfyUI's editor saves, a
-   * workflow saved with Export (API), or one studai already holds. Reads ComfyUI's node list, nothing else.
-   * The answer carries the workflow in the form studai keeps: that is what gets saved.
+   * What Afflatus finds in a workflow, before anything is saved. Takes the file ComfyUI's editor saves, a
+   * workflow saved with Export (API), or one Afflatus already holds. Reads ComfyUI's node list, nothing else.
+   * The answer carries the workflow in the form Afflatus keeps: that is what gets saved.
    */
   app.post("/api/workflows/inspect", async (req) => {
     const body = req.body;
@@ -132,7 +132,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
 
   /**
    * Show the workflow in ComfyUI's editor (see comfyOpen.ts for how): the editor's own file when the
-   * import kept it, else the graph studai runs written as the editor writes a file.
+   * import kept it, else the graph Afflatus runs written as the editor writes a file.
    */
   app.post<{ Params: { id: string } }>("/api/workflows/:id/open", async (req) => {
     const def = s.registry.workflow(req.params.id);

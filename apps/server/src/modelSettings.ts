@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { Recipe } from "@studai/core";
+import type { Recipe } from "@afflatus/core";
 import { now, OWNER } from "./db";
 import type { Services } from "./services";
 

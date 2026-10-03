@@ -13,7 +13,7 @@ export const useSystem = create<{ load: SystemLoad | null; set(load: SystemLoad 
  * Kept per browser: a notification is shown by the browser that asked for it.
  */
 export const useNotify = create<{ whenEmpty: boolean; eachRender: boolean; set(patch: { whenEmpty?: boolean; eachRender?: boolean }): void }>()(
-  persist((set) => ({ whenEmpty: false, eachRender: false, set: (patch) => set(patch) }), { name: "studai.notify" }),
+  persist((set) => ({ whenEmpty: false, eachRender: false, set: (patch) => set(patch) }), { name: "afflatus.notify" }),
 );
 
 /** Ask the browser for the right to show notifications. False when it was refused, or cannot. */
@@ -56,7 +56,7 @@ export const useHandover = create<{ workflow: File | null; show: string | null; 
  * so it is the same from another browser or after a restart.
  */
 export const useOpenDraft = create<{ id: string | null; open(id: string | null): void }>()(
-  persist((set) => ({ id: null, open: (id) => set({ id }) }), { name: "studai.open-draft" }),
+  persist((set) => ({ id: null, open: (id) => set({ id }) }), { name: "afflatus.open-draft" }),
 );
 
 /**
@@ -64,10 +64,10 @@ export const useOpenDraft = create<{ id: string | null; open(id: string | null):
  * behind a small ? that tells on hover. On at first: a form explains itself until it is known.
  */
 export const useExplain = create<{ on: boolean; set(on: boolean): void }>()(// version 1: the explanations start folded behind the ? (they started open before: that stored value is dropped)
-persist((set) => ({ on: false, set: (on) => set({ on }) }), { name: "studai.explain", version: 1, migrate: () => ({ on: false }) }));
+persist((set) => ({ on: false, set: (on) => set({ on }) }), { name: "afflatus.explain", version: 1, migrate: () => ({ on: false }) }));
 
 /** How wide the side panel that holds a form is, in pixels: dragged by its edge, remembered. */
 export const PANEL = { least: 380, most: 720, usual: 440 };
 export const usePanelWidth = create<{ width: number; set(width: number): void }>()(
-  persist((set) => ({ width: PANEL.usual, set: (width) => set({ width: Math.max(PANEL.least, Math.min(PANEL.most, Math.round(width))) }) }), { name: "studai.panel-width" }),
+  persist((set) => ({ width: PANEL.usual, set: (width) => set({ width: Math.max(PANEL.least, Math.min(PANEL.most, Math.round(width))) }) }), { name: "afflatus.panel-width" }),
 );

@@ -1,5 +1,5 @@
 /**
- * The real studai, with a pretend ComfyUI behind it: renders take a few seconds and give coloured
+ * The real Afflatus, with a pretend ComfyUI behind it: renders take a few seconds and give coloured
  * placeholder pictures. For trying the app, and working on it, without a GPU. It never contacts a real
  * ComfyUI: the address in the demo's settings is set to the pretend one on every start.
  *   pnpm demo            then open http://127.0.0.1:8720 (after `pnpm build`), or run the web app's dev server
@@ -11,10 +11,10 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startFakeComfy } from "@studai/comfy/testing";
-import type { Graph, NodeCatalog } from "@studai/core";
+import { startFakeComfy } from "@afflatus/comfy/testing";
+import type { Graph, NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
-import { migrate, openSqlite } from "../apps/server/src/db";
+import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
 import { seedRenderTimes } from "./demo-times";
 import { writeSettings } from "../apps/server/src/settings";
@@ -48,7 +48,7 @@ function pretendClip(graph: Graph, seed: number): Uint8Array | undefined {
   const frames = Number(nodes.find((n) => typeof n.inputs.length === "number")?.inputs.length) || 0;
   const base = nodes.some((n) => /FrameInterpolate/.test(n.class_type)) ? fps / 2 : fps;
   const seconds = frames ? (frames / base).toFixed(3) : "4";
-  const file = join(tmpdir(), `studai-demo-clip-${process.pid}.mp4`);
+  const file = join(tmpdir(), `afflatus-demo-clip-${process.pid}.mp4`);
   const made = spawnSync("ffmpeg", [
     "-y", "-loglevel", "error",
     "-f", "lavfi", "-i", `testsrc2=size=${width}x${height}:rate=${fps}:duration=${seconds},hue=h=${seed % 360}`,
@@ -154,7 +154,7 @@ process.env.CIVITAI_URL = `http://127.0.0.1:${(pretendSite.address() as AddressI
 
 const dataDir = join(root, "data-demo");
 mkdirSync(dataDir, { recursive: true });
-const db = openSqlite(join(dataDir, "studai.db"));
+const db = openSqlite(takeOver(dataDir));
 await migrate(db);
 await writeSettings(db, { comfyUrl: fake.url, llm: { baseUrl: llmUrl, model: "pretend-designer", apiKey: "", vision: false } });
 
@@ -167,7 +167,7 @@ const app = buildApp(services, { webDir: existsSync(join(dist, "index.html")) ? 
 const port = Number(process.env.PORT) || 8720;
 await app.listen({ host: "127.0.0.1", port });
 await services.queue.start();
-console.log(`studai demo on http://127.0.0.1:${port}  (pretend ComfyUI at ${fake.url}, pretend designer at ${llmUrl}, data in data-demo/)`);
+console.log(`Afflatus demo on http://127.0.0.1:${port}  (pretend ComfyUI at ${fake.url}, pretend designer at ${llmUrl}, data in data-demo/)`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, async () => {

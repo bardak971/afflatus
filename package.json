@@ -1,5 +1,5 @@
 {
-  "name": "studai",
+  "name": "afflatus",
   "private": true,
   "version": "0.0.1",
   "description": "A self-hosted studio for pictures, videos and timelines, in front of your own ComfyUI.",
@@ -23,9 +23,9 @@
     "catalog:save": "tsx scripts/save-node-catalog.ts"
   },
   "devDependencies": {
-    "@studai/comfy": "workspace:*",
-    "@studai/core": "workspace:*",
-    "@studai/recipes": "workspace:*",
+    "@afflatus/comfy": "workspace:*",
+    "@afflatus/core": "workspace:*",
+    "@afflatus/recipes": "workspace:*",
     "@types/node": "^24.0.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

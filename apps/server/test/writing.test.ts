@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { soundPart } from "../src/cut";
 import { now } from "../src/db";
 import { checkPrompt, cleanTags } from "../src/tags";

@@ -4,7 +4,7 @@
  * memory numbers when none arrives within a few seconds.
  *   pnpm comfy:load http://127.0.0.1:8188
  */
-import { ComfyClient, Monitor, systemLoadFromStatus, type SystemLoad } from "@studai/comfy";
+import { ComfyClient, Monitor, systemLoadFromStatus, type SystemLoad } from "@afflatus/comfy";
 
 const client = new ComfyClient(process.argv[2] ?? "http://127.0.0.1:8188");
 const monitor = new Monitor(client);

@@ -3,14 +3,14 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { FakeComfy } from "@studai/comfy/testing";
+import type { FakeComfy } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { readVideo, tools } from "../src/video";
 import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /** A two-second test clip with a tone, made with ffmpeg. These tests are skipped where ffmpeg is not installed. */
 function makeClip(sound: boolean): Uint8Array | null {
-  const dir = mkdtempSync(join(tmpdir(), "studai-clip-"));
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
   const file = join(dir, "clip.mp4");
   const made = spawnSync("ffmpeg", [
     "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x192:rate=16:duration=2",

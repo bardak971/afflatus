@@ -1,4 +1,4 @@
-import type { NodeCatalog } from "@studai/core";
+import type { NodeCatalog } from "@afflatus/core";
 
 /** A name with something before the dot: "model.safetensors", "sub\\pic.png". A bare ".png" is an extension, not a file. */
 const FILE = /[^\\/.]\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx|engine|png|jpe?g|webp|gif|bmp|tiff?|mp4|webm|mov|mkv|avi|wav|mp3|flac|ogg|m4a|opus|txt|json|ya?ml|csv|patch|latent|glb|obj|ply|ttf|otf|woff2?)$/i;

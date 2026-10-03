@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@studai/core";
+import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
 import { pixelUpscale, upscaleInputs, upscaleNodes } from "../video/upscale";
 
@@ -263,7 +263,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     g.phase("encoding");
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
-      images, frame_rate: smooth ? input.fps * 2 : input.fps, loop_count: 0, filename_prefix: "studai/video", format: "video/h264-mp4",
+      images, frame_rate: smooth ? input.fps * 2 : input.fps, loop_count: 0, filename_prefix: "Afflatus/video", format: "video/h264-mp4",
       pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
     });
 

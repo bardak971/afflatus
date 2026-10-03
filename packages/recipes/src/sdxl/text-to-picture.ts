@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@studai/core";
+import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
 import { HIRES_PASS_INPUTS, hiresPass } from "./common";
 import { DEFAULT_NEGATIVE } from "./family";
 

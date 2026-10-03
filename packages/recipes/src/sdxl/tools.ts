@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder } from "@studai/core";
+import { defineRecipe, GraphBuilder } from "@afflatus/core";
 import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, round8, samplerOf, samplingInputs, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type UpscaleSettings,

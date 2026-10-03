@@ -4,7 +4,7 @@ import { api, type SystemLoad } from "./api";
 import { useNotify, useSystem } from "./store";
 
 const say = (title: string, body: string) => {
-  if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification(title, { body, tag: "studai" });
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification(title, { body, tag: "afflatus" });
 };
 
 /**

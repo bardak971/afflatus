@@ -5,8 +5,8 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { baseModels, checkGraph, dryContext, parseInput, warmGraph, type NodeCatalog } from "@studai/core";
-import { recipes } from "@studai/recipes";
+import { baseModels, checkGraph, dryContext, parseInput, warmGraph, type NodeCatalog } from "@afflatus/core";
+import { recipes } from "@afflatus/recipes";
 
 const saved = fileURLToPath(new URL("../reference/comfy-object-info.json", import.meta.url));
 const arg = process.argv[2] ?? saved;

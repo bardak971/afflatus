@@ -1,4 +1,4 @@
-import { defineFamily, defineRecipe, GraphBuilder } from "@studai/core";
+import { defineFamily, defineRecipe, GraphBuilder } from "@afflatus/core";
 
 /** Things done to a picture that need no picture model: nothing is drawn, so there is no prompt. */
 export const tools = defineFamily({

@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, REFERENCE_ROLES, type ClipValue, type LoraValue, type MediaFacts, type Ref, type ReferenceValue, type SizeValue, type Variant } from "@studai/core";
+import { defineRecipe, GraphBuilder, REFERENCE_ROLES, type ClipValue, type LoraValue, type MediaFacts, type Ref, type ReferenceValue, type SizeValue, type Variant } from "@afflatus/core";
 import { H3_FORM_PIXELS, H3_FPS, h3Canvas, h3Frames } from "./family";
 import { pixelUpscale, UPSCALE, upscaleInputs, upscaleNodes } from "../video/upscale";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
@@ -423,7 +423,7 @@ export const h3Video = defineRecipe<H3Video>({
     g.phase("encoding");
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
-      images, audio, frame_rate: smooth ? H3_FPS * 2 : H3_FPS, loop_count: 0, filename_prefix: "studai/video", format: "video/h264-mp4",
+      images, audio, frame_rate: smooth ? H3_FPS * 2 : H3_FPS, loop_count: 0, filename_prefix: "Afflatus/video", format: "video/h264-mp4",
       pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
     });
 

@@ -1,4 +1,4 @@
-import { defineFamily } from "@studai/core";
+import { defineFamily } from "@afflatus/core";
 
 const HF = "https://huggingface.co/Comfy-Org/Krea-2/resolve/main";
 

@@ -1,10 +1,10 @@
 /**
- * What a ComfyUI can do for studai, printed. Read-only: status, node list and model folders. It never
+ * What a ComfyUI can do for Afflatus, printed. Read-only: status, node list and model folders. It never
  * queues anything, loads a model or frees memory.
  *   pnpm comfy:scan http://127.0.0.1:8188
  */
-import { ComfyClient, scan } from "@studai/comfy";
-import { families, recipes } from "@studai/recipes";
+import { ComfyClient, scan } from "@afflatus/comfy";
+import { families, recipes } from "@afflatus/recipes";
 
 const url = process.argv[2] ?? "http://127.0.0.1:8188";
 const s = await scan(new ComfyClient(url), families, recipes);

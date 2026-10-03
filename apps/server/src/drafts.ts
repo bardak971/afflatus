@@ -1,5 +1,5 @@
 import { chatJson } from "./designer";
-import type { Recipe } from "@studai/core";
+import type { Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { newId, now, OWNER, type Tables } from "./db";

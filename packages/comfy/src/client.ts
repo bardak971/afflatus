@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Graph, NodeCatalog } from "@studai/core";
+import type { Graph, NodeCatalog } from "@afflatus/core";
 
 /** ComfyUI did not answer at all. */
 export class ComfyUnreachable extends Error {}
@@ -54,7 +54,7 @@ const MIME: Record<string, string> = {
 };
 
 /**
- * Everything studai asks of a ComfyUI over HTTP. The read-only calls (status, catalog, folders, models,
+ * Everything Afflatus asks of a ComfyUI over HTTP. The read-only calls (status, catalog, folders, models,
  * history, queue) never load a model or touch the GPU.
  */
 export class ComfyClient {
@@ -63,7 +63,7 @@ export class ComfyClient {
    * One per process, never a shared constant: ComfyUI drops a client id as soon as ANY socket that
    * uses it closes, which silently cuts off every other holder of the same id.
    */
-  readonly clientId = `studai-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  readonly clientId = `afflatus-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
 
   constructor(baseUrl: string, private readonly fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl.trim().replace(/\/+$/, "");
@@ -183,7 +183,7 @@ export class ComfyClient {
   async upload(bytes: Uint8Array, ext: string): Promise<string> {
     const form = new FormData();
     const type = MIME[ext] ?? "application/octet-stream";
-    form.append("image", new Blob([new Uint8Array(bytes).buffer], { type }), `studai_${randomUUID()}.${ext}`);
+    form.append("image", new Blob([new Uint8Array(bytes).buffer], { type }), `afflatus_${randomUUID()}.${ext}`);
     form.append("type", "temp");
     form.append("overwrite", "true");
     const r = (await (await this.request("/upload/image", { method: "POST", body: form }, 60_000)).json()) as { name: string; subfolder?: string };
@@ -191,7 +191,7 @@ export class ComfyClient {
   }
 
   /**
-   * Write a file into ComfyUI's user data (user/default/<path>): "workflows/studai/x.json" is what its
+   * Write a file into ComfyUI's user data (user/default/<path>): "workflows/afflatus/x.json" is what its
    * Workflows sidebar lists. Replaces a file of that name.
    */
   async storeUserData(path: string, body: unknown): Promise<void> {

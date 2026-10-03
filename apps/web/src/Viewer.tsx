@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@studai/core";
+import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
 import { askAboutDisk } from "./Confirm";
 import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo, type Look } from "./api";
 import { useAsset, useAssetAction, useFamilies, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
@@ -106,7 +106,7 @@ function OpenInComfy({ asset }: { asset: Asset }) {
       {open.isError && <span className="text-xs text-warn-ink">{open.error.message}</span>}
       {opened && !opened.direct && (
         <span className="text-xs text-ink-2">
-          Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: open the Workflows sidebar there (key W) and pick it under studai.{opened.restart ? " Restart ComfyUI once: from then on it opens straight away." : ""}
+          Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: open the Workflows sidebar there (key W) and pick it under "afflatus".{opened.restart ? " Restart ComfyUI once: from then on it opens straight away." : ""}
         </span>
       )}
     </div>
@@ -634,7 +634,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           )}
           <span className={cx("min-w-0 grow font-semibold", trail.length === 0 && "pl-2")}>{title}</span>
           {at >= 0 && items!.length > 1 && <span className="shrink-0 text-xs text-ink-2" title="Arrow keys: previous and next item">{at + 1} of {items!.length} <Kbd>←</Kbd> <Kbd>→</Kbd></span>}
-          <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => window.dispatchEvent(new Event("studai:keys"))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">?</button>
+          <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">?</button>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </div>
         <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">

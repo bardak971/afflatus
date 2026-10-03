@@ -1,5 +1,5 @@
-import { frameOf } from "@studai/core";
-import { defineFamily } from "@studai/core";
+import { frameOf } from "@afflatus/core";
+import { defineFamily } from "@afflatus/core";
 
 /** Where ComfyUI's own templates fetch Wan 2.2's files from. */
 const HF = "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files";

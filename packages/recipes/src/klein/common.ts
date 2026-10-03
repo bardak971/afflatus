@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, LoraValue, ReferenceValue, Ref } from "@studai/core";
+import type { BuildContext, GraphBuilder, InputSpec, LoraValue, ReferenceValue, Ref } from "@afflatus/core";
 import { KLEIN_NEGATIVE } from "./family";
 
 /** What every Klein recipe asks for besides its own inputs. */

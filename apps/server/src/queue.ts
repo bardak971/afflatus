@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@studai/comfy";
-import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@studai/core";
+import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@afflatus/comfy";
+import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { cutFrames, referenceClip, frameAt, soundPart } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
@@ -662,7 +662,7 @@ export class Queue {
         const facts = asset.duration_ms && asset.width && asset.height
           ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
           : (await readVideo(bytes, extOf(asset.mime))).facts;
-        if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine studai runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
+        if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
         const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts: spec.frames, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at });
         uploads[spec.id] = await comfy.client.upload(cut.bytes, "mp4");
         media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };

@@ -17,8 +17,8 @@ export const TOKENS = [
 export interface Theme {
   id: string;
   name: string;
-  /** The themes that share accents: "Catppuccin", "Rosé Pine", "studai". */
-  family: "studai" | "catppuccin" | "rosepine";
+  /** The themes that share accents: "Catppuccin", "Rosé Pine", "afflatus". */
+  family: "afflatus" | "catppuccin" | "rosepine";
   light: boolean;
   /** The accents it offers, by name, most at home first. */
   accents: Record<string, string>;
@@ -40,10 +40,10 @@ export function mix(from: string, to: string, t: number): string {
   return `#${a.map((v, i) => Math.round(v + (b[i]! - v) * t).toString(16).padStart(2, "0")).join("")}`;
 }
 
-// ---------------------------------------------------------------- studai (the look the app was drawn in)
+// ---------------------------------------------------------------- Afflatus (the look the app was drawn in)
 
-const studai: Theme = {
-  id: "studai", name: "studai", family: "studai", light: false,
+const afflatus: Theme = {
+  id: "afflatus", name: "Afflatus", family: "afflatus", light: false,
   accents: { amber: "#f5c451", coral: "#ff9a73", rose: "#f38ba8", lilac: "#c4a7e7", sky: "#86aeff", mint: "#5ad6bd" },
   base: {
     ground: "#0f1114", panel: "#16191e", raised: "#1d2127", hover: "#262b33", line: "#2a3038", "line-strong": "#3a424e",
@@ -100,7 +100,7 @@ function ofRosePine(id: string, name: string, c: Variant, light: boolean, stage?
 }
 
 export const THEMES: Theme[] = [
-  studai,
+  afflatus,
   ofCatppuccin("mocha", "Catppuccin Mocha", catppuccin.mocha, false),
   ofCatppuccin("macchiato", "Catppuccin Macchiato", catppuccin.macchiato, false),
   ofCatppuccin("frappe", "Catppuccin Frappé", catppuccin.frappe, false),
@@ -109,8 +109,8 @@ export const THEMES: Theme[] = [
   ofCatppuccin("latte", "Catppuccin Latte", catppuccin.latte, true, "mocha"),
   ofRosePine("rose-pine-dawn", "Rosé Pine Dawn", rosePine.dawn, true, "rose-pine"),
 ];
-export const FAMILIES: Record<Theme["family"], string> = { studai: "studai", catppuccin: "Catppuccin", rosepine: "Rosé Pine" };
-export const themeById = (id: string): Theme => THEMES.find((t) => t.id === id) ?? studai;
+export const FAMILIES: Record<Theme["family"], string> = { afflatus: "Afflatus", catppuccin: "Catppuccin", rosepine: "Rosé Pine" };
+export const themeById = (id: string): Theme => THEMES.find((t) => t.id === id) ?? afflatus;
 
 /** How bright a colour is to the eye, 0 to 1. */
 function luminance(c: string): number {
@@ -130,11 +130,11 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   const name = accent && accent in theme.accents ? accent : Object.keys(theme.accents)[0]!;
   const colour = theme.accents[name]!;
   // the look the app was drawn in is kept to the last value
-  const wash = theme.id === "studai" && name === "amber" ? "#211d10" : mix(theme.base.panel, colour, theme.wash);
+  const wash = theme.id === "afflatus" && name === "amber" ? "#211d10" : mix(theme.base.panel, colour, theme.wash);
   // what is written on the accent: the theme's usual ink for it, unless the other one reads clearly better
   // (a dark accent in a dark theme, a pale one in a light theme)
   const other = theme.light ? theme.base.ink : theme.base["ink-strong"];
   const written = contrast(colour, other) > contrast(colour, theme.onAccent) * 1.25 ? other : theme.onAccent;
   // the knob of a switch that is on: white as the app was drawn, else whatever is written on the accent
-  return { ...theme.base, accent: colour, "accent-ink": written, "accent-wash": wash, knob: theme.id === "studai" && name === "amber" ? "#ffffff" : written };
+  return { ...theme.base, accent: colour, "accent-ink": written, "accent-wash": wash, knob: theme.id === "afflatus" && name === "amber" ? "#ffffff" : written };
 }

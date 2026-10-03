@@ -1,4 +1,4 @@
-# studai: architecture and scope proposal
+# afflatus: architecture and scope proposal
 
 Draft 1, 2026-10-01. Nothing here is built. This is the shape to agree on before any code. Sections 2 (the core idea), 7 (UI) and 9 (open questions) are where your input matters most.
 
@@ -6,7 +6,7 @@ Draft 1, 2026-10-01. Nothing here is built. This is the shape to agree on before
 
 | Topic | Decision |
 |---|---|
-| Name | `studai` (working name, see open question 1) |
+| Name | `afflatus` (working name, see open question 1) |
 | License | AGPL-3.0 |
 | Users | Single user. Every table still carries an `owner_id` from day one, so multi-user later is a feature, not a rewrite |
 | Noctown | Independent. No shared code path, no "generation service" role |
@@ -103,11 +103,11 @@ A timeline-wide music track (an audio file, or a music recipe: the catalog has M
 
 #### 2.3.1 Workflow recipes
 
-The user builds and tests a workflow in ComfyUI as usual and imports its file into studai: the file ComfyUI's editor saves (preferred), or one saved with "Export (API)". An import screen then turns it into a recipe:
+The user builds and tests a workflow in ComfyUI as usual and imports its file into afflatus: the file ComfyUI's editor saves (preferred), or one saved with "Export (API)". An import screen then turns it into a recipe:
 
 - **It guesses the obvious inputs** from the graph: the text encoders feeding the sampler's positive and negative, the sampler's seed, the latent's width, height and length, the image loaders, the save or video-combine node. The user confirms or corrects.
 - **Any other node input can be exposed as a control.** Its type, range, step and options are read from ComfyUI's node catalog, so a `steps` input becomes a number field with the right limits and a `sampler_name` input becomes a dropdown, with no typing by the user.
-- **LoRAs:** the user marks where the model enters the sampler; studai inserts a LoRA loader per chosen LoRA at that point, so the count is free. A node that is itself a list of LoRAs (rgthree's Power Lora Loader) is taken as the list: its LoRAs start in studai's, and the user's list replaces them.
+- **LoRAs:** the user marks where the model enters the sampler; Afflatus inserts a LoRA loader per chosen LoRA at that point, so the count is free. A node that is itself a list of LoRAs (rgthree's Power Lora Loader) is taken as the list: its LoRAs start in Afflatus's, and the user's list replaces them.
 - **Switches** (editor files only): parts of a workflow that its author made switchable (bypassed or muted nodes behind a switch node) become on/off switches on the form. The recipe keeps every node, and takes out what is off when it builds, the way ComfyUI's front end does. An exported file only has what was on when it was exported.
 - **The author's own panel:** settings shown on the front of a group node are the ones ticked to begin with, under the names the author gave them.
 - **Roles for the timeline:** an image input can be marked "start frame" or "end frame", and a video input "previous clip". The recipe gets the matching timeline traits. The frame grid comes from the length input's step in the node catalog.
@@ -124,7 +124,7 @@ What it cannot do, because these need logic rather than filling in values:
 
 Those exist only in built-in recipes.
 
-Reading the editor's file means doing what ComfyUI's browser front end does when it queues (there is no service for it): opening up group nodes, following reroutes, matching the bare lists of values to inputs, leaving out notes. studai follows that code for what it covers and says, in the import screen, what it could not read with certainty. Nodes that draw their own fields in the browser are the weak spot: their values cannot always be matched to inputs.
+Reading the editor's file means doing what ComfyUI's browser front end does when it queues (there is no service for it): opening up group nodes, following reroutes, matching the bare lists of values to inputs, leaving out notes. Afflatus follows that code for what it covers and says, in the import screen, what it could not read with certainty. Nodes that draw their own fields in the browser are the weak spot: their values cannot always be matched to inputs.
 
 ### 2.4 Requirements, the setup page and the graph checker
 
@@ -140,7 +140,7 @@ The **graph checker** is ported first. Every recipe ships `variants`; CI builds 
 
 ### 2.5 What is not ported
 
-Noctown's image engine speaks A1111's dialect because Noctown ran on A1111 first: sampler names are mapped, `<lora:name:1>` tags are parsed out of prompts, checkpoints are addressed by file stem. studai uses ComfyUI's own names and takes LoRAs as structured input. Reading an image's embedded settings (A1111 or ComfyUI metadata) stays as an import feature.
+Noctown's image engine speaks A1111's dialect because Noctown ran on A1111 first: sampler names are mapped, `<lora:name:1>` tags are parsed out of prompts, checkpoints are addressed by file stem. Afflatus uses ComfyUI's own names and takes LoRAs as structured input. Reading an image's embedded settings (A1111 or ComfyUI metadata) stays as an import feature.
 
 ## 3. Shape of the system
 
@@ -161,10 +161,10 @@ reference/          comfy-object-info.json
 - *Go:* a single binary is attractive for PC users, but it means rewriting everything, and no shared types with the UI.
 - *Python, as a ComfyUI extension:* installs through ComfyUI-Manager with nothing else to run, but the app would die whenever ComfyUI crashes or restarts, and it cannot run on a cluster while the GPU PC is off. That rules out the resumable queue and the cluster mode.
 
-**ComfyUI: connect, do not bundle.** studai always talks to a ComfyUI server by URL; that is the only code path, and it is what cluster mode needs anyway. It does not install or ship ComfyUI (Python, PyTorch, CUDA builds, custom nodes): that is a distribution's job and other tools already do it. What it does instead:
+**ComfyUI: connect, do not bundle.** Afflatus always talks to a ComfyUI server by URL; that is the only code path, and it is what cluster mode needs anyway. It does not install or ship ComfyUI (Python, PyTorch, CUDA builds, custom nodes): that is a distribution's job and other tools already do it. What it does instead:
 
 - the setup page says exactly which nodes and model files each recipe is missing, and can install them through ComfyUI-Manager when the user asks;
-- optional, later, for PC mode: given the path of an existing ComfyUI install, studai can start it, stop it, restart it after a crash and show its log;
+- optional, later, for PC mode: given the path of an existing ComfyUI install, Afflatus can start it, stop it, restart it after a crash and show its log;
 - optional, at release: the compose file can include a ComfyUI container for people starting from nothing.
 
 | | PC mode | Cluster mode |
@@ -345,7 +345,7 @@ Noctown has two ideas here. A **preset** is one bundle: checkpoint, sampler, ste
 
 The weaknesses: a preset mixes four unrelated things, so "this checkpoint's best settings" cannot be combined with "this style"; it is SDXL-shaped; and a character has to be rebuilt by hand for each model family.
 
-studai splits the bundle into four pieces that combine:
+Afflatus splits the bundle into four pieces that combine:
 
 | Piece | Holds | Belongs to |
 |---|---|---|
@@ -397,7 +397,7 @@ Scene maker, mid-clip keyframes and the vision pass for designers fit after mile
 - **Families `klein` and `tools`**: FLUX.2 Klein's files are found by name like H3's; `tools` holds what needs no picture model (removing a background).
 - **Every recipe that takes one picture and gives a picture back** is offered by the viewer's "Change this picture", built-in or imported: nothing there is listed by hand.
 - **Civitai lookups** are off unless turned on in Settings; then only a file name is sent, on a click.
-- **Downloads into ComfyUI** are a second switch, also off. ComfyUI-Manager does the saving; it is handed a one-time address on studai, which streams the file through and counts the bytes. studai stores nothing and a Civitai key never reaches ComfyUI. ComfyUI has to be able to reach studai (`PUBLIC_URL` when the address the page was opened at is not it).
+- **Downloads into ComfyUI** are a second switch, also off. ComfyUI-Manager does the saving; it is handed a one-time address on Afflatus, which streams the file through and counts the bytes. Afflatus stores nothing and a Civitai key never reaches ComfyUI. ComfyUI has to be able to reach Afflatus (`PUBLIC_URL` when the address the page was opened at is not it).
 - Dropped by the owner: a password, starting ComfyUI, waking the GPU computer.
 
 ## 9. Open questions
@@ -406,7 +406,7 @@ Answered on 2026-10-01: Kysely for the database; Wan 2.2 is the first family aft
 
 Still open:
 
-1. **Name.** `studai` is free on npm and on your GitHub account. About fifteen GitHub projects are called StudAI and all are study or student tools, so the name reads as "study AI" to a newcomer and will be hard to search for.
+1. **Name.** `afflatus` is free on npm and on your GitHub account. About fifteen GitHub projects are called Afflatus and all are study or student tools, so the name reads as "study AI" to a newcomer and will be hard to search for.
 2. **ComfyUI: connect, do not bundle** (section 3), with an optional launcher for an existing local install later. Proposed, not yet confirmed.
 3. **The UI concept in section 7:** wireframes are the next step once the direction is agreed.
 

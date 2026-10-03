@@ -62,7 +62,7 @@ export async function resolveLink(link: string, key: string): Promise<LinkFound>
   if (at.protocol === "https:" && MODEL_FILE.test(name)) {
     return { source: "address", title: name, about: at.hostname, page: at.href, url: at.href, files: [{ name, bytes: await sizeOf(at.href), note: "" }], folder: null };
   }
-  throw bad("studai can fetch from a Civitai model page, a file on Hugging Face, or an https address that ends in a model file's name.");
+  throw bad("Afflatus can fetch from a Civitai model page, a file on Hugging Face, or an https address that ends in a model file's name.");
 }
 
 async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
@@ -111,7 +111,7 @@ async function sizeOf(url: string): Promise<number> {
   // where a pretend Civitai stands in (the tests, the demo), no other site is asked either
   if (process.env.CIVITAI_URL) return 0;
   try {
-    const res = await fetch(url, { method: "HEAD", redirect: "follow", headers: { "User-Agent": "studai" }, signal: AbortSignal.timeout(15_000) });
+    const res = await fetch(url, { method: "HEAD", redirect: "follow", headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(15_000) });
     return Number(res.headers.get("x-linked-size") ?? res.headers.get("content-length") ?? 0) || 0;
   } catch {
     return 0;

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makePng, type FakeComfy } from "@studai/comfy/testing";
+import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { CHECKPOINT, complete, get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /** A directory with pictures in it and in a sub-directory, a hidden file and a text file. */
@@ -11,7 +11,7 @@ let fake: FakeComfy;
 let t: TestApp;
 const picture = () => Buffer.from(makePng(16, 24, [10, 20, 30], [40, 50, 60]));
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), "studai-linked-"));
+  dir = mkdtempSync(join(tmpdir(), "afflatus-linked-"));
   writeFileSync(join(dir, "one.png"), picture());
   writeFileSync(join(dir, "notes.txt"), "not a picture");
   writeFileSync(join(dir, ".hidden.png"), picture());

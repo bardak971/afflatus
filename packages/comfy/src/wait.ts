@@ -2,7 +2,7 @@ import { ComfyUnreachable, type ComfyClient, type HistoryEntry } from "./client"
 
 /** ComfyUI stopped answering for too long, or forgot the prompt (it restarted): the job can be tried again. */
 export class ComfyLost extends Error {}
-/** The prompt was stopped, by studai or from ComfyUI's own interface. */
+/** The prompt was stopped, by Afflatus or from ComfyUI's own interface. */
 export class ComfyCancelled extends Error {
   constructor() {
     super("cancelled");

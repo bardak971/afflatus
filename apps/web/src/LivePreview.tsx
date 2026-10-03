@@ -7,7 +7,7 @@ import { previewUrl, type RunningJob } from "./api";
  * made on one of them holds for the ones after it (and for the next render).
  */
 const useLiveSound = create<{ muted: boolean; volume: number; set(muted: boolean, volume: number): void }>()(
-  persist((set) => ({ muted: false, volume: 1, set: (muted, volume) => set({ muted, volume }) }), { name: "studai.live-sound" }),
+  persist((set) => ({ muted: false, volume: 1, set: (muted, volume) => set({ muted, volume }) }), { name: "afflatus.live-sound" }),
 );
 
 /**

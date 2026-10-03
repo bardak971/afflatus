@@ -1,10 +1,10 @@
-import type { Family, Recipe } from "@studai/core";
-import { families as builtInFamilies, recipes as builtInRecipes } from "@studai/recipes";
-import { familyOf, recipeFromWorkflow, workflowDef, type WorkflowDef } from "@studai/workflows";
+import type { Family, Recipe } from "@afflatus/core";
+import { families as builtInFamilies, recipes as builtInRecipes } from "@afflatus/recipes";
+import { familyOf, recipeFromWorkflow, workflowDef, type WorkflowDef } from "@afflatus/workflows";
 import { now, OWNER, type Db } from "./db";
 
 /**
- * Everything studai can make things with: the built-in recipes, plus one recipe per imported workflow.
+ * Everything Afflatus can make things with: the built-in recipes, plus one recipe per imported workflow.
  * The rest of the server asks here and never needs to know which kind a recipe is.
  */
 export class Registry {

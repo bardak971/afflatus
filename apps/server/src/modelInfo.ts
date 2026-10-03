@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { ComfyUnreachable, modelInfoFrom, type ModelInfo } from "@studai/comfy";
-import { MODEL_INFO_VERSION } from "@studai/core";
+import { ComfyUnreachable, modelInfoFrom, type ModelInfo } from "@afflatus/comfy";
+import { MODEL_INFO_VERSION } from "@afflatus/core";
 import { now } from "./db";
 import type { Services } from "./services";
 

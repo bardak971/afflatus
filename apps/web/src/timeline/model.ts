@@ -1,9 +1,9 @@
-import { secondsOf } from "@studai/core";
+import { secondsOf } from "@afflatus/core";
 import type { Clip, RecipeInfo } from "../api";
 
 /** What the editor's parts share: how clips are laid out along the track, and a few words about them. */
 
-export const DRAG_CLIP = "application/x-studai-clip";
+export const DRAG_CLIP = "application/x-afflatus-clip";
 
 /** The track is drawn to scale: this many pixels a second, within these limits. */
 export const ZOOM = { least: 12, most: 110, start: 40 };

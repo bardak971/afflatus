@@ -1,4 +1,4 @@
-import { guess, modelOf, secondsOf, type Known } from "@studai/core";
+import { guess, modelOf, secondsOf, type Known } from "@afflatus/core";
 import type { Rate, RecipeInfo } from "./api";
 
 /**

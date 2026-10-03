@@ -4,11 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <title>studai</title>
+    <title>Afflatus</title>
     <script>
+      // what this browser kept under the app's earlier name is carried over once (the theme's own id too)
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf("studai.") === 0 && localStorage.getItem("afflatus." + k.slice(7)) === null) {
+            localStorage.setItem("afflatus." + k.slice(7), localStorage.getItem(k).split('"studai"').join('"afflatus"'));
+          }
+        }
+      } catch (e) {}
       // the theme's own colours before the app has loaded, so that the page does not flash dark then light
       try {
-        var p = JSON.parse(localStorage.getItem("studai.theme.paint") || "null");
+        var p = JSON.parse(localStorage.getItem("afflatus.theme.paint") || "null");
         if (p) {
           document.documentElement.style.background = p.ground;
           document.documentElement.style.color = p.ink;

@@ -70,7 +70,7 @@ export function StripPlace() {
 /**
  * In the strip: the model ComfyUI holds. With a form on screen, whether that form's models are the
  * ones in memory, and the button that loads them ahead: pressed while the prompt is still being
- * written, the render then starts sampling at once. "Loaded" is what studai last asked ComfyUI to
+ * written, the render then starts sampling at once. "Loaded" is what Afflatus last asked ComfyUI to
  * load: a ComfyUI restarted since is not seen.
  */
 export function StripModel() {
@@ -84,7 +84,7 @@ export function StripModel() {
 function Held({ name }: { name: string | null }) {
   if (!name) return null;
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model studai last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
+    <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
       <MemoryStick size={13} className="shrink-0 text-good" />
       <span className="max-w-72 truncate">{name}</span>
     </span>
@@ -140,7 +140,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
         </>
       ) : (
         <>
-          <span className="flex min-w-0 items-center gap-1" title={held ? `${held} is the model ComfyUI has loaded. This form renders with another model.` : "ComfyUI has no model loaded by studai."}>
+          <span className="flex min-w-0 items-center gap-1" title={held ? `${held} is the model ComfyUI has loaded. This form renders with another model.` : "ComfyUI has no model loaded by Afflatus."}>
             {held ? <><span className="max-w-56 truncate">{held}</span><span className="shrink-0">loaded, not this form's model</span></> : "Model not loaded"}
           </span>
           <button

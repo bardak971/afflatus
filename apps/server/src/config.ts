@@ -9,7 +9,7 @@ export interface Config {
   host: string;
   port: number;
   dataDir: string;
-  /** postgres://… ; empty = SQLite at <dataDir>/studai.db */
+  /** postgres://… ; empty = SQLite at <dataDir>/afflatus.db */
   databaseUrl: string;
 }
 

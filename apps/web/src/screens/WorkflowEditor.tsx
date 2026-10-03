@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Minus } from "lucide-react";
-import { folderOfFileInput, fuzzyFilter, fuzzyScore, isShown } from "@studai/core";
-import { recipeFromWorkflow, type Bindings, type Control, type Inspection, type Target, type Toggle, type Wiring, type WorkflowDef } from "@studai/workflows";
+import { folderOfFileInput, fuzzyFilter, fuzzyScore, isShown } from "@afflatus/core";
+import { recipeFromWorkflow, type Bindings, type Control, type Inspection, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
 import { api } from "../api";
 import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
@@ -35,7 +35,7 @@ const searchLinks = (file: string) => [
 ];
 const text = "h-10 w-full rounded-lg border border-line bg-raised px-3";
 
-/** One thing studai looked for: a mark that says whether it has it, its name, and how to change it. */
+/** One thing Afflatus looked for: a mark that says whether it has it, its name, and how to change it. */
 function Found({ ok, role, note, children }: { ok: boolean; role: string; note?: string; children?: ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-panel px-3 py-2.5">
@@ -172,7 +172,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
       <header className="flex h-20 shrink-0 items-center gap-4 border-b border-line px-8">
         <div className="flex min-w-0 flex-col">
           <h1 className="text-xl font-semibold">{start.id ? "Edit workflow" : "Import ComfyUI workflow"}</h1>
-          <div className="truncate text-ink-2">{start.source || start.title} · {found.nodeCount} nodes · studai read it and mapped the parts below. Correct anything that is wrong.</div>
+          <div className="truncate text-ink-2">{start.source || start.title} · {found.nodeCount} nodes · Afflatus read it and mapped the parts below. Correct anything that is wrong.</div>
         </div>
         <span className="grow" />
         <Button onClick={() => onDone(false)}>Cancel</Button>

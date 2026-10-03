@@ -1,4 +1,4 @@
-import type { Graph } from "@studai/core";
+import type { Graph } from "@afflatus/core";
 
 /**
  * A workflow as ComfyUI's editor saves it, written by hand to hold what such files hold: a group node

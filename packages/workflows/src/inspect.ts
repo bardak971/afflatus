@@ -1,4 +1,4 @@
-import { choicesOf, isRef, sameFile, type Graph, type NodeCatalog, type Ref } from "@studai/core";
+import { choicesOf, isRef, sameFile, type Graph, type NodeCatalog, type Ref } from "@afflatus/core";
 import { optsOf, specOf, typeOf } from "./catalog";
 import { scaleAfterModel } from "./recipe";
 import { splitCaptions, type Bindings, type Control, type ImageBinding, type Target, type Toggle, type Wiring } from "./types";
@@ -47,7 +47,7 @@ export interface Inspection {
   loraPoints: Array<{ node: string; output: number; title: string; label: string; power?: boolean }>;
   /** The on/off switches of the workflow (only an editor file has them). */
   toggles: Toggle[];
-  /** The mapping studai would use if the user changed nothing. Null when the workflow has no output node. */
+  /** The mapping Afflatus would use if the user changed nothing. Null when the workflow has no output node. */
   suggested: Bindings | null;
   /** Every other setting that could be a control; `suggested` ones are ticked to begin with. `off`: its node is switched off as saved. */
   candidates: Array<Control & { classType: string; title: string; suggested: boolean; off?: boolean; /** What ComfyUI offers for a choice, for showing it before it is saved. */ offers?: string[] }>;
@@ -324,7 +324,7 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     const n = graph[id]!;
     const out = catalog[n.class_type]?.output ?? [];
     if (n.class_type === POWER_LORAS) {
-      // a node that is a list of LoRAs already: studai's list takes its place
+      // a node that is a list of LoRAs already: Afflatus's list takes its place
       loraPoints.push({ node: id, output: 0, title: titleOf(id), label: givenName(id) ?? "", power: true });
       continue;
     }

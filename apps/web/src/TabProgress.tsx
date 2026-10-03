@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueue } from "./data";
 
-const NAME = "studai";
+const NAME = "Afflatus";
 const COLORS = { ground: "#0f1114", track: "#2a2e36", accent: "#f5c451", good: "#5ad6bd", warn: "#ff8a5c", ink: "#ecedf0" };
 
 /** The tab's icon: the app's letter, and under it a bar that fills as the render goes, or a mark for what it ended as. */

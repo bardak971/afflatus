@@ -21,7 +21,7 @@ if (applied.length) console.log(`[db] migrated: ${applied.join(", ")}`);
 const services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")));
 const app = buildApp(services, { webDir: webDir() });
 await app.listen({ host: config.host, port: config.port });
-console.log(`studai ${VERSION} on http://${config.host}:${config.port} (${kind})`);
+console.log(`Afflatus ${VERSION} on http://${config.host}:${config.port} (${kind})`);
 await services.queue.start();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

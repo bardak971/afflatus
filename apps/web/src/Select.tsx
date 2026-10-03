@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
-import { fuzzyFilter } from "@studai/core";
+import { fuzzyFilter } from "@afflatus/core";
 import { cx } from "./ui";
 
 export interface Option {

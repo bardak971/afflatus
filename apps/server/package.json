@@ -1,5 +1,5 @@
 {
-  "name": "@studai/server",
+  "name": "@afflatus/server",
   "version": "0.0.1",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -10,10 +10,10 @@
   },
   "dependencies": {
     "@fastify/static": "^10.1.5",
-    "@studai/comfy": "workspace:*",
-    "@studai/core": "workspace:*",
-    "@studai/recipes": "workspace:*",
-    "@studai/workflows": "workspace:*",
+    "@afflatus/comfy": "workspace:*",
+    "@afflatus/core": "workspace:*",
+    "@afflatus/recipes": "workspace:*",
+    "@afflatus/workflows": "workspace:*",
     "fastify": "^5.12.5",
     "kysely": "^0.29.6",
     "pg": "^8.23.1",

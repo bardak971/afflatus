@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkGraph, dryContext, parseInput } from "@studai/core";
+import { checkGraph, dryContext, parseInput } from "@afflatus/core";
 import { fillFileName, fromEditor, inspect, isEditorFormat, modesFor, prune, recipeFromWorkflow, splitCaptions, workflowDef, type WorkflowDef } from "../src";
 import { chooser, editorFile } from "./editor-fixtures";
 import { catalog, sdxl } from "./fixtures";
@@ -167,10 +167,10 @@ describe("file names the editor fills in before it queues", () => {
 
   it("is done to every save node of an imported workflow when it is built", () => {
     const graph = structuredClone(chooser);
-    graph["6"]!.inputs.filename_prefix = "studai/%date:yyyy-MM-dd%/out";
+    graph["6"]!.inputs.filename_prefix = "Afflatus/%date:yyyy-MM-dd%/out";
     const recipe = recipeFromWorkflow(workflowDef.parse({ id: "workflow.dated", title: "Dated", model: "Test", graph, bindings: inspect(graph, catalog).suggested }));
     const built = recipe.build(parseInput(recipe, { startImage: "asset" }), dryContext({ uploads: { startImage: "a.png" } }));
-    expect(built.graph["6"]!.inputs.filename_prefix).toMatch(/^studai\/\d{4}-\d{2}-\d{2}\/out$/);
+    expect(built.graph["6"]!.inputs.filename_prefix).toMatch(/^Afflatus\/\d{4}-\d{2}-\d{2}\/out$/);
   });
 });
 

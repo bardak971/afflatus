@@ -59,7 +59,7 @@ function Accents({ theme, picked, onPick }: { theme: Theme; picked: string | und
 }
 
 /**
- * How studai looks in this browser: a theme for the night and one for the day, which of the two is up,
+ * How Afflatus looks in this browser: a theme for the night and one for the day, which of the two is up,
  * and the accent. Kept in the browser, so that another screen can look another way.
  */
 export function AppearanceCard() {

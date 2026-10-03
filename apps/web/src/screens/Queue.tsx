@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GripVertical, X } from "lucide-react";
-import { secondsInput } from "@studai/core";
+import { secondsInput } from "@afflatus/core";
 import { api, type Job, type RecipeInfo, type SystemLoad } from "../api";
 import { useQueue, useRecipes } from "../data";
 import { about, aboutMs, phaseLabel, took, when } from "../format";
@@ -100,7 +100,7 @@ export function Queue() {
         {q?.online && (
           <Button
             className="h-12 px-5 text-sm"
-            disabled={free.isPending || Boolean(q.running && q.running.recipe !== "studai.export")}
+            disabled={free.isPending || Boolean(q.running && q.running.recipe !== "afflatus.export")}
             title="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
             onClick={() => free.mutate()}
           >

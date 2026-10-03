@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { FakeComfy } from "@studai/comfy/testing";
+import type { FakeComfy } from "@afflatus/comfy/testing";
 import { get, makeApp, makeFake, NOWHERE, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -52,7 +52,7 @@ describe("what model files say about themselves", () => {
 
   it("keeps a LoRA's fingerprint, and reads again what was read before fingerprints were kept", async () => {
     fake.metadata["loras/plain.safetensors"] = { sshs_model_hash: "ab12cd34ef567890aaaa", ss_output_name: "plain" };
-    // as an older studai left it: read, but with nothing said about which reading it was
+    // as an older Afflatus left it: read, but with nothing said about which reading it was
     await t.db.insertInto("model_info").values({ folder: "loras", file: "plain.safetensors", info: "{}", read_at: new Date().toISOString() }).execute();
     expect((await info()).pending).toBe(3);
     await until(async () => (await info()).pending === 0);

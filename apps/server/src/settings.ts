@@ -23,8 +23,8 @@ const instructionSchema = z.object({ id: z.string().min(1).max(40), name: z.stri
 export const settingsSchema = z.object({
   comfyUrl: z.string().url().default("http://127.0.0.1:8188"),
   /**
-   * ComfyUI's own folder on the computer studai runs on (the one with main.py), when they share a disk.
-   * Lets studai put a workflow where ComfyUI's page opens it straight away. Empty when ComfyUI is elsewhere.
+   * ComfyUI's own folder on the computer Afflatus runs on (the one with main.py), when they share a disk.
+   * Lets Afflatus put a workflow where ComfyUI's page opens it straight away. Empty when ComfyUI is elsewhere.
    */
   comfyDir: z.string().max(400).default(""),
   /** ComfyUI's models are unloaded after this many minutes without a render. 0: never, they stay until something else needs the room. */
@@ -45,9 +45,9 @@ export const settingsSchema = z.object({
    */
   families: z.record(z.string().max(120), z.boolean()).default({}),
   civitaiKey: z.string().default(""),
-  /** Missing model files may be looked for on Civitai. Off: studai never contacts Civitai. */
+  /** Missing model files may be looked for on Civitai. Off: Afflatus never contacts Civitai. */
   civitaiLookups: z.boolean().default(false),
-  /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. Off: studai never asks ComfyUI to download anything. */
+  /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. Off: Afflatus never asks ComfyUI to download anything. */
   downloadModels: z.boolean().default(false),
   /**
    * How many days the time of each render is kept one by one. Older ones are folded into figures per

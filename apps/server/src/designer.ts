@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { hasWildcards, secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@studai/core";
+import { hasWildcards, secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@afflatus/core";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
 import { madeIn, type Step } from "./provenance";
@@ -112,7 +112,7 @@ export interface DesignerContext {
   opensOnPicture?: boolean;
   endsOnPicture?: boolean;
   /**
-   * How the pictures of the form were made, when studai made them: every step back to the first prompt
+   * How the pictures of the form were made, when Afflatus made them: every step back to the first prompt
    * (a picture that was upscaled, edited, or saved out of a video has its story behind it). It is what a
    * picture shows, in words, for a language model that cannot look at it, and a help for one that can.
    */
@@ -177,7 +177,7 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
           ? `Change what the user asks and keep the rest. Return the FULL new text of each part you change; a part you leave empty stays as it is. If the request is too vague to act on, ask ONE question. If the user only asks you something or wants ideas, answer them.`
           : `Nothing is written yet: write it all from the user's idea. If the idea is too vague to picture, ask ONE question instead. If the user only asks you something or wants ideas, answer them.`;
 
-  return `You are the prompt designer of studai, working on "${recipe.title}"${family ? ` for ${family.name}` : ""}, which makes ${recipe.output === "image" ? "a picture" : recipe.output === "video" ? "a video" : "a sound"}. You shape the prompt with the user in a conversation: your notes are brief, your prompts rich and precise. The user's explicit wishes (length, detail, tone, content) win over every guideline here.
+  return `You are the prompt designer of Afflatus, working on "${recipe.title}"${family ? ` for ${family.name}` : ""}, which makes ${recipe.output === "image" ? "a picture" : recipe.output === "video" ? "a video" : "a sound"}. You shape the prompt with the user in a conversation: your notes are brief, your prompts rich and precise. The user's explicit wishes (length, detail, tone, content) win over every guideline here.
 ${own.trim() ? `\nTHE USER'S STANDING INSTRUCTIONS FOR YOU (they hold for the whole conversation and win over the guidelines below; the reply format at the end still holds):\n${own.trim()}\n` : ""}
 ${guide}
 
@@ -395,7 +395,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
 
   /**
    * How the pictures of a form were made: for each picture the form starts from, opens on or ends on
-   * that studai made itself, every step back to its first prompt.
+   * that Afflatus made itself, every step back to its first prompt.
    */
   async function madeFrom(recipe: Recipe<any>, values: Record<string, unknown>): Promise<NonNullable<DesignerContext["madeFrom"]>> {
     const out: NonNullable<DesignerContext["madeFrom"]> = [];
@@ -422,7 +422,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     return out;
   }
 
-  /** What the clip a form carries on from says happens, when studai made that clip: its own text, the latest step of its story. */
+  /** What the clip a form carries on from says happens, when Afflatus made that clip: its own text, the latest step of its story. */
   async function carriedOn(recipe: Recipe<any>, values: Record<string, unknown>): Promise<string | undefined> {
     const spec = (recipe.inputs as InputSpec[]).find((i) => i.type === "clip" && i.role === "previous");
     const from = spec ? (values[spec.id] as { asset?: string } | undefined)?.asset : undefined;
@@ -446,7 +446,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     return {
       values: text,
       seconds: secondsOf(specs, values),
-      // on a timeline the clip before is told by the page; in Studio, a clip that carries on from a video studai made knows that video's text
+      // on a timeline the clip before is told by the page; in Studio, a clip that carries on from a video Afflatus made knows that video's text
       previous: extra.previous ?? (await carriedOn(recipe, values)),
       story: extra.story,
       opensOnPicture: has("start"),

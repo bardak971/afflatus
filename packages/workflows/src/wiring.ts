@@ -1,4 +1,4 @@
-import { isRef, type Graph, type Ref } from "@studai/core";
+import { isRef, type Graph, type Ref } from "@afflatus/core";
 import type { Mode, Toggle, Wiring } from "./types";
 
 /**

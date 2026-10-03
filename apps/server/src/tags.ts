@@ -205,7 +205,7 @@ export function cleanTags(list: string, ignore: string[] = []): { tags: string; 
 }
 
 export function registerTags(app: FastifyInstance): void {
-  /** Which tags of a prompt are not danbooru tags. Nothing leaves the machine: the list is a file of studai's. */
+  /** Which tags of a prompt are not danbooru tags. Nothing leaves the machine: the list is a file of Afflatus's. */
   app.post("/api/tags/check", async (req) => {
     const b = z.strictObject({ text: z.string().max(20_000), ignore: z.array(z.string().max(400)).max(200).default([]) }).parse(req.body);
     return { issues: checkPrompt(b.text, b.ignore) };

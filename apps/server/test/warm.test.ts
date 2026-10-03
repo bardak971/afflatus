@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { CHECKPOINT, complete, get, job, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;

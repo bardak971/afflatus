@@ -6,7 +6,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ComfyClient, leftoverNames, stripFileLists } from "@studai/comfy";
+import { ComfyClient, leftoverNames, stripFileLists } from "@afflatus/comfy";
 
 const url = process.argv[2];
 if (!url) {

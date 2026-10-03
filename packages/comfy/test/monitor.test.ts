@@ -29,7 +29,7 @@ const tracking = { promptId: "p1", totalSteps: 30, phases: { "1": "loading", "5"
 describe("Monitor", () => {
   it("connects with the client's own id", () => {
     expect(fake.sockets).toHaveLength(1);
-    expect(fake.sockets[0]).toMatch(/^studai-[0-9a-f]{16}$/);
+    expect(fake.sockets[0]).toMatch(/^afflatus-[0-9a-f]{16}$/);
   });
 
   it("answers 'waiting' for a prompt nothing was heard about", () => {

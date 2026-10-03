@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftRight, Check, ChevronDown, Copy, Minus, Pencil, Plus, X } from "lucide-react";
-import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@studai/core";
+import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@afflatus/core";
 import { api, type FamilyInfo, type ModelInfo, type ModelWords, type TagIssue } from "./api";
 import { useModelInfo, useModelWords, useSettings } from "./data";
 import { fileLabel } from "./format";

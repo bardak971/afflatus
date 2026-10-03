@@ -7,20 +7,20 @@ import { create } from "zustand";
  * before the pointer gets there.
  */
 
-export const DRAG_TYPE = "application/x-studai-asset";
+export const DRAG_TYPE = "application/x-afflatus-asset";
 /** Also set, by what is dragged: a drop target can only see these names while something hovers over it, not the item. */
-export const DRAG_PICTURE = "application/x-studai-picture";
-export const DRAG_VIDEO = "application/x-studai-video";
-export const DRAG_SOUND = "application/x-studai-sound";
+export const DRAG_PICTURE = "application/x-afflatus-picture";
+export const DRAG_VIDEO = "application/x-afflatus-video";
+export const DRAG_SOUND = "application/x-afflatus-sound";
 /** A video that has sound: it can stand for a sound where one is asked for. */
-export const DRAG_HAS_SOUND = "application/x-studai-has-sound";
+export const DRAG_HAS_SOUND = "application/x-afflatus-has-sound";
 export const dragKind = (kind: "image" | "video" | "audio") => (kind === "image" ? DRAG_PICTURE : kind === "video" ? DRAG_VIDEO : DRAG_SOUND);
 
 /** What is being dragged right now, as the names it carries. Empty when nothing of the library is. */
 export const useDragged = create<{ types: string[] }>(() => ({ types: [] }));
 
 if (typeof window !== "undefined") {
-  const ours = (t: string) => t.startsWith("application/x-studai-");
+  const ours = (t: string) => t.startsWith("application/x-afflatus-");
   // in the bubbling phase: by then the item that is dragged has said what it carries
   window.addEventListener("dragstart", (e) => useDragged.setState({ types: [...(e.dataTransfer?.types ?? [])].filter(ours) }));
   const done = () => useDragged.getState().types.length && useDragged.setState({ types: [] });

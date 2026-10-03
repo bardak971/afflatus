@@ -1,11 +1,11 @@
-import { takesAnyInput, type Graph, type GraphNode, type NodeCatalog, type NodeInfo, type Ref } from "@studai/core";
+import { takesAnyInput, type Graph, type GraphNode, type NodeCatalog, type NodeInfo, type Ref } from "@afflatus/core";
 import { isWidget, optsOf, typeOf } from "./catalog";
 import { splitCaptions, type Mode, type Target, type Toggle, type Wiring } from "./types";
 import { modesFor } from "./wiring";
 
 /**
  * Reads the file ComfyUI's editor saves (the one in its workflows folder) and turns it into what
- * studai works with: every node with its typed-in values and links, in the flat form ComfyUI runs,
+ * Afflatus works with: every node with its typed-in values and links, in the flat form ComfyUI runs,
  * plus what only that file knows. Which nodes are switched off, the switches that turn parts on and
  * off, the names the author gave to settings, and the author's own control panel.
  *
@@ -257,7 +257,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
       sources(node);
       const within = inside(scope, node);
       if (within) {
-        if (modeOf(node) === "bypass") note(`"${node.title ?? "A group node"}" is bypassed as a whole. studai treats everything inside it as switched off.`);
+        if (modeOf(node) === "bypass") note(`"${node.title ?? "A group node"}" is bypassed as a whole. Afflatus treats everything inside it as switched off.`);
         const fields = (node.inputs ?? []).filter((s) => s.widget?.name).length;
         if (Array.isArray(node.widgets_values) && node.widgets_values.length !== fields) note(`"${node.title ?? "A group node"}" holds ${node.widgets_values.length} values for ${fields} fields on its front: some of them may have been read wrong.`);
         for (const entry of (node.properties?.proxyWidgets as unknown[] | undefined) ?? []) {
@@ -343,7 +343,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
     }
     const from = sourceNode(scope, linkId);
     if (!from) {
-      note(`The switch "${own.label}" follows something studai could not trace. It is read as it was set in the file.`);
+      note(`The switch "${own.label}" follows something Afflatus could not trace. It is read as it was set in the file.`);
       return own;
     }
     // a chain of switches follows the first one
@@ -351,7 +351,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
     const fromId = flatId(scope, from);
     const held = Object.entries(graph[fromId]?.inputs ?? {}).find(([, v]) => typeof v === "boolean");
     if (!held) {
-      note(`The switch "${own.label}" follows a node whose yes/no value studai cannot read ("${from.title ?? from.type}"). It is read as it was set in the file.`);
+      note(`The switch "${own.label}" follows a node whose yes/no value Afflatus cannot read ("${from.title ?? from.type}"). It is read as it was set in the file.`);
       return own;
     }
     return { key: `${fromId}.${held[0]}`, value: held[1] as boolean, label: labels[`${fromId}.${held[0]}`] ?? from.title ?? own.label, write: { node: fromId, input: held[0] } };

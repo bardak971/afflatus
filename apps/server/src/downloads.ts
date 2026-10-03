@@ -8,8 +8,8 @@ import type { Comfy } from "./comfy";
  * Model files fetched straight into ComfyUI's model folders, through ComfyUI-Manager.
  *
  * Manager's installer only takes an address and says nothing while it works. So it is handed a
- * one-time address on studai, and studai streams the file through it, counting the bytes on the way:
- * that is the progress bar. Nothing is stored by studai, and a Civitai key never leaves it (Manager
+ * one-time address on Afflatus, and Afflatus streams the file through it, counting the bytes on the way:
+ * that is the progress bar. Nothing is stored by Afflatus, and a Civitai key never leaves it (Manager
  * only ever sees the one-time address).
  */
 
@@ -117,13 +117,13 @@ export class Downloads {
   }
 
   /**
-   * Ask ComfyUI-Manager to fetch a file. `self` is the address ComfyUI can reach studai at;
+   * Ask ComfyUI-Manager to fetch a file. `self` is the address ComfyUI can reach Afflatus at;
    * the bytes then flow through serve().
    */
   async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
-    if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw Object.assign(new Error(`"${name}" is not a model file studai can download.`), { statusCode: 400 });
+    if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw Object.assign(new Error(`"${name}" is not a model file Afflatus can download.`), { statusCode: 400 });
     if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw Object.assign(new Error("that is not a models folder"), { statusCode: 400 });
     const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (d.status === "starting" || d.status === "downloading" || d.status === "saving"));
     if (busy) return this.list().find((v) => v.id === busy.id)!;
@@ -138,7 +138,7 @@ export class Downloads {
     const type = MANAGER_TYPE[want.folder];
     try {
       const res = await post("/v2/manager/queue/install_model", {
-        client_id: "studai", ui_id: d.id, name: want.title, type: type ?? "etc", base: "",
+        client_id: "afflatus", ui_id: d.id, name: want.title, type: type ?? "etc", base: "",
         // a folder Manager knows goes where ComfyUI keeps that kind (which may be another disk); a sub-folder or any other folder is a path under models/
         save_path: type && !sub ? "default" : [want.folder, sub].filter(Boolean).join("/"),
         url: `${self.replace(/\/+$/, "")}/api/downloads/fetch/${d.id}?t=${d.token}`,
@@ -154,7 +154,7 @@ export class Downloads {
     // Manager checks what it is allowed to do before it fetches: when it never comes, say why
     setTimeout(() => {
       if (d.status === "starting") {
-        this.fail(d, "ComfyUI-Manager did not start the download. Either it is not allowed to (in its config.ini, set network_mode = personal_cloud or security_level = normal, then restart ComfyUI), or ComfyUI cannot reach studai at the address it was given.");
+        this.fail(d, "ComfyUI-Manager did not start the download. Either it is not allowed to (in its config.ini, set network_mode = personal_cloud or security_level = normal, then restart ComfyUI), or ComfyUI cannot reach Afflatus at the address it was given.");
       }
     }, this.startsWithinMs).unref();
     this.tell(true);
@@ -172,7 +172,7 @@ export class Downloads {
     this.tell(true);
     let res: Response;
     try {
-      res = await fetch(d.source, { headers: { "User-Agent": "studai", Accept: "*/*", ...d.headers }, redirect: "follow", signal: d.abort.signal });
+      res = await fetch(d.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...d.headers }, redirect: "follow", signal: d.abort.signal });
     } catch (err) {
       this.fail(d, `The download did not start: ${(err as Error).message}`);
       return { error: d.error! };

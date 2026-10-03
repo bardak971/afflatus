@@ -1,5 +1,5 @@
 {
-  "name": "@studai/web",
+  "name": "@afflatus/web",
   "version": "0.0.1",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -12,8 +12,8 @@
   "dependencies": {
     "@fontsource-variable/instrument-sans": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@studai/core": "workspace:*",
-    "@studai/workflows": "workspace:*",
+    "@afflatus/core": "workspace:*",
+    "@afflatus/workflows": "workspace:*",
     "@tanstack/react-query": "^5.104.0",
     "lucide-react": "^1.49.0",
     "react": "^19.3.0",

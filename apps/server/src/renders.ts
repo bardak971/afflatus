@@ -1,5 +1,5 @@
 import type { Selectable } from "kysely";
-import { guess, modelOf, timeKey, type Guess, type Known, type Recipe } from "@studai/core";
+import { guess, modelOf, timeKey, type Guess, type Known, type Recipe } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 

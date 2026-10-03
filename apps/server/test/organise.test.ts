@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makePng } from "@studai/comfy/testing";
+import { makePng } from "@afflatus/comfy/testing";
 import { newId, OWNER } from "../src/db";
 import { get, makeApp, post, type TestApp } from "./helpers";
 

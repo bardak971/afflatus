@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { defineFamily, defineRecipe, GraphBuilder, type NodeCatalog } from "@studai/core";
+import { defineFamily, defineRecipe, GraphBuilder, type NodeCatalog } from "@afflatus/core";
 import { ComfyClient, detect, scan } from "../src";
 import { startFakeComfy, type FakeComfy } from "../src/testing";
 

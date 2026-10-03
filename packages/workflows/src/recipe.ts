@@ -1,6 +1,6 @@
 import {
   isRef, type BuiltGraph, type Family, type Graph, type InputSpec, type LoraValue, type Phase, type Recipe, type SizeValue, type VideoTraits,
-} from "@studai/core";
+} from "@afflatus/core";
 import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
 import { ancestors, modesFor, prune, remove, settle, trim } from "./wiring";
 
@@ -120,7 +120,7 @@ export function fillFileName(text: string, graph: Graph, at: Date = new Date()):
 }
 
 const isLoraEntry = (name: string) => /^lora_\d+$/i.test(name);
-/** The LoRAs a "list of LoRAs" node came with, as studai's list has them. */
+/** The LoRAs a "list of LoRAs" node came with, as Afflatus's list has them. */
 function listedLoras(node: Graph[string] | undefined): LoraValue[] {
   return Object.entries(node?.inputs ?? {}).flatMap(([name, v]) => {
     const l = v as { on?: unknown; lora?: unknown; strength?: unknown } | null;
@@ -326,7 +326,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
       // everything that read the loader's model reads the end of the LoRA chain instead
       const readers = Object.values(graph).flatMap((n) => Object.entries(n.inputs).filter(([, v]) => isRef(v) && v[0] === point.node && v[1] === point.output).map(([k]) => ({ n, k })));
       loras.forEach((l, i) => {
-        const id = `studai_lora_${p}_${i}`;
+        const id = `afflatus_lora_${p}_${i}`;
         graph[id] = { class_type: "LoraLoaderModelOnly", inputs: { model, lora_name: l.file, strength_model: l.weight } };
         model = [id, 0];
       });

@@ -262,7 +262,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
             onBlur={() => { if (!text.trim()) setAdding(false); }}
             className={cx("h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5", adding === "link" && "font-mono text-xs")}
           />
-          {adding === "link" && <span className="px-1 text-xs text-ink-3">A folder the computer studai runs on can read. Its images, videos and audio files show here and are used in place; nothing is copied. Press Enter.</span>}
+          {adding === "link" && <span className="px-1 text-xs text-ink-3">A folder the computer Afflatus runs on can read. Its images, videos and audio files show here and are used in place; nothing is copied. Press Enter.</span>}
         </form>
       ) : (
         <>
@@ -277,7 +277,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
         </>
       )}
       {!adding && (
-        <button type="button" title="A folder of the disk studai runs on, shown here with its sub-folders. Its files are used in place, nothing is copied." onClick={() => { setAdding("link"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
+        <button type="button" title="A folder of the disk Afflatus runs on, shown here with its sub-folders. Its files are used in place, nothing is copied." onClick={() => { setAdding("link"); setText(""); }} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
           <Link2 size={14} className="shrink-0" /> <span className="truncate">Link a local folder</span>
         </button>
       )}

@@ -92,7 +92,7 @@ describe("ComfyClient, jobs", () => {
 
   it("uploads to the temp folder under a name loaders accept", async () => {
     const name = await client.upload(new Uint8Array([1, 2, 3]), "png");
-    expect(name).toMatch(/^studai_[0-9a-f-]+\.png \[temp\]$/);
+    expect(name).toMatch(/^afflatus_[0-9a-f-]+\.png \[temp\]$/);
     expect(fake.uploads).toHaveLength(1);
   });
 });

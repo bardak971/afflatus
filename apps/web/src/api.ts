@@ -1,8 +1,8 @@
-import type { Known } from "@studai/core";
-import type { InputSpec, ModelInfo, VideoTraits } from "@studai/core";
+import type { Known } from "@afflatus/core";
+import type { InputSpec, ModelInfo, VideoTraits } from "@afflatus/core";
 
 export type { ModelInfo };
-import type { Bindings, Inspection, Wiring, WorkflowDef } from "@studai/workflows";
+import type { Bindings, Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 
@@ -121,7 +121,7 @@ export interface Asset {
   /** Of a file of a linked folder: where it is on the disk (in the bin: where it was). */
   path: string | null;
 }
-/** Where ComfyUI shows a workflow studai put there: straight from the address, or from its Workflows sidebar. */
+/** Where ComfyUI shows a workflow Afflatus put there: straight from the address, or from its Workflows sidebar. */
 export interface Opened {
   url: string;
   direct: boolean;
@@ -292,7 +292,7 @@ export interface WorkflowBrief {
   output: "image" | "video" | "audio";
   nodes: number;
 }
-/** What is saved for a workflow: the workflow itself and which of its parts studai fills in. */
+/** What is saved for a workflow: the workflow itself and which of its parts Afflatus fills in. */
 export interface WorkflowBody {
   title: string;
   model: string;
@@ -466,7 +466,7 @@ export interface RenderItem {
   totalMs: number;
   expectedMs: number | null;
   cold: boolean;
-  /** Measured from its first moment (not when studai started while it was already rendering). */
+  /** Measured from its first moment (not when Afflatus started while it was already rendering). */
   whole: boolean;
   waitedMs: number;
   vram: number | null;
@@ -526,7 +526,7 @@ export interface LlmInfo {
 }
 export interface Settings {
   comfyUrl: string;
-  /** ComfyUI's folder on studai's computer, when they share one; empty otherwise. */
+  /** ComfyUI's folder on Afflatus's computer, when they share one; empty otherwise. */
   comfyDir: string;
   /** ComfyUI's models are unloaded after this many minutes without a render; 0 for never. */
   unloadAfterMinutes: number;
@@ -772,7 +772,7 @@ export const api = {
   },
   workflows: () => call<{ items: WorkflowBrief[] }>("GET", "/workflows"),
   workflow: (id: string) => call<WorkflowDef>("GET", `/workflows/${id}`),
-  /** Takes the file as it is (ComfyUI's own save, an export) or a workflow studai holds; answers with it in the form studai keeps. */
+  /** Takes the file as it is (ComfyUI's own save, an export) or a workflow Afflatus holds; answers with it in the form Afflatus keeps. */
   inspectWorkflow: (file: unknown) => call<Inspection & { graph: WorkflowDef["graph"]; wiring?: Wiring; editor?: unknown }>("POST", "/workflows/inspect", file),
   /** Put the workflow in ComfyUI's own workflows folder; where ComfyUI is, and the file's path there. */
   openWorkflow: (id: string) => call<Opened>("POST", `/workflows/${id}/open`),

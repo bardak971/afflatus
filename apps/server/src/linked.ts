@@ -10,11 +10,11 @@ import type { Storage } from "./storage";
 /**
  * Folders linked to a directory of the disk the server runs on (a mounted volume, in a container).
  * A linked folder shows what is in its directory, sub-directories included, and its files are used
- * where they are: nothing is copied into studai's own storage. Its directory is read when it is
+ * where they are: nothing is copied into Afflatus's own storage. Its directory is read when it is
  * linked, when the server starts and when "Look again" is pressed; it is not watched.
  *
  * A linked file is an asset whose `file_key` is "linked:" and its path. Taking it to the bin moves the
- * file out of the directory into studai's storage (so that it can be put back for a week); filing an
+ * file out of the directory into Afflatus's storage (so that it can be put back for a week); filing an
  * item of the library into a linked folder writes it there as a file with a readable name.
  */
 
@@ -27,7 +27,7 @@ export class LinkedError extends Error {
   statusCode = 400;
 }
 
-/** The files of studai's own storage, and the files of linked folders, behind one door. */
+/** The files of Afflatus's own storage, and the files of linked folders, behind one door. */
 export class RoutedStorage implements Storage {
   /** The directories that are linked: a "linked:" key is only ever read or written inside one of them. */
   roots: string[] = [];
@@ -99,7 +99,7 @@ export class Linked {
   async link(path: string, name?: string): Promise<Folder> {
     const dir = resolve(path.trim());
     const there = await stat(dir).catch(() => null);
-    if (!there?.isDirectory()) throw new LinkedError(`"${path}" is not a folder the computer studai runs on can read.`);
+    if (!there?.isDirectory()) throw new LinkedError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
     for (const f of await this.roots()) {
       const other = resolve(f.path!);
       if (under(dir, other) || under(other, dir)) throw new LinkedError(`This folder is already linked, or is inside or around "${f.name}", which is.`);
@@ -111,7 +111,7 @@ export class Linked {
     return row;
   }
 
-  /** Stop showing a linked folder. Nothing on the disk is touched: only what studai knew about it goes. */
+  /** Stop showing a linked folder. Nothing on the disk is touched: only what Afflatus knew about it goes. */
   async unlink(rootId: string): Promise<void> {
     const root = await this.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst();
     if (!root?.path) throw new LinkedError("This folder is not linked to the disk.");
@@ -208,7 +208,7 @@ export class Linked {
     };
     await walk(dir, root);
 
-    // gone from the disk: gone from the folder (nothing of it is in studai's storage but its small picture)
+    // gone from the disk: gone from the folder (nothing of it is in Afflatus's storage but its small picture)
     for (const [key, a] of byKey) if (!seenFiles.has(key)) await this.forget(a);
     for (const f of knownFolders) {
       if (seenFolders.has(f.id)) continue;
@@ -261,7 +261,7 @@ export class Linked {
   }
 
   /**
-   * File an item into a linked folder: it becomes a file in that folder's directory. One of studai's
+   * File an item into a linked folder: it becomes a file in that folder's directory. One of Afflatus's
    * own storage is written there under a readable name; one that is already a linked file is moved.
    */
   async into(a: Asset, folder: Folder): Promise<void> {
@@ -284,7 +284,7 @@ export class Linked {
     await this.storage.delete(a.file_key).catch(() => {});
   }
 
-  /** To the bin: the file leaves its directory and waits in studai's storage, from where it can be put back. */
+  /** To the bin: the file leaves its directory and waits in Afflatus's storage, from where it can be put back. */
   async toBin(a: Asset): Promise<void> {
     const from = resolve(diskPath(a.file_key));
     const key = `assets/${a.id.slice(0, 2)}/${a.id}.${extOf(a.mime)}`;

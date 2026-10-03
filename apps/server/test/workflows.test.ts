@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makePng, type FakeComfy } from "@studai/comfy/testing";
+import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { chooser, editorFile } from "../../../packages/workflows/test/editor-fixtures";
 import { sdxl, wan } from "../../../packages/workflows/test/fixtures";
 import { CHECKPOINT, get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
@@ -35,7 +35,7 @@ describe("reading a workflow", () => {
     expect(fake.calls.every((c) => c.startsWith("GET "))).toBe(true);
   });
 
-  it("reads the file ComfyUI's editor saves, and answers with the workflow in the form studai keeps", async () => {
+  it("reads the file ComfyUI's editor saves, and answers with the workflow in the form Afflatus keeps", async () => {
     const res = await inspect(editorFile);
     expect(res.statusCode).toBe(200);
     const found = res.json();
@@ -135,7 +135,7 @@ describe("an imported workflow", () => {
     // the result's graph in ComfyUI's editor: built again with the same seed, written as an editor file
     const opened = await post(t.app, `/api/assets/${asset.id}/open`);
     expect(opened.statusCode).toBe(200);
-    const path = `workflows/studai/Render ${asset.name || asset.id.slice(0, 8)}.json`;
+    const path = `workflows/afflatus/Render ${asset.name || asset.id.slice(0, 8)}.json`;
     expect(opened.json()).toMatchObject({ direct: false, path });
     const file = fake.userdata[path] as { nodes: Array<{ id: number; type: string; widgets_values?: unknown[] }> };
     const sampler = file.nodes.find((n) => n.type === "KSampler")!;
@@ -283,15 +283,15 @@ describe("opening a workflow in ComfyUI", () => {
     const saved = (await post(t.app, "/api/workflows", { title: "Mine", model: "Wan 2.2", source: "mine.json", graph: found.graph, wiring: found.wiring, editor: found.editor, bindings: found.suggested })).json();
     const res = await post(t.app, `/api/workflows/${saved.id}/open`);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ url: fake.url, path: "workflows/studai/Mine.json", direct: false });
-    expect(fake.userdata["workflows/studai/Mine.json"]).toEqual(editorFile);
+    expect(res.json()).toEqual({ url: fake.url, path: "workflows/afflatus/Mine.json", direct: false });
+    expect(fake.userdata["workflows/afflatus/Mine.json"]).toEqual(editorFile);
   });
 
   it("writes the graph as the editor would save it when there is no editor file", async () => {
     const { id } = await importWan("Wan · from the API file");
     const res = await post(t.app, `/api/workflows/${id}/open`);
     expect(res.statusCode).toBe(200);
-    const file = fake.userdata["workflows/studai/Wan · from the API file.json"] as { nodes: Array<{ type: string; widgets_values: unknown }>; links: unknown[]; version: number };
+    const file = fake.userdata["workflows/afflatus/Wan · from the API file.json"] as { nodes: Array<{ type: string; widgets_values: unknown }>; links: unknown[]; version: number };
     expect(file.version).toBe(0.4);
     expect(file.nodes.map((n) => n.type)).toContain("VHS_VideoCombine");
     expect(file.nodes.find((n) => n.type === "LoadImage")?.widgets_values).toEqual(["first.png", "image"]);
@@ -304,7 +304,7 @@ describe("opening a workflow in ComfyUI through its folder", () => {
     const { mkdtemp, readFile, rm } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const dir = await mkdtemp(join(tmpdir(), "studai-comfy-"));
+    const dir = await mkdtemp(join(tmpdir(), "afflatus-comfy-"));
     const { mkdir } = await import("node:fs/promises");
     await mkdir(join(dir, "custom_nodes"));
     try {
@@ -313,10 +313,10 @@ describe("opening a workflow in ComfyUI through its folder", () => {
       const res = await post(t.app, `/api/workflows/${id}/open`);
       expect(res.statusCode).toBe(200);
       // the pretend ComfyUI does not serve the pack yet: the sidebar way, with a word about the restart
-      expect(res.json()).toMatchObject({ url: fake.url, direct: false, restart: true, path: "workflows/studai/Wan for the pack.json" });
-      const written = JSON.parse(await readFile(join(dir, "custom_nodes", "studai-workflows", "example_workflows", `${id.replace(/^workflow\./, "")}.json`), "utf-8")) as { nodes: unknown[] };
+      expect(res.json()).toMatchObject({ url: fake.url, direct: false, restart: true, path: "workflows/afflatus/Wan for the pack.json" });
+      const written = JSON.parse(await readFile(join(dir, "custom_nodes", "afflatus-workflows", "example_workflows", `${id.replace(/^workflow\./, "")}.json`), "utf-8")) as { nodes: unknown[] };
       expect(written.nodes.length).toBe(12);
-      expect(await readFile(join(dir, "custom_nodes", "studai-workflows", "__init__.py"), "utf-8")).toContain("NODE_CLASS_MAPPINGS = {}");
+      expect(await readFile(join(dir, "custom_nodes", "afflatus-workflows", "__init__.py"), "utf-8")).toContain("NODE_CLASS_MAPPINGS = {}");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

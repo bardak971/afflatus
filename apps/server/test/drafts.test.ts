@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makePng, type FakeComfy } from "@studai/comfy/testing";
+import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let t: TestApp;
@@ -46,7 +46,7 @@ describe("drafts", () => {
     const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "one" }, "other.recipe": { prompt: "two" } } })).json();
     const after = (await put(`/api/drafts/${d.id}`, { count: 4 })).json();
     expect(after).toMatchObject({ count: 4, recipe: RECIPE, forms: { [RECIPE]: { prompt: "one" }, "other.recipe": { prompt: "two" } } });
-    // on a recipe studai does not know (a workflow that was removed), the draft is still there, just untitled
+    // on a recipe Afflatus does not know (a workflow that was removed), the draft is still there, just untitled
     expect((await put(`/api/drafts/${d.id}`, { recipe: "other.recipe" })).json()).toMatchObject({ recipe: "other.recipe", title: "" });
   });
 

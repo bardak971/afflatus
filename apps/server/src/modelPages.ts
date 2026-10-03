@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { ModelInfo } from "@studai/core";
+import type { ModelInfo } from "@afflatus/core";
 import { civitaiGet, findOnCivitai } from "./civitai";
 import { now } from "./db";
 import { findOnHuggingFace } from "./huggingface";

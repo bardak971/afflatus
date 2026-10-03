@@ -29,7 +29,7 @@ const KEEP_MS = 60 * 60_000;
 let official: { at: number; repos: Promise<Repo[]> } | null = null;
 
 async function list(params: Record<string, string>): Promise<Repo[]> {
-  const res = await fetch(`${site()}/api/models?${new URLSearchParams({ ...params, full: "true" })}`, { headers: { "User-Agent": "studai" }, signal: AbortSignal.timeout(20_000) });
+  const res = await fetch(`${site()}/api/models?${new URLSearchParams({ ...params, full: "true" })}`, { headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`Hugging Face answered HTTP ${res.status}`);
   return ((await res.json().catch(() => [])) as Repo[]) ?? [];
 }

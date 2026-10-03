@@ -133,7 +133,7 @@ describe("settings", () => {
 
 describe("the model of a recipe that has a usual one", () => {
   it("is offered with the usual file first, then the others made for it, then the rest of the folder", async () => {
-    const { startFakeComfy } = await import("@studai/comfy/testing");
+    const { startFakeComfy } = await import("@afflatus/comfy/testing");
     const { referenceCatalog } = await import("./helpers");
     const fake = await startFakeComfy({
       catalog: referenceCatalog(),
@@ -159,7 +159,7 @@ describe("the model of a recipe that has a usual one", () => {
 
 describe("MiniMax H3 with a hybrid fine-tune and none of MiniMax's own model files", () => {
   it("is ready: the one file is the usual model and the reference model", async () => {
-    const { startFakeComfy } = await import("@studai/comfy/testing");
+    const { startFakeComfy } = await import("@afflatus/comfy/testing");
     const { referenceCatalog } = await import("./helpers");
     const fake = await startFakeComfy({
       catalog: referenceCatalog(),

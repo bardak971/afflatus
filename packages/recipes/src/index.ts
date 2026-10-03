@@ -1,4 +1,4 @@
-import type { Family, Recipe } from "@studai/core";
+import type { Family, Recipe } from "@afflatus/core";
 import { flux, fluxEdit, fluxFixFace, fluxPaintOver, fluxPicture, fluxRedraw, fluxSharper } from "./flux";
 import { h3 } from "./h3/family";
 import { h3Video } from "./h3/video";

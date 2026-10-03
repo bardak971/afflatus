@@ -1,4 +1,4 @@
-import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameFile, type Family, type NodeCatalog, type Recipe } from "@studai/core";
+import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameFile, type Family, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { ComfyClient, ComfyStatus } from "./client";
 
 /**

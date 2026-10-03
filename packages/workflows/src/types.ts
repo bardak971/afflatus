@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * A workflow recipe: a ComfyUI workflow in API format, plus a mapping that says which of its node
- * inputs studai fills in. It is plain data (two things a user can export and share), with no code.
+ * inputs Afflatus fills in. It is plain data (two things a user can export and share), with no code.
  */
 
 /** One input of one node of the workflow. */

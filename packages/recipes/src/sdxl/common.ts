@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, LoraValue, MediaFacts, Ref } from "@studai/core";
+import type { BuildContext, GraphBuilder, InputSpec, LoraValue, MediaFacts, Ref } from "@afflatus/core";
 import { DEFAULT_NEGATIVE } from "./family";
 
 /** What every SDXL recipe that works on a picture asks for besides its own inputs. */

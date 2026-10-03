@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, ChevronDown, ChevronLeft, Film, Folder as FolderIcon, Minus, Pencil, Plus, Search, Square, Star, Trash2, Undo2, Workflow, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { hasWildcards } from "@studai/core";
+import { hasWildcards } from "@afflatus/core";
 import { api, ApiError, thumbUrl, type Asset, type RecipeInfo, type RunningJob } from "../api";
 import { askAboutDisk } from "../Confirm";
 import { useAssetFamilies, useAssetModels, useAssets, useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useQueue, useRecipes, useSetup, useTimelines } from "../data";
@@ -41,7 +41,7 @@ const useStudio = create<{
   scope: "draft" | "all";
   place: Place;
   set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; scope: "draft" | "all"; place: Place }>): void;
-}>()(persist((set) => ({ form: false, size: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "studai.studio" }));
+}>()(persist((set) => ({ form: false, size: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "afflatus.studio" }));
 
 const KINDS = [
   { id: "all", label: "All", kind: undefined },

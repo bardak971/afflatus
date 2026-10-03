@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * What studai reads from a video when it files it: its size, length, speed, whether it has sound, and
+ * What Afflatus reads from a video when it files it: its size, length, speed, whether it has sound, and
  * one frame to show in grids. This needs ffmpeg and ffprobe (on PATH, or named by FFMPEG and FFPROBE).
  * Without them everything still works: videos are stored and played, their tiles just have no picture.
  */
@@ -41,7 +41,7 @@ function rate(text: unknown): number {
 /** The facts and the first frame (a PNG) of a video. Either is null when it could not be read. */
 export async function readVideo(bytes: Uint8Array, ext: string): Promise<{ facts: VideoFacts | null; frame: Uint8Array | null }> {
   // both tools need a file they can seek in: an MP4 keeps its index at the end
-  const dir = await mkdtemp(join(tmpdir(), "studai-video-"));
+  const dir = await mkdtemp(join(tmpdir(), "afflatus-video-"));
   const file = join(dir, `in.${ext}`);
   try {
     await writeFile(file, bytes);

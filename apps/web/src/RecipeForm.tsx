@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Search, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { fuzzyScore, isShown, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@studai/core";
+import { fuzzyScore, isShown, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@afflatus/core";
 import { api, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDragged } from "./dragging";
@@ -17,7 +17,7 @@ import { Button, cx, ErrorNote, Segmented } from "./ui";
  * folded, so the form shows what is being worked on and one line for the rest.
  */
 const useParts = create<{ open: Record<string, boolean>; set(id: string, open: boolean): void }>()(
-  persist((set) => ({ open: {}, set: (id, open) => set((s) => ({ open: { ...s.open, [id]: open } })) }), { name: "studai.form.parts" }),
+  persist((set) => ({ open: {}, set: (id, open) => set((s) => ({ open: { ...s.open, [id]: open } })) }), { name: "afflatus.form.parts" }),
 );
 
 /**

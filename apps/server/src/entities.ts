@@ -1,4 +1,4 @@
-import type { InputSpec, LoraValue, Recipe, ReferenceValue } from "@studai/core";
+import type { InputSpec, LoraValue, Recipe, ReferenceValue } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { newId, now, OWNER, type Db, type Tables } from "./db";

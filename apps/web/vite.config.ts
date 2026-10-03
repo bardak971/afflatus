@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 8721,
-    // the API (and its event stream) is the studai server
+    // the API (and its event stream) is the Afflatus server
     proxy: { "/api": { target: "http://127.0.0.1:8720", changeOrigin: false } },
   },
 });

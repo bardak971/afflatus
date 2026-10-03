@@ -1,5 +1,5 @@
 {
-  "name": "@studai/recipes",
+  "name": "@afflatus/recipes",
   "version": "0.0.1",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -8,6 +8,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@studai/core": "workspace:*"
+    "@afflatus/core": "workspace:*"
   }
 }

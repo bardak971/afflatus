@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeComfy, type FakeComfy } from "@studai/comfy/testing";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -19,7 +19,7 @@ async function start(manager: boolean | "refuses") {
   t = await makeApp({ comfyUrl: fake.url });
   t.services.downloads.listedEveryMs = 10;
   t.services.downloads.startsWithinMs = 150;
-  // the pretend Manager fetches for real: studai has to listen on a port
+  // the pretend Manager fetches for real: Afflatus has to listen on a port
   await t.app.listen({ host: "127.0.0.1", port: 0 });
   self = `http://127.0.0.1:${(t.app.server.address() as AddressInfo).port}`;
   process.env.PUBLIC_URL = self;

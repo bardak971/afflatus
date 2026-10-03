@@ -1,4 +1,4 @@
-import { defineFamily, defineRecipe, GraphBuilder, type InputSpec } from "@studai/core";
+import { defineFamily, defineRecipe, GraphBuilder, type InputSpec } from "@afflatus/core";
 import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
 
 /**
