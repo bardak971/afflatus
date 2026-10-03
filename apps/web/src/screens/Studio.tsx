@@ -40,9 +40,10 @@ import { DRAG_TYPE, FolderPanel, Tile, type Place } from "./Library";
 const useStudio = create<{
   form: boolean;
   size: "S" | "M" | "L";
-  scope: "draft" | "all";
+  /** What the grid shows while the form is open: this draft's outputs, the whole folder, the last two days, what was kept. */
+  scope: "draft" | "all" | "recent" | "kept";
   place: Place;
-  set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; scope: "draft" | "all"; place: Place }>): void;
+  set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; scope: "draft" | "all" | "recent" | "kept"; place: Place }>): void;
 }>()(persist((set) => ({ form: false, size: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "afflatus.studio" }));
 
 const KINDS = [
@@ -549,15 +550,19 @@ export function Studio({ open: forced }: { open?: boolean }) {
     return () => clearTimeout(timer);
   }, [typed]);
   const showTimelines = kind === "timeline" && place.type !== "bin";
+  // with the form open, "Recent" and "Kept" look across the project, not the folder: what is there to drag into the form
+  const reach = view.form && draftId ? view.scope : "all";
+  const since48 = useMemo(() => new Date(Date.now() - 2 * 86_400_000).toISOString(), [reach]); // eslint-disable-line react-hooks/exhaustive-deps
   const assets = useAssets({
     kind: KINDS.find((k) => k.id === kind)!.kind,
     bin: place.type === "bin" || undefined,
-    folder: place.type === "folder" ? place.id : place.type === "unfiled" ? "none" : undefined,
+    folder: reach === "recent" || reach === "kept" ? undefined : place.type === "folder" ? place.id : place.type === "unfiled" ? "none" : undefined,
+    since: reach === "recent" ? since48 : undefined,
     q: q || undefined,
     family: family || undefined,
     model: model || undefined,
     lora: lora || undefined,
-    kept: kept || undefined,
+    kept: kept || reach === "kept" || undefined,
   });
   const usedModels = useAssetModels();
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
@@ -599,7 +604,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
     lastPicked.current = a.id;
   };
   // what is ticked is of the list that is shown: another folder, another search, and nothing is
-  const listKey = JSON.stringify([place, kind, q, made, lora, kept, draftOnly]);
+  const listKey = JSON.stringify([place, kind, q, made, lora, kept, draftOnly, reach]);
   useEffect(() => setPicked([]), [listKey]);
   const afterBulk = () => {
     setPicked([]);
@@ -666,7 +671,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
             <Segmented
               label="Results shown"
               value={view.scope}
-              options={[{ value: "draft", label: "This draft" }, { value: "all", label: "Whole folder" }]}
+              options={[{ value: "draft", label: "This draft" }, { value: "all", label: "Whole folder" }, { value: "recent", label: "Recent" }, { value: "kept", label: "Kept" }]}
               onChange={(scope) => view.set({ scope })}
             />
           )}
