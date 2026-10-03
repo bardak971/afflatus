@@ -160,11 +160,51 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
   const zoomFrames = zoom ? Math.min(STRIP_FRAMES, Math.max(2, Math.ceil((zoom.endMs - zoom.startMs) / frameMs))) : 0;
   const exact = zoom ? (zoom.endMs - zoom.startMs) / frameMs <= STRIP_FRAMES + 0.5 : false;
   const wholeSrc = useMemo(() => `/api/assets/${asset.id}/strip?frames=${Math.min(STRIP_FRAMES, Math.max(16, Math.round(duration / 1000)))}&height=48`, [asset.id, duration]);
-  const zoomSrc = useMemo(() => (zoom ? `/api/assets/${asset.id}/strip?frames=${zoomFrames}&height=64&from=${Math.round(zoom.startMs)}&to=${Math.round(zoom.endMs)}` : ""), [asset.id, zoom, zoomFrames]);
+  // the strip of the zoomed part is asked for once the zoom has settled: a wheel gesture is many small steps
+  const [settledZoom, setSettledZoom] = useState<Range | null>(null);
+  useEffect(() => {
+    if (!zoom) { setSettledZoom(null); return; }
+    const t = setTimeout(() => setSettledZoom(zoom), 160);
+    return () => clearTimeout(t);
+  }, [zoom]);
+  const zoomSrc = useMemo(() => {
+    if (!settledZoom) return "";
+    const n = Math.min(STRIP_FRAMES, Math.max(2, Math.ceil((settledZoom.endMs - settledZoom.startMs) / frameMs)));
+    return `/api/assets/${asset.id}/strip?frames=${n}&height=64&from=${Math.round(settledZoom.startMs)}&to=${Math.round(settledZoom.endMs)}`;
+  }, [asset.id, settledZoom, frameMs]);
+
+  // the wheel zooms around the moment under the mouse, by how far it turned (a mouse notch halves or doubles;
+  // a trackpad's many small steps add up); the page under it does not scroll
+  const wheelTargets = useRef<Record<string, HTMLDivElement | null>>({});
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  useEffect(() => {
+    const els = Object.entries(wheelTargets.current).filter((x): x is [string, HTMLDivElement] => Boolean(x[1]));
+    const handlers = els.map(([kind, el]) => {
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        const current = zoomRef.current ?? { startMs: 0, endMs: duration };
+        const win = kind === "zoom" && zoomRef.current ? zoomRef.current : { startMs: 0, endMs: duration };
+        const r = el.getBoundingClientRect();
+        const ms = win.startMs + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (win.endMs - win.startMs);
+        const factor = Math.min(2, Math.max(0.5, Math.exp(e.deltaY * 0.004)));
+        const span = current.endMs - current.startMs;
+        const nextSpan = Math.min(duration, span * factor);
+        const share = Math.max(0, Math.min(1, (ms - current.startMs) / span));
+        zoomTo({ startMs: ms - nextSpan * share, endMs: ms + nextSpan * (1 - share) });
+      };
+      el.addEventListener("wheel", onWheel, { passive: false });
+      return () => el.removeEventListener("wheel", onWheel);
+    });
+    return () => handlers.forEach((off) => off());
+  }, [duration, zoomTo, zoom === null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** One strip: the whole video, or the part zoomed into. The handles and the playhead sit on it where they fall in its window. */
   const bar = (win: Range, kind: "whole" | "zoom", src: string, tall: boolean) => {
     const span = win.endMs - win.startMs;
+    // the zoom strip was made for the settled window: until the next one arrives, it is placed where its moments fall now
+    const made = kind === "zoom" && settledZoom ? settledZoom : win;
+    const stripStyle = { left: `${((made.startMs - win.startMs) / span) * 100}%`, width: `${((made.endMs - made.startMs) / span) * 100}%` };
     const pct = (ms: number) => `${Math.max(0, Math.min(100, ((ms - win.startMs) / span) * 100))}%`;
     const inWin = (ms: number) => ms >= win.startMs - 1 && ms <= win.endMs + 1;
     const msAt = (el: HTMLElement, clientX: number) => {
@@ -201,19 +241,11 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
         onPointerUp={() => { dragging.current = null; }}
         onPointerCancel={() => { dragging.current = null; }}
         onPointerLeave={() => { if (!dragging.current) setHover(null); }}
-        onWheel={(e) => {
-          // the wheel zooms around the moment under the mouse
-          const ms = msAt(e.currentTarget, e.clientX);
-          const current = zoom ?? { startMs: 0, endMs: duration };
-          const factor = e.deltaY < 0 ? 0.5 : 2;
-          const nextSpan = Math.min(duration, (current.endMs - current.startMs) * factor);
-          const share = (ms - current.startMs) / (current.endMs - current.startMs);
-          zoomTo({ startMs: ms - nextSpan * share, endMs: ms + nextSpan * (1 - share) });
-        }}
+        ref={(el) => { wheelTargets.current[kind] = el; }}
       >
         <div className="absolute inset-0 overflow-hidden rounded-lg">
           {/* stretched to the bar, never cropped: a moment on the bar is the same moment on the strip */}
-          <img src={src} alt="" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full object-fill opacity-90" />
+          <img src={src} alt="" draggable={false} className="pointer-events-none absolute inset-y-0 h-full object-fill opacity-90" style={stripStyle} />
           {/* what is outside the range is dimmed */}
           {range.startMs > win.startMs && <div className="pointer-events-none absolute inset-y-0 left-0 bg-ground/70" style={{ width: pct(Math.min(range.startMs, win.endMs)) }} />}
           {range.endMs < win.endMs && <div className="pointer-events-none absolute inset-y-0 right-0 bg-ground/70" style={{ width: `${Math.max(0, Math.min(100, ((win.endMs - Math.max(range.endMs, win.startMs)) / span) * 100))}%` }} />}
@@ -279,8 +311,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
         <Button size="sm" disabled={busy || whole} title="Three videos: before the range, the range, after it. This one goes to the bin." onClick={() => onSplit(range, crfN)}><Split size={13} /> Split</Button>
         <Button size="sm" disabled={busy || whole} title="One video without the range. This one goes to the bin." onClick={() => onRemove(range, crfN)}><Scissors size={13} /> Remove range</Button>
         <span className="mx-1 h-5 border-l border-line" />
-        <Button size="sm" disabled={busy} title="The frame at in, as an image" onClick={() => onFrame(range.startMs)}><Camera size={13} /> Frame at in</Button>
-        <Button size="sm" disabled={busy} title="The frame at out, as an image" onClick={() => onFrame(range.endMs)}><Camera size={13} /> Frame at out</Button>
+        <Button size="sm" disabled={busy} title="The frame at the playhead, as an image in your library (G does the same)" onClick={() => onFrame(at)}><Camera size={13} /> Frame at playhead <Kbd>G</Kbd></Button>
         <span className="mx-1 h-5 border-l border-line" />
         {onBetween && <Button size="sm" disabled={busy} title="A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range." onClick={() => onBetween(range)}><Clapperboard size={13} /> Generate between</Button>}
         {onExtendHere && <Button size="sm" disabled={busy} title="A new clip that starts at the playhead's moment (H3 carries the motion on from there; the others open on that frame)." onClick={() => onExtendHere(at)}><Link2 size={13} /> Extend from here</Button>}

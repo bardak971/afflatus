@@ -92,7 +92,7 @@ live app gets it; the cut job runs against real ffmpeg either way.
 - Trim mode: **Loop the range** = Generate between with `start` = frame at out and `end` = frame at in, the
   result joined after the range (range + bridge back) as a new video. Duration of the bridge editable (1–3 s).
 
-## 6. Slice F — Slow motion
+## 6. Slice F — Slow motion (the owner, 2026-10-04: "if the GPU is faster and better quality, yes" → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
 
 - Trim mode: **Slow motion ×2 / ×4** on the range: a job running RIFE on the range's frames (the
   `FrameInterpolationModelLoader` / RIFE nodes are already used for frame interpolation; this one is a ComfyUI
