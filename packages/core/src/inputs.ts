@@ -147,6 +147,8 @@ export interface ClipInput extends Base {
   role: "previous" | "next";
   /** How many frames the recipe takes, best first: it is handed the first count the video is long enough for. */
   frames: number[];
+  /** An input (a choice of numbers) that says how many frames are wanted first; `frames` below it are the fallbacks for a short clip. */
+  framesFrom?: string;
   fps: number;
   optional?: boolean;
 }

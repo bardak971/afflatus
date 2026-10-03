@@ -712,7 +712,10 @@ export class Queue {
           ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
           : (await readVideo(bytes, extOf(asset.mime))).facts;
         if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
-        const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts: spec.frames, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at });
+        // the form may say how many frames the join takes first; shorter counts stay as fallbacks for a short clip
+        const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
+        const counts = Number.isFinite(wanted) && wanted > 0 ? [wanted, ...spec.frames.filter((c) => c < wanted)] : spec.frames;
+        const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at });
         uploads[spec.id] = await comfy.client.upload(cut.bytes, "mp4");
         media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
       } else if (spec.type === "references" && Array.isArray(value)) {

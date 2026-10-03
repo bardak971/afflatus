@@ -202,7 +202,7 @@ describe("h3.video", () => {
     expect(one(bare, "FrameInterpolate")).toHaveLength(0);
     expect(one(bare, "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(24);
     expect(one(build(), "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(48);
-    expect(() => build({ previous: { asset: "v" } }, { uploads: { previous: "v.mp4" }, media: { previous: { ...clip, frames: 10 } } })).toThrow(/22 or 5/);
+    expect(() => build({ previous: { asset: "v" } }, { uploads: { previous: "v.mp4" }, media: { previous: { ...clip, frames: 10 } } })).toThrow(/5, 22 or 39/);
   });
 });
 

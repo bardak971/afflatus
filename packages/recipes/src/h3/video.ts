@@ -64,6 +64,8 @@ export interface H3Video {
  * of 17k + 5 frames only.
  */
 export const H3_JOIN_FRAMES = [22, 5];
+/** How many frames of the next clip a join can land on: a position only (5), the motion too (22), a long run-in (39). Guide clips are 17k + 5 frames. */
+export const H3_LANDINGS = ["5", "22", "39"] as const;
 /** How many reference pictures the reference model is given at most (it takes 9; the opening picture is one of them). */
 export const H3_REFERENCES = 6;
 /** How many reference videos it takes. */
@@ -71,7 +73,7 @@ export const H3_REFERENCE_VIDEOS = 3;
 
 const guideFrames = (m: MediaFacts | undefined) => {
   const n = m?.frames ?? 0;
-  if (!H3_JOIN_FRAMES.includes(n)) throw new Error(`a join takes ${H3_JOIN_FRAMES.join(" or ")} frames of the other clip, not ${n}`);
+  if (n % 17 !== 5 || n > 39) throw new Error(`a join takes 5, 22 or 39 frames of the other clip, not ${n}`);
   return n;
 };
 
@@ -137,8 +139,12 @@ export const h3Video = defineRecipe<H3Video>({
       note: "the motion and the voices of that clip continue into this one",
     },
     {
-      id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: H3_JOIN_FRAMES, fps: H3_FPS, advanced: true,
+      id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "landing", fps: H3_FPS, advanced: true,
       note: "this clip ends exactly where that one begins",
+    },
+    {
+      id: "landing", type: "choice", label: "Landing", options: [...H3_LANDINGS], default: "22", showWhen: "next", advanced: true,
+      note: "frames of the next clip the join lands on: 5 is a position, 22 brings its motion too, 39 a long run-in (a short next clip gives fewer)",
     },
     {
       id: "references", type: "references", label: "Reference images", max: H3_REFERENCES, roles: [...REFERENCE_ROLES],

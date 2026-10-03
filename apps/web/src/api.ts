@@ -828,7 +828,7 @@ export const api = {
   timelineRange: (id: string, opts: { inMs: number; outMs: number; action: "split" | "remove" | "regenerate" | "copy"; scale?: number }) =>
     call<{ ok: true } | { clip: string; context: RangeContext } | { job: string }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
-  renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
+  renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean; takes?: number }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */
   exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number } }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
   /** One frame of a video, saved as a picture in the library. */

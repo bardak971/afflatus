@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { RANDOM_SEED } from "@afflatus/core";
 import { compose, lookSchema, withMood } from "./entities";
 import { assetView } from "./media";
 import { UserError } from "./queue";
@@ -62,6 +63,8 @@ const renderBody = z.strictObject({
       id: z.string(),
       /** The clip's whole form, as the composer would send it. */
       input: z.record(z.string(), z.unknown()),
+      /** How many takes at once: the first with the form's seed, the others with a fresh one each. */
+      takes: z.number().int().min(1).max(4).optional(),
       /** End where the next clip begins, when that clip carries on from this one. On unless said otherwise. */
       fit: z.boolean().optional(),
     }))
@@ -137,15 +140,18 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       const opening = recipe.inputs.find((x) => x.type === "image" && x.role === "start");
       if (opening && !input[opening.id] && before && clip.joined === "continue" && (recipe.traits?.continues === "frame" || before.kind === "still")) input[opening.id] = FROM_PREVIOUS;
       const next = view.clips[i + 1];
-      const id = await s.queue.enqueue(recipe.id, input, {
-        label: `${view.name} · clip ${i + 1}`,
-        dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
-        // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
-        clip: { id: clip.id, fit: ask.fit ?? !(next && wanted.has(next.id)) },
-        look: clip.look ?? view.look,
-      });
-      pending.set(clip.id, id);
-      ids.push(id);
+      const count = ask.takes ?? 1;
+      for (let k = 0; k < count; k++) {
+        const id = await s.queue.enqueue(recipe.id, k === 0 ? input : { ...input, seed: RANDOM_SEED }, {
+          label: `${view.name} · clip ${i + 1}${count > 1 ? ` · take ${k + 1} of ${count}` : ""}`,
+          dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
+          // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
+          clip: { id: clip.id, fit: ask.fit ?? !(next && wanted.has(next.id)) },
+          look: clip.look ?? view.look,
+        });
+        pending.set(clip.id, id);
+        ids.push(id);
+      }
     }
     if (!ids.length) throw new UserError("None of these clips are on this timeline.");
     s.queue.events.emit("timeline");

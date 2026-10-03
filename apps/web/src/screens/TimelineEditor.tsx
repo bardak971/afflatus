@@ -161,9 +161,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     void client.invalidateQueries({ queryKey: ["queue"] });
   };
   const render = useMutation({
-    mutationFn: async (v: { clips: Clip[]; fit?: boolean }) => {
+    mutationFn: async (v: { clips: Clip[]; fit?: boolean; takes?: number }) => {
       await save();
-      return api.renderClips(id, v.clips.map((c) => ({ id: c.id, input: ready(c).input ?? {}, ...(v.fit === undefined ? {} : { fit: v.fit }) })));
+      return api.renderClips(id, v.clips.map((c) => ({ id: c.id, input: ready(c).input ?? {}, ...(v.fit === undefined ? {} : { fit: v.fit }), ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}) })));
     },
     onSuccess: after,
   });
@@ -649,14 +649,14 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             stored={inputsOf(current)}
             whole={formOf(current)}
             why={why}
-            takes={aboutMs(takes(current))}
+            takesMs={takes(current)}
             running={running?.clipId === current.id ? running : null}
             busy={render.isPending}
             error={render.isError ? render.error.message : null}
             onInputs={(next) => editInputs(current, next)}
             onRecipe={(recipe) => patch.mutate({ clip: current.id, patch: { recipe } })}
             onPatch={(p) => patch.mutate({ clip: current.id, patch: p })}
-            onRender={(fit) => render.mutate({ clips: [current], fit })}
+            onRender={(fit, count) => render.mutate({ clips: [current], fit, takes: count })}
             onRemove={() => {
               remove.mutate(current.id);
               setSelected(null);

@@ -7,7 +7,7 @@ import { WritingHelp } from "../Designer";
 import { appendTo } from "../promptText";
 import { LookBar, lookWords } from "../LookBar";
 import { FormModel } from "../ModelLoad";
-import { about, clock, phaseLabel, recipeLabel } from "../format";
+import { about, aboutMs, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { Select } from "../Select";
@@ -65,7 +65,10 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 }
 
 /** The selected clip: how it starts, its takes, its sound, its pictures and its form. */
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takes, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner }: {
+/** Where how many takes a render makes is remembered, per browser. */
+const TAKES_KEY = "afflatus.timeline.takes";
+
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onLoop, onPreview, onDesigner }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -76,15 +79,16 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   whole: Record<string, unknown> | null;
   /** Why it cannot be rendered right now, in a sentence. */
   why: string | null;
-  /** About how long a render of it takes, in words ("about 40 s"); empty when nothing like it was rendered yet. */
-  takes: string;
+  /** About how long a render of it takes, in ms; null when nothing like it was rendered yet. */
+  takesMs: number | null;
   running: RunningJob | null;
   busy: boolean;
   error: string | null;
   onInputs(next: Record<string, unknown>): void;
   onRecipe(id: string): void;
   onPatch(patch: ClipPatch): void;
-  onRender(fit: boolean): void;
+  /** Render it: `count` takes at once (the first with the form's seed, the others with a fresh one each). */
+  onRender(fit: boolean, count: number): void;
   onRemove(): void;
   onRemoveTake(id: string): void;
   /** Stop the render of this clip that is under way, or take it out of the queue. */
@@ -101,6 +105,24 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const setup = useSetup();
   const entities = useEntities();
   const [fit, setFit] = useState(true);
+  // how many takes a render makes at once, remembered per browser
+  const [count, setCount] = useState<1 | 2 | 3>(() => {
+    try {
+      const n = Number(localStorage.getItem(TAKES_KEY));
+      return n === 2 || n === 3 ? n : 1;
+    } catch {
+      return 1;
+    }
+  });
+  const pickCount = (n: 1 | 2 | 3) => {
+    setCount(n);
+    try {
+      localStorage.setItem(TAKES_KEY, String(n));
+    } catch {
+      // the choice is not kept, nothing more
+    }
+  };
+  const takes = aboutMs(takesMs === null ? null : takesMs * count);
   const [removing, setRemoving] = useState(false);
   const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
   const recipe = recipes.find((r) => r.id === clip.recipe) ?? all.data?.recipes.find((r) => r.id === clip.recipe);
@@ -171,7 +193,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 <span className="font-semibold text-warn-ink">This clip no longer follows clip {index}</span>
                 <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
                 <span className="flex flex-wrap gap-1.5">
-                  {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(fit)}>Re-render{takes ? ` · ${takes}` : ""}</Button>}
+                  {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(fit, count)}>Re-render{takes ? ` · ${takes}` : ""}</Button>}
                   <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
                 </span>
               </>
@@ -407,6 +429,14 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           {error && <ErrorNote>{error}</ErrorNote>}
           {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href={why.includes("ComfyUI") ? "/settings" : "/settings/models"} className="font-semibold underline">Open Settings</Link> : null}</div>}
           {canFit && <Toggle on={fit} onChange={setFit} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />}
+          {!clip.job && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold">Takes at once</span>
+              <div className="w-40">
+                <Segmented<"1" | "2" | "3"> label="Takes at once" value={String(count) as "1" | "2" | "3"} onChange={(v) => pickCount(Number(v) as 1 | 2 | 3)} options={[{ value: "1", label: "1" }, { value: "2", label: "2" }, { value: "3", label: "3" }]} />
+              </div>
+            </div>
+          )}
           {whole && !clip.job && <FormModel recipe={recipe} input={whole} look={clip.look ?? timeline.look} />}
           {clip.job ? (
             <div className="flex flex-col gap-1.5">
@@ -420,8 +450,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               </Button>
             </div>
           ) : (
-            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit)}>
-              {busy ? "Sending…" : `${take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
+            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit, count)} title={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
+              {busy ? "Sending…" : `${count > 1 ? `Render ${count} takes` : take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
             </Button>
           )}
         </div>
