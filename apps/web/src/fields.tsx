@@ -262,7 +262,7 @@ function SizeField({ spec, value: size, values, onChange }: { spec: Extract<Inpu
   const comesOut = frameOfShape(size);
   // a pass that enlarges it afterwards: the frame it ends at
   const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
-  const scaled = comesOut && spec.scaledBy && values?.[spec.scaledBy.on] ? { width: r32(comesOut.width * Number(values[spec.scaledBy.by] ?? 2)), height: r32(comesOut.height * Number(values[spec.scaledBy.by] ?? 2)) } : null;
+  const scaled = comesOut && spec.scaledBy && values?.[spec.scaledBy.on] && values[spec.scaledBy.on] !== "Off" ? { width: r32(comesOut.width * Number(values[spec.scaledBy.by] ?? 2)), height: r32(comesOut.height * Number(values[spec.scaledBy.by] ?? 2)) } : null;
   // what decides the shape instead, when something is there: a start image, a clip joined
   const decidedBy = (spec.decidedBy ?? []).find((id) => { const v = values?.[id]; return Array.isArray(v) ? v.length > 0 : Boolean(v); });
   const deciderLabel = decidedBy ? (/previous|next|clip/i.test(decidedBy) ? "the clip it joins" : "the start image") : null;

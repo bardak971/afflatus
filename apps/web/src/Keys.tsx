@@ -60,7 +60,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     keys: [["Ctrl + ↑  ↓", "Prompt weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
   { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"]] },
-  { where: "Everywhere", keys: [["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
+  { where: "Everywhere", keys: [["/", "Search bar of the view (library, Prompt kit, snippets, workflow editor)"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 
 /** A key as a cap, as on a keyboard. */
@@ -91,6 +91,16 @@ export function KeysHelp() {
       if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey && !typing(e)) {
         e.preventDefault();
         setOpen((o) => !o);
+      }
+      // "/" goes to the search bar of the view: the one on top when a panel with its own is open
+      if (e.key === "/" && plainKey(e)) {
+        const bars = [...document.querySelectorAll<HTMLInputElement>("input[data-search]")].filter((el) => el.getClientRects().length > 0);
+        const bar = bars[bars.length - 1];
+        if (bar) {
+          e.preventDefault();
+          bar.focus();
+          bar.select();
+        }
       }
     };
     const onAsk = () => setOpen(true);

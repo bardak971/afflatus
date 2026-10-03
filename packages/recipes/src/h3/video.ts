@@ -1,5 +1,6 @@
 import { defineRecipe, GraphBuilder, REFERENCE_ROLES, type ClipValue, type LoraValue, type MediaFacts, type Ref, type ReferenceValue, type SizeValue, type Variant } from "@studai/core";
 import { H3_FORM_PIXELS, H3_FPS, h3Canvas, h3Frames } from "./family";
+import { pixelUpscale, UPSCALE, upscaleInputs, upscaleNodes } from "../video/upscale";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
 /** The sampler left to the recipe: the one that suits the steps (euler for a turbo's few, res_multistep otherwise). */
@@ -38,8 +39,9 @@ export interface H3Video {
   smooth: boolean;
   quick: boolean;
   cache: boolean;
-  upscale: boolean;
+  upscale: string;
   upscaleBy: number;
+  upscaleModel: string;
   upscaleDenoise: number;
   upscaleSteps: number;
   upscaleTile: number;
@@ -171,23 +173,19 @@ export const h3Video = defineRecipe<H3Video>({
       id: "short", type: "number", label: "Resolution", min: 384, max: 1088, step: 32, default: 576, unit: "p", picks: [480, 576, 768, 1088],
       note: "the short side of the frame. 576p is the usual one. Past 768p the model is beyond what it was trained for: slower, and it may drift",
     },
+    ...upscaleInputs({ latent: true }),
     {
-      id: "upscale", type: "toggle", label: "Upscale pass", default: false, section: "out",
-      note: "after the clip is made, it is enlarged in latent space and re-sampled lightly, in tiles, so the new detail is generated rather than stretched. The sound is kept. About as long again as the clip itself. Needs the MMH3 Ultimate Upscale node pack",
-    },
-    { id: "upscaleBy", type: "number", label: "Upscale factor", min: 1.25, max: 3, step: 0.25, default: 2, unit: " ×", showWhen: "upscale", section: "out", note: "2 makes 576p into about 1152p" },
-    {
-      id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.05, default: 0.2, showWhen: "upscale", advanced: true,
+      id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.05, default: 0.2, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
       note: "denoising strength of the re-sampling: 0.2 keeps the clip as it is and sharpens it, higher invents more",
     },
-    { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 1, showWhen: "upscale", advanced: true },
+    { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 1, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
     {
-      id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["Auto", "H3's latent upscaler", "Plain resize"], default: "Auto", showWhen: "upscale", advanced: true,
+      id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["Auto", "H3's latent upscaler", "Plain resize"], default: "Auto", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
       note: "H3's own 3D upscaler model when its file is found (Auto), else a bicubic resize of the latent",
     },
-    { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: "upscale", advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
-    { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: "upscale", advanced: true },
-    { id: "upscaleChunk", type: "number", label: "Upscale temporal chunk", min: 17, max: 255, step: 17, default: 85, showWhen: "upscale", advanced: true, note: "the clip is re-sampled in stretches of this many frames, overlapping by 17" },
+    { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
+    { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
+    { id: "upscaleChunk", type: "number", label: "Upscale temporal chunk", min: 17, max: 255, step: 17, default: 85, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the clip is re-sampled in stretches of this many frames, overlapping by 17" },
     { id: "fast", type: "toggle", label: "Turbo", note: "8 steps, about twice as fast: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
     {
       id: "turboSteps", type: "number", label: "Turbo steps", min: 2, max: 16, step: 1, default: 8, showWhen: "fast", advanced: true, perModel: true,
@@ -237,11 +235,13 @@ export const h3Video = defineRecipe<H3Video>({
 
   nodes(input) {
     const how = uses(input);
+    const routeNodes = upscaleNodes(input);
     const guided = Boolean(input.previous || input.next || input.mid) || (how.start && (input.references.length > 0 || input.refVideos.length > 0));
     const picked = modelOf(input, {});
     // a turbo model that makes the clip itself takes no turbo LoRA
     const turboLora = input.fast && !(picked.turbo && (!how.reference || picked.hybrid));
     return [
+      ...routeNodes,
       "UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
       "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "VHS_VideoCombine",
       ...(input.quick ? ["ModelAttentionBackend"] : []),
@@ -384,7 +384,7 @@ export const h3Video = defineRecipe<H3Video>({
     // tile at a time (the node offloads the model between the two, so both fit where one does). The sound
     // is carried through untouched. The same model, sampler and conditioning as the clip
     let finished: Ref = [sampled, 0];
-    const upscaling = input.upscale && ctx.has("MMH3UltimateUpscale");
+    const upscaling = input.upscale === UPSCALE.latent && ctx.has("MMH3UltimateUpscale");
     if (upscaling) {
       const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
       const big = { width: r32(width * input.upscaleBy), height: r32(height * input.upscaleBy) };
@@ -417,6 +417,9 @@ export const h3Video = defineRecipe<H3Video>({
       g.phase("interpolating");
       images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
     }
+    // the pixel routes: the final frames enlarged by an upscale model or by RTX VSR
+    const pixel = pixelUpscale(g, images, input, { width, height }, ctx);
+    images = pixel.images;
     g.phase("encoding");
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
@@ -431,7 +434,7 @@ export const h3Video = defineRecipe<H3Video>({
       outputs: [{ node: out, kind: "video", role: "result" }],
       totalSteps: steps,
       passes: [{ node: sampled, steps }],
-      loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : [])],
+      loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...pixel.loads],
       ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail) } } : {}),
     };
   },
@@ -442,7 +445,7 @@ export const h3Video = defineRecipe<H3Video>({
     const tiny = card.vramGb <= 9;
     const gb = Math.round(card.vramGb);
     if (input.short > 768) out.push({ input: "short", level: "heavy" as const, text: "past what the model was trained for: slower, and it may drift" });
-    if (input.upscale) out.push({ input: "upscale", level: "slow" as const, text: "about as long again as the clip itself" });
+    if (input.upscale === UPSCALE.latent) out.push({ input: "upscale", level: "slow" as const, text: "about as long again as the clip itself" });
     else if (input.short >= 768 && input.seconds > 6 && small) out.push({ input: "short", level: "heavy" as const, text: `probably too big for a ${gb} GB card at this length` });
     else if (input.short > (tiny ? 480 : 576) && small) out.push({ input: "short", level: "slow" as const, text: `slow on your ${gb} GB card` });
     if (input.seconds > 8 && small) out.push({ input: "seconds", level: "slow" as const, text: `long clips slow down a lot on a ${gb} GB card: two clips that flow on are faster` });
@@ -506,8 +509,10 @@ export const h3Video = defineRecipe<H3Video>({
         input: { description: "a", start: "p1", mid: "p2", midAt: 2.5 },
         slots: all, uploads: { start: "a.png", mid: "m.png" }, media: { start: picture },
       },
-      { name: "with the upscale pass, plain resize", input: { description: "a", upscale: true }, slots: all },
-      { name: "with the upscale pass, H3's upscaler", input: { description: "a", upscale: true, upscaleBy: 1.5, fast: false }, slots: { ...all, latentUpscaler: "minimax_h3_latent_upscaler_3d_fp16.safetensors" } },
+      { name: "latent upscale, plain resize", input: { description: "a", upscale: UPSCALE.latent }, slots: all },
+      { name: "latent upscale, H3's upscaler", input: { description: "a", upscale: UPSCALE.latent, upscaleBy: 1.5, fast: false }, slots: { ...all, latentUpscaler: "minimax_h3_latent_upscaler_3d_fp16.safetensors" } },
+      { name: "pixel upscale with a model", input: { description: "a", upscale: UPSCALE.model, upscaleModel: "4x-UltraSharp.pth" }, slots: all },
+      { name: "pixel upscale with RTX VSR", input: { description: "a", upscale: UPSCALE.rtx, upscaleBy: 2 }, slots: all },
       {
         name: "a voice only, with the picture of who speaks",
         input: { description: "a", start: "p1", voice: "v1" },

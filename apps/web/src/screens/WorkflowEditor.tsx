@@ -285,7 +285,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         </section>
 
         <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
-          <input
+          <input data-search
             aria-label="Search switches and widgets"
             placeholder={`Search ${found.toggles.length ? `${found.toggles.length} switches and ` : ""}${found.candidates.length} widgets`}
             value={filter}

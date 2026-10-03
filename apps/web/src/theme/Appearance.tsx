@@ -1,5 +1,6 @@
 import { Check, Moon, Sun } from "lucide-react";
-import { cx, Segmented } from "../ui";
+import { useExplain } from "../store";
+import { cx, Segmented, Toggle } from "../ui";
 import { themeInUse, useThemeChoice } from "./store";
 import { FAMILIES, THEMES, tokensOf, type Theme } from "./themes";
 
@@ -63,6 +64,7 @@ function Accents({ theme, picked, onPick }: { theme: Theme; picked: string | und
  */
 export function AppearanceCard() {
   const choice = useThemeChoice();
+  const explain = useExplain();
   const inUse = themeInUse(choice);
   const night = THEMES.filter((t) => !t.light);
   const day = THEMES.filter((t) => t.light);
@@ -90,6 +92,9 @@ export function AppearanceCard() {
         </div>
       </div>
       {families.map((t) => <Accents key={t.family} theme={t.family === inUse.family ? inUse : t} picked={choice.accents[t.family]} onPick={(name) => pickAccent(t.family, name)} />)}
+      <div className="border-t border-line pt-3">
+        <Toggle on={explain.on} onChange={explain.set} label="Explain every setting in the forms" note="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting." />
+      </div>
       <span className="text-xs text-ink-2">Kept in this browser. The palettes are Catppuccin's and Rosé Pine's own.</span>
     </section>
   );

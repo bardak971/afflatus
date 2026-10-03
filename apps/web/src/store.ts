@@ -63,7 +63,8 @@ export const useOpenDraft = create<{ id: string | null; open(id: string | null):
  * Whether forms explain their settings in full, a line under each control, or keep the explanations
  * behind a small ? that tells on hover. On at first: a form explains itself until it is known.
  */
-export const useExplain = create<{ on: boolean; set(on: boolean): void }>()(persist((set) => ({ on: true, set: (on) => set({ on }) }), { name: "studai.explain" }));
+export const useExplain = create<{ on: boolean; set(on: boolean): void }>()(// version 1: the explanations start folded behind the ? (they started open before: that stored value is dropped)
+persist((set) => ({ on: false, set: (on) => set({ on }) }), { name: "studai.explain", version: 1, migrate: () => ({ on: false }) }));
 
 /** How wide the side panel that holds a form is, in pixels: dragged by its edge, remembered. */
 export const PANEL = { least: 380, most: 720, usual: 440 };

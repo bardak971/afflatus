@@ -1,5 +1,6 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@studai/core";
 import { LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
+import { pixelUpscale, upscaleInputs, upscaleNodes } from "../video/upscale";
 
 /** The schedule LTX's authors give for the distilled model: 8 steps, written out. */
 export const LTX_SIGMAS = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0";
@@ -46,6 +47,9 @@ export interface LtxVideo {
   endStrength: number;
   compression: number;
   smooth: boolean;
+  upscale: string;
+  upscaleBy: number;
+  upscaleModel: string;
   livePreview: boolean;
   loras: LoraValue[];
   seed: number;
@@ -98,7 +102,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     { id: "seconds", type: "number", label: "Duration", min: 1, max: 20, step: 0.5, default: 5, unit: " s" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "wide", grid: 64, min: 256, max: 1920, ratioOnly: true,
-      short: "short", maxPixels: LTX_MAX_PIXELS, decidedBy: ["start", "end"],
+      short: "short", maxPixels: LTX_MAX_PIXELS, decidedBy: ["start", "end"], scaledBy: { on: "upscale", by: "upscaleBy" },
       note: "a start image decides the shape instead",
       shapes: [
         { id: "tall", label: "Tall", width: 704, height: 1280 },
@@ -107,6 +111,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       ],
     },
     { id: "short", type: "number", label: "Resolution", note: "the short side of the frame: 704 is about 720p, 1088 about 1080p. Larger is sharper and much slower", min: 384, max: 1088, step: 64, default: 704, unit: "p", picks: [512, 704, 832, 1088] },
+    ...upscaleInputs(),
     {
       id: "twoPass", type: "toggle", label: "Two-pass (latent upscale)", default: true, advanced: true,
       note: "half the size first, enlarged with the latent upscaler, then 3 steps that refine: faster and sharper. Off, or without the upscaler, or with an end image: one pass at full size",
@@ -163,7 +168,9 @@ export const ltxVideo = defineRecipe<LtxVideo>({
   ],
 
   nodes(input) {
+    const routeNodes = upscaleNodes(input);
     return [
+      ...routeNodes,
       "CLIPTextEncode", "LTXVConditioning", "EmptyLTXVLatentVideo", "LTXVEmptyLatentAudio", "LTXVConcatAVLatent", "LTXVSeparateAVLatent",
       "RandomNoise", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode", "VHS_VideoCombine",
       ...(input.schedule === BY_STEPS ? ["BasicScheduler", ...(input.shift > 0 ? ["ModelSamplingSD3"] : [])] : []),
@@ -316,6 +323,9 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       g.phase("interpolating");
       images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
     }
+    // the pixel routes: the final frames enlarged by an upscale model or by RTX VSR
+    const pixel = pixelUpscale(g, images, input, { width, height }, ctx);
+    images = pixel.images;
     g.phase("encoding");
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
@@ -330,6 +340,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       totalSteps: passes.reduce((n, p) => n + p.steps, 0),
       passes,
       loads: [
+        ...pixel.loads,
         ...(picked.unet
           ? [`diffusion_models/${picked.unet}`, `text_encoders/${slots.clip}`, `text_encoders/${slots.projection}`, `vae/${slots.videoVae}`, `vae/${slots.audioVae}`]
           : [`checkpoints/${picked.checkpoint}`, `text_encoders/${slots.clip}`]),

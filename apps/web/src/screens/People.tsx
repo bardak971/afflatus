@@ -580,7 +580,7 @@ export function People() {
           {!editing && (
             <label className="flex h-9 w-64 min-w-0 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
               <Search size={14} className="shrink-0 text-ink-3" />
-              <input aria-label={`Search your ${here.title.toLowerCase()}`} placeholder={`Search your ${here.title.toLowerCase()}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+              <input data-search aria-label={`Search your ${here.title.toLowerCase()}`} placeholder={`Search your ${here.title.toLowerCase()}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
               {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
             </label>
           )}

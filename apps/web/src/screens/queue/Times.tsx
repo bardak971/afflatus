@@ -137,7 +137,7 @@ export function RenderTimes() {
             <Tile label="Failed · cancelled" value={`${t.failed} · ${t.cancelled}`} note={`${long(t.lostMs)} of GPU time lost`} warn={t.failed > 0} />
             <Tile label="GPU time" value={long(t.gpuMs)} note={`longest render: ${long(t.longestMs)}`} />
             <Tile label="GPU busy" value={pct(t.gpuMs / Math.max(1, d.spanMs))} note="of the period, with studai's renders" />
-            <Tile label="Queue wait" value={maybe(t.waitedUsualMs)} note={`p90: ${maybe(t.waitedSlowMs)}`} />
+            <Tile label="Queue wait" value={maybe(t.waitedUsualMs)} note={`median · p90: ${maybe(t.waitedSlowMs)}`} />
             <Tile label="Model load" value={pct(t.loadMs / Math.max(1, t.gpuMs))} note={`${long(t.loadMs)} of the GPU time`} />
             <Tile label="Model loads" value={`${t.loads} time${t.loads === 1 ? "" : "s"}`} note={t.loadUsualMs === null ? undefined : `${long(t.loadUsualMs)} each, median`} />
             <Tile label="Estimate error" value={t.off === null ? "—" : `± ${pct(t.off)}`} note="how far off the estimates usually are" />
@@ -174,7 +174,7 @@ export function RenderTimes() {
                 {...chart} title="Queue wait" note="from Generate to the render starting" format={long} axisFormat={brief}
                 series={[
                   { name: "Median", values: d.wait.usual, color: tones[0] },
-                  { name: "p90 (9 in 10 were faster)", values: d.wait.slow, color: "var(--color-warn)" },
+                  { name: "p90 (the slowest 10 % are above)", values: d.wait.slow, color: "var(--color-warn)" },
                 ]}
               />
               <TimeChart
@@ -213,7 +213,7 @@ export function RenderTimes() {
                   </div>
                 ))}
               </div>
-              <span className="text-xs text-ink-3">Median: the middle render time, model already loaded (warm). p90: nine in ten renders were faster. s/it: seconds per step, as ComfyUI shows it.</span>
+              <span className="text-xs text-ink-3">Median: the middle render time with the model already loaded (warm): half were faster, half slower. p90: the time 90 % of renders stay under; the slowest 10 % are above it. s/it: seconds per step, as ComfyUI shows it.</span>
             </section>
           )}
 
@@ -286,7 +286,7 @@ function ModelDetail({ model: m, times, timeLabel, stretch }: { model: TimesSumm
         title={`${m.name}: render time`} note={`per ${stretch}`} times={times} timeLabel={timeLabel} format={long} axisFormat={brief}
         series={[
           { name: "Median, warm (model already loaded)", values: m.usual },
-          { name: "p90 (9 in 10 were faster)", values: m.slow, color: "var(--color-warn)" },
+          { name: "p90 (the slowest 10 % are above)", values: m.slow, color: "var(--color-warn)" },
           { name: "Cold start (model loaded first)", values: m.cold, color: "var(--color-ink-3)" },
         ]}
       />

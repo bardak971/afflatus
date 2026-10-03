@@ -1,5 +1,6 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@studai/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
+import { pixelUpscale, upscaleInputs, upscaleNodes } from "../video/upscale";
 
 /**
  * Wan's own negative prompt, as its authors give it (in Chinese: washed-out colours, overexposure, a
@@ -28,6 +29,9 @@ export interface WanVideo {
   scheduler: string;
   shift: number;
   smooth: boolean;
+  upscale: string;
+  upscaleBy: number;
+  upscaleModel: string;
   livePreview: boolean;
   fps: number;
   crf: number;
@@ -97,7 +101,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     { id: "seconds", type: "number", label: "Duration", min: 1, max: 10, step: 0.5, default: 5, unit: " s", note: "the model is made for about 5 seconds: longer clips drift" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "tall", grid: 16, min: 256, max: 1280, ratioOnly: true,
-      short: "short", maxPixels: WAN_FORM_PIXELS, decidedBy: ["start", "end"],
+      short: "short", maxPixels: WAN_FORM_PIXELS, decidedBy: ["start", "end"], scaledBy: { on: "upscale", by: "upscaleBy" },
       note: "a start image decides the shape instead",
       shapes: [
         { id: "tall", label: "Tall", width: 480, height: 832 },
@@ -109,6 +113,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       id: "short", type: "number", label: "Resolution", min: 320, max: 1080, step: 16, default: 480, unit: "p", picks: [480, 576, 720, 1080],
       note: "the short side of the frame. Wan is made for 480p and 720p. Past 720p it is beyond what it was trained for: much slower, and it may drift",
     },
+    ...upscaleInputs(),
     { id: "fast", type: "toggle", label: "Turbo", note: "4 steps at CFG 1: with the lightx2v LoRAs, or as it is with a model made for it", default: true, advanced: true, perModel: true },
     {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
@@ -150,10 +155,12 @@ export const wanVideo = defineRecipe<WanVideo>({
   ],
 
   nodes(input) {
+    const routeNodes = upscaleNodes(input);
     const how = uses(input);
     const picked = modelsOf(input, {});
     const any = (list: LoraValue[]) => list.some((l) => l.weight !== 0);
     return [
+      ...routeNodes,
       "UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", "ModelSamplingSD3", "KSamplerAdvanced", "VAEDecode", "VHS_VideoCombine",
       how.words ? "EmptyHunyuanLatentVideo" : how.both ? "WanFirstLastFrameToVideo" : "WanImageToVideo",
       ...(how.words ? [] : ["LoadImage"]),
@@ -250,6 +257,9 @@ export const wanVideo = defineRecipe<WanVideo>({
       g.phase("interpolating");
       images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
     }
+    // the pixel routes: the final frames enlarged by an upscale model or by RTX VSR
+    const pixel = pixelUpscale(g, images, input, { width, height }, ctx);
+    images = pixel.images;
     g.phase("encoding");
     // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
     const out = g.add("VHS_VideoCombine", {
@@ -265,6 +275,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       totalSteps: steps,
       passes: [{ node: first, steps: handover }, { node: second, steps: steps - handover }],
       loads: [
+        ...pixel.loads,
         `diffusion_models/${picked.high}`, `diffusion_models/${picked.low}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`,
         ...lorasOf(turboLoras?.high, input.loras), ...lorasOf(turboLoras?.low, input.lorasLow),
       ],

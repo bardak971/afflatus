@@ -332,7 +332,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         <button type="button" aria-label="Rename this draft" title="Rename this draft" disabled={!draft} onClick={() => setNaming(draft?.name ?? "")} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
         <button type="button" aria-label="Delete this draft" title="Delete this draft. Its outputs stay in your library." disabled={!draft} onClick={() => draft && void d.remove(draft.id)} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={13} /></button>
         <button type="button" title="New draft: an empty form. This one is kept." onClick={() => void d.startNew()} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
-        <button type="button" aria-label="Close the form" title="Close the form: the library takes the whole width" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink"><ChevronLeft size={15} /></button>
+        <button type="button" aria-label="Close the form" title="Close the form: the library takes the whole width" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 text-accent hover:bg-accent-wash"><ChevronLeft size={15} /></button>
       </div>
 
       <ScrollColumn className="flex flex-col gap-2.5 p-3">
@@ -700,7 +700,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
             <>
               <label className="flex h-9 w-64 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
                 <Search size={14} className="shrink-0 text-ink-3" />
-                <input aria-label="Search the library" placeholder="Search prompts and names" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+                <input data-search aria-label="Search the library" placeholder="Search prompts and names" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
                 {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
               </label>
               {!view.form && (families.data?.items.length ?? 0) > 0 && (

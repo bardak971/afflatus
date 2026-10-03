@@ -977,7 +977,7 @@ describe("H3's upscale pass", () => {
   });
 
   it("enlarges the finished latent and re-samples it lightly, in tiles and stretches, with the sound carried through", () => {
-    const b = build({ upscale: true, short: 576 });
+    const b = build({ upscale: "Latent: re-sampled", short: 576 });
     const up = node(b, "MMH3UltimateUpscale")[0]!;
     expect(up.inputs).toMatchObject({ cfg: 1 });
     // what was sampled goes in; what comes out is what is decoded, video and sound alike
@@ -999,13 +999,13 @@ describe("H3's upscale pass", () => {
   });
 
   it("uses H3's own upscaler when its file is there, and says so when it is asked for but missing", () => {
-    const b = build({ upscale: true, upscaleBy: 1.5 }, { latentUpscaler: "minimax_h3_latent_upscaler_3d.safetensors" });
+    const b = build({ upscale: "Latent: re-sampled", upscaleBy: 1.5 }, { latentUpscaler: "minimax_h3_latent_upscaler_3d.safetensors" });
     expect(node(b, "MMH3LatentUpscaleWithModelParams")[0]!.inputs).toMatchObject({ model_name: "minimax_h3_latent_upscaler_3d.safetensors", width: 864, height: 1536, offload_model: true });
     expect(node(b, "MMH3LatentUpscaleParams")).toHaveLength(0);
-    expect(node(build({ upscale: true, upscaleWith: "Plain resize" }, { latentUpscaler: "x.safetensors" }), "MMH3LatentUpscaleParams")).toHaveLength(1);
-    expect(() => build({ upscale: true, upscaleWith: "H3's latent upscaler" })).toThrow(/latent_upscale_models/);
+    expect(node(build({ upscale: "Latent: re-sampled", upscaleWith: "Plain resize" }, { latentUpscaler: "x.safetensors" }), "MMH3LatentUpscaleParams")).toHaveLength(1);
+    expect(() => build({ upscale: "Latent: re-sampled", upscaleWith: "H3's latent upscaler" })).toThrow(/latent_upscale_models/);
     // without the node pack, the pass is left out rather than refused
-    expect(node(build({ upscale: true }, {}, (c) => !c.startsWith("MMH3")), "MMH3UltimateUpscale")).toHaveLength(0);
+    expect(node(build({ upscale: "Latent: re-sampled" }, {}, (c) => !c.startsWith("MMH3")), "MMH3UltimateUpscale")).toHaveLength(0);
   });
 
   it("the frame: the short side in the shape's proportions, past 768p when asked, and a picture decides it instead", () => {
@@ -1015,5 +1015,50 @@ describe("H3's upscale pass", () => {
     const spec = h3Video.inputs.find((i) => i.id === "shape")!;
     expect(spec).toMatchObject({ type: "size", short: "short", maxPixels: 1088 * 1920, decidedBy: ["start", "end", "previous", "next"] });
     expect(h3Video.inputs.find((i) => i.id === "short")).toMatchObject({ max: 1088, picks: [480, 576, 768, 1088] });
+  });
+});
+
+describe("the upscale routes of the video forms", () => {
+  const node = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const photo = { width: 1536, height: 2048 };
+  const wanOf = (over: Record<string, unknown> = {}, has: (c: string) => boolean = () => true) =>
+    wanVideo.build(parseInput(wanVideo, { prompt: "a", start: "p", ...over }), dryContext({ slots: { i2vHigh: "h.safetensors", i2vLow: "l.safetensors", clip: "c.safetensors", vae: "v.safetensors", rife: "rife.pth" }, uploads: { start: "a.png" }, media: { start: photo }, has }));
+
+  it("off by itself: nothing between the decode and the file", () => {
+    const b = wanOf({ smooth: false });
+    expect(node(b, "ImageUpscaleWithModel")).toHaveLength(0);
+    expect(node(b, "DaSiWa_RTX_UpscalerRefiner")).toHaveLength(0);
+    expect(wanVideo.nodes(parseInput(wanVideo, { prompt: "a", start: "p" }))).not.toContain("UpscaleModelLoader");
+  });
+
+  it("a pixel upscale model enlarges the final frames, after the frame interpolation, to the factor asked for", () => {
+    const b = wanOf({ upscale: "Pixel: upscale model", upscaleModel: "4x-UltraSharp.pth", upscaleBy: 1.5 });
+    expect(node(b, "UpscaleModelLoader")[0]!.inputs.model_name).toBe("4x-UltraSharp.pth");
+    const scaled = node(b, "ImageScale")[0]!;
+    // the clip is 480 x 640 (a 3:4 picture at 480p): 1.5 x, on a grid of 8
+    expect([scaled.inputs.width, scaled.inputs.height]).toEqual([720, 960]);
+    // the interpolated frames go in, the enlarged frames go to the file
+    const interp = Object.entries(b.graph).find(([, n]) => n.class_type === "FrameInterpolate")![0];
+    expect(node(b, "ImageUpscaleWithModel")[0]!.inputs.image).toEqual([interp, 0]);
+    const out = Object.entries(b.graph).find(([, n]) => n.class_type === "ImageScale")![0];
+    expect(node(b, "VHS_VideoCombine")[0]!.inputs.images).toEqual([out, 0]);
+    expect(b.loads).toContain("upscale_models/4x-UltraSharp.pth");
+    expect(wanVideo.nodes(parseInput(wanVideo, { prompt: "a", start: "p", upscale: "Pixel: upscale model" }))).toContain("ImageUpscaleWithModel");
+  });
+
+  it("RTX Video Super Resolution goes through the node that drives it, and says so when there is none", () => {
+    const b = wanOf({ upscale: "Pixel: RTX Video Super Resolution", upscaleBy: 2 });
+    expect(node(b, "DaSiWa_RTX_UpscalerRefiner")[0]!.inputs).toMatchObject({ upscale: "VSR", upscale_quality: "Ultra", resize_type: "Scale", scale: 2, width: 960, height: 1280 });
+    expect(wanVideo.nodes(parseInput(wanVideo, { prompt: "a", start: "p", upscale: "Pixel: RTX Video Super Resolution" }))).toContain("DaSiWa_RTX_UpscalerRefiner");
+    expect(() => wanOf({ upscale: "Pixel: RTX Video Super Resolution" }, (c) => c !== "DaSiWa_RTX_UpscalerRefiner")).toThrow(/RTX Video Super Resolution needs a node/);
+  });
+
+  it("every video form offers the routes; only H3 offers the latent one", () => {
+    const routes = (r: { inputs: Array<{ id: string; type: string; options?: unknown }> }) => (r.inputs.find((i) => i.id === "upscale") as { options: string[] }).options;
+    expect(routes(wanVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution"]);
+    expect(routes(ltxVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution"]);
+    expect(routes(h3Video)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Latent: re-sampled"]);
+    const ltx = ltxVideo.build(parseInput(ltxVideo, { prompt: "a", upscale: "Pixel: upscale model", upscaleModel: "u.pth" }), dryContext({ slots: { checkpoint: "ltx-2.3-22b-distilled.safetensors", clip: "g.safetensors", upscaler: "up.safetensors" } }));
+    expect(node(ltx, "ImageUpscaleWithModel")).toHaveLength(1);
   });
 });

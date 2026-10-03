@@ -53,6 +53,7 @@ export const h3 = defineFamily({
     },
     {
       id: "latentUpscaler", label: "Latent upscaler (upscale pass)", folder: "latent_upscale_models", detect: ["minimax.?h3.?latent.?upscaler"], optional: true,
+      get: { file: "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors", url: "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/main/minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors" },
       hint: "Optional: with minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, the refine pass uses H3's own latent upscaler. Without it, the clip is resized and re-sampled, which is still sharper than a pixel upscale.",
     },
     {

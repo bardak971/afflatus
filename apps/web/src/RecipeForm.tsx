@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, HelpCircle } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { isShown, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@studai/core";
+import { fuzzyScore, isShown, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@studai/core";
 import { api, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDragged } from "./dragging";
 import { Field, sameValue } from "./fields";
 import { formDefaults } from "./form";
 import { fileLabel } from "./format";
-import { useExplain } from "./store";
 import { Button, cx, ErrorNote, Segmented } from "./ui";
 
 /**
@@ -92,55 +91,111 @@ function groupOf(i: InputSpec): Group {
 
 /**
  * The strip at the top of a form: its parts in the order they are touched, the one in view marked;
- * a click opens a part and scrolls to it. Beside them, whether the form explains its settings.
+ * a click opens a part and scrolls to it. Beside them, a search over the form's settings (typing
+ * leaves only the settings that match).
  */
-function Strip({ parts, open }: { parts: Array<{ id: string; label: string }>; open(id: string): void }) {
+function Strip({ parts, open, query, setQuery, found }: {
+  parts: Array<{ id: string; label: string }>;
+  open(id: string): void;
+  query: string;
+  setQuery(q: string): void;
+  /** How many settings match what is typed. */
+  found: number;
+}) {
   const [current, setCurrent] = useState<string | null>(null);
-  const explain = useExplain();
+  const [searching, setSearching] = useState(false);
   const self = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (searching) box.current?.focus(); }, [searching]);
+  const stop = () => { setQuery(""); setSearching(false); };
+  // a part clicked in the strip stays the current one until the user scrolls on their own: it may not
+  // reach the top of the view (the form's end is near), and the strip must still say what was asked for
+  const pinned = useRef(false);
   useEffect(() => {
     // the nearest thing that scrolls: the form's parts scroll inside it
     let root = self.current?.parentElement ?? null;
     while (root && !/auto|scroll/.test(getComputedStyle(root).overflowY)) root = root.parentElement;
     if (!root) return;
     const elements = parts.map((p) => root.querySelector<HTMLElement>(`[data-part="${p.id}"]`)).filter((e): e is HTMLElement => e !== null);
-    // the part nearest the top of what is shown is the current one
+    // the current part is the one under the strip when a real stretch of it is still in view (not the
+    // tail of a folded line), else the one that fills most of the view
     const tell = () => {
-      const top = root.getBoundingClientRect().top + 56;
+      if (pinned.current) return;
+      const box = root.getBoundingClientRect();
+      const line = box.top + 56;
       let best: string | null = null;
-      for (const el of elements) if (el.getBoundingClientRect().top <= top + 1) best = el.dataset.part ?? null;
+      let most = 0;
+      // scrolled to the end: the last part is the one being read, however short it is
+      const last = elements[elements.length - 1];
+      if (last && root.scrollTop + root.clientHeight >= root.scrollHeight - 2) {
+        setCurrent(last.dataset.part ?? null);
+        return;
+      }
+      for (const el of elements) {
+        const r = el.getBoundingClientRect();
+        if (r.top <= line + 1 && r.bottom > line + 120) { best = el.dataset.part ?? null; break; }
+        const seen = Math.min(r.bottom, box.bottom) - Math.max(r.top, line);
+        if (seen > most) { most = seen; best = el.dataset.part ?? null; }
+      }
       setCurrent(best ?? elements[0]?.dataset.part ?? null);
     };
+    const unpin = () => { pinned.current = false; tell(); };
     tell();
     root.addEventListener("scroll", tell, { passive: true });
-    return () => root.removeEventListener("scroll", tell);
+    root.addEventListener("wheel", unpin, { passive: true });
+    root.addEventListener("touchmove", unpin, { passive: true });
+    return () => {
+      root.removeEventListener("scroll", tell);
+      root.removeEventListener("wheel", unpin);
+      root.removeEventListener("touchmove", unpin);
+    };
   }, [parts]);
   return (
-    <div ref={self} className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center gap-x-1 gap-y-0.5 rounded-lg border border-line bg-raised/95 px-1 py-1 shadow-md shadow-shade/20 backdrop-blur">
-      {parts.map((p) => (
+    <div ref={self} className="sticky top-0 z-10 flex shrink-0 items-center gap-x-0.5 overflow-x-hidden rounded-lg border border-line bg-raised/95 px-1 py-1 shadow-md shadow-shade/20 backdrop-blur">
+      {searching ? (
+        <label className="flex h-7 min-w-0 grow items-center gap-1.5 rounded-full border border-line bg-panel px-2 text-xs focus-within:border-accent">
+          <Search size={13} className="shrink-0 text-ink-2" />
+          <input
+            ref={box}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            // what is typed here is for the form alone: the screen's keys must not react to it
+            onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { e.preventDefault(); stop(); } }}
+            placeholder="Find a setting (steps, cfg, shift, crf, tile…)"
+            aria-label="Find a setting"
+            className="min-w-0 grow bg-transparent placeholder:text-ink-3"
+            style={{ outline: "none" }}
+          />
+          {query.trim() && <span className="shrink-0 text-ink-3">{found}</span>}
+          <button type="button" aria-label="Stop searching" onClick={stop} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={13} /></button>
+        </label>
+      ) : parts.map((p) => (
         <button
           key={p.id}
           type="button"
           onClick={() => {
             open(p.id);
+            pinned.current = true;
+            setCurrent(p.id);
             requestAnimationFrame(() => document.querySelector(`[data-part="${p.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
           }}
-          className={cx("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+          className={cx("min-w-0 shrink rounded-full px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
         >
           {p.label}
         </button>
       ))}
       <span className="grow" />
-      <button
-        type="button"
-        aria-pressed={explain.on}
-        title={explain.on ? "The settings are explained under each one. Click to keep the explanations behind a ? instead." : "Explanations sit behind a ? beside each setting. Click to show them in full."}
-        onClick={() => explain.set(!explain.on)}
-        aria-label="Explain the settings"
-        className={cx("flex h-6 w-6 shrink-0 items-center justify-center rounded-full", explain.on ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}
-      >
-        <HelpCircle size={14} />
-      </button>
+      {!searching && (
+        <button
+          type="button"
+          onClick={() => setSearching(true)}
+          aria-label="Find a setting"
+          title="Find a setting by its name"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"
+        >
+          <Search size={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -221,6 +276,32 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
     );
   };
 
+  // ---- the search: typed, only the settings whose name (or explanation) matches stay on the form
+  const [query, setQuery] = useState("");
+  useEffect(() => setQuery(""), [recipe.id]);
+  const q = query.trim();
+  // forgiving on the name: a word as typed, or its letters in order from the start of a word ("stps" finds
+  // Steps; "tile" does not find Dis-til-led); the explanation, long, only counts when it says the words typed
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const named = (text: string) => {
+    const hay = text.toLowerCase();
+    return words.every((w) => hay.includes(w) || [...hay.matchAll(/(?:^|[\s_\-./()[\]:·,])(\S)/g)].some((m) => m[1] === w[0] && fuzzyScore(w, hay.slice(m.index + m[0].length - 1)) !== null));
+  };
+  const hit = (i: InputSpec) =>
+    !q ||
+    named(`${i.label} ${i.id}${i.type === "number" ? ` ${i.unit ?? ""}` : ""}`) ||
+    (Boolean(i.note) && words.every((w) => i.note!.toLowerCase().includes(w)));
+  const sought = <T extends InputSpec>(list: T[]): T[] => (q ? list.filter(hit) : list);
+  // the settings another setting hides (the upscale factor while the upscale is off): found too, with what shows them
+  const labelOf = (id: string) => recipe.inputs.find((i) => i.id === id)?.label ?? id;
+  const revealedBy = (i: InputSpec): string => {
+    const w = i.showWhen;
+    if (!w) return "";
+    if (typeof w === "string") return `shown when ${labelOf(w)} is set`;
+    return `shown when ${labelOf(w.input)} is ${w.in.map((v) => (v === true ? "on" : v === false ? "off" : fileLabel(String(v)))).join(" or ")}`;
+  };
+  const hidden = q ? recipe.inputs.filter((i) => !isShown(i, values) && !tucked.has(i.id) && hit(i)) : [];
+
   // ---- which input goes in which chapter
   // the negative prompt sits under the prompt in every form that has one, wherever its recipe filed it
   // (a form with no prompt of its own keeps it with its other settings)
@@ -229,16 +310,16 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
   const isOut = (i: InputSpec) => i.section === "out" || i.type === "size" || i.type === "seed" || (i.type === "number" && (i.id === length?.id || i.unit?.trim() === "p"));
   const isMedia = (i: InputSpec) => i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio";
   const front = shown.filter((i) => !i.advanced || underPrompt(i) || isMedia(i));
-  const texts = front.filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt" && i.id !== mainText?.id);
+  const texts = sought(front.filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt" && i.id !== mainText?.id));
   // the inputs: the frames the clip is built on, and what it is shown
-  const frames = shown.filter((i) => i.type === "image" || i.type === "clip");
-  const refs = shown.filter((i) => i.type === "references" || i.type === "audio");
-  const loras = front.filter((i) => i.type === "loras");
-  const out = front.filter(isOut);
+  const frames = sought(shown.filter((i) => i.type === "image" || i.type === "clip"));
+  const refs = sought(shown.filter((i) => i.type === "references" || i.type === "audio"));
+  const loras = sought(front.filter((i) => i.type === "loras"));
+  const out = sought(front.filter(isOut));
   // the model's file and the operation's own settings (how much an img2img may redraw, which upscaler)
-  const knobs = front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i)));
+  const knobs = sought(front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i))));
   // the settings, by what they are about
-  const tuning = shown.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && !isOut(i));
+  const tuning = sought(shown.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && !isOut(i)));
   const sampling = tuning.filter((i) => groupOf(i) === "speed");
   const upscaling = tuning.filter((i) => groupOf(i) === "upscale");
   const encoding = tuning.filter((i) => groupOf(i) === "file");
@@ -288,7 +369,7 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
       const frame = !decided && s && Number.isFinite(short) && short > 0 ? frameOf(s, short, { grid: i.grid, maxPixels: i.maxPixels ?? Infinity }) : null;
       const ratio = shape?.label ?? `${s?.width} : ${s?.height}`;
       const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
-      const by = i.scaledBy && values[i.scaledBy.on] ? Number(values[i.scaledBy.by] ?? 2) : 0;
+      const by = i.scaledBy && values[i.scaledBy.on] && values[i.scaledBy.on] !== "Off" ? Number(values[i.scaledBy.by] ?? 2) : 0;
       const up = frame && by ? ` → ${r32(frame.width * by)} × ${r32(frame.height * by)} · ${megapixels(r32(frame.width * by), r32(frame.height * by))}` : "";
       return frame ? `${ratio} · ${frame.width} × ${frame.height} · ${megapixels(frame.width, frame.height)}${up}` : decided ? "size of the input image" : ratio;
     }
@@ -355,8 +436,11 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
   // the two tabs of the inputs: frames, and references; the one looked at is remembered
   const onRefs = useParts((st) => st.open["inputs:references"] ?? false);
   const setPart = useParts((st) => st.set);
+  // while searching, what a screen adds (the model picker, the cast, the designer) steps aside: it is not a setting
   const hasFrames = frames.length > 0;
-  const hasRefs = refs.length > 0 || Boolean(look);
+  const hasRefs = refs.length > 0 || (Boolean(look) && !q);
+  const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0);
+  const found = knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
   const refsCount = refsSaid.length;
   const tab = hasFrames && hasRefs ? (onRefs ? "references" : "frames") : hasFrames ? "frames" : "references";
   // something dragged in: the tab that takes it comes forward
@@ -365,8 +449,8 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
   const shownTab = framesTake ? "frames" : refsTake ? "references" : tab;
 
   const parts = [
-    ...(made || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
-    ...(mainText ? [{ id: "prompt", label: "Prompt" }] : []),
+    ...((made && !q) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
+    ...(promptHit ? [{ id: "prompt", label: "Prompt" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
     ...(sampling.length || upscaling.length ? [{ id: "sampling", label: "Sampling" }] : []),
     ...(out.length || encoding.length ? [{ id: "output", label: "Output" }] : []),
@@ -375,24 +459,25 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
 
   return (
     <>
-      <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true)} />
-      {(made || knobs.length > 0 || loras.length > 0) && (
-        <Part id="model" title="Model" summary={modelSaid || recipe.title} warn={warnOf([...knobs, ...loras])}>
-          {made}
+      <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true)} query={query} setQuery={setQuery} found={found} />
+      {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
+      {((made && !q) || knobs.length > 0 || loras.length > 0) && (
+        <Part id="model" title="Model" summary={modelSaid || recipe.title} warn={warnOf([...knobs, ...loras])} needs={Boolean(q)}>
+          {!q && made}
           {knobs.map(render)}
           {loras.map(render)}
         </Part>
       )}
-      {mainText && (
+      {mainText && promptHit && (
         <div data-part="prompt" className="flex scroll-mt-12 flex-col gap-1.5">
-          {helpers}
-          {isShown(mainText, values) && render(mainText)}
+          {!q && helpers}
+          {isShown(mainText, values) && (!q || hit(mainText)) && render(mainText)}
           {texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}
         </div>
       )}
       {(hasFrames || hasRefs) && (
-        <Part id="inputs" title="Inputs" summary={inputsSaid} warn={warnOf([...frames, ...refs])} needs={missing || framesTake || refsTake}>
-          {hasFrames && hasRefs && (
+        <Part id="inputs" title="Inputs" summary={inputsSaid} warn={warnOf([...frames, ...refs])} needs={missing || framesTake || refsTake || Boolean(q)}>
+          {hasFrames && hasRefs && !q && (
             <div className="w-full">
               <Segmented<"frames" | "references">
                 label="Which inputs"
@@ -405,14 +490,14 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
               />
             </div>
           )}
-          {shownTab === "frames" && frames.map(render)}
-          {shownTab === "references" && look}
-          {shownTab === "references" && refs.map(render)}
+          {(shownTab === "frames" || q) && frames.map(render)}
+          {shownTab === "references" && !q && look}
+          {(shownTab === "references" || q) && refs.map(render)}
         </Part>
       )}
       {(sampling.length > 0 || upscaling.length > 0) && (
-        <Part id="sampling" title="Sampling" summary={<>{samplingSaid}{changedMark([...sampling, ...upscaling])}</>} warn={warnOf([...sampling, ...upscaling])}>
-          {perModel.length > 0 && file && (
+        <Part id="sampling" title="Sampling" summary={<>{samplingSaid}{changedMark([...sampling, ...upscaling])}</>} warn={warnOf([...sampling, ...upscaling])} needs={Boolean(q)}>
+          {perModel.length > 0 && file && !q && (
             <div className="flex flex-col gap-2 text-xs text-ink-2">
               <span>
                 {differs.length
@@ -435,16 +520,24 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
         </Part>
       )}
       {(out.length > 0 || encoding.length > 0) && (
-        <Part id="output" title="Output" summary={<>{outSaid}{changedMark(encoding)}</>} warn={warnOf([...out, ...encoding])}>
+        <Part id="output" title="Output" summary={<>{outSaid}{changedMark(encoding)}</>} warn={warnOf([...out, ...encoding])} needs={Boolean(q)}>
           {out.map(render)}
           {encoding.length > 0 && heading("Encode", "frame rate, frame interpolation, compression")}
           {encoding.map(setting)}
         </Part>
       )}
       {rare.length > 0 && (
-        <Part id="advanced" title="Advanced" summary={<>{count(rare.length, "setting")}{changedMark(rare)}</>} warn={warnOf(rare)}>
+        <Part id="advanced" title="Advanced" summary={<>{count(rare.length, "setting")}{changedMark(rare)}</>} warn={warnOf(rare)} needs={Boolean(q)}>
           {rare.map(setting)}
         </Part>
+      )}
+      {hidden.length > 0 && (
+        <section className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2">
+          <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Not shown now</span>
+          {hidden.map((i) => (
+            <span key={i.id} className="text-xs text-ink-2"><span className="font-semibold text-ink">{i.label}</span> · {revealedBy(i)}</span>
+          ))}
+        </section>
       )}
     </>
   );

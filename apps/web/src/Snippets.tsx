@@ -145,7 +145,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
           <div className="flex shrink-0 items-center gap-1.5 border-b border-line p-2">
             <span className="flex h-8 min-w-0 grow items-center gap-2 rounded-md bg-raised px-2">
               <Search size={13} className="shrink-0 text-ink-3" />
-              <input autoFocus aria-label="Search your snippets" placeholder={`Search ${all.length} snippet${all.length === 1 ? "" : "s"}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+              <input data-search autoFocus aria-label="Search your snippets" placeholder={`Search ${all.length} snippet${all.length === 1 ? "" : "s"}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
               {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-2 hover:text-ink"><X size={13} /></button>}
             </span>
             <Button size="sm" disabled={!rollable} title={rollable ? "Tick one snippet of each category at random, in place of the ones ticked now" : "Give your snippets categories: a roll ticks one of each"} onClick={() => set(rollSnippets(mine))}>
