@@ -175,7 +175,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             value={using.llm ?? ""}
             onChange={(id) => choose({ llm: id })}
             options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "vision · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
-            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Add or edit LLMs in Settings</Link>}
+            footer={() => <Link href="/settings/designer" className="text-xs text-ink-2 underline">Add or edit LLMs in Settings</Link>}
           />
           <Select
             size="sm"
@@ -185,7 +185,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             value={using.instruction || "none"}
             onChange={(id) => choose({ instruction: id === "none" ? "" : id })}
             options={[{ value: "none", label: "No system prompt", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
-            footer={() => <Link href="/settings" className="text-xs text-ink-2 underline">Write your own system prompts in Settings</Link>}
+            footer={() => <Link href="/settings/designer" className="text-xs text-ink-2 underline">Write your own system prompts in Settings</Link>}
           />
           <Button
             size="sm"
@@ -202,7 +202,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
         {remember.isError && <ErrorNote>{remember.error.message}</ErrorNote>}
         {!ready && settings.isSuccess && (
-          <ErrorNote>The designer has no LLM yet. <Link href="/settings" className="font-semibold underline">Add one in Settings</Link>: any OpenAI-compatible API works, on your computer or elsewhere.</ErrorNote>
+          <ErrorNote>The designer has no LLM yet. <Link href="/settings/designer" className="font-semibold underline">Add one in Settings</Link>: any OpenAI-compatible API works, on your computer or elsewhere.</ErrorNote>
         )}
         {!turns.length && ready && (
           <div className="text-ink-2">

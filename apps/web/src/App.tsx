@@ -61,7 +61,7 @@ function Strip() {
       {queue.data && queue.data.waiting.length > 0 && <span className="shrink-0 text-ink-2">{queue.data.waiting.length} queued</span>}
       <span className="grow" />
       {fetching.length > 0 && (
-        <Link href="/settings" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
+        <Link href="/settings/models" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
           {fetching.length === 1 ? `Downloading ${fetching[0]!.file.split(/[\\/]/).pop()}` : `Downloading ${fetching.length} files`}
           {fetching.length === 1 && fetching[0]!.total > 0 && ` · ${Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100)}%`}
         </Link>
@@ -119,6 +119,7 @@ export function App() {
           <Route path="/workflows" component={Workflows} />
           <Route path="/queue" component={Queue} />
           <Route path="/settings" component={Setup} />
+          <Route path="/settings/:tab" component={Setup} />
           {/* the screen's old address still leads to it */}
           <Route path="/setup"><Redirect to="/settings" /></Route>
           <Route>

@@ -322,7 +322,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
         </div>
       )}
       {storage.data && (
-        <Link href="/settings" title="Disk usage breakdown and how to free space: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
+        <Link href="/settings/storage" title="Disk usage breakdown and how to free space: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
           {size(storage.data.total)} used
           {storage.data.idleTakes.bytes + storage.data.bin.bytes > 0 ? ` · ${size(storage.data.idleTakes.bytes + storage.data.bin.bytes)} could be freed` : ""}
         </Link>

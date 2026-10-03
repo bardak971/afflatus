@@ -370,7 +370,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         {send.isError && <ErrorNote>{send.error.message}</ErrorNote>}
         {blocked && (
           <ErrorNote>
-            {blocked} <Link href="/settings" className="font-semibold underline">Open settings</Link>
+            {blocked} <Link href="/settings/models" className="font-semibold underline">Open settings</Link>
           </ErrorNote>
         )}
         {recipe && recipe.inputs.some((i) => i.type === "prompt" && hasWildcards(String(whole[i.id] ?? ""))) && (

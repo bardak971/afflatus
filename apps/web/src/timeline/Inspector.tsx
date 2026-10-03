@@ -405,7 +405,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
       {recipe && !still && (
         <div className="flex shrink-0 flex-col gap-2 border-t border-line p-4">
           {error && <ErrorNote>{error}</ErrorNote>}
-          {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href="/settings" className="font-semibold underline">Open Settings</Link> : null}</div>}
+          {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href={why.includes("ComfyUI") ? "/settings" : "/settings/models"} className="font-semibold underline">Open Settings</Link> : null}</div>}
           {canFit && <Toggle on={fit} onChange={setFit} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />}
           {whole && !clip.job && <FormModel recipe={recipe} input={whole} look={clip.look ?? timeline.look} />}
           {clip.job ? (

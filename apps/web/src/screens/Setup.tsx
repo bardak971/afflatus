@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type LlmInfo, type Settings } from "../api";
+import { Link, useLocation, useParams } from "wouter";
+import { ChevronDown, Search, X } from "lucide-react";
+import { fuzzyScore } from "@afflatus/core";
+import { api, type LlmInfo, type RecipeInfo, type Settings } from "../api";
 import { useFamilies, useRecipes, useSettings, useSetup, useStorage } from "../data";
-import { Link } from "wouter";
-import { ChevronDown } from "lucide-react";
-import { fileLabel, gb, problemSaid, recipeLabel, size } from "../format";
+import { fileLabel, gb, problemSaid, size } from "../format";
 import { allowNotifications, useNotify } from "../store";
 import { DownloadRow, GetFile, useDownloads } from "../GetFile";
 import { Select } from "../Select";
@@ -639,10 +640,10 @@ function ModelSwitches() {
   );
 }
 
-export function Setup() {
+/** ComfyUI's address and folder, the test, and when its models are unloaded. */
+function ComfyCard() {
   const settings = useSettings();
   const setup = useSetup();
-  const recipes = useRecipes();
   const client = useQueryClient();
   const [url, setUrl] = useState("");
   const [dir, setDir] = useState("");
@@ -656,7 +657,6 @@ export function Setup() {
     mutationFn: () => api.saveSettings({ comfyDir: dir.trim() }),
     onSuccess: (saved) => client.setQueryData(["settings"], saved),
   });
-
   /** Save the address if it changed, then ask ComfyUI again. Only reads: nothing is queued or loaded. */
   const test = useMutation({
     mutationFn: async () => {
@@ -668,159 +668,309 @@ export function Setup() {
       void client.invalidateQueries({ queryKey: ["settings"] });
     },
   });
-
   const comfy = setup.data?.comfy;
-  // what is listed as ready or not: the models that are on. One that is off says what it needs where it is switched.
-  const families = useFamilies();
-  const listed = (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family));
-  const ready = listed.filter((r) => setup.data?.recipes.find((x) => x.id === r.id)?.ready).length;
-
   return (
-    <div className="flex min-h-0 grow flex-col overflow-y-auto px-8 pb-8">
-      <header className="flex h-20 shrink-0 flex-col justify-center">
+    <section id="comfyui" className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[15px] font-bold">ComfyUI</h2>
+        {comfy && (
+          <span className={cx("flex items-center gap-1.5 font-semibold", comfy.online ? "text-good" : "text-warn-ink")}>
+            <span className={cx("h-2 w-2 rounded-full", comfy.online ? "bg-good" : "bg-warn")} />
+            {comfy.online ? "Connected" : "Not answering"}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="comfy-url" className="text-xs text-ink-2">ComfyUI URL</label>
+        <div className="flex gap-2">
+          <input
+            id="comfy-url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            spellCheck={false}
+            className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
+          />
+          <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>
+        </div>
+      </div>
+      {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
+      {comfy?.online === false && <ErrorNote>{comfy.error}</ErrorNote>}
+      {comfy?.online && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-ink-2">
+          <dt>Version</dt><dd className="text-ink">{comfy.version}</dd>
+          <dt>GPU</dt><dd className="text-ink">{comfy.device}</dd>
+          <dt>VRAM</dt><dd className="text-ink">{gb(comfy.vramTotal)} ({gb(comfy.vramFree)} free)</dd>
+          <dt>Node types</dt><dd className="text-ink">{comfy.nodes}</dd>
+        </dl>
+      )}
+      <div className="text-xs text-ink-3">Testing only reads what ComfyUI has. It never starts a render or loads a model.</div>
+      <div className="flex flex-col gap-1.5 border-t border-line pt-3">
+        <label htmlFor="comfy-dir" className="text-xs text-ink-2">ComfyUI folder on this computer <span className="text-ink-3">(optional: the one with main.py; lets "Open in ComfyUI" show the workflow straight away)</span></label>
+        <div className="flex gap-2">
+          <input
+            id="comfy-dir"
+            value={dir}
+            onChange={(e) => setDir(e.target.value)}
+            placeholder="D:\\ComfyUI  —  empty when ComfyUI runs elsewhere"
+            spellCheck={false}
+            className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
+          />
+          <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
+        </div>
+        {saveDir.isError && <ErrorNote>{saveDir.error.message}</ErrorNote>}
+      </div>
+      {settings.data && (
+        <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+          <span className="min-w-0">
+            Unload models after
+            <span className="block text-xs text-ink-2">{settings.data.unloadAfterMinutes > 0 ? "minutes without a render: the VRAM is freed. The next render loads them again." : "0 = never: they stay loaded until something else needs the VRAM. \"Unload models\" in the Queue does it manually."}</span>
+          </span>
+          <NumberBox
+            label="Minutes without a render before ComfyUI's models are unloaded"
+            value={settings.data.unloadAfterMinutes}
+            min={0}
+            max={1440}
+            unit="min"
+            onCommit={(v) => void api.saveSettings({ unloadAfterMinutes: v }).then((saved) => client.setQueryData(["settings"], saved))}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** One recipe: ready, or what it lacks and how to get it. */
+function ReadyRow({ r }: { r: RecipeInfo }) {
+  const setup = useSetup();
+  const recipes = useRecipes();
+  const s = setup.data?.recipes.find((x) => x.id === r.id);
+  const family = recipes.data?.families.find((f) => f.id === r.family);
+  const problems = [
+    ...(s?.missingNodes.length ? [`Missing custom nodes: ${s.missingNodes.join(", ")}`] : []),
+    ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.id.startsWith("workflow.") ? " Fix it in Workflows, with Edit." : ""}`),
+    ...(s?.emptyInputs ?? []).map((id) => {
+      const input = r.inputs.find((i) => i.id === id);
+      return `ComfyUI has no model file for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
+    }),
+  ];
+  const find = (file: string) => encodeURIComponent(fileLabel(file));
+  // the family's own files: the ones it cannot run without, and the ones only some of its options need
+  const slots = setup.data?.families.find((f) => f.id === r.family)?.slots ?? [];
+  const needed = slots.filter((x) => s?.missingSlots.includes(x.id));
+  const extra = s?.ready ? slots.filter((x) => x.optional && !x.file && x.get) : [];
+  return (
+    <div className="flex flex-col gap-1 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-semibold">{r.title}</span>
+        <span className={cx("shrink-0 text-xs font-semibold", s?.ready ? "text-good" : "text-warn-ink")}>{s ? (s.ready ? "Ready" : "Not ready") : "Unknown"}</span>
+      </div>
+      {problems.map((p) => <div key={p} className="text-warn-ink">{p}</div>)}
+      {needed.map((x) => (
+        <div key={x.id} className="text-warn-ink">
+          <span className="font-semibold">{x.label}</span> is missing. {x.hint}
+          {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
+        </div>
+      ))}
+      {extra.map((x) => (
+        <div key={x.id} className="text-ink-2">
+          <span className="font-semibold">{x.label}</span>: not there. {x.hint}
+          {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
+        </div>
+      ))}
+      {(s?.missing ?? []).map(({ file, folder, url }) => (
+        <div key={file} className="text-warn-ink">
+          Your ComfyUI does not have <span className="font-semibold break-all">{fileLabel(file)}</span>. Search for it on{" "}
+          <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a> or{" "}
+          <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
+          {r.id.startsWith("workflow.") && <>, or pick another file for it: <Link href="/workflows" className="font-semibold underline">Workflows</Link>, then Edit</>}.
+          <GetFile file={file} folder={folder} url={url} hints={family?.name ? [family.name] : []} />
+        </div>
+      ))}
+      {s?.limitedBy.length ? <div className="text-ink-2">Some options are off, missing custom nodes: {s.limitedBy.join(", ")}</div> : null}
+      {s?.ready && (
+        <div className="text-xs text-ink-2">
+          {Object.entries(s.options).map(([k, v]) => `${r.inputs.find((i) => i.id === k)?.label ?? k}: ${v.length}`).join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What is ready, by model family: one line per family that says how many of its operations can run,
+ * open when something is missing, folded when all is well. Only the families that are on are listed.
+ */
+function ReadyList() {
+  const setup = useSetup();
+  const recipes = useRecipes();
+  const families = useFamilies();
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+  const listed = (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family));
+  const readyOf = (id: string) => setup.data?.recipes.find((x) => x.id === id)?.ready ?? false;
+  const ready = listed.filter((r) => readyOf(r.id)).length;
+  const groups = (recipes.data?.families ?? []).map((f) => ({ family: f, recipes: listed.filter((r) => r.family === f.id) })).filter((g) => g.recipes.length);
+  return (
+    <section id="ready" className="flex flex-col gap-2.5 rounded-xl border border-line bg-panel p-[18px]">
+      <h2 className="text-[15px] font-bold">What is ready</h2>
+      {setup.isLoading && <div className="text-ink-2">Asking ComfyUI…</div>}
+      {setup.isError && <ErrorNote>{setup.error.message}</ErrorNote>}
+      {setup.data && <div className="text-ink-2">{ready} of {listed.length} operations ready. Models that are off are not listed.</div>}
+      <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
+        {groups.map(({ family, recipes: mine }) => {
+          const good = mine.filter((r) => readyOf(r.id)).length;
+          const all = good === mine.length;
+          // a family with something missing starts open; one that is all ready starts folded
+          const open = opened[family.id] ?? (setup.data ? !all : false);
+          return (
+            <div key={family.id} className="flex flex-col">
+              <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [family.id]: !open })} className="flex h-11 items-center gap-3 px-3 text-left hover:bg-hover">
+                <span className="truncate font-semibold">{family.name}</span>
+                <span className="grow" />
+                <span className={cx("shrink-0 text-xs font-semibold", !setup.data ? "text-ink-3" : all ? "text-good" : "text-warn-ink")}>{setup.data ? (all ? `${mine.length} ready` : `${good} of ${mine.length} ready`) : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
+                <ChevronDown size={14} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
+              </button>
+              {open && <div className="flex flex-col divide-y divide-line border-t border-line bg-raised">{mine.map((r) => <ReadyRow key={r.id} r={r} />)}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** The app itself: its version, where it runs, what it talks to. */
+function AboutCard() {
+  const health = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: Infinity });
+  const setup = useSetup();
+  const comfy = setup.data?.comfy;
+  return (
+    <section id="about" className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
+      <h2 className="text-[15px] font-bold">About</h2>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-ink-2">
+        <dt>Afflatus</dt><dd className="text-ink">{health.data ? `version ${health.data.version}` : "…"}</dd>
+        <dt>Database</dt><dd className="text-ink">{health.data?.database ?? "…"}</dd>
+        <dt>ComfyUI</dt><dd className="text-ink">{comfy?.online ? `${comfy.version} · ${comfy.nodes} node types · ${comfy.device}` : comfy ? "not answering" : "…"}</dd>
+        <dt>License</dt><dd className="text-ink">AGPL-3.0</dd>
+        <dt>Source</dt><dd><a className="font-semibold text-ink underline" href="https://github.com/bardak971/afflatus" target="_blank" rel="noreferrer">github.com/bardak971/afflatus</a></dd>
+      </dl>
+      <div className="text-xs text-ink-3">Afflatus runs in front of your own ComfyUI. Nothing leaves your computer unless you ask for a download or a lookup.</div>
+    </section>
+  );
+}
+
+const TABS = [
+  { id: "comfyui", label: "ComfyUI" },
+  { id: "models", label: "Models" },
+  { id: "designer", label: "Designer" },
+  { id: "prompts", label: "Prompts" },
+  { id: "appearance", label: "Appearance" },
+  { id: "storage", label: "Storage" },
+  { id: "notifications", label: "Notifications" },
+  { id: "about", label: "About" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
+
+/** Every setting, by the words someone would look for: what the search box finds, and the tab it is on. */
+const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
+  { tab: "comfyui", label: "ComfyUI URL", words: "address connection test port 8188" },
+  { tab: "comfyui", label: "ComfyUI folder on this computer", words: "open in comfyui directory main.py" },
+  { tab: "comfyui", label: "Unload models after N minutes", words: "vram free idle" },
+  { tab: "models", label: "Models on or off in the lists", words: "families switch hide" },
+  { tab: "models", label: "What is ready", words: "missing files nodes operations" },
+  { tab: "models", label: "Civitai API key", words: "token" },
+  { tab: "models", label: "Civitai lookups", words: "trigger words model pages lora names" },
+  { tab: "models", label: "Download missing files into ComfyUI", words: "manager" },
+  { tab: "models", label: "Download a model from a URL", words: "link hugging face civitai get" },
+  { tab: "designer", label: "LLMs", words: "language model base url api key vision openai" },
+  { tab: "designer", label: "System prompts", words: "instructions designer" },
+  { tab: "designer", label: "Context size and max output tokens", words: "thinking" },
+  { tab: "designer", label: "Forget every conversation", words: "chat history" },
+  { tab: "prompts", label: "Danbooru tag check", words: "typo tags" },
+  { tab: "appearance", label: "Theme", words: "dark light catppuccin rose pine system" },
+  { tab: "appearance", label: "Accent colour", words: "color" },
+  { tab: "appearance", label: "Explain every setting in the forms", words: "help tooltips" },
+  { tab: "storage", label: "Disk usage", words: "space size" },
+  { tab: "storage", label: "Empty the bin", words: "trash delete" },
+  { tab: "storage", label: "Takes that never play", words: "idle" },
+  { tab: "storage", label: "Render times kept for", words: "history retention days forget" },
+  { tab: "notifications", label: "Notify when the queue is empty", words: "browser notification" },
+  { tab: "notifications", label: "Notify after each render", words: "browser notification" },
+  { tab: "about", label: "Version", words: "about license source github" },
+];
+
+/** Settings, in tabs: one for each thing being set up. The address carries the tab. */
+export function Setup() {
+  const params = useParams<{ tab?: string }>();
+  const [, go] = useLocation();
+  const tab: Tab = TABS.some((t) => t.id === params.tab) ? (params.tab as Tab) : "comfyui";
+  const [typed, setTyped] = useState("");
+  // each word typed is in the entry as typed, or as letters in order from the start of one of its words
+  // ("civit" finds Civitai; "bin" does not find "github")
+  const found = useMemo(() => {
+    const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const matches = (text: string) => {
+      const hay = text.toLowerCase();
+      return words.every((w) => hay.includes(w) || hay.split(/[\s/,()-]+/).some((part) => part.startsWith(w[0]!) && fuzzyScore(w, part) !== null));
+    };
+    return INDEX.filter((i) => matches(`${i.label} ${i.words ?? ""} ${TABS.find((t) => t.id === i.tab)!.label}`)).slice(0, 8);
+  }, [typed]);
+  const open = (t: Tab) => {
+    go(t === "comfyui" ? "/settings" : `/settings/${t}`);
+    setTyped("");
+  };
+  return (
+    <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
+      <header className="flex h-20 shrink-0 items-center gap-5">
         <h1 className="text-xl font-semibold">Settings</h1>
-        <div className="text-ink-2">ComfyUI connection, models, and what is ready.</div>
+        <div role="tablist" aria-label="Settings" className="flex shrink-0 gap-1 rounded-[9px] bg-raised p-[3px]">
+          {TABS.map((t) => (
+            <button key={t.id} type="button" role="tab" aria-selected={t.id === tab} onClick={() => open(t.id)} className={cx("h-7 rounded-md px-3 text-xs font-semibold whitespace-nowrap", t.id === tab ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:text-ink")}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <span className="grow" />
+        <div className="relative">
+          <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
+            <Search size={14} className="shrink-0 text-ink-3" />
+            <input data-search aria-label="Find a setting" placeholder="Find a setting" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) open(found[0].tab); }} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
+            {typed && <button type="button" aria-label="Clear" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+          </label>
+          {typed.trim() && (
+            <div role="listbox" aria-label="Settings found" className="absolute right-0 z-20 mt-1 flex w-80 flex-col overflow-hidden rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60">
+              {found.length === 0 && <span className="px-3 py-2 text-xs text-ink-2">No setting matches “{typed}”.</span>}
+              {found.map((f) => (
+                <button key={`${f.tab}:${f.label}`} type="button" role="option" aria-selected={false} onClick={() => open(f.tab)} className="flex items-baseline gap-2 px-3 py-1.5 text-left hover:bg-hover">
+                  <span className="min-w-0 grow truncate text-sm">{f.label}</span>
+                  <span className="shrink-0 text-xs text-ink-3">{TABS.find((t) => t.id === f.tab)!.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </header>
 
-      <div className="grid grid-cols-2 items-start gap-5">
-        <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[15px] font-bold">ComfyUI</h2>
-            {comfy && (
-              <span className={cx("flex items-center gap-1.5 font-semibold", comfy.online ? "text-good" : "text-warn-ink")}>
-                <span className={cx("h-2 w-2 rounded-full", comfy.online ? "bg-good" : "bg-warn")} />
-                {comfy.online ? "Connected" : "Not answering"}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="comfy-url" className="text-xs text-ink-2">ComfyUI URL</label>
-            <div className="flex gap-2">
-              <input
-                id="comfy-url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                spellCheck={false}
-                className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
-              />
-              <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>
+      <div className="min-h-0 grow overflow-y-auto pb-4">
+        {tab === "comfyui" && <div className="max-w-[760px]"><ComfyCard /></div>}
+        {tab === "models" && (
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_440px]">
+            <div className="flex flex-col gap-5">
+              <section id="model-switches" className="flex flex-col gap-2.5 rounded-xl border border-line bg-panel p-[18px]"><ModelSwitches /></section>
+              <ReadyList />
+            </div>
+            <div className="flex flex-col gap-5">
+              <CivitaiCard />
+              <LinkCard />
             </div>
           </div>
-          {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
-          {comfy?.online === false && <ErrorNote>{comfy.error}</ErrorNote>}
-          {comfy?.online && (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-ink-2">
-              <dt>Version</dt><dd className="text-ink">{comfy.version}</dd>
-              <dt>GPU</dt><dd className="text-ink">{comfy.device}</dd>
-              <dt>VRAM</dt><dd className="text-ink">{gb(comfy.vramTotal)} ({gb(comfy.vramFree)} free)</dd>
-              <dt>Node types</dt><dd className="text-ink">{comfy.nodes}</dd>
-            </dl>
-          )}
-          <div className="text-xs text-ink-3">Testing only reads what ComfyUI has. It never starts a render or loads a model.</div>
-          <div className="flex flex-col gap-1.5 border-t border-line pt-3">
-            <label htmlFor="comfy-dir" className="text-xs text-ink-2">ComfyUI folder on this computer <span className="text-ink-3">(optional: the one with main.py; lets "Open in ComfyUI" show the workflow straight away)</span></label>
-            <div className="flex gap-2">
-              <input
-                id="comfy-dir"
-                value={dir}
-                onChange={(e) => setDir(e.target.value)}
-                placeholder="D:\\ComfyUI  —  empty when ComfyUI runs elsewhere"
-                spellCheck={false}
-                className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
-              />
-              <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
-            </div>
-            {saveDir.isError && <ErrorNote>{saveDir.error.message}</ErrorNote>}
-          </div>
-          {settings.data && (
-            <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
-              <span className="min-w-0">
-                Unload models after
-                <span className="block text-xs text-ink-2">{settings.data.unloadAfterMinutes > 0 ? "minutes without a render: the VRAM is freed. The next render loads them again." : "0 = never: they stay loaded until something else needs the VRAM. \"Unload models\" in the Queue does it manually."}</span>
-              </span>
-              <NumberBox
-                label="Minutes without a render before ComfyUI's models are unloaded"
-                value={settings.data.unloadAfterMinutes}
-                min={0}
-                max={1440}
-                unit="min"
-                onCommit={(v) => void api.saveSettings({ unloadAfterMinutes: v }).then((saved) => client.setQueryData(["settings"], saved))}
-              />
-            </div>
-          )}
-        </section>
-
-        <div className="col-start-1 flex flex-col gap-5">
-          <AppearanceCard />
-          <DesignerCard />
-          <WritingCard />
-          <StorageCard />
-          <CivitaiCard />
-          <LinkCard />
-          <NotifyCard />
-        </div>
-
-        <section className="col-start-2 row-span-2 row-start-1 flex flex-col gap-2.5 rounded-xl border border-line bg-panel p-[18px]">
-          <ModelSwitches />
-          <h2 className="pt-2 text-[15px] font-bold">What is ready</h2>
-          {setup.isLoading && <div className="text-ink-2">Asking ComfyUI…</div>}
-          {setup.isError && <ErrorNote>{setup.error.message}</ErrorNote>}
-          {setup.data && <div className="text-ink-2">{ready} of {listed.length} ready. Models that are off are not listed.</div>}
-          {listed.map((r) => {
-            const s = setup.data?.recipes.find((x) => x.id === r.id);
-            const family = recipes.data?.families.find((f) => f.id === r.family);
-            const problems = [
-              ...(s?.missingNodes.length ? [`Missing custom nodes: ${s.missingNodes.join(", ")}`] : []),
-
-              ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.id.startsWith("workflow.") ? " Fix it in Workflows, with Edit." : ""}`),
-              ...(s?.emptyInputs ?? []).map((id) => {
-                const input = r.inputs.find((i) => i.id === id);
-                return `ComfyUI has no model file for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
-              }),
-            ];
-            const find = (file: string) => encodeURIComponent(fileLabel(file));
-            // the family's own files: the ones it cannot run without, and the ones only some of its options need
-            const slots = setup.data?.families.find((f) => f.id === r.family)?.slots ?? [];
-            const needed = slots.filter((x) => s?.missingSlots.includes(x.id));
-            const extra = s?.ready ? slots.filter((x) => x.optional && !x.file && x.get) : [];
-            return (
-              <div key={r.id} className="flex flex-col gap-1 rounded-lg border border-line px-3 py-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold">{recipeLabel(family?.name, r.title)}</span>
-                  <span className={cx("shrink-0 font-semibold", s?.ready ? "text-good" : "text-warn-ink")}>{s ? (s.ready ? "Ready" : "Not ready") : "Unknown"}</span>
-                </div>
-                {problems.map((p) => <div key={p} className="text-warn-ink">{p}</div>)}
-                {needed.map((x) => (
-                  <div key={x.id} className="text-warn-ink">
-                    <span className="font-semibold">{x.label}</span> is missing. {x.hint}
-                    {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
-                  </div>
-                ))}
-                {extra.map((x) => (
-                  <div key={x.id} className="text-ink-2">
-                    <span className="font-semibold">{x.label}</span>: not there. {x.hint}
-                    {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
-                  </div>
-                ))}
-                {(s?.missing ?? []).map(({ file, folder, url }) => (
-                  <div key={file} className="text-warn-ink">
-                    Your ComfyUI does not have <span className="font-semibold break-all">{fileLabel(file)}</span>. Search for it on{" "}
-                    <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a> or{" "}
-                    <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
-                    {r.id.startsWith("workflow.") && <>, or pick another file for it: <Link href="/workflows" className="font-semibold underline">Workflows</Link>, then Edit</>}.
-                    <GetFile file={file} folder={folder} url={url} hints={family?.name ? [family.name] : []} />
-                  </div>
-                ))}
-                {s?.limitedBy.length ? <div className="text-ink-2">Some options are off, missing custom nodes: {s.limitedBy.join(", ")}</div> : null}
-                {s?.ready && (
-                  <div className="text-xs text-ink-2">
-                    {Object.entries(s.options).map(([k, v]) => `${r.inputs.find((i) => i.id === k)?.label ?? k}: ${v.length}`).join(" · ")}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </section>
+        )}
+        {tab === "designer" && <div className="max-w-[900px]"><DesignerCard /></div>}
+        {tab === "prompts" && <div className="max-w-[760px]"><WritingCard /></div>}
+        {tab === "appearance" && <div className="max-w-[900px]"><AppearanceCard /></div>}
+        {tab === "storage" && <div className="max-w-[760px]"><StorageCard /></div>}
+        {tab === "notifications" && <div className="max-w-[760px]"><NotifyCard /></div>}
+        {tab === "about" && <div className="max-w-[760px]"><AboutCard /></div>}
       </div>
     </div>
   );

@@ -45,7 +45,7 @@ export function Banners() {
       for (const d of list) {
         if (seenDownloads.current.get(d.id) === d.status) continue;
         const name = d.file.split(/[\\/]/).pop() ?? d.file;
-        if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings", go: "Open settings" });
+        if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings/models", go: "Open settings" });
         if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" });
       }
     }

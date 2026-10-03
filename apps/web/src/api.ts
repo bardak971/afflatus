@@ -652,6 +652,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const api = {
   recipes: () => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes"),
   setup: (fresh = false) => call<Scan>("GET", `/setup${fresh ? "?fresh=1" : ""}`),
+  health: () => call<{ ok: true; version: string; database: string }>("GET", "/health"),
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
   queue: () => call<QueueStatus>("GET", "/queue"),
