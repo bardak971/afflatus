@@ -163,6 +163,7 @@ export const hiresPass = (input: HiresPass) => ({
 export const MASK_NODES = ["LoadImageMask", "CropMask", "MaskToImage", "ImageToMask", "GrowMask", "ImageBlur", "ImageCrop", "ImageScale", "ImageCompositeMasked", "SetLatentNoiseMask"];
 
 /** The upscale models that suit most pictures, best first. */
-export const UPSCALER_PREFER = ["ultrasharp", "x4plus(?!.*anime)", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)"];
+/** Which upscale model a picture recipe starts on when its default is not there: UltraSharp, else Nomos8kSC (photos), else a general one, never an anime one. */
+export const UPSCALER_PREFER = ["ultrasharp", "nomos8ksc", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)"];
 /** The face detectors of the Impact Pack, best first. */
 export const FACE_DETECTOR_PREFER = ["face_yolov8m", "face_yolov8", "face"];
