@@ -185,7 +185,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       ...(c.kind === "video" && recipe ? [{ label: c.take ? "New take" : "Render this clip", key: "Ctrl + Enter", icon: <Wand2 size={14} />, disabled: Boolean(c.job) || render.isPending, run: () => render.mutate({ clips: [c] }) }] : []),
       ...(canCarry ? [c.joined === "continue"
         ? { label: "Make it a cut", icon: <Scissors size={14} />, note: `from clip ${index}`, run: () => patch.mutate({ clip: c.id, patch: { joined: "cut" } }) }
-        : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => patch.mutate({ clip: c.id, patch: { joined: "continue" } }) }] : []),
+        : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => patch.mutate({ clip: c.id, patch: { joined: "continue" } }) }]
+        // said rather than hidden: an imported workflow with no first-frame or previous-clip input cannot extend
+        : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true, run: () => {} }] : []),
       ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "viewer, Trim", run: () => setOpened(video) }] : []),
       // a still has no sound of its own to mute
       ...(c.kind === "video" ? ["—" as const, c.sound === "muted"
