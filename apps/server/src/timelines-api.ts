@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { secondsInput } from "@afflatus/core";
 import { compose, lookSchema, withMood } from "./entities";
 import { assetView } from "./media";
 import { UserError } from "./queue";
@@ -186,40 +185,28 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   });
 
   /**
-   * A part of a clip's take rendered again: a new clip between the frames at the range's edges, on the
-   * clip's model (or the first that takes a first and a last frame), with the clip's form, cast and mood;
-   * then spliced back in place of the range as a new take (a cut job that waits for the render).
+   * The range between In and Out, on the timeline's clock. "split": the clips under In and Out each become
+   * two there. "remove": what plays between them goes, the clips after close the gap. "regenerate": it is
+   * replaced by a new clip to render, pinned to the frame before In and the frame at Out (In = Out on a
+   * cut: a clip between the two); the clip comes back selected, not rendered. "copy": that part of the
+   * timeline as one video in the library, through the export queue.
    */
-  app.post<{ Params: { id: string } }>("/api/clips/:id/regenerate", async (req) => {
-    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), input: z.record(z.string(), z.unknown()), crf: z.number().int().min(0).max(40).optional() }).parse(req.body);
-    const { clip, asset, index, timelineId } = await t.takeOf(req.params.id);
-    if (body.endMs - body.startMs < 200) throw new UserError("Pick a range of at least a few frames to regenerate.");
-    const takesBoth = (r: { output: string; inputs: Array<{ type: string; role?: string }> } | undefined) =>
-      Boolean(r && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start") && r.inputs.some((i) => i.type === "image" && i.role === "end"));
-    const own = clip.recipe_id ? s.registry.recipe(clip.recipe_id) : undefined;
-    const recipe = takesBoth(own) ? own! : s.registry.recipes().find((r) => takesBoth(r));
-    if (!recipe) throw new UserError("None of your video models takes a first and a last frame: nothing can be rendered between the range's edges.");
-    const view = await t.view(timelineId);
-    const first = await t.frame(asset, body.startMs, true);
-    const last = await t.frame(asset, body.endMs, true);
-    const ownIds = new Set(recipe.inputs.filter((x) => x.type !== "clip").map((x) => x.id));
-    const typed = Object.fromEntries(Object.entries(body.input).filter(([k]) => ownIds.has(k)));
-    const look = clip.look ? (JSON.parse(clip.look) as Parameters<typeof compose>[3]) : view.look;
-    const input = withMood(recipe, (await compose(s.db, recipe, typed, look)).input, view.mood);
-    input[recipe.inputs.find((x) => x.type === "image" && x.role === "start")!.id] = first.id;
-    input[recipe.inputs.find((x) => x.type === "image" && x.role === "end")!.id] = last.id;
-    const seconds = secondsInput(recipe.inputs);
-    if (seconds) {
-      const length = (body.endMs - body.startMs) / 1000;
-      input[seconds.id] = Number(Math.max(seconds.min, Math.min(seconds.max, Math.round(length / seconds.step) * seconds.step)).toFixed(3));
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/range", async (req) => {
+    const body = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "copy"]), scale: z.number().min(1).max(2).optional() }).parse(req.body);
+    const id = req.params.id;
+    if (body.action === "split") await t.splitRange(id, body.inMs, body.outMs);
+    else if (body.action === "remove") await t.removeRange(id, body.inMs, body.outMs);
+    else if (body.action === "regenerate") {
+      const clip = await t.regenerateRange(id, body.inMs, body.outMs);
+      s.queue.events.emit("timeline");
+      return { clip };
+    } else {
+      const view = await t.view(id);
+      const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
+      return { job: await s.queue.enqueueExport({ timeline: id, scale: body.scale ?? 1, music: false, range: { inMs: body.inMs, outMs: body.outMs } }, `${view.name} · copy ${clock(body.inMs)}–${clock(body.outMs)}`) };
     }
-    for (const x of recipe.inputs) if (x.type === "clip") delete input[x.id];
-    const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
-    const said = `${view.name} · clip ${index + 1} · regenerate ${clock(body.startMs)}–${clock(body.endMs)}`;
-    const render = await s.queue.enqueue(recipe.id, input, { label: said, look });
-    const splice = await s.queue.enqueueCut({ action: "splice", asset: asset.id, startMs: body.startMs, endMs: body.endMs, clip: clip.id, renderJob: render, crf: body.crf }, `${view.name} · clip ${index + 1} · splice`, { dependsOn: render });
     s.queue.events.emit("timeline");
-    return { ids: [render, splice] };
+    return { ok: true as const };
   });
 
   /** Frames of a video side by side in one picture: what a clip shows on the timeline. */

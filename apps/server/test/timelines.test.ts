@@ -582,29 +582,99 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect((await view(tl.id)).clips).toHaveLength(1);
   });
 
-  it("regenerates a part: a render between the edge frames, spliced back as a new take", async () => {
-    const tl = await call("POST", "/api/timelines", { name: "Regen" });
+  /** Two clips of three seconds, both rendered, as cuts. */
+  async function twoRendered() {
+    const tl = await call("POST", "/api/timelines", { name: "Range" });
     const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    await call("PATCH", `/api/clips/${a}`, { inputs: { description: "She walks to the window." } });
     await render(tl.id, [{ id: a }]);
     await finish(three!, 1);
-    const before = (await view(tl.id)).clips[0];
-    const { ids } = await call("POST", `/api/clips/${a}/regenerate`, { startMs: 1000, endMs: 2000, input: { description: "the same, calmer" } });
-    expect(ids).toHaveLength(2);
-    // the render asked for the two frames as first and last, for one second
-    const graph = await finish(three!, 2);
-    const loads = nodes(graph, "LoadImage");
-    expect(loads.length).toBeGreaterThanOrEqual(2);
-    const v = await view(tl.id);
-    const clip = v.clips[0];
-    expect(clip.takes).toHaveLength(2);
-    expect(clip.take.id).not.toBe(before.take.id);
-    expect(clip.take.asset.id).not.toBe(before.take.asset.id);
-    // before (1 s) + the new clip (3 s, what the pretend ComfyUI gave) + after (1 s)
-    expect(clip.take.asset.durationMs).toBeGreaterThan(4500);
-    expect(clip.take.asset.durationMs).toBeLessThan(5500);
-    const detail = (await get(t.app, `/api/assets/${clip.take.asset.id}`)).json();
-    expect(detail.source).toMatchObject({ asset: { id: before.take.asset.id }, range: { startMs: 1000, endMs: 2000 } });
-    const jobs = (await get(t.app, "/api/jobs")).json().items as Array<{ kind: string; status: string; label: string }>;
-    expect(jobs.find((j) => j.kind === "cut")).toMatchObject({ status: "done" });
+    const b = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    await call("PATCH", `/api/clips/${b}`, { joined: "cut" });
+    await render(tl.id, [{ id: b }]);
+    await finish(three!, 2);
+    expect((await view(tl.id)).durationMs).toBeCloseTo(6000, -2);
+    return { tl: tl.id as string, a, b };
+  }
+
+  it("a range across two clips: split at In and Out, remove it, Undo each", async () => {
+    const { tl, a, b } = await twoRendered();
+    await call("POST", `/api/timelines/${tl}/range`, { inMs: 1000, outMs: 4000, action: "split" });
+    let v = await view(tl);
+    expect(v.clips).toHaveLength(4);
+    expect(v.clips.map((c: { lengthMs: number }) => Math.round(c.lengthMs / 100) * 100)).toEqual([1000, 2000, 1000, 2000]);
+    expect(v.clips[0].id).toBe(a);
+    expect(v.clips[2].id).toBe(b);
+    expect(v.durationMs).toBeCloseTo(6000, -2);
+    await call("POST", `/api/timelines/${tl}/undo`);
+    expect((await view(tl)).clips).toHaveLength(2);
+    // both on cuts already: refused
+    const bad = await t.app.inject({ method: "POST", url: `/api/timelines/${tl}/range`, payload: { inMs: 0, outMs: 3000, action: "split" } });
+    expect(bad.statusCode).toBe(400);
+
+    await call("POST", `/api/timelines/${tl}/range`, { inMs: 1000, outMs: 4000, action: "remove" });
+    v = await view(tl);
+    expect(v.clips).toHaveLength(2);
+    expect(v.durationMs).toBeCloseTo(3000, -2);
+    expect(v.clips[0].lengthMs).toBeCloseTo(1000, -2);
+    // the second clip now starts a second in
+    expect(v.clips[1].take.startMs).toBeCloseTo(1000, -2);
+    expect(v.undo).toBe("the range removed");
+    await call("POST", `/api/timelines/${tl}/undo`);
+    expect((await view(tl)).durationMs).toBeCloseTo(6000, -2);
+
+    // a range inside one clip: the rest of that clip stays, as a clip of its own
+    await call("POST", `/api/timelines/${tl}/range`, { inMs: 1000, outMs: 2000, action: "remove" });
+    v = await view(tl);
+    expect(v.clips).toHaveLength(3);
+    expect(v.clips.map((c: { lengthMs: number }) => Math.round(c.lengthMs / 100) * 100)).toEqual([1000, 1000, 3000]);
+    expect(v.clips[0].take.asset.id).toBe(v.clips[1].take.asset.id);
+  });
+
+  it("regenerates a range: a new clip pinned to the frame before In and the frame at Out, in place of what played", async () => {
+    const { tl, a, b } = await twoRendered();
+    const { clip } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "regenerate" });
+    const v = await view(tl);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual([a, clip, b]);
+    const made = v.clips[1];
+    expect(made.recipe).toBe("h3.video");
+    expect(made.take).toBeNull();
+    expect(made.joined).toBe("cut");
+    expect(made.inputs.description).toBe("She walks to the window.");
+    expect(made.inputs.seconds).toBe(2);
+    // the frames are pictures in the library, from the right moments
+    const first = (await get(t.app, `/api/assets/${made.inputs.start}`)).json();
+    const last = (await get(t.app, `/api/assets/${made.inputs.end}`)).json();
+    expect(first.kind).toBe("image");
+    expect(last.kind).toBe("image");
+    expect(first.source).toMatchObject({ asset: { id: v.clips[0].take.asset.id } });
+    expect(last.source).toMatchObject({ asset: { id: v.clips[2].take.asset.id } });
+    // what played between went: the first clip stops at 2 s, the second starts a second in
+    expect(v.clips[0].lengthMs).toBeCloseTo(2000, -2);
+    expect(v.clips[2].take.startMs).toBeCloseTo(1000, -2);
+    expect(v.undo).toBe("the regenerated range");
+    await call("POST", `/api/timelines/${tl}/undo`);
+    expect((await view(tl)).clips).toHaveLength(2);
+
+    // In = Out on the cut: a clip between the two, nothing removed
+    const between = (await call("POST", `/api/timelines/${tl}/range`, { inMs: 3000, outMs: 3000, action: "regenerate" })).clip;
+    const w = await view(tl);
+    expect(w.clips.map((c: { id: string }) => c.id)).toEqual([a, between, b]);
+    expect(w.durationMs).toBeCloseTo(6000, -2);
+    expect(w.clips[1].inputs.start).toBeTruthy();
+    expect(w.clips[1].inputs.end).toBeTruthy();
+    expect(w.undo).toBe("the clip added between");
+  });
+
+  it("copies a range to the library: one video of that part, through the export queue", async () => {
+    const { tl } = await twoRendered();
+    const { job } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "copy" });
+    expect(job).toBeTruthy();
+    await until(async () => ((await get(t.app, "/api/jobs")).json().items as Array<{ id: string; status: string }>).some((j) => j.id === job && j.status === "done"), 60_000);
+    const items = (await get(t.app, "/api/assets?kind=video")).json().items as Array<{ name: string; durationMs: number }>;
+    const copy = items.find((x) => /0:02–0:04/.test(x.name));
+    expect(copy).toBeTruthy();
+    expect(copy!.durationMs).toBeGreaterThan(1700);
+    expect(copy!.durationMs).toBeLessThan(2400);
   });
 });

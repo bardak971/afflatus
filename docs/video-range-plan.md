@@ -71,43 +71,56 @@ live app gets it; the cut job runs against real ffmpeg either way.
   Remove) and the **library tile** (Open, Keep, Move to…, Variation, Reuse parameters, Image to video, Open in
   ComfyUI, Bin). Then queue cards, Prompt kit rows, the viewer's video.
 
-## 3. Slice C — Regenerate this part
+## 3. Slices C, D, E — the range on the timeline (built 2026-10-04, replacing Trim on the timeline)
 
-- From Trim mode on a clip: **Regenerate this part** = Generate between the range's edges with `seconds` =
-  the range, then **splice back**: a job that waits for the render (`depends_on`) and makes before + new + after
-  through `joinVideos`, as a new video with the original as source (the original stays). On a timeline clip,
-  the result becomes a new take of that clip.
-- Needs: a job that follows another (the queue has `depends_on`), and `joinVideos` with three parts of two videos
-  (it has that).
+The owner's question after a day with Trim on the timeline: "do we really need the Trim menu? imagine I want to
+regen a range between 2 clips". Trim works on one take, so it cannot. The timeline got what every NLE has
+instead: **In and Out on the ruler**, with the actions on the range. Trim stays in the viewer, for raw footage.
 
-## 4. Slice D — Bridge
+- **Setting the range**, no mode: **I** and **O** at the playhead (one alone reaches to the end, or from the
+  start); **Shift-drag on the ruler** sweeps one; two brackets `[` `]` on the ruler drag In and Out, snapping
+  to cuts and to the playhead; a clip's menu has **Set range to this clip**; **Esc** or the × clears it. The
+  band is drawn over the ruler and the tracks. `←` `→` (Shift: ten) and `,` `.` step one frame of the clip
+  under the playhead, so the range is frame-accurate at any zoom. In = Out on a cut is allowed: "this cut".
+- **The range bar** under the video (and the right-click on the band, the same list, `rangeItems` in
+  `TimelineEditor.tsx`): **Play** (Space with the playhead outside the range plays it too; it stops at Out),
+  **Loop** (L), **Regenerate**, **Split at In / Out**, **Remove**, **Copy to library**, ×.
+- **Regenerate** (`POST /api/timelines/:id/range` action `regenerate`, `Timelines.regenerateRange`): what plays
+  between In and Out goes, and a new clip is inserted in its place, pinned to the frame just before In and the
+  frame at Out (`Timelines.frame`, made once per moment; a still is its own picture), on the clip's model when
+  it takes those frames, else the first that does, with that clip's words and settings and `seconds` = the
+  range snapped to the model's steps; the clip after it becomes a cut. **Nothing is rendered**: the new clip
+  comes back selected, its form (and the Designer) is the owner's first, then New take renders it. It is a
+  clip like any other, so it can be re-rendered again and again. In = Out on a cut = **Bridge** (slice D): a
+  clip between the two, pinned to their frames, nothing removed. One Undo step.
+- **Split at In / Out** (`splitRange`): the clips under In and Out each become two (a still into two stills);
+  both on cuts already is refused. **Remove** (`removeRange` → `cutOut`): the clips inside go, the clip at In
+  stops there, the clip at Out starts there (and becomes a cut); a range inside one clip splits it at Out first
+  so the rest stays a clip; less than a tenth of a second left of a clip = the clip goes too. **Copy to
+  library** (`export` with a `range` window, through the export queue): one video of that part, named
+  "Timeline · 0:02–0:04", without the music. All tested in `timelines.test.ts`.
+- Gone with it: the splice cut job, `POST /api/clips/:id/regenerate`, `spliceTake`, Trim's T key on the
+  timeline. Kept: `splitClip` ("Split clip at playhead" in the clip menu, no range needed), the viewer's Trim.
+- The clip menu also gained **Extend from this frame** and **Save frame** (at the playhead, on when it stands
+  on that clip).
+- **Loop** (slice E) is not built: with the range it would be "Regenerate with In and Out swapped"; wanted
+  only when asked for.
 
-- Timeline: a **Bridge** button in the gap between two clips (and in the right-click menu of a clip: "Bridge to
-  next"). Makes a clip between them: on H3, `previous` = clip A (its end) and `next` = clip B (its start), what
-  the timeline already supports by hand; on Wan / LTX, `start` = A's last frame and `end` = B's first frame
-  (two saved frames). Duration pre-set (2 s, editable). The bridge is a clip of the timeline like any other.
-
-## 5. Slice E — Loop
-
-- Trim mode: **Loop the range** = Generate between with `start` = frame at out and `end` = frame at in, the
-  result joined after the range (range + bridge back) as a new video. Duration of the bridge editable (1–3 s).
-
-## 6. Slice F — Slow motion (the owner, 2026-10-04: "if the GPU is faster and better quality, yes" → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
+## 5. Slice F — Slow motion (the owner, 2026-10-04: "if the GPU is faster and better quality, yes" → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
 
 - Trim mode: **Slow motion ×2 / ×4** on the range: a job running RIFE on the range's frames (the
   `FrameInterpolationModelLoader` / RIFE nodes are already used for frame interpolation; this one is a ComfyUI
   job on the GPU, so it goes through the queue like a render), then played at the original fps. Or, without the
   GPU, ffmpeg `minterpolate` (what the timeline's smooth export uses) as the fallback.
 
-## 7. Later — scene detection
+## 4. Later — scene detection
 
 - On a long import: `ffmpeg -vf select='gt(scene,0.3)',showinfo` gives cut points; shown as markers on the
   trim bar; "Extract every scene" makes one copy job per scene.
 
 ## Order and size
 
-A (2 sessions of work: server cut job + Trim UI + the two generate actions) → B (1: the menu component and two
-places) → C (1) → D (1) → E (small) → F (1) → scene detection when wanted.
+A (done) → B (done) → C + D as the range on the timeline (done) → F (1 session) → scene detection when wanted.
 
 ## Open points for the owner
 

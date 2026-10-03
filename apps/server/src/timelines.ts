@@ -1,7 +1,7 @@
 import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import type { Recipe } from "@afflatus/core";
+import { secondsInput, type Recipe } from "@afflatus/core";
 import { CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinVideos, peekAt, rangeKeep } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
@@ -50,11 +50,8 @@ export interface CutOptions {
   asset: string;
   startMs: number;
   endMs: number;
-  /** "splice": the range of a clip's take replaced by the video a render job made, as a new take of that clip. */
-  action: "copy" | "split" | "remove" | "splice";
+  action: "copy" | "split" | "remove";
   crf?: number;
-  clip?: string;
-  renderJob?: string;
 }
 
 export const EXPORT_JOB = "afflatus.export";
@@ -65,6 +62,8 @@ export interface ExportOptions {
   music: boolean;
   /** Smooth motion: 48 pictures a second, worked out by ffmpeg from the pictures there are. */
   smooth?: boolean;
+  /** Only this part of the timeline, on its clock: a range copied to the library. Without the music. */
+  range?: { inMs: number; outMs: number };
 }
 
 /** How many changes Undo can go back. */
@@ -91,6 +90,15 @@ interface Placed {
   /** Of a still: its picture. Of a clip with a sound file: that file. */
   still: AssetRow | null;
   sound: AssetRow | null;
+}
+
+/** A clip that plays, on the timeline's clock: where it starts and how long. */
+interface Laid {
+  p: Placed;
+  /** Its place among all the clips, the ones with nothing to play included. */
+  index: number;
+  atMs: number;
+  lengthMs: number;
 }
 
 /** The part of a take that plays, in its video's own time. */
@@ -828,121 +836,262 @@ export class Timelines {
    * look along, and starts as a cut. Undo takes it back.
    */
   async splitClip(clipId: string, atMs: number): Promise<string> {
-    const { clip, take, asset, index, timelineId } = await this.takeOf(clipId);
+    const { take, asset, index, timelineId } = await this.takeOf(clipId);
     const { start, end } = plays({ take, asset });
     if (atMs < start + 40 || atMs > end - 40) throw refused("Put the playhead inside the part that plays, at least a frame from its ends.");
     await this.remember(timelineId, "the split");
-    const all = await this.placed(timelineId);
-    const id = newId();
-    const at = now();
-    await this.db
-      .insertInto("clips")
-      .values({
-        id, timeline_id: timelineId, position: index + 1, take_id: null, joined: "cut", recipe_id: clip.recipe_id, inputs: clip.inputs,
-        kind: "video", still_asset_id: null, still_ms: 3000, sound: clip.sound, sound_asset_id: clip.sound_asset_id, volume: clip.volume, fill: clip.fill, look: clip.look, chat: null, created_at: at, updated_at: at,
-      })
-      .execute();
-    const order = all.map((p) => p.clip.id);
-    order.splice(index + 1, 0, id);
-    await this.renumber(timelineId, order);
-    // the second half: the same video, trimmed to start where the first stops
-    const second = newId();
-    await this.db
-      .insertInto("takes")
-      .values({
-        id: second, clip_id: id, asset_id: asset.id, head_ms: take.head_ms, tail_ms: take.tail_ms, trim_start_ms: Math.max(0, atMs - take.head_ms), trim_end_ms: take.trim_end_ms,
-        prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, created_at: at,
-      })
-      .execute();
-    await this.db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();
-    // the first half stops at the moment
-    await this.db.updateTable("takes").set({ trim_end_ms: Math.max(0, (asset.duration_ms ?? 0) - take.tail_ms - atMs) }).where("id", "=", take.id).execute();
+    const p = (await this.placed(timelineId))[index]!;
+    const id = await this.splitAt(timelineId, p, atMs - start);
     await this.touch(timelineId);
     return id;
   }
 
   /**
-   * The range of a clip's take replaced by another video (what "Regenerate this part" rendered between
-   * the range's edge frames): before + new + after as one video in the library, made the clip's take that
-   * plays, with the old take's trims carried over. The old take stays, to go back to.
+   * The split itself: `localMs` after the moment the clip starts playing. A still becomes two stills.
+   * The second clip takes the first's model, form, sound and look, and starts as a cut.
    */
-  async spliceTake(clipId: string, original: AssetRow, startMs: number, endMs: number, insert: AssetRow, opts: { signal?: AbortSignal } = {}): Promise<AssetRow | null> {
-    const clip = await this.db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
-    // the clip was removed while it rendered: the new video is in the library all the same
-    if (!clip) return null;
-    const total = original.duration_ms ?? 0;
-    const insertLength = insert.duration_ms ?? 0;
-    if (!total || !insertLength) throw new CutError("The videos to splice could not be read.");
-    const a = Math.max(0, Math.min(startMs, endMs));
-    const b = Math.min(total, Math.max(startMs, endMs));
-    const part = (asset: AssetRow, bytes: Uint8Array, s: number, e: number): ExportPart => ({ kind: "video", bytes, ext: extOf(asset.mime), startMs: s, endMs: e, hasSound: Boolean(asset.has_sound), sound: "own", volume: 1, fill: false });
-    const source = await this.storage.get(original.file_key);
-    const added = await this.storage.get(insert.file_key);
-    const parts: ExportPart[] = [
-      ...(a >= 20 ? [part(original, source, 0, a)] : []),
-      part(insert, added, 0, insertLength),
-      ...(total - b >= 20 ? [part(original, source, b, total)] : []),
-    ];
-    const frame = { width: original.width ?? insert.width ?? 576, height: original.height ?? insert.height ?? 1024 };
-    const fps = Math.round(original.fps ?? insert.fps ?? 24) || 24;
-    const out = await joinVideos(parts, frame, fps, { signal: opts.signal });
-    const seen = await readVideo(out, "mp4");
+  private async splitAt(timelineId: string, p: Placed, localMs: number): Promise<string> {
+    const all = await this.placed(timelineId);
+    const index = all.findIndex((x) => x.clip.id === p.clip.id);
+    const clip = p.clip;
     const id = newId();
-    const key = `assets/${id.slice(0, 2)}/${id}.mp4`;
-    await this.storage.put(key, out);
-    const thumb = seen.frame ? await makeThumb(seen.frame) : null;
-    if (thumb) await this.storage.put(thumbKey(id), thumb);
     const at = now();
-    const base = (original.name || "video").replace(/\.[a-z0-9]+$/i, "");
+    const still = clip.kind === "still";
     await this.db
-      .insertInto("assets")
+      .insertInto("clips")
       .values({
-        id, owner_id: OWNER, kind: "video", origin: "cut", name: `${base} · regenerated ${clockOf(a)}–${clockOf(b)}`, file_key: key,
-        thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
-        width: seen.facts?.width ?? frame.width, height: seen.facts?.height ?? frame.height,
-        duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? fps, has_sound: seen.facts?.hasSound ? 1 : 0,
-        folder_id: original.folder_id, generation_id: null, source_id: original.id, source_range: `${a}-${b}`, kept_at: at, deleted_at: null, created_at: at,
+        id, timeline_id: timelineId, position: index + 1, take_id: null, joined: "cut", recipe_id: still ? null : clip.recipe_id, inputs: still ? "{}" : clip.inputs,
+        kind: clip.kind, still_asset_id: still ? clip.still_asset_id : null, still_ms: still ? Math.max(STILL_MS.least, Math.round(clip.still_ms - localMs)) : 3000,
+        sound: clip.sound, sound_asset_id: clip.sound_asset_id, volume: clip.volume, fill: clip.fill, look: clip.look, chat: null, created_at: at, updated_at: at,
       })
       .execute();
-    const made = await this.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
-    // the old take's play range, carried over: what came after the range moved by the difference in length
-    const old = clip.take_id ? await this.db.selectFrom("takes").selectAll().where("id", "=", clip.take_id).executeTakeFirst() : undefined;
-    await this.remember(clip.timeline_id, "the regenerated part");
-    const takeId = await this.addTake(clipId, made, { headMs: 0, tailMs: 0 }, {});
-    if (old) {
-      const was = plays({ take: old, asset: original });
-      const delta = insertLength - (b - a);
-      const newTotal = made.duration_ms ?? total + delta;
-      const start = Math.min(was.start, a);
-      const end = was.end >= b ? was.end + delta : Math.min(was.end, newTotal);
-      await this.db.updateTable("takes").set({ trim_start_ms: Math.max(0, Math.round(start)), trim_end_ms: Math.max(0, Math.round(newTotal - end)) }).where("id", "=", takeId).execute();
+    const order = all.map((x) => x.clip.id);
+    order.splice(index + 1, 0, id);
+    await this.renumber(timelineId, order);
+    if (still) {
+      await this.db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(localMs)), updated_at: at }).where("id", "=", clip.id).execute();
+      return id;
     }
-    await this.touch(clip.timeline_id);
-    return made;
+    const { take, asset } = p.active!;
+    const atMs = plays(p.active!).start + localMs;
+    // the second half: the same video, trimmed to start where the first stops
+    const second = newId();
+    await this.db
+      .insertInto("takes")
+      .values({
+        id: second, clip_id: id, asset_id: asset.id, head_ms: take.head_ms, tail_ms: take.tail_ms, trim_start_ms: Math.max(0, Math.round(atMs - take.head_ms)), trim_end_ms: take.trim_end_ms,
+        prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, created_at: at,
+      })
+      .execute();
+    await this.db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();
+    // the first half stops at the moment
+    await this.db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round((asset.duration_ms ?? 0) - take.tail_ms - atMs)) }).where("id", "=", take.id).execute();
+    return id;
+  }
+
+  // ---------------------------------------------------------------- a range of the timeline
+
+  /** The clips that play, on the timeline's clock. */
+  private laid(all: Placed[]): Laid[] {
+    let at = 0;
+    const out: Laid[] = [];
+    all.forEach((p, index) => {
+      const lengthMs = lengthOf(p);
+      if (lengthMs > 0) out.push({ p, index, atMs: at, lengthMs });
+      at += lengthMs;
+    });
+    return out;
+  }
+
+  /** In and Out, in order and within what plays; refused when nothing plays yet. */
+  private async window(timelineId: string, inMs: number, outMs: number) {
+    await this.row(timelineId);
+    const laid = this.laid(await this.placed(timelineId));
+    const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
+    if (!total) throw refused("Nothing plays yet: render a clip, or add a video or a picture first.");
+    const a = Math.max(0, Math.min(total, Math.min(inMs, outMs)));
+    const b = Math.max(0, Math.min(total, Math.max(inMs, outMs)));
+    return { laid, total, a, b };
+  }
+
+  /** The clip that plays just before a moment (the one a cut at that moment ends), and the one that plays it. */
+  private before(laid: Laid[], ms: number) { return laid.find((l) => l.atMs < ms && ms <= l.atMs + l.lengthMs); }
+  private at(laid: Laid[], ms: number) { return laid.find((l) => l.atMs <= ms && ms < l.atMs + l.lengthMs); }
+
+  /** A clip plays only its first `keepMs`. */
+  private async endAt(p: Placed, keepMs: number) {
+    if (p.clip.kind === "still") return void (await this.db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(keepMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
+    const x = p.active!;
+    const total = x.asset.duration_ms ?? 0;
+    await this.db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round(total - x.take.tail_ms - (plays(x).start + keepMs))) }).where("id", "=", x.take.id).execute();
+  }
+
+  /** A clip plays from `fromMs` into what it played. It no longer starts where the clip before stopped: a cut. */
+  private async startAt(p: Placed, fromMs: number) {
+    if (p.clip.kind === "still") return void (await this.db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(p.clip.still_ms - fromMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
+    const x = p.active!;
+    await this.db.updateTable("takes").set({ trim_start_ms: Math.max(0, Math.round(x.take.trim_start_ms + fromMs)) }).where("id", "=", x.take.id).execute();
+    if (p.clip.joined === "continue") await this.db.updateTable("clips").set({ joined: "cut", updated_at: now() }).where("id", "=", p.clip.id).execute();
+  }
+
+  /**
+   * What plays between In and Out goes: the clips inside, and the parts of the clips at the edges (a
+   * clip with less than a tenth of a second left goes too). The clips after close the gap.
+   */
+  private async cutOut(timelineId: string, a: number, b: number): Promise<void> {
+    const EDGE = 100;
+    let laid = this.laid(await this.placed(timelineId));
+    // the range inside one clip: that clip is split at Out first, so that what is after the range stays a clip
+    const both = laid.find((l) => l.atMs < a && l.atMs + l.lengthMs > b);
+    if (both) {
+      await this.splitAt(timelineId, both.p, b - both.atMs);
+      laid = this.laid(await this.placed(timelineId));
+    }
+    const gone: string[] = [];
+    for (const l of laid) {
+      const start = l.atMs;
+      const end = l.atMs + l.lengthMs;
+      if (start >= a - 1 && end <= b + 1) gone.push(l.p.clip.id);
+      else if (start < a && end > a) {
+        if (a - start < EDGE) gone.push(l.p.clip.id);
+        else await this.endAt(l.p, a - start);
+      } else if (start < b && end > b) {
+        if (end - b < EDGE) gone.push(l.p.clip.id);
+        else await this.startAt(l.p, b - start);
+      }
+    }
+    if (gone.length) await this.db.deleteFrom("clips").where("id", "in", gone).execute();
+    await this.renumber(timelineId, (await this.placed(timelineId)).map((p) => p.clip.id));
+  }
+
+  /** The clips under In and under Out each become two there. Both moments on cuts already: nothing to do. */
+  async splitRange(timelineId: string, inMs: number, outMs: number): Promise<void> {
+    const { laid, a, b } = await this.window(timelineId, inMs, outMs);
+    const inside = (ms: number) => laid.find((l) => l.atMs + 40 <= ms && ms <= l.atMs + l.lengthMs - 40);
+    const marks = [...new Set([b, a])].filter((ms) => inside(ms));
+    if (!marks.length) throw refused("In and Out are both on cuts already: there is nothing to split.");
+    await this.remember(timelineId, marks.length === 2 ? "the split at In and Out" : "the split");
+    // Out first: the clips before it keep their places
+    for (const ms of marks) {
+      const l = inside(ms);
+      if (l) await this.splitAt(timelineId, (await this.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, ms - l.atMs);
+    }
+    await this.touch(timelineId);
+  }
+
+  /** What plays between In and Out goes; the clips after close the gap. Undo brings it back. */
+  async removeRange(timelineId: string, inMs: number, outMs: number): Promise<void> {
+    const { a, b } = await this.window(timelineId, inMs, outMs);
+    if (b - a < 40) throw refused("Set In and Out apart: there is nothing between them.");
+    await this.remember(timelineId, "the range removed");
+    await this.cutOut(timelineId, a, b);
+    await this.touch(timelineId);
+  }
+
+  /** The picture at a moment of a clip (`localMs` after it starts playing): a still itself, a frame of a take. */
+  private async pictureAt(l: Laid, localMs: number, edge: "start" | "end"): Promise<AssetRow> {
+    if (l.p.clip.kind === "still") return l.p.still!;
+    const x = l.p.active!;
+    const { start, end } = plays(x);
+    // the last frame that plays is a little before the moment the clip stops
+    const ms = edge === "end" ? Math.max(start, Math.min(end - 20, start + localMs)) : Math.max(start, Math.min(end - 20, start + localMs));
+    return this.frame(x.asset, ms, true);
+  }
+
+  /**
+   * What plays between In and Out is replaced by a new clip to render, pinned to the frame just before In
+   * and the frame at Out (whichever exist: at the very start or end of the timeline there is only one),
+   * as long as the range on a model that takes those frames: the clip's at In when it does, else the
+   * first that does. It starts from that clip's words and settings. In = Out on a cut: a clip between
+   * the two, nothing removed. The clip is not rendered here: it is selected, and its form is yours first.
+   */
+  async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<string> {
+    const { laid, total, a, b } = await this.window(timelineId, inMs, outMs);
+    const before = a > 0 ? this.before(laid, a) : undefined;
+    const after = b < total ? this.at(laid, b) : undefined;
+    if (!before && !after) throw refused("The range covers everything: there is no frame to pin the new clip to. Add a clip instead.");
+    const takes = (r: Recipe<any>, role: "start" | "end") => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === role);
+    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && (!before || takes(r, "start")) && (!after || takes(r, "end")));
+    const source = before ?? after!;
+    const own = source.p.clip.recipe_id ? this.registry.recipe(source.p.clip.recipe_id) : undefined;
+    const recipe = fits(own) ? own : this.registry.recipes().find(fits);
+    if (!recipe) {
+      throw refused(before && after ? "None of your video models takes a first and a last frame: nothing can be rendered between the clips." : before ? "None of your video models takes a first frame (i2v)." : "None of your video models takes a last frame.");
+    }
+    const first = before ? await this.pictureAt(before, a - before.atMs, "end") : null;
+    const last = after ? await this.pictureAt(after, b - after.atMs, "start") : null;
+    await this.remember(timelineId, b - a >= 40 ? "the regenerated range" : "the clip added between");
+    if (b - a >= 40) await this.cutOut(timelineId, a, b);
+    // where it goes: after the last clip that stops by In
+    const all = await this.placed(timelineId);
+    const anchor = [...this.laid(all)].reverse().find((l) => l.atMs + l.lengthMs <= a + 50);
+    const index = anchor ? anchor.index + 1 : 0;
+    // its form: the source clip's own settings on the same model, else what a new clip there would get; its words when both models have them
+    const srcInputs = JSON.parse(source.p.clip.inputs) as Record<string, unknown>;
+    const inputs: Record<string, unknown> = own?.id === recipe.id
+      ? Object.fromEntries(Object.entries(srcInputs).filter(([id]) => recipe.inputs.some((i) => i.id === id && !["prompt", "image", "clip", "seed"].includes(i.type))))
+      : this.settingsOf(recipe, all, index);
+    const mainOf = (r: Recipe<any>) => r.inputs.find((i) => i.type === "prompt" && !i.optional) ?? r.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
+    const from = own ? mainOf(own) : undefined;
+    const to = mainOf(recipe);
+    if (from && to && typeof srcInputs[from.id] === "string") inputs[to.id] = srcInputs[from.id];
+    if (first) inputs[recipe.inputs.find((i) => i.type === "image" && i.role === "start")!.id] = first.id;
+    if (last) inputs[recipe.inputs.find((i) => i.type === "image" && i.role === "end")!.id] = last.id;
+    const seconds = secondsInput(recipe.inputs);
+    if (seconds && b - a >= 40) inputs[seconds.id] = Number(Math.max(seconds.min, Math.min(seconds.max, Math.round((b - a) / 1000 / seconds.step) * seconds.step)).toFixed(3));
+    const id = newId();
+    const at = now();
+    await this.db
+      .insertInto("clips")
+      .values({
+        id, timeline_id: timelineId, position: index, take_id: null, joined: "cut", recipe_id: recipe.id, inputs: JSON.stringify(inputs),
+        kind: "video", still_asset_id: null, still_ms: 3000, sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: source.p.clip.look, chat: null, created_at: at, updated_at: at,
+      })
+      .execute();
+    const order = all.map((p) => p.clip.id);
+    order.splice(index, 0, id);
+    await this.renumber(timelineId, order);
+    // the clip after it no longer carries on from what was there
+    const next = all[index];
+    if (next && next.clip.joined === "continue") await this.db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", next.clip.id).execute();
+    await this.touch(timelineId);
+    return id;
   }
 
   // ---------------------------------------------------------------- export
 
-  /** The timeline as one video in the library: what plays, start to end, with its sounds and its music. */
-  async export(id: string, opts: { scale?: number; music?: boolean; smooth?: boolean; signal?: AbortSignal } = {}) {
+  /**
+   * The timeline as one video in the library: what plays, start to end, with its sounds and its music.
+   * With a range: only that part, as a copy in the library (the music is left out).
+   */
+  async export(id: string, opts: { scale?: number; music?: boolean; smooth?: boolean; range?: { inMs: number; outMs: number }; signal?: AbortSignal } = {}) {
     const t = await this.row(id);
-    const all = (await this.placed(id)).filter((p) => lengthOf(p) > 0);
+    const laid = this.laid(await this.placed(id));
+    const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
+    const win = opts.range ? { a: Math.max(0, Math.min(opts.range.inMs, opts.range.outMs)), b: Math.min(total, Math.max(opts.range.inMs, opts.range.outMs)) } : null;
+    if (win && win.b - win.a < 40) throw new CutError("Set In and Out apart: there is nothing between them.");
+    const shown = win ? laid.filter((l) => l.atMs < win.b && l.atMs + l.lengthMs > win.a) : laid;
+    const all = shown.map((l) => l.p);
     if (!all.length) throw new CutError("There is nothing to export yet: no clip of this timeline has a take.");
     const first = all[0]!.active?.asset ?? all[0]!.still;
     const frame = t.width && t.height ? { width: t.width, height: t.height } : { width: first?.width ?? 576, height: first?.height ?? 1024 };
     const fps = Math.round(Math.max(...all.map((p) => p.active?.asset.fps ?? 24), 1));
     const parts: ExportPart[] = [];
-    for (const p of all) {
+    for (const l of shown) {
+      const p = l.p;
       const soundFile = p.clip.sound === "file" && p.sound ? { bytes: await this.storage.get(p.sound.file_key), ext: extOf(p.sound.mime) } : undefined;
       const heard = { sound: p.clip.sound, soundFile, volume: p.clip.volume / 100, fill: Boolean(p.clip.fill) };
+      // within the window: the part of the clip that falls in it
+      const from = win ? Math.max(0, win.a - l.atMs) : 0;
+      const to = win ? Math.min(l.lengthMs, win.b - l.atMs) : l.lengthMs;
       if (p.clip.kind === "still") {
-        parts.push({ kind: "still", bytes: await this.storage.get(p.still!.file_key), ext: extOf(p.still!.mime), startMs: 0, endMs: p.clip.still_ms, hasSound: false, ...heard });
+        parts.push({ kind: "still", bytes: await this.storage.get(p.still!.file_key), ext: extOf(p.still!.mime), startMs: from, endMs: to, hasSound: false, ...heard });
       } else {
         const x = p.active!;
-        parts.push({ kind: "video", bytes: await this.storage.get(x.asset.file_key), ext: extOf(x.asset.mime), startMs: plays(x).start, endMs: plays(x).end, hasSound: Boolean(x.asset.has_sound), ...heard });
+        parts.push({ kind: "video", bytes: await this.storage.get(x.asset.file_key), ext: extOf(x.asset.mime), startMs: plays(x).start + from, endMs: plays(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard });
       }
     }
-    const track = opts.music === false ? undefined : await this.assetRow(t.music_asset_id);
+    const track = opts.music === false || win ? undefined : await this.assetRow(t.music_asset_id);
     const music: ExportMusic | undefined = track
       ? {
           bytes: await this.storage.get(track.file_key), ext: extOf(track.mime), durationMs: track.duration_ms ?? 0,
@@ -960,13 +1109,13 @@ export class Timelines {
     await this.db
       .insertInto("assets")
       .values({
-        id: assetId, owner_id: OWNER, kind: "video", origin: "exported", name: t.name, file_key: key, thumb_key: thumb ? thumbKey(assetId) : null,
+        id: assetId, owner_id: OWNER, kind: "video", origin: "exported", name: win ? `${t.name} · ${clockOf(win.a)}–${clockOf(win.b)}` : t.name, file_key: key, thumb_key: thumb ? thumbKey(assetId) : null,
         mime: "video/mp4", bytes: bytes.length, width: video.facts?.width ?? frame.width, height: video.facts?.height ?? frame.height,
         duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: null, generation_id: null,
         kept_at: at, deleted_at: null, created_at: at,
       })
       .execute();
-    await this.db.updateTable("timelines").set({ export_asset_id: assetId }).where("id", "=", id).execute();
+    if (!win) await this.db.updateTable("timelines").set({ export_asset_id: assetId }).where("id", "=", id).execute();
     this.events.emit("library");
     this.changed();
     return assetView(await this.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirstOrThrow());

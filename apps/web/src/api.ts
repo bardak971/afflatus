@@ -815,9 +815,13 @@ export const api = {
   deleteClip: (id: string) => call<{ ok: true }>("DELETE", `/clips/${id}`),
   /** One clip becomes two at a moment of its take (the video's own time). */
   splitClip: (id: string, atMs: number) => call<{ clip: string }>("POST", `/clips/${id}/split`, { atMs: Math.round(atMs) }),
-  /** A part of a clip's take rendered again between its edge frames and spliced back as a new take. */
-  regenerateClip: (id: string, opts: { startMs: number; endMs: number; input: Record<string, unknown>; crf?: number }) =>
-    call<{ ids: string[] }>("POST", `/clips/${id}/regenerate`, { ...opts, startMs: Math.round(opts.startMs), endMs: Math.round(opts.endMs) }),
+  /**
+   * The range between In and Out on the timeline's clock: split there, remove it, regenerate it as a new
+   * clip (it comes back selected, not rendered; In = Out on a cut inserts a clip between), or copy it to the
+   * library through the export queue.
+   */
+  timelineRange: (id: string, opts: { inMs: number; outMs: number; action: "split" | "remove" | "regenerate" | "copy"; scale?: number }) =>
+    call<{ ok: true } | { clip: string } | { job: string }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
   renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */

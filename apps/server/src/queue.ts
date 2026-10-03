@@ -523,15 +523,7 @@ export class Queue {
       if (!this.clips) throw new Error("timelines are not available");
       const video = await this.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
       if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
-      if (opts.action === "splice") {
-        // the render it waited for: its video goes into the clip's take in place of the range
-        const dep = opts.renderJob ? await this.db.selectFrom("jobs").select(["status", "generation_id", "error"]).where("id", "=", opts.renderJob).executeTakeFirst() : undefined;
-        if (!dep || dep.status !== "done" || !dep.generation_id) throw new Error(dep?.status === "failed" ? `the regenerated part did not render: ${dep.error ?? "unknown error"}` : "the regenerated part was not rendered");
-        const made = await this.db.selectFrom("assets").selectAll().where("generation_id", "=", dep.generation_id).where("kind", "=", "video").executeTakeFirst();
-        if (!made) throw new Error("the regenerated part left no video");
-        await this.clips.spliceTake(opts.clip!, video, opts.startMs, opts.endMs, made, { signal: abort.signal });
-        this.events.emit("timeline");
-      } else await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
+      await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
@@ -556,7 +548,7 @@ export class Queue {
     try {
       const opts = JSON.parse(row.inputs) as ExportOptions;
       if (!this.clips) throw new Error("timelines are not available");
-      await this.clips.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, signal: abort.signal });
+      await this.clips.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, signal: abort.signal });
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) {

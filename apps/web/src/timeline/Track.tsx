@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Link2, Minus, Music, Plus, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Timeline } from "../api";
 import { phaseLabel } from "../format";
@@ -21,6 +21,12 @@ type Over =
   | { kind: "sound"; clip: string }
   | { kind: "music" };
 
+/** In and Out on the timeline, on the clock of what plays. */
+export interface TimeRange {
+  inMs: number;
+  outMs: number;
+}
+
 /** How far apart the ruler's labels are, in seconds: the first step that leaves them room. */
 const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * pps >= 58) ?? 300;
 
@@ -28,7 +34,7 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, range, onRange, onRangeMenu }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -59,6 +65,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onNewClip(after: string | undefined): void;
   /** A right-click on a clip: its menu. */
   onMenu?(clip: Clip, e: React.MouseEvent): void;
+  /** In and Out, on the clock of what plays; null = no range. */
+  range: TimeRange | null;
+  onRange(range: TimeRange | null): void;
+  /** A right-click on the range: its menu. */
+  onRangeMenu?(e: React.MouseEvent): void;
 }) {
   const clips = timeline.clips;
   const scroller = useRef<HTMLDivElement>(null);
@@ -133,7 +144,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const n = (id: string) => clips.findIndex((c) => c.id === id) + 1;
   const hint = !dragging
     ? clips.length
-      ? "Drag images, videos and audio here from the left. Click a clip to change it; drag its edges to trim it."
+      ? "Drag images, videos and audio here from the left. Click a clip to change it; drag its edges to trim it. I and O set a range at the playhead; Shift-drag the ruler."
       : "Your clips will line up here, left to right, in the order they play."
     : !over
       ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : "Drop it on the timeline."
@@ -150,6 +161,51 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const scrub = (e: ReactPointerEvent) => {
     const x = xOf(e.clientX);
     onSeek(playAt(slots, x), Math.max(0, Math.min(totalMs, ((x - PAD) / pps) * 1000)));
+  };
+
+  // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts and to the playhead
+  const sweep = useRef<number | null>(null);
+  const grab = useRef<"in" | "out" | null>(null);
+  const playEnd = clips.reduce((sum, c) => sum + c.lengthMs, 0);
+  const snapRange = (ms: number) => {
+    const marks = [...slots.filter((s) => !s.planned).flatMap((s) => [s.clip.atMs, s.clip.atMs + s.clip.lengthMs]), time];
+    let best = ms;
+    let gap = 7 / pps * 1000;
+    for (const m of marks) {
+      const d = Math.abs(m - ms);
+      if (d < gap) {
+        gap = d;
+        best = m;
+      }
+    }
+    return Math.max(0, Math.min(playEnd, best));
+  };
+  const xAt = (ms: number) => placeOf(slots, ms)?.x ?? null;
+  const band = (() => {
+    if (!range) return null;
+    const a = xAt(range.inMs);
+    const b = xAt(range.outMs);
+    return a === null || b === null ? null : { a: Math.min(a, b), b: Math.max(a, b) };
+  })();
+  const grabHandle = (e: ReactPointerEvent, which: "in" | "out") => {
+    e.stopPropagation();
+    e.preventDefault();
+    grab.current = which;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const moveHandle = (e: ReactPointerEvent) => {
+    if (!grab.current || !range) return;
+    const ms = snapRange(playAt(slots, xOf(e.clientX)));
+    onRange(grab.current === "in" ? { inMs: Math.min(ms, range.outMs), outMs: range.outMs } : { inMs: range.inMs, outMs: Math.max(ms, range.inMs) });
+  };
+  const dropHandle = (e: ReactPointerEvent) => {
+    grab.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+  const rangeMenuAt = (e: ReactMouseEvent) => {
+    if (e.defaultPrevented || !band || !onRangeMenu) return;
+    const x = xOf(e.clientX);
+    if (x >= band.a - 10 && x <= band.b + 10) onRangeMenu(e);
   };
 
   // ---- a clip's edges: drag to shorten it (or to give back what was cut)
@@ -213,7 +269,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
           }}
           onDrop={drop}
         >
-          <div ref={inner} className="relative" style={{ width, height: HEIGHT }}>
+          <div ref={inner} className="relative" style={{ width, height: HEIGHT }} onContextMenu={rangeMenuAt}>
             {/* the ruler: a click or a drag moves the playhead */}
             <div
               role="slider"
@@ -222,21 +278,31 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               aria-valuemax={Math.round(timeline.durationMs / 1000)}
               aria-valuenow={Math.round(time / 1000)}
               tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowLeft") onSeek(Math.max(0, time - 200));
-                if (e.key === "ArrowRight") onSeek(Math.min(timeline.durationMs, time + 200));
-              }}
               onPointerDown={(e) => {
                 // the browser must not take this for the start of a text selection or of a drag
                 e.preventDefault();
                 e.currentTarget.setPointerCapture(e.pointerId);
-                scrub(e);
+                if (e.shiftKey) {
+                  // Shift: a range is swept from here
+                  const ms = snapRange(playAt(slots, xOf(e.clientX)));
+                  sweep.current = ms;
+                  onRange({ inMs: ms, outMs: ms });
+                } else scrub(e);
               }}
-              onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && scrub(e)}
-              onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
+              onPointerMove={(e) => {
+                if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                if (sweep.current === null) return scrub(e);
+                const ms = snapRange(playAt(slots, xOf(e.clientX)));
+                onRange({ inMs: Math.min(sweep.current, ms), outMs: Math.max(sweep.current, ms) });
+              }}
+              onPointerUp={(e) => {
+                sweep.current = null;
+                e.currentTarget.releasePointerCapture(e.pointerId);
+              }}
               onDragStart={(e) => e.preventDefault()}
               className="absolute inset-x-0 top-0 cursor-ew-resize touch-none border-b border-line"
               style={{ height: RULER }}
+              title="Click or drag: the playhead. Shift-drag: a range."
             >
               {marks.map((s) => (
                 <span key={s} className="pointer-events-none absolute top-0 h-full border-l border-line-strong pl-1 font-mono text-[10px] leading-[18px] text-ink-3" style={{ left: PAD + s * pps }}>
@@ -430,6 +496,43 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               <span className="truncate">{timeline.music ? timeline.music.asset.name || "Music" : "Drop an audio file here to play it under the whole video"}</span>
             </button>
 
+            {band && range && (
+              <>
+                <div aria-hidden className="pointer-events-none absolute top-0 z-[12] border-x-2 border-accent bg-accent/15" style={{ left: band.a - 1, width: Math.max(2, band.b - band.a + 2), height: HEIGHT - 4 }} />
+                <span
+                  role="slider"
+                  aria-label="In"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(playEnd / 1000)}
+                  aria-valuenow={Math.round(range.inMs / 1000)}
+                  title={`In ${stamp(range.inMs)}: drag it (I sets it at the playhead)`}
+                  onPointerDown={(e) => grabHandle(e, "in")}
+                  onPointerMove={moveHandle}
+                  onPointerUp={dropHandle}
+                  onPointerCancel={dropHandle}
+                  className="absolute top-0 z-[16] flex w-2.5 cursor-ew-resize touch-none items-center justify-center rounded-l bg-accent font-mono text-[10px] font-bold leading-none text-accent-ink"
+                  style={{ left: band.a - 10, height: RULER - 1 }}
+                >
+                  [
+                </span>
+                <span
+                  role="slider"
+                  aria-label="Out"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(playEnd / 1000)}
+                  aria-valuenow={Math.round(range.outMs / 1000)}
+                  title={`Out ${stamp(range.outMs)}: drag it (O sets it at the playhead)`}
+                  onPointerDown={(e) => grabHandle(e, "out")}
+                  onPointerMove={moveHandle}
+                  onPointerUp={dropHandle}
+                  onPointerCancel={dropHandle}
+                  className="absolute top-0 z-[16] flex w-2.5 cursor-ew-resize touch-none items-center justify-center rounded-r bg-accent font-mono text-[10px] font-bold leading-none text-accent-ink"
+                  style={{ left: band.b, height: RULER - 1 }}
+                >
+                  ]
+                </span>
+              </>
+            )}
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
             {head && (
               <div aria-hidden className="pointer-events-none absolute top-0 z-20" style={{ left: head.x - 1, height: HEIGHT - 4 }}>

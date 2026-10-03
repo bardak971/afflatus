@@ -1,29 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Copy, Download, Eye, ImagePlus, Link2, Pause, Play, Plus, RefreshCw, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2 } from "lucide-react";
+import { ArrowLeft, Camera, Copy, Download, Eye, ImagePlus, Link2, Pause, Play, Plus, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
 import { LookBar, lookWords } from "../LookBar";
 import { estimateFor } from "../estimate";
 import { formDefaults } from "../form";
-import { aboutMs, clock, notReady } from "../format";
+import { aboutMs, notReady } from "../format";
 import { Picker } from "../PictureField";
 import { Select } from "../Select";
 import { Inspector, MusicPanel } from "../timeline/Inspector";
 import { layout, otherShape, pinInputs, placeOf, SHAPES, shapeOf, stamp, ZOOM, type Shape } from "../timeline/model";
 import { Player, type PlayerHandle } from "../timeline/Player";
 import { Shelf } from "../timeline/Shelf";
-import { Track } from "../timeline/Track";
-import { AutoText, Button, ErrorNote, Segmented, Toggle } from "../ui";
+import { Track, type TimeRange } from "../timeline/Track";
+import { AutoText, Button, cx, ErrorNote, Segmented, Toggle } from "../ui";
 import { Viewer } from "../Viewer";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
-import { RangeFrames, Trim, type Range } from "../Trim";
-import { secondsInput } from "@afflatus/core";
-import { mainTextOf } from "../RecipeForm";
-import { thumbUrl } from "../api";
 import { useBanners } from "../store";
+
+/** The range bar's words for its actions: the menu says them in full. */
+const SHORT: Record<string, string> = { "Play range": "Play", "Loop: on": "Loop", "Loop: off": "Loop", "Regenerate range": "Regenerate", "Insert a clip here": "Insert clip", "Split at In and Out": "Split at In / Out", "Remove range": "Remove", "Copy to library": "Copy" };
 
 /**
  * The timeline editor: your media on the left, the video in the middle, the selected clip on the right,
@@ -180,39 +179,43 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     },
   });
   const remove = useMutation({ mutationFn: api.deleteClip, onSuccess: after });
-  // Trim on a clip: its take in place of the player, the range to play, a split, a part regenerated
-  const [trimming, setTrimming] = useState<string | null>(null);
-  const trimClip = trimming ? clips.find((c) => c.id === trimming) ?? null : null;
-  const trimTake = trimClip?.take ?? null;
-  useEffect(() => { if (trimming && !trimTake) setTrimming(null); }, [trimming, trimTake]);
   const say = useBanners((b) => b.push);
   const split = useMutation({ mutationFn: (v: { clip: string; atMs: number }) => api.splitClip(v.clip, v.atMs), onSuccess: after });
-  const regenerate = useMutation({
-    mutationFn: (v: { clip: Clip; range: Range; crf: number; input: Record<string, unknown> }) => api.regenerateClip(v.clip.id, { startMs: v.range.startMs, endMs: v.range.endMs, input: v.input, crf: v.crf }),
-    onSuccess: () => {
-      setRegen(null);
+  // ---- the range: In and Out on the clock of what plays; what is done with it
+  const [range, setRange] = useState<TimeRange | null>(null);
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const [loopRange, setLoopRange] = useState(false);
+  const loopRef = useRef(loopRange);
+  loopRef.current = loopRange;
+  /** Playing the range: it stops at Out (or goes back to In). */
+  const playingRange = useRef(false);
+  const emptyRange = Boolean(range && range.outMs - range.inMs < 40);
+  const rangeAct = useMutation({
+    mutationFn: (action: "split" | "remove" | "regenerate" | "copy") => api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action }),
+    onSuccess: (r, action) => {
       after();
-      say({ id: `regen:${Date.now()}`, tone: "good", title: "Regenerating the part", text: "A new clip renders between the range's edge frames; when it is done it is spliced back as a new take of the clip.", href: "/queue", go: "Open queue" });
+      if (action === "regenerate" && "clip" in r) {
+        setSelected(r.clip);
+        setMusicOpen(false);
+        setRange(null);
+        setNote("The new clip is selected: change what happens in it, then render it. Undo takes the range back.");
+      } else if (action === "remove") setRange(null);
+      else if (action === "copy") say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
     },
   });
-  const copyRange = useMutation({
-    mutationFn: (v: { asset: string; range: Range; crf: number }) => api.range(v.asset, { startMs: v.range.startMs, endMs: v.range.endMs, action: "copy", crf: v.crf }),
-    onSuccess: () => say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", href: "/queue", go: "Open queue" }),
-  });
-  const trimPlayer = useRef<HTMLVideoElement>(null);
-  const [trimRange, setTrimRange] = useState<Range | null>(null);
-  /** Regenerate, asked: the prompt to render the part with is typed first (the clip's, to begin with). */
-  const [regen, setRegen] = useState<{ crf: number; text: string } | null>(null);
-  useEffect(() => { setRegen(null); }, [trimming]);
-  /** Where the Trim player stands, in the take's time. */
-  const trimAt = () => Math.round((trimPlayer.current?.currentTime ?? 0) * 1000);
   // the right-click menu of a clip: what the Inspector offers on it, at the pointer
   const clipMenu = useMenu<Clip>();
+  /** Where the playhead stands on a clip, when it stands on this one. */
+  const onClip = (c: Clip) => {
+    const here = player.current?.where();
+    return here && here.clip.id === c.id ? here : null;
+  };
   /** Split the clip at the playhead: on when the playhead stands inside what it plays. */
   const splitHere = (c: Clip): MenuItem => {
     const take = c.take!;
-    const here = trimming === c.id ? { assetMs: trimAt() } : player.current?.where();
-    const onIt = here && ("clip" in here ? here.clip.id === c.id : true) ? here : null;
+    const here = player.current?.where();
+    const onIt = here && here.clip.id === c.id ? here : null;
     const at = onIt?.assetMs ?? 0;
     const inPlay = Boolean(onIt) && at >= take.startMs + 40 && at <= take.endMs - 40;
     return { label: "Split clip at playhead", icon: <Split size={14} />, disabled: !inPlay || split.isPending, note: !onIt ? "put the playhead on this clip" : !inPlay ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => split.mutate({ clip: c.id, atMs: at }) };
@@ -229,14 +232,44 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => patch.mutate({ clip: c.id, patch: { joined: "continue" } }) }]
         // said rather than hidden: an imported workflow with no first-frame or previous-clip input cannot extend
         : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true, run: () => {} }] : []),
-      ...(c.take ? [splitHere(c), { label: "Trim clip", key: "T", icon: <Scissors size={14} />, note: "play range, split, regenerate a part", run: () => setTrimming(c.id) }] : []),
-      ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer", run: () => setOpened(video) }] : []),
+      "—" as const,
+      { label: "Set range to this clip", key: "I  O", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
+      ...(c.take ? [splitHere(c)] : []),
+      ...(c.lengthMs > 0 ? [
+        { label: "Extend from this frame", icon: <Link2 size={14} />, disabled: !onClip(c) || add.isPending, note: onClip(c) ? "cuts it here; a new clip carries on" : "put the playhead on this clip", run: () => { const here = onClip(c); if (here) void continueFrom(c, here.localMs); } },
+        { label: "Save frame", icon: <Camera size={14} />, disabled: !onClip(c) || frame.isPending, note: onClip(c) ? "the frame at the playhead, to your library" : "put the playhead on this clip", run: () => { const here = onClip(c); if (!here) return; if (c.take) frame.mutate({ asset: c.take.asset.id, at: Math.round(here.assetMs) }); else if (c.still) setOpened(c.still); } },
+      ] : []),
+      ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer, with Trim", run: () => setOpened(video) }] : []),
       // a still has no sound of its own to mute
       ...(c.kind === "video" ? ["—" as const, c.sound === "muted"
         ? { label: "Unmute", icon: <Volume2 size={14} />, run: () => patch.mutate({ clip: c.id, patch: { sound: "own" } }) }
         : { label: "Mute", icon: <VolumeX size={14} />, run: () => patch.mutate({ clip: c.id, patch: { sound: "muted" } }) }] : []),
       "—" as const,
       { label: "Remove clip", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings it back", run: () => remove.mutate(c.id) },
+    ];
+  };
+  /** Play from In; at Out it stops, or goes back to In when Loop is on. */
+  const playRange = () => {
+    if (!range || emptyRange) return;
+    playingRange.current = true;
+    player.current?.seek(range.inMs);
+    setPlaying(true);
+  };
+  const rangeMenu = useMenu<true>();
+  /** What can be done with the range: the bar under the video and the right-click on the band show the same list. */
+  const rangeItems = (): MenuItem[] => {
+    if (!range) return [];
+    const busy = rangeAct.isPending;
+    return [
+      { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: emptyRange ? "In and Out are the same moment" : undefined, run: playRange },
+      { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => setLoopRange((v) => !v) },
+      "—" as const,
+      { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
+      { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: "the clips under them become two", run: () => rangeAct.mutate("split") },
+      { label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") },
+      { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
+      "—" as const,
+      { label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) },
     ];
   };
   const removeTake = useMutation({ mutationFn: api.deleteTake, onSuccess: after });
@@ -298,7 +331,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       after();
     },
   });
-  const error = plan.error ?? loop.error ?? render.error ?? patch.error ?? edit.error ?? add.error ?? remove.error ?? removeTake.error ?? stop.error ?? undo.error ?? exportIt.error ?? frame.error;
+  const error = plan.error ?? loop.error ?? render.error ?? patch.error ?? edit.error ?? add.error ?? remove.error ?? removeTake.error ?? stop.error ?? undo.error ?? exportIt.error ?? frame.error ?? rangeAct.error ?? split.error;
   useEffect(() => {
     if (!note) return;
     const timer = setTimeout(() => setNote(null), 4000);
@@ -326,11 +359,40 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const onTime = useCallback((ms: number) => {
     setTime(ms);
     setCursor(null);
+    const r = rangeRef.current;
+    if (playingRange.current && r && ms >= r.outMs - 15) {
+      if (loopRef.current && r.outMs - r.inMs >= 40) player.current?.seek(r.inMs);
+      else {
+        playingRange.current = false;
+        setPlaying(false);
+      }
+    }
   }, []);
   const toggle = useCallback(() => {
-    if (!playing && t && time >= t.durationMs - 30) player.current?.seek(0);
+    if (playing) playingRange.current = false;
+    // Space with a range and the playhead outside it: the range plays
+    else if (rangeRef.current && rangeRef.current.outMs - rangeRef.current.inMs >= 40 && (time < rangeRef.current.inMs || time >= rangeRef.current.outMs - 15)) {
+      playingRange.current = true;
+      player.current?.seek(rangeRef.current.inMs);
+    } else if (t && time >= t.durationMs - 30) player.current?.seek(0);
     setPlaying((p) => !p);
   }, [playing, t, time]);
+  // the range stays within what plays when the timeline changes under it
+  const durationMs = t?.durationMs ?? 0;
+  useEffect(() => {
+    setRange((r) => (r && r.outMs > durationMs ? (r.inMs >= durationMs ? null : { ...r, outMs: durationMs }) : r));
+  }, [durationMs]);
+  const timeRef = useRef(time);
+  timeRef.current = time;
+  const totalRef = useRef(durationMs);
+  totalRef.current = durationMs;
+  /** One frame of the clip under the playhead, in ms (24 a second when it is not known). */
+  const frameMs = () => {
+    const c = clips.find((x) => x.lengthMs > 0 && time >= x.atMs && time < x.atMs + x.lengthMs);
+    return 1000 / Math.max(1, c?.take?.asset.fps ?? 24);
+  };
+  const frameRef = useRef(frameMs);
+  frameRef.current = frameMs;
   const undoNow = undo.mutate;
   const removeNow = remove.mutate;
   const selectedNow = useRef<string | null>(null);
@@ -348,13 +410,41 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         e.preventDefault();
         undoNow();
       }
-      // Delete takes the selected clip off the timeline; Undo brings it back
-      if ((e.key === "t" || e.key === "T") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && selectedNow.current && !document.querySelector("[role=dialog], [role=listbox], [role=menu]")) {
+      const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
+      const plain = !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open;
+      // I and O: In and Out at the playhead (one alone reaches to the end, or from the start)
+      if (plain && (e.key === "i" || e.key === "I")) {
         e.preventDefault();
-        setTrimming((cur) => (cur ? null : selectedNow.current));
+        const at = timeRef.current;
+        setRange((r) => (r ? { inMs: at, outMs: Math.max(at, r.outMs) } : { inMs: at, outMs: totalRef.current }));
         return;
       }
-      if (e.key === "Delete" && !typing && selectedNow.current && !document.querySelector("[role=dialog], [role=listbox], [role=menu]")) {
+      if (plain && (e.key === "o" || e.key === "O")) {
+        e.preventDefault();
+        const at = timeRef.current;
+        setRange((r) => (r ? { inMs: Math.min(at, r.inMs), outMs: at } : { inMs: 0, outMs: at }));
+        return;
+      }
+      if (plain && (e.key === "l" || e.key === "L") && rangeRef.current) {
+        e.preventDefault();
+        setLoopRange((v) => !v);
+        return;
+      }
+      if (e.key === "Escape" && !typing && !open && rangeRef.current) {
+        e.preventDefault();
+        setRange(null);
+        return;
+      }
+      // one frame back or forward (Shift: ten); , and . do the same
+      const step = e.key === "ArrowLeft" || e.key === "," ? -1 : e.key === "ArrowRight" || e.key === "." ? 1 : 0;
+      if (step && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !el.closest("[role=listbox], [role=slider][aria-label=In], [role=slider][aria-label=Out]")) {
+        e.preventDefault();
+        const by = step * frameRef.current() * (e.shiftKey && e.key.startsWith("Arrow") ? 10 : 1);
+        player.current?.seek(Math.max(0, Math.min(totalRef.current, timeRef.current + by)));
+        return;
+      }
+      // Delete takes the selected clip off the timeline; Undo brings it back
+      if (e.key === "Delete" && !typing && selectedNow.current && !open) {
         e.preventDefault();
         removeNow(selectedNow.current);
       }
@@ -376,7 +466,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
   /** Cut the clip on screen at the frame shown, and add a clip that continues from there. */
   const continueHere = async () => {
-    if (trimClip && trimTake) return continueFrom(trimClip, trimAt() - trimTake.startMs);
     const here = player.current?.where();
     if (!here) return;
     setPlaying(false);
@@ -459,101 +548,56 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         {/* the media and the player side by side, and under both the row that plays: it starts at the left edge */}
         <div className="flex min-w-0 grow flex-col">
         <div className="flex min-h-0 grow">
-        {!trimClip && <Shelf
+        <Shelf
           selected={Boolean(current)}
           onAdd={(a) => {
             if (a.kind !== "audio") return add.mutate({ asset: a.id });
             if (current) patch.mutate({ clip: current.id, patch: { soundAsset: a.id } });
             else setNote("Select a clip first, or drag the audio onto a clip or onto the music track.");
           }}
-        />}
+        />
 
         <main className="flex min-w-0 grow flex-col">
-          {trimClip && trimTake ? (
-            <div data-stage className="flex min-h-0 grow flex-col items-center justify-center gap-3 bg-ground p-4">
-              <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3">
-                <video key={trimTake.asset.id} ref={trimPlayer} src={fileUrl(trimTake.asset.id)} poster={thumbUrl(trimTake.asset.id)} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); }} />
-                {trimRange && <RangeFrames asset={trimTake.asset} range={trimRange} />}
-              </div>
-              <Trim
-                key={`${trimClip.id}:${trimTake.id}`}
-                asset={trimTake.asset}
-                player={trimPlayer}
-                initial={{ startMs: trimTake.startMs, endMs: trimTake.endMs }}
-                compact
-                busy={split.isPending || regenerate.isPending || patch.isPending}
-                onFrame={(atMs) => frame.mutate({ asset: trimTake.asset.id, at: Math.round(atMs) })}
-                onRange={setTrimRange}
-                onClose={() => setTrimming(null)}
-                actions={({ range, at, crf }) => {
-                  const total = trimTake.asset.durationMs ?? 0;
-                  const isPlayRange = Math.abs(range.startMs - trimTake.startMs) < 1 && Math.abs(range.endMs - trimTake.endMs) < 1;
-                  const inPlay = at >= trimTake.startMs + 40 && at <= trimTake.endMs - 40;
-                  const can = ready(trimClip);
-                  return (
-                    <>
-                      <Button size="sm" tone="primary" disabled={isPlayRange || patch.isPending} title={isPlayRange ? "This is already what plays." : "The clip plays only this range of its take (Undo takes it back)."} onClick={() => patch.mutate({ clip: trimClip.id, patch: { trimStartMs: Math.max(0, Math.round(range.startMs - trimTake.headMs)), trimEndMs: Math.max(0, Math.round(total - trimTake.tailMs - range.endMs)) } })}><Scissors size={13} /> Play only this range</Button>
-                      <Button size="sm" disabled={!inPlay || split.isPending} title={inPlay ? "One clip becomes two at the playhead: the first plays up to it, the second from it on." : "Put the playhead inside the part that plays."} onClick={() => split.mutate({ clip: trimClip.id, atMs: at })}><Split size={13} /> Split clip here</Button>
-                      <Button size="sm" disabled={regenerate.isPending || Boolean(can.why) || range.endMs - range.startMs < 200} title={can.why ?? "A new clip rendered between the frames at in and at out, with a prompt you type (this clip's, to begin with); spliced back in place of the range as a new take."} onClick={() => { if (regen) return setRegen(null); const main = recipeOf(trimClip) ? mainTextOf(recipeOf(trimClip)!) : undefined; const was = can.input?.[main?.id ?? ""]; setRegen({ crf, text: typeof was === "string" ? was : "" }); }}><RefreshCw size={13} /> Regenerate this part…</Button>
-                      <span className="mx-1 h-5 border-l border-line" />
-                      <Button size="sm" disabled={copyRange.isPending} title="The range as a new video in your library" onClick={() => copyRange.mutate({ asset: trimTake.asset.id, range, crf })}><Copy size={13} /> Copy range to library</Button>
-                    </>
-                  );
-                }}
-              />
-              {regen && trimRange && (() => {
-                const recipe = recipeOf(trimClip);
-                const main = recipe ? mainTextOf(recipe) : undefined;
-                const seconds = recipe ? secondsInput(recipe.inputs) : undefined;
-                const length = (trimRange.endMs - trimRange.startMs) / 1000;
-                const snapped = seconds ? Math.max(seconds.min, Math.min(seconds.max, Math.round(length / seconds.step) * seconds.step)) : length;
-                const base = ready(trimClip).input ?? {};
-                const input = main ? { ...base, [main.id]: regen.text } : base;
-                const short = main && !regen.text.trim();
-                return (
-                  <div className="flex w-full max-w-[920px] flex-col gap-1.5 rounded-xl border border-line bg-panel px-3 py-2" role="group" aria-label="Regenerate this part">
-                    <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-2">
-                      <span className="font-semibold text-ink">Regenerate <span className="font-mono font-normal">{clock(trimRange.startMs)}–{clock(trimRange.endMs)}</span></span>
-                      <span>{snapped % 1 ? snapped.toFixed(2) : snapped} s between the in and out frames{Math.abs(snapped - length) > 0.05 ? ` (nearest the model can to ${length.toFixed(2)} s)` : ""}, spliced back as a new take; the old one stays.</span>
-                    </div>
-                    {main && <AutoText autoFocus rows={2} value={regen.text} placeholder={("placeholder" in main && typeof main.placeholder === "string" ? main.placeholder : undefined) ?? "What happens in this part"} onChange={(e) => setRegen({ ...regen, text: e.target.value })} className="w-full rounded-lg border border-line bg-ground px-3 py-2 text-sm" />}
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" tone="primary" disabled={regenerate.isPending || short} title={short ? "Write what happens in this part." : "Render it now."} onClick={() => regenerate.mutate({ clip: trimClip, range: trimRange, crf: regen.crf, input })}><RefreshCw size={13} /> Render{(() => { const ms = takes(trimClip); return ms ? ` · ${aboutMs(ms)}` : ""; })()}</Button>
-                      <Button size="sm" onClick={() => setRegen(null)}>Cancel</Button>
-                      {main && <span className="text-xs text-ink-3">Every other setting is the clip's.</span>}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          ) : (
             <Player ref={player} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} />
-          )}
         </main>
         </div>
+          {range && (() => {
+            const spanned = clips.filter((c) => c.lengthMs > 0 && c.atMs < Math.max(range.outMs, range.inMs + 1) && c.atMs + c.lengthMs > range.inMs).map((c) => clips.indexOf(c) + 1);
+            const where = emptyRange ? "a cut" : spanned.length <= 1 ? `clip ${spanned[0] ?? "?"}` : `clips ${spanned[0]}–${spanned.at(-1)}`;
+            return (
+              <div role="toolbar" aria-label="Range" className="flex h-11 shrink-0 items-center gap-1.5 overflow-hidden border-t border-line bg-accent-wash/40 px-3 text-sm whitespace-nowrap">
+                <span className="shrink-0 font-semibold text-accent">Range</span>
+                <span className="shrink-0 font-mono">{stamp(range.inMs)} <span className="text-ink-3">→</span> {stamp(range.outMs)}</span>
+                <span className="min-w-0 truncate text-ink-2">· {emptyRange ? "" : `${((range.outMs - range.inMs) / 1000).toFixed(1)} s · `}{where}</span>
+                <span className="grow" />
+                {rangeItems().map((it, i) =>
+                  it === "—" ? <span key={i} className="mx-1 h-5 border-l border-line" /> : it.label === "Clear the range" ? (
+                    <button key={i} type="button" aria-label="Clear the range (Esc)" title="Clear the range (Esc)" onClick={it.run} className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+                  ) : (
+                    <Button key={i} size="sm" tone={it.label === "Play range" ? "primary" : undefined} aria-pressed={it.label.startsWith("Loop") ? loopRange : undefined} aria-label={it.label} disabled={it.disabled} title={[it.label, it.note, it.key ? `(${it.key})` : ""].filter(Boolean).join(" · ")} onClick={it.run} className={cx("shrink-0", it.label.startsWith("Loop") && loopRange && "text-accent")}>
+                      {it.icon} {SHORT[it.label] ?? it.label}
+                    </Button>
+                  ),
+                )}
+              </div>
+            );
+          })()}
           <div className="flex h-12 shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
-            {trimClip ? (
-              <span className="text-sm text-ink-2">Trimming <span className="font-semibold text-ink">clip {clips.indexOf(trimClip) + 1}</span> · the buttons on the right follow the Trim playhead</span>
-            ) : (
-              <>
-                <button type="button" aria-label="Previous clip" title="Previous clip" disabled={!t.durationMs} onClick={() => jump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
-                <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!t.durationMs} onClick={toggle} className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-ground disabled:opacity-40">
-                  {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}
-                </button>
-                <button type="button" aria-label="Next clip" title="Next clip" disabled={!t.durationMs} onClick={() => jump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
-                <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
-              </>
-            )}
+            <button type="button" aria-label="Previous clip" title="Previous clip" disabled={!t.durationMs} onClick={() => jump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
+            <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!t.durationMs} onClick={toggle} className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-ground disabled:opacity-40">
+              {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}
+            </button>
+            <button type="button" aria-label="Next clip" title="Next clip" disabled={!t.durationMs} onClick={() => jump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
+            <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
             <span className="grow" />
-            <Button size="sm" disabled={!t.durationMs || add.isPending} title={trimClip ? "Cuts this clip at the Trim playhead, and adds a new clip that extends from it." : "Cuts the clip on screen at this frame, and adds a new clip that extends from it."} onClick={() => void continueHere()}>
+            <Button size="sm" disabled={!t.durationMs || add.isPending} title="Cuts the clip on screen at this frame, and adds a new clip that extends from it." onClick={() => void continueHere()}>
               <Link2 size={13} /> Extend from this frame
             </Button>
             <Button
               size="sm"
               disabled={!t.durationMs || frame.isPending}
-              title={trimClip ? "Save the frame at the Trim playhead as an image in your library." : "Save the frame on screen as an image in your library."}
+              title="Save the frame on screen as an image in your library."
               onClick={() => {
-                if (trimTake) return frame.mutate({ asset: trimTake.asset.id, at: trimAt() });
                 const here = player.current?.where();
                 if (here?.clip.take) frame.mutate({ asset: here.clip.take.asset.id, at: Math.round(here.assetMs) });
                 else if (here?.clip.still) setOpened(here.clip.still);
@@ -660,8 +704,12 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         onTrim={(clip, p) => patch.mutate({ clip: clip.id, patch: p })}
         onNewClip={(afterId) => newClip(afterId)}
         onMenu={(clip, e) => clipMenu.open(e, clip)}
+        range={range}
+        onRange={setRange}
+        onRangeMenu={(e) => rangeMenu.open(e, true)}
       />
       {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject)} onClose={clipMenu.close} />}
+      {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" items={rangeItems()} onClose={rangeMenu.close} />}
 
       {exp && (
         <div role="dialog" aria-modal="true" aria-label="Export video" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setExp(null)}>

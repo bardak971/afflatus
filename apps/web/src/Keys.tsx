@@ -64,7 +64,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     where: "Prompt",
     keys: [["Ctrl + ↑  ↓", "Prompt weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
-  { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"], ["T", "Trim the selected clip: play range, split here, regenerate a part"], ["Right-click", "Menu of a clip: render / new take, extend, split at playhead, trim, open its video, mute, remove"]] },
+  { where: "Timeline", keys: [["Space", "Play / pause (with a range: play it)"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead: the range (Shift-drag the ruler sets both)"], ["L", "Loop the range"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Right-click", "Menu of a clip: render / new take, extend, set range to it, split at playhead, extend from this frame, save frame, open its video, mute, remove. On the range: play, loop, regenerate, split, remove, copy"]] },
   { where: "Everywhere", keys: [["/  :", "Find a setting in the open form; else the search bar of the view (library, Prompt kit, snippets, workflow editor)"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 
