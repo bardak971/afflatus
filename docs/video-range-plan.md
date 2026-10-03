@@ -114,6 +114,10 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
   moments (motion measured once per clip, a curve under the ruler); blended joins (crossfade over the shared
   frames) and colour match at joins in the export, the blend in the preview too. Still open: VACE-style temporal
   inpainting for Wan / LTX (on the todo, worth unsure).
+- **Last regen pass** (same day): loudness drawn always on the Audio and Music rows; pauses in the sound as snap
+  points; a join score on every take (how much the picture jumps at In and at Out, the smoothest marked); the
+  designer's speech rule for a bridge. The H3 guide node has no strength input: anchors are hard, no Hold knob.
+  Regen is done; what is left is the model and the choice of range (cut on pauses, give it 4–5 s).
 - **Loop** (slice E) is not built: with the range it would be "Regenerate with In and Out swapped"; wanted
   only when asked for.
 
