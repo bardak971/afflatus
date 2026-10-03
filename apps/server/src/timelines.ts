@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { secondsInput, type Recipe } from "@afflatus/core";
-import { CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinVideos, peekAt, rangeKeep } from "./cut";
+import { CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinVideos, MOTION_RATE, motionOf, peekAt, rangeKeep } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -765,6 +765,19 @@ export class Timelines {
     // a strip of a part is asked for while zooming: made each time, not kept
     if (!windowed) await this.storage.put(key, strip);
     return strip;
+  }
+
+  /** How much moves along a video, ten samples a second (see motionOf). Measured once, then kept. */
+  async motion(assetId: string): Promise<{ rate: number; values: number[] }> {
+    const video = await this.assetRow(assetId);
+    if (!video || video.kind !== "video") throw missing("this video");
+    const key = `motion/${video.id.slice(0, 2)}/${video.id}.json`;
+    const have = await this.storage.get(key).catch(() => null);
+    if (have) return JSON.parse(Buffer.from(have).toString("utf8")) as { rate: number; values: number[] };
+    const values = await motionOf(await this.storage.get(video.file_key), extOf(video.mime));
+    const made = { rate: MOTION_RATE, values: values.map((v) => Math.round(v * 10) / 10) };
+    await this.storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
+    return made;
   }
 
   /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */

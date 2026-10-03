@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { api } from "../api";
 import { Link2, Minus, Music, Plus, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Timeline } from "../api";
 import { phaseLabel } from "../format";
@@ -34,7 +36,7 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, range, onRange, onRangeMenu }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, range, onRange, onRangeMenu, snapQuiet }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -70,6 +72,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onRange(range: TimeRange | null): void;
   /** A right-click on the range: its menu. */
   onRangeMenu?(e: React.MouseEvent): void;
+  /** In and Out snap to quiet moments of the clips (their motion is measured once a range exists). */
+  snapQuiet?: boolean;
 }) {
   const clips = timeline.clips;
   const scroller = useRef<HTMLDivElement>(null);
@@ -163,10 +167,40 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     onSeek(playAt(slots, x), Math.max(0, Math.min(totalMs, ((x - PAD) / pps) * 1000)));
   };
 
-  // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts and to the playhead
+  // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const sweep = useRef<number | null>(null);
   const grab = useRef<"in" | "out" | null>(null);
   const playEnd = clips.reduce((sum, c) => sum + c.lengthMs, 0);
+  // how much moves along each clip's take, asked for once a range exists and kept
+  const played = useMemo(() => slots.filter((s) => !s.planned && s.clip.take), [slots]);
+  const motions = useQueries({
+    queries: played.map((s) => ({ queryKey: ["motion", s.clip.take!.asset.id], queryFn: () => api.motion(s.clip.take!.asset.id), enabled: Boolean(range), staleTime: Infinity, retry: 0 })),
+  });
+  /** The motion of what plays, per clip: samples along the clip's playing part, each 0..1 of the clip's own peak; and its quiet moments, on the clock of what plays. */
+  const motion = useMemo(() => {
+    return played.map((s, i) => {
+      const m = motions[i]?.data;
+      const take = s.clip.take!;
+      if (!m || !m.values.length) return { slot: s, curve: [] as number[], quiet: [] as number[] };
+      const step = 1000 / m.rate;
+      const from = Math.floor(take.startMs / step);
+      const to = Math.min(m.values.length - 1, Math.ceil(take.endMs / step));
+      const raw = m.values.slice(from, to + 1);
+      // smoothed over three samples, so that one odd frame is not a dip
+      const smooth = raw.map((_v, k) => ((raw[k - 1] ?? raw[k]!) + raw[k]! + (raw[k + 1] ?? raw[k]!)) / 3);
+      const peak = Math.max(1, ...smooth);
+      const sorted = [...smooth].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+      const quiet: number[] = [];
+      for (let k = 1; k < smooth.length - 1; k++) {
+        if (smooth[k]! <= smooth[k - 1]! && smooth[k]! < smooth[k + 1]! && smooth[k]! < median * 0.8) {
+          const assetMs = (from + k) * step;
+          if (assetMs > take.startMs + 100 && assetMs < take.endMs - 100) quiet.push(s.clip.atMs + (assetMs - take.startMs));
+        }
+      }
+      return { slot: s, curve: smooth.map((v) => v / peak), quiet };
+    });
+  }, [played, motions]);
   const snapRange = (ms: number) => {
     const marks = [...slots.filter((s) => !s.planned).flatMap((s) => [s.clip.atMs, s.clip.atMs + s.clip.lengthMs]), time];
     let best = ms;
@@ -176,6 +210,17 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
       if (d < gap) {
         gap = d;
         best = m;
+      }
+    }
+    // a quiet moment within a third of a second wins over nothing, not over a cut or the playhead at hand
+    if (snapQuiet !== false && best === ms) {
+      let near = 334;
+      for (const q of motion.flatMap((m) => m.quiet)) {
+        const d = Math.abs(q - ms);
+        if (d < near) {
+          near = d;
+          best = q;
+        }
       }
     }
     return Math.max(0, Math.min(playEnd, best));
@@ -501,6 +546,14 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               <span className="truncate">{timeline.music ? timeline.music.asset.name || "Music" : "Drop an audio file here to play it under the whole video"}</span>
             </button>
 
+            {range && motion.map(({ slot: s, curve, quiet }) =>
+              curve.length > 1 ? (
+                <svg key={s.clip.id} aria-hidden className="pointer-events-none absolute top-0 z-[11] text-accent" style={{ left: s.left, width: s.width, height: RULER }} viewBox={`0 0 ${Math.max(1, s.width)} ${RULER}`} preserveAspectRatio="none">
+                  <path d={`M0 ${RULER} ${curve.map((v, k) => `L${((k / (curve.length - 1)) * s.width).toFixed(1)} ${(RULER - 2 - v * (RULER - 5)).toFixed(1)}`).join(" ")} L${s.width} ${RULER} Z`} fill="currentColor" opacity={0.22} />
+                  {snapQuiet !== false && quiet.map((q) => <line key={q} x1={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} x2={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} y1={RULER - 6} y2={RULER - 1} stroke="currentColor" strokeWidth={1.5} opacity={0.7} />)}
+                </svg>
+              ) : null,
+            )}
             {band && range && (
               <>
                 <div aria-hidden className="pointer-events-none absolute top-0 z-[12] border-x-2 border-accent bg-accent/15" style={{ left: band.a - 1, width: Math.max(2, band.b - band.a + 2), height: HEIGHT - 4 }} />

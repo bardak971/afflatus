@@ -135,6 +135,19 @@ describe.skipIf(!clip)("a range of a video", () => {
     expect((await get(t.app, `/api/assets/${piece.id}`)).json().inBin).toBe(true);
   });
 
+  it("has its motion measured once: ten samples a second, kept for the next time", async () => {
+    const video = await render(clip!);
+    const first = (await get(t.app, `/api/assets/${video.id}/motion`)).json() as { rate: number; values: number[] };
+    expect(first.rate).toBe(10);
+    // ten a second over the clip's length, none negative
+    const expected = Math.round((video.durationMs ?? 0) / 100);
+    expect(first.values.length).toBeGreaterThanOrEqual(expected - 3);
+    expect(first.values.length).toBeLessThanOrEqual(expected + 2);
+    expect(first.values.every((v) => v >= 0)).toBe(true);
+    const again = (await get(t.app, `/api/assets/${video.id}/motion`)).json();
+    expect(again).toEqual(first);
+  });
+
   it("refuses an empty range and the whole video", async () => {
     const video = await render(clip!);
     expect((await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 505, action: "copy" })).statusCode).toBe(400);

@@ -357,6 +357,29 @@ export async function joinVideos(
   });
 }
 
+/** How many motion samples a second are measured. */
+export const MOTION_RATE = 10;
+
+/**
+ * How much moves along a video: ten samples a second, each the mean difference between a frame and the
+ * one before, on a small grey copy (0 = still, 255 = everything changed). For snapping to quiet moments.
+ */
+export async function motionOf(source: Uint8Array, ext: string): Promise<number[]> {
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    await writeFile(input, source);
+    const said = await must(tools.ffmpeg, [
+      "-loglevel", "error", "-i", input, "-an",
+      "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`,
+      "-f", "null", "-",
+    ], { timeout: 10 * 60_000 });
+    const values = [...said.matchAll(/lavfi\.signalstats\.YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
+    // the first sample is a frame against nothing
+    if (values.length) values[0] = values[1] ?? 0;
+    return values;
+  });
+}
+
 /** The sound of a video as a sound file of its own (AAC in an .m4a). */
 export async function soundOf(source: Uint8Array, ext: string): Promise<Uint8Array> {
   return inTemp(async (dir) => {

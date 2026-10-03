@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Copy, Download, Eye, ImagePlus, Link2, Pause, Play, Plus, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
+import { ArrowLeft, Camera, Copy, Download, Eye, ImagePlus, Link2, Magnet, Pause, Play, Plus, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
@@ -186,6 +186,24 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const rangeRef = useRef(range);
   rangeRef.current = range;
   const [loopRange, setLoopRange] = useState(false);
+  // In and Out snap to quiet moments of the clips; off with the magnet, remembered per browser
+  const [snapQuiet, setSnapQuiet] = useState(() => {
+    try {
+      return localStorage.getItem("afflatus.timeline.snapQuiet") !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSnapQuiet = () => {
+    setSnapQuiet((on) => {
+      try {
+        localStorage.setItem("afflatus.timeline.snapQuiet", on ? "off" : "on");
+      } catch {
+        // not remembered, nothing more
+      }
+      return !on;
+    });
+  };
   const loopRef = useRef(loopRange);
   loopRef.current = loopRange;
   /** Playing the range: it stops at Out (or goes back to In). */
@@ -616,6 +634,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 <span className="shrink-0 font-semibold text-accent">Range</span>
                 <span className="shrink-0 font-mono">{stamp(range.inMs)} <span className="text-ink-3">→</span> {stamp(range.outMs)}</span>
                 <span className="min-w-0 truncate text-ink-2">· {emptyRange ? "" : `${((range.outMs - range.inMs) / 1000).toFixed(1)} s · `}{where}</span>
+                <button type="button" aria-label="Snap to quiet moments" aria-pressed={snapQuiet} title={snapQuiet ? "In and Out snap to quiet moments of the clips (the ticks under the ruler), to cuts and to the playhead. Click to snap to cuts and the playhead only." : "Snapping to quiet moments is off: In and Out snap to cuts and to the playhead. Click to snap to quiet moments too."} onClick={toggleSnapQuiet} className={cx("ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", snapQuiet ? "bg-accent-wash text-accent" : "text-ink-3 hover:bg-hover hover:text-ink")}><Magnet size={14} /></button>
                 <span className="grow" />
                 {rangeItems().filter((it): it is Exclude<MenuItem, "—"> => it !== "—" && it.label !== "Play range" && !it.label.startsWith("Loop")).map((it, i) =>
                   it.label === "Clear the range" ? (
@@ -760,6 +779,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         range={range}
         onRange={setRange}
         onRangeMenu={(e) => rangeMenu.open(e, true)}
+        snapQuiet={snapQuiet}
       />
       {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject)} onClose={clipMenu.close} />}
       {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" items={rangeItems()} onClose={rangeMenu.close} />}
