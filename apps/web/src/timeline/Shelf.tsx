@@ -119,9 +119,9 @@ export function Shelf({ onAdd, selected, timeline }: {
   const what = (a: Asset) => (a.kind === "video" ? "Add this video at the end of the timeline" : a.kind === "image" ? "Add this image at the end, as a still" : selected ? "Use this audio on the selected clip" : "Select a clip first, or drag this audio file onto one");
   const scopeName = project === null ? "Everything" : project === "none" ? "The Inbox" : "This project";
   const scopes: Array<{ value: Scope; label: string; note?: string }> = [
-    { value: "project", label: scopeName, note: project === null ? "the whole library" : "what the switcher looks at" },
+    { value: "project", label: scopeName, note: project === null ? "the whole library" : "as the switcher says" },
     { value: "timeline", label: "In this timeline", note: `${used.length} used` },
-    { value: "recent", label: "Last two days", note: "made since the day before yesterday" },
+    { value: "recent", label: "Recent", note: "made in the last 48 hours" },
     { value: "kept", label: "Kept", note: "starred" },
     ...(project !== null ? [{ value: "all" as const, label: "Everything", note: "every project" }] : []),
   ];

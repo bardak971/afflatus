@@ -56,7 +56,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     note: "Selecting several items: to move, keep or bin them together.",
     keys: [
       ["Ctrl + Click", "Select an item (or click the circle on it)"], ["Shift + Click", "Select the range from the last selected item to this one"],
-      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "Menu of an item: open, keep, i2v, reuse parameters, variation, Open in ComfyUI, download, bin"],
+      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "Menu of an item: open, keep, i2v, reuse parameters, variation, Open in ComfyUI, download, bin"], ["/", "The search nearest the mouse; pressed again inside a search, the next one"],
     ],
   },
   { where: "Form, in Studio", keys: [["Ctrl + Enter", "Generate"]] },
@@ -97,14 +97,34 @@ export function KeysHelp() {
         e.preventDefault();
         setOpen((o) => !o);
       }
-      // "/" goes to the search bar of the view: the one on top when a panel with its own is open.
+      const shown = (el: Element) => el.getClientRects().length > 0;
+      // "/" pressed inside a search box goes on to the next search box on screen (the shelf's, the form's, the view's), round and round
+      const active = document.activeElement;
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && active instanceof HTMLInputElement && active.matches("input[data-search]")) {
+        const all = [...document.querySelectorAll<HTMLElement>("input[data-search], button[data-search-opener]")].filter(shown);
+        const next = all[(all.indexOf(active) + 1) % all.length];
+        if (next && next !== active) {
+          e.preventDefault();
+          if (next instanceof HTMLInputElement) {
+            next.focus();
+            next.select();
+          } else next.click();
+        }
+        return;
+      }
+      // "/" goes to the search bar nearest the mouse: the panel under it that has one (a form's own, behind its
+      // magnifier; the shelf's; the view's bar); with nothing under the mouse, a form on screen wins, else the view's bar.
       // On AZERTY "/" shares its key with ":": that key works with or without Shift.
       if ((e.key === "/" || e.key === ":") && plainKey(e)) {
-        const shown = (el: Element) => el.getClientRects().length > 0;
-        // a form on screen has a search of its own (behind its magnifier): that one, wherever the mouse is; else the view's bar
         const form = [...document.querySelectorAll<HTMLElement>("input[data-search=form], button[data-search-opener]")].filter(shown)[0];
         const bars = [...document.querySelectorAll<HTMLInputElement>("input[data-search]:not([data-search=form])")].filter(shown);
-        const target = form ?? bars[bars.length - 1];
+        const hovered = [...document.querySelectorAll<HTMLElement>(":hover")].at(-1);
+        let near: HTMLElement | undefined;
+        for (let el: HTMLElement | null = hovered ?? null; el && !near; el = el.parentElement) {
+          const inside = [...el.querySelectorAll<HTMLElement>("input[data-search], button[data-search-opener]")].filter(shown);
+          if (inside.length) near = inside.find((x) => x.matches("input[data-search=form], button[data-search-opener]")) ?? inside[0];
+        }
+        const target = near ?? form ?? bars[bars.length - 1];
         if (target) {
           e.preventDefault();
           if (target instanceof HTMLInputElement) {
