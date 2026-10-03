@@ -177,9 +177,15 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   });
 
   /** Frames of a video side by side in one picture: what a clip shows on the timeline. */
-  app.get<{ Params: { id: string }; Querystring: { frames?: string; height?: string } }>("/api/assets/:id/strip", async (req, reply) => {
-    const q = z.object({ frames: z.coerce.number().int().min(2).max(120).optional(), height: z.coerce.number().int().min(24).max(240).optional() }).parse(req.query);
-    return reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.strip(req.params.id, q)));
+  app.get<{ Params: { id: string }; Querystring: { frames?: string; height?: string; from?: string; to?: string } }>("/api/assets/:id/strip", async (req, reply) => {
+    const q = z.object({ frames: z.coerce.number().int().min(2).max(120).optional(), height: z.coerce.number().int().min(24).max(240).optional(), from: z.coerce.number().min(0).optional(), to: z.coerce.number().min(0).optional() }).parse(req.query);
+    return reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.strip(req.params.id, { frames: q.frames, height: q.height, fromMs: q.from, toMs: q.to })));
+  });
+
+  /** One small picture of a moment: what a hover over the trim bar shows. */
+  app.get<{ Params: { id: string }; Querystring: { at?: string } }>("/api/assets/:id/peek", async (req, reply) => {
+    const q = z.object({ at: z.coerce.number().min(0) }).parse(req.query);
+    return reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.peek(req.params.id, q.at)));
   });
 
   /**

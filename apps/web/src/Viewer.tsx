@@ -515,9 +515,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     mutationFn: (v: { range: Range; action: "copy" | "split" | "remove"; crf: number }) => api.range(asset.id, { startMs: Math.round(v.range.startMs), endMs: Math.round(v.range.endMs), action: v.action, crf: v.crf }),
     onSuccess: (_, v) => {
       void client.invalidateQueries({ queryKey: ["queue"] });
-      say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? "Splitting the video" : "Removing the range", text: "In the queue; it needs no GPU. The new video shows in the library when it is done.", href: "/queue", go: "Open queue" });
-      setTrim(false);
-      if (v.action !== "copy") onClose();
+      // Trim stays open: the next action may follow on the same range
+      say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? "Splitting the video" : "Removing the range", text: `In the queue; it needs no GPU. The new video${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : "; this one goes to the bin then"}.`, href: "/queue", go: "Open queue" });
     },
   });
 

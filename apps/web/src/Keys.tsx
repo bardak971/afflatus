@@ -49,7 +49,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
   {
     where: "Trim (on a video)",
     note: "Pick an in and an out; the actions work on what is between them.",
-    keys: [["I  O", "Set in / out at the playhead"], [",  .", "One frame back / forward (Shift: ten)"], ["L", "Loop the range"], ["Space", "Play / pause"], ["Home  End", "Start / end"], ["Esc", "Leave Trim"]],
+    keys: [["I  O", "Set in / out at the playhead"], [",  .", "One frame back / forward (Shift: ten)"], ["L", "Loop the range"], ["Z", "Zoom into the range (the mouse wheel on a strip zooms too)"], ["Space", "Play / pause"], ["Home  End", "Start / end"], ["Esc", "Leave Trim"]],
   },
   {
     where: "Grid, in Studio",

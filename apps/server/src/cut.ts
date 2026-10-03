@@ -168,20 +168,35 @@ export async function frameAt(source: Uint8Array, ext: string, atMs: number, dur
 export const STRIP = { frames: 12, height: 72 };
 
 /** Frames of a video side by side in one picture (a JPEG), spread evenly over its length: what a clip shows on the timeline. */
-export async function filmStrip(source: Uint8Array, ext: string, durationMs: number, opts: { frames?: number; height?: number } = {}): Promise<Uint8Array> {
+export async function filmStrip(source: Uint8Array, ext: string, durationMs: number, opts: { frames?: number; height?: number; /** Only this part of the video, in milliseconds. */ fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
   const frames = Math.max(2, Math.min(120, Math.round(opts.frames ?? STRIP.frames)));
   const height = Math.max(24, Math.min(240, Math.round(opts.height ?? STRIP.height)));
+  const from = Math.max(0, Math.min(opts.fromMs ?? 0, durationMs));
+  const to = Math.max(from + 40, Math.min(opts.toMs ?? durationMs, durationMs));
   return inTemp(async (dir) => {
     const input = join(dir, `in.${ext}`);
     const out = join(dir, "strip.jpg");
     await writeFile(input, source);
-    const every = Math.max(0.02, durationMs / 1000 / frames);
+    const every = Math.max(0.01, (to - from) / 1000 / frames);
     await must(tools.ffmpeg, [
-      "-y", "-loglevel", "error", "-i", input,
+      "-y", "-loglevel", "error", ...(from > 0 ? ["-ss", (from / 1000).toFixed(3)] : []), "-to", (to / 1000).toFixed(3), "-i", input,
       "-vf", `fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${height},tile=${frames}x1`,
       "-frames:v", "1", "-q:v", "5", out,
     ]);
     return new Uint8Array(await readFile(out));
+  });
+}
+
+/** One small picture of a moment, as a JPEG: what a hover over the trim bar shows. */
+export async function peekAt(source: Uint8Array, ext: string, atMs: number, height = 160): Promise<Uint8Array> {
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    const out = join(dir, "peek.jpg");
+    await writeFile(input, source);
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", (Math.max(0, atMs) / 1000).toFixed(3), "-i", input, "-frames:v", "1", "-vf", `scale=-2:${Math.max(48, Math.min(480, height))}`, "-q:v", "4", out]);
+    const bytes = await readFile(out).catch(() => null);
+    if (!bytes?.length) throw new CutError("No picture could be taken from that moment of the video.");
+    return new Uint8Array(bytes);
   });
 }
 

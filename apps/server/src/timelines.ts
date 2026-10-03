@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import type { Recipe } from "@afflatus/core";
-import { CutError, filmStrip, frameAt, joinVideos, rangeKeep, type ExportMusic, type ExportPart } from "./cut";
+import { CutError, filmStrip, frameAt, joinVideos, peekAt, rangeKeep, type ExportMusic, type ExportPart } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -733,19 +733,28 @@ export class Timelines {
   }
 
   /** Frames of a video side by side in one picture, for the timeline (and, at a size asked for, the trim bar). Made once per video and size, then kept. */
-  async strip(assetId: string, opts: { frames?: number; height?: number } = {}): Promise<Uint8Array> {
+  async strip(assetId: string, opts: { frames?: number; height?: number; fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
     const video = await this.assetRow(assetId);
     if (!video || video.kind !== "video") throw missing("this video");
+    const windowed = opts.fromMs !== undefined || opts.toMs !== undefined;
     const sized = opts.frames || opts.height;
     const key = sized ? `strips/${video.id.slice(0, 2)}/${video.id}-${opts.frames ?? 0}x${opts.height ?? 0}.jpg` : `strips/${video.id.slice(0, 2)}/${video.id}.jpg`;
-    const have = await this.storage.get(key).catch(() => null);
+    const have = windowed ? null : await this.storage.get(key).catch(() => null);
     if (have) return have;
     const bytes = await this.storage.get(video.file_key);
     const length = video.duration_ms ?? (await readVideo(bytes, extOf(video.mime))).facts?.durationMs;
     if (!length) throw new CutError("This video could not be read.");
     const strip = await filmStrip(bytes, extOf(video.mime), length, opts);
-    await this.storage.put(key, strip);
+    // a strip of a part is asked for while zooming: made each time, not kept
+    if (!windowed) await this.storage.put(key, strip);
     return strip;
+  }
+
+  /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */
+  async peek(assetId: string, atMs: number): Promise<Uint8Array> {
+    const video = await this.assetRow(assetId);
+    if (!video || video.kind !== "video") throw missing("this video");
+    return peekAt(await this.storage.get(video.file_key), extOf(video.mime), atMs);
   }
 
   /**
