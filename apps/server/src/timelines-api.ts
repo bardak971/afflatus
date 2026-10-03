@@ -3,7 +3,7 @@ import { z } from "zod";
 import { RANDOM_SEED } from "@afflatus/core";
 import { compose, lookSchema, withMood } from "./entities";
 import { assetView } from "./media";
-import { UserError } from "./queue";
+import { rifeModelIn, UserError } from "./queue";
 import type { Services } from "./services";
 import { FROM_PREVIOUS } from "./timelines";
 
@@ -85,6 +85,18 @@ const exportBody = z.strictObject({
   /** Nudge each clip's brightness and tint to the clip before at the join. */
   match: z.boolean().default(true),
 });
+
+/** How a slow-motion job makes its frames: RIFE on the GPU when this ComfyUI is up and has it, else ffmpeg on the processor. */
+async function slowEngine(s: Services): Promise<"rife" | "ffmpeg"> {
+  try {
+    const comfy = await s.comfy();
+    const catalog = await comfy.catalog();
+    const nodes = ["LoadVideo", "GetVideoComponents", "FrameInterpolationModelLoader", "FrameInterpolate", "VHS_VideoCombine"];
+    return nodes.every((n) => n in catalog) && rifeModelIn(catalog as Record<string, unknown>) ? "rife" : "ffmpeg";
+  } catch {
+    return "ffmpeg";
+  }
+}
 
 export function registerTimelines(app: FastifyInstance, s: Services): void {
   const t = s.timelines;
@@ -204,8 +216,19 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * timeline as one video in the library, through the export queue.
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/range", async (req) => {
-    const body = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "copy"]), scale: z.number().min(1).max(2).optional() }).parse(req.body);
+    const body = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "copy", "slow"]), scale: z.number().min(1).max(2).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() }).parse(req.body);
     const id = req.params.id;
+    if (body.action === "slow") {
+      // the part becomes a clip of its own; the slowed video arrives as its take
+      const factor = body.factor ?? 2;
+      const made = await t.slowClipOf(id, body.inMs, body.outMs);
+      const engine = await slowEngine(s);
+      const view = await t.view(id);
+      const index = view.clips.findIndex((c) => c.id === made.clip);
+      const job = await s.queue.enqueueCut({ asset: made.asset.id, startMs: made.startMs, endMs: made.endMs, action: "slow", factor, engine, clip: made.clip }, `${view.name} · clip ${index + 1} · slow ×${factor}`);
+      s.queue.events.emit("timeline");
+      return { clip: made.clip, job, engine };
+    }
     if (body.action === "split") await t.splitRange(id, body.inMs, body.outMs);
     else if (body.action === "remove") await t.removeRange(id, body.inMs, body.outMs);
     else if (body.action === "regenerate") {
@@ -246,13 +269,18 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * in the queue, by ffmpeg; the job's label says what it does.
    */
   app.post<{ Params: { id: string } }>("/api/assets/:id/range", async (req) => {
-    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove"]), crf: z.number().int().min(0).max(40).optional() }).parse(req.body);
+    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove", "slow"]), crf: z.number().int().min(0).max(40).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() }).parse(req.body);
     const video = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
     if (!video || video.kind !== "video") throw Object.assign(new Error("this video was not found"), { statusCode: 404 });
     if (body.endMs - body.startMs < 20) throw Object.assign(new Error("That range is too short: pick at least one frame."), { statusCode: 400 });
-    if (video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw Object.assign(new Error("That is the whole video: there is nothing to cut."), { statusCode: 400 });
+    if (body.action !== "slow" && video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw Object.assign(new Error("That is the whole video: there is nothing to cut."), { statusCode: 400 });
     const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
     const name = video.name || "video";
+    if (body.action === "slow") {
+      const factor = body.factor ?? 2;
+      const engine = await slowEngine(s);
+      return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf }, `${name} · slow ×${factor} ${clock(body.startMs)}–${clock(body.endMs)}`), engine };
+    }
     const said = body.action === "copy" ? `${name} · ${clock(body.startMs)}–${clock(body.endMs)} → library` : body.action === "split" ? `${name} · split at ${clock(body.startMs)} and ${clock(body.endMs)}` : `${name} · remove ${clock(body.startMs)}–${clock(body.endMs)}`;
     return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf }, said) };
   });

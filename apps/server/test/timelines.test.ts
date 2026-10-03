@@ -687,6 +687,29 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect((await view(tl)).clips).toHaveLength(2);
   });
 
+  it("slows a range within a clip: the part becomes a clip of its own and gets the slowed video as a take", async () => {
+    const { tl, a } = await twoRendered();
+    const { clip, job, engine } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 1000, outMs: 2000, action: "slow", factor: 2 });
+    expect(engine).toBe("ffmpeg");
+    let v = await view(tl);
+    // split at 1 s and at 2 s: the first clip, the part, the rest, then the second clip
+    expect(v.clips).toHaveLength(4);
+    expect(v.clips[1].id).toBe(clip);
+    expect(v.clips[0].id).toBe(a);
+    expect(v.clips[1].lengthMs).toBeCloseTo(1000, -2);
+    await until(async () => ((await get(t.app, "/api/jobs")).json().items as Array<{ id: string; status: string }>).some((j) => j.id === job && j.status === "done"), 120_000);
+    v = await view(tl);
+    const part = v.clips[1];
+    expect(part.takes).toHaveLength(2);
+    expect(part.lengthMs).toBeGreaterThan(1800);
+    expect(part.lengthMs).toBeLessThan(2300);
+    expect(part.take.asset.hasSound).toBe(false);
+    expect(v.undo).toBe("the slow-motion take");
+    // a range across two clips is refused
+    const bad = await t.app.inject({ method: "POST", url: `/api/timelines/${tl}/range`, payload: { inMs: 2500, outMs: 4500, action: "slow", factor: 2 } });
+    expect(bad.statusCode).toBe(400);
+  });
+
   it("copies a range to the library: one video of that part, through the export queue", async () => {
     const { tl } = await twoRendered();
     const { job } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "copy" });

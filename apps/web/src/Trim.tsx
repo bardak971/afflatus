@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Camera, Clapperboard, Copy, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Camera, Clapperboard, Copy, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { Asset } from "./api";
 import { clock } from "./format";
 import { Kbd } from "./Keys";
@@ -67,7 +67,7 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
  * it over (its native controls are off while trimming). Keys: I / O set in and out at the playhead,
  * , and . step one frame (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
  */
-export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onFrame, onBetween, onExtendHere, onRange, onClose }: {
+export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onFrame, onBetween, onExtendHere, onRange, onClose }: {
   asset: Asset;
   player: RefObject<HTMLVideoElement | null>;
   busy?: boolean;
@@ -80,6 +80,8 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   onCopy?(range: Range, crf: number): void;
   onSplit?(range: Range, crf: number): void;
   onRemove?(range: Range, crf: number): void;
+  /** The range slowed down ×2 or ×4, as a new video (RIFE on the GPU when ComfyUI has it, else ffmpeg). */
+  onSlow?(range: Range, factor: 2 | 4): void;
   onFrame(atMs: number): void;
   /** A new clip from the frame at in to the frame at out. */
   onBetween?(range: Range): void;
@@ -357,6 +359,13 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         <Button size="sm" tone="primary" disabled={busy || whole} title={whole ? "The whole video: there is nothing to cut." : "The range as a new video in your library; this one stays."} onClick={() => onCopy?.(range, crfN)}><Copy size={13} /> Copy to library</Button>
         <Button size="sm" disabled={busy || whole} title="Three videos: before the range, the range, after it. This one goes to the bin." onClick={() => onSplit?.(range, crfN)}><Split size={13} /> Split</Button>
         <Button size="sm" disabled={busy || whole} title="One video without the range. This one goes to the bin." onClick={() => onRemove?.(range, crfN)}><Scissors size={13} /> Remove range</Button>
+        {onSlow && (
+          <>
+            <span className="mx-1 h-5 border-l border-line" />
+            <Button size="sm" disabled={busy} title="The range at half speed, as a new video (silent): RIFE on the GPU through the queue when ComfyUI has it, else ffmpeg's motion interpolation on the processor, which is slow." onClick={() => onSlow(range, 2)}><Gauge size={13} /> Slow ×2</Button>
+            <Button size="sm" disabled={busy} title="The range at a quarter speed, as a new video (silent)." onClick={() => onSlow(range, 4)}><Gauge size={13} /> ×4</Button>
+          </>
+        )}
         <span className="mx-1 h-5 border-l border-line" />
         <Button size="sm" disabled={busy} title="The frame at the playhead, as an image in your library (G does the same)" onClick={() => onFrame(at)}><Camera size={13} /> Frame at playhead <Kbd>G</Kbd></Button>
         <span className="mx-1 h-5 border-l border-line" />

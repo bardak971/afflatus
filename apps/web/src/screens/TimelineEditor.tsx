@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Copy, Download, Eye, ImagePlus, Link2, Magnet, Pause, Play, Plus, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
+import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
@@ -22,7 +22,7 @@ import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { useBanners } from "../store";
 
 /** The range bar's words for its actions: the menu says them in full. */
-const SHORT: Record<string, string> = { "Play range": "Play", "Loop: on": "Loop", "Loop: off": "Loop", "Regenerate range": "Regenerate", "Insert a clip here": "Insert clip", "Split at In and Out": "Split at In / Out", "Remove range": "Remove", "Copy to library": "Copy" };
+const SHORT: Record<string, string> = { "Play range": "Play", "Loop: on": "Loop", "Loop: off": "Loop", "Regenerate range": "Regenerate", "Insert a clip here": "Insert clip", "Split at In and Out": "Split at In / Out", "Remove range": "Remove", "Copy to library": "Copy", "Slow motion ×2": "Slow ×2", "Slow motion ×4": "×4" };
 
 /**
  * The timeline editor: your media on the left, the video in the middle, the selected clip on the right,
@@ -229,10 +229,21 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     onSettled: () => setWriting(null),
   });
   const rangeAct = useMutation({
-    mutationFn: (action: "split" | "remove" | "regenerate" | "copy") => api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action }),
-    onSuccess: (r, action) => {
+    mutationFn: (ask: "split" | "remove" | "regenerate" | "copy" | { slow: 2 | 4 }) =>
+      typeof ask === "string" ? api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: ask }) : api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: "slow", factor: ask.slow }),
+    onSuccess: (r, ask) => {
       after();
-      if (action === "regenerate" && "clip" in r) {
+      if (typeof ask !== "string") {
+        if ("clip" in r) {
+          setSelected(r.clip);
+          setMusicOpen(false);
+        }
+        const engine = "engine" in r ? r.engine : "ffmpeg";
+        say({ id: `slow:${Date.now()}`, tone: "good", title: `Slow motion ×${ask.slow} in the queue`, text: `The part is a clip of its own now; the slowed video (silent) arrives as its take and plays. ${engine === "rife" ? "RIFE on the GPU." : "ffmpeg on the processor: slow, minutes for a few seconds."}`, href: "/queue", go: "Open queue" });
+        return;
+      }
+      const action = ask;
+      if (action === "regenerate" && "clip" in r && "context" in r) {
         setSelected(r.clip);
         setMusicOpen(false);
         setRange(null);
@@ -307,6 +318,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const rangeItems = (): MenuItem[] => {
     if (!range) return [];
     const busy = rangeAct.isPending;
+    // slow motion works within one clip that plays a video
+    const withinOne = clips.some((c) => c.kind === "video" && c.take && c.atMs <= range.inMs + 1 && c.atMs + c.lengthMs >= range.outMs - 1);
     return [
       { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: emptyRange ? "In and Out are the same moment" : undefined, run: playRange },
       { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => toggleLoop() },
@@ -315,6 +328,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: "the clips under them become two", run: () => rangeAct.mutate("split") },
       { label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") },
       { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
+      "—" as const,
+      { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "the part becomes a clip of its own and gets the slowed video (silent) as a take" : "set In and Out inside one clip that plays a video", run: () => rangeAct.mutate({ slow: 2 }) },
+      { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "a quarter speed" : "set In and Out inside one clip that plays a video", run: () => rangeAct.mutate({ slow: 4 }) },
       "—" as const,
       { label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) },
     ];

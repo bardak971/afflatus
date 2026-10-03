@@ -11,9 +11,19 @@ import type { Storage } from "./storage";
 import { makeThumb, maskBox, readPicture, thumbKey } from "./thumbs";
 import { estimateMs, rates, type Rate } from "./estimates";
 import { guessFor, known, usualParts } from "./renders";
+import { GraphBuilder } from "@afflatus/core";
 import { CUT_JOB, EXPORT_JOB, type CutOptions, type ExportOptions, type TakeLinks, type Timelines } from "./timelines";
 import { readVideo } from "./video";
 
+
+/** The RIFE model this ComfyUI offers for frame interpolation, when it has one. */
+export function rifeModelIn(catalog: Record<string, unknown>): string | null {
+  const node = catalog["FrameInterpolationModelLoader"] as { input?: { required?: Record<string, unknown[]> } } | undefined;
+  const options = node?.input?.required?.model_name?.[0];
+  if (!Array.isArray(options)) return null;
+  const files = options.filter((o): o is string => typeof o === "string");
+  return files.find((f) => /rife/i.test(f)) ?? files[0] ?? null;
+}
 /**
  * The queue. One ComfyUI, so one job at a time, in order. Jobs live in the database: a restart loses
  * nothing. Queued jobs stay queued, and a job ComfyUI already has is waited on again by its prompt id.
@@ -523,7 +533,34 @@ export class Queue {
       if (!this.clips) throw new Error("timelines are not available");
       const video = await this.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
       if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
-      await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
+      if (opts.action === "slow") {
+        const factor = opts.factor ?? 2;
+        let made;
+        if (opts.engine === "rife") {
+          // RIFE on the GPU: the range goes up to ComfyUI, a small graph interpolates it, the video comes back
+          const comfy = await this.comfy();
+          const catalog = await comfy.catalog();
+          const rife = rifeModelIn(catalog);
+          const missing = ["LoadVideo", "GetVideoComponents", "FrameInterpolationModelLoader", "FrameInterpolate", "VHS_VideoCombine"].filter((n) => !(n in catalog));
+          if (missing.length || !rife) throw new Error(`ComfyUI has no RIFE frame interpolation to run this on${missing.length ? ` (missing nodes: ${missing.join(", ")})` : " (no model in models/frame_interpolation)"}`);
+          this.running.gpu = true;
+          const part = await this.clips.rangeSlice(video, opts.startMs, opts.endMs);
+          const file = await comfy.client.upload(part.bytes, "mp4");
+          const g = new GraphBuilder();
+          const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
+          const images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: rife }), images: [parts, 0], multiplier: factor });
+          const outNode = g.add("VHS_VideoCombine", { images, frame_rate: part.fps, loop_count: 0, filename_prefix: "Afflatus/slow", format: "video/h264-mp4", pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: 16, save_metadata: false, trim_to_audio: false });
+          const promptId = await comfy.client.submit(g.graph);
+          this.running.promptId = promptId;
+          const output = await this.awaitPrompt(comfy, promptId, outNode, abort.signal);
+          const bytes = await comfy.client.view(output);
+          made = await this.clips.keepCut(video, bytes, this.clips.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs);
+        } else made = await this.clips.slowRange(video, opts.startMs, opts.endMs, factor, { crf: opts.crf, signal: abort.signal });
+        if (opts.clip) {
+          await this.clips.takeFrom(opts.clip, made);
+          this.events.emit("timeline");
+        }
+      } else await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
@@ -531,6 +568,29 @@ export class Queue {
       else await this.finish(row.id, "failed", { error: (err as Error).message.slice(0, 600) });
     } finally {
       this.running = null;
+    }
+  }
+
+  /** Wait for a prompt queued outside the usual render path (a slow-motion job), and hand back the video it made. */
+  private async awaitPrompt(comfy: Comfy, promptId: string, node: string, signal: AbortSignal): Promise<OutputFile> {
+    const started = Date.now();
+    for (;;) {
+      if (signal.aborted) {
+        await comfy.client.interrupt(promptId).catch(() => {});
+        throw new Error("stopped by you");
+      }
+      const h = await comfy.client.history(promptId).catch(() => undefined);
+      if (h?.status?.completed) {
+        const file = h.outputs?.[node]?.gifs?.[0] ?? Object.values(h.outputs ?? {}).flatMap((o) => o.gifs ?? [])[0];
+        if (!file) throw new Error("ComfyUI finished without a video");
+        return file;
+      }
+      if (h?.status?.status_str === "error") {
+        const said = h.status.messages?.find((m) => m[0] === "execution_error")?.[1] as { exception_message?: string } | undefined;
+        throw new Error(said?.exception_message ? `ComfyUI: ${String(said.exception_message).slice(0, 300)}` : "ComfyUI could not run the frame interpolation");
+      }
+      if (Date.now() - started > 2 * 60 * 60_000) throw new Error("the frame interpolation did not finish in two hours");
+      await new Promise((r) => setTimeout(r, 1000));
     }
   }
 

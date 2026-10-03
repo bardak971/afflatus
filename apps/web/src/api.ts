@@ -825,8 +825,8 @@ export const api = {
    * clip (it comes back selected, not rendered; In = Out on a cut inserts a clip between), or copy it to the
    * library through the export queue.
    */
-  timelineRange: (id: string, opts: { inMs: number; outMs: number; action: "split" | "remove" | "regenerate" | "copy"; scale?: number }) =>
-    call<{ ok: true } | { clip: string; context: RangeContext } | { job: string }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
+  timelineRange: (id: string, opts: { inMs: number; outMs: number; action: "split" | "remove" | "regenerate" | "copy" | "slow"; scale?: number; factor?: 2 | 4 }) =>
+    call<{ ok: true } | { clip: string; context: RangeContext } | { job: string } | { clip: string; job: string; engine: "rife" | "ffmpeg" }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
   /** The designer writes a clip put between two others: what takes the action from the one to the other. `was` is what the form held when it was asked. */
   writeBetween: (clip: string) => call<{ changes: Record<string, string>; note: string; was: Record<string, string> }>("POST", `/clips/${clip}/between`),
@@ -836,7 +836,8 @@ export const api = {
   /** One frame of a video, saved as a picture in the library. */
   frame: (video: string, atMs: number) => call<Asset>("POST", `/assets/${video}/frame`, { atMs }),
   /** A range of a video as new videos, in the queue: copied, split out, or removed. */
-  range: (video: string, opts: { startMs: number; endMs: number; action: "copy" | "split" | "remove"; crf?: number }) => call<{ id: string }>("POST", `/assets/${video}/range`, opts),
+  /** A range of a video: copied, split out, removed, or slowed down ("slow", ×2 or ×4: RIFE on the GPU when ComfyUI has it, else ffmpeg; `engine` says which). */
+  range: (video: string, opts: { startMs: number; endMs: number; action: "copy" | "split" | "remove" | "slow"; crf?: number; factor?: 2 | 4 }) => call<{ id: string; engine?: "rife" | "ffmpeg" }>("POST", `/assets/${video}/range`, opts),
   /** How much moves along a video and how loud it is, `rate` samples a second (motion 0 = still; sound in dB, about -60 = silence): the curves on the track, the quiet moments and pauses a range snaps to. */
   motion: (asset: string) => call<{ rate: number; values: number[]; sound: number[] | null }>("GET", `/assets/${asset}/motion`),
   /** How smoothly each take of a clip meets its neighbours: ×1 = like the clip's own motion, higher = a catch; null where there is no neighbour. */

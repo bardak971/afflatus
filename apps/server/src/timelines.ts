@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { secondsInput, type Recipe } from "@afflatus/core";
-import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep } from "./cut";
+import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -50,8 +50,13 @@ export interface CutOptions {
   asset: string;
   startMs: number;
   endMs: number;
-  action: "copy" | "split" | "remove";
+  /** "slow": the range slowed down by `factor`, as a new video (and, with `clip`, as a take of that clip). */
+  action: "copy" | "split" | "remove" | "slow";
   crf?: number;
+  factor?: 2 | 4;
+  /** How the frames in between are made: RIFE on the GPU through ComfyUI, or ffmpeg on the processor. */
+  engine?: "rife" | "ffmpeg";
+  clip?: string;
 }
 
 export const EXPORT_JOB = "afflatus.export";
@@ -1149,6 +1154,94 @@ export class Timelines {
     if (next && next.clip.joined !== nextJoined) await this.db.updateTable("clips").set({ joined: nextJoined, updated_at: at }).where("id", "=", next.clip.id).execute();
     await this.touch(timelineId);
     return { clip: id, context };
+  }
+
+  // ---------------------------------------------------------------- slow motion
+
+  /** The range of a video as one small file to hand to ComfyUI: cut to the frame, at its own frame rate. */
+  async rangeSlice(video: AssetRow, startMs: number, endMs: number): Promise<{ bytes: Uint8Array; fps: number }> {
+    const bytes = await this.storage.get(video.file_key);
+    const ext = extOf(video.mime);
+    const read = video.duration_ms && video.fps ? null : await readVideo(bytes, ext);
+    const total = video.duration_ms ?? read?.facts?.durationMs ?? 0;
+    const fps = video.fps ?? read?.facts?.fps ?? 24;
+    if (!total) throw new CutError("This video could not be read.");
+    const a = Math.max(0, Math.min(startMs, endMs));
+    const b = Math.min(total, Math.max(startMs, endMs));
+    return { bytes: await rangeKeep(bytes, ext, { durationMs: total, hasSound: false }, [[a, b]], { crf: 10 }), fps };
+  }
+
+  /** A video made from a range of another, filed in the library next to it with its source and range. */
+  async keepCut(original: AssetRow, out: Uint8Array, name: string, startMs: number, endMs: number): Promise<AssetRow> {
+    const seen = await readVideo(out, "mp4");
+    const id = newId();
+    const key = `assets/${id.slice(0, 2)}/${id}.mp4`;
+    await this.storage.put(key, out);
+    const thumb = seen.frame ? await makeThumb(seen.frame) : null;
+    if (thumb) await this.storage.put(thumbKey(id), thumb);
+    const at = now();
+    await this.db
+      .insertInto("assets")
+      .values({
+        id, owner_id: OWNER, kind: "video", origin: "cut", name, file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
+        width: seen.facts?.width ?? original.width, height: seen.facts?.height ?? original.height,
+        duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? original.fps, has_sound: seen.facts?.hasSound ? 1 : 0,
+        folder_id: original.folder_id, generation_id: null, source_id: original.id, source_range: `${Math.round(startMs)}-${Math.round(endMs)}`, kept_at: at, deleted_at: null, created_at: at,
+      })
+      .execute();
+    this.events.emit("library");
+    return this.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+  }
+
+  /** The name a slowed range is filed under. */
+  slowName(video: AssetRow, startMs: number, endMs: number, factor: number): string {
+    const base = (video.name || "video").replace(/\.[a-z0-9]+$/i, "");
+    return `${base} · slow ×${factor} ${clockOf(startMs)}–${clockOf(endMs)}`;
+  }
+
+  /** The range slowed by ffmpeg (no GPU), filed in the library. */
+  async slowRange(video: AssetRow, startMs: number, endMs: number, factor: 2 | 4, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<AssetRow> {
+    const bytes = await this.storage.get(video.file_key);
+    const ext = extOf(video.mime);
+    const read = video.duration_ms && video.fps ? null : await readVideo(bytes, ext);
+    const total = video.duration_ms ?? read?.facts?.durationMs ?? 0;
+    if (!total) throw new CutError("This video could not be read.");
+    const out = await slowMotion(bytes, ext, { durationMs: total, fps: video.fps ?? read?.facts?.fps ?? null }, startMs, endMs, factor, opts);
+    return this.keepCut(video, out, this.slowName(video, startMs, endMs, factor), startMs, endMs);
+  }
+
+  /** A video becomes a take of a clip, and plays (what a slow-motion job hands back). One step to undo. */
+  async takeFrom(clipId: string, asset: AssetRow, label = "the slow-motion take"): Promise<void> {
+    const clip = await this.db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
+    // the clip was removed while the job ran: the video is in the library all the same
+    if (!clip) return;
+    await this.remember(clip.timeline_id, label);
+    await this.addTake(clipId, asset, { headMs: 0, tailMs: 0 }, {});
+    await this.touch(clip.timeline_id);
+  }
+
+  /**
+   * The range made a clip of its own, for a slow-motion take: In and Out must lie within one clip that
+   * plays a video. The clip is split there (one step to undo, with the take that follows); what comes
+   * back is the clip to give the take to, and the part of its video to slow.
+   */
+  async slowClipOf(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; asset: AssetRow; startMs: number; endMs: number }> {
+    const { laid, a, b } = await this.window(timelineId, inMs, outMs);
+    if (b - a < 40) throw refused("Set In and Out apart: there is nothing to slow down.");
+    const l = laid.find((x) => x.atMs <= a + 1 && x.atMs + x.lengthMs >= b - 1 && x.p.clip.kind === "video" && x.p.active);
+    if (!l) throw refused("Slow motion works within one clip: set In and Out inside a clip that plays a video.");
+    const x = l.p.active!;
+    const asset = x.asset;
+    const { start } = plays(x);
+    const startMs = start + (a - l.atMs);
+    const endMs = start + (b - l.atMs);
+    await this.remember(timelineId, "the split for slow motion");
+    // Out first, then In: the part between becomes a clip of its own (the whole clip stays as it is)
+    if (l.atMs + l.lengthMs - b >= 40) await this.splitAt(timelineId, (await this.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, b - l.atMs);
+    let clipId = l.p.clip.id;
+    if (a - l.atMs >= 40) clipId = await this.splitAt(timelineId, (await this.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, a - l.atMs);
+    await this.touch(timelineId);
+    return { clip: clipId, asset, startMs, endMs };
   }
 
   // ---------------------------------------------------------------- export

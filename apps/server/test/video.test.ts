@@ -152,6 +152,22 @@ describe.skipIf(!clip)("a range of a video", () => {
     expect(again).toEqual(first);
   });
 
+  it("is slowed down: twice as long, the same frame rate, silent (ffmpeg here, RIFE on a GPU)", async () => {
+    const video = await render(clip!);
+    const { id, engine } = (await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 1500, action: "slow", factor: 2 })).json();
+    expect(engine).toBe("ffmpeg");
+    const job = await settled(id);
+    expect(job).toMatchObject({ status: "done", kind: "cut" });
+    const items = (await get(t.app, "/api/assets")).json().items as Array<{ id: string; durationMs: number; name: string; hasSound: boolean; fps: number | null }>;
+    const slow = items.find((x) => /slow ×2/.test(x.name));
+    expect(slow).toBeTruthy();
+    expect(slow!.durationMs).toBeGreaterThan(1800);
+    expect(slow!.durationMs).toBeLessThan(2300);
+    expect(slow!.hasSound).toBe(false);
+    const detail = (await get(t.app, `/api/assets/${slow!.id}`)).json();
+    expect(detail.source).toMatchObject({ asset: { id: video.id }, range: { startMs: 500, endMs: 1500 } });
+  });
+
   it("refuses an empty range and the whole video", async () => {
     const video = await render(clip!);
     expect((await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 505, action: "copy" })).statusCode).toBe(400);

@@ -513,10 +513,14 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const frameAt = useMutation({ mutationFn: (atMs: number) => api.frame(asset.id, Math.round(atMs)), onSuccess: opened });
   // the range as new videos: a job of the queue; the library shows them when it is done
   const cutRange = useMutation({
-    mutationFn: (v: { range: Range; action: "copy" | "split" | "remove"; crf: number }) => api.range(asset.id, { startMs: Math.round(v.range.startMs), endMs: Math.round(v.range.endMs), action: v.action, crf: v.crf }),
-    onSuccess: (_, v) => {
+    mutationFn: (v: { range: Range; action: "copy" | "split" | "remove" | "slow"; crf: number; factor?: 2 | 4 }) => api.range(asset.id, { startMs: Math.round(v.range.startMs), endMs: Math.round(v.range.endMs), action: v.action, crf: v.crf, factor: v.factor }),
+    onSuccess: (r, v) => {
       void client.invalidateQueries({ queryKey: ["queue"] });
       // Trim stays open: the next action may follow on the same range
+      if (v.action === "slow") {
+        say({ id: `cut:${Date.now()}`, tone: "good", title: `Slowing the range ×${v.factor ?? 2}`, text: r.engine === "rife" ? "RIFE on the GPU, through the queue. The new video (silent) shows in the library when it is done." : "ffmpeg's motion interpolation on the processor: slow, minutes for a few seconds. For RIFE on the GPU, put a RIFE model in ComfyUI's models/frame_interpolation folder with the frame interpolation nodes.", href: "/queue", go: "Open queue" });
+        return;
+      }
       say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? "Splitting the video" : "Removing the range", text: `In the queue; it needs no GPU. The new video${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : "; this one goes to the bin then"}.`, href: "/queue", go: "Open queue" });
     },
   });
@@ -656,6 +660,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
               onCopy={(range, crf) => cutRange.mutate({ range, action: "copy", crf })}
               onSplit={(range, crf) => cutRange.mutate({ range, action: "split", crf })}
               onRemove={(range, crf) => cutRange.mutate({ range, action: "remove", crf })}
+              onSlow={(range, factor) => cutRange.mutate({ range, action: "slow", crf: 16, factor })}
               onFrame={(atMs) => frameAt.mutate(atMs)}
               onBetween={opener ? (range) => between.mutate(range) : undefined}
               onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
@@ -708,6 +713,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             onCopy={(range, crf) => cutRange.mutate({ range, action: "copy", crf })}
             onSplit={(range, crf) => cutRange.mutate({ range, action: "split", crf })}
             onRemove={(range, crf) => cutRange.mutate({ range, action: "remove", crf })}
+            onSlow={(range, factor) => cutRange.mutate({ range, action: "slow", crf: 16, factor })}
             onFrame={(atMs) => frameAt.mutate(atMs)}
             onBetween={opener ? (range) => between.mutate(range) : undefined}
             onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}

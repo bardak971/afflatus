@@ -519,6 +519,29 @@ export async function joinJump(a: { bytes: Uint8Array; ext: string; atMs: number
   });
 }
 
+/**
+ * A range of a video slowed down by `factor`, the frames in between worked out by ffmpeg's motion
+ * interpolation (the fallback when there is no RIFE on the GPU): the same frame rate, `factor` times as
+ * many frames, no sound (slowed speech is not worth hearing). Slow: minutes for a few seconds.
+ */
+export async function slowMotion(source: Uint8Array, ext: string, facts: { durationMs: number; fps: number | null }, startMs: number, endMs: number, factor: number, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+  const fps = Math.max(1, Math.round(facts.fps ?? 24));
+  const a = Math.max(0, Math.min(startMs, endMs));
+  const b = Math.min(facts.durationMs, Math.max(startMs, endMs));
+  if (b - a < 40) throw new CutError("That range is too short: pick at least one frame.");
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    const out = join(dir, "slow.mp4");
+    await writeFile(input, source);
+    await must(tools.ffmpeg, [
+      "-y", "-loglevel", "error", "-ss", (a / 1000).toFixed(3), "-t", ((b - a) / 1000).toFixed(3), "-i", input, "-an",
+      "-vf", `setpts=${factor}*PTS,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", String(opts.crf ?? 16), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out,
+    ], { timeout: 3 * 60 * 60_000, signal: opts.signal });
+    return new Uint8Array(await readFile(out));
+  });
+}
+
 /** The sound of a video as a sound file of its own (AAC in an .m4a). */
 export async function soundOf(source: Uint8Array, ext: string): Promise<Uint8Array> {
   return inTemp(async (dir) => {
