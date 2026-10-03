@@ -70,8 +70,8 @@ export interface Job {
   clipId: string | null;
   /** The draft it was sent from, when it was sent from one. */
   draftId: string | null;
-  /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. */
-  kind: "render" | "export" | "load";
+  /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. "cut": a range of a video kept as new videos. */
+  kind: "render" | "export" | "load" | "cut";
   /** Of a waiting job: about how long it will take, from past renders. */
   estimateMs: number | null;
   /** Of a failed job: what it was asked, so that a retry can change it. */
@@ -160,6 +160,8 @@ export interface AssetDetail extends Asset {
   sources: Array<{ role: string; asset: Asset }>;
   /** What was made from it. */
   usedIn: Asset[];
+  /** A frame or a cut: the video it was taken from, and the range when it is one. */
+  source: { asset: Asset; range: { startMs: number; endMs: number } | null } | null;
 }
 export interface DraftBrief {
   id: string;
@@ -817,6 +819,8 @@ export const api = {
   exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
   /** One frame of a video, saved as a picture in the library. */
   frame: (video: string, atMs: number) => call<Asset>("POST", `/assets/${video}/frame`, { atMs }),
+  /** A range of a video as new videos, in the queue: copied, split out, or removed. */
+  range: (video: string, opts: { startMs: number; endMs: number; action: "copy" | "split" | "remove"; crf?: number }) => call<{ id: string }>("POST", `/assets/${video}/range`, opts),
 };
 
 export const fileUrl = (id: string) => `/api/assets/${id}/file`;

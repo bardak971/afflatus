@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import type { Recipe } from "@afflatus/core";
-import { CutError, filmStrip, frameAt, joinVideos, type ExportMusic, type ExportPart } from "./cut";
+import { CutError, filmStrip, frameAt, joinVideos, rangeKeep, type ExportMusic, type ExportPart } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -38,6 +38,22 @@ const near = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 4
 export const FROM_PREVIOUS = "the-clip-before";
 
 /** The recipe id of a job that exports a timeline instead of rendering something. */
+/** "0:04", "0:04.5": a moment, for a cut's name (tenths only when they matter). */
+const clockOf = (ms: number) => {
+  const tenths = Math.max(0, Math.round(ms / 100));
+  const sec = Math.floor(tenths / 10);
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}${tenths % 10 ? `.${tenths % 10}` : ""}`;
+};
+
+export const CUT_JOB = "afflatus.cut";
+export interface CutOptions {
+  asset: string;
+  startMs: number;
+  endMs: number;
+  action: "copy" | "split" | "remove";
+  crf?: number;
+}
+
 export const EXPORT_JOB = "afflatus.export";
 export interface ExportOptions {
   timeline: string;
@@ -716,19 +732,73 @@ export class Timelines {
     return this.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
   }
 
-  /** Frames of a video side by side in one picture, for the timeline. Made once per video, then kept. */
-  async strip(assetId: string): Promise<Uint8Array> {
+  /** Frames of a video side by side in one picture, for the timeline (and, at a size asked for, the trim bar). Made once per video and size, then kept. */
+  async strip(assetId: string, opts: { frames?: number; height?: number } = {}): Promise<Uint8Array> {
     const video = await this.assetRow(assetId);
     if (!video || video.kind !== "video") throw missing("this video");
-    const key = `strips/${video.id.slice(0, 2)}/${video.id}.jpg`;
+    const sized = opts.frames || opts.height;
+    const key = sized ? `strips/${video.id.slice(0, 2)}/${video.id}-${opts.frames ?? 0}x${opts.height ?? 0}.jpg` : `strips/${video.id.slice(0, 2)}/${video.id}.jpg`;
     const have = await this.storage.get(key).catch(() => null);
     if (have) return have;
     const bytes = await this.storage.get(video.file_key);
     const length = video.duration_ms ?? (await readVideo(bytes, extOf(video.mime))).facts?.durationMs;
     if (!length) throw new CutError("This video could not be read.");
-    const strip = await filmStrip(bytes, extOf(video.mime), length);
+    const strip = await filmStrip(bytes, extOf(video.mime), length, opts);
     await this.storage.put(key, strip);
     return strip;
+  }
+
+  /**
+   * A range of a video, kept as new videos of the library: `copy` = the range as one video (the source
+   * stays); `split` = before, range, after as three (the source goes to the bin); `remove` = one video
+   * without the range (the source goes to the bin). Each new video remembers its source and its range.
+   */
+  async cutRange(video: AssetRow, startMs: number, endMs: number, action: "copy" | "split" | "remove", opts: { crf?: number; signal?: AbortSignal } = {}): Promise<AssetRow[]> {
+    const bytes = await this.storage.get(video.file_key);
+    const ext = extOf(video.mime);
+    const read = video.duration_ms && video.fps ? null : await readVideo(bytes, ext);
+    const total = video.duration_ms ?? read?.facts?.durationMs ?? 0;
+    if (!total) throw new CutError("This video could not be read.");
+    const a = Math.max(0, Math.min(startMs, endMs));
+    const b = Math.min(total, Math.max(startMs, endMs));
+    if (b - a < 20) throw new CutError("That range is too short: pick at least one frame.");
+    if (a <= 0 && b >= total - 2) throw new CutError("That is the whole video: there is nothing to cut.");
+    const facts = { durationMs: total, hasSound: Boolean(video.has_sound) };
+    const pieces: Array<{ keep: Array<[number, number]>; said: string; range: string }> =
+      action === "copy" ? [{ keep: [[a, b]], said: `${clockOf(a)}–${clockOf(b)}`, range: `${a}-${b}` }]
+      : action === "remove" ? [{ keep: [[0, a], [b, total]], said: `without ${clockOf(a)}–${clockOf(b)}`, range: `${a}-${b}` }]
+      : [
+        ...(a >= 20 ? [{ keep: [[0, a]] as Array<[number, number]>, said: `${clockOf(0)}–${clockOf(a)}`, range: `0-${a}` }] : []),
+        { keep: [[a, b]], said: `${clockOf(a)}–${clockOf(b)}`, range: `${a}-${b}` },
+        ...(total - b >= 20 ? [{ keep: [[b, total]] as Array<[number, number]>, said: `${clockOf(b)}–${clockOf(total)}`, range: `${b}-${total}` }] : []),
+      ];
+    const made: AssetRow[] = [];
+    for (const piece of pieces) {
+      const out = await rangeKeep(bytes, ext, facts, piece.keep, opts);
+      const seen = await readVideo(out, "mp4");
+      const id = newId();
+      const key = `assets/${id.slice(0, 2)}/${id}.mp4`;
+      await this.storage.put(key, out);
+      const thumb = seen.frame ? await makeThumb(seen.frame) : null;
+      if (thumb) await this.storage.put(thumbKey(id), thumb);
+      const at = now();
+      const base = (video.name || "video").replace(/\.[a-z0-9]+$/i, "");
+      await this.db
+        .insertInto("assets")
+        .values({
+          id, owner_id: OWNER, kind: "video", origin: "cut", name: `${base} · ${piece.said}`, file_key: key,
+          thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
+          width: seen.facts?.width ?? video.width, height: seen.facts?.height ?? video.height,
+          duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? video.fps, has_sound: seen.facts?.hasSound ? 1 : 0,
+          folder_id: video.folder_id, generation_id: null, source_id: video.id, source_range: piece.range, kept_at: at, deleted_at: null, created_at: at,
+        })
+        .execute();
+      made.push(await this.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow());
+    }
+    // the source goes to the bin when it was taken apart: a day to change one's mind
+    if (action !== "copy") await this.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", video.id).execute();
+    this.events.emit("library");
+    return made;
   }
 
   // ---------------------------------------------------------------- export

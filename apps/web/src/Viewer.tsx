@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
+import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Scissors, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Trim, type Range } from "./Trim";
+import { isShown, secondsInput, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
 import { askAboutDisk } from "./Confirm";
 import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo, type Look } from "./api";
 import { useAsset, useAssetAction, useFamilies, useFolders, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
 import { formDefaults } from "./form";
 import { Kbd, plainKey } from "./Keys";
 import { carryOver, followOn, modelGroups, usedLast } from "./picker";
-import { fileLabel, notReady, recipeLabel, took, when } from "./format";
+import { clock, fileLabel, notReady, recipeLabel, took, when } from "./format";
 import { Select } from "./Select";
 import { PngInfo } from "./PngInfo";
 import { useBanners, useOpenDraft } from "./store";
@@ -388,6 +389,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   // "made from" and "used to make" lead to other items without leaving the viewer
   const [trail, setTrail] = useState<Asset[]>([]);
   const [info, setInfo] = useState(false);
+  // Trim: in and out on a video, and what is done with the range
+  const [trim, setTrim] = useState(false);
   const asset = trail.at(-1) ?? first;
   const detail = useAsset(asset.id);
   const recipes = useRecipes();
@@ -440,6 +443,37 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     onSuccess: toForm,
   });
 
+  /** A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range. */
+  const between = useMutation({
+    mutationFn: async (range: Range) => {
+      const to = opener!;
+      const first = await api.frame(asset.id, Math.round(range.startMs));
+      const last = await api.frame(asset.id, Math.round(range.endMs));
+      void client.invalidateQueries({ queryKey: ["assets"] });
+      const start = to.inputs.find((i) => i.type === "image" && i.role === "start")!;
+      const end = to.inputs.find((i) => i.type === "image" && i.role === "end");
+      const seconds = secondsInput(to.inputs);
+      const length = (range.endMs - range.startMs) / 1000;
+      const snapped = seconds ? Math.max(seconds.min, Math.min(seconds.max, Math.round(length / seconds.step) * seconds.step)) : undefined;
+      return api.createDraft({ recipe: to.id, forms: { [to.id]: { [start.id]: first.id, ...(end ? { [end.id]: last.id } : {}), ...(seconds && snapped !== undefined ? { [seconds.id]: Number(snapped.toFixed(3)) } : {}) } }, look: castOf(detail.data) });
+    },
+    onSuccess: toForm,
+  });
+  /** A new clip that starts at a moment of this one: H3 carries the motion on from there (the clip input's moment), the others open on that frame. */
+  const extendHere = useMutation({
+    mutationFn: async (atMs: number) => {
+      const to = carrier ?? opener!;
+      const settings = carrier ? followOn(recipe, to, g?.inputs) : {};
+      const slot = carrier ? joins(to) : null;
+      if (slot) return api.createDraft({ recipe: to.id, forms: { [to.id]: { ...settings, [slot.id]: { asset: asset.id, at: Math.round(atMs) } } }, look: castOf(detail.data) });
+      const frame = await api.frame(asset.id, Math.round(atMs));
+      void client.invalidateQueries({ queryKey: ["assets"] });
+      const start = to.inputs.find((i) => i.type === "image" && i.role === "start")!;
+      return api.createDraft({ recipe: to.id, forms: { [to.id]: { ...settings, [start.id]: frame.id } }, look: castOf(detail.data) });
+    },
+    onSuccess: toForm,
+  });
+
   // a picture as the first frame of a new video: a draft on the video model used last among those that can
   // open on a picture (the form can still be put on another one: the picture goes along)
   const setup = useSetup();
@@ -474,6 +508,18 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   };
   const saveFrame = useMutation({ mutationFn: () => api.frame(asset.id, Math.round((player.current?.currentTime ?? 0) * 1000)), onSuccess: opened });
   const takeSound = useMutation({ mutationFn: () => api.takeSound(asset.id), onSuccess: opened });
+  // a frame at a moment picked in Trim: opened here once made
+  const frameAt = useMutation({ mutationFn: (atMs: number) => api.frame(asset.id, Math.round(atMs)), onSuccess: opened });
+  // the range as new videos: a job of the queue; the library shows them when it is done
+  const cutRange = useMutation({
+    mutationFn: (v: { range: Range; action: "copy" | "split" | "remove"; crf: number }) => api.range(asset.id, { startMs: Math.round(v.range.startMs), endMs: Math.round(v.range.endMs), action: v.action, crf: v.crf }),
+    onSuccess: (_, v) => {
+      void client.invalidateQueries({ queryKey: ["queue"] });
+      say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? "Splitting the video" : "Removing the range", text: "In the queue; it needs no GPU. The new video shows in the library when it is done.", href: "/queue", go: "Open queue" });
+      setTrim(false);
+      if (v.action !== "copy") onClose();
+    },
+  });
 
   // ---- what the keys do
   const modelSettings = useModelSettings();
@@ -568,6 +614,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     else if (a.kind !== "audio" && k === "p" && !g) setInfo(true);
     else if (a.kind === "video" && k === "c" && carrier) carryOn.mutate();
     else if (a.kind === "video" && k === "g") saveFrame.mutate();
+    else if (a.kind === "video" && k === "t" && !a.inBin) setTrim((t) => !t);
     else return;
     e.preventDefault();
   };
@@ -587,14 +634,29 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   if (inline) {
     return (
       <div className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
-        <div className="flex min-h-0 grow items-center justify-center">
+        <div className="flex min-h-0 grow flex-col items-center justify-center gap-2">
           {a.kind === "image" && (
             <button type="button" onClick={onDetails} title="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
               <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" />
             </button>
           )}
-          {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls className="max-h-full max-w-full rounded-lg" />}
+          {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" />}
           {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls />}
+          {a.kind === "video" && trim && (
+            <Trim
+              key={a.id}
+              asset={a}
+              player={player}
+              busy={cutRange.isPending || frameAt.isPending || between.isPending || extendHere.isPending}
+              onCopy={(range, crf) => cutRange.mutate({ range, action: "copy", crf })}
+              onSplit={(range, crf) => cutRange.mutate({ range, action: "split", crf })}
+              onRemove={(range, crf) => cutRange.mutate({ range, action: "remove", crf })}
+              onFrame={(atMs) => frameAt.mutate(atMs)}
+              onBetween={opener ? (range) => between.mutate(range) : undefined}
+              onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
+              onClose={() => setTrim(false)}
+            />
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
           <Button size="sm" onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")} title={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
@@ -612,6 +674,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
           {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
           {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
+          {a.kind === "video" && !a.inBin && <Button size="sm" className={cx(trim && "border-accent text-accent")} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." onClick={() => setTrim(!trim)}><Scissors size={13} /> Trim <Kbd>T</Kbd></Button>}
           {onDetails && <Button size="sm" onClick={onDetails} title="Generation parameters, folder, lineage and every action">Details</Button>}
           <Button size="sm" onClick={() => void toBin()} title="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
         </div>
@@ -621,10 +684,25 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
 
   return (
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
-      <div className="flex min-w-0 grow items-center justify-center p-6" onClick={onClose}>
+      <div className="flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" onClick={onClose}>
         {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
-        {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls className="max-h-full max-w-full rounded-lg" onClick={(e) => e.stopPropagation()} />}
+        {a.kind === "video" && <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls onClick={(e) => e.stopPropagation()} />}
+        {a.kind === "video" && trim && (
+          <Trim
+            key={a.id}
+            asset={a}
+            player={player}
+            busy={cutRange.isPending || frameAt.isPending || between.isPending || extendHere.isPending}
+            onCopy={(range, crf) => cutRange.mutate({ range, action: "copy", crf })}
+            onSplit={(range, crf) => cutRange.mutate({ range, action: "split", crf })}
+            onRemove={(range, crf) => cutRange.mutate({ range, action: "remove", crf })}
+            onFrame={(atMs) => frameAt.mutate(atMs)}
+            onBetween={opener ? (range) => between.mutate(range) : undefined}
+            onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
+            onClose={() => setTrim(false)}
+          />
+        )}
       </div>
 
       <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
@@ -676,10 +754,16 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             </div>
           )}
 
-          {sources.length > 0 && (
+          {(sources.length > 0 || detail.data?.source) && (
             <div className="flex flex-col gap-2">
               <SectionTitle>Source</SectionTitle>
-              <Strip items={sources.map((s) => ({ asset: s.asset, caption: ROLES[s.role] ?? s.role }))} onOpen={(next) => setTrail([...trail, next])} />
+              <Strip
+                items={[
+                  ...(detail.data?.source ? [{ asset: detail.data.source.asset, caption: detail.data.source.range ? `${clock(detail.data.source.range.startMs)}–${clock(detail.data.source.range.endMs)} of it` : a.kind === "image" ? "Frame of it" : "Cut from it" }] : []),
+                  ...sources.map((s) => ({ asset: s.asset, caption: ROLES[s.role] ?? s.role })),
+                ]}
+                onOpen={(next) => setTrail([...trail, next])}
+              />
             </div>
           )}
           {usedIn.length > 0 && (
@@ -732,12 +816,17 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
                 <Camera size={15} /> {saveFrame.isPending ? "Saving…" : "Save frame"} <Kbd>G</Kbd>
               </Button>
             )}
+            {a.kind === "video" && !a.inBin && (
+              <Button onClick={() => setTrim(!trim)} className={cx(trim && "border-accent text-accent")} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them.">
+                <Scissors size={15} /> Trim <Kbd>T</Kbd>
+              </Button>
+            )}
             {a.kind === "video" && !a.inBin && a.hasSound && (
               <Button onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music.">
                 <Music size={15} /> {takeSound.isPending ? "Extracting…" : "Extract audio"}
               </Button>
             )}
-            {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError) && <span className="text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error)?.message}</span>}
+            {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
             {a.kind === "video" && !a.inBin && carrier && (
               <Button onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."}>
                 <Link2 size={15} /> Extend <Kbd>C</Kbd>

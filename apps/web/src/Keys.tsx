@@ -45,7 +45,12 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
       ["M", "Image to video (i2v)"], ["P", "PNG info (for an imported file)"],
     ],
   },
-  { where: "Viewer (video)", keys: [["C", "Extend: a new clip that carries on from this one"], ["G", "Save frame as an image"]] },
+  { where: "Viewer (video)", keys: [["C", "Extend: a new clip that carries on from this one"], ["G", "Save frame as an image"], ["T", "Trim: in / out on the video, then copy, split, remove, generate between"]] },
+  {
+    where: "Trim (on a video)",
+    note: "Pick an in and an out; the actions work on what is between them.",
+    keys: [["I  O", "Set in / out at the playhead"], [",  .", "One frame back / forward (Shift: ten)"], ["L", "Loop the range"], ["Space", "Play / pause"], ["Home  End", "Start / end"], ["Esc", "Leave Trim"]],
+  },
   {
     where: "Grid, in Studio",
     note: "Selecting several items: to move, keep or bin them together.",

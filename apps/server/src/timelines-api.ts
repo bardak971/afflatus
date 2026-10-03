@@ -177,9 +177,26 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   });
 
   /** Frames of a video side by side in one picture: what a clip shows on the timeline. */
-  app.get<{ Params: { id: string } }>("/api/assets/:id/strip", async (req, reply) =>
-    reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.strip(req.params.id))),
-  );
+  app.get<{ Params: { id: string }; Querystring: { frames?: string; height?: string } }>("/api/assets/:id/strip", async (req, reply) => {
+    const q = z.object({ frames: z.coerce.number().int().min(2).max(120).optional(), height: z.coerce.number().int().min(24).max(240).optional() }).parse(req.query);
+    return reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.strip(req.params.id, q)));
+  });
+
+  /**
+   * A range of a video kept as new videos: copied, split out, or removed (see Timelines.cutRange). Done
+   * in the queue, by ffmpeg; the job's label says what it does.
+   */
+  app.post<{ Params: { id: string } }>("/api/assets/:id/range", async (req) => {
+    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove"]), crf: z.number().int().min(0).max(40).optional() }).parse(req.body);
+    const video = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
+    if (!video || video.kind !== "video") throw Object.assign(new Error("this video was not found"), { statusCode: 404 });
+    if (body.endMs - body.startMs < 20) throw Object.assign(new Error("That range is too short: pick at least one frame."), { statusCode: 400 });
+    if (video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw Object.assign(new Error("That is the whole video: there is nothing to cut."), { statusCode: 400 });
+    const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
+    const name = video.name || "video";
+    const said = body.action === "copy" ? `${name} · ${clock(body.startMs)}–${clock(body.endMs)} → library` : body.action === "split" ? `${name} · split at ${clock(body.startMs)} and ${clock(body.endMs)}` : `${name} · remove ${clock(body.startMs)}–${clock(body.endMs)}`;
+    return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf }, said) };
+  });
 
   /** One frame of a video, as a picture in the library: to open another clip on, or to keep. */
   app.post<{ Params: { id: string } }>("/api/assets/:id/frame", async (req) => {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Search, X } from "lucide-react";
+import { FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, X } from "lucide-react";
 import { api, thumbUrl, type HistoryJob } from "../../api";
 import { useAsset, useJobs, useRecipes } from "../../data";
 import { clock, fileLabel, took, when } from "../../format";
@@ -159,8 +159,8 @@ function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): v
       <div data-stage className={cx("relative grid aspect-square gap-px bg-raised", shown.length > 1 ? "grid-cols-2" : "grid-cols-1", shown.length > 2 ? "grid-rows-2" : "grid-rows-1")}>
         {shown.length === 0 ? (
           <span className="flex h-full flex-col items-center justify-center gap-1.5 text-ink-2">
-            {head.kind === "export" ? <FileOutput size={22} /> : head.kind === "load" ? <Loader2 size={22} /> : head.status === "cancelled" ? <X size={22} /> : <Play size={22} />}
-            <span className="text-xs">{head.kind === "export" ? "Export" : head.kind === "load" ? "Model loaded" : head.status === "cancelled" ? "Cancelled" : "No result"}</span>
+            {head.kind === "export" ? <FileOutput size={22} /> : head.kind === "cut" ? <Scissors size={22} /> : head.kind === "load" ? <Loader2 size={22} /> : head.status === "cancelled" ? <X size={22} /> : <Play size={22} />}
+            <span className="text-xs">{head.kind === "export" ? "Export" : head.kind === "cut" ? "Cut" : head.kind === "load" ? "Model loaded" : head.status === "cancelled" ? "Cancelled" : "No result"}</span>
           </span>
         ) : (
           shown.map((m) => (

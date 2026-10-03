@@ -88,3 +88,56 @@ describe("what is not a video", () => {
     expect(read).toEqual({ facts: null, frame: null });
   });
 });
+
+describe.skipIf(!clip)("a range of a video", () => {
+  const settled = async (id: string) => {
+    await until(async () => ["done", "failed"].includes((await get(t.app, "/api/jobs")).json().items.find((j: { id: string }) => j.id === id)?.status));
+    return (await get(t.app, "/api/jobs")).json().items.find((j: { id: string }) => j.id === id);
+  };
+
+  it("is copied to the library as a new video that remembers where it came from", async () => {
+    const video = await render(clip!);
+    const { id } = (await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 1500, action: "copy", crf: 16 })).json();
+    const job = await settled(id);
+    expect(job).toMatchObject({ status: "done", kind: "cut" });
+    const items = (await get(t.app, "/api/assets")).json().items as Array<{ id: string; kind: string; durationMs: number; name: string }>;
+    expect(items).toHaveLength(2);
+    const cut = items.find((a) => a.id !== video.id)!;
+    expect(cut.kind).toBe("video");
+    expect(cut.durationMs).toBeGreaterThan(900);
+    expect(cut.durationMs).toBeLessThan(1150);
+    expect(cut.name).toContain("0:00.5–0:01.5");
+    const detail = (await get(t.app, `/api/assets/${cut.id}`)).json();
+    expect(detail.source).toMatchObject({ asset: { id: video.id }, range: { startMs: 500, endMs: 1500 } });
+    // the source stays
+    expect((await get(t.app, `/api/assets/${video.id}`)).json().inBin).toBe(false);
+  });
+
+  it("is split into three, and removed from the rest; the source goes to the bin", async () => {
+    const video = await render(clip!);
+    const split = (await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 1500, action: "split" })).json();
+    expect((await settled(split.id)).status).toBe("done");
+    let items = (await get(t.app, "/api/assets")).json().items as Array<{ id: string; durationMs: number }>;
+    expect(items.filter((a) => a.id !== video.id)).toHaveLength(3);
+    expect((await get(t.app, `/api/assets/${video.id}`)).json().inBin).toBe(true);
+    // the pieces add up to the whole
+    const total = items.filter((a) => a.id !== video.id).reduce((n, a) => n + a.durationMs, 0);
+    expect(total).toBeGreaterThan(1850);
+    expect(total).toBeLessThan(2200);
+
+    const piece = items.find((a) => a.id !== video.id)!;
+    const before = new Set(items.map((a) => a.id));
+    const remove = (await post(t.app, `/api/assets/${piece.id}/range`, { startMs: 100, endMs: 300, action: "remove" })).json();
+    expect((await settled(remove.id)).status).toBe("done");
+    items = (await get(t.app, "/api/assets")).json().items;
+    const without = items.find((a) => !before.has(a.id))!;
+    expect(without.durationMs).toBeLessThan(piece.durationMs);
+    expect((await get(t.app, `/api/assets/${piece.id}`)).json().inBin).toBe(true);
+  });
+
+  it("refuses an empty range and the whole video", async () => {
+    const video = await render(clip!);
+    expect((await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 505, action: "copy" })).statusCode).toBe(400);
+    expect((await post(t.app, `/api/assets/${video.id}/range`, { startMs: 0, endMs: video.durationMs, action: "copy" })).statusCode).toBe(400);
+  });
+});

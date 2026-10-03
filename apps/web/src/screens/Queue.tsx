@@ -90,7 +90,7 @@ export function Queue() {
         {q?.online && (
           <Button
             className="h-10 px-4"
-            disabled={free.isPending || Boolean(q.running && q.running.recipe !== "afflatus.export")}
+            disabled={free.isPending || Boolean(q.running && q.running.kind === "render")}
             title="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
             onClick={() => free.mutate()}
           >
@@ -180,7 +180,7 @@ export function Queue() {
                   <GripVertical size={15} className="shrink-0 cursor-grab text-ink-3" />
                   <span className="min-w-0 grow">
                     <span className="block truncate text-sm font-semibold">{w.label}</span>
-                    <span className="block text-xs text-ink-2">{w.kind === "export" ? "export · no GPU needed" : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}</span>
+                    <span className="block text-xs text-ink-2">{w.kind === "export" || w.kind === "cut" ? `${w.kind} · no GPU needed` : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}</span>
                   </span>
                   {w.estimateMs ? <span className="shrink-0 text-xs text-ink-2">{aboutMs(w.estimateMs)}</span> : null}
                   <button type="button" aria-label={`Remove ${w.label} from the queue`} onClick={() => cancel.mutate(w.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">

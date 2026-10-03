@@ -168,17 +168,66 @@ export async function frameAt(source: Uint8Array, ext: string, atMs: number, dur
 export const STRIP = { frames: 12, height: 72 };
 
 /** Frames of a video side by side in one picture (a JPEG), spread evenly over its length: what a clip shows on the timeline. */
-export async function filmStrip(source: Uint8Array, ext: string, durationMs: number): Promise<Uint8Array> {
+export async function filmStrip(source: Uint8Array, ext: string, durationMs: number, opts: { frames?: number; height?: number } = {}): Promise<Uint8Array> {
+  const frames = Math.max(2, Math.min(120, Math.round(opts.frames ?? STRIP.frames)));
+  const height = Math.max(24, Math.min(240, Math.round(opts.height ?? STRIP.height)));
   return inTemp(async (dir) => {
     const input = join(dir, `in.${ext}`);
     const out = join(dir, "strip.jpg");
     await writeFile(input, source);
-    const every = Math.max(0.02, durationMs / 1000 / STRIP.frames);
+    const every = Math.max(0.02, durationMs / 1000 / frames);
     await must(tools.ffmpeg, [
       "-y", "-loglevel", "error", "-i", input,
-      "-vf", `fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${STRIP.height},tile=${STRIP.frames}x1`,
+      "-vf", `fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${height},tile=${frames}x1`,
       "-frames:v", "1", "-q:v", "5", out,
     ]);
+    return new Uint8Array(await readFile(out));
+  });
+}
+
+/** The moments of a video's keyframes, in milliseconds: where a stream copy can start and end without re-encoding. */
+async function keyframesOf(file: string): Promise<number[]> {
+  const out = await must(tools.ffprobe, ["-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file]).catch(() => "");
+  return out.split(/\r?\n/).map((l) => Number(l.split(",")[0])).filter((n) => Number.isFinite(n)).map((s) => Math.round(s * 1000));
+}
+
+/**
+ * The parts of a video that are kept, one after the other, as one MP4: a range copied (one part), a range
+ * removed (the part before and the part after), one piece of a split (one part). One part whose bounds
+ * fall on keyframes (or the file's ends) is copied without re-encoding: instant and lossless. Anything
+ * else is cut to the frame and encoded again at `crf`. The sound follows the picture.
+ */
+export async function rangeKeep(
+  source: Uint8Array, ext: string, facts: { durationMs: number; hasSound: boolean }, keep: Array<[number, number]>,
+  opts: { crf?: number; signal?: AbortSignal } = {},
+): Promise<Uint8Array> {
+  const parts = keep.map(([a, b]) => [Math.max(0, Math.min(a, b)), Math.min(facts.durationMs, Math.max(a, b))] as [number, number]).filter(([a, b]) => b - a >= 20);
+  if (!parts.length) throw new CutError("That range is too short to keep: nothing would be left.");
+  const crf = Math.max(0, Math.min(40, Math.round(opts.crf ?? 10)));
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    const out = join(dir, "kept.mp4");
+    await writeFile(input, source);
+    const sec = (ms: number) => (ms / 1000).toFixed(3);
+    // one part on keyframes: a stream copy
+    if (parts.length === 1) {
+      const [a, b] = parts[0]!;
+      const keys = await keyframesOf(input);
+      const onKey = (ms: number) => keys.some((k) => Math.abs(k - ms) <= 2);
+      if ((a === 0 || onKey(a)) && (b >= facts.durationMs - 2 || onKey(b)) && /^(mp4|mov|m4v)$/i.test(ext)) {
+        await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", sec(a), "-to", sec(b), "-i", input, "-c", "copy", "-movflags", "+faststart", out], { signal: opts.signal });
+        return new Uint8Array(await readFile(out));
+      }
+    }
+    // cut to the frame and joined, encoded again
+    const chains = parts.map(([a, b], i) => `[0:v]trim=start=${sec(a)}:end=${sec(b)},setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2[v${i}]` + (facts.hasSound ? `;[0:a]atrim=start=${sec(a)}:end=${sec(b)},asetpts=PTS-STARTPTS[a${i}]` : ""));
+    const concat = parts.map((_, i) => `[v${i}]${facts.hasSound ? `[a${i}]` : ""}`).join("") + `concat=n=${parts.length}:v=1:a=${facts.hasSound ? 1 : 0}[v]${facts.hasSound ? "[a]" : ""}`;
+    await must(tools.ffmpeg, [
+      "-y", "-loglevel", "error", "-i", input,
+      "-filter_complex", [...chains, concat].join(";"),
+      "-map", "[v]", ...(facts.hasSound ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", String(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out,
+    ], { signal: opts.signal });
     return new Uint8Array(await readFile(out));
   });
 }

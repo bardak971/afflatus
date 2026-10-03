@@ -34,7 +34,7 @@ export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 const PHASES: Record<string, string> = {
   waiting: "Queued on ComfyUI", loading: "Loading model", sampling: "Sampling", upscaling: "Latent upscale",
   refining: "Refine pass", detailing: "Detailer", decoding: "VAE decode", interpolating: "Frame interpolation", encoding: "Encoding",
-  exporting: "Exporting",
+  exporting: "Exporting", cutting: "Cutting",
 };
 export const phaseLabel = (phase: string) => PHASES[phase] ?? phase;
 

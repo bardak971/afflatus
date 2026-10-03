@@ -604,6 +604,14 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
         : null,
       sources: sources.map(({ role, ...row }) => ({ role, asset: assetView(row) })),
       usedIn: usedIn.map(assetView),
+      // a frame or a cut: the video it was taken from, and the range when it is one
+      source: await (async () => {
+        if (!a.source_id) return null;
+        const from = await s.db.selectFrom("assets").selectAll().where("id", "=", a.source_id).executeTakeFirst();
+        if (!from) return null;
+        const [startMs, endMs] = (a.source_range ?? "").split("-").map(Number);
+        return { asset: assetView(from), range: a.source_range && Number.isFinite(startMs) && Number.isFinite(endMs) ? { startMs, endMs } : null };
+      })(),
     };
   });
 

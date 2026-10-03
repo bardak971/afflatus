@@ -24,7 +24,7 @@ export interface Tables {
     owner_id: string;
     kind: "image" | "video" | "audio";
     /** "mask": the part of a picture that was painted over to redo it. Not shown in the library. */
-    origin: "generated" | "uploaded" | "imported" | "frame" | "exported" | "mask";
+    origin: "generated" | "uploaded" | "imported" | "frame" | "exported" | "mask" | "cut";
     name: string;
     file_key: string;
     thumb_key: string | null;
@@ -39,6 +39,8 @@ export interface Tables {
     generation_id: string | null;
     /** What it was taken out of, when it is a frame or the sound of a video. */
     source_id: string | null;
+    /** Of a video cut out of another: the range taken, "startMs-endMs". */
+    source_range: string | null;
     /** null = not kept: goes to the bin after a day. */
     kept_at: string | null;
     /** set = in the bin. */
@@ -625,6 +627,16 @@ migrations["0013_model_pages"] = {
 };
 
 // the app's earlier name, in the kind of an export job
+// a video cut out of another remembers the range
+migrations["0022_source_range"] = {
+  async up(db) {
+    await db.schema.alterTable("assets").addColumn("source_range", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("assets").dropColumn("source_range").execute();
+  },
+};
+
 migrations["0021_afflatus"] = {
   async up(db) {
     await db.updateTable("jobs").set({ recipe_id: "afflatus.export" }).where("recipe_id", "=", "studai.export").execute();

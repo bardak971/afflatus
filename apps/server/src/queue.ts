@@ -11,7 +11,7 @@ import type { Storage } from "./storage";
 import { makeThumb, maskBox, readPicture, thumbKey } from "./thumbs";
 import { estimateMs, rates, type Rate } from "./estimates";
 import { guessFor, known, usualParts } from "./renders";
-import { EXPORT_JOB, type ExportOptions, type TakeLinks, type Timelines } from "./timelines";
+import { CUT_JOB, EXPORT_JOB, type CutOptions, type ExportOptions, type TakeLinks, type Timelines } from "./timelines";
 import { readVideo } from "./video";
 
 /**
@@ -207,6 +207,22 @@ export class Queue {
     return id;
   }
 
+  /** A range of a video kept as new videos (see Timelines.cutRange): ffmpeg only, no model, no ComfyUI. */
+  async enqueueCut(opts: CutOptions, label: string): Promise<string> {
+    const id = newId();
+    const at = now();
+    await this.db
+      .insertInto("jobs")
+      .values({
+        id, owner_id: OWNER, recipe_id: CUT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: null,
+        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, draft_id: null, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
+      })
+      .execute();
+    this.events.emit("queue");
+    void this.pump();
+    return id;
+  }
+
   async cancel(id: string): Promise<boolean> {
     // a waiting job: claim it in one statement, so a pump that picks it at the same moment loses
     const queued = await this.db
@@ -298,6 +314,7 @@ export class Queue {
     const row = await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
     if (!row) throw new UserError("this job was not found");
     if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label);
+    if (row.recipe_id === CUT_JOB) return this.enqueueCut(JSON.parse(row.inputs) as CutOptions, row.label);
     // a workflow whose settings were changed since no longer has some of what the job was sent with
     const has = new Set(this.registry.recipe(row.recipe_id)?.inputs.map((i) => i.id));
     const was = Object.fromEntries(Object.entries(JSON.parse(row.inputs) as Record<string, unknown>).filter(([k]) => !has.size || has.has(k)));
@@ -375,9 +392,9 @@ export class Queue {
     };
     const plain = (r: JobRow) => ({
       id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
-      kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.warm ? ("load" as const) : ("render" as const),
+      kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const),
       // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
-      input: r.status === "failed" && r.recipe_id !== EXPORT_JOB ? (JSON.parse(r.inputs) as Record<string, unknown>) : null,
+      input: r.status === "failed" && r.recipe_id !== EXPORT_JOB && r.recipe_id !== CUT_JOB ? (JSON.parse(r.inputs) as Record<string, unknown>) : null,
       createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at,
     });
     const run = rows.find((r) => r.status === "running");
@@ -387,7 +404,7 @@ export class Queue {
       const monitor = (await this.comfy()).monitor;
       running = {
         ...brief(run),
-        ...(promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : ("waiting" as const), step: 0, steps: 0 }),
+        ...(promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : run.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const), step: 0, steps: 0 }),
         previewSeq: promptId ? monitor.preview(promptId).seq : 0,
         previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
       };
@@ -424,10 +441,14 @@ export class Queue {
         const resumed = active.find((r) => r.status === "running");
         const waitingOn = new Set(active.map((r) => r.id));
         // a pause is for the GPU: an export does not use it, and goes on
-        const next = resumed ?? active.find((r) => r.status === "queued" && !(r.depends_on && waitingOn.has(r.depends_on)) && (!this.paused || r.recipe_id === EXPORT_JOB));
+        const next = resumed ?? active.find((r) => r.status === "queued" && !(r.depends_on && waitingOn.has(r.depends_on)) && (!this.paused || r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB));
         if (!next) break;
         if (next.recipe_id === EXPORT_JOB) {
           await this.runExport(next);
+          continue;
+        }
+        if (next.recipe_id === CUT_JOB) {
+          await this.runCut(next);
           continue;
         }
         const comfy = await this.comfy();
@@ -483,6 +504,34 @@ export class Queue {
     }
     this.events.emit("queue");
     this.events.emit("timeline");
+  }
+
+  /** A cut: ffmpeg on the computer Afflatus runs on, like an export. */
+  private async runCut(row: JobRow): Promise<void> {
+    const claimed = await this.db
+      .updateTable("jobs")
+      .set({ status: "running", attempts: row.attempts + 1, started_at: now(), updated_at: now() })
+      .where("id", "=", row.id)
+      .where("status", "=", "queued")
+      .executeTakeFirst();
+    if (Number(claimed.numUpdatedRows) === 0) return;
+    const abort = new AbortController();
+    this.running = { id: row.id, abort, gpu: false };
+    this.events.emit("queue");
+    try {
+      const opts = JSON.parse(row.inputs) as CutOptions;
+      if (!this.clips) throw new Error("timelines are not available");
+      const video = await this.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
+      if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
+      await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
+      await this.finish(row.id, "done");
+    } catch (err) {
+      if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
+      else if (abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
+      else await this.finish(row.id, "failed", { error: (err as Error).message.slice(0, 600) });
+    } finally {
+      this.running = null;
+    }
   }
 
   private async runExport(row: JobRow): Promise<void> {
@@ -796,15 +845,15 @@ export class Queue {
     const counts = Object.fromEntries((await this.db.selectFrom("jobs").select(["status", (eb) => eb.fn.countAll<number>().as("n")]).where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0).groupBy("status").execute()).map((c) => [c.status, Number(c.n)])) as Partial<Record<"done" | "failed" | "cancelled", number>>;
     const items = page.map((r) => {
       const recipe = this.registry.recipe(r.recipe_id);
-      const input = r.recipe_id === EXPORT_JOB ? {} : (JSON.parse(r.inputs) as Record<string, unknown>);
+      const input = r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB ? {} : (JSON.parse(r.inputs) as Record<string, unknown>);
       const promptSpec = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
       const prompt = promptSpec && typeof input[promptSpec.id] === "string" ? (input[promptSpec.id] as string).trim().slice(0, 240) : "";
       const resolved = r.generation_id ? (JSON.parse(gens.find((g) => g.id === r.generation_id)?.resolved ?? "{}") as { seed?: number }) : {};
       const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
       return {
         id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
-        kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.warm ? ("load" as const) : ("render" as const),
-        input: r.status === "failed" && r.recipe_id !== EXPORT_JOB ? input : null,
+        kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const),
+        input: r.status === "failed" && r.recipe_id !== EXPORT_JOB && r.recipe_id !== CUT_JOB ? input : null,
         createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, tookMs,
         model: recipe ? modelOf(recipe.inputs, input) : null,
         prompt,
