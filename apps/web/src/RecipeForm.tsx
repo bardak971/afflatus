@@ -395,7 +395,7 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
     key("cfg") ? `CFG ${values.cfg}` : "",
     // a sampler left to the recipe says so: "Auto" alone would say nothing
     key("sampler") ? (values.sampler === "Auto" ? "sampler: auto" : fileLabel(String(values.sampler ?? ""))) : "",
-  ].filter(Boolean).join(" · ") || count(sampling.length + upscaling.length, "setting");
+  ].filter(Boolean).join(" · ") || count(sampling.length, "setting");
   const changedMark = (list: InputSpec[]) => (changedIn(list).length ? <span className="text-accent"> · {changedIn(list).length} changed</span> : null);
 
   // what belongs to the model, whatever chapter of the form it is in (the size and the negative prompt are up front)
@@ -453,8 +453,8 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
     ...((made && !q) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
     ...(promptHit ? [{ id: "prompt", label: "Prompt" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
-    ...(sampling.length || upscaling.length ? [{ id: "sampling", label: "Sampling" }] : []),
-    ...(out.length || encoding.length ? [{ id: "output", label: "Output" }] : []),
+    ...(sampling.length ? [{ id: "sampling", label: "Sampling" }] : []),
+    ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
     ...(rare.length ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
 
@@ -496,8 +496,8 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
           {(shownTab === "references" || q) && refs.map(render)}
         </Part>
       )}
-      {(sampling.length > 0 || upscaling.length > 0) && (
-        <Part id="sampling" title="Sampling" summary={<>{samplingSaid}{changedMark([...sampling, ...upscaling])}</>} warn={warnOf([...sampling, ...upscaling])} needs={Boolean(q)}>
+      {sampling.length > 0 && (
+        <Part id="sampling" title="Sampling" summary={<>{samplingSaid}{changedMark(sampling)}</>} warn={warnOf(sampling)} needs={Boolean(q)}>
           {perModel.length > 0 && file && !q && (
             <div className="flex flex-col gap-2 text-xs text-ink-2">
               <span>
@@ -516,13 +516,14 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
             </div>
           )}
           {sampling.map(setting)}
-          {upscaling.length > 0 && heading("Upscale pass", "the second sampling, over the enlarged latent")}
-          {upscaling.map(setting)}
         </Part>
       )}
-      {(out.length > 0 || encoding.length > 0) && (
-        <Part id="output" title="Output" summary={<>{outSaid}{changedMark(encoding)}</>} warn={warnOf([...out, ...encoding])} needs={Boolean(q)}>
+      {(out.length > 0 || encoding.length > 0 || upscaling.length > 0) && (
+        <Part id="output" title="Output" summary={<>{outSaid}{changedMark([...upscaling, ...encoding])}</>} warn={warnOf([...out, ...upscaling, ...encoding])} needs={Boolean(q)}>
           {out.map(render)}
+          {/* the tuning of the upscale pass sits with the route that turns it on */}
+          {upscaling.length > 0 && heading("Upscale pass", "the second sampling over the enlarged latent: how hard it re-samples, which upscaler, tiles and stretches")}
+          {upscaling.map(setting)}
           {encoding.length > 0 && heading("Encode", "frame rate, frame interpolation, compression")}
           {encoding.map(setting)}
         </Part>
