@@ -367,7 +367,8 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
   onOpen(assetId: string): void;
 }) {
   const palette = useChartColors();
-  const [hover, setHover] = useState<RenderItem | null>(null);
+  /** The bar under the pointer, and where it sits across the chart (0 to 1), for the tooltip to stand beside it. */
+  const [hover, setHover] = useState<{ item: RenderItem; at: number; lane: number } | null>(null);
   const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
   const span = Math.max(1, to - from);
   const laneOf = useMemo(() => {
@@ -433,8 +434,8 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
                 key={r.id}
                 type="button"
                 aria-label={`${r.name}, ${took(r.totalMs)}, ${r.status}`}
-                onMouseEnter={() => setHover(r)}
-                onMouseLeave={() => setHover((h) => (h?.id === r.id ? null : h))}
+                onMouseEnter={() => setHover({ item: r, at: (left + width / 2) / 100, lane })}
+                onMouseLeave={() => setHover((h) => (h?.item.id === r.id ? null : h))}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (r.assetId) onOpen(r.assetId);
@@ -449,15 +450,20 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
           {drag && Math.abs(drag.x1 - drag.x0) >= 2 && <div className="pointer-events-none absolute inset-y-0 border-x border-accent bg-accent/15" style={{ left: Math.min(drag.x0, drag.x1), width: Math.abs(drag.x1 - drag.x0) }} />}
         </div>
           {/* outside the box that clips its bars, so that it can hang below a short chart */}
-          {hover && !drag && (
-            <div className="pointer-events-none absolute top-1 right-1 z-20 flex max-w-[360px] flex-col gap-0.5 rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-xs shadow-xl shadow-shade/40">
-              <span className="font-semibold">{hover.name}</span>
-              <span className="truncate text-ink-2">{[hover.model, hover.width && hover.height ? `${hover.width} × ${hover.height}` : "", hover.seconds ? `${hover.seconds} s` : "", `${hover.steps} steps`].filter(Boolean).join(" · ")}</span>
-              <span className="font-mono">{hover.status === "done" ? took(hover.totalMs) : `${hover.status} after ${took(hover.totalMs)}`}{hover.cold ? " · cold start" : ""}</span>
-              <span className="text-ink-3">{timeLabel(Date.parse(hover.at) - hover.totalMs, true)} → {timeLabel(Date.parse(hover.at), true)}</span>
-              <span className="text-ink-3">{[`load ${took(hover.phases.loading)}`, `sampling ${took(hover.phases.sampling)}`, hover.phases.refining > 500 ? `refine ${took(hover.phases.refining)}` : "", `finish ${took(hover.phases.finishing)}`].filter(Boolean).join(" · ")}</span>
-            </div>
-          )}
+          {hover && !drag && (() => {
+            const h = hover.item;
+            // beside the bar, under its lane; on the other side of the pointer past the middle
+            const place = hover.at > 0.5 ? { right: `${(1 - hover.at) * 100}%`, marginRight: 10 } : { left: `${hover.at * 100}%`, marginLeft: 10 };
+            return (
+              <div className="pointer-events-none absolute z-20 flex max-w-[360px] flex-col gap-0.5 rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-xs shadow-xl shadow-shade/40" style={{ top: 2 + (hover.lane + 1) * ROW, ...place }}>
+                <span className="font-semibold">{h.name}</span>
+                <span className="truncate text-ink-2">{[h.model, h.width && h.height ? `${h.width} × ${h.height}` : "", h.seconds ? `${h.seconds} s` : "", `${h.steps} steps`].filter(Boolean).join(" · ")}</span>
+                <span className="font-mono">{h.status === "done" ? took(h.totalMs) : `${h.status} after ${took(h.totalMs)}`}{h.cold ? " · cold start" : ""}</span>
+                <span className="text-ink-3">{timeLabel(Date.parse(h.at) - h.totalMs, true)} → {timeLabel(Date.parse(h.at), true)}</span>
+                <span className="text-ink-3">{[`load ${took(h.phases.loading)}`, `sampling ${took(h.phases.sampling)}`, h.phases.refining > 500 ? `refine ${took(h.phases.refining)}` : "", `finish ${took(h.phases.finishing)}`].filter(Boolean).join(" · ")}</span>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </section>
