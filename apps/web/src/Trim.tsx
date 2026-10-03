@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Camera, Clapperboard, Copy, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { Asset } from "./api";
 import { clock } from "./format";
@@ -42,13 +42,19 @@ const STRIP_FRAMES = 120;
  * it over (its native controls are off while trimming). Keys: I / O set in and out at the playhead,
  * , and . step one frame (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
  */
-export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, onBetween, onExtendHere, onRange, onClose }: {
+export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onFrame, onBetween, onExtendHere, onRange, onClose }: {
   asset: Asset;
   player: RefObject<HTMLVideoElement | null>;
   busy?: boolean;
-  onCopy(range: Range, crf: number): void;
-  onSplit(range: Range, crf: number): void;
-  onRemove(range: Range, crf: number): void;
+  /** The range to start on (a timeline clip: what plays of its take); the whole video otherwise. */
+  initial?: Range;
+  /** A host's own action row (the timeline's), in place of the library's. */
+  actions?(ctx: { range: Range; at: number; crf: number; whole: boolean }): ReactNode;
+  /** Less tall, where the video above needs the room (the timeline). */
+  compact?: boolean;
+  onCopy?(range: Range, crf: number): void;
+  onSplit?(range: Range, crf: number): void;
+  onRemove?(range: Range, crf: number): void;
   onFrame(atMs: number): void;
   /** A new clip from the frame at in to the frame at out. */
   onBetween?(range: Range): void;
@@ -61,7 +67,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
   const duration = asset.durationMs ?? 0;
   const fps = asset.fps && asset.fps > 0 ? asset.fps : 24;
   const frameMs = 1000 / fps;
-  const [range, setRange] = useState<Range>({ startMs: 0, endMs: duration });
+  const [range, setRange] = useState<Range>(initial ? { startMs: Math.max(0, initial.startMs), endMs: Math.min(duration, initial.endMs) } : { startMs: 0, endMs: duration });
   const [at, setAt] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [looping, setLooping] = useState(false);
@@ -235,7 +241,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
       <div
         key={kind}
         data-bar={kind}
-        className={cx("relative w-full cursor-crosshair touch-none rounded-lg bg-raised select-none", tall ? "h-16" : "h-12")}
+        className={cx("relative w-full cursor-crosshair touch-none rounded-lg bg-raised select-none", compact ? (tall ? "h-11" : "h-8") : tall ? "h-16" : "h-12")}
         onPointerDown={(e) => {
           // a press anywhere but on a handle moves the playhead there
           if ((e.target as HTMLElement).closest("[role=slider]")) return;
@@ -286,7 +292,7 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
   };
 
   return (
-    <div className="flex w-full shrink-0 flex-col gap-2 rounded-xl border border-line-strong bg-panel p-3" onClick={(e) => e.stopPropagation()}>
+    <div className={cx("flex w-full shrink-0 flex-col rounded-xl border border-line-strong bg-panel", compact ? "gap-1.5 p-2" : "gap-2 p-3")} onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 text-xs text-ink-2">
         <Scissors size={14} className="text-accent" />
         <span className="font-semibold text-ink">Trim</span>
@@ -319,16 +325,20 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
         </div>
       </div>
 
+      {actions ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">{actions({ range, at, crf: crfN, whole })}</div>
+      ) : (
       <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
-        <Button size="sm" tone="primary" disabled={busy || whole} title={whole ? "The whole video: there is nothing to cut." : "The range as a new video in your library; this one stays."} onClick={() => onCopy(range, crfN)}><Copy size={13} /> Copy to library</Button>
-        <Button size="sm" disabled={busy || whole} title="Three videos: before the range, the range, after it. This one goes to the bin." onClick={() => onSplit(range, crfN)}><Split size={13} /> Split</Button>
-        <Button size="sm" disabled={busy || whole} title="One video without the range. This one goes to the bin." onClick={() => onRemove(range, crfN)}><Scissors size={13} /> Remove range</Button>
+        <Button size="sm" tone="primary" disabled={busy || whole} title={whole ? "The whole video: there is nothing to cut." : "The range as a new video in your library; this one stays."} onClick={() => onCopy?.(range, crfN)}><Copy size={13} /> Copy to library</Button>
+        <Button size="sm" disabled={busy || whole} title="Three videos: before the range, the range, after it. This one goes to the bin." onClick={() => onSplit?.(range, crfN)}><Split size={13} /> Split</Button>
+        <Button size="sm" disabled={busy || whole} title="One video without the range. This one goes to the bin." onClick={() => onRemove?.(range, crfN)}><Scissors size={13} /> Remove range</Button>
         <span className="mx-1 h-5 border-l border-line" />
         <Button size="sm" disabled={busy} title="The frame at the playhead, as an image in your library (G does the same)" onClick={() => onFrame(at)}><Camera size={13} /> Frame at playhead <Kbd>G</Kbd></Button>
         <span className="mx-1 h-5 border-l border-line" />
         {onBetween && <Button size="sm" disabled={busy} title="A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range." onClick={() => onBetween(range)}><Clapperboard size={13} /> Generate between</Button>}
         {onExtendHere && <Button size="sm" disabled={busy} title="A new clip that starts at the playhead's moment (H3 carries the motion on from there; the others open on that frame)." onClick={() => onExtendHere(at)}><Link2 size={13} /> Extend from here</Button>}
       </div>
+      )}
     </div>
   );
 }

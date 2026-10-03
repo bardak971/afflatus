@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import type { Recipe } from "@afflatus/core";
-import { CutError, filmStrip, frameAt, joinVideos, peekAt, rangeKeep, type ExportMusic, type ExportPart } from "./cut";
+import { CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinVideos, peekAt, rangeKeep } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -50,8 +50,11 @@ export interface CutOptions {
   asset: string;
   startMs: number;
   endMs: number;
-  action: "copy" | "split" | "remove";
+  /** "splice": the range of a clip's take replaced by the video a render job made, as a new take of that clip. */
+  action: "copy" | "split" | "remove" | "splice";
   crf?: number;
+  clip?: string;
+  renderJob?: string;
 }
 
 export const EXPORT_JOB = "afflatus.export";
@@ -807,6 +810,114 @@ export class Timelines {
     // the source goes to the bin when it was taken apart: a day to change one's mind
     if (action !== "copy") await this.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", video.id).execute();
     this.events.emit("library");
+    return made;
+  }
+
+  /** A clip's take that plays, with its video and where the clip stands. */
+  async takeOf(clipId: string): Promise<{ clip: ClipRow; take: TakeRow; asset: AssetRow; index: number; timelineId: string }> {
+    const clip = await this.clipRow(clipId);
+    const all = await this.placed(clip.timeline_id);
+    const p = all.find((x) => x.clip.id === clipId);
+    if (!p?.active) throw refused("This clip has no take yet: render it first.");
+    return { clip, take: p.active.take, asset: p.active.asset, index: all.indexOf(p), timelineId: clip.timeline_id };
+  }
+
+  /**
+   * One clip becomes two at a moment of its take (in the video's own time): the first plays up to it,
+   * the second from it on, both from the same video; the second takes the clip's model, form, sound and
+   * look along, and starts as a cut. Undo takes it back.
+   */
+  async splitClip(clipId: string, atMs: number): Promise<string> {
+    const { clip, take, asset, index, timelineId } = await this.takeOf(clipId);
+    const { start, end } = plays({ take, asset });
+    if (atMs < start + 40 || atMs > end - 40) throw refused("Put the playhead inside the part that plays, at least a frame from its ends.");
+    await this.remember(timelineId, "the split");
+    const all = await this.placed(timelineId);
+    const id = newId();
+    const at = now();
+    await this.db
+      .insertInto("clips")
+      .values({
+        id, timeline_id: timelineId, position: index + 1, take_id: null, joined: "cut", recipe_id: clip.recipe_id, inputs: clip.inputs,
+        kind: "video", still_asset_id: null, still_ms: 3000, sound: clip.sound, sound_asset_id: clip.sound_asset_id, volume: clip.volume, fill: clip.fill, look: clip.look, chat: null, created_at: at, updated_at: at,
+      })
+      .execute();
+    const order = all.map((p) => p.clip.id);
+    order.splice(index + 1, 0, id);
+    await this.renumber(timelineId, order);
+    // the second half: the same video, trimmed to start where the first stops
+    const second = newId();
+    await this.db
+      .insertInto("takes")
+      .values({
+        id: second, clip_id: id, asset_id: asset.id, head_ms: take.head_ms, tail_ms: take.tail_ms, trim_start_ms: Math.max(0, atMs - take.head_ms), trim_end_ms: take.trim_end_ms,
+        prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, created_at: at,
+      })
+      .execute();
+    await this.db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();
+    // the first half stops at the moment
+    await this.db.updateTable("takes").set({ trim_end_ms: Math.max(0, (asset.duration_ms ?? 0) - take.tail_ms - atMs) }).where("id", "=", take.id).execute();
+    await this.touch(timelineId);
+    return id;
+  }
+
+  /**
+   * The range of a clip's take replaced by another video (what "Regenerate this part" rendered between
+   * the range's edge frames): before + new + after as one video in the library, made the clip's take that
+   * plays, with the old take's trims carried over. The old take stays, to go back to.
+   */
+  async spliceTake(clipId: string, original: AssetRow, startMs: number, endMs: number, insert: AssetRow, opts: { signal?: AbortSignal } = {}): Promise<AssetRow | null> {
+    const clip = await this.db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
+    // the clip was removed while it rendered: the new video is in the library all the same
+    if (!clip) return null;
+    const total = original.duration_ms ?? 0;
+    const insertLength = insert.duration_ms ?? 0;
+    if (!total || !insertLength) throw new CutError("The videos to splice could not be read.");
+    const a = Math.max(0, Math.min(startMs, endMs));
+    const b = Math.min(total, Math.max(startMs, endMs));
+    const part = (asset: AssetRow, bytes: Uint8Array, s: number, e: number): ExportPart => ({ kind: "video", bytes, ext: extOf(asset.mime), startMs: s, endMs: e, hasSound: Boolean(asset.has_sound), sound: "own", volume: 1, fill: false });
+    const source = await this.storage.get(original.file_key);
+    const added = await this.storage.get(insert.file_key);
+    const parts: ExportPart[] = [
+      ...(a >= 20 ? [part(original, source, 0, a)] : []),
+      part(insert, added, 0, insertLength),
+      ...(total - b >= 20 ? [part(original, source, b, total)] : []),
+    ];
+    const frame = { width: original.width ?? insert.width ?? 576, height: original.height ?? insert.height ?? 1024 };
+    const fps = Math.round(original.fps ?? insert.fps ?? 24) || 24;
+    const out = await joinVideos(parts, frame, fps, { signal: opts.signal });
+    const seen = await readVideo(out, "mp4");
+    const id = newId();
+    const key = `assets/${id.slice(0, 2)}/${id}.mp4`;
+    await this.storage.put(key, out);
+    const thumb = seen.frame ? await makeThumb(seen.frame) : null;
+    if (thumb) await this.storage.put(thumbKey(id), thumb);
+    const at = now();
+    const base = (original.name || "video").replace(/\.[a-z0-9]+$/i, "");
+    await this.db
+      .insertInto("assets")
+      .values({
+        id, owner_id: OWNER, kind: "video", origin: "cut", name: `${base} · regenerated ${clockOf(a)}–${clockOf(b)}`, file_key: key,
+        thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
+        width: seen.facts?.width ?? frame.width, height: seen.facts?.height ?? frame.height,
+        duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? fps, has_sound: seen.facts?.hasSound ? 1 : 0,
+        folder_id: original.folder_id, generation_id: null, source_id: original.id, source_range: `${a}-${b}`, kept_at: at, deleted_at: null, created_at: at,
+      })
+      .execute();
+    const made = await this.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+    // the old take's play range, carried over: what came after the range moved by the difference in length
+    const old = clip.take_id ? await this.db.selectFrom("takes").selectAll().where("id", "=", clip.take_id).executeTakeFirst() : undefined;
+    await this.remember(clip.timeline_id, "the regenerated part");
+    const takeId = await this.addTake(clipId, made, { headMs: 0, tailMs: 0 }, {});
+    if (old) {
+      const was = plays({ take: old, asset: original });
+      const delta = insertLength - (b - a);
+      const newTotal = made.duration_ms ?? total + delta;
+      const start = Math.min(was.start, a);
+      const end = was.end >= b ? was.end + delta : Math.min(was.end, newTotal);
+      await this.db.updateTable("takes").set({ trim_start_ms: Math.max(0, Math.round(start)), trim_end_ms: Math.max(0, Math.round(newTotal - end)) }).where("id", "=", takeId).execute();
+    }
+    await this.touch(clip.timeline_id);
     return made;
   }
 

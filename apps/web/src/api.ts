@@ -813,6 +813,11 @@ export const api = {
   addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip" }) => call<{ clip: string; timeline: Timeline }>("POST", `/timelines/${timeline}/clips`, body),
   editClip: (id: string, patch: ClipPatch) => call<{ ok: true }>("PATCH", `/clips/${id}`, patch),
   deleteClip: (id: string) => call<{ ok: true }>("DELETE", `/clips/${id}`),
+  /** One clip becomes two at a moment of its take (the video's own time). */
+  splitClip: (id: string, atMs: number) => call<{ clip: string }>("POST", `/clips/${id}/split`, { atMs: Math.round(atMs) }),
+  /** A part of a clip's take rendered again between its edge frames and spliced back as a new take. */
+  regenerateClip: (id: string, opts: { startMs: number; endMs: number; input: Record<string, unknown>; crf?: number }) =>
+    call<{ ids: string[] }>("POST", `/clips/${id}/regenerate`, { ...opts, startMs: Math.round(opts.startMs), endMs: Math.round(opts.endMs) }),
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
   renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */

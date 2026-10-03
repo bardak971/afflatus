@@ -557,3 +557,54 @@ describe.skipIf(!three || !silent)("a video of a person as a reference", () => {
     expect((await get(t.app, `/api/assets/${made.id}`)).json().sources).toMatchObject([{ role: "person", asset: { id: video.id } }]);
   });
 });
+
+describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
+  it("splits into two clips at a moment, both playing from the same video", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "Split" });
+    const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    await render(tl.id, [{ id: a }]);
+    await finish(three!, 1);
+    const { clip: b } = await call("POST", `/api/clips/${a}/split`, { atMs: 1500 });
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual([a, b]);
+    const [first, second] = v.clips;
+    expect(first.take.asset.id).toBe(second.take.asset.id);
+    expect(first.take.endMs).toBeCloseTo(1500, -1);
+    expect(second.take.startMs).toBeCloseTo(1500, -1);
+    expect(first.lengthMs + second.lengthMs).toBeCloseTo(3000, -2);
+    expect(second.recipe).toBe("h3.video");
+    expect(second.joined).toBe("cut");
+    // outside the part that plays: refused
+    const bad = await t.app.inject({ method: "POST", url: `/api/clips/${a}/split`, payload: { atMs: 2900 } });
+    expect(bad.statusCode).toBe(400);
+    // undo takes the split back
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    expect((await view(tl.id)).clips).toHaveLength(1);
+  });
+
+  it("regenerates a part: a render between the edge frames, spliced back as a new take", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "Regen" });
+    const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    await render(tl.id, [{ id: a }]);
+    await finish(three!, 1);
+    const before = (await view(tl.id)).clips[0];
+    const { ids } = await call("POST", `/api/clips/${a}/regenerate`, { startMs: 1000, endMs: 2000, input: { description: "the same, calmer" } });
+    expect(ids).toHaveLength(2);
+    // the render asked for the two frames as first and last, for one second
+    const graph = await finish(three!, 2);
+    const loads = nodes(graph, "LoadImage");
+    expect(loads.length).toBeGreaterThanOrEqual(2);
+    const v = await view(tl.id);
+    const clip = v.clips[0];
+    expect(clip.takes).toHaveLength(2);
+    expect(clip.take.id).not.toBe(before.take.id);
+    expect(clip.take.asset.id).not.toBe(before.take.asset.id);
+    // before (1 s) + the new clip (3 s, what the pretend ComfyUI gave) + after (1 s)
+    expect(clip.take.asset.durationMs).toBeGreaterThan(4500);
+    expect(clip.take.asset.durationMs).toBeLessThan(5500);
+    const detail = (await get(t.app, `/api/assets/${clip.take.asset.id}`)).json();
+    expect(detail.source).toMatchObject({ asset: { id: before.take.asset.id }, range: { startMs: 1000, endMs: 2000 } });
+    const jobs = (await get(t.app, "/api/jobs")).json().items as Array<{ kind: string; status: string; label: string }>;
+    expect(jobs.find((j) => j.kind === "cut")).toMatchObject({ status: "done" });
+  });
+});

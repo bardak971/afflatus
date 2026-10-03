@@ -208,13 +208,13 @@ export class Queue {
   }
 
   /** A range of a video kept as new videos (see Timelines.cutRange): ffmpeg only, no model, no ComfyUI. */
-  async enqueueCut(opts: CutOptions, label: string): Promise<string> {
+  async enqueueCut(opts: CutOptions, label: string, extra: { dependsOn?: string } = {}): Promise<string> {
     const id = newId();
     const at = now();
     await this.db
       .insertInto("jobs")
       .values({
-        id, owner_id: OWNER, recipe_id: CUT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: null,
+        id, owner_id: OWNER, recipe_id: CUT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: extra.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, draft_id: null, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
@@ -523,7 +523,15 @@ export class Queue {
       if (!this.clips) throw new Error("timelines are not available");
       const video = await this.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
       if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
-      await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
+      if (opts.action === "splice") {
+        // the render it waited for: its video goes into the clip's take in place of the range
+        const dep = opts.renderJob ? await this.db.selectFrom("jobs").select(["status", "generation_id", "error"]).where("id", "=", opts.renderJob).executeTakeFirst() : undefined;
+        if (!dep || dep.status !== "done" || !dep.generation_id) throw new Error(dep?.status === "failed" ? `the regenerated part did not render: ${dep.error ?? "unknown error"}` : "the regenerated part was not rendered");
+        const made = await this.db.selectFrom("assets").selectAll().where("generation_id", "=", dep.generation_id).where("kind", "=", "video").executeTakeFirst();
+        if (!made) throw new Error("the regenerated part left no video");
+        await this.clips.spliceTake(opts.clip!, video, opts.startMs, opts.endMs, made, { signal: abort.signal });
+        this.events.emit("timeline");
+      } else await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();

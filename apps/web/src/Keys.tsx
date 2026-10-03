@@ -64,7 +64,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     where: "Prompt",
     keys: [["Ctrl + ↑  ↓", "Prompt weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
-  { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"], ["Right-click", "Menu of a clip: render / new take, extend, open its video, mute, remove"]] },
+  { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"], ["T", "Trim the selected clip: play range, split here, regenerate a part"], ["Right-click", "Menu of a clip: render / new take, extend, trim, open its video, mute, remove"]] },
   { where: "Everywhere", keys: [["/  :", "Find a setting in the open form; else the search bar of the view (library, Prompt kit, snippets, workflow editor)"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 
