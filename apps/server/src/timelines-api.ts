@@ -219,15 +219,18 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const body = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "copy", "slow"]), scale: z.number().min(1).max(2).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() }).parse(req.body);
     const id = req.params.id;
     if (body.action === "slow") {
-      // the part becomes a clip of its own; the slowed video arrives as its take
+      // the parts become clips of their own; each slowed video arrives as the take of its clip
       const factor = body.factor ?? 2;
-      const made = await t.slowClipOf(id, body.inMs, body.outMs);
+      const parts = await t.slowRangeOf(id, body.inMs, body.outMs, factor);
       const engine = await slowEngine(s);
       const view = await t.view(id);
-      const index = view.clips.findIndex((c) => c.id === made.clip);
-      const job = await s.queue.enqueueCut({ asset: made.asset.id, startMs: made.startMs, endMs: made.endMs, action: "slow", factor, engine, clip: made.clip }, `${view.name} · clip ${index + 1} · slow ×${factor}`);
+      const jobs: string[] = [];
+      for (const made of parts) {
+        const index = view.clips.findIndex((c) => c.id === made.clip);
+        jobs.push(await s.queue.enqueueCut({ asset: made.asset.id, startMs: made.startMs, endMs: made.endMs, action: "slow", factor, engine, clip: made.clip }, `${view.name} · clip ${index + 1} · slow ×${factor}`));
+      }
       s.queue.events.emit("timeline");
-      return { clip: made.clip, job, engine };
+      return { clips: parts.map((p) => p.clip), jobs, engine };
     }
     if (body.action === "split") await t.splitRange(id, body.inMs, body.outMs);
     else if (body.action === "remove") await t.removeRange(id, body.inMs, body.outMs);

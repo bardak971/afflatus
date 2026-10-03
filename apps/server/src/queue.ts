@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@afflatus/comfy";
 import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@afflatus/core";
-import { cutFrames, referenceClip, frameAt, soundPart } from "./cut";
+import { cutFrames, referenceClip, frameAt, slowSoundOnto, soundPart } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
 import type { Comfy } from "./comfy";
@@ -556,7 +556,9 @@ export class Queue {
           const promptId = await comfy.client.submit(g.graph);
           this.running.promptId = promptId;
           const output = await this.awaitPrompt(comfy, promptId, outNode, abort.signal);
-          const bytes = await comfy.client.view(output);
+          const silent = await comfy.client.view(output);
+          // RIFE hands the picture back without sound: the range's own sound goes on it, slowed to match
+          const bytes = await slowSoundOnto(silent, part.bytes, factor);
           made = await this.clips.keepCut(video, bytes, this.clips.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs);
         } else made = await this.clips.slowRange(video, opts.startMs, opts.endMs, factor, { crf: opts.crf, signal: abort.signal });
         if (opts.clip) {

@@ -121,7 +121,7 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
 - **Loop** (slice E) is not built: with the range it would be "Regenerate with In and Out swapped"; wanted
   only when asked for.
 
-## 5. Slice F — Slow motion (built 2026-10-04: a `slow` cut job, RIFE on the GPU when ComfyUI has it, ffmpeg otherwise; from Trim and from the timeline range, where the part becomes its own clip and gets the slowed video as a take; silent) (the owner, 2026-10-04: "if the GPU is faster and better quality, yes" → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
+## 5. Slice F — Slow motion (built 2026-10-04: a `slow` cut job, RIFE on the GPU when ComfyUI has it, ffmpeg otherwise; from Trim, from the timeline range — each clip under it slowed as its own clip with the slowed video as a take, stills held longer — and from a clip's menu; the sound slowed with it, pitch kept) (the owner, 2026-10-04: "if the GPU is faster and better quality, yes" → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
 
 - Trim mode: **Slow motion ×2 / ×4** on the range: a job running RIFE on the range's frames (the
   `FrameInterpolationModelLoader` / RIFE nodes are already used for frame interpolation; this one is a ComfyUI

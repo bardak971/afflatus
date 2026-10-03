@@ -153,7 +153,7 @@ describe.skipIf(!clip)("a range of a video", () => {
     expect(again).toEqual(first);
   });
 
-  it("is slowed down: twice as long, the same frame rate, silent (ffmpeg here, RIFE on a GPU)", async () => {
+  it("is slowed down: twice as long, the same frame rate, its sound slowed with it (ffmpeg here, RIFE on a GPU)", async () => {
     const video = await render(clip!);
     const { id, engine } = (await post(t.app, `/api/assets/${video.id}/range`, { startMs: 500, endMs: 1500, action: "slow", factor: 2 })).json();
     expect(engine).toBe("ffmpeg");
@@ -164,7 +164,7 @@ describe.skipIf(!clip)("a range of a video", () => {
     expect(slow).toBeTruthy();
     expect(slow!.durationMs).toBeGreaterThan(1800);
     expect(slow!.durationMs).toBeLessThan(2300);
-    expect(slow!.hasSound).toBe(false);
+    expect(slow!.hasSound).toBe(true);
     const detail = (await get(t.app, `/api/assets/${slow!.id}`)).json();
     expect(detail.source).toMatchObject({ asset: { id: video.id }, range: { startMs: 500, endMs: 1500 } });
   });

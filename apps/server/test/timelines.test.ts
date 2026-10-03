@@ -689,7 +689,9 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
 
   it("slows a range within a clip: the part becomes a clip of its own and gets the slowed video as a take", async () => {
     const { tl, a } = await twoRendered();
-    const { clip, job, engine } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 1000, outMs: 2000, action: "slow", factor: 2 });
+    const { clips: made, jobs, engine } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 1000, outMs: 2000, action: "slow", factor: 2 });
+    const clip = made[0];
+    const job = jobs[0];
     expect(engine).toBe("ffmpeg");
     let v = await view(tl);
     // split at 1 s and at 2 s: the first clip, the part, the rest, then the second clip
@@ -703,11 +705,19 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(part.takes).toHaveLength(2);
     expect(part.lengthMs).toBeGreaterThan(1800);
     expect(part.lengthMs).toBeLessThan(2300);
-    expect(part.take.asset.hasSound).toBe(false);
     expect(v.undo).toBe("the slow-motion take");
-    // a range across two clips is refused
-    const bad = await t.app.inject({ method: "POST", url: `/api/timelines/${tl}/range`, payload: { inMs: 2500, outMs: 4500, action: "slow", factor: 2 } });
-    expect(bad.statusCode).toBe(400);
+    // a range across clips: each part on its own (the slowed part is 2 s now, so 2.5–4.5 s touches it, the rest of the first clip and the start of the second)
+    const before = Object.fromEntries(v.clips.map((c: { id: string; takes: unknown[] }) => [c.id, c.takes.length]));
+    const across = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2500, outMs: 4500, action: "slow", factor: 2 });
+    expect(across.clips).toHaveLength(3);
+    expect(across.jobs).toHaveLength(3);
+    await until(async () => { const items = (await get(t.app, "/api/jobs")).json().items as Array<{ id: string; status: string }>; return across.jobs.every((j: string) => items.some((x) => x.id === j && x.status === "done")); }, 240_000);
+    const w = await view(tl);
+    const slowed = w.clips.filter((c: { id: string }) => across.clips.includes(c.id));
+    expect(slowed).toHaveLength(3);
+    for (const c of slowed) expect(c.takes.length).toBe((before[c.id] ?? 1) + 1);
+    // the second clip no longer carries on from the first: the join is a cut now
+    expect(w.clips.slice(1).every((c: { joined: string }) => c.joined === "cut")).toBe(true);
   });
 
   it("copies a range to the library: one video of that part, through the export queue", async () => {

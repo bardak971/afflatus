@@ -826,7 +826,7 @@ export const api = {
    * library through the export queue.
    */
   timelineRange: (id: string, opts: { inMs: number; outMs: number; action: "split" | "remove" | "regenerate" | "copy" | "slow"; scale?: number; factor?: 2 | 4 }) =>
-    call<{ ok: true } | { clip: string; context: RangeContext } | { job: string } | { clip: string; job: string; engine: "rife" | "ffmpeg" }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
+    call<{ ok: true } | { clip: string; context: RangeContext } | { job: string } | { clips: string[]; jobs: string[]; engine: "rife" | "ffmpeg" }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
   /** The designer writes a clip put between two others: what takes the action from the one to the other. `was` is what the form held when it was asked. */
   writeBetween: (clip: string) => call<{ changes: Record<string, string>; note: string; was: Record<string, string> }>("POST", `/clips/${clip}/between`),

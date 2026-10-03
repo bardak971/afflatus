@@ -229,17 +229,20 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     onSettled: () => setWriting(null),
   });
   const rangeAct = useMutation({
-    mutationFn: (ask: "split" | "remove" | "regenerate" | "copy" | { slow: 2 | 4 }) =>
-      typeof ask === "string" ? api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: ask }) : api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: "slow", factor: ask.slow }),
+    mutationFn: (ask: "split" | "remove" | "regenerate" | "copy" | { slow: 2 | 4; inMs?: number; outMs?: number }) =>
+      typeof ask === "string"
+        ? api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: ask })
+        : api.timelineRange(id, { inMs: ask.inMs ?? range!.inMs, outMs: ask.outMs ?? range!.outMs, action: "slow", factor: ask.slow }),
     onSuccess: (r, ask) => {
       after();
       if (typeof ask !== "string") {
-        if ("clip" in r) {
-          setSelected(r.clip);
+        const parts = "clips" in r ? r.clips : [];
+        if (parts[0]) {
+          setSelected(parts[0]);
           setMusicOpen(false);
         }
         const engine = "engine" in r ? r.engine : "ffmpeg";
-        say({ id: `slow:${Date.now()}`, tone: "good", title: `Slow motion ×${ask.slow} in the queue`, text: `The part is a clip of its own now; the slowed video (silent) arrives as its take and plays. ${engine === "rife" ? "RIFE on the GPU." : "ffmpeg on the processor: slow, minutes for a few seconds."}`, href: "/queue", go: "Open queue" });
+        say({ id: `slow:${Date.now()}`, tone: "good", title: `Slow motion ×${ask.slow} in the queue`, text: `${parts.length > 1 ? `${parts.length} parts are clips of their own now; each slowed video` : "The part is a clip of its own now; the slowed video"} arrives as a take and plays, with its sound slowed. ${engine === "rife" ? "RIFE on the GPU." : "ffmpeg on the processor: slow, minutes for a few seconds."}`, href: "/queue", go: "Open queue" });
         return;
       }
       const action = ask;
@@ -297,6 +300,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         { label: "Extend from this frame", icon: <Link2 size={14} />, disabled: !onClip(c) || add.isPending, note: onClip(c) ? "cuts it here; a new clip carries on" : "put the playhead on this clip", run: () => { const here = onClip(c); if (here) void continueFrom(c, here.localMs); } },
         { label: "Save frame", icon: <Camera size={14} />, disabled: !onClip(c) || frame.isPending, note: onClip(c) ? "the frame at the playhead, to your library" : "put the playhead on this clip", run: () => { const here = onClip(c); if (!here) return; if (c.take) frame.mutate({ asset: c.take.asset.id, at: Math.round(here.assetMs) }); else if (c.still) setOpened(c.still); } },
       ] : []),
+      ...(c.kind === "video" && c.take ? [
+        { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: rangeAct.isPending, note: "the whole clip at half speed, as a new take; sound slowed too", run: () => rangeAct.mutate({ slow: 2, inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
+        { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: rangeAct.isPending, note: "a quarter speed", run: () => rangeAct.mutate({ slow: 4, inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
+      ] : []),
       ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer, with Trim", run: () => setOpened(video) }] : []),
       // a still has no sound of its own to mute
       ...(c.kind === "video" ? ["—" as const, c.sound === "muted"
@@ -318,8 +325,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const rangeItems = (): MenuItem[] => {
     if (!range) return [];
     const busy = rangeAct.isPending;
-    // slow motion works within one clip that plays a video
-    const withinOne = clips.some((c) => c.kind === "video" && c.take && c.atMs <= range.inMs + 1 && c.atMs + c.lengthMs >= range.outMs - 1);
+    // slow motion needs a video under the range (each clip it covers is slowed on its own; stills are held longer)
+    const withinOne = clips.some((c) => c.kind === "video" && c.take && c.atMs < range.outMs && c.atMs + c.lengthMs > range.inMs);
     return [
       { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: emptyRange ? "In and Out are the same moment" : undefined, run: playRange },
       { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => toggleLoop() },
@@ -329,8 +336,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       { label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") },
       { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
       "—" as const,
-      { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "the part becomes a clip of its own and gets the slowed video (silent) as a take" : "set In and Out inside one clip that plays a video", run: () => rangeAct.mutate({ slow: 2 }) },
-      { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "a quarter speed" : "set In and Out inside one clip that plays a video", run: () => rangeAct.mutate({ slow: 4 }) },
+      { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "each part becomes a clip of its own and gets the slowed video as a take, sound slowed too; stills are held longer" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 2 }) },
+      { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "a quarter speed" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 4 }) },
       "—" as const,
       { label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) },
     ];

@@ -362,8 +362,8 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         {onSlow && (
           <>
             <span className="mx-1 h-5 border-l border-line" />
-            <Button size="sm" disabled={busy} title="The range at half speed, as a new video (silent): RIFE on the GPU through the queue when ComfyUI has it, else ffmpeg's motion interpolation on the processor, which is slow." onClick={() => onSlow(range, 2)}><Gauge size={13} /> Slow ×2</Button>
-            <Button size="sm" disabled={busy} title="The range at a quarter speed, as a new video (silent)." onClick={() => onSlow(range, 4)}><Gauge size={13} /> ×4</Button>
+            <Button size="sm" disabled={busy} title="The range at half speed, as a new video, its sound slowed with it (pitch kept): RIFE on the GPU through the queue when ComfyUI has it, else ffmpeg's motion interpolation on the processor, which is slow." onClick={() => onSlow(range, 2)}><Gauge size={13} /> Slow ×2</Button>
+            <Button size="sm" disabled={busy} title="The range at a quarter speed, as a new video, its sound slowed with it." onClick={() => onSlow(range, 4)}><Gauge size={13} /> ×4</Button>
           </>
         )}
         <span className="mx-1 h-5 border-l border-line" />

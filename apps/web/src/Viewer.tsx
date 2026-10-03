@@ -518,7 +518,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
       void client.invalidateQueries({ queryKey: ["queue"] });
       // Trim stays open: the next action may follow on the same range
       if (v.action === "slow") {
-        say({ id: `cut:${Date.now()}`, tone: "good", title: `Slowing the range ×${v.factor ?? 2}`, text: r.engine === "rife" ? "RIFE on the GPU, through the queue. The new video (silent) shows in the library when it is done." : "ffmpeg's motion interpolation on the processor: slow, minutes for a few seconds. For RIFE on the GPU, put a RIFE model in ComfyUI's models/frame_interpolation folder with the frame interpolation nodes.", href: "/queue", go: "Open queue" });
+        say({ id: `cut:${Date.now()}`, tone: "good", title: `Slowing the range ×${v.factor ?? 2}`, text: `${r.engine === "rife" ? "RIFE on the GPU, through the queue." : "ffmpeg's motion interpolation on the processor: slow, minutes for a few seconds. For RIFE on the GPU, put a RIFE model in ComfyUI's models/frame_interpolation folder with the frame interpolation nodes."} The new video, its sound slowed with it, shows in the library when it is done.`, href: "/queue", go: "Open queue" });
         return;
       }
       say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? "Splitting the video" : "Removing the range", text: `In the queue; it needs no GPU. The new video${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : "; this one goes to the bin then"}.`, href: "/queue", go: "Open queue" });

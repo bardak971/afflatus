@@ -1168,7 +1168,7 @@ export class Timelines {
     if (!total) throw new CutError("This video could not be read.");
     const a = Math.max(0, Math.min(startMs, endMs));
     const b = Math.min(total, Math.max(startMs, endMs));
-    return { bytes: await rangeKeep(bytes, ext, { durationMs: total, hasSound: false }, [[a, b]], { crf: 10 }), fps };
+    return { bytes: await rangeKeep(bytes, ext, { durationMs: total, hasSound: Boolean(video.has_sound) }, [[a, b]], { crf: 10 }), fps };
   }
 
   /** A video made from a range of another, filed in the library next to it with its source and range. */
@@ -1206,7 +1206,7 @@ export class Timelines {
     const read = video.duration_ms && video.fps ? null : await readVideo(bytes, ext);
     const total = video.duration_ms ?? read?.facts?.durationMs ?? 0;
     if (!total) throw new CutError("This video could not be read.");
-    const out = await slowMotion(bytes, ext, { durationMs: total, fps: video.fps ?? read?.facts?.fps ?? null }, startMs, endMs, factor, opts);
+    const out = await slowMotion(bytes, ext, { durationMs: total, fps: video.fps ?? read?.facts?.fps ?? null, hasSound: Boolean(video.has_sound) }, startMs, endMs, factor, opts);
     return this.keepCut(video, out, this.slowName(video, startMs, endMs, factor), startMs, endMs);
   }
 
@@ -1221,27 +1221,41 @@ export class Timelines {
   }
 
   /**
-   * The range made a clip of its own, for a slow-motion take: In and Out must lie within one clip that
-   * plays a video. The clip is split there (one step to undo, with the take that follows); what comes
-   * back is the clip to give the take to, and the part of its video to slow.
+   * The range made clips of their own, for slow motion: the clips under In and Out are split there, so
+   * that what lies between is whole clips. Stills among them are simply held `factor` times longer. The
+   * video clips come back with the part of their video to slow (a job each, whose video becomes their
+   * take). The clips that followed one of them no longer do: they become cuts. One step to undo, with the
+   * takes that follow.
    */
-  async slowClipOf(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; asset: AssetRow; startMs: number; endMs: number }> {
+  async slowRangeOf(timelineId: string, inMs: number, outMs: number, factor: 2 | 4): Promise<Array<{ clip: string; asset: AssetRow; startMs: number; endMs: number }>> {
     const { laid, a, b } = await this.window(timelineId, inMs, outMs);
     if (b - a < 40) throw refused("Set In and Out apart: there is nothing to slow down.");
-    const l = laid.find((x) => x.atMs <= a + 1 && x.atMs + x.lengthMs >= b - 1 && x.p.clip.kind === "video" && x.p.active);
-    if (!l) throw refused("Slow motion works within one clip: set In and Out inside a clip that plays a video.");
-    const x = l.p.active!;
-    const asset = x.asset;
-    const { start } = plays(x);
-    const startMs = start + (a - l.atMs);
-    const endMs = start + (b - l.atMs);
+    if (!laid.some((l) => l.p.clip.kind === "video" && l.p.active && l.atMs < b && l.atMs + l.lengthMs > a)) throw refused("Nothing in the range plays a video: there is nothing to slow down.");
     await this.remember(timelineId, "the split for slow motion");
-    // Out first, then In: the part between becomes a clip of its own (the whole clip stays as it is)
-    if (l.atMs + l.lengthMs - b >= 40) await this.splitAt(timelineId, (await this.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, b - l.atMs);
-    let clipId = l.p.clip.id;
-    if (a - l.atMs >= 40) clipId = await this.splitAt(timelineId, (await this.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, a - l.atMs);
+    // Out first, then In: the clips before keep their places
+    for (const ms of [b, a]) {
+      const l = this.laid(await this.placed(timelineId)).find((x) => x.atMs + 40 <= ms && ms <= x.atMs + x.lengthMs - 40);
+      if (l) await this.splitAt(timelineId, (await this.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, ms - l.atMs);
+    }
+    const all = await this.placed(timelineId);
+    const parts = this.laid(all).filter((l) => l.atMs >= a - 1 && l.atMs + l.lengthMs <= b + 1);
+    const jobs: Array<{ clip: string; asset: AssetRow; startMs: number; endMs: number }> = [];
+    const at = now();
+    for (const l of parts) {
+      if (l.p.clip.kind === "still") {
+        await this.db.updateTable("clips").set({ still_ms: Math.min(STILL_MS.most, Math.round(l.p.clip.still_ms * factor)), updated_at: at }).where("id", "=", l.p.clip.id).execute();
+      } else if (l.p.active) {
+        const { start, end } = plays(l.p.active);
+        jobs.push({ clip: l.p.clip.id, asset: l.p.active.asset, startMs: start, endMs: end });
+      }
+      // a clip that followed what is now slowed down no longer does
+      const next = all[l.index + 1];
+      if (next?.clip.joined === "continue") await this.db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", next.clip.id).execute();
+    }
+    const first = parts[0];
+    if (first?.p.clip.joined === "continue") await this.db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", first.p.clip.id).execute();
     await this.touch(timelineId);
-    return { clip: clipId, asset, startMs, endMs };
+    return jobs;
   }
 
   // ---------------------------------------------------------------- export

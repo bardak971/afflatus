@@ -519,12 +519,15 @@ export async function joinJump(a: { bytes: Uint8Array; ext: string; atMs: number
   });
 }
 
+/** The sound slowed by `factor` with its pitch kept: atempo takes 0.5 at a time. */
+const slowTempo = (factor: number) => Array.from({ length: Math.round(Math.log2(factor)) }, () => "atempo=0.5").join(",");
+
 /**
  * A range of a video slowed down by `factor`, the frames in between worked out by ffmpeg's motion
  * interpolation (the fallback when there is no RIFE on the GPU): the same frame rate, `factor` times as
- * many frames, no sound (slowed speech is not worth hearing). Slow: minutes for a few seconds.
+ * many frames, the sound slowed with its pitch kept. Slow: minutes for a few seconds.
  */
-export async function slowMotion(source: Uint8Array, ext: string, facts: { durationMs: number; fps: number | null }, startMs: number, endMs: number, factor: number, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+export async function slowMotion(source: Uint8Array, ext: string, facts: { durationMs: number; fps: number | null; hasSound: boolean }, startMs: number, endMs: number, factor: number, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<Uint8Array> {
   const fps = Math.max(1, Math.round(facts.fps ?? 24));
   const a = Math.max(0, Math.min(startMs, endMs));
   const b = Math.min(facts.durationMs, Math.max(startMs, endMs));
@@ -533,11 +536,31 @@ export async function slowMotion(source: Uint8Array, ext: string, facts: { durat
     const input = join(dir, `in.${ext}`);
     const out = join(dir, "slow.mp4");
     await writeFile(input, source);
+    const video = `[0:v]setpts=${factor}*PTS,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,scale=trunc(iw/2)*2:trunc(ih/2)*2[v]`;
     await must(tools.ffmpeg, [
-      "-y", "-loglevel", "error", "-ss", (a / 1000).toFixed(3), "-t", ((b - a) / 1000).toFixed(3), "-i", input, "-an",
-      "-vf", `setpts=${factor}*PTS,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
+      "-y", "-loglevel", "error", "-ss", (a / 1000).toFixed(3), "-t", ((b - a) / 1000).toFixed(3), "-i", input,
+      "-filter_complex", facts.hasSound ? `${video};[0:a]${slowTempo(factor)}[a]` : video,
+      "-map", "[v]", ...(facts.hasSound ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
       "-c:v", "libx264", "-preset", "veryfast", "-crf", String(opts.crf ?? 16), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out,
     ], { timeout: 3 * 60 * 60_000, signal: opts.signal });
+    return new Uint8Array(await readFile(out));
+  });
+}
+
+/** A slowed video (silent, as RIFE hands it back) given the sound of the range it came from, slowed to match with its pitch kept. */
+export async function slowSoundOnto(slowed: Uint8Array, range: Uint8Array, factor: number): Promise<Uint8Array> {
+  return inTemp(async (dir) => {
+    const v = join(dir, "slow.mp4");
+    const r = join(dir, "range.mp4");
+    const out = join(dir, "with-sound.mp4");
+    await writeFile(v, slowed);
+    await writeFile(r, range);
+    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", r]).catch(() => "");
+    if (!/audio/.test(streams)) return slowed;
+    await must(tools.ffmpeg, [
+      "-y", "-loglevel", "error", "-i", v, "-i", r,
+      "-filter_complex", `[1:a]${slowTempo(factor)}[a]`, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out,
+    ], { timeout: 10 * 60_000 });
     return new Uint8Array(await readFile(out));
   });
 }
