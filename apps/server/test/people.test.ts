@@ -147,3 +147,22 @@ describe("people, places and styles", () => {
     expect((await put(`/api/drafts/${d.id}`, { look: null })).look).toBeNull();
   });
 });
+
+describe("presets", () => {
+  it("may name no model, hold nothing yet, and set only what they say", async () => {
+    // started empty from the Prompt kit: no model, no parameters
+    const empty = await post(t.app, "/api/entities", { kind: "preset", name: "New preset" });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json().def).toEqual({ inputs: {} });
+    // a prompt for any model
+    const words = await post(t.app, "/api/entities", { kind: "preset", name: "Film words", def: { inputs: { prompt: "35mm film still" } } });
+    expect(words.statusCode).toBe(200);
+    expect(words.json().def).toEqual({ inputs: { prompt: "35mm film still" } });
+    // a model and part of its form
+    const some = await post(t.app, "/api/entities", { kind: "preset", name: "Soft light", def: { recipe: "sdxl.text-to-picture", inputs: { steps: 32, cfg: 4.5 }, look: { cast: [], style: null, snippets: [] } } });
+    expect(some.statusCode).toBe(200);
+    expect(some.json().def).toMatchObject({ recipe: "sdxl.text-to-picture", inputs: { steps: 32, cfg: 4.5 } });
+    const changed = await put(`/api/entities/${some.json().id}`, { def: { recipe: "sdxl.text-to-picture", inputs: { steps: 32 } } });
+    expect(changed.def.inputs).toEqual({ steps: 32 });
+  });
+});

@@ -110,8 +110,16 @@ export function useDraft(firstRecipe: string | undefined) {
     setDesigner: (designer: Draft["designer"]) => change((d) => ({ ...d, designer })),
     /** Several inputs of one form at once (what the designer proposed). */
     setValues: (recipe: string, values: Record<string, unknown>) => change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], ...values } } })),
-    /** A whole setup at once: the model, its form, who is in it. */
-    apply: (recipe: string, form: Record<string, unknown>, look: Draft["look"]) => change((d) => ({ ...d, recipe, forms: { ...d.forms, [recipe]: form }, look })),
+    /**
+     * A preset: its model when it names one (else the form stays on its model), what it sets laid over
+     * the form (the rest of the form is kept), and who is in it when it says.
+     */
+    apply: (recipe: string | undefined, form: Record<string, unknown>, look: Draft["look"]) =>
+      change((d) => {
+        const target = recipe ?? d.recipe;
+        const says = look && (look.cast.length > 0 || Boolean(look.style) || (look.snippets?.length ?? 0) > 0);
+        return { ...d, recipe: target, forms: { ...d.forms, [target]: { ...d.forms[target], ...form } }, look: says ? look : d.look };
+      }),
     setCount: (count: number) => change((d) => ({ ...d, count: Math.max(1, Math.min(8, count)) })),
     async switchTo(id: string) {
       await flush();

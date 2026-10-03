@@ -8,6 +8,7 @@ import { Field, useLoraWordsOf } from "../fields";
 import { fileLabel } from "../format";
 import { Picker, PictureField, SoundField } from "../PictureField";
 import { ModelLink } from "../ModelLink";
+import { PresetEditor } from "../PresetEditor";
 import { Select } from "../Select";
 import { AutoText, Button, cx, Empty, ErrorNote, NumberBox, SectionTitle } from "../ui";
 
@@ -207,7 +208,7 @@ const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode }> = [
   { id: "place", title: "Places", add: "New place", icon: <MapPin size={22} /> },
   { id: "style", title: "Styles", add: "New style", icon: <Sparkles size={22} /> },
   { id: "snippet", title: "Snippets", add: "New snippet", icon: <Bookmark size={22} /> },
-  { id: "preset", title: "Presets", add: "", icon: <Bookmark size={22} /> },
+  { id: "preset", title: "Presets", add: "New preset", icon: <Bookmark size={22} /> },
 ];
 const TAB_KEY = "afflatus.kit.tab";
 const OPEN_KEY = "afflatus.kit.categories";
@@ -233,7 +234,7 @@ function summaryOf(e: Entity, recipes: RecipeInfo[]): string {
   if (e.kind === "person") return `${plural(e.def.pictures.length, "reference image")}, ${e.def.voice ? "voice sample" : "no voice sample"}, ${plural(e.def.outfits.length, "outfit")}`;
   if (e.kind === "place") return plural(e.def.pictures.length, "reference image");
   if (e.kind === "style") return `set up for ${plural(Object.values(e.def.models).filter((m) => m.loras.length || m.words.trim()).length, "model")}`;
-  if (e.kind === "preset") return `${recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here"} · ${plural(Object.keys(e.def.inputs).length, "parameter")} kept`;
+  if (e.kind === "preset") return `${e.def.recipe ? (recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here") : "any model"} · ${plural(Object.keys(e.def.inputs).length, "parameter")} set${e.def.look && (e.def.look.cast.length || e.def.look.style || e.def.look.snippets?.length) ? " · with references" : ""}`;
   return e.def.text;
 }
 /** Everything an item is found by. */
@@ -535,7 +536,7 @@ export function People() {
   };
 
   const create = useMutation({
-    mutationFn: (kind: "person" | "place" | "style") => api.createEntity(kind, kind === "person" ? "New person" : kind === "place" ? "New place" : "New style"),
+    mutationFn: (kind: "person" | "place" | "style" | "preset") => api.createEntity(kind, TABS.find((t) => t.id === kind)!.add),
     onSuccess: async (e) => {
       await client.invalidateQueries({ queryKey: ["entities"] });
       setOpen(e.id);
@@ -556,7 +557,7 @@ export function People() {
   const found = query.trim() ? fuzzyFilter(mine, query, textOf) : mine;
   const editing = edit && open === edit.id && edit.kind !== "snippet" ? edit : null;
   const newTile = (className: string) =>
-    tab !== "snippet" && tab !== "preset" && (
+    tab !== "snippet" && (
       <button type="button" disabled={create.isPending} onClick={() => create.mutate(tab)} className={cx("flex items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed border-line-strong text-ink-2 hover:border-accent hover:text-ink", className)}>
         <Plus size={16} /> {here.add}
       </button>
@@ -608,19 +609,13 @@ export function People() {
             {editing.kind === "person" && <PersonEditor def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
             {editing.kind === "place" && <PlaceEditor def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
             {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
-            {editing.kind === "preset" && (
-              <div className="flex flex-col gap-2 text-ink-2">
-                <span>Generation parameters kept under a name: the model, its form, and the references. Use it from the form in Studio, under "Model".</span>
-                <span>Model: <span className="text-ink">{recipes.data?.recipes.find((r) => r.id === editing.def.recipe)?.title ?? "a model that is no longer here"}</span></span>
-                <span>Parameters kept: <span className="text-ink">{Object.keys(editing.def.inputs).length}</span></span>
-              </div>
-            )}
+            {editing.kind === "preset" && <PresetEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
           </div>
         ) : tab === "snippet" ? (
           <SnippetTable snippets={all.filter((e): e is Snippet => e.kind === "snippet")} query={query} />
         ) : (
           <>
-            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is generation parameters kept under a name: the model, its form, and the references. Save one from the form in Studio, under "Model".</Empty>}
+            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is generation parameters kept under a name: a model and what you set on its form, a prompt, the references. Everything in it is optional. Save one from the form in Studio, under "Model", or start an empty one here.</Empty>}
             {mine.length > 0 && found.length === 0 && <Empty title="Nothing matches">None of your {here.title.toLowerCase()} has these words.</Empty>}
             {(tab === "person" || tab === "place") && (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3.5">

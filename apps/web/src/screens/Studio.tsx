@@ -264,7 +264,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
           const p = presets.find((x) => x.id === id);
           if (p?.kind === "preset") d.apply(p.def.recipe, p.def.inputs, p.def.look ?? null);
         }}
-        options={presets.map((p) => ({ value: p.id, label: p.name, note: p.kind === "preset" ? recipeLabel(recipes.data?.families.find((f) => f.id === all.find((r) => r.id === p.def.recipe)?.family)?.name, all.find((r) => r.id === p.def.recipe)?.title ?? "model no longer installed") : "" }))}
+        options={presets.map((p) => ({ value: p.id, label: p.name, note: p.kind === "preset" ? (p.def.recipe ? recipeLabel(recipes.data?.families.find((f) => f.id === all.find((r) => r.id === p.def.recipe)?.family)?.name, all.find((r) => r.id === p.def.recipe)?.title ?? "model no longer installed") : "any model") : "" }))}
         footer={(close) => (
           <form
             className="flex items-center gap-1.5"

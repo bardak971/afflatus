@@ -42,8 +42,9 @@ const defs = {
     /** Per model family: the LoRAs that make the look, and the words that go with them. */
     models: z.record(z.string(), z.strictObject({ loras: z.array(lora).max(8).default([]), words: z.string().max(2000).default("") })).default({}),
   }),
+  // everything optional: a preset may set a model and its form, or only a prompt and who is in it, for any model
   preset: z.strictObject({
-    recipe: z.string().min(1),
+    recipe: z.string().min(1).optional(),
     inputs: z.record(z.string(), z.unknown()).default({}),
     look: z.unknown().optional(),
   }),
@@ -233,7 +234,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
 
   app.post("/api/entities", async (req) => {
     const b = body.parse(req.body);
-    const def = defs[b.kind].parse(b.def ?? (b.kind === "preset" ? undefined : {}));
+    const def = defs[b.kind].parse(b.def ?? {});
     const at = now();
     const row: Tables["entities"] = { id: newId(), owner_id: OWNER, kind: b.kind, name: b.name, def: JSON.stringify(def), created_at: at, updated_at: at };
     await s.db.insertInto("entities").values(row).execute();

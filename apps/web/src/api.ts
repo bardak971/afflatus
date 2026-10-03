@@ -268,8 +268,9 @@ export interface PlaceDef {
 export interface StyleDef {
   models: Record<string, { loras: Array<{ file: string; weight: number }>; words: string }>;
 }
+/** A preset: the model and operation it is for (none: any), what it sets of the form, and who is in it. Everything optional. */
 export interface PresetDef {
-  recipe: string;
+  recipe?: string;
   inputs: Record<string, unknown>;
   look?: Look | null;
 }
