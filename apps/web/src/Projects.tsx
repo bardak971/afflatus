@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, Check, FolderKanban, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, type Project } from "./api";
@@ -21,8 +21,10 @@ export function ProjectSwitch() {
   const [managing, setManaging] = useState(false);
   const live = (projects.data?.items ?? []).filter((p) => !p.archivedAt);
   const picked = current && current !== "none" ? projects.data?.items.find((p) => p.id === current) : undefined;
-  // a project that is gone, or archived, is no place to look at
-  if (current && current !== "none" && projects.isSuccess && (!picked || picked.archivedAt)) set(null);
+  // a project that is gone, or archived, is no place to look at (judged on a list that is up to date, not one being read again)
+  useEffect(() => {
+    if (current && current !== "none" && projects.isSuccess && !projects.isFetching && (!picked || picked.archivedAt)) set(null);
+  }, [current, projects.isSuccess, projects.isFetching, picked, set]);
   const choose = (id: ProjectChoice) => {
     set(id);
     // the lists follow: the library, the drafts, the timelines
