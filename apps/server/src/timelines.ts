@@ -288,6 +288,7 @@ export class Timelines {
     });
     const music = await this.assetRow(t.music_asset_id);
     const undo = await this.db.selectFrom("timeline_history").select("label").where("timeline_id", "=", id).orderBy("seq", "desc").executeTakeFirst();
+    const redo = await this.db.selectFrom("timeline_future").select("label").where("timeline_id", "=", id).orderBy("seq", "desc").executeTakeFirst();
     const exports = (await this.db.selectFrom("jobs").select(["id", "status", "inputs", "error"]).where("recipe_id", "=", EXPORT_JOB).orderBy("created_at", "desc").limit(30).execute())
       .filter((j) => (JSON.parse(j.inputs) as ExportOptions).timeline === id);
     const exporting = exports.find((j) => j.status === "queued" || j.status === "running");
@@ -299,8 +300,9 @@ export class Timelines {
       look: t.look ? (JSON.parse(t.look) as Look) : null,
       mood: t.mood ?? "",
       music: music ? { asset: assetView(music), volume: t.music_volume, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck) } : null,
-      /** What Undo would take back, in a few words; null when there is nothing to undo. */
+      /** What Undo would take back, in a few words; null when there is nothing to undo. The same for Redo. */
       undo: undo?.label ?? null,
+      redo: redo?.label ?? null,
       exporting: exporting ? { id: exporting.id, status: exporting.status } : null,
       exported: exported && !exported.deleted_at ? assetView(exported) : null,
       exportFailed: !exporting && exports[0]?.status === "failed" ? exports[0].error : null,
@@ -309,26 +311,44 @@ export class Timelines {
 
   // ---------------------------------------------------------------- undo
 
-  /** Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button. */
-  private async remember(timelineId: string, label: string) {
+  /** What the timeline looks like now, as one piece: the row, its clips, their takes. */
+  private async stateOf(timelineId: string) {
     const timeline = await this.row(timelineId);
     const clips = await this.db.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).execute();
     const takes = clips.length ? await this.db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).execute() : [];
-    const last = await this.db.selectFrom("timeline_history").select("seq").where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
+    return { timeline, clips, takes };
+  }
+
+  /** Keep the state in the history (before a change) or in the future (before an undo), with its label. */
+  private async snapshot(where: "timeline_history" | "timeline_future", timelineId: string, label: string) {
+    const state = JSON.stringify(await this.stateOf(timelineId));
+    const row = { id: newId(), timeline_id: timelineId, label, snapshot: state, created_at: now() };
+    if (where === "timeline_history") {
+      const last = await this.db.selectFrom("timeline_history").select("seq").where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
+      const seq = (last?.seq ?? 0) + 1;
+      await this.db.insertInto("timeline_history").values({ ...row, seq }).execute();
+      await this.db.deleteFrom("timeline_history").where("timeline_id", "=", timelineId).where("seq", "<=", seq - HISTORY).execute();
+      return seq;
+    }
+    const last = await this.db.selectFrom("timeline_future").select("seq").where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
     const seq = (last?.seq ?? 0) + 1;
-    await this.db.insertInto("timeline_history").values({ id: newId(), timeline_id: timelineId, seq, label, snapshot: JSON.stringify({ timeline, clips, takes }), created_at: now() }).execute();
-    await this.db.deleteFrom("timeline_history").where("timeline_id", "=", timelineId).where("seq", "<=", seq - HISTORY).execute();
+    await this.db.insertInto("timeline_future").values({ ...row, seq }).execute();
+    await this.db.deleteFrom("timeline_future").where("timeline_id", "=", timelineId).where("seq", "<=", seq - HISTORY).execute();
+    return seq;
+  }
+
+  /** Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button. A change forgets what could be redone. */
+  private async remember(timelineId: string, label: string) {
+    const seq = await this.snapshot("timeline_history", timelineId, label);
+    await this.db.deleteFrom("timeline_future").where("timeline_id", "=", timelineId).execute();
     return seq;
   }
 
   /**
-   * Take the last change back. What was rendered since is not lost: a take made after that change stays
-   * on its clip, and stays the one that plays if it was.
+   * Put a kept state back. What was rendered since is not lost: a take made after that state stays on its
+   * clip, and stays the one that plays if it was.
    */
-  async undo(timelineId: string): Promise<string> {
-    const last = await this.db.selectFrom("timeline_history").selectAll().where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
-    if (!last) throw refused("There is nothing to undo.");
-    const was = JSON.parse(last.snapshot) as { timeline: TimelineRow; clips: ClipRow[]; takes: TakeRow[] };
+  private async restore(timelineId: string, was: { timeline: TimelineRow; clips: ClipRow[]; takes: TakeRow[] }) {
     const nowClips = await this.db.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).execute();
     const nowTakes = nowClips.length ? await this.db.selectFrom("takes").selectAll().where("clip_id", "in", nowClips.map((c) => c.id)).execute() : [];
     const known = new Set(was.takes.map((t) => t.id));
@@ -355,12 +375,30 @@ export class Timelines {
         })
         .where("id", "=", timelineId)
         .execute();
-      await tx.deleteFrom("timeline_history").where("id", "=", last.id).execute();
       // a take that is back has its video back: removing it had sent the video to the bin
       if (kept.length) await tx.updateTable("assets").set({ deleted_at: null }).where("id", "in", kept.map((t) => t.asset_id)).where("deleted_at", "is not", null).execute();
     });
     this.changed();
+  }
+
+  /** Take the last change back. What it took back can be done again, until the next change. */
+  async undo(timelineId: string): Promise<string> {
+    const last = await this.db.selectFrom("timeline_history").selectAll().where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
+    if (!last) throw refused("There is nothing to undo.");
+    await this.snapshot("timeline_future", timelineId, last.label);
+    await this.restore(timelineId, JSON.parse(last.snapshot) as { timeline: TimelineRow; clips: ClipRow[]; takes: TakeRow[] });
+    await this.db.deleteFrom("timeline_history").where("id", "=", last.id).execute();
     return last.label;
+  }
+
+  /** Do again what Undo took back. */
+  async redo(timelineId: string): Promise<string> {
+    const next = await this.db.selectFrom("timeline_future").selectAll().where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
+    if (!next) throw refused("There is nothing to redo.");
+    await this.snapshot("timeline_history", timelineId, next.label);
+    await this.restore(timelineId, JSON.parse(next.snapshot) as { timeline: TimelineRow; clips: ClipRow[]; takes: TakeRow[] });
+    await this.db.deleteFrom("timeline_future").where("id", "=", next.id).execute();
+    return next.label;
   }
 
   // ---------------------------------------------------------------- editing
@@ -941,6 +979,28 @@ export class Timelines {
     const p = (await this.placed(timelineId))[index]!;
     const id = await this.splitAt(timelineId, p, atMs - start);
     await this.touch(timelineId);
+    return id;
+  }
+
+  /** A copy of the clip right after it: the same form, look and sound, its takes again (the same videos), the same one playing. It starts as a cut. */
+  async duplicateClip(clipId: string): Promise<string> {
+    const clip = await this.clipRow(clipId);
+    const all = await this.placed(clip.timeline_id);
+    const index = all.findIndex((p) => p.clip.id === clipId);
+    const takes = await this.db.selectFrom("takes").selectAll().where("clip_id", "=", clipId).orderBy("created_at").execute();
+    await this.remember(clip.timeline_id, "the duplicate");
+    const id = newId();
+    const at = now();
+    const ids = new Map(takes.map((t) => [t.id, newId()]));
+    await this.db
+      .insertInto("clips")
+      .values({ ...clip, id, position: index + 1, take_id: clip.take_id ? ids.get(clip.take_id) ?? null : null, joined: "cut", chat: null, created_at: at, updated_at: at })
+      .execute();
+    for (const t of takes) await this.db.insertInto("takes").values({ ...t, id: ids.get(t.id)!, clip_id: id, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, created_at: at }).execute();
+    const order = all.map((p) => p.clip.id);
+    order.splice(index + 1, 0, id);
+    await this.renumber(clip.timeline_id, order);
+    await this.touch(clip.timeline_id);
     return id;
   }
 

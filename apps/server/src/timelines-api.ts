@@ -119,6 +119,13 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   });
   /** Take the last change to the timeline back. Answers with what was undone, in a few words. */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/undo", async (req) => ({ undone: await t.undo(req.params.id) }));
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/redo", async (req) => ({ redone: await t.redo(req.params.id) }));
+  /** A copy of the clip right after it. */
+  app.post<{ Params: { id: string } }>("/api/clips/:id/duplicate", async (req) => {
+    const clip = await t.duplicateClip(req.params.id);
+    s.queue.events.emit("timeline");
+    return { clip };
+  });
 
   app.post<{ Params: { id: string } }>("/api/timelines/:id/clips", async (req) => {
     const clip = await t.addClip(req.params.id, newClip.parse(req.body ?? {}));

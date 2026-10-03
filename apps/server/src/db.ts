@@ -183,6 +183,8 @@ export interface Tables {
   entities: { id: string; owner_id: string; kind: "person" | "place" | "style" | "preset" | "snippet"; name: string; def: string; created_at: string; updated_at: string };
   /** What a timeline looked like before each change, newest last: what Undo goes back to. */
   timeline_history: { id: string; timeline_id: string; /** Counts up within a timeline: the order of the changes. */ seq: number; label: string; snapshot: string; created_at: string };
+  /** What Undo took back, to be done again: the same shape; emptied by the next change. */
+  timeline_future: { id: string; timeline_id: string; seq: number; label: string; snapshot: string; created_at: string };
   /** One place on a timeline: what to render there (a recipe and its form) and which of its takes plays. */
   clips: {
     id: string;
@@ -636,6 +638,24 @@ migrations["0013_model_pages"] = {
 
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
+migrations["0024_redo"] = {
+  async up(db) {
+    await db.schema
+      .createTable("timeline_future")
+      .addColumn("id", "text", (c) => c.primaryKey())
+      .addColumn("timeline_id", "text", (c) => c.notNull())
+      .addColumn("seq", "integer", (c) => c.notNull())
+      .addColumn("label", "text", (c) => c.notNull())
+      .addColumn("snapshot", "text", (c) => c.notNull())
+      .addColumn("created_at", "text", (c) => c.notNull())
+      .execute();
+    await db.schema.createIndex("timeline_future_by_timeline").on("timeline_future").columns(["timeline_id", "seq"]).execute();
+  },
+  async down(db) {
+    await db.schema.dropTable("timeline_future").execute();
+  },
+};
+
 migrations["0023_projects"] = {
   async up(db) {
     await db.schema

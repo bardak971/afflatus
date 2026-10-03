@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { api } from "../api";
 import { Link2, Minus, Music, Plus, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
@@ -332,6 +332,45 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     setStretch(null);
   };
 
+  // Ctrl + wheel zooms around the pointer; a plain wheel scrolls the track sideways (a mouse has no sideways wheel)
+  const ppsNow = useRef(pps);
+  ppsNow.current = pps;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const rect = el.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const ms = ((px + el.scrollLeft - PAD) / ppsNow.current) * 1000;
+        const next = Math.max(ZOOM.least, Math.min(ZOOM.most, ppsNow.current * Math.exp(-e.deltaY * 0.0015)));
+        onZoom(next);
+        // the moment under the pointer stays under it
+        requestAnimationFrame(() => { el.scrollLeft = Math.max(0, PAD + (ms / 1000) * next - px); });
+      } else if (!e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [onZoom]);
+
+  /** The frame under the pointer on the ruler: which video, at what moment, and where to draw it. */
+  const [peek, setPeek] = useState<{ x: number; ms: number; asset: string; at: number } | null>(null);
+  const peekAt = useRef(0);
+  const peekFrom = (clientX: number) => {
+    const t = performance.now();
+    if (t - peekAt.current < 60) return;
+    peekAt.current = t;
+    const x = xOf(clientX);
+    const ms = playAt(slots, x);
+    const slot = slots.find((s) => !s.planned && ms >= s.clip.atMs && ms < s.clip.atMs + s.clip.lengthMs && s.clip.take);
+    if (!slot) return setPeek(null);
+    setPeek({ x, ms, asset: slot.clip.take!.asset.id, at: slot.clip.take!.startMs + (ms - slot.clip.atMs) });
+  };
+
   const fitAll = () => {
     const room = (scroller.current?.clientWidth ?? 800) - NEW_CLIP - PAD * 3 - 40;
     if (totalMs > 0) onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (totalMs / 1000))));
@@ -383,7 +422,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 } else scrub(e);
               }}
               onPointerMove={(e) => {
-                if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                if (!e.currentTarget.hasPointerCapture(e.pointerId)) return peekFrom(e.clientX);
+                setPeek(null);
                 if (sweep.current === null) return scrub(e);
                 const ms = snapRange(playAt(slots, xOf(e.clientX)));
                 onRange({ inMs: Math.min(sweep.current, ms), outMs: Math.max(sweep.current, ms) });
@@ -392,10 +432,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 sweep.current = null;
                 e.currentTarget.releasePointerCapture(e.pointerId);
               }}
+              onPointerLeave={() => setPeek(null)}
               onDragStart={(e) => e.preventDefault()}
               className="absolute inset-x-0 top-0 cursor-ew-resize touch-none border-b border-line"
               style={{ height: RULER }}
-              title="Click or drag: the playhead. Shift-drag: a range."
+              title="Click or drag: the playhead. Shift-drag: a range. Ctrl + wheel zooms, the wheel scrolls."
             >
               {marks.map((s) => (
                 <span key={s} className="pointer-events-none absolute top-0 h-full border-l border-line-strong pl-1 font-mono text-[10px] leading-[18px] text-ink-3" style={{ left: PAD + s * pps }}>
@@ -644,6 +685,12 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   ]
                 </span>
               </>
+            )}
+            {peek && (
+              <div aria-hidden className="pointer-events-none absolute z-30 flex flex-col items-center gap-0.5" style={{ left: Math.max(PAD, Math.min(width - 130, peek.x - 60)), top: RULER + 4 }}>
+                <img src={`/api/assets/${peek.asset}/peek?at=${Math.round(peek.at)}&h=120`} alt="" className="max-h-[120px] max-w-[120px] rounded-md border border-line-strong bg-black object-contain shadow-xl shadow-shade/40" />
+                <span className="rounded bg-ground/90 px-1.5 font-mono text-[10px] text-ink">{stamp(peek.ms)}</span>
+              </div>
             )}
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
             {head && (

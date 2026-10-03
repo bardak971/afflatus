@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
-import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
-import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
+import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, Redo2, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
+import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch, type Timeline } from "../api";
+import { useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
 import { LookBar, lookWords } from "../LookBar";
 import { estimateFor } from "../estimate";
 import { formDefaults } from "../form";
-import { aboutMs, notReady } from "../format";
+import { aboutMs, clock, notReady } from "../format";
 import { Picker } from "../PictureField";
 import { Select } from "../Select";
 import { Inspector, MusicPanel } from "../timeline/Inspector";
@@ -16,7 +16,7 @@ import { layout, otherShape, pinInputs, placeOf, SHAPES, shapeOf, stamp, ZOOM, t
 import { Player, type PlayerHandle } from "../timeline/Player";
 import { Shelf } from "../timeline/Shelf";
 import { Track, type TimeRange } from "../timeline/Track";
-import { AutoText, Button, cx, ErrorNote, Segmented, Toggle } from "../ui";
+import { AutoText, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
 import { Viewer } from "../Viewer";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { useBanners } from "../store";
@@ -296,6 +296,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       "—" as const,
       { label: "Set range to this clip", key: "I  O", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
       ...(c.take ? [splitHere(c)] : []),
+      { label: "Duplicate clip", icon: <Copy size={14} />, disabled: duplicate.isPending, note: "a copy right after it, with its takes", run: () => duplicate.mutate(c.id) },
       ...(c.lengthMs > 0 ? [
         { label: "Extend from this frame", icon: <Link2 size={14} />, disabled: !onClip(c) || add.isPending, note: onClip(c) ? "cuts it here; a new clip carries on" : "put the playhead on this clip", run: () => { const here = onClip(c); if (here) void continueFrom(c, here.localMs); } },
         { label: "Save frame", icon: <Camera size={14} />, disabled: !onClip(c) || frame.isPending, note: onClip(c) ? "the frame at the playhead, to your library" : "put the playhead on this clip", run: () => { const here = onClip(c); if (!here) return; if (c.take) frame.mutate({ asset: c.take.asset.id, at: Math.round(here.assetMs) }); else if (c.still) setOpened(c.still); } },
@@ -363,6 +364,18 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       after();
     },
   });
+  const redo = useMutation({
+    mutationFn: async () => {
+      await save();
+      return api.redoTimeline(id);
+    },
+    onSuccess: (r) => {
+      setEdits({});
+      setNote(`Redone: ${r.redone}.`);
+      after();
+    },
+  });
+  const duplicate = useMutation({ mutationFn: api.duplicateClip, onSuccess: (r) => { after(); setSelected(r.clip); } });
   const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend: boolean; match: boolean }) => api.exportTimeline(id, v), onSuccess: after });
   const frame = useMutation({ mutationFn: (v: { asset: string; at: number }) => api.frame(v.asset, v.at), onSuccess: (a) => { setOpened(a); void client.invalidateQueries({ queryKey: ["assets"] }); } });
   /**
@@ -473,6 +486,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const frameRef = useRef(frameMs);
   frameRef.current = frameMs;
   const undoNow = undo.mutate;
+  const redoNow = redo.mutate;
+  const canRedo = Boolean(t?.redo);
   const removeNow = remove.mutate;
   const selectedNow = useRef<string | null>(null);
   selectedNow.current = current?.id ?? null;
@@ -488,6 +503,11 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !typing && canUndo) {
         e.preventDefault();
         undoNow();
+      }
+      // Ctrl+Shift+Z or Ctrl+Y does again what Undo took back
+      if ((e.ctrlKey || e.metaKey) && !typing && canRedo && ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y")) {
+        e.preventDefault();
+        redoNow();
       }
       const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
       const plain = !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open;
@@ -539,7 +559,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, undoNow, canUndo, removeNow]);
+  }, [toggle, undoNow, canUndo, redoNow, canRedo, removeNow]);
 
   const jump = (by: -1 | 1) => {
     const playable = clips.filter((c) => c.lengthMs > 0);
@@ -619,7 +639,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         </Button>
         <span className="grow" />
         {(error || note) && <span className={error ? "max-w-sm truncate text-warn-ink" : "max-w-sm truncate text-ink-2"} title={error?.message}>{error?.message ?? note}</span>}
-        <Button className="px-3" disabled={!t.undo || undo.isPending} title={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} onClick={() => undo.mutate()}>
+        <Button className="px-3" disabled={!t.redo || redo.isPending} title={t.redo ? `Redo: ${t.redo} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => redo.mutate()} aria-label="Redo">
+          <Redo2 size={15} />
+        </Button>
+        <Button className="px-3" disabled={!t.undo || undo.isPending} title={t.undo ? `Undo: ${t.undo} (Ctrl+Z)` : "Nothing to undo"} onClick={() => undo.mutate()}>
           <Undo2 size={15} /> Undo
         </Button>
         {missing.length > 0 && (
@@ -682,6 +705,11 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
               <button type="button" aria-label="Loop the range" aria-pressed={loopRange} title={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={toggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>
             )}
             <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
+            {head && cursor === null && head.slot.clip.lengthMs > 0 && (
+              <span className="hidden text-xs text-ink-2 lg:inline" title="Which clip is under the playhead, and where in it">
+                clip {head.slot.index + 1} · <span className="font-mono">{stamp(Math.max(0, time - head.slot.clip.atMs))}</span> of <span className="font-mono">{stamp(head.slot.clip.lengthMs)}</span>
+              </span>
+            )}
             <span className="grow" />
             <button type="button" aria-label="Extend from this frame" title="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || add.isPending} onClick={() => void continueHere()} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>
             <button
@@ -782,10 +810,22 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onWriteBetween={() => writeBetween.mutate({ clip: current.id, force: true })}
           />
         ) : (
-          <aside className="flex w-[400px] shrink-0 flex-col gap-3 border-l border-line bg-panel p-5 text-ink-2">
-            <span className="text-base font-semibold text-ink">{clips.length ? "Select a clip" : "Start your video"}</span>
+          <aside className="flex w-[400px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-panel p-5 text-ink-2">
+            <span className="text-base font-semibold text-ink">{clips.length ? t.name : "Start your video"}</span>
             {clips.length ? (
-              <span>Click a clip on the timeline to see its generation parameters, change them, or render another take. Click the music to set its volume.</span>
+              <Overview
+                timeline={t}
+                clips={clips}
+                missing={missing}
+                misfits={misfits}
+                allMs={allMs}
+                onPick={(id) => { setSelected(id); setMusicOpen(false); }}
+                onMusic={() => setMusicOpen(true)}
+                onCast={() => setCasting(true)}
+                onRenderAll={() => render.mutate({ clips: missing })}
+                onExport={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}
+                rendering={render.isPending}
+              />
             ) : (
               <>
                 <span>A timeline plays clips one after the other. Each clip can extend the previous clip: the motion and the voices continue across the join.</span>
@@ -932,5 +972,86 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       )}
       {opened && <Viewer asset={opened} onClose={() => setOpened(null)} />}
     </div>
+  );
+}
+
+/**
+ * The timeline as a whole, shown while no clip is selected: what it is, what needs attention (each line
+ * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
+ * missing, export.
+ */
+function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic, onCast, onRenderAll, onExport, rendering }: {
+  timeline: Timeline;
+  clips: Clip[];
+  missing: Clip[];
+  misfits: number;
+  allMs: number;
+  onPick(clip: string): void;
+  onMusic(): void;
+  onCast(): void;
+  onRenderAll(): void;
+  onExport(): void;
+  rendering: boolean;
+}) {
+  const projects = useProjects();
+  const folders = useFolders();
+  const entities = useEntities();
+  const project = t.projectId ? projects.data?.items.find((p) => p.id === t.projectId) : undefined;
+  const folder = folders.data?.items.find((f) => f.id === (t.folderId ?? project?.folderId));
+  const stale = clips.filter((c) => c.join === "stale");
+  const failed = clips.filter((c) => c.failed && !c.take);
+  const wrong = clips.filter((c) => otherShape(c, t) && !c.fill);
+  const stills = clips.filter((c) => c.kind === "still").length;
+  const videos = clips.length - stills;
+  const cast = lookWords(t.look, entities.data?.items ?? []);
+  const row = (key: string, text: string, ids: string[], tone: "warn" | "plain" = "plain") => (
+    <div key={key} className="flex flex-wrap items-center gap-1.5">
+      <span className={cx("text-sm", tone === "warn" ? "text-warn-ink" : "text-ink")}>{text}</span>
+      {ids.slice(0, 8).map((id) => {
+        const i = clips.findIndex((c) => c.id === id);
+        return <button key={id} type="button" onClick={() => onPick(id)} className="rounded-md border border-line-strong px-1.5 py-px font-mono text-xs text-ink-2 hover:border-accent hover:text-ink">{i + 1}</button>;
+      })}
+    </div>
+  );
+  return (
+    <>
+      <span className="text-xs">
+        {[project?.name, `${clock(t.durationMs)}`, `${videos} clip${videos === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`, t.width && t.height ? `${t.width} × ${t.height}` : "frame from the first clip"].filter(Boolean).join(" · ")}
+      </span>
+
+      <section className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-3.5 py-3">
+        <SectionTitle>Needs attention</SectionTitle>
+        {missing.length === 0 && stale.length === 0 && failed.length === 0 && wrong.length === 0 && <span className="text-sm text-good">Every clip is rendered and every join holds.</span>}
+        {missing.filter((c) => !c.take).length > 0 && row("missing", `${missing.filter((c) => !c.take).length} not rendered yet`, missing.filter((c) => !c.take).map((c) => c.id))}
+        {stale.length > 0 && row("stale", `${stale.length} join${stale.length === 1 ? "" : "s"} no longer hold${stale.length === 1 ? "s" : ""}: the clip before changed`, stale.map((c) => c.id), "warn")}
+        {failed.length > 0 && row("failed", `${failed.length} failed to render`, failed.map((c) => c.id), "warn")}
+        {wrong.length > 0 && row("shape", `${misfits} in another aspect ratio, shown with bars`, wrong.map((c) => c.id))}
+        {missing.length > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderAll}>Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}</Button></span>}
+      </section>
+
+      <section className="flex flex-col gap-1.5">
+        <SectionTitle>Music</SectionTitle>
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 grow truncate text-sm text-ink">{t.music ? `${t.music.asset.name || "Music"} · ${t.music.volume} %${t.music.duck ? " · ducks under voices" : ""}` : "None: drop a sound on the Music track."}</span>
+          {t.music && <Button size="sm" onClick={onMusic}>Settings</Button>}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-1.5">
+        <SectionTitle>Cast and mood</SectionTitle>
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 grow truncate text-sm text-ink">{[cast, t.mood].filter(Boolean).join(" · ") || "Nobody yet, no mood set."}</span>
+          <Button size="sm" onClick={onCast}>Change</Button>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-1.5">
+        <SectionTitle>Renders land in</SectionTitle>
+        <span className="text-sm text-ink">{folder ? folder.name : project ? `${project.name} (its root)` : "the Inbox, no folder"}</span>
+      </section>
+
+      <span><Button onClick={onExport} disabled={!t.durationMs}><Download size={15} /> Export video</Button></span>
+      <span className="text-xs text-ink-3">Click a clip to work on it. Right-click one for its menu. I and O mark a range.</span>
+    </>
   );
 }

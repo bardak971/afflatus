@@ -385,8 +385,9 @@ export interface Timeline {
   mood: string;
   /** The sound under the whole video. */
   music: { asset: Asset; volume: number; fadeInMs: number; fadeOutMs: number; duck: boolean } | null;
-  /** What Undo would take back, in a few words. */
+  /** What Undo would take back, in a few words; and what Redo would do again. */
   undo: string | null;
+  redo: string | null;
   exporting: { id: string; status: "queued" | "running" } | null;
   exported: Asset | null;
   exportFailed: string | null;
@@ -861,6 +862,9 @@ export const api = {
   deleteProject: (id: string) => call<{ ok: true }>("DELETE", `/projects/${id}`),
   editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),
   undoTimeline: (id: string) => call<{ undone: string }>("POST", `/timelines/${id}/undo`),
+  redoTimeline: (id: string) => call<{ redone: string }>("POST", `/timelines/${id}/redo`),
+  /** A copy of the clip right after it, with its takes. */
+  duplicateClip: (id: string) => call<{ clip: string }>("POST", `/clips/${id}/duplicate`),
   deleteTimeline: (id: string) => call<{ ok: true }>("DELETE", `/timelines/${id}`),
   /** A new clip: empty, or from a video or a picture of the library. After `after`, first when null, last when left out. */
   addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip" }) => call<{ clip: string; timeline: Timeline }>("POST", `/timelines/${timeline}/clips`, body),

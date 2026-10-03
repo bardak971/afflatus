@@ -13,7 +13,7 @@ import { about, aboutMs, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { Select } from "../Select";
-import { AutoText, Bar, Button, cx, ErrorNote, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
+import { AutoText, Bar, Button, cx, ErrorNote, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
 import { usePanelWidth } from "../store";
 import { otherShape, pinInputs, shapeOf } from "./model";
 
@@ -291,7 +291,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 );
               })}
             </div>
-            <span className="text-xs text-ink-3">{clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion); the smoothest is marked." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take. The one you pick plays."}</span>
+            <Note text={clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion); the smoothest is marked." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take. The one you pick plays."} />
           </div>
         )}
 
@@ -316,9 +316,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 {(take.trimStartMs > 0 || take.trimEndMs > 0) && <span><Button size="sm" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Reset trim</Button></span>}
               </>
             ) : null}
-            <span className="text-xs text-ink-3">
-              {still ? "Or drag its edge on the timeline." : `Or drag the clip's edges on the timeline. This trims what plays${recipe ? "; to make the clip itself longer, change Duration below and render a new take" : ""}.`}
-            </span>
+            <Note text={still ? "Or drag its edge on the timeline." : `Or drag the clip's edges on the timeline. This trims what plays${recipe ? "; to make the clip itself longer, change Duration below and render a new take" : ""}.`} />
           </div>
         )}
 
@@ -358,11 +356,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 </Button>
               )}
             </div>
-            <span className="text-xs text-ink-3">
-              {carries && pins.start ? `It extends clip ${index}, so it needs no first frame. ` : ""}
-              Or drop an image on the clip: near its start for the first frame, near its end for the last frame{pins.mid ? ", in the middle for a keyframe" : ""}.
-              {take ? " A pinned frame counts from the next take." : ""}
-            </span>
+            <Note text={`${carries && pins.start ? `It extends clip ${index}, so it needs no first frame. ` : ""}Or drop an image on the clip: near its start for the first frame, near its end for the last frame${pins.mid ? ", in the middle for a keyframe" : ""}.${take ? " A pinned frame counts from the next take." : ""}`} />
           </div>
         )}
 
