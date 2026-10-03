@@ -184,7 +184,8 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
         data-bar={kind}
         className={cx("relative w-full cursor-crosshair touch-none rounded-lg bg-raised select-none", tall ? "h-16" : "h-12")}
         onPointerDown={(e) => {
-          if (e.target !== e.currentTarget && (e.target as HTMLElement).tagName !== "IMG") return;
+          // a press anywhere but on a handle moves the playhead there
+          if ((e.target as HTMLElement).closest("[role=slider]")) return;
           player.current?.pause();
           seek(snap(msAt(e.currentTarget, e.clientX)));
           dragging.current = "head";
@@ -219,10 +220,15 @@ export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onFrame, 
           <div className="pointer-events-none absolute inset-y-0 border-y-2 border-accent" style={{ left: pct(Math.max(range.startMs, win.startMs)), width: `${Math.max(0, Math.min(100, ((Math.min(range.endMs, win.endMs) - Math.max(range.startMs, win.startMs)) / span) * 100))}%` }} />
           {/* the zoomed part, shown on the whole */}
           {kind === "whole" && zoom && <div className="pointer-events-none absolute inset-y-0 border-x border-ink-strong/60 bg-ink-strong/10" style={{ left: pct(zoom.startMs), width: `${((zoom.endMs - zoom.startMs) / span) * 100}%` }} />}
-          {inWin(at) && <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-ink-strong" style={{ left: pct(at) }} />}
         </div>
         {inWin(range.startMs) && <div role="slider" aria-label="In" aria-valuenow={Math.round(range.startMs)} tabIndex={0} onPointerDown={grab("in")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.startMs) }} />}
         {inWin(range.endMs) && <div role="slider" aria-label="Out" aria-valuenow={Math.round(range.endMs)} tabIndex={0} onPointerDown={grab("out")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.endMs) }} />}
+        {/* the playhead, over everything: a white line with a dark edge, and a small head on top */}
+        {inWin(at) && (
+          <div className="pointer-events-none absolute -top-1 bottom-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]" style={{ left: pct(at) }}>
+            <div className="absolute -top-0.5 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]" />
+          </div>
+        )}
         {/* the frame under the mouse, exact */}
         {hover && hover.bar === kind && !dragging.current && (
           <div className="pointer-events-none absolute bottom-full z-10 mb-1 flex -translate-x-1/2 flex-col items-center gap-0.5" style={{ left: hover.x }}>
