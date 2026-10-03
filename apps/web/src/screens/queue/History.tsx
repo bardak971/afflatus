@@ -9,7 +9,7 @@ import { Select } from "../../Select";
 import { useOpenDraft } from "../../store";
 import { Button, cx, Empty, Segmented } from "../../ui";
 import { Viewer } from "../../Viewer";
-import { lighter, ranOutOfMemory } from "./retry";
+import { lighter, memoryThatRanOut, shorterStretch } from "./retry";
 
 type Status = "all" | "done" | "failed" | "cancelled";
 
@@ -210,7 +210,9 @@ function Failed({ job }: { job: HistoryJob }) {
   const recipes = useRecipes();
   const { again, dismiss, toDraft } = useJobActions();
   const recipe = recipes.data?.recipes.find((x) => x.id === job.recipe);
-  const fix = ranOutOfMemory(job.error) ? lighter(recipe, job.input) : null;
+  const memory = memoryThatRanOut(job.error);
+  const fix = memory ? lighter(recipe, job.input) : null;
+  const stretch = memory ? shorterStretch(recipe, job.input) : null;
   return (
     <div className="flex flex-col gap-1.5 rounded-[10px] border border-warn/50 bg-warn-wash px-3.5 py-2.5">
       <div className="flex items-baseline gap-2">
@@ -218,9 +220,10 @@ function Failed({ job }: { job: HistoryJob }) {
         <span className="grow truncate text-xs text-ink-2">{job.prompt}</span>
         <span className="shrink-0 text-xs text-ink-2">{job.finishedAt ? when(job.finishedAt) : ""}</span>
       </div>
-      <div className="text-sm text-warn-ink">{job.error}{fix ? " Out of VRAM." : ""}</div>
+      <div className="text-sm text-warn-ink">{job.error}{memory === "ram" ? " Out of the machine's memory (RAM), not the card's: the work had fallen back to the processor." : memory === "vram" ? " Out of VRAM." : ""}</div>
       <div className="flex flex-wrap gap-1.5">
-        {fix && <Button size="sm" tone="danger" disabled={again.isPending} onClick={() => again.mutate({ id: job.id, input: fix.change }, { onSuccess: () => dismiss.mutate(job.id) })}>{fix.label}</Button>}
+        {stretch && <Button size="sm" tone="danger" disabled={again.isPending} title="The latent upscale re-samples the clip in stretches of frames; shorter stretches need less memory." onClick={() => again.mutate({ id: job.id, input: stretch.change }, { onSuccess: () => dismiss.mutate(job.id) })}>{stretch.label}</Button>}
+        {fix && <Button size="sm" tone={stretch ? undefined : "danger"} disabled={again.isPending} onClick={() => again.mutate({ id: job.id, input: fix.change }, { onSuccess: () => dismiss.mutate(job.id) })}>{fix.label}</Button>}
         <Button size="sm" disabled={again.isPending} onClick={() => again.mutate({ id: job.id }, { onSuccess: () => dismiss.mutate(job.id) })}>Retry unchanged</Button>
         {job.draftId && <Button size="sm" onClick={() => toDraft(job.draftId!)}>Open the draft</Button>}
         <Button size="sm" tone="quiet" onClick={() => dismiss.mutate(job.id)}>Dismiss</Button>

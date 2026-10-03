@@ -249,7 +249,7 @@ export const h3Video = defineRecipe<H3Video>({
     return [
       ...routeNodes,
       "UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
-      "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "VHS_VideoCombine",
+      "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", input.upscale === UPSCALE.latent ? "VAEDecodeTiled" : "VAEDecode", "VAEDecodeAudio", "VHS_VideoCombine",
       ...(input.quick ? ["ModelAttentionBackend"] : []),
       ...(turboLora || input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
       ...(how.start || how.end || input.mid || input.references.length ? ["LoadImage"] : []),
@@ -416,7 +416,10 @@ export const h3Video = defineRecipe<H3Video>({
     }
 
     g.phase("decoding");
-    let images = g.out("VAEDecode", { samples: finished, vae });
+    // the enlarged latent is decoded in tiles and stretches: whole, a doubled 7-second clip asks for tens of GB and falls back to the processor
+    let images = input.upscale === UPSCALE.latent
+      ? g.out("VAEDecodeTiled", { samples: finished, vae, tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 })
+      : g.out("VAEDecode", { samples: finished, vae });
     const audio = g.out("VAEDecodeAudio", { samples: finished, vae: audioVae });
     const smooth = input.smooth && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
     if (smooth) {

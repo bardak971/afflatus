@@ -973,7 +973,7 @@ describe("H3's upscale pass", () => {
   it("is off by itself: the clip is decoded as it was sampled", () => {
     const b = build({});
     expect(node(b, "MMH3UltimateUpscale")).toHaveLength(0);
-    expect(node(b, "VAEDecode")[0]!.inputs.samples).toEqual(node(b, "VAEDecode")[0]!.inputs.samples);
+    expect((node(b, "VAEDecodeTiled")[0] ?? node(b, "VAEDecode")[0])!.inputs.samples).toEqual((node(b, "VAEDecodeTiled")[0] ?? node(b, "VAEDecode")[0])!.inputs.samples);
   });
 
   it("enlarges the finished latent and re-samples it lightly, in tiles and stretches, with the sound carried through", () => {
@@ -985,7 +985,7 @@ describe("H3's upscale pass", () => {
     const sampledId = Object.entries(b.graph).find(([, n]) => n === sampled)![0];
     expect(up.inputs.latent).toEqual([sampledId, 0]);
     const upId = Object.entries(b.graph).find(([, n]) => n === up)![0];
-    expect(node(b, "VAEDecode")[0]!.inputs.samples).toEqual([upId, 0]);
+    expect((node(b, "VAEDecodeTiled")[0] ?? node(b, "VAEDecode")[0])!.inputs.samples).toEqual([upId, 0]);
     expect(node(b, "VAEDecodeAudio")[0]!.inputs.samples).toEqual([upId, 0]);
     // twice the frame, on the model's grid; without the upscaler's file, a plain resize
     expect(node(b, "MMH3LatentUpscaleParams")[0]!.inputs).toMatchObject({ method: "bicubic", width: 1152, height: 2048 });

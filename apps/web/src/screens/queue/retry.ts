@@ -19,3 +19,16 @@ export function lighter(recipe: RecipeInfo | undefined, input: Record<string, un
 }
 
 export const ranOutOfMemory = (error: string | null) => /out of memory|\boom\b|allocat|not enough memory/i.test(error ?? "");
+/** Which memory ran out: the card's, or the machine's (a CPU allocator: the work had fallen back to the processor). */
+export const memoryThatRanOut = (error: string | null): "ram" | "vram" | null =>
+  !ranOutOfMemory(error) ? null : /CPUAllocator|cannot allocate memory|system memory|\bRAM\b/i.test(error ?? "") ? "ram" : "vram";
+
+/** After a latent upscale ran out of memory: the same job re-sampled in shorter stretches of frames. null when it was not a latent upscale, or the stretch is as short as it goes. */
+export function shorterStretch(recipe: RecipeInfo | undefined, input: Record<string, unknown> | null): { change: Record<string, unknown>; label: string } | null {
+  if (!recipe || !input || !/latent/i.test(String(input.upscale ?? ""))) return null;
+  const chunk = recipe.inputs.find((i) => i.id === "upscaleChunk");
+  if (!chunk || chunk.type !== "number") return null;
+  const now = Number(input[chunk.id] ?? chunk.default);
+  const next = Math.max(chunk.min, now - chunk.step * 2);
+  return next < now ? { change: { [chunk.id]: next }, label: `Retry with ${next}-frame stretches` } : null;
+}

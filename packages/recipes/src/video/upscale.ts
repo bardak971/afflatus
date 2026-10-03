@@ -39,9 +39,9 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
       note: "the final frame is said under the aspect ratio",
     },
     {
-      id: "upscaleModel", type: "choice", label: "Upscale model", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: ["ultrasharp", "realesrgan", "esrgan", "animesharp", "nmkd", "."], section: "out",
+      id: "upscaleModel", type: "choice", label: "Upscale model", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4xNomosUni_span_multijpg.pth", prefer: ["nomosuni.*span", "nomos8ksc", "nomos", "ultrasharp", "realesrgan", "esrgan", "animesharp", "nmkd", "."], section: "out",
       showWhen: { input: "upscale", in: [UPSCALE.model] },
-      note: "from models/upscale_models. The model enlarges by its own factor (usually 4×), then the frames are resized to the factor asked for",
+      note: "from models/upscale_models. The model enlarges by its own factor (usually 4×), then the frames are resized to the factor asked for. For video: 4xNomosUni_span (fast, steady from frame to frame, forgiving of compression) or 4xNomos8kSC (sharper on clean footage); UltraSharp and ESRGAN tend to flicker",
     },
   ];
 }
