@@ -28,7 +28,7 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -57,6 +57,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onMusic(asset: string): void;
   onTrim(clip: Clip, patch: ClipPatch): void;
   onNewClip(after: string | undefined): void;
+  /** A right-click on a clip: its menu. */
+  onMenu?(clip: Clip, e: React.MouseEvent): void;
 }) {
   const clips = timeline.clips;
   const scroller = useRef<HTMLDivElement>(null);
@@ -277,6 +279,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                       onSelect(c.id);
                       const x = xOf(e.clientX);
                       onSeek(playAt(slots, x), Math.max(0, Math.min(totalMs, ((x - PAD) / pps) * 1000)));
+                    }}
+                    onContextMenu={(e) => {
+                      if (!onMenu) return;
+                      onSelect(c.id);
+                      onMenu(c, e);
                     }}
                     aria-pressed={on}
                     // a clip that has its picture is read over it: the colours of the dark stage

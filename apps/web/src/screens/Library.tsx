@@ -23,7 +23,7 @@ export type Place = { type: "all" } | { type: "unfiled" } | { type: "folder"; id
 
 export { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO, dragKind } from "../dragging";
 
-export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: {
+export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, onMenu }: {
   asset: Asset;
   onOpen(): void;
   /** It is one of the items ticked; and whether any is: a click then ticks instead of opening. */
@@ -33,6 +33,8 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: 
   onSelect?(range: boolean): void;
   /** What a drag of it carries: every ticked item when it is one of them. */
   dragIds?: string[];
+  /** A right-click: the menu of what can be done with it. */
+  onMenu?(e: React.MouseEvent): void;
 }) {
   // a video has a preview frame when the server could read one from it
   const [noFrame, setNoFrame] = useState(false);
@@ -53,6 +55,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds }: 
         else onOpen();
       }}
       aria-label={`Open ${asset.kind}`}
+      onContextMenu={onMenu}
       data-stage
       className={cx("group relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
     >

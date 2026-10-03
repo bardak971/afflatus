@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Download, ImagePlus, Link2, Pause, Play, Plus, SkipBack, SkipForward, Undo2, Users } from "lucide-react";
+import { ArrowLeft, Camera, Download, Eye, ImagePlus, Link2, Pause, Play, Plus, Scissors, SkipBack, SkipForward, Trash2, Undo2, Users, Volume2, VolumeX, Wand2 } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
@@ -18,6 +18,7 @@ import { Shelf } from "../timeline/Shelf";
 import { Track } from "../timeline/Track";
 import { AutoText, Button, ErrorNote, Segmented, Toggle } from "../ui";
 import { Viewer } from "../Viewer";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 
 /**
  * The timeline editor: your media on the left, the video in the middle, the selected clip on the right,
@@ -173,6 +174,27 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     },
   });
   const remove = useMutation({ mutationFn: api.deleteClip, onSuccess: after });
+  // the right-click menu of a clip: what the Inspector offers on it, at the pointer
+  const clipMenu = useMenu<Clip>();
+  const clipMenuItems = (c: Clip): MenuItem[] => {
+    const index = (shown?.clips ?? []).findIndex((x) => x.id === c.id);
+    const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
+    const canCarry = Boolean(recipe && index > 0 && recipe.inputs.some((i) => (i.type === "clip" && i.role === "previous") || (i.type === "image" && i.role === "start")));
+    const video = c.take?.asset ?? null;
+    return [
+      ...(c.kind === "video" && recipe ? [{ label: c.take ? "New take" : "Render this clip", key: "Ctrl + Enter", icon: <Wand2 size={14} />, disabled: Boolean(c.job) || render.isPending, run: () => render.mutate({ clips: [c] }) }] : []),
+      ...(canCarry ? [c.joined === "continue"
+        ? { label: "Make it a cut", icon: <Scissors size={14} />, note: `from clip ${index}`, run: () => patch.mutate({ clip: c.id, patch: { joined: "cut" } }) }
+        : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => patch.mutate({ clip: c.id, patch: { joined: "continue" } }) }] : []),
+      ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "viewer, Trim", run: () => setOpened(video) }] : []),
+      "—" as const,
+      c.sound === "muted"
+        ? { label: "Unmute", icon: <Volume2 size={14} />, run: () => patch.mutate({ clip: c.id, patch: { sound: "own" } }) }
+        : { label: "Mute", icon: <VolumeX size={14} />, run: () => patch.mutate({ clip: c.id, patch: { sound: "muted" } }) },
+      "—" as const,
+      { label: "Remove clip", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings it back", run: () => remove.mutate(c.id) },
+    ];
+  };
   const removeTake = useMutation({ mutationFn: api.deleteTake, onSuccess: after });
   // a clip that is rendering, or waiting for its turn, is stopped from here: nothing is added, the clip keeps the takes it has
   const stop = useMutation({
@@ -517,7 +539,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         }}
         onTrim={(clip, p) => patch.mutate({ clip: clip.id, patch: p })}
         onNewClip={(afterId) => newClip(afterId)}
+        onMenu={(clip, e) => clipMenu.open(e, clip)}
       />
+      {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject)} onClose={clipMenu.close} />}
 
       {exp && (
         <div role="dialog" aria-modal="true" aria-label="Export video" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setExp(null)}>

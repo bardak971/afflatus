@@ -56,7 +56,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     note: "Selecting several items: to move, keep or bin them together.",
     keys: [
       ["Ctrl + Click", "Select an item (or click the circle on it)"], ["Shift + Click", "Select the range from the last selected item to this one"],
-      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"],
+      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "Menu of an item: open, keep, i2v, reuse parameters, variation, Open in ComfyUI, download, bin"],
     ],
   },
   { where: "Form, in Studio", keys: [["Ctrl + Enter", "Generate"]] },
@@ -64,7 +64,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     where: "Prompt",
     keys: [["Ctrl + ↑  ↓", "Prompt weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
-  { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"]] },
+  { where: "Timeline", keys: [["Space", "Play / pause"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["←  →", "Move the playhead, when the track has focus"], ["Right-click", "Menu of a clip: render / new take, extend, open its video, mute, remove"]] },
   { where: "Everywhere", keys: [["/  :", "Find a setting in the open form; else the search bar of the view (library, Prompt kit, snippets, workflow editor)"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 

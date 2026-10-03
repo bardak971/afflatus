@@ -25,6 +25,7 @@ import { Select } from "../Select";
 import { useHandover, useOpenDraft, usePanelWidth } from "../store";
 import { Bar, Button, cx, Empty, ErrorNote, ScrollColumn, Segmented, PanelEdge } from "../ui";
 import { Viewer } from "../Viewer";
+import { useTileMenu } from "../TileMenu";
 import { DRAG_TYPE, FolderPanel, Tile, type Place } from "./Library";
 
 /**
@@ -416,6 +417,7 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
   const assets = useAssets({ draft });
   const queue = useQueue();
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
+  const tileMenu = useTileMenu({ onOpen: (a) => setPicked(a.id), into: { draft, folder } });
   const running = queue.data?.running?.draftId === draft ? queue.data.running : null;
   const inLine = (queue.data?.waiting ?? []).filter((j) => j.draftId === draft);
   const waiting = inLine.length;
@@ -482,12 +484,13 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
         )}
         {items.map((a) => (
           <div key={a.id} className={cx("rounded-[12px] border-2", !live && shown?.id === a.id ? "border-accent" : "border-transparent")}>
-            <Tile asset={a} onOpen={() => setPicked(a.id)} />
+            <Tile asset={a} onOpen={() => setPicked(a.id)} onMenu={(e) => tileMenu.open(e, a)} />
           </div>
         ))}
         {assets.hasNextPage && <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={assets.isFetchingNextPage}>More</Button>}
       </div>
       {details && <Viewer asset={items.find((a) => a.id === details.id) ?? details} items={items} onOpen={setDetails} onClose={() => setDetails(null)} into={{ draft, folder }} />}
+      {tileMenu.element}
     </div>
   );
 }
@@ -579,6 +582,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
   const client = useQueryClient();
   const [picked, setPicked] = useState<string[]>([]);
   const lastPicked = useRef<string | null>(null);
+  const gridMenu = useTileMenu({ onOpen: setOpen, onSelect: (a) => tick(a, false), into: { draft: draftOnly ? draftId ?? undefined : undefined, folder: folder?.id } });
   const tick = (a: Asset, range: boolean) => {
     const from = range && lastPicked.current ? items.findIndex((x) => x.id === lastPicked.current) : -1;
     const to = items.findIndex((x) => x.id === a.id);
@@ -794,6 +798,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
                     selecting={picked.length > 0}
                     onSelect={(range) => tick(a, range)}
                     dragIds={picked.includes(a.id) ? picked : undefined}
+                    onMenu={(e) => gridMenu.open(e, a)}
                   />
                 ))}
               </div>
@@ -820,6 +825,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
         </Popover>
       )}
       {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={items} onOpen={setOpen} onClose={() => setOpen(null)} />}
+      {gridMenu.element}
     </div>
   );
 }
