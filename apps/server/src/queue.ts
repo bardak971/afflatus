@@ -19,7 +19,10 @@ import { readVideo } from "./video";
 /** The RIFE model this ComfyUI offers for frame interpolation, when it has one. */
 export function rifeModelIn(catalog: Record<string, unknown>): string | null {
   const node = catalog["FrameInterpolationModelLoader"] as { input?: { required?: Record<string, unknown[]> } } | undefined;
-  const options = node?.input?.required?.model_name?.[0];
+  const spec = node?.input?.required?.model_name;
+  // older nodes list the choices in the type position; newer ones say "COMBO" and list them under options
+  const second = spec?.[1] as { options?: unknown[] } | undefined;
+  const options = Array.isArray(spec?.[0]) ? spec![0] : spec?.[0] === "COMBO" && Array.isArray(second?.options) ? second!.options : null;
   if (!Array.isArray(options)) return null;
   const files = options.filter((o): o is string => typeof o === "string");
   return files.find((f) => /rife/i.test(f)) ?? files[0] ?? null;
