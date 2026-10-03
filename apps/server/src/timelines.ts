@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { secondsInput, type Recipe } from "@afflatus/core";
-import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinVideos, MOTION_RATE, motionOf, peekAt, rangeKeep } from "./cut";
+import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -771,17 +771,69 @@ export class Timelines {
     return strip;
   }
 
-  /** How much moves along a video, ten samples a second (see motionOf). Measured once, then kept. */
-  async motion(assetId: string): Promise<{ rate: number; values: number[] }> {
-    const video = await this.assetRow(assetId);
-    if (!video || video.kind !== "video") throw missing("this video");
-    const key = `motion/${video.id.slice(0, 2)}/${video.id}.json`;
+  /** How much moves along a video and how loud it is, ten samples a second (see measureOf). Measured once, then kept. A sound file gives loudness only. */
+  async motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null }> {
+    const asset = await this.assetRow(assetId);
+    if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) throw missing("this video");
+    const key = `motion/${asset.id.slice(0, 2)}/${asset.id}.json`;
     const have = await this.storage.get(key).catch(() => null);
-    if (have) return JSON.parse(Buffer.from(have).toString("utf8")) as { rate: number; values: number[] };
-    const values = await motionOf(await this.storage.get(video.file_key), extOf(video.mime));
-    const made = { rate: MOTION_RATE, values: values.map((v) => Math.round(v * 10) / 10) };
+    if (have) {
+      const kept = JSON.parse(Buffer.from(have).toString("utf8")) as { rate: number; values: number[]; sound?: number[] | null };
+      if (kept.sound !== undefined) return { rate: kept.rate, values: kept.values, sound: kept.sound };
+    }
+    const { motion, sound } = await measureOf(await this.storage.get(asset.file_key), extOf(asset.mime));
+    const made = { rate: MOTION_RATE, values: motion.map((v) => Math.round(v * 10) / 10), sound };
     await this.storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
+  }
+
+  /** The jump across a join, per take, kept once worked out (a take and its neighbours' frames do not change). */
+  private joinScores = new Map<string, { in: number | null; out: number | null }>();
+
+  /**
+   * How smoothly each take of a clip meets its neighbours: at In, the clip before's last frame against
+   * the take's first frame that plays; at Out, the take's last frame against the clip after's first.
+   * ×1 = the join moves like the clip itself, higher = a catch. For picking among takes.
+   */
+  async joins(clipId: string): Promise<Array<{ take: string; in: number | null; out: number | null }>> {
+    const clip = await this.clipRow(clipId);
+    const all = await this.placed(clip.timeline_id);
+    const i = all.findIndex((p) => p.clip.id === clipId);
+    const me = all[i]!;
+    const edge = (p: Placed | undefined, side: "end" | "start") => {
+      if (!p) return null;
+      if (p.clip.kind === "still") return p.still ? { asset: p.still, atMs: 0, key: `still:${p.still.id}` } : null;
+      if (!p.active) return null;
+      const { start, end } = plays(p.active);
+      return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}` };
+    };
+    const prev = edge(all[i - 1], "end");
+    const next = edge(all[i + 1], "start");
+    if (!prev && !next) return me.takes.map((t) => ({ take: t.take.id, in: null, out: null }));
+    const bytes = new Map<string, Uint8Array>();
+    const load = async (a: AssetRow) => {
+      const have = bytes.get(a.id);
+      if (have) return have;
+      const got = await this.storage.get(a.file_key);
+      bytes.set(a.id, got);
+      return got;
+    };
+    const out: Array<{ take: string; in: number | null; out: number | null }> = [];
+    for (const t of me.takes) {
+      const { start, end } = plays(t);
+      const key = `${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}`;
+      let score = this.joinScores.get(key);
+      if (!score) {
+        const fps = t.asset.fps ?? 24;
+        score = {
+          in: prev ? await joinJump({ bytes: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }) : null,
+          out: next ? await joinJump({ bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { bytes: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }) : null,
+        };
+        this.joinScores.set(key, score);
+      }
+      out.push({ take: t.take.id, ...score });
+    }
+    return out;
   }
 
   /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */

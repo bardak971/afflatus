@@ -675,6 +675,18 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(y.clips[1].joined).toBe("cut");
   });
 
+  it("scores how smoothly each take meets the clips around it", async () => {
+    const { tl, a, b } = await twoRendered();
+    const first = (await get(t.app, `/api/clips/${a}/joins`)).json().items as Array<{ take: string; in: number | null; out: number | null }>;
+    expect(first).toHaveLength(1);
+    expect(first[0]!.in).toBeNull();
+    expect(typeof first[0]!.out).toBe("number");
+    const second = (await get(t.app, `/api/clips/${b}/joins`)).json().items as Array<{ take: string; in: number | null; out: number | null }>;
+    expect(typeof second[0]!.in).toBe("number");
+    expect(second[0]!.out).toBeNull();
+    expect((await view(tl)).clips).toHaveLength(2);
+  });
+
   it("copies a range to the library: one video of that part, through the export queue", async () => {
     const { tl } = await twoRendered();
     const { job } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "copy" });

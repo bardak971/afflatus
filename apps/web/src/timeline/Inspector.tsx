@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ChevronDown, ImagePlus, Link2, Music, Repeat, Scissors, Trash2, Wand2, X } from "lucide-react";
 import { secondsInput } from "@afflatus/core";
-import { thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
+import { api, thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
 import { WritingHelp } from "../Designer";
 import { appendTo } from "../promptText";
@@ -161,6 +162,16 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     ? `This ${still ? "still" : "clip"} is ${shapes[shapeOf(shown.width, shown.height)]}, the video is ${shapes[shapeOf(timeline.width, timeline.height)]}.`
     : null;
   const hasOwn = Boolean(take?.asset.hasSound);
+  // how smoothly each take meets the clips around: worked out once there is a choice to make
+  const joins = useQuery({
+    queryKey: ["joins", clip.id, clip.takes.map((t) => `${t.id}:${t.startMs}:${t.endMs}`).join(","), before?.take?.id ?? before?.still?.id ?? "-", after?.take?.id ?? after?.still?.id ?? "-"],
+    queryFn: () => api.joins(clip.id),
+    enabled: clip.takes.length > 1 && Boolean(before || after),
+    staleTime: Infinity,
+  });
+  const joinOf = (takeId: string) => joins.data?.items.find((j) => j.take === takeId);
+  const worst = (j: { in: number | null; out: number | null } | undefined) => Math.max(j?.in ?? 0, j?.out ?? 0);
+  const smoothest = joins.data && clip.takes.length > 1 ? clip.takes.reduce<string | null>((best, t) => (best === null || worst(joinOf(t.id)) < worst(joinOf(best)) ? t.id : best), null) : null;
   const heard = clip.sound === "file" ? "file" : clip.sound === "muted" && hasOwn ? "muted" : "own";
 
   return (
@@ -258,6 +269,18 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                     >
                       <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
                       <span className={cx("text-[11px]", on ? "font-semibold text-accent" : "text-ink-2")}>{on ? "plays" : `take ${i + 1}`}</span>
+                      {(() => {
+                        const j = joinOf(t.id);
+                        if (!j || (j.in === null && j.out === null)) return null;
+                        const bad = (v: number | null) => v !== null && v >= 2.5;
+                        return (
+                          <span className="flex items-center gap-1 font-mono text-[10px] leading-none" title="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
+                            {j.in !== null && <span className={bad(j.in) ? "text-warn-ink" : "text-ink-3"}>in ×{j.in}</span>}
+                            {j.out !== null && <span className={bad(j.out) ? "text-warn-ink" : "text-ink-3"}>out ×{j.out}</span>}
+                            {smoothest === t.id && <span className="text-good">●</span>}
+                          </span>
+                        );
+                      })()}
                     </button>
                     <button type="button" aria-label={`Remove take ${i + 1}`} title="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/80 text-ink-2 hover:text-ink">
                       <X size={11} />
@@ -266,7 +289,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 );
               })}
             </div>
-            <span className="text-xs text-ink-3">{clip.takes.length > 1 ? "Hover a take to preview it, click to make it play." : "Each render adds a take. The one you pick plays."}</span>
+            <span className="text-xs text-ink-3">{clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion); the green dot marks the smoothest." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take. The one you pick plays."}</span>
           </div>
         )}
 

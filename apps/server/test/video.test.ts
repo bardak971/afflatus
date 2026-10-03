@@ -137,13 +137,17 @@ describe.skipIf(!clip)("a range of a video", () => {
 
   it("has its motion measured once: ten samples a second, kept for the next time", async () => {
     const video = await render(clip!);
-    const first = (await get(t.app, `/api/assets/${video.id}/motion`)).json() as { rate: number; values: number[] };
+    const first = (await get(t.app, `/api/assets/${video.id}/motion`)).json() as { rate: number; values: number[]; sound: number[] | null };
     expect(first.rate).toBe(10);
     // ten a second over the clip's length, none negative
     const expected = Math.round((video.durationMs ?? 0) / 100);
     expect(first.values.length).toBeGreaterThanOrEqual(expected - 3);
     expect(first.values.length).toBeLessThanOrEqual(expected + 2);
     expect(first.values.every((v) => v >= 0)).toBe(true);
+    // and its loudness, in dB, as many samples (the clip has a tone)
+    expect(first.sound).not.toBeNull();
+    expect(Math.abs(first.sound!.length - first.values.length)).toBeLessThanOrEqual(2);
+    expect(first.sound!.every((v) => v <= 0 && v >= -90)).toBe(true);
     const again = (await get(t.app, `/api/assets/${video.id}/motion`)).json();
     expect(again).toEqual(first);
   });

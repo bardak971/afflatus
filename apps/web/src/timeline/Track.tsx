@@ -29,6 +29,24 @@ export interface TimeRange {
   outMs: number;
 }
 
+/** How loud a sound is along a stretch of it, drawn behind the words of its row: -60 dB is the floor, 0 the top. */
+function Wave({ sound, rate, fromMs, toMs }: { sound: number[] | null; rate: number; fromMs: number; toMs: number }) {
+  if (!sound || sound.length < 2) return null;
+  const step = 1000 / rate;
+  const a = Math.max(0, Math.floor(fromMs / step));
+  const b = Math.min(sound.length - 1, Math.ceil(toMs / step));
+  const vals = sound.slice(a, b + 1).map((db) => Math.max(0, Math.min(1, (db + 60) / 60)));
+  if (vals.length < 2) return null;
+  const W = 200;
+  const H = 10;
+  const d = `M0 ${H} ${vals.map((v, i) => `L${((i / (vals.length - 1)) * W).toFixed(1)} ${(H - v * H).toFixed(2)}`).join(" ")} L${W} ${H} Z`;
+  return (
+    <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+      <path d={d} fill="currentColor" opacity={0.3} />
+    </svg>
+  );
+}
+
 /** How far apart the ruler's labels are, in seconds: the first step that leaves them room. */
 const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * pps >= 58) ?? 300;
 
@@ -171,36 +189,66 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const sweep = useRef<number | null>(null);
   const grab = useRef<"in" | "out" | null>(null);
   const playEnd = clips.reduce((sum, c) => sum + c.lengthMs, 0);
-  // how much moves along each clip's take, asked for once a range exists and kept
+  // how much moves along each clip's take and how loud it is (and the sound files, and the music): measured once, kept
   const played = useMemo(() => slots.filter((s) => !s.planned && s.clip.take), [slots]);
-  const motions = useQueries({
-    queries: played.map((s) => ({ queryKey: ["motion", s.clip.take!.asset.id], queryFn: () => api.motion(s.clip.take!.asset.id), enabled: Boolean(range), staleTime: Infinity, retry: 0 })),
+  const measured = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of played) ids.add(s.clip.take!.asset.id);
+    for (const c of clips) if (c.sound === "file" && c.soundAsset) ids.add(c.soundAsset.id);
+    if (timeline.music) ids.add(timeline.music.asset.id);
+    return [...ids];
+  }, [played, clips, timeline.music]);
+  const measures = useQueries({
+    queries: measured.map((id) => ({ queryKey: ["motion", id], queryFn: () => api.motion(id), staleTime: Infinity, retry: 0 })),
   });
-  /** The motion of what plays, per clip: samples along the clip's playing part, each 0..1 of the clip's own peak; and its quiet moments, on the clock of what plays. */
+  const measureOf = (id: string | undefined) => (id ? measures[measured.indexOf(id)]?.data : undefined);
+  /** The motion of what plays, per clip: samples along the clip's playing part, each 0..1 of the clip's own peak; its quiet moments and its pauses in the sound, on the clock of what plays. */
   const motion = useMemo(() => {
-    return played.map((s, i) => {
-      const m = motions[i]?.data;
+    return played.map((s) => {
+      const m = measureOf(s.clip.take!.asset.id);
       const take = s.clip.take!;
-      if (!m || !m.values.length) return { slot: s, curve: [] as number[], quiet: [] as number[] };
+      if (!m) return { slot: s, curve: [] as number[], quiet: [] as number[], pauses: [] as number[] };
       const step = 1000 / m.rate;
       const from = Math.floor(take.startMs / step);
-      const to = Math.min(m.values.length - 1, Math.ceil(take.endMs / step));
-      const raw = m.values.slice(from, to + 1);
-      // smoothed over three samples, so that one odd frame is not a dip
-      const smooth = raw.map((_v, k) => ((raw[k - 1] ?? raw[k]!) + raw[k]! + (raw[k + 1] ?? raw[k]!)) / 3);
-      const peak = Math.max(1, ...smooth);
-      const sorted = [...smooth].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
       const quiet: number[] = [];
-      for (let k = 1; k < smooth.length - 1; k++) {
-        if (smooth[k]! <= smooth[k - 1]! && smooth[k]! < smooth[k + 1]! && smooth[k]! < median * 0.8) {
-          const assetMs = (from + k) * step;
-          if (assetMs > take.startMs + 100 && assetMs < take.endMs - 100) quiet.push(s.clip.atMs + (assetMs - take.startMs));
+      let curve: number[] = [];
+      if (m.values.length) {
+        const to = Math.min(m.values.length - 1, Math.ceil(take.endMs / step));
+        const raw = m.values.slice(from, to + 1);
+        // smoothed over three samples, so that one odd frame is not a dip
+        const smooth = raw.map((_v, k) => ((raw[k - 1] ?? raw[k]!) + raw[k]! + (raw[k + 1] ?? raw[k]!)) / 3);
+        const peak = Math.max(1, ...smooth);
+        const sorted = [...smooth].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+        for (let k = 1; k < smooth.length - 1; k++) {
+          if (smooth[k]! <= smooth[k - 1]! && smooth[k]! < smooth[k + 1]! && smooth[k]! < median * 0.8) {
+            const assetMs = (from + k) * step;
+            if (assetMs > take.startMs + 100 && assetMs < take.endMs - 100) quiet.push(s.clip.atMs + (assetMs - take.startMs));
+          }
+        }
+        curve = smooth.map((v) => v / peak);
+      }
+      // pauses: stretches of at least a quarter second well under the loud parts, between sounds (not the clip's silent ends)
+      const pauses: number[] = [];
+      if (m.sound && m.sound.length && s.clip.sound === "own") {
+        const to = Math.min(m.sound.length - 1, Math.ceil(take.endMs / step));
+        const db = m.sound.slice(from, to + 1);
+        const loud = [...db].sort((a, b) => a - b)[Math.floor(db.length * 0.9)] ?? 0;
+        const threshold = Math.min(loud - 20, -25);
+        let run = -1;
+        for (let k = 0; k <= db.length; k++) {
+          const low = k < db.length && db[k]! < threshold;
+          if (low && run < 0) run = k;
+          if (!low && run >= 0) {
+            if (k - run >= 3 && run > 0 && k < db.length) pauses.push(s.clip.atMs + ((from + (run + k) / 2) * step - take.startMs));
+            run = -1;
+          }
         }
       }
-      return { slot: s, curve: smooth.map((v) => v / peak), quiet };
+      return { slot: s, curve, quiet, pauses };
     });
-  }, [played, motions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [played, measures]);
   const snapRange = (ms: number) => {
     const marks = [...slots.filter((s) => !s.planned).flatMap((s) => [s.clip.atMs, s.clip.atMs + s.clip.lengthMs]), time];
     let best = ms;
@@ -212,10 +260,10 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         best = m;
       }
     }
-    // a quiet moment within a third of a second wins over nothing, not over a cut or the playhead at hand
+    // a quiet moment or a pause in the sound within a third of a second wins over nothing, not over a cut or the playhead at hand
     if (snapQuiet !== false && best === ms) {
       let near = 334;
-      for (const q of motion.flatMap((m) => m.quiet)) {
+      for (const q of motion.flatMap((m) => [...m.quiet, ...m.pauses])) {
         const d = Math.abs(q - ms);
         if (d < near) {
           near = d;
@@ -507,8 +555,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                       over?.kind === "sound" && over.clip === c.id && "outline outline-2 outline-accent",
                     )}
                   >
-                    {(c.sound === "muted" || heard === "Silent") && <VolumeX size={10} className="shrink-0" />}
-                    {s.width > 64 && <span className="truncate">{heard}</span>}
+                    {/* how loud it is along the clip: its own sound over the part that plays, or the sound file from its start */}
+                    {c.sound === "own" && video && c.take && <Wave sound={measureOf(video.id)?.sound ?? null} rate={measureOf(video.id)?.rate ?? 10} fromMs={c.take.startMs} toMs={c.take.endMs} />}
+                    {c.sound === "file" && c.soundAsset && <Wave sound={measureOf(c.soundAsset.id)?.sound ?? null} rate={measureOf(c.soundAsset.id)?.rate ?? 10} fromMs={0} toMs={s.lengthMs} />}
+                    {(c.sound === "muted" || heard === "Silent") && <VolumeX size={10} className="relative shrink-0" />}
+                    {s.width > 64 && <span className="relative truncate">{heard}</span>}
                   </button>
                 </div>
               );
@@ -542,15 +593,18 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 (musicSelected || over?.kind === "music") && "outline outline-2 outline-accent",
               )}
             >
-              <Music size={11} className="shrink-0" />
-              <span className="truncate">{timeline.music ? timeline.music.asset.name || "Music" : "Drop an audio file here to play it under the whole video"}</span>
+              {timeline.music && <Wave sound={measureOf(timeline.music.asset.id)?.sound ?? null} rate={measureOf(timeline.music.asset.id)?.rate ?? 10} fromMs={0} toMs={Math.min(totalMs, timeline.music.asset.durationMs || totalMs)} />}
+              <Music size={11} className="relative shrink-0" />
+              <span className="relative truncate">{timeline.music ? timeline.music.asset.name || "Music" : "Drop an audio file here to play it under the whole video"}</span>
             </button>
 
-            {range && motion.map(({ slot: s, curve, quiet }) =>
-              curve.length > 1 ? (
+            {range && motion.map(({ slot: s, curve, quiet, pauses }) =>
+              curve.length > 1 || pauses.length ? (
                 <svg key={s.clip.id} aria-hidden className="pointer-events-none absolute top-0 z-[11] text-accent" style={{ left: s.left, width: s.width, height: RULER }} viewBox={`0 0 ${Math.max(1, s.width)} ${RULER}`} preserveAspectRatio="none">
-                  <path d={`M0 ${RULER} ${curve.map((v, k) => `L${((k / (curve.length - 1)) * s.width).toFixed(1)} ${(RULER - 2 - v * (RULER - 5)).toFixed(1)}`).join(" ")} L${s.width} ${RULER} Z`} fill="currentColor" opacity={0.22} />
+                  {curve.length > 1 && <path d={`M0 ${RULER} ${curve.map((v, k) => `L${((k / (curve.length - 1)) * s.width).toFixed(1)} ${(RULER - 2 - v * (RULER - 5)).toFixed(1)}`).join(" ")} L${s.width} ${RULER} Z`} fill="currentColor" opacity={0.22} />}
                   {snapQuiet !== false && quiet.map((q) => <line key={q} x1={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} x2={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} y1={RULER - 6} y2={RULER - 1} stroke="currentColor" strokeWidth={1.5} opacity={0.7} />)}
+                  {/* pauses in the sound: a tick of the sound's green */}
+                  {snapQuiet !== false && pauses.map((q) => <line key={`p${q}`} x1={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} x2={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} y1={1} y2={7} className="text-good" stroke="currentColor" strokeWidth={1.5} opacity={0.9} />)}
                 </svg>
               ) : null,
             )}

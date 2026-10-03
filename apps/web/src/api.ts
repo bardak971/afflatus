@@ -837,8 +837,10 @@ export const api = {
   frame: (video: string, atMs: number) => call<Asset>("POST", `/assets/${video}/frame`, { atMs }),
   /** A range of a video as new videos, in the queue: copied, split out, or removed. */
   range: (video: string, opts: { startMs: number; endMs: number; action: "copy" | "split" | "remove"; crf?: number }) => call<{ id: string }>("POST", `/assets/${video}/range`, opts),
-  /** How much moves along a video, `rate` samples a second (0 = still): the quiet moments a range snaps to. */
-  motion: (video: string) => call<{ rate: number; values: number[] }>("GET", `/assets/${video}/motion`),
+  /** How much moves along a video and how loud it is, `rate` samples a second (motion 0 = still; sound in dB, about -60 = silence): the curves on the track, the quiet moments and pauses a range snaps to. */
+  motion: (asset: string) => call<{ rate: number; values: number[]; sound: number[] | null }>("GET", `/assets/${asset}/motion`),
+  /** How smoothly each take of a clip meets its neighbours: ×1 = like the clip's own motion, higher = a catch; null where there is no neighbour. */
+  joins: (clip: string) => call<{ items: Array<{ take: string; in: number | null; out: number | null }> }>("GET", `/clips/${clip}/joins`),
 };
 
 export const fileUrl = (id: string) => `/api/assets/${id}/file`;

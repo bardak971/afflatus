@@ -431,22 +431,91 @@ export async function joinVideos(
 export const MOTION_RATE = 10;
 
 /**
- * How much moves along a video: ten samples a second, each the mean difference between a frame and the
- * one before, on a small grey copy (0 = still, 255 = everything changed). For snapping to quiet moments.
+ * How much moves along a video, and how loud it is: ten samples a second each. Motion is the mean
+ * difference between a frame and the one before, on a small grey copy (0 = still, 255 = everything
+ * changed); loudness is the RMS level in dB of each tenth of a second (about -60 is silence, 0 is as
+ * loud as it gets), null when there is no sound. For the curves under the ruler and the quiet moments
+ * In and Out snap to. A sound file gives loudness only.
  */
-export async function motionOf(source: Uint8Array, ext: string): Promise<number[]> {
+export async function measureOf(source: Uint8Array, ext: string): Promise<{ motion: number[]; sound: number[] | null }> {
   return inTemp(async (dir) => {
     const input = join(dir, `in.${ext}`);
     await writeFile(input, source);
-    const said = await must(tools.ffmpeg, [
-      "-loglevel", "error", "-i", input, "-an",
-      "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`,
-      "-f", "null", "-",
-    ], { timeout: 10 * 60_000 });
-    const values = [...said.matchAll(/lavfi\.signalstats\.YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
-    // the first sample is a frame against nothing
-    if (values.length) values[0] = values[1] ?? 0;
-    return values;
+    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]).catch(() => "");
+    let motion: number[] = [];
+    if (/video/.test(streams)) {
+      const said = await must(tools.ffmpeg, [
+        "-loglevel", "error", "-i", input, "-an",
+        "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`,
+        "-f", "null", "-",
+      ], { timeout: 10 * 60_000 });
+      motion = [...said.matchAll(/lavfi\.signalstats\.YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
+      // the first sample is a frame against nothing
+      if (motion.length) motion[0] = motion[1] ?? 0;
+    }
+    let sound: number[] | null = null;
+    if (/audio/.test(streams)) {
+      const said = await must(tools.ffmpeg, [
+        "-loglevel", "error", "-i", input, "-vn",
+        "-af", `aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
+        "-f", "null", "-",
+      ], { timeout: 10 * 60_000 }).catch(() => "");
+      const levels = [...said.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf|inf|nan)/g)].map((m) => Number(m[1]));
+      sound = levels.map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90));
+      if (!sound.length) sound = null;
+    }
+    return { motion, sound };
+  });
+}
+
+/** Kept for the tests and callers that only want the motion. */
+export async function motionOf(source: Uint8Array, ext: string): Promise<number[]> {
+  return (await measureOf(source, ext)).motion;
+}
+
+/** ffmpeg's bytes, for a raw frame. */
+function rawOut(tool: string, args: string[]): Promise<Buffer> {
+  return new Promise((done, fail) => {
+    execFile(tool, args, { encoding: "buffer", timeout: 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout) => (err ? fail(err) : done(stdout as Buffer)));
+  });
+}
+
+/** One frame of a video (or a picture) as 96 × 54 grey pixels, to compare with another. */
+async function grayAt(file: string, atMs: number): Promise<Uint8Array | null> {
+  const out = await rawOut(tools.ffmpeg, ["-loglevel", "error", "-ss", (Math.max(0, atMs) / 1000).toFixed(3), "-i", file, "-frames:v", "1", "-vf", "scale=96:54,format=gray", "-f", "rawvideo", "-"]).catch(() => null);
+  return out && out.length >= 96 * 54 ? new Uint8Array(out.subarray(0, 96 * 54)) : null;
+}
+
+const meanDiff = (a: Uint8Array, b: Uint8Array) => {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - b[i]!);
+  return sum / a.length;
+};
+
+/**
+ * How much the picture jumps across a join: the difference between the last frame of one side and the
+ * first frame of the other, against the difference between neighbouring frames just after the join
+ * (×1 = the join moves like the clip itself, ×3 = a visible catch). null when a frame cannot be read.
+ */
+export async function joinJump(a: { bytes: Uint8Array; ext: string; atMs: number }, b: { bytes: Uint8Array; ext: string; atMs: number; fps: number }): Promise<number | null> {
+  return inTemp(async (dir) => {
+    const fa = join(dir, `a.${a.ext}`);
+    const fb = join(dir, `b.${b.ext}`);
+    await writeFile(fa, a.bytes);
+    await writeFile(fb, b.bytes);
+    // the last frame a length promises is not always there: a little earlier then
+    const last = (await grayAt(fa, a.atMs)) ?? (await grayAt(fa, a.atMs - 100)) ?? (await grayAt(fa, a.atMs - 250));
+    const first = (await grayAt(fb, b.atMs)) ?? (await grayAt(fb, b.atMs + 40));
+    if (!last || !first) return null;
+    const step = 1000 / Math.max(1, b.fps);
+    const own: number[] = [];
+    for (let k = 0; k < 3; k++) {
+      const x = await grayAt(fb, b.atMs + k * step);
+      const y = await grayAt(fb, b.atMs + (k + 1) * step);
+      if (x && y) own.push(meanDiff(x, y));
+    }
+    const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
+    return Math.round(Math.min(20, meanDiff(last, first) / typical) * 10) / 10;
   });
 }
 

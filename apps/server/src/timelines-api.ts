@@ -227,6 +227,9 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return reply.header("Content-Type", "image/jpeg").header("Cache-Control", "private, max-age=31536000, immutable").send(Buffer.from(await t.strip(req.params.id, { frames: q.frames, height: q.height, fromMs: q.from, toMs: q.to })));
   });
 
+  /** How smoothly each take of a clip meets its neighbours (×1 = like the clip's own motion): for picking among takes. */
+  app.get<{ Params: { id: string } }>("/api/clips/:id/joins", async (req) => ({ items: await t.joins(req.params.id) }));
+
   /** How much moves along a video, ten samples a second: the curve under the ruler, and the quiet moments In and Out snap to. */
   app.get<{ Params: { id: string } }>("/api/assets/:id/motion", async (req, reply) => {
     return reply.header("Cache-Control", "private, max-age=31536000, immutable").send(await t.motion(req.params.id));
