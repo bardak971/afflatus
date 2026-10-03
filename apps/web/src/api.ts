@@ -763,10 +763,11 @@ export const api = {
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string }) => {
+  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }) => {
     const q = new URLSearchParams({ limit: "40" });
-    // within the project the app looks at, unless a folder, the bin or a draft says where to look
-    if (!opts.folder && !opts.bin && !opts.draft && projectParam()) q.set("project", projectParam()!);
+    // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
+    if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
+    if (opts.since) q.set("since", opts.since);
     if (opts.kind) q.set("kind", opts.kind);
     if (opts.bin) q.set("bin", "1");
     if (opts.folder) q.set("folder", opts.folder);

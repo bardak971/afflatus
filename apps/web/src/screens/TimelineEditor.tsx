@@ -637,6 +637,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         <div className="flex min-w-0 grow flex-col">
         <div className="flex min-h-0 grow">
         <Shelf
+          timeline={shown}
           selected={Boolean(current)}
           onAdd={(a) => {
             if (a.kind !== "audio") return add.mutate({ asset: a.id });

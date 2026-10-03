@@ -431,6 +431,8 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     lora: z.string().max(500).optional(),
     /** Only what this draft made. */
     draft: z.string().max(64).optional(),
+    /** Only what was made since this moment (ISO). */
+    since: z.string().max(40).optional(),
   });
 
   /** The model files and the LoRAs a generation was made with. */
@@ -465,6 +467,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       query = own.length ? query.where("folder_id", "in", own) : query.where("folder_id", "=", "-");
     }
     if (q.kept) query = query.where("kept_at", "is not", null);
+    if (q.since) query = query.where("created_at", ">=", q.since);
     if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
     if (q.draft) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("draft_id", "=", q.draft));
     if (q.q?.trim() || q.model || q.lora) {

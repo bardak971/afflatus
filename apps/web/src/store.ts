@@ -68,6 +68,12 @@ persist((set) => ({ on: false, set: (on) => set({ on }) }), { name: "afflatus.ex
 
 /** How wide the side panel that holds a form is, in pixels: dragged by its edge, remembered. */
 export const PANEL = { least: 380, most: 720, usual: 440 };
+/** The timeline's media shelf: how wide, and whether it is folded to a rail. */
+export const SHELF = { least: 160, usual: 224, most: 560 };
+export const useShelfWidth = create<{ width: number; collapsed: boolean; set(width: number): void; fold(collapsed: boolean): void }>()(
+  persist((set) => ({ width: SHELF.usual, collapsed: false, set: (width) => set({ width: Math.max(SHELF.least, Math.min(SHELF.most, Math.round(width))) }), fold: (collapsed) => set({ collapsed }) }), { name: "afflatus.shelf" }),
+);
+
 export const usePanelWidth = create<{ width: number; set(width: number): void }>()(
   persist((set) => ({ width: PANEL.usual, set: (width) => set({ width: Math.max(PANEL.least, Math.min(PANEL.most, Math.round(width))) }) }), { name: "afflatus.panel-width" }),
 );
