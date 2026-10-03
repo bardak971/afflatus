@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Scissors, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { Trim, type Range } from "./Trim";
+import { RangeFrames, Trim, type Range } from "./Trim";
 import { isShown, secondsInput, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
 import { askAboutDisk } from "./Confirm";
 import { api, fileUrl, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo, type Look } from "./api";
@@ -110,31 +110,6 @@ function OpenInComfy({ asset }: { asset: Asset }) {
           Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: open the Workflows sidebar there (key W) and pick it under "afflatus".{opened.restart ? " Restart ComfyUI once: from then on it opens straight away." : ""}
         </span>
       )}
-    </div>
-  );
-}
-
-/** The frames at in and at out, large enough to judge, beside the video while trimming. Asked for once the handles settle. */
-function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
-  const [shown, setShown] = useState(range);
-  useEffect(() => {
-    const t = setTimeout(() => setShown(range), 220);
-    return () => clearTimeout(t);
-  }, [range]);
-  const stamp = (ms: number) => {
-    const s = Math.max(0, ms) / 1000;
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}.${String(Math.floor((s % 1) * 100)).padStart(2, "0")}`;
-  };
-  return (
-    <div className="flex h-full min-h-0 w-[22%] max-w-[260px] min-w-[120px] shrink-0 flex-col justify-center gap-2" onClick={(e) => e.stopPropagation()}>
-      {[{ label: "In", at: shown.startMs }, { label: "Out", at: shown.endMs }].map((f) => (
-        <div key={f.label} className="flex min-h-0 flex-1 flex-col gap-1">
-          <span className="text-[11px] font-semibold text-ink-2">{f.label} <span className="font-mono font-normal">{stamp(f.at)}</span></span>
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-line bg-raised">
-            <img src={`/api/assets/${asset.id}/peek?at=${Math.round(f.at)}&h=480`} alt="" className="max-h-full max-w-full object-contain" />
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

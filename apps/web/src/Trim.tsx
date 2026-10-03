@@ -35,6 +35,31 @@ const stamp = (ms: number) => {
 /** The most frames a strip holds: past that, one tile stands for several frames. */
 const STRIP_FRAMES = 120;
 
+/** The frames at in and at out, large enough to judge, beside the video while trimming. Asked for once the handles settle. */
+export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
+  const [shown, setShown] = useState(range);
+  useEffect(() => {
+    const t = setTimeout(() => setShown(range), 220);
+    return () => clearTimeout(t);
+  }, [range]);
+  const stamp = (ms: number) => {
+    const s = Math.max(0, ms) / 1000;
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}.${String(Math.floor((s % 1) * 100)).padStart(2, "0")}`;
+  };
+  return (
+    <div className="flex h-full min-h-0 w-[22%] max-w-[260px] min-w-[120px] shrink-0 flex-col justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+      {[{ label: "In", at: shown.startMs }, { label: "Out", at: shown.endMs }].map((f) => (
+        <div key={f.label} className="flex min-h-0 flex-1 flex-col gap-1">
+          <span className="text-[11px] font-semibold text-ink-2">{f.label} <span className="font-mono font-normal">{stamp(f.at)}</span></span>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-line bg-raised">
+            <img src={`/api/assets/${asset.id}/peek?at=${Math.round(f.at)}&h=480`} alt="" className="max-h-full max-w-full object-contain" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * The Trim mode of a video: a filmstrip of the whole video with the playhead and an in and an out handle,
  * a second strip of the part zoomed into (down to one tile per frame), a picture of the exact frame
