@@ -74,16 +74,20 @@ export const ltx = defineFamily({
     ...SEEDVR_SLOTS,
   ],
   loraMatch: ["ltx"],
-  guide: `LTX 2.3 makes the picture AND the sound (voices, effects, ambience) together.
-A GOOD LTX PROMPT
-- ONE flowing paragraph of natural sentences in the present tense, not tags and not a list. It reads like a shot being described as it plays, in the order things happen.
-- Start with the shot: the framing and the camera ("A medium close-up, the camera slowly pushing in"), then who and where, then the action beat by beat with timing words ("at first", "then", "as she…").
-- People: what they look like and wear, what their body and face do, where they look.
-- Speech: write the exact words in quotes, with who says them and how ("She says quietly, in English: "What a view.""). Keep the user's words as they wrote them, never translate.
-- Sound: say what is heard (footsteps on gravel, wind, a door closing, the room's ambience, music if there is any). What is not written is not reliably there.
-- The light and the look: time of day, colour, lens, film or video look.
-- When the clip opens on a picture, do not describe again what the picture already shows: describe what happens from there.
-More detail does not mean more actions: a few actions, described precisely.`,
+  guide: `LTX 2.3 makes the picture AND the sound together, and reads the prompt literally: what is written happens, in that order. ONE flowing paragraph in the present tense, chronological, 60 to 200 words, about a sentence per second of clip; no headers, lists or tags.
+RULES
+- Start with the main action, as a cinematographer describing a shot as it plays.
+- In order: shot size, camera move and where it ends; setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
+- The audio sentence is mandatory: "The audio is …" with ambience, effects and any music; "no music" said plainly when wanted. What is not written is not reliably heard.
+- Speech in quotation marks inside the paragraph, with who says it and how ("She says quietly, in English: "What a view.""); the voice described physically (low and resonant, a whisper, an accent). One speaker at a time. The user's words stay as written, never translated.
+- A talking face needs small motion between phrases (an eyebrow lifts, the eyes move) or it freezes. Camera still or slow while someone speaks.
+- Say the layout outright: left and right, foreground and background, who faces where.
+- Physical cues instead of feelings: "her jaw tightens", not "she is angry".
+- One or two actions per clip; no readable text or logos, no crowds, no many-body physics.
+- A first-frame picture: write only what moves and how the camera moves, never the picture again.
+- The "Negative prompt" part only acts above CFG 1 (the distilled models run at 1): leave it alone unless asked. No weights, no quality words.
+EXAMPLE, for the form only (its subject, place and words are not to be reused):
+A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera pushing in slowly and settling on his face as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`,
 });
 
 export const LTX_FPS = 25;

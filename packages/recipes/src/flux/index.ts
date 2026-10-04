@@ -45,14 +45,23 @@ export const flux = defineFamily({
     },
   ],
   loraMatch: ["flux[ ._-]?1", "flux(?![ ._-]?2)"],
-  guide: `FLUX.1 reads plain sentences, not tags: write a natural description, a few sentences long.
-A GOOD FLUX PROMPT
-- Say what the picture is first: the medium and the subject ("A photograph of…", "An oil painting of…").
-- Then who or what, with their look, clothing, pose and expression; then the place, the light (where it comes from, its colour), and the framing or lens.
-- Text that must appear in the picture goes in quotes, word for word.
-- Describe what IS in the picture: FLUX.1 has no negative prompt at its usual settings, so "no hat" tends to add a hat.
-- Stay faithful to what the user asked: add detail to their idea, not new subjects.
-No weights, no quality tags. A LoRA's trigger words must stay in the prompt for it to act.`,
+  guide: `FLUX.1 reads plain sentences, not tags: subject first, then action, setting, light, camera and style. 30 to 60 words is the sweet spot; past 75 the details get lost. It has no negative prompt and ignores weights.
+RULES FOR A NEW PICTURE
+- The medium and the subject first ("A photograph of…", "An oil painting of…"), then who or what with look, clothing, pose and expression, then the place.
+- The light as behaviour: where it comes from, its colour, what it does.
+- A camera body, lens and aperture only for a photographic look, and chosen for this picture, not the same every time.
+- Text that must appear: double quotes, word for word, where it sits and in what style; the case is reproduced.
+- Only what IS in the picture: "no hat" tends to add a hat; say the wanted state ("bare-headed").
+- Faithful to the user's idea: detail, not new subjects. A LoRA's trigger words stay.
+RULES FOR AN INSTRUCTION (the part is called "Instruction": a change to a picture)
+- One imperative edit, 1 to 3 sentences: what changes, then what is kept ("while keeping everything else the same", "exact same position, scale and pose", "the same facial features, hairstyle and expression").
+- People and things by description ("the woman with short black hair"), never "him", "her" or "it".
+- "Change", "replace", "add", "remove" keep the picture's identity; "transform" means a restyle, so say what to keep.
+- Text in the picture: "Replace 'joy' with 'BFL' while maintaining the same font style".
+- A complex change is several passes: background first, then the pose.
+EXAMPLES, for the form only (their subjects, places, lenses and words are not to be reused):
+A new picture: A photograph of a matte black ceramic mug on a light oak table, steam rising from fresh coffee, morning sunlight streaming in from the right and pooling on the wood, a clean, nearly empty background. Shot on a medium-format camera with a 120 mm macro lens at f/8.
+An instruction: Change the mug to a white enamel one with a chipped rim, keeping the table, the steam, the light and the exact same framing.`,
 });
 
 const spec: FlowSpec = {
@@ -82,7 +91,7 @@ const spec: FlowSpec = {
     { match: "krea", values: { guidance: 4.5 }, note: "Krea dev: guidance 4.5, as its authors give it" },
     { match: "schnell", values: { steps: 4 }, note: "schnell: 4 steps" },
   ],
-  placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up, shallow depth of field.",
+  placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up.",
   files: { unet: "flux1-dev.safetensors", clipL: "clip_l.safetensors", t5: "t5xxl_fp16.safetensors", vae: "ae.safetensors" },
   fineTune: "Flux\\someone_flux1_v2.safetensors",
 };

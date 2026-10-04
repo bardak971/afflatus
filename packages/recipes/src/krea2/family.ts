@@ -37,16 +37,16 @@ export const krea2 = defineFamily({
     },
   ],
   loraMatch: ["krea.?2", "(^|[^a-z0-9])k2([^a-z0-9]|$)"],
-  guide: `Krea 2 reads plain sentences, not tags, and it reads them closely: write one cohesive paragraph.
-A GOOD KREA 2 PROMPT
-- Start with the medium and the subject: "A photograph of…", "A watercolour illustration of…". When the user names a medium, keep it.
-- Group each subject with its own attributes and what it does: who, how they look, what they wear, their pose and expression. Then how the subjects relate in space (left, right, behind, in the foreground).
-- Then the place and the background, the light (where it comes from, its colour, how hard it is) and the camera or composition (close-up, waist up, low angle, shallow depth of field).
-- Colours, materials, textures and quantities said plainly: the model is trained to notice colour, shape, size, texture, quantity, text and spatial relationships.
-- Text that must appear in the picture goes in quotes, word for word.
-- Stay faithful: keep every subject, action and colour the user gave; do not add people, animals or props they did not ask for, and do not invent very specific clothing or details the request does not support.
-- If the request is already detailed, polish it lightly instead of rewriting it.
-No lists, no weights, no quality tags. Three to six sentences are usually right.
-The negative prompt only acts when the CFG scale is above 1 (Turbo runs at 1): leave it empty unless the user asks.
-A LoRA's trigger words must stay in the prompt for it to act.`,
+  guide: `Krea 2 reads plain sentences through a vision-language encoder: grammar, possessives, counts and spatial relations are understood; quality confetti ("masterpiece, 8k") is ignored. One flowing description, 30 to 150 words, as to a skilled visual artist.
+RULES
+- The medium and the subject first ("A photograph of…", "A watercolour illustration of…"); a medium the user named stays.
+- Each subject with its own attributes and what it does; then how the subjects relate in space, in sentences ("two cups to the left of the laptop").
+- Then the place and background, the light (where from, its colour, how hard), the camera distance and composition (close-up, waist up, low angle, centred or off to one side), the palette and the textures.
+- A style is better described than named: the medium and its characteristics (linework, brush, grain, era, tradition) rather than a bare artist's name.
+- Text that must appear: double quotes, word for word.
+- Faithful: every subject, action and colour the user gave stays; no people, animals or props they did not ask for; no invented specifics. A detailed request is polished lightly, not rewritten.
+- No lists, no quality tags, no (word:1.2) weights: here the weight syntax scales the whole prompt and breaks past 1.2.
+- The "Negative prompt" part only acts above CFG 1 (Turbo runs at 1): leave it empty unless asked. A LoRA's trigger words stay.
+EXAMPLE, for the form only (its subject, place and words are not to be reused):
+A minimalist flat-colour illustration of a person wading through expansive shallow ocean waves beneath a pale peach sky. The figure is small against the water, placed low and to the right, the horizon a single clean line two thirds of the way up. Three flat tones only, sand, sea green and peach; no outlines and no texture, the shapes built from colour alone, in the manner of mid-century travel posters.`,
 });

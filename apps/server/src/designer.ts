@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { hasWildcards, secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@afflatus/core";
+import { hasWildcards, modelOf, secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@afflatus/core";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
 import { madeIn, type Step } from "./provenance";
@@ -113,6 +113,16 @@ const GENERIC: Record<"tags" | "sentences", string> = {
   sentences: `A GOOD PROMPT is plain sentences, present tense, concrete nouns: who and what they do, what they wear, the place with a few concrete details, the light, the camera (framing, angle, one move for a video). One moment for a picture; for a video, the motion over time ("at first", "then", "as she…"). No tag lists, no weights.`,
 };
 
+/** A family's prompting guide as the designer is handed it: the built-in text, or the generic one for a family that has none. */
+export const builtInGuide = (family: Family): string => family.guide ?? GENERIC[family.promptStyle === "tags" ? "tags" : "sentences"];
+
+/** The family with the guide in use: the user's own from Settings when one is written, else the built-in. */
+export function guidedFamily(family: Family | undefined, settings: { designerGuides: Record<string, string> }): Family | undefined {
+  if (!family) return undefined;
+  const own = settings.designerGuides[family.id]?.trim();
+  return own ? { ...family, guide: own } : family;
+}
+
 /** The text boxes of a recipe: what the designer may write in. */
 const boxesOf = (recipe: Recipe<any>) => (recipe.inputs as InputSpec[]).filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt");
 
@@ -145,6 +155,8 @@ export interface DesignerContext {
   snippets?: Array<{ name: string; text: string }>;
   /** The model makes the sound too: people can speak in the clip. */
   speaks?: boolean;
+  /** The model file picked in the form, by name, when the form has a model picker: a guide can speak by lineage. */
+  model?: string | null;
   /** Whether the picture is given to the language model with the request. */
   seesPicture?: boolean;
 }
@@ -177,7 +189,11 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
           .map((m) => `${m.what} was made here, in ${m.steps.length === 1 ? "one step" : `${m.steps.length} steps, the oldest first`}:\n${m.steps
             .map((x, i) => `${i + 1}. ${x.title}${x.with ? ` with ${x.with}` : ""}${x.text ? `: ${x.text.slice(0, 1500)}` : " (no text of its own: it worked on the picture as it was)"}${x.more.map((m) => `\n   ${m.label}: ${m.text.slice(0, 500)}`).join("")}${x.loras.length ? `\n   LoRAs on it: ${x.loras.map((l) => `${l.name}${l.trigger ? ` (its words: ${l.trigger})` : ""}`).join("; ")}` : ""}`)
             .join("\n")}`)
-          .join("\n\n")}\nThose texts say what it shows and, for a clip, what has already happened and been said: the people and how they look, what they wear, the place, the light; a later step that changes something wins over an earlier one. Take those from them, in your own words and in the way THIS model's prompts are written; do not copy their tags or quality words, and do not add what they do not say. A LoRA named there shaped how it looks and is NOT in use now: where its look matters, say that look in plain words, never its trigger words.`
+          .join("\n\n")}\nThose texts say what it shows and, for a clip, what has already happened and been said: the people and how they look, what they wear, the place, the light; a later step that changes something wins over an earlier one. ${
+            video && ctx.opensOnPicture
+              ? "THE PICTURE IS THE FIRST FRAME, so all of that is already on screen: do NOT write it again. Not the place, not the light, not the lens or the depth of field, not the clothes. Use those texts only to know who is there and where, keep the people the same with at most one short clause, and write what MOVES from there: the action, the expression, the camera, the sound."
+              : "Take those from them, in your own words and in the way THIS model's prompts are written; do not copy their tags or quality words, and do not add what they do not say."
+          } A LoRA named there shaped how it looks and is NOT in use now: where its look matters, say that look in plain words, never its trigger words.`
       : "",
     ctx.opensOnPicture && !ctx.seesPicture && !ctx.madeFrom?.length ? "You cannot see that picture. Never invent a place, props, light, weather, clothing or other people for it: say nothing about the setting and describe only the motion, the expression, the sound and the camera, unless the user says what the picture shows." : "",
     ctx.opensOnPicture && !ctx.seesPicture && ctx.madeFrom?.length ? "You cannot see the picture itself: what you know of it is the prompt it was made from. Do not invent what that prompt does not say." : "",
@@ -187,6 +203,7 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
     ctx.snippets?.length ? `These bits of text are added after the main text on their own when it is made: do not repeat or contradict them.\n${ctx.snippets.map((x) => `- ${x.name}: ${x.text.slice(0, 400)}`).join("\n")}` : "",
     Object.values(ctx.values).some(hasWildcards) ? "Choices in braces like {red|black|white} are the user's: one is picked for each picture. Keep them exactly as written, braces and bars included, unless asked to change them." : "",
     ctx.loras?.length ? `LoRAs in use: ${ctx.loras.map((l) => `${l.name} at ${l.weight}${l.trigger ? ` (its trigger words: ${l.trigger})` : ""}`).join("; ")}. A LoRA's trigger words must stay in the text for it to act: never remove them.` : "",
+    ctx.model ? `The model file in use: ${ctx.model}.` : "",
   ].filter(Boolean).join("\n\n");
 
   const task =
@@ -201,6 +218,8 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
   return `You are the prompt designer of Afflatus, working on "${recipe.title}"${family ? ` for ${family.name}` : ""}, which makes ${recipe.output === "image" ? "a picture" : recipe.output === "video" ? "a video" : "a sound"}. You shape the prompt with the user in a conversation: your notes are brief, your prompts rich and precise. The user's explicit wishes (length, detail, tone, content) win over every guideline here.
 ${own.trim() ? `\nTHE USER'S STANDING INSTRUCTIONS FOR YOU (they hold for the whole conversation and win over the guidelines below; the reply format at the end still holds):\n${own.trim()}\n` : ""}
 ${guide}
+
+The guide's examples show the FORM, not words to reuse: never carry a lens, an aperture, a depth of field, a light, a place, a garment or a mood from an example into a prompt the user's idea does not call for. Technical camera words (focal length, aperture, "shallow depth of field", "bokeh") belong only where a photographic look is asked for or the subject plainly needs them, and even then vary them: a pet phrase that returns in every prompt is a fault. Each prompt is written for its own picture.
 
 THE PARTS YOU WRITE
 ${parts}
@@ -482,6 +501,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
       snippets: ticked.map((r) => ({ name: r.name, text: String((JSON.parse(r.def) as { text?: string }).text ?? "") })).filter((x) => x.text.trim()),
       speaks: Boolean(recipe.traits?.sound),
       seesPicture: sees,
+      model: modelOf(specs, values),
     };
   }
 
@@ -497,7 +517,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     const own = b.instruction === undefined ? instructionsInUse(settings) : settings.designerInstructions.find((i) => i.id === b.instruction)?.text.trim() ?? "";
     const picture = llm?.vision ? await pictureOf(recipe, b.values) : null;
     const ctx = await context(recipe, b.values, b, Boolean(picture));
-    const system = systemPrompt(recipe, s.registry.family(recipe.family), b.mode, ctx, undefined, own);
+    const system = systemPrompt(recipe, guidedFamily(s.registry.family(recipe.family), settings), b.mode, ctx, undefined, own);
     const history: Message[] = b.messages.map((m) => ({ role: m.role, content: m.content }));
     // the picture rides with the last thing the user said
     if (picture) history[history.length - 1] = { role: "user", content: [{ type: "text", text: b.messages.at(-1)!.content }, { type: "image_url", image_url: { url: picture } }] };
@@ -544,6 +564,27 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
    * (and how many steps back it goes), and whether it knows the clip the form carries on from. The panel
    * says so, and offers ways to start that use it.
    */
+  /** Every family's prompting guide: the built-in text, and the user's own when one is written in Settings. */
+  app.get("/api/designer/guides", async () => {
+    const settings = await readSettings(s.db);
+    return {
+      items: s.registry.families().map((f) => ({ id: f.id, name: f.name, style: f.promptStyle, guide: builtInGuide(f), own: settings.designerGuides[f.id] ?? "" })),
+    };
+  });
+
+  /** The system prompt the designer would be given for this form, word for word: what it knows, and what it does not. */
+  app.post("/api/designer/system", async (req) => {
+    const b = body.omit({ messages: true }).parse(req.body);
+    const recipe = recipeOf(b.recipe);
+    if (!boxesOf(recipe).length) throw new DesignerError("This model has no text to write.");
+    const settings = await readSettings(s.db);
+    const llm = settings.llms.find((l) => l.id === b.llm) ?? llmInUse(settings);
+    const own = b.instruction === undefined ? instructionsInUse(settings) : settings.designerInstructions.find((i) => i.id === b.instruction)?.text.trim() ?? "";
+    const sees = Boolean(llm?.vision) && (await pictureOf(recipe, b.values)) !== null;
+    const ctx = await context(recipe, b.values, b, sees);
+    return { system: systemPrompt(recipe, guidedFamily(s.registry.family(recipe.family), settings), b.mode, ctx, undefined, own), sees };
+  });
+
   app.post("/api/designer/knows", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1), values: z.record(z.string(), z.unknown()).default({}) }).parse(req.body);
     const recipe = recipeOf(b.recipe);
@@ -565,7 +606,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     const llm = llmInUse(settings);
     const picture = llm?.vision ? await pictureOf(recipe, b.values) : null;
     const ctx = await context(recipe, b.values, b, Boolean(picture));
-    const system = systemPrompt(recipe, s.registry.family(recipe.family), "plan", ctx, { clips: b.clips }, instructionsInUse(settings));
+    const system = systemPrompt(recipe, guidedFamily(s.registry.family(recipe.family), settings), "plan", ctx, { clips: b.clips }, instructionsInUse(settings));
     // a plan is one answer holding every clip: it needs room for each, within what the model can hold
     const room = llm ? Math.max(llm.maxOutputTokens, Math.min(700 * b.clips + 500, Math.floor(llm.contextSize / 2))) : undefined;
     const ask: Message = { role: "user", content: picture ? [{ type: "text", text: b.idea }, { type: "image_url", image_url: { url: picture } }] : b.idea };
@@ -605,7 +646,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     const ctx = await context(recipe, clip.inputs, { previous: before && clip.joined === "continue" ? sayOf(before) : undefined, story: { clips: view.clips.map(sayOf), index }, look: clip.look ?? view.look, mood: view.mood }, false);
     ctx.next = after && (loopTo >= 0 || after.joined === "continue" || ctx.endsOnPicture) ? sayOf(after) : undefined;
     ctx.between = true;
-    const system = systemPrompt(recipe, s.registry.family(recipe.family), "chat", ctx, undefined, instructionsInUse(settings));
+    const system = systemPrompt(recipe, guidedFamily(s.registry.family(recipe.family), settings), "chat", ctx, undefined, instructionsInUse(settings));
     const seconds = ctx.seconds ? `${ctx.seconds} seconds` : "the time it has";
     const ask = loopTo >= 0
       ? `Write what happens in this clip. It closes a loop: it starts from how the clip before ends and must arrive at how clip ${loopTo + 1} starts (the clip after, in this prompt), in ${seconds}, so that the stretch plays round without a jump: a return to the first position, the same framing, nothing new begun. What is written now came from the old clip and describes more than this: replace it with only the return.`

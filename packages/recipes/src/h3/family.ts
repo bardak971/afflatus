@@ -68,18 +68,28 @@ export const h3 = defineFamily({
     ...SEEDVR_SLOTS,
   ],
   loraMatch: ["minimax", "\\bh3\\b"],
-  guide: `MiniMax H3 makes the picture AND the sound (voices, effects, music) together.
-A GOOD H3 PROMPT
-- What happens: ONE continuous shot, present tense, natural sentences (not tags). The motion over time inline ("at first", "then", "as she…"), the facial expression, at most one camera move written plainly ("The camera pushes in slowly toward her face."). Only add a cut when asked or when the clip is 9 seconds or longer: "[Shot 2] At 00:0X.XXX, …". Do not write "[Shot 1]" yourself: it is added.
-- Dialogue: only the exact spoken words go inside <d>…</d>, prefixed with their language: <d>[English] …</d>, <d>[French] …</d>. Keep the user's words as they wrote them, never translate. Who speaks, their ID (S1) and HOW they say it (tone, emotion, volume) go outside the tags: The woman with a soft, husky voice (S1) says: <d>[English] Come here.</d> in a warm, teasing tone. Speakers on screen lip-sync on their own: do not describe lip movement. Speech runs about 2.5 words a second, and people talk while they move: spoken lines can fill most of the clip. Never shorten a line the user wrote when it fits, and when you write the lines yourself, use the room the clip has instead of stopping at a few words.
-- Sounds: what is heard in the scene: ambience, effects, breathing, the qualities of the voice.
-- Music: background music, or N/A.
-DETAIL: write what happens like the best H3 prompts, rich and specific:
-- open with the look and the shot: the style ("Cinematic live-action video with realistic movement"), the framing and the lens (close-up, medium shot, low angle, shallow depth of field)
-- who: hair, eyes, build, the clothing with colour, material and fit, anything they hold
-- the action beat by beat with timing words: the body (hands, hips, shoulders, head), the physics (hair swaying, fabric shifting), the gaze and how the expression changes
-- the camera: one move, its direction and speed
-More detail does not mean more actions: describe the same few actions precisely.`,
+  guide: `MiniMax H3 makes the picture AND the sound (voices, effects, music) together. Afflatus adds the model's layout itself (field labels, the [Shot 1] mark, the picture alignment lines): write only the content of each part, never a label.
+RULES FOR THE PROMPT (the model's integrated description)
+- One short sentence of visual style first ("Live-action, cinematic, handheld, warm tungsten light."), then ONE continuous shot in the present tense, in the order things happen. 100 to 150 words.
+- Order inside the shot: framing, who is in it and how they look (hair, build, clothing with colour and material), the action beat by beat with timing words ("at first", "then", "as she…"), the camera, the words spoken, the sounds that happen in the shot.
+- The camera as type + amplitude + speed: "The camera pushes in with small amplitude at slow speed toward her face." One move per shot.
+- A cut only when asked or past 9 seconds: "[Shot 2] At 00:05.000, the camera cuts to …".
+- Voices numbered (S1), (S2) in order of appearance; describe a voice the first time it speaks (age, timbre, accent). The exact words inside <d>…</d> with the language first: <d>[English] Come here.</d>. Who speaks, their number and HOW stay outside the tags: The woman with a soft, husky voice (S1) says, warm and teasing: <d>[English] Come here.</d>
+- The user's words stay as written, never translated. A voice from off screen: "says in an off-screen voiceover", lips closed.
+- Text that must appear on screen: English double quotes, word for word.
+- Write what you WANT, never what you do not want: the model has no negative branch ("the street stays empty", not "no other people").
+- A few actions, described precisely: more detail is not more actions.
+THE OTHER PARTS
+- "Sound effects": 1 to 4 sentences of ambience and physical sound, in order. Never dialogue, never music.
+- "Music" (over the scene, unheard by the people in it): genre, tempo, instrumentation, dynamics. Never an artist or a song name. Leave it EMPTY for no music. A radio or singing in the scene goes in the Prompt.
+PICTURES
+- A first frame: one clause of what it preserves, then ONLY what moves from there.
+- A first and a last frame: the motion between them, never two still descriptions.
+- Carrying on from another clip: the action continues, nothing resets; one short clause keeps the people the same.
+EXAMPLE, for the form only (its subject, place, lens and words are not to be reused):
+Prompt: Live-action, cinematic. The young woman shown in the picture keeps her appearance, her clothing and her seat by the rain-covered train window. The camera trucks right with small amplitude at slow speed as she lifts her gaze from the folded letter toward the passing city lights. Her reflection slides across the glass while the quiet, breathy young woman (S1) says, almost to herself: <d>[English] I get off at the next station.</d> She folds the letter along its crease.
+Sound effects: The train wheels keep a steady metallic rhythm under a low ventilation hum. Rain ticks against the window; paper rustles softly in her hands.
+Music: Sustained cello notes at a slow tempo with widely spaced piano tones, slowly fading.`,
 });
 
 export const H3_FPS = 24;

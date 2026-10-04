@@ -418,8 +418,14 @@ export class Queue {
       if (model) held = new Set([model]);
       return { ...plain(r), estimateMs: this.expected(usual, recipe, input, cold) };
     };
+    /** How a clip render joins the clip before, once its graph is built: in the latent, or on pinned frames; null when it starts on its own or is not a clip. */
+    const joinOf = (r: JobRow): "latent" | "pixels" | null => {
+      if (!r.clip_id || !r.resume) return null;
+      const overlap = (JSON.parse(r.resume) as Resume).overlap;
+      return overlap && overlap.headMs > 0 ? (overlap.latent ? "latent" : "pixels") : null;
+    };
     const plain = (r: JobRow) => ({
-      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
+      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
       kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const),
       // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
       input: r.status === "failed" && r.recipe_id !== EXPORT_JOB && r.recipe_id !== CUT_JOB ? (JSON.parse(r.inputs) as Record<string, unknown>) : null,

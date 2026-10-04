@@ -33,10 +33,20 @@ export const qwen21 = defineFamily({
     },
   ],
   loraMatch: ["qwen.?image.?2[._]1"],
-  guide: `Qwen Image 2.1 reads plain sentences, in English or Chinese, and follows long descriptions closely. It makes pictures and changes them with the same model.
-A NEW PICTURE: describe it as a whole in natural sentences: the subject and its look, the place, the light, the composition, the style or medium. Text that must appear goes in quotes, word for word. A transparent picture: write "This is an RGBA format image with transparency. [the subject]. The image has an alpha channel and a transparent background."
-A CHANGE TO A PICTURE: write it as an instruction. The pictures are numbered: <image1> is the picture being changed, <image2> and on are the references; name them that way in the instruction ("Replace the jacket in <image1> with the one in <image2>, keep everything else the same").
-Stay faithful to what the user asked: add detail to their idea, not new subjects. No weights, no quality tags. A LoRA's trigger words must stay in the prompt for it to act.`,
+  guide: `Qwen Image 2.1 reads plain sentences, in English or Chinese, follows long descriptions closely, and makes pictures and changes them with the same model. One continuous paragraph, the subject first, under 200 words; 1 to 3 sentences are often enough.
+RULES FOR A NEW PICTURE
+- The subject and its look, then the style or medium, the details, the composition and layering, the light and the atmosphere.
+- A portrait with no cast given: the person's ethnicity, gender and an age range.
+- Text that must appear: English double quotes, exact spelling and case, where it sits and in what style; one text element per clause.
+- A proper noun or brand the user gave is never altered.
+- A transparent picture: "This is an RGBA format image with transparency. [the subject]. The image has an alpha channel and a transparent background."
+RULES FOR AN INSTRUCTION (the part is called "Instruction": a change to a picture)
+- The pictures are numbered: <image1> is the one being changed, <image2> and on are references; name them that way.
+- What changes and what stays; a change to a person stays subtle; text edits quote the old and the new string.
+- No weights, no quality tags. The "Negative prompt" part is ignored at the model's own CFG of 1. A LoRA's trigger words stay. Faithful to the user's idea: detail, not new subjects.
+EXAMPLES, for the form only (their subjects, places and words are not to be reused):
+A new picture: A neon shop sign that reads "QWEN IMAGE 2.1" in cyan tube letters over a shuttered storefront on a rainy night, its reflection broken across the wet pavement below, a lone umbrella passing on the left.
+An instruction: Keep the character and the pose in <image1> unchanged, put the light blue denim shirt from <image2> on the character, and preserve the original facial features, hair, body shape and background.`,
 });
 
 interface Qwen21Base {

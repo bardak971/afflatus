@@ -300,7 +300,7 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     llm.answers.push("kind: proposal\nnote: Fuller now.\nprompt: 1girl, solo, long hair, terrace, sunset, holding cup\nnegative: \nquality: ");
     const better = (await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "girl on a terrace", checkpoint: CHECKPOINT }, messages: [{ role: "user", content: "Improve it" }], mode: "enhance" })).json();
     expect(better.changes).toEqual({ prompt: "1girl, solo, long hair, terrace, sunset, holding cup" });
-    expect(system()).toContain("comma-separated danbooru-style tags");
+    expect(system()).toContain("DANBOORU TAGS");
     expect(system()).toContain('pressed "Improve it"');
 
     llm.answers.push("kind: question\nnote: I need one thing.\nquestion: Indoors or outdoors?\noptions: indoors | outdoors");

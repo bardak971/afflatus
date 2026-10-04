@@ -852,6 +852,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 onPick={(id) => { setSelected(id); setMusicOpen(false); }}
                 onMusic={() => setMusicOpen(true)}
                 onCast={() => setCasting(true)}
+                onFolder={(folder) => edit.mutate({ folder })}
                 onRenderAll={() => render.mutate({ clips: missing })}
                 onExport={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}
                 rendering={render.isPending}
@@ -1024,7 +1025,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
  * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
  * missing, export.
  */
-function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic, onCast, onRenderAll, onExport, rendering }: {
+function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, onExport, rendering }: {
   timeline: Timeline;
   clips: Clip[];
   missing: Clip[];
@@ -1033,6 +1034,8 @@ function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic
   onPick(clip: string): void;
   onMusic(): void;
   onCast(): void;
+  /** Where its renders and exports land; null = the project's root (the Inbox when it has no project). */
+  onFolder(folder: string | null): void;
   onRenderAll(): void;
   onExport(): void;
   rendering: boolean;
@@ -1042,6 +1045,22 @@ function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic
   const entities = useEntities();
   const project = t.projectId ? projects.data?.items.find((p) => p.id === t.projectId) : undefined;
   const folder = folders.data?.items.find((f) => f.id === (t.folderId ?? project?.folderId));
+  // the folders it can land in: its project's (every folder when it has no project), each with where it sits
+  const all = folders.data?.items ?? [];
+  const pathOf = (id: string | null): string => {
+    const f = all.find((x) => x.id === id);
+    return f ? [pathOf(f.parentId), f.name].filter(Boolean).join(" / ") : "";
+  };
+  const choices = all.filter((f) => (t.projectId ? f.projectId === t.projectId : true) && f.id !== project?.folderId);
+  const fromClips = Boolean(folder && !t.folderChosen && folder.id !== project?.folderId);
+  // takes already made that sit in another folder than the timeline's: offered a move, never moved unasked
+  const landing = t.folderId ?? project?.folderId ?? null;
+  const elsewhere = clips.flatMap((c) => c.takes.map((x) => x.asset)).filter((a) => (a.folderId ?? null) !== landing);
+  const client = useQueryClient();
+  const gather = useMutation({
+    mutationFn: () => api.moveAssets(elsewhere.map((a) => a.id), landing),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["assets"] }).then(() => client.invalidateQueries({ queryKey: ["timelines", t.id] })),
+  });
   const stale = clips.filter((c) => c.join === "stale");
   const failed = clips.filter((c) => c.failed && !c.take);
   const wrong = clips.filter((c) => otherShape(c, t) && !c.fill);
@@ -1091,7 +1110,21 @@ function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic
 
       <section className="flex flex-col gap-1.5">
         <SectionTitle>Renders land in</SectionTitle>
-        <span className="text-sm text-ink">{folder ? folder.name : project ? `${project.name} (its root)` : "the Inbox, no folder"}</span>
+        <Select
+          size="sm"
+          label="Where the renders and exports of this timeline land"
+          value={folder && folder.id !== project?.folderId ? folder.id : ""}
+          onChange={(id) => onFolder(id || null)}
+          options={[{ value: "", label: project ? `${project.name} (its root)` : "The Inbox, no folder" }, ...choices.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
+        />
+        <span className="text-xs text-ink-3">{fromClips ? "Taken from the first picture or clip you put here. Pick another to decide yourself." : "Every take and export of this timeline goes there."}</span>
+        {elsewhere.length > 0 && (
+          <span className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
+            {elsewhere.length === 1 ? "1 take sits in another folder." : `${elsewhere.length} takes sit in other folders.`}
+            <Button size="sm" disabled={gather.isPending} onClick={() => gather.mutate()} title="Move those videos into this folder in the library. Nothing on the timeline changes.">{gather.isPending ? "Moving…" : "Move them here"}</Button>
+            {gather.isError && <span className="text-warn-ink">{gather.error.message}</span>}
+          </span>
+        )}
       </section>
 
       <span><Button onClick={onExport} disabled={!t.durationMs}><Download size={15} /> Export video</Button></span>

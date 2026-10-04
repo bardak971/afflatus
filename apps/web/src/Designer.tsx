@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, Undo2, WandSparkles, X } from "lucide-react";
+import { Check, Copy, Eye, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, Undo2, WandSparkles, X } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
 import { useEntities, useSettings } from "./data";
 import { changedShare, wordDiff } from "./diff";
@@ -57,6 +57,8 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   const end = useRef<HTMLDivElement>(null);
   const boxes = recipe.inputs.filter((i) => i.type === "prompt");
   const ready = Boolean(settings.data?.llm.baseUrl && settings.data.llm.model);
+  /** The system prompt shown in place of the conversation. */
+  const [showingSystem, setShowingSystem] = useState(false);
   const say = useMutation({
     mutationFn: async (v: { words: string; mode: "chat" | "enhance"; from?: DesignerTurn[] }) => {
       // `from`: the conversation as it was before a reply that is asked for again
@@ -197,9 +199,25 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
           >
             <RotateCcw size={13} /> Start over
           </Button>
+          <button
+            type="button"
+            aria-pressed={showingSystem}
+            aria-label="Show the system prompt"
+            title="What the designer is told for this form, word for word: the model's prompting guide, your system prompt, what it knows of the clip, the cast and the LoRAs, and the reply format."
+            onClick={() => setShowingSystem((v) => !v)}
+            className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-hover", showingSystem ? "bg-accent-wash text-accent" : "text-ink-2 hover:text-ink")}
+          >
+            <Eye size={14} />
+          </button>
         </div>
       )}
-      <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
+      {showingSystem && ready && (
+        <SystemView
+          body={{ recipe: recipe.id, values, previous, story, look: look ?? null, mood, llm: using.llm, instruction: using.instruction }}
+          onClose={() => setShowingSystem(false)}
+        />
+      )}
+      <div className={cx("flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4", showingSystem && "hidden")}>
         {remember.isError && <ErrorNote>{remember.error.message}</ErrorNote>}
         {!ready && settings.isSuccess && (
           <ErrorNote>The designer has no LLM yet. <Link href="/settings/designer" className="font-semibold underline">Add one in Settings</Link>: any OpenAI-compatible API works, on your computer or elsewhere.</ErrorNote>
@@ -404,6 +422,26 @@ export function WritingHelp({ recipe, text, look, onLook, onInsert, onDesigner }
         <Snippets style={main.style} look={look} onLook={onLook} text={text} onInsert={onInsert} />
       </div>
       <TickedSnippets look={look} onLook={onLook} />
+    </div>
+  );
+}
+
+/** The system prompt as the designer would be given it now, read-only, with a copy. It is fetched fresh each time it opens: it follows the form. */
+function SystemView({ body, onClose }: { body: Parameters<typeof api.designerSystem>[0]; onClose(): void }) {
+  const key = JSON.stringify(body);
+  const q = useQuery({ queryKey: ["designer-system", key], queryFn: () => api.designerSystem(body), staleTime: 0 });
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex min-h-0 grow flex-col border-b border-line">
+      <div className="flex shrink-0 items-center gap-2 px-4 py-2 text-xs text-ink-2">
+        <span className="grow">The system prompt for this form, as it is sent.{q.data ? ` ${q.data.system.split(/\s+/).length} words.${q.data.sees ? " The picture is sent with it." : ""}` : ""}</span>
+        <Button size="sm" tone="quiet" disabled={!q.data} onClick={() => { void navigator.clipboard.writeText(q.data?.system ?? "").then(() => setCopied(true)); setTimeout(() => setCopied(false), 1500); }}>
+          <Copy size={12} /> {copied ? "Copied" : "Copy"}
+        </Button>
+        <Button size="sm" tone="quiet" onClick={onClose}><X size={12} /> Close</Button>
+      </div>
+      {q.isError && <ErrorNote>{q.error.message}</ErrorNote>}
+      <pre className="min-h-0 grow overflow-auto px-4 pb-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink">{q.data?.system ?? (q.isPending ? "…" : "")}</pre>
     </div>
   );
 }

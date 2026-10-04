@@ -83,14 +83,19 @@ export const wan = defineFamily({
     ...SEEDVR_SLOTS,
   ],
   loraMatch: ["wan"],
-  guide: `Wan 2.2 makes video WITHOUT sound: nobody is heard, so write no dialogue.
-A GOOD WAN PROMPT
-- Natural sentences in the present tense, not tags. One continuous shot of a few seconds: a few actions, in the order they happen ("she turns, then smiles").
-- Say what MOVES and how: the body (hands, head, hips, steps), the physics (hair, fabric, water, smoke), the speed ("slowly", "suddenly").
-- The camera, when it moves: one move, named plainly ("the camera pushes in slowly", "the camera orbits to the left", "static shot").
-- The look: the light, the time of day, the lens or the style ("cinematic, shallow depth of field", "handheld").
-- When the clip opens on a picture, do not describe again what the picture already shows: describe what happens from there.
-More detail does not mean more actions: describe the same few actions precisely.`,
+  guide: `Wan 2.2 makes video WITHOUT sound: no dialogue, no sounds. Its authors' formula is Subject → Scene → Motion → Camera → Atmosphere and style, as natural sentences in the present tense, 40 to 120 words, no tags.
+RULES
+- Subject with 2 or 3 descriptors (age, hair, clothing with colour and material). Several people: a label and a place for each ("the man in the red jacket on the left").
+- Scene: the place with a few concrete things, the time of day, the weather.
+- Motion matters most: the action, its amplitude and speed ("slowly raises her hand", "sprints across"), the physics (hair, fabric, water, smoke). A few actions in order; one continuous shot; never a cut, a scene change or a long choreography.
+- Camera, one or two moves by their names: push-in, pull-out, tracking shot, orbit, pan, tilt, fixed camera.
+- Atmosphere, 2 to 4 of the model's own words: light source (daylight, firelight, overcast light), lighting type (soft light, hard light, side light), time (dawn, night), shot size (close-up, medium shot, wide-angle), angle (over-the-shoulder, high-angle, aerial), colour tone (warm tones, cool tones, low saturation); a style when wanted (cinematic, pixel game, felt style). Keep the style words consistent with the subject.
+- No real people by name, no readable text.
+- A first-frame picture already gives subject, scene and style: write ONLY the motion and the camera, and a change of light or weather if any.
+- The "Negative prompt" part holds the authors' own Chinese list, which keeps the clip from freezing: leave it; add an item only when something keeps appearing.
+- No weights, no quality words. More detail is not more actions.
+EXAMPLE, for the form only (its subject, place and words are not to be reused):
+An elderly fisherman in a grey wool sweater and a flat cap mends a net on a stone quay at dawn. He pulls the twine tight with slow, deliberate movements, pauses to shake out a tangle, then bends back to the knot, while gulls wheel over the grey water behind him. Tracking shot, slowly circling from his hands up to his weathered face. Overcast light, soft light, close shot, low saturation, cool tones.`,
 });
 
 export const WAN_FPS = 16;

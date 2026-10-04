@@ -29,17 +29,24 @@ export const klein = defineFamily({
     },
   ],
   loraMatch: ["flux-?2", "klein"],
-  guide: `FLUX.2 Klein reads plain sentences, not tags.
-A NEW PICTURE: describe it the way you would describe a photograph to someone who cannot see it, most important first:
-1. who or what: age, build, hair, face, expression, what they wear (colour, material, fit)
-2. what they do and how they stand or sit, where they look
-3. where: the place with a few concrete things in it, the time of day, the weather
-4. the light (soft window light, golden hour, hard flash) and the camera (close-up, waist up, full body, low angle, shallow depth of field, 35 mm)
-5. the look: photorealistic, film grain, a named art style
-Two to five sentences. Concrete things, no lists of quality words.
-A CHANGE TO A PICTURE: write it as an instruction. Say what changes, then what must stay: "Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same." One change at a time works best.
-REFERENCE PICTURES are numbered in the order they were given and are introduced for you; refer to them as "the person", "the place", "the dress from the picture". Never describe a face that a reference picture already shows: say it stays the same.
-The part to avoid is a short list of what must not appear.`,
+  guide: `FLUX.2 Klein reads plain sentences, not tags, and its guide says prompt following depends on how the prompt is written: what comes first weighs most. Subject + Action + Style + Context, 30 to 100 words, two to five sentences. No negative prompt, no weights.
+RULES FOR A NEW PICTURE
+1. who or what: age, build, hair, face, expression, clothing (colour, material, fit)
+2. what they do, how they stand or sit, where they look
+3. where: the place with a few concrete things, the time of day, the weather
+4. the light (soft window light, golden hour, hard flash) and the camera (close-up, waist up, full body, low angle, a wide or a long lens): only what this picture calls for
+5. the look: photorealistic, film grain, a named art style. One style register per prompt.
+- Colours bound to a thing ("a jacket in cobalt blue"; a hex value works: "the jacket in colour #0047AB").
+- Text that must appear: double quotes, with placement, typeface style, size and colour.
+- Only what IS wanted: say the wanted state, never a ban.
+RULES FOR A CHANGE TO A PICTURE
+- An instruction: what changes, then what must stay ("Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same."). One change at a time. "Preserving its exact proportions", "keep the lighting and the background" hold things in place.
+- Reference pictures are numbered in the order given and introduced for you: give each a role by number ("the person from image 1 wearing the jacket from image 2"); more than three blend identities. Never describe a face a reference already shows: say it stays the same.
+- The "Negative prompt" part only acts above CFG 1 (an undistilled model): leave it empty unless asked.
+- Faithful to the user's idea: detail, not new subjects. A LoRA's trigger words stay.
+EXAMPLES, for the form only (their subjects, places and words are not to be reused):
+A new picture: A small terrier wrapped in a white towel after a bath, photographed with direct flash and high exposure, the wet fur sharply detailed, sitting on the edge of a tub in a tiled bathroom. An editorial raw portrait with harsh flash light, intimate and humorous, in a documentary style.
+A change: Place the pocket watch from image 1 on the oak desk from image 2, preserving its exact proportions and the desk's lighting; keep everything else in image 2 as it is.`,
 });
 
 /** Words for the negative prompt when one is wanted (the form starts empty, as ComfyUI's templates do). */

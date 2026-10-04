@@ -73,6 +73,8 @@ export interface Job {
   clipId: string | null;
   /** The draft it was sent from, when it was sent from one. */
   draftId: string | null;
+  /** Of a clip render, once its graph is built: how it joins the clip before (in the latent, or on pinned frames); null when it starts on its own. */
+  join: "latent" | "pixels" | null;
   /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. "cut": a range of a video kept as new videos. */
   kind: "render" | "export" | "load" | "cut";
   /** Of a waiting job: about how long it will take, from past renders. */
@@ -139,6 +141,21 @@ export interface Asset {
   createdAt: string;
   /** Of a file of a linked folder: where it is on the disk (in the bin: where it was). */
   path: string | null;
+  /** Of a video that is a take of a timeline clip: which (only in listings). */
+  clipOf?: ClipOf | null;
+}
+/** A library video's place on a timeline. */
+export interface ClipOf {
+  timeline: string;
+  timelineName: string;
+  /** The clip's number on its timeline, from 1; the take's number among the clip's takes, from 1, and how many there are. */
+  clip: number;
+  take: number;
+  takes: number;
+  /** It is the take the clip plays. */
+  playing: boolean;
+  /** Of a take that is the finished version of another: how many times bigger (1 when the same size); null for the others. */
+  upscaledBy: number | null;
 }
 /** Where ComfyUI shows a workflow Afflatus put there: straight from the address, or from its Workflows sidebar. */
 export interface Opened {
@@ -347,12 +364,18 @@ export interface Take {
   createdAt: string;
   /** The take this one is the finished (upscaled) version of. */
   finishedFrom: string | null;
+  /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
+  joinKind: "latent" | "pixels" | null;
+  /** How long its render took, when it was rendered here; null otherwise. */
+  renderMs: number | null;
 }
 export interface Clip {
   id: string;
   /** "still": a picture held on screen instead of a video. */
   kind: "video" | "still";
   still: Asset | null;
+  /** The pictures pinned on its form: first frame ("start"), last frame ("end"), keyframe ("mid"). */
+  pictures: Array<{ input: string; role: string; asset: Asset }>;
   /** What is heard while it plays, and how loud (0 to 100). */
   sound: "own" | "muted" | "file";
   soundAsset: Asset | null;
@@ -388,6 +411,8 @@ export interface Timeline {
   /** The project it belongs to, and the folder its renders land in (null: the project's root, or none). */
   projectId: string | null;
   folderId: string | null;
+  /** The folder was chosen by hand; otherwise it is the default, or taken from the first material dropped on the timeline. */
+  folderChosen: boolean;
   clips: Clip[];
   /** Who is in the video and how it looks, for every clip that has no cast of its own. */
   look: Look | null;
@@ -637,6 +662,8 @@ export interface Settings {
   designerLlm: string;
   /** The user's own instructions for the designer, each under a name. */
   designerInstructions: Array<{ id: string; name: string; text: string }>;
+  /** The user's own prompting guide per model family (family id → text); a family not named uses the built-in. */
+  designerGuides: Record<string, string>;
   /** The ones in use; empty for none. */
   designerInstruction: string;
   /** Tags written for an anime model are compared with danbooru's list. */
@@ -853,6 +880,11 @@ export const api = {
   designer: (body: { recipe: string; values: Record<string, unknown>; messages: Array<{ role: "user" | "assistant"; content: string }>; mode: "chat" | "enhance"; llm?: string; instruction?: string; previous?: string; story?: { clips: string[]; index: number }; look?: Look | null; mood?: string }) =>
     call<DesignerReply>("POST", "/designer", body),
   /** A scene written as several clips: the text of each. */
+  /** Every family's prompting guide: the built-in text and the user's own, when one is written. */
+  designerGuides: () => call<{ items: Array<{ id: string; name: string; style: "tags" | "sentences" | "sections"; guide: string; own: string }> }>("GET", "/designer/guides"),
+  /** The system prompt the designer would be given for this form, word for word. */
+  designerSystem: (body: { recipe: string; values: Record<string, unknown>; mode?: "chat" | "enhance"; llm?: string; instruction?: string; previous?: string; story?: { clips: string[]; index: number }; look?: Look | null; mood?: string }) =>
+    call<{ system: string; sees: boolean }>("POST", "/designer/system", body),
   designerPlan: (body: { recipe: string; idea: string; clips: number; values?: Record<string, unknown>; look?: Look | null; mood?: string }) =>
     call<{ note: string; clips: Array<Record<string, string>> }>("POST", "/designer/plan", body),
   /** The pages known for the files of a model folder, by file name (lower case, without sub-folder). */

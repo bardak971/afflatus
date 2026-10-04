@@ -305,6 +305,27 @@ describe.skipIf(!three)("a timeline", () => {
     expect(detail.sources.map((x: { asset: { id: string } }) => x.asset.id)).toContain(picture);
   });
 
+  it("takes the folder of the first material dropped on it, until a folder is chosen", async () => {
+    const holiday = (await call("POST", "/api/folders", { name: "Holiday" })).id as string;
+    const other = (await call("POST", "/api/folders", { name: "Other" })).id as string;
+    const beach = await upload(makePng(192, 320, [200, 120, 40], [40, 60, 160]), "image/png", "beach.png");
+    const dune = await upload(makePng(192, 320, [10, 10, 10], [90, 90, 90]), "image/png", "dune.png");
+    await call("POST", "/api/assets/move", { ids: [beach.id], folderId: holiday });
+    await call("POST", "/api/assets/move", { ids: [dune.id], folderId: other });
+    const tl = await call("POST", "/api/timelines", { name: "Holiday film" });
+    expect(tl).toMatchObject({ folderId: null, folderChosen: false });
+    // the first picture dropped: its folder becomes the timeline's; the next one from elsewhere does not change it
+    await call("POST", `/api/timelines/${tl.id}/clips`, { asset: beach.id });
+    expect(await view(tl.id)).toMatchObject({ folderId: holiday, folderChosen: false });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { asset: dune.id });
+    expect((await view(tl.id)).folderId).toBe(holiday);
+    // chosen by hand: back to the root, and nothing dropped later moves it
+    await call("PATCH", `/api/timelines/${tl.id}`, { folder: null });
+    expect(await view(tl.id)).toMatchObject({ folderId: null, folderChosen: true });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { asset: beach.id });
+    expect((await view(tl.id)).folderId).toBeNull();
+  });
+
   it("holds a picture on screen as a still, and a clip after it opens on that picture", async () => {
     const tl = await call("POST", "/api/timelines", { name: "Stills" });
     const picture = await upload(makePng(192, 320, [200, 120, 40], [40, 60, 160]), "image/png", "terrace.png");
@@ -728,6 +749,15 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     }
     // the finished takes stand for their drafts: a clip that followed the clip before still does
     if (v.clips[1].joined === "continue") expect(v.clips[1].join).toBe("fresh");
+    // a take says how it joined the clip before (the finished one inherits it) and how long it took
+    expect(v.clips[0].take.joinKind).toBeNull();
+    if (v.clips[1].joined === "continue") expect(["latent", "pixels"]).toContain(v.clips[1].take.joinKind);
+    expect(v.clips[0].takes[0].renderMs === null || v.clips[0].takes[0].renderMs > 0).toBe(true);
+    // the library says which clip each video is a take of
+    const listed = (await get(t.app, "/api/assets?kind=video")).json().items as Array<{ id: string; clipOf: Record<string, unknown> | null }>;
+    expect(listed.find((x) => x.id === v.clips[0].takes[0].asset.id)?.clipOf).toMatchObject({ timeline: tl, clip: 1, take: 1, takes: 2, playing: false, upscaledBy: null });
+    expect(listed.find((x) => x.id === v.clips[1].take.asset.id)?.clipOf).toMatchObject({ clip: 2, take: 2, takes: 2, playing: true });
+    expect(typeof listed.find((x) => x.id === v.clips[1].take.asset.id)?.clipOf?.upscaledBy).toBe("number");
     expect(v.undo).toBe("the finished take");
     // finished already: skipped, unless asked to redo; a clip whose render is on its way too
     const again = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 2 });

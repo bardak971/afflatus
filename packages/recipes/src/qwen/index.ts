@@ -52,13 +52,23 @@ export const qwen = defineFamily({
     },
   ],
   loraMatch: ["qwen.?image", "qwen"],
-  guide: `Qwen Image reads plain sentences, in English or Chinese, and follows long descriptions closely.
-A GOOD QWEN IMAGE PROMPT
-- Describe the picture as a whole in natural sentences: the subject and its look, the place, the light, the composition, the style or medium.
-- Text that must appear in the picture goes in quotes, word for word, with where it is and how it looks ("a neon sign that reads "OPEN" above the door"). This model writes text well: use it.
-- Spatial relations said plainly (left, right, behind, in the foreground) are followed.
-- Stay faithful to what the user asked: add detail to their idea, not new subjects.
-No weights, no quality tags. A LoRA's trigger words must stay in the prompt for it to act.`,
+  guide: `Qwen Image reads plain sentences, in English or Chinese, and follows long descriptions closely. Its authors' own rewriter is the rule: one continuous paragraph, the subject first (what comes first weighs most), under 200 words; 1 to 3 sentences are often enough.
+RULES FOR A NEW PICTURE
+- The subject and its look, then the style or medium, the details, the composition and the layering (what is in front, what is behind), the light and the atmosphere.
+- A portrait with no cast given: state the person's ethnicity, gender and an age range (the rewriter's own rule). With a cast, their words say it.
+- Text that must appear: English double quotes, exact spelling, case and punctuation, where it sits and in what style ("a neon sign that reads "OPEN" above the door, in bold sans-serif"); one text element per clause; keep the strings simple. This model writes text well.
+- A proper noun, a brand or an address the user gave is never altered.
+- A photographic or cinematic picture ends with ", Ultra HD, 4K, cinematic composition." (the authors' suffix); not flat graphics, UI, posters or print, where "cinematic" adds depth of field and warm grading.
+RULES FOR AN INSTRUCTION (the part is called "Instruction": a change to a picture)
+- Direct and specific: what changes and what stays ("Turn the cat into a dog, keep the sofa and the light unchanged").
+- A change to a person stays subtle and keeps ethnicity, gender, age and hairstyle.
+- Text edits quote the old and the new string, keeping the original language and case.
+- Several pictures: a role and a place for each ("the bear from the first image on the left, the one from the second on the right").
+- Fixed words for known tasks: "Restore and colorize the photo."; "Perform inpainting on this image. The original caption is: …".
+- No weights. The "Negative prompt" part works (real CFG): leave the default unless asked. A LoRA's trigger words stay.
+EXAMPLES, for the form only (their subjects, places and words are not to be reused):
+A new picture: A coffee shop entrance at dusk with a chalkboard sign by the door that reads "Qwen Coffee $2 per cup" in white hand-lettered chalk, and a neon light beside it displaying "OPEN" in warm pink. Wet cobblestones in front reflect the glow; a bicycle leans against the wall on the left, Ultra HD, 4K, cinematic composition.
+An instruction: Replace the chalkboard's text "Qwen Coffee $2 per cup" with "CLOSED TODAY" in the same hand-lettered chalk style, and keep everything else unchanged.`,
 });
 
 /** What a model or a LoRA made for a few steps is called. */

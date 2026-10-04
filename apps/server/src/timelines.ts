@@ -1,9 +1,10 @@
 import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { secondsInput, type Recipe } from "@afflatus/core";
+import { secondsInput, type Recipe, type InputSpec } from "@afflatus/core";
 import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
+import { rootFolderOf } from "./projects";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
 import type { Registry } from "./registry";
@@ -111,6 +112,8 @@ interface Placed {
   /** Of a still: its picture. Of a clip with a sound file: that file. */
   still: AssetRow | null;
   sound: AssetRow | null;
+  /** The pictures pinned on the clip's form: its first frame, last frame, keyframe (the input's id, and the picture). */
+  pictures: Array<{ input: string; role: string; asset: AssetRow }>;
 }
 
 /** How a clip regenerated in a range meets its neighbours: with their video as context, on a frame, or nothing there. */
@@ -177,6 +180,18 @@ export interface TimelinePatch {
   folder?: string | null;
 }
 
+/** A library video's place on a timeline: see Timelines.clipOf. */
+export interface ClipOf {
+  timeline: string;
+  timelineName: string;
+  clip: number;
+  take: number;
+  takes: number;
+  playing: boolean;
+  /** Of a take that is the finished version of another: how many times bigger (1 when the same size); null for the others. */
+  upscaledBy: number | null;
+}
+
 export class Timelines {
   constructor(
     private readonly db: Db,
@@ -215,8 +230,20 @@ export class Timelines {
     const clips = await this.db.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).orderBy("position").orderBy("created_at").execute();
     if (!clips.length) return [];
     const takes = await this.db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).orderBy("created_at").execute();
-    const wanted = [...takes.map((t) => t.asset_id), ...clips.flatMap((c) => [c.still_asset_id, c.sound_asset_id]).filter((x): x is string => Boolean(x))];
-    const assets = wanted.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", wanted).execute() : [];
+    // the pictures pinned on each clip's form: the image inputs of its recipe that hold an item of the library
+    const pinned = (clip: ClipRow): Array<{ input: string; role: string; id: string }> => {
+      const recipe = clip.recipe_id ? this.registry.recipe(clip.recipe_id) : undefined;
+      if (!recipe) return [];
+      const inputs = JSON.parse(clip.inputs) as Record<string, unknown>;
+      return (recipe.inputs as InputSpec[])
+        .filter((i) => i.type === "image" && typeof inputs[i.id] === "string" && inputs[i.id] !== FROM_PREVIOUS)
+        .map((i) => ({ input: i.id, role: (i as { role?: string }).role ?? "image", id: inputs[i.id] as string }));
+    };
+    const wanted = [
+      ...takes.map((t) => t.asset_id),
+      ...clips.flatMap((c) => [c.still_asset_id, c.sound_asset_id, ...pinned(c).map((p) => p.id)]).filter((x): x is string => Boolean(x)),
+    ];
+    const assets = wanted.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", [...new Set(wanted)]).execute() : [];
     const byId = new Map(assets.map((a) => [a.id, a]));
     return clips.map((clip) => {
       const own = takes.filter((t) => t.clip_id === clip.id && byId.has(t.asset_id)).map((take) => ({ take, asset: byId.get(take.asset_id)! }));
@@ -224,6 +251,7 @@ export class Timelines {
         clip, takes: own, active: own.find((t) => t.take.id === clip.take_id) ?? null,
         still: (clip.still_asset_id && byId.get(clip.still_asset_id)) || null,
         sound: (clip.sound_asset_id && byId.get(clip.sound_asset_id)) || null,
+        pictures: pinned(clip).flatMap((p) => (byId.has(p.id) ? [{ input: p.input, role: p.role, asset: byId.get(p.id)! }] : [])),
       };
     });
   }
@@ -256,7 +284,7 @@ export class Timelines {
       const all = await this.placed(t.id);
       const first = all.find((p) => p.active || p.still);
       items.push({
-        id: t.id, name: t.name, width: t.width, height: t.height, updatedAt: t.updated_at, clips: all.length, projectId: t.project_id, folderId: t.folder_id,
+        id: t.id, name: t.name, width: t.width, height: t.height, updatedAt: t.updated_at, clips: all.length, projectId: t.project_id, folderId: t.folder_id, folderChosen: Boolean(t.folder_chosen),
         durationMs: all.reduce((sum, p) => sum + lengthOf(p), 0),
         cover: first?.active?.asset.id ?? first?.still?.id ?? null,
       });
@@ -270,10 +298,19 @@ export class Timelines {
     const jobs = all.length
       ? await this.db.selectFrom("jobs").select(["id", "clip_id", "status", "error", "finished_at"]).where("clip_id", "in", all.map((p) => p.clip.id)).orderBy("created_at").execute()
       : [];
+    // how long each take's render took, from the record of renders (a finish made by a cut has none)
+    const made = [...new Set(all.flatMap((p) => p.takes.map((x) => x.asset.generation_id)).filter((g): g is string => Boolean(g)))];
+    const tookMs = new Map(
+      (made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms"]).where("id", "in", made).execute() : []).map((g) => [g.id, g.gen_ms]),
+    );
     const takeView = (x: { take: TakeRow; asset: AssetRow }) => ({
       id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
       trimStartMs: x.take.trim_start_ms, trimEndMs: x.take.trim_end_ms, startMs: plays(x).start, endMs: plays(x).end, createdAt: x.take.created_at,
       finishedFrom: x.take.finished_from,
+      /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
+      joinKind: x.take.join_kind ?? null,
+      /** How long its render took, when it was rendered here and measured; null otherwise. */
+      renderMs: (x.asset.generation_id && tookMs.get(x.asset.generation_id)) || null,
     });
     let at = 0;
     const clips = all.map((p, i) => {
@@ -287,6 +324,8 @@ export class Timelines {
         take: p.active ? takeView(p.active) : null,
         takes: p.takes.map(takeView),
         still: p.still ? assetView(p.still) : null,
+        /** The pictures pinned on its form: first frame, last frame, keyframe. */
+        pictures: p.pictures.map((x) => ({ input: x.input, role: x.role, asset: assetView(x.asset) })),
         sound: p.clip.sound, soundAsset: p.sound ? assetView(p.sound) : null, volume: p.clip.volume, fill: Boolean(p.clip.fill),
         /** Its own cast and style; null = the timeline's. */
         look: p.clip.look ? (JSON.parse(p.clip.look) as Look) : null,
@@ -311,7 +350,7 @@ export class Timelines {
     return {
       id: t.id, name: t.name, width: t.width, height: t.height, updatedAt: t.updated_at, durationMs: at, clips,
       /** The project it belongs to, and the folder its renders land in (null: the project's root, or none). */
-      projectId: t.project_id, folderId: t.folder_id,
+      projectId: t.project_id, folderId: t.folder_id, folderChosen: Boolean(t.folder_chosen),
       look: t.look ? (JSON.parse(t.look) as Look) : null,
       mood: t.mood ?? "",
       music: music ? { asset: assetView(music), volume: t.music_volume, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck) } : null,
@@ -425,7 +464,7 @@ export class Timelines {
     await this.db
       .insertInto("timelines")
       .values({
-        id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null,
+        id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: 0,
         music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, export_asset_id: null, look: null, mood: null,
         created_at: at, updated_at: at,
       })
@@ -451,7 +490,7 @@ export class Timelines {
       .set({
         ...(patch.name !== undefined ? { name: patch.name.trim() || "Untitled" } : {}),
         ...(patch.project !== undefined ? { project_id: patch.project } : {}),
-        ...(patch.folder !== undefined ? { folder_id: patch.folder } : {}),
+        ...(patch.folder !== undefined ? { folder_id: patch.folder, folder_chosen: 1 } : {}),
         ...(patch.width !== undefined && patch.height !== undefined ? { width: patch.width, height: patch.height } : {}),
         ...(m?.asset !== undefined ? { music_asset_id: m.asset } : {}),
         ...(m?.volume !== undefined ? { music_volume: within(m.volume, 0, 100) } : {}),
@@ -510,7 +549,7 @@ export class Timelines {
    * clip to render. It goes after `after`, or at the end.
    */
   async addClip(timelineId: string, opts: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip" }) {
-    await this.row(timelineId);
+    const t = await this.row(timelineId);
     const all = await this.placed(timelineId);
     const index = opts.after === null ? 0 : opts.after ? all.findIndex((p) => p.clip.id === opts.after) + 1 : all.length;
     const id = newId();
@@ -571,8 +610,21 @@ export class Timelines {
     await this.renumber(timelineId, order);
     if (take) await this.addTake(id, take.asset, { headMs: take.head, tailMs: take.tail }, {});
     if (still) await this.keep(still);
+    if (asset) await this.adoptFolder(t, asset, all);
     await this.touch(timelineId);
     return id;
+  }
+
+  /**
+   * A video made of the material of one folder lands there: the timeline takes the folder of what is put
+   * on it (a picture or video dropped on the track, a picture pinned on a clip), as long as its folder is
+   * still the default (none, or the project's root), none was chosen for it and nothing was rendered on it yet.
+   */
+  private async adoptFolder(t: TimelineRow, asset: AssetRow, all: Placed[]) {
+    if (!asset.folder_id || asset.folder_id === t.folder_id || t.folder_chosen) return;
+    if (all.some((p) => p.takes.some((x) => x.asset.generation_id))) return;
+    const root = await rootFolderOf(this.db, t.project_id);
+    if (t.folder_id === null || t.folder_id === root) await this.db.updateTable("timelines").set({ folder_id: asset.folder_id }).where("id", "=", t.id).execute();
   }
 
   /** A recipe's inputs without the ones a timeline fills in itself. */
@@ -664,6 +716,17 @@ export class Timelines {
       .where("id", "=", id)
       .execute();
     if (patch.soundAsset) await this.keep(patch.soundAsset);
+    // a picture pinned on the clip: the timeline takes its folder, as a drop would
+    if (patch.inputs) {
+      const recipe = this.registry.recipe(patch.recipe ?? clip.recipe_id ?? "");
+      const was = JSON.parse(clip.inputs) as Record<string, unknown>;
+      const pinnedNow = recipe ? (recipe.inputs as InputSpec[]).filter((i) => i.type === "image" && typeof patch.inputs![i.id] === "string" && patch.inputs![i.id] !== was[i.id]).map((i) => patch.inputs![i.id] as string) : [];
+      if (pinnedNow.length) {
+        const t = await this.row(clip.timeline_id);
+        const picture = await this.assetRow(pinnedNow[0]!);
+        if (picture) await this.adoptFolder(t, picture, await this.placed(clip.timeline_id));
+      }
+    }
     if (patch.trimStartMs !== undefined || patch.trimEndMs !== undefined) {
       const takeId = patch.take ?? clip.take_id;
       if (!takeId) throw refused("There is nothing to trim yet: this clip has no take.");
@@ -820,6 +883,45 @@ export class Timelines {
   }
 
   /** What a take was rendered with, to render it again the same: its form and its seed. Null for a video that was not rendered here. */
+  /**
+   * Which timeline clip each of these videos is a take of, for the library: the timeline, the clip's number,
+   * the take's number among the clip's takes, whether it is the one playing, and how much bigger it is than
+   * the take it is the finished version of (null for a take that is not one).
+   */
+  async clipOf(assetIds: string[]): Promise<Map<string, ClipOf>> {
+    const out = new Map<string, ClipOf>();
+    if (!assetIds.length) return out;
+    const takes = await this.db.selectFrom("takes").selectAll().where("asset_id", "in", assetIds).execute();
+    if (!takes.length) return out;
+    const clipIds = [...new Set(takes.map((t) => t.clip_id))];
+    const clips = await this.db.selectFrom("clips").select(["id", "timeline_id", "take_id"]).where("id", "in", clipIds).execute();
+    const timelineIds = [...new Set(clips.map((c) => c.timeline_id))];
+    const [timelines, placed, siblings] = await Promise.all([
+      this.db.selectFrom("timelines").select(["id", "name"]).where("id", "in", timelineIds).execute(),
+      this.db.selectFrom("clips").select(["id", "timeline_id"]).where("timeline_id", "in", timelineIds).orderBy("position").orderBy("created_at").execute(),
+      this.db.selectFrom("takes").select(["id", "clip_id", "asset_id", "finished_from"]).where("clip_id", "in", clipIds).orderBy("created_at").execute(),
+    ]);
+    const nameOf = new Map(timelines.map((t) => [t.id, t.name]));
+    const widths = new Map(
+      (await this.db.selectFrom("assets").select(["id", "width"]).where("id", "in", [...new Set(siblings.map((s) => s.asset_id))]).execute()).map((a) => [a.id, a.width]),
+    );
+    for (const take of takes) {
+      const clip = clips.find((c) => c.id === take.clip_id);
+      if (!clip) continue;
+      const own = siblings.filter((s) => s.clip_id === clip.id);
+      const draft = take.finished_from ? own.find((s) => s.id === take.finished_from) : undefined;
+      const by = draft && widths.get(draft.asset_id) && widths.get(take.asset_id) ? Math.round((widths.get(take.asset_id)! / widths.get(draft.asset_id)!) * 10) / 10 : null;
+      out.set(take.asset_id, {
+        timeline: clip.timeline_id, timelineName: nameOf.get(clip.timeline_id) ?? "Timeline",
+        clip: placed.filter((p) => p.timeline_id === clip.timeline_id).findIndex((p) => p.id === clip.id) + 1,
+        take: own.findIndex((s) => s.id === take.id) + 1, takes: own.length,
+        playing: clip.take_id === take.id,
+        upscaledBy: take.finished_from ? by ?? 1 : null,
+      });
+    }
+    return out;
+  }
+
   async generationOf(assetId: string): Promise<{ recipe: string; inputs: Record<string, unknown>; seed: number } | null> {
     const asset = await this.db.selectFrom("assets").select("generation_id").where("id", "=", assetId).executeTakeFirst();
     if (!asset?.generation_id) return null;
@@ -1523,7 +1625,7 @@ export class Timelines {
       .values({
         id: assetId, owner_id: OWNER, kind: "video", origin: "exported", name: win ? `${t.name} · ${clockOf(win.a)}–${clockOf(win.b)}` : t.name, file_key: key, thumb_key: thumb ? thumbKey(assetId) : null,
         mime: "video/mp4", bytes: bytes.length, width: video.facts?.width ?? frame.width, height: video.facts?.height ?? frame.height,
-        duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: null, generation_id: null,
+        duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: t.folder_id, generation_id: null,
         kept_at: at, deleted_at: null, created_at: at,
       })
       .execute();

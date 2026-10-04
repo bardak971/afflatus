@@ -61,6 +61,7 @@ function Strip() {
       {run ? (
         <>
           <span className="font-semibold">{run.label}</span>
+          {run.join && <span className="rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent" title={run.join === "latent" ? "This clip continues the clip before in the latent: the clip before's own tokens, no re-encoded frames." : "This clip starts beside pinned frames of the clip before (that model has no latent to continue from)."}>{run.join === "latent" ? "latent join" : "pixel join"}</span>}
           <span className="text-ink-2">{phaseLabel(run.phase)}{run.steps ? ` · step ${run.step} of ${run.steps}` : ""}</span>
           <span className="font-mono text-ink-2" title="How long this render has been running">{elapsed}</span>
           <span className="text-ink-2">{run.eta ? about(run.eta) : run.progress > 0 ? `${Math.round(run.progress * 100)} %` : "working…"}</span>

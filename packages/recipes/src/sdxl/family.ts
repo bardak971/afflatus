@@ -9,22 +9,32 @@ export const sdxl = defineFamily({
   // the checkpoint is picked per generation, so it is an input of each recipe, not a slot
   slots: [],
   loraMatch: ["stable-diffusion-xl", "sdxl", "pony", "illustrious", "noob"],
-  guide: `A GOOD PROMPT is comma-separated danbooru-style tags, most important first, 40 to 70 tags:
-1. subject count: 1girl, 1boy, 2girls, solo
-2. who: a character tag if any (name, series in parentheses), then appearance: hair length, colour and style, eye colour, skin, build, distinctive marks
-3. outfit: one tag per garment with its colour (white shirt, pleated skirt, black thighhighs)
-4. expression and gaze: smile, blush, looking at viewer, closed eyes
-5. pose and action: sitting, arms up, leaning forward, holding cup
-6. framing and camera: portrait, upper body, cowboy shot, full body, from above, from below, from behind, pov
-7. setting: indoors or outdoors, the place with 3 to 5 concrete things in it, time of day, weather
+  guide: `SDXL checkpoints come in three lineages; the model file in use (named in the context) tells which:
+- Illustrious, NoobAI, WAI, Hassaku, Animagine and other anime checkpoints: DANBOORU TAGS.
+- Pony and its merges (AutismMix, CyberRealistic Pony…): danbooru-style tags; the score tags are set elsewhere.
+- Juggernaut, RealVisXL, DreamShaper, ZavyChroma and other realistic or general checkpoints: short PHRASES with photo terms.
+When the name says nothing, follow what the user wrote: tags stay tags, sentences become phrases; nothing yet means tags.
+A TAG PROMPT (anime and Pony): comma-separated, most important first, 30 to 60 tags, in this order:
+1. count: 1girl, 1boy, 2girls, solo
+2. who: a character tag if any (name, series in parentheses), then hair length, colour and style, eye colour, skin, build, marks
+3. outfit: one tag per garment with its colour
+4. expression and gaze: smile, blush, looking at viewer
+5. pose and action: sitting, arms up, holding cup
+6. framing and angle, one of each: portrait, upper body, cowboy shot, full body; from above, from below, from behind, pov
+7. setting: indoors or outdoors, the place with 3 to 5 concrete things, time of day, weather
 8. lighting and mood: sunlight, backlighting, rim light, soft lighting, night
+Illustrious v1 and later and Pony also take a short plain clause after the tags for an action with no tag.
+A PHRASE PROMPT (realistic): subject, action or pose, environment, style, lighting, technical, as short comma-separated phrases; photo terms these models answer to: cinematic, sharp focus, bokeh, golden hour, studio lighting, natural lighting, high resolution image; one or two that the picture calls for.
 RULES
-- Real tags only, lower case, spaces instead of underscores (long hair, not long_hair). One idea per tag, concrete.
-- No contradictions (sitting + standing, short hair + long hair) and no near-duplicates (smile + light smile + happy).
-- Weights only when needed, 0.8 to 1.3, written (tag:1.2). Never stack parentheses.
-- Counts matter: two people are 2girls, or 1boy, 1girl; describe each.
-- Quality tags (masterpiece, best quality, score_9…) are set per checkpoint in "Quality tags": do not put them in the prompt.
-- The part to avoid lists what must NOT appear, kept short (bad hands, extra digits, text, watermark).`,
+- Real tags only, lower case, spaces instead of underscores. One idea per tag. No contradictions (sitting + standing), no near-duplicates (smile + light smile).
+- Under 75 tokens: ComfyUI cuts a longer prompt into 77-token chunks and the later ones weigh less. Counts matter: 2girls, or 1boy, 1girl, each described.
+- Weights only when needed, 0.8 to 1.3, written (tag:1.2), on the main subject; never stacked parentheses.
+- Quality, score (score_9…), source, rating (safe, rating_safe) and year (newest) tags live in "Quality tags", set per checkpoint: never in the prompt.
+- The "Negative prompt" works (CFG 4 to 7), kept short, per lineage: anime: worst quality, low quality, lowres, bad anatomy, bad hands, signature, watermark; Pony: almost none; realistic: fake eyes, deformed eyes, cgi, 3d, airbrushed, bad hands. Never the wanted style in the negative.
+- Artist tags only when the user asks. A LoRA's trigger words stay.
+EXAMPLES, for the form only (their subjects, places and words are not to be reused):
+Tags: 1girl, solo, long hair, silver hair, single braid, red eyes, white shirt, pleated skirt, black thighhighs, light smile, looking at viewer, sitting, holding cup, upper body, from above, indoors, cafe, wooden table, window, rain, soft lighting
+Phrases: an elderly fisherman in a grey wool sweater and a flat cap, mending a net on a stone quay at dawn, weathered hands pulling the twine tight, gulls over grey water behind him, overcast light, close shot, sharp focus, high resolution image`,
 });
 
 export const DEFAULT_NEGATIVE =

@@ -12,6 +12,7 @@ import { readEmbedded } from "./embedded";
 import { resolveLink } from "./fromLink";
 import { fill, targetsFor } from "./fromPicture";
 import { newId, now, OWNER } from "./db";
+import type { Tables } from "./db";
 import { registerDesigner } from "./designer";
 import { registerDrafts } from "./drafts";
 import { compose, lookSchema, registerEntities } from "./entities";
@@ -462,7 +463,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
       const words = new Map(made.map((g) => [g.id, Object.values(JSON.parse(g.inputs) as Record<string, unknown>).filter((v): v is string => typeof v === "string").join(" ")]));
       const found = q.q?.trim() ? fuzzyFilter(rows, q.q, (a) => `${a.name} ${a.generation_id ? words.get(a.generation_id) ?? "" : ""}`) : rows;
       const from = Number(q.after) || 0;
-      return { items: found.slice(from, from + q.limit).map(assetView), next: from + q.limit < found.length ? String(from + q.limit) : null };
+      return { items: await placedViews(found.slice(from, from + q.limit)), next: from + q.limit < found.length ? String(from + q.limit) : null };
     }
     if (q.after) {
       const [at = "", id = ""] = q.after.split("|");
@@ -471,8 +472,14 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(q.limit + 1).execute();
     const page = rows.slice(0, q.limit);
     const tail = page.at(-1);
-    return { items: page.map(assetView), next: rows.length > q.limit && tail ? `${tail.created_at}|${tail.id}` : null };
+    return { items: await placedViews(page), next: rows.length > q.limit && tail ? `${tail.created_at}|${tail.id}` : null };
   });
+  /** The listed items; a video that is a take of a timeline clip says which (`clipOf`). */
+  async function placedViews(rows: Tables["assets"][]) {
+    const videos = rows.filter((r) => r.kind === "video").map((r) => r.id);
+    const placed = videos.length ? await s.timelines.clipOf(videos) : new Map();
+    return rows.map((r) => ({ ...assetView(r), clipOf: placed.get(r.id) ?? null }));
+  }
 
   /** The model families things in the library were made with, for the "Any model" filter. */
   app.get("/api/assets/families", async () => ({

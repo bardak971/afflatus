@@ -6,7 +6,7 @@ import { Picker } from "../PictureField";
 import { useAssets, useFolders } from "../data";
 import { clock } from "../format";
 import { useProject } from "../project";
-import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../screens/Library";
+import { ClipMark, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../screens/Library";
 import { Select } from "../Select";
 import { SHELF, useShelfWidth } from "../store";
 import { Button, cx, SectionTitle, Segmented } from "../ui";
@@ -89,22 +89,57 @@ export function Shelf({ onAdd, selected, timeline }: {
     },
     fetched && !collapsed,
   );
-  /** What this timeline already uses: every take's video, the stills, the sound files, the music. */
-  const used = useMemo(() => {
-    const seen = new Map<string, Asset>();
-    for (const c of timeline.clips) {
-      for (const t of c.takes) seen.set(t.asset.id, t.asset);
-      if (c.still) seen.set(c.still.id, c.still);
-      if (c.soundAsset) seen.set(c.soundAsset.id, c.soundAsset);
-    }
-    if (timeline.music) seen.set(timeline.music.asset.id, timeline.music.asset);
+  /** Takes that have a finished version are folded away unless asked for. */
+  const [everyTake, setEveryTake] = useState(false);
+  /**
+   * What this timeline already uses, clip by clip: the videos are each clip's takes (newest first, the one
+   * playing marked, the ones a finished version replaced folded away); the images are the stills; the audio
+   * the sound files and the music.
+   */
+  const inUse = useMemo(() => {
     const needle = q.toLowerCase();
-    return [...seen.values()].filter((a) => a.kind === tab && (!needle || (a.name ?? "").toLowerCase().includes(needle)));
-  }, [timeline, tab, q]);
+    const fits = (a: Asset | null | undefined): a is Asset => Boolean(a && a.kind === tab && (!needle || (a.name ?? "").toLowerCase().includes(needle)));
+    const groups: Array<{ day: string; items: Asset[] }> = [];
+    const playing = new Set<string>();
+    let folded = 0;
+    if (tab === "video") {
+      timeline.clips.forEach((c, i) => {
+        if (c.take) playing.add(c.take.asset.id);
+        const replaced = new Set(c.takes.map((t) => t.finishedFrom).filter((x): x is string => Boolean(x)));
+        const shown = c.takes.filter((t) => everyTake || !replaced.has(t.id));
+        folded += c.takes.length - shown.length;
+        const items = shown.map((t) => t.asset).filter(fits).reverse();
+        if (items.length) groups.push({ day: `Clip ${i + 1}${c.takes.length > 1 ? ` · ${c.takes.length} takes` : ""}`, items });
+      });
+    } else if (tab === "image") {
+      const stills = timeline.clips.map((c) => c.still).filter(fits);
+      if (stills.length) groups.push({ day: "Stills", items: stills });
+      // the pictures the clips start on, end on or pass through, once each
+      const seen = new Map<string, Asset>();
+      for (const c of timeline.clips) for (const p of c.pictures) if (fits(p.asset)) seen.set(p.asset.id, p.asset);
+      if (seen.size) groups.push({ day: "Pinned on clips", items: [...seen.values()] });
+    } else {
+      const seen = new Map<string, Asset>();
+      for (const c of timeline.clips) if (fits(c.soundAsset)) seen.set(c.soundAsset.id, c.soundAsset);
+      if (fits(timeline.music?.asset)) seen.set(timeline.music!.asset.id, timeline.music!.asset);
+      if (seen.size) groups.push({ day: "Sound", items: [...seen.values()] });
+    }
+    return { groups, playing, folded };
+  }, [timeline, tab, q, everyTake]);
+  const used = useMemo(() => inUse.groups.flatMap((g) => g.items), [inUse]);
+  /** Everything the timeline uses, whatever tab is open: the note on the scope. */
+  const usedNote = useMemo(() => {
+    const takes = timeline.clips.reduce((n, c) => n + c.takes.length, 0);
+    const stills = timeline.clips.filter((c) => c.still).length;
+    const pictures = new Set(timeline.clips.flatMap((c) => c.pictures.map((p) => p.asset.id))).size;
+    const sounds = timeline.clips.filter((c) => c.soundAsset).length + (timeline.music ? 1 : 0);
+    const parts = [takes ? `${takes} take${takes === 1 ? "" : "s"}` : "", stills ? `${stills} still${stills === 1 ? "" : "s"}` : "", pictures ? `${pictures} picture${pictures === 1 ? "" : "s"}` : "", sounds ? `${sounds} sound${sounds === 1 ? "" : "s"}` : ""].filter(Boolean);
+    return parts.length ? parts.join(" · ") : "nothing yet";
+  }, [timeline]);
   const items = fetched ? (assets.data?.pages.flatMap((p) => p.items) ?? []) : used;
-  // grouped by the day they were made, newest first (what the timeline uses is one group)
+  // grouped by the day they were made, newest first (what the timeline uses: by clip)
   const groups = useMemo(() => {
-    if (!fetched) return [{ day: "", items }];
+    if (!fetched) return inUse.groups;
     const out: Array<{ day: string; items: Asset[] }> = [];
     for (const a of items) {
       const day = dayOf(a.createdAt);
@@ -113,7 +148,7 @@ export function Shelf({ onAdd, selected, timeline }: {
       else out.push({ day, items: [a] });
     }
     return out;
-  }, [items, fetched]);
+  }, [items, fetched, inUse]);
 
   const drag = (a: Asset) => (e: React.DragEvent) => {
     e.dataTransfer.setData(DRAG_TYPE, a.id);
@@ -124,7 +159,7 @@ export function Shelf({ onAdd, selected, timeline }: {
   const scopeName = project === null ? "Everything" : project === "none" ? "The Inbox" : "This project";
   const scopes: Array<{ value: Scope; label: string; note?: string }> = [
     { value: "project", label: scopeName, note: project === null ? "the whole library" : "as the switcher says" },
-    { value: "timeline", label: "In this timeline", note: `${used.length} used` },
+    { value: "timeline", label: "In this timeline", note: usedNote },
     { value: "recent", label: "Recent", note: "made in the last 48 hours" },
     { value: "kept", label: "Kept", note: "starred" },
     ...(project !== null ? [{ value: "all" as const, label: "Everything", note: "every project" }] : []),
@@ -174,6 +209,12 @@ export function Shelf({ onAdd, selected, timeline }: {
           <Search size={13} className="shrink-0 text-ink-3" />
           <input data-search="shelf" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={scope === "timeline" ? "Find by name" : "Find by prompt or name"} className="min-w-0 grow bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
         </label>
+        {scope === "timeline" && tab === "video" && (inUse.folded > 0 || everyTake) && (
+          <label className="flex h-7 items-center gap-2 px-1 text-xs text-ink-2" title="A take that has a finished version is folded away: the finished one stands for it. Tick to see every take.">
+            <input type="checkbox" checked={everyTake} onChange={(e) => setEveryTake(e.target.checked)} className="accent-accent" />
+            Every take{!everyTake && inUse.folded > 0 ? ` (${inUse.folded} folded away)` : ""}
+          </label>
+        )}
         {(scope === "project" || scope === "all") && own.length > 0 && (
           <Select size="sm" label="Folder" value={folder} onChange={setFolder} options={[{ value: "", label: scope === "all" ? "All folders" : "All its folders" }, ...own.map((f) => ({ value: f.id, label: f.name, note: `${f.count}` }))]} />
         )}
@@ -208,8 +249,9 @@ export function Shelf({ onAdd, selected, timeline }: {
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2">
                 {g.items.map((a) => (
-                  <div key={a.id} draggable onDragStart={drag(a)} className="group relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent">
+                  <div key={a.id} draggable onDragStart={drag(a)} title={!fetched && inUse.playing.has(a.id) ? "The take this clip plays" : undefined} className={cx("group relative aspect-[3/4] overflow-hidden rounded-lg border bg-raised hover:border-accent", !fetched && inUse.playing.has(a.id) ? "border-accent ring-1 ring-accent" : "border-line")}>
                     <HoverVideo asset={a.id} video={a.kind === "video"} alt={a.name} />
+                    {fetched && a.clipOf && <ClipMark of={a.clipOf} className="absolute right-1 bottom-1" />}
                     {a.kind === "video" && (
                       <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-ground/80 px-1 py-px text-[10px] font-semibold">
                         <Play size={8} fill="currentColor" />

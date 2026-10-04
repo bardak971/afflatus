@@ -1,7 +1,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CornerDownRight, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
+import { CornerDownRight, Film, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
 import { HoverVideo } from "../HoverVideo";
 import { api, thumbUrl, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
@@ -98,7 +98,20 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       {!asset.kept && !asset.inBin && (
         <span title="Goes to the bin then unless you keep it." className="absolute top-2 right-2 rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold text-warn-on">{left(asset)}</span>
       )}
+      {asset.clipOf && <ClipMark of={asset.clipOf} className="absolute right-2 bottom-2" />}
     </button>
+  );
+}
+
+/** On a video that is a take of a timeline clip: the clip's number, the rest on hover. */
+export function ClipMark({ of, className }: { of: NonNullable<Asset["clipOf"]>; className?: string }) {
+  const what = `${of.timelineName}: clip ${of.clip}${of.takes > 1 ? `, take ${of.take} of ${of.takes}` : ""}${of.playing ? " (the one playing)" : of.takes > 1 ? " (not the one playing)" : ""}${of.upscaledBy ? `, upscaled${of.upscaledBy !== 1 ? ` ×${of.upscaledBy}` : ""}` : ""}`;
+  return (
+    <span title={what} aria-label={what} className={cx("flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-[10px] font-semibold", of.playing || of.takes === 1 ? "text-accent" : "text-ink-2", className)}>
+      <Film size={9} />
+      {of.clip}
+      {of.takes > 1 && <span className="font-normal text-ink-2">·{of.take}</span>}
+    </span>
   );
 }
 

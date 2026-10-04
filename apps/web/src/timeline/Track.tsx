@@ -8,6 +8,10 @@ import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../screens/Libr
 import { Bar, cx } from "../ui";
 import { DRAG_CLIP, layout, NEW_CLIP, otherShape, PAD, pinInputs, placeOf, playAt, stamp, titleOf, ZOOM, type Slot } from "./model";
 import { LivePreview } from "../LivePreview";
+import { ClipTip } from "./ClipTip";
+
+/** How long the pointer rests on a clip before its tooltip shows. */
+const TIP_AFTER_MS = 1000;
 
 /** Where the rows sit, top to bottom. */
 const RULER = 20;
@@ -102,6 +106,24 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const [dragging, setDragging] = useState<"clip" | "picture" | "video" | "sound" | null>(null);
   /** An edge being dragged: the clip, which edge, and the length it has for now. */
   const [stretch, setStretch] = useState<{ clip: string; side: "start" | "end"; lengthMs: number } | null>(null);
+  /** The clip whose tooltip shows, and where; the timer that is counting towards showing one. */
+  const [tip, setTip] = useState<{ clip: string; left: number; top: number } | null>(null);
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restOn = (id: string, el: HTMLElement) => {
+    if (tipTimer.current) clearTimeout(tipTimer.current);
+    tipTimer.current = setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      setTip({ clip: id, left: r.left, top: r.bottom });
+    }, TIP_AFTER_MS);
+  };
+  const leaveTip = () => {
+    if (tipTimer.current) clearTimeout(tipTimer.current);
+    tipTimer.current = null;
+    setTip(null);
+  };
+  useEffect(() => () => {
+    if (tipTimer.current) clearTimeout(tipTimer.current);
+  }, []);
   const pull = useRef<{ x: number; base: number; least: number; most: number } | null>(null);
 
   const slots = useMemo(() => layout(clips, pps, recipes, stretch ?? undefined), [clips, pps, recipes, stretch]);
@@ -447,6 +469,10 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               ))}
             </div>
 
+            {tip && (() => {
+              const i = clips.findIndex((c) => c.id === tip.clip);
+              return i >= 0 ? <ClipTip clip={clips[i]!} index={i} clips={clips} at={tip} /> : null;
+            })()}
             {slots.map((s) => {
               const c = s.clip;
               const on = c.id === selected;
@@ -473,10 +499,14 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     type="button"
                     draggable={!stretch}
                     onDragStart={(e) => {
+                      leaveTip();
                       e.dataTransfer.setData(DRAG_CLIP, c.id);
                       e.dataTransfer.effectAllowed = "move";
                     }}
                     onDragOver={(e) => overClip(e, s)}
+                    onPointerEnter={(e) => restOn(c.id, e.currentTarget)}
+                    onPointerLeave={leaveTip}
+                    onPointerDown={leaveTip}
                     onClick={(e) => {
                       // Shift: the range reaches to cover this clip too (or starts as this clip)
                       if (e.shiftKey && c.lengthMs > 0) {

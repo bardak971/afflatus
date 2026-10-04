@@ -221,6 +221,63 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
   );
 }
 
+/** The prompting guides, one per model family, folded; each opens to its text. */
+function Guides({ own, onSave }: { own: Record<string, string>; onSave(id: string, text: string): Promise<unknown> }) {
+  const guides = useQuery({ queryKey: ["designer-guides"], queryFn: api.designerGuides, staleTime: 60_000 });
+  const [open, setOpen] = useState<string | null>(null);
+  if (guides.isError) return <ErrorNote>{guides.error.message}</ErrorNote>;
+  return (
+    <div className="flex flex-col gap-2">
+      {(guides.data?.items ?? []).map((g) => (
+        <GuideEditor key={g.id} guide={g} own={own[g.id] ?? ""} open={open === g.id} onOpen={() => setOpen(open === g.id ? null : g.id)} onSave={(text) => onSave(g.id, text)} />
+      ))}
+    </div>
+  );
+}
+
+/** One family's guide: the built-in text to read, or yours in its place. */
+function GuideEditor({ guide, own, open, onOpen, onSave }: {
+  guide: { id: string; name: string; style: string; guide: string };
+  own: string;
+  open: boolean;
+  onOpen(): void;
+  onSave(text: string): Promise<unknown>;
+}) {
+  const [text, setText] = useState(own || guide.guide);
+  useEffect(() => setText(own || guide.guide), [own, guide.guide]);
+  const yours = own.trim().length > 0;
+  const dirty = text !== (own || guide.guide);
+  const save = useMutation({ mutationFn: (t: string) => onSave(t) });
+  return (
+    <div className="rounded-lg border border-line">
+      <button type="button" aria-expanded={open} onClick={onOpen} className="flex h-10 w-full items-center gap-2 px-3 text-left hover:bg-hover">
+        <span className="font-semibold">{guide.name}</span>
+        <span className="text-xs text-ink-3">{guide.style === "tags" ? "tags" : "sentences"} · {guide.guide.split(/\s+/).length} words</span>
+        {yours && <span className="rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">yours</span>}
+        <span className="grow" />
+        <span className="text-xs text-ink-2">{open ? "Close" : yours ? "Read or change" : "Read"}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 border-t border-line p-3">
+          <AutoText
+            aria-label={`Prompting guide for ${guide.name}`}
+            rows={8}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 font-mono text-xs leading-normal"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {dirty && <Button size="sm" tone="primary" disabled={save.isPending || !text.trim()} onClick={() => save.mutate(text.trim() === guide.guide.trim() ? "" : text)}>Save as my guide for {guide.name}</Button>}
+            {(yours || dirty) && <Button size="sm" tone="quiet" disabled={save.isPending} onClick={() => { setText(guide.guide); if (yours) save.mutate(""); }}>Reset to built-in</Button>}
+            <span className="text-xs text-ink-3">{yours ? "The designer is given your text for this family." : "The built-in text. Change it and save: yours replaces it for this family only."}</span>
+          </div>
+          {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Instructions of your own for the designer, under a name. */
 function InstructionEditor({ item, fresh, onSave, onRemove }: {
   item: Settings["designerInstructions"][number];
@@ -340,6 +397,12 @@ function DesignerCard() {
         <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add system prompt</Button>
       </div>
       {change.isError && <ErrorNote>{change.error.message}</ErrorNote>}
+
+      <h3 className="mt-2 font-bold">Prompting guides</h3>
+      <div className="text-ink-2">
+        How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent.
+      </div>
+      <Guides own={s?.designerGuides ?? {}} onSave={(id, text) => put({ designerGuides: { ...(s?.designerGuides ?? {}), [id]: text } })} />
 
       <h3 className="mt-2 font-bold">Conversation history</h3>
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2.5">

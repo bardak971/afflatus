@@ -167,6 +167,8 @@ export interface Tables {
     /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root, or none). */
     project_id: string | null;
     folder_id: string | null;
+    /** 1: the folder was chosen by hand; 0: it is the default (the project's root), or taken from the first material dropped on the timeline. */
+    folder_chosen: number;
     width: number | null;
     height: number | null;
     /** One sound under the whole video: the file, how loud (0 to 100), its fades, and whether it gives way to the clips' own sound. */
@@ -649,6 +651,15 @@ migrations["0013_model_pages"] = {
 
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
+migrations["0029_folder_chosen"] = {
+  async up(db) {
+    await db.schema.alterTable("timelines").addColumn("folder_chosen", "integer", (c) => c.notNull().defaultTo(0)).execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("timelines").dropColumn("folder_chosen").execute();
+  },
+};
+
 migrations["0028_join_kind"] = {
   async up(db) {
     await db.schema.alterTable("takes").addColumn("join_kind", "text").execute();

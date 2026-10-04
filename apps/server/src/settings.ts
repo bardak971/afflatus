@@ -48,6 +48,8 @@ export const settingsSchema = z.object({
   designerInstructions: z.array(instructionSchema).max(30).default([]),
   /** The instructions in use (an id of `designerInstructions`); empty for none. */
   designerInstruction: z.string().default(""),
+  /** The user's own prompting guide for a model family (family id → text), in place of the built-in one; empty = the built-in. */
+  designerGuides: z.record(z.string().max(120), z.string().max(12000)).default({}),
   /** Tags written for an anime model are compared with danbooru's list, under the prompt and in what the designer writes. */
   tagCheck: z.boolean().default(true),
   /**
@@ -144,6 +146,7 @@ export function publicSettings(s: Settings) {
     designerLlm: used?.id ?? "",
     designerInstructions: s.designerInstructions,
     designerInstruction: s.designerInstructions.some((i) => i.id === s.designerInstruction) ? s.designerInstruction : "",
+    designerGuides: s.designerGuides,
     tagCheck: s.tagCheck,
     families: s.families,
     hasCivitaiKey: Boolean(s.civitaiKey),

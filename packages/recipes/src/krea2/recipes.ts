@@ -42,7 +42,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
   output: "image",
   inputs: [
     krea2Model,
-    { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up, shallow depth of field." },
+    { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up." },
     {
       id: "references", type: "references", label: "Style reference images", max: STYLE_IMAGES, roles: ["style"],
       note: "the look to follow (a drawing style, a colour mood, a kind of photo), not who is in it. Needs the style-reference LoRA.",
