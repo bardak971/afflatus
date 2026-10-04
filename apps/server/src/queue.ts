@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@afflatus/comfy";
-import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { ComfyCancelled, ComfyLost, ComfyUnreachable, detect, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@afflatus/comfy";
+import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue, type BuildContext, type Ref } from "@afflatus/core";
 import { cutFrames, referenceClip, frameAt, slowSoundOnto, soundPart } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
@@ -13,6 +13,7 @@ import { estimateMs, rates, type Rate } from "./estimates";
 import { guessFor, known, usualParts } from "./renders";
 import { GraphBuilder } from "@afflatus/core";
 import { CUT_JOB, EXPORT_JOB, type CutOptions, type ExportOptions, type TakeLinks, type Timelines } from "./timelines";
+import { pixelUpscale, saveVideo, UPSCALE } from "@afflatus/recipes";
 import { readVideo } from "./video";
 
 
@@ -174,7 +175,7 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw new UserError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
@@ -191,7 +192,7 @@ export class Queue {
         id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input),
         status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0,
-        draft_id: opts.draft ?? null, folder_id: opts.folder ?? null,
+        draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
@@ -536,7 +537,40 @@ export class Queue {
       if (!this.clips) throw new Error("timelines are not available");
       const video = await this.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
       if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
-      if (opts.action === "slow") {
+      if (opts.action === "finish") {
+        // the whole video up to ComfyUI, the route run on its frames (the sound passed through), the result back as a video
+        const comfy = await this.comfy();
+        const catalog = await comfy.catalog();
+        // SeedVR2's two files, found by name as the setup page finds them (the full scan is not needed for that)
+        const slots: Record<string, string> = {};
+        for (const slot of (this.registry.family("tools")?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae")) {
+          const hit = detect(await comfy.client.models(slot.folder).catch(() => [] as string[]), slot.detect);
+          if (hit) slots[slot.id] = hit;
+        }
+        const route = opts.route === "rtx" ? UPSCALE.rtx : opts.route === "model" ? UPSCALE.model : UPSCALE.seedvr;
+        let upscaleModel = opts.upscaleModel || "";
+        if (route === UPSCALE.model && !upscaleModel) {
+          upscaleModel = (await comfy.client.models("upscale_models").catch(() => [] as string[]))[0] ?? "";
+          if (!upscaleModel) throw new Error("No upscale model in ComfyUI's models/upscale_models folder: put one there (2xNomosUni_span_multijpg, RealESRGAN_x2plus), or finish with SeedVR2.");
+        }
+        this.running.gpu = true;
+        const file = await comfy.client.upload(await this.storage.get(video.file_key), extOf(video.mime));
+        const g = new GraphBuilder();
+        const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
+        const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog };
+        const by = opts.by ?? 2;
+        const done = pixelUpscale(g, [parts, 0], { upscale: route, upscaleBy: by, upscaleModel, upscaleColour: opts.colour }, { width: video.width ?? 0, height: video.height ?? 0 }, ctx);
+        const outNode = saveVideo(g, ctx, { images: done.images, ...(video.has_sound ? { audio: [parts, 1] as Ref } : {}), fps: video.fps ?? 24, crf: 16 });
+        const promptId = await comfy.client.submit(g.graph);
+        this.running.promptId = promptId;
+        const output = await this.awaitPrompt(comfy, promptId, outNode, abort.signal);
+        const bytes = await comfy.client.view(output);
+        const made = await this.clips.keepCut(video, bytes, this.clips.finishName(video, opts.route ?? "seedvr", by), 0, video.duration_ms ?? 0);
+        if (opts.clip) {
+          await this.clips.takeFrom(opts.clip, made, "the finished take", opts.finishedFrom ?? null);
+          this.events.emit("timeline");
+        }
+      } else if (opts.action === "slow") {
         const factor = opts.factor ?? 2;
         let made;
         if (opts.engine === "rife") {
@@ -586,7 +620,9 @@ export class Queue {
       }
       const h = await comfy.client.history(promptId).catch(() => undefined);
       if (h?.status?.completed) {
-        const file = h.outputs?.[node]?.gifs?.[0] ?? Object.values(h.outputs ?? {}).flatMap((o) => o.gifs ?? [])[0];
+        // VideoHelperSuite answers under "gifs"; ComfyUI's own SaveVideo under "images", with the video's name
+        const video = (o: { gifs?: OutputFile[]; images?: OutputFile[] } | undefined) => o?.gifs?.[0] ?? o?.images?.find((f) => /\.(mp4|webm|mkv|mov)$/i.test(f.filename));
+        const file = video(h.outputs?.[node]) ?? Object.values(h.outputs ?? {}).map(video).find(Boolean);
         if (!file) throw new Error("ComfyUI finished without a video");
         return file;
       }
@@ -613,7 +649,7 @@ export class Queue {
     try {
       const opts = JSON.parse(row.inputs) as ExportOptions;
       if (!this.clips) throw new Error("timelines are not available");
-      await this.clips.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, signal: abort.signal });
+      await this.clips.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, signal: abort.signal });
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) {
@@ -680,7 +716,7 @@ export class Queue {
       }
       const generationId = await this.store(comfy, recipe, resume.input ?? input, resume, outputs, row);
       made = generationId;
-      if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {});
+      if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {}, row.finished_from);
       await this.finish(row.id, "done", { generationId });
       await this.note(row, recipe, resume, measured, "done", whole, tookMs, generationId);
       this.events.emit("library");
@@ -714,7 +750,8 @@ export class Queue {
       const of = (...phases: string[]) => Math.round(phases.reduce((n, p) => n + (spent[p] ?? 0), 0));
       const load = of("waiting", "loading");
       const sample = of("sampling");
-      const refine = of("upscaling", "refining", "detailing");
+      // every pass after the main sampling: a refine or hires pass, an upscale (pixel, latent, SeedVR2), a detailer, a tool's processing
+      const refine = of("upscaling", "refining", "restoring", "detailing", "processing");
       // what is left is the finishing: decoding, smoothing, saving (and anything a workflow of its own does that has no name here)
       const finish = measured ? Math.max(0, Math.round(totalMs) - load - sample - refine) : 0;
       await this.db

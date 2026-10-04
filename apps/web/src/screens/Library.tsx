@@ -59,7 +59,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       aria-label={`Open ${asset.kind}`}
       onContextMenu={onMenu}
       data-stage
-      className={cx("group relative aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
+      className={cx("group relative block w-full aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
     >
       {onSelect && (
         <span

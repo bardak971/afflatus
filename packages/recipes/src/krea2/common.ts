@@ -1,4 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, LoraValue, Ref } from "@afflatus/core";
+import { loadUnet, unetNodes } from "../shared/unet";
 
 /** What every Krea 2 recipe asks for besides its own inputs. */
 export interface Krea2Base {
@@ -53,7 +54,7 @@ export interface Krea2 {
 }
 
 export const LOAD_NODES = (input: Krea2Base) => [
-  "UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "PreviewImage",
+  ...unetNodes(input.model), "CLIPLoader", "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "PreviewImage",
   ...(input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
   ...(input.negative.trim() ? [] : ["ConditioningZeroOut"]),
   ...(input.shift > 0 ? ["ModelSamplingAuraFlow"] : []),
@@ -62,7 +63,7 @@ export const LOAD_NODES = (input: Krea2Base) => [
 /** The model with its LoRAs, the text encoder and the VAE. */
 export function loadKrea2(g: GraphBuilder, input: Krea2Base, ctx: BuildContext): Krea2 {
   const unet = input.model ?? ctx.slots.unet;
-  let model = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
+  let model = loadUnet(g, ctx, unet);
   for (const l of input.loras) {
     if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
   }

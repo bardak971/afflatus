@@ -62,11 +62,20 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
 
   // the built web app, served by the same process: one thing to start, one port
   if (opts.webDir) {
-    void app.register(fastifyStatic, { root: opts.webDir, wildcard: false });
+    // one route for the whole folder, read at each request: a bundle rebuilt while the server runs is served as it
+    // is now (with a route per file, taken at start, a new bundle's files were "not found" until a restart)
+    void app.register(fastifyStatic, {
+      root: opts.webDir, wildcard: true,
+      // the bundle's files carry a hash in their name: kept for good. The page itself is asked for again each time, so a new build is seen on the next load
+      setHeaders: (res, path) => void res.header("Cache-Control", path.replaceAll("\\", "/").includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache"),
+    });
     app.setNotFoundHandler((req, reply) => {
-      // any other page address is the app's own routing: hand it the app
-      if (req.method === "GET" && !req.url.startsWith("/api/")) return reply.sendFile("index.html");
-      return reply.status(404).send({ error: "there is nothing at this address" });
+      const path = req.url.split("?")[0] ?? "";
+      // a file that is not there (a bundle from before a rebuild, still named by an open tab) is a 404, never the page:
+      // a browser given a page where it asked for a script refuses it, and the error it shows says nothing about why
+      const file = /\.[a-z0-9]{2,8}$/i.test(path);
+      if (req.method === "GET" && !path.startsWith("/api/") && !file) return reply.header("Cache-Control", "no-cache").sendFile("index.html");
+      return reply.status(404).send({ error: file ? "there is no such file: if the page just loaded, reload it, it may name a bundle from before a rebuild" : "there is nothing at this address" });
     });
   }
 

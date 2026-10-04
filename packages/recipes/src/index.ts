@@ -1,5 +1,5 @@
 import type { Family, Recipe } from "@afflatus/core";
-import { flux, fluxEdit, fluxFixFace, fluxPaintOver, fluxPicture, fluxRedraw, fluxSharper } from "./flux";
+import { flux, fluxEdit, fluxFixFace, fluxOutpaint, fluxPaintOver, fluxPicture, fluxRedraw, fluxSharper } from "./flux";
 import { h3 } from "./h3/family";
 import { h3Video } from "./h3/video";
 import { klein } from "./klein/family";
@@ -10,25 +10,27 @@ import { krea2FixFace, krea2PaintOver, krea2Picture, krea2Redraw, krea2Sharper }
 import { kleinEdit, kleinFixFace, kleinPaintOver, kleinPicture, kleinReshape, kleinSharper, kleinVariation } from "./klein/recipes";
 import { sdxl } from "./sdxl/family";
 import { sdxlTextToPicture } from "./sdxl/text-to-picture";
-import { sdxlFixFace, sdxlPaintOver, sdxlRedraw, sdxlSharper } from "./sdxl/tools";
-import { qwen, qwenEdit, qwenFixFace, qwenPaintOver, qwenPicture, qwenRedraw, qwenSharper } from "./qwen";
-import { removeBackground, tools } from "./tools";
+import { sdxlFixFace, sdxlOutpaint, sdxlPaintOver, sdxlRedraw, sdxlSharper } from "./sdxl/tools";
+import { qwen, qwenEdit, qwenFixFace, qwenOutpaint, qwenPaintOver, qwenPicture, qwenRedraw, qwenSharper } from "./qwen";
+import { qwen21, qwen21Edit, qwen21Picture } from "./qwen21";
+import { removeBackground, seedvrPicture, tools } from "./tools";
 import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
 
-export const families: Family[] = [sdxl, klein, krea2, flux, qwen, h3, wan, ltx, tools];
+export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, h3, wan, ltx, tools];
 
 /** Every built-in recipe. Imported workflows are added to this list at run time by the server. */
 export const recipes: Recipe<any>[] = [
-  sdxlTextToPicture, sdxlRedraw, sdxlPaintOver, sdxlSharper, sdxlFixFace,
+  sdxlTextToPicture, sdxlRedraw, sdxlPaintOver, sdxlOutpaint, sdxlSharper, sdxlFixFace,
   kleinPicture, kleinEdit, kleinVariation, kleinPaintOver, kleinReshape, kleinSharper, kleinFixFace,
   krea2Picture, krea2Redraw, krea2PaintOver, krea2Sharper, krea2FixFace,
-  fluxPicture, fluxEdit, fluxRedraw, fluxPaintOver, fluxSharper, fluxFixFace,
-  qwenPicture, qwenEdit, qwenRedraw, qwenPaintOver, qwenSharper, qwenFixFace,
+  fluxPicture, fluxEdit, fluxRedraw, fluxPaintOver, fluxOutpaint, fluxSharper, fluxFixFace,
+  qwenPicture, qwenEdit, qwenRedraw, qwenPaintOver, qwenOutpaint, qwenSharper, qwenFixFace,
+  qwen21Picture, qwen21Edit,
   h3Video,
   wanVideo,
   ltxVideo,
-  removeBackground,
+  removeBackground, seedvrPicture,
 ];
 
 export const familyById = (id: string) => families.find((f) => f.id === id);
@@ -37,12 +39,14 @@ export const recipeById = (id: string) => recipes.find((r) => r.id === id);
 export { h3, h3Video, klein, krea2, krea2Picture, sdxl, sdxlTextToPicture, tools, wan, wanVideo };
 export { wanCanvas, wanFrames, WAN_FPS } from "./wan/family";
 export { ltx, ltxVideo };
-export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture };
+export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture, qwen21, qwen21Edit, qwen21Picture };
 export { ltxCanvas, ltxFrames, LTX_FPS } from "./ltx/family";
 export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./ltx/video";
 export type { LtxVideo } from "./ltx/video";
 export type { WanVideo } from "./wan/video";
 export { h3Canvas, h3Frames, H3_FPS } from "./h3/family";
+export { pixelUpscale, UPSCALE } from "./video/upscale";
+export { saveVideo } from "./shared/out";
 export { h3Prompt, h3ReferencePrompt, isH3Layout } from "./h3/prompt";
 export { introduce, kleinSize } from "./klein/common";
 export { padsFor } from "./klein/recipes";

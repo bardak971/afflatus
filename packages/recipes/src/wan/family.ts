@@ -1,5 +1,6 @@
 import { frameOf } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
+import { SEEDVR_SLOTS } from "../video/upscale";
 
 /** Where ComfyUI's own templates fetch Wan 2.2's files from. */
 const HF = "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files";
@@ -79,6 +80,7 @@ export const wan = defineFamily({
       id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
       hint: "Without it, no frame interpolation: clips stay at 16 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
+    ...SEEDVR_SLOTS,
   ],
   loraMatch: ["wan"],
   guide: `Wan 2.2 makes video WITHOUT sound: nobody is heard, so write no dialogue.

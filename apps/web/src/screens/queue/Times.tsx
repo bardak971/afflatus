@@ -36,7 +36,7 @@ const toLocalInput = (ms: number) => {
 const PHASES: Array<{ id: keyof TimeParts; label: string; tone: string; color: string }> = [
   { id: "loading", label: "Model load", tone: "bg-ink-3", color: "var(--color-ink-3)" },
   { id: "sampling", label: "Sampling", tone: "bg-accent", color: "var(--color-accent)" },
-  { id: "refining", label: "Refine pass / hires fix", tone: "bg-picture", color: "var(--color-picture)" },
+  { id: "refining", label: "Refine and upscale passes (hires fix, upscale, SeedVR2, detailer)", tone: "bg-picture", color: "var(--color-picture)" },
   { id: "finishing", label: "VAE decode, interpolation, encoding", tone: "bg-good", color: "var(--color-good)" },
 ];
 const DAY = 86_400_000;
@@ -508,7 +508,7 @@ function ModelDetail({ model: m, times, timeLabel, stretch }: { model: TimesSumm
             <span className="text-xs text-ink-3">
               {[
                 s.stepMs === null ? `sampling ${took(s.sampleMs)}` : `sampling ${took(s.sampleMs)} at ${pace(s.stepMs)} s/it`,
-                s.refineMs > 500 ? `refine pass ${took(s.refineMs)}` : "",
+                s.refineMs > 500 ? `refine/upscale ${took(s.refineMs)}` : "",
                 `VAE decode and encoding ${took(s.finishMs)}`,
                 s.loadMs ? `model load ${took(s.loadMs)} on a cold start` : "",
               ].filter(Boolean).join(" + ")}. Other parameters are scaled from the model's median, per second of video when it is one.

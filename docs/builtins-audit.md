@@ -111,3 +111,18 @@ Animagine); Qwen 50 steps, its own negative, seven shapes; Flux shift always siz
 capped at 4; Krea 2 style refs 2; Nomos8kSC first among upscalers, 2× models first for video, background removal as a
 family slot with a download. Not applied: Wan t2v cfg 4 (medium), H3 euler/beta for turbo (low), NVIDIA's RTX node
 (its DynamicCombo API shape unverified), everything under Additions.
+
+## Additions built 2026-10-04
+
+- **GGUF models** everywhere a diffusion model is loaded (`shared/unet.ts`: `UnetLoaderGGUF` for a `.gguf` file, refused in words without the ComfyUI-GGUF pack; the scan lists `unet_gguf` files among the diffusion models).
+- **LTX temporal upscaler** as the "Frame interpolation" route when its file is there (`smoothWith`: Auto / LTX temporal / RIFE): the latent's frames doubled by `LTXVLatentUpsampler`, a 2-step settle, 50 fps; experimental, the settle is not a published setting.
+- **SeedVR2** with ComfyUI's own nodes (0.37): a fourth upscale route on H3, Wan and LTX ("Video: SeedVR2 (restores)", colour match lab/wavelet/adain/none) and an image tool ("Upscale (SeedVR2)"); two optional slots per family with the Comfy-Org downloads (3B int8, 3.4 GB; the VAE).
+- **Wan hybrid turbo** (`turboHybrid`): one or two steps on the high-noise model without its LoRA at the full CFG, then the LoRAs at CFG 1.
+- **ComfyUI's own video output** (`shared/out.ts`): `CreateVideo` + `SaveVideo` (mp4, h264, the CRF) when VideoHelperSuite is absent; VHS still first, since it writes to temp.
+- **NVIDIA's RTX VSR node** (`RTXVideoSuperResolution`, `resize_type.scale`) as the first driver of the RTX route, DaSiWa's second.
+- **SDXL v-prediction**: `prediction` Auto / epsilon / v-prediction (zsnr) + `rescale` 0.7 (`ModelSamplingDiscrete` + `RescaleCFG`); Auto reads "vpred" in the file name; the NoobAI v-pred preset sets it.
+- **Soft inpainting** on SDXL, Flux and Qwen: `DifferentialDiffusion` with the soft (grown, blurred) mask in the latent.
+- **Outpaint** recipes for SDXL, Flux and Qwen (`ImagePadForOutpaint` → `VAEEncodeForInpaint`, denoise 1, the result brought back to the padded size).
+- **Qwen Image 2.1** family (`qwen21`): txt2img (40 steps, CFG 1, up to 2K) and Edit (up to 10 pictures as `<imageN>`, `TextEncodeQwenImage21` + `QwenImage21Cache`), without the templates' prompt rewriter; its weights are under the Qwen Research License, said in the family's summary.
+- Not built: FlashVSR (third-party packs only, or a paid API node); Nunchaku; Kontext ImageStitch; FLUX.1 Fill; H3's SageAttention patch and style embeddings; Wan 5B; ColorMatch.
+

@@ -88,6 +88,8 @@ export interface Variant<In> {
   uploads?: Record<string, string>;
   media?: Record<string, MediaFacts>;
   canvas?: { width: number; height: number };
+  /** Which node classes "its" ComfyUI has, when the variant is about doing without one (every node, left out). */
+  has?(node: string): boolean;
 }
 
 export interface Recipe<In = Record<string, unknown>> {

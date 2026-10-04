@@ -72,7 +72,7 @@ interface Tracked extends Tracking {
   heatPeak: number | null;
 }
 
-const SAMPLER_PHASES: ReadonlyArray<string> = ["sampling", "refining", "detailing"];
+const SAMPLER_PHASES: ReadonlyArray<string> = ["sampling", "refining", "restoring", "detailing"];
 
 /**
  * Listens to one ComfyUI's websocket and keeps the progress and the latest live preview of the prompts

@@ -1,5 +1,6 @@
 import { frameOf } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
+import { SEEDVR_SLOTS } from "../video/upscale";
 
 /**
  * LTX 2.3: video with sound, from words, from a picture, or between a first and a last picture.
@@ -49,6 +50,11 @@ export const ltx = defineFamily({
       get: { file: "ltx-2.3-spatial-upscaler-x2-1.1.safetensors", url: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" },
     },
     {
+      id: "temporal", label: "Temporal upscaler (×2 frame rate, latent)", folder: "latent_upscale_models", detect: ["ltx.?2[._]?3.*temporal.?upscaler"], optional: true,
+      hint: "Optional: with ltx-2.3-temporal-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder, Frame interpolation can double the frame rate in latent space with LTX's own model (motion-aware) instead of RIFE on the pixels.",
+      get: { file: "ltx-2.3-temporal-upscaler-x2-1.0.safetensors", url: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-temporal-upscaler-x2-1.0.safetensors" },
+    },
+    {
       id: "turbo", label: "Distilled LoRA (for a model that is not distilled)", folder: "loras", detect: ["ltx.?2[._]?3.*distilled.*lora"], optional: true,
       hint: "Only for the full (dev) model: it makes it work in 8 steps. A distilled model, and most fine-tunes, need none. Put ltx_2.3_22b_distilled_*_lora_*.safetensors in ComfyUI's models/loras folder.",
       get: { file: "ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors", url: "https://huggingface.co/Comfy-Org/ltx-2.3/resolve/main/split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors" },
@@ -60,8 +66,9 @@ export const ltx = defineFamily({
     },
     {
       id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
-      hint: "Without it, no frame interpolation: clips stay at 25 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
+      hint: "Without it (and without the temporal upscaler), no frame interpolation: clips stay at 25 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
+    ...SEEDVR_SLOTS,
   ],
   loraMatch: ["ltx"],
   guide: `LTX 2.3 makes the picture AND the sound (voices, effects, ambience) together.

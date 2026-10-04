@@ -90,8 +90,10 @@ function phaseOf(classType: string): Phase {
   if (/sampler|ksampler/i.test(classType) && !/select|config/i.test(classType)) return "sampling";
   if (/detailer/i.test(classType)) return "detailing";
   if (/decode/i.test(classType)) return "decoding";
-  if (/interpolat|rife|film/i.test(classType)) return "interpolating";
-  if (/upscale|superres/i.test(classType)) return "upscaling";
+  if (/interpolat|rife|film|latentupsampler/i.test(classType)) return "interpolating";
+  if (/seedvr2(temporalmerge|postprocess)/i.test(classType)) return "restoring";
+  if (/upscale|superres|upsampl/i.test(classType)) return "upscaling";
+  if (/removebackground|rmbg|birefnet|matting|segment/i.test(classType)) return "processing";
   if (/combine|save|createvideo/i.test(classType)) return "encoding";
   return "loading";
 }

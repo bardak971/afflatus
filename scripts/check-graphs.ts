@@ -23,7 +23,7 @@ for (const recipe of recipes) {
     const label = `${recipe.id} · ${v.name}`;
     try {
       const input = parseInput(recipe, v.input);
-      const built = recipe.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas }));
+      const built = recipe.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) }));
       const problems = checkGraph(built, catalog);
       const missing = recipe.nodes(input).filter((n) => !Object.values(built.graph).some((node) => node.class_type === n));
       for (const n of missing) problems.push(`nodes() lists ${n}, which the graph does not use`);

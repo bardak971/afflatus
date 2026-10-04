@@ -144,6 +144,8 @@ export interface Tables {
     clip_id: string | null;
     /** For a clip: whether the take should end where the next clip begins (0 / 1). */
     clip_fit: number;
+    /** A finish job: the take whose finished version its result is. */
+    finished_from: string | null;
     /** The draft it was sent from, and the folder its results go to: the one that was open when it was sent. */
     draft_id: string | null;
     folder_id: string | null;
@@ -232,6 +234,8 @@ export interface Tables {
     prev_at_ms: number | null;
     next_take_id: string | null;
     next_at_ms: number | null;
+    /** The take this one is the finished (upscaled) version of: the draft stays in the list. */
+    finished_from: string | null;
     created_at: string;
   };
   /** Imported ComfyUI workflows: the workflow and its mapping, as one JSON document each. */
@@ -638,6 +642,17 @@ migrations["0013_model_pages"] = {
 
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
+migrations["0025_finish"] = {
+  async up(db) {
+    await db.schema.alterTable("takes").addColumn("finished_from", "text").execute();
+    await db.schema.alterTable("jobs").addColumn("finished_from", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("takes").dropColumn("finished_from").execute();
+    await db.schema.alterTable("jobs").dropColumn("finished_from").execute();
+  },
+};
+
 migrations["0024_redo"] = {
   async up(db) {
     await db.schema

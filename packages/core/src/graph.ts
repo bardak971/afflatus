@@ -9,7 +9,7 @@ export type Ref = [node: string, output: number];
 
 /** What the progress bar says while a node runs. */
 export const PHASES = [
-  "loading", "sampling", "upscaling", "refining", "detailing", "decoding", "interpolating", "encoding",
+  "loading", "sampling", "upscaling", "refining", "restoring", "detailing", "processing", "decoding", "interpolating", "encoding",
 ] as const;
 export type Phase = (typeof PHASES)[number];
 

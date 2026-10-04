@@ -46,7 +46,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
       ["M", "Image to video (i2v)"], ["P", "PNG info (for an imported file)"],
     ],
   },
-  { where: "Viewer (video)", keys: [["C", "Extend: a new clip that carries on from this one"], ["G", "Save frame as an image"], ["T", "Trim: in / out on the video, then copy, split, remove, slow motion, generate between"]] },
+  { where: "Viewer (video)", keys: [["C", "Extend: a new clip that carries on from this one"], ["G", "Save frame as an image"], ["T", "Trim: an in and an out on the video, and what to do with the part between"]] },
   {
     where: "Trim (on a video)",
     note: "Pick an in and an out; the actions work on what is between them.",
@@ -57,16 +57,16 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     note: "Selecting several items: to move, keep or bin them together.",
     keys: [
       ["Ctrl + Click", "Select an item (or click the circle on it)"], ["Shift + Click", "Select the range from the last selected item to this one"],
-      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "Menu of an item: open, keep, i2v, reuse parameters, variation, Open in ComfyUI, download, bin"], ["/", "The search nearest the mouse; pressed again inside a search, the next one"],
+      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "The menu of the item under the pointer"],
     ],
   },
   { where: "Form, in Studio", keys: [["Ctrl + Enter", "Generate"]] },
   {
     where: "Prompt",
-    keys: [["Ctrl + ↑  ↓", "Prompt weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
+    keys: [["Ctrl + ↑  ↓", "The weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
-  { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it (it stops at Out)"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead: the range (Shift-drag the ruler sets both; Shift-click a clip reaches to it); they snap to cuts, the playhead and quiet moments"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z", "Redo"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "Menu of a clip: render / new take, extend, set range to it, split at playhead, extend from this frame, save frame, slow motion, open its video, mute, remove. On the range: play, loop, regenerate, split, remove, copy, slow motion"]] },
-  { where: "Everywhere", keys: [["/  :", "Find a setting in the open form; else the search bar of the view (library, Prompt kit, snippets, workflow editor)"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
+  { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it, stopping at Out"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead; they snap to cuts, the playhead and quiet moments"], ["Shift + drag", "On the ruler: In and Out in one go"], ["Shift + Click", "On a clip: the range reaches to it"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z", "Redo"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "The menu of the clip under the pointer, or of the range"]] },
+  { where: "Everywhere", keys: [["/  :", "The search nearest the mouse (a form's settings, the library, the Prompt kit, the workflow editor); pressed again inside one, the next"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 
 /** A key as a cap, as on a keyboard. */
@@ -169,19 +169,19 @@ export function KeysHelp() {
           <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-8 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>{all ? "This screen only" : "Every screen"}</button>
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </header>
-        {/* cards that fill columns one after the other: as many columns as the window has room for */}
-        <div className="min-h-0 columns-1 gap-4 overflow-y-auto p-5 md:columns-2 xl:columns-3 2xl:columns-4">
+        {/* two wide columns of cards: each row has the keys in a column of one width, and the words beside them on one line or two */}
+        <div className="grid min-h-0 content-start gap-4 overflow-y-auto p-5 lg:grid-cols-2">
           {shown.map((group) => (
-            <section key={group.where} className="mb-3.5 flex break-inside-avoid flex-col gap-2.5 rounded-xl border border-line bg-raised p-3.5">
-              <div className="flex flex-col gap-0.5">
-                <h3 className="text-sm font-semibold">{group.where}</h3>
+            <section key={group.where} className="flex flex-col rounded-xl border border-line bg-raised px-4 pt-3.5 pb-1.5">
+              <div className="flex flex-col gap-0.5 pb-2">
+                <h3 className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{group.where}</h3>
                 {group.note && <span className="text-xs text-ink-2">{group.note}</span>}
               </div>
-              <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3.5 gap-y-1.5">
+              <dl>
                 {group.keys.map(([key, what]) => (
-                  <div key={key} className="contents">
+                  <div key={key} className="grid grid-cols-[12rem_minmax(0,1fr)] items-center gap-x-4 border-t border-line/70 py-2 first:border-0">
                     <dt><Caps keys={key} /></dt>
-                    <dd className="text-ink-2">{what}</dd>
+                    <dd className="text-[13px] leading-snug text-ink">{what}</dd>
                   </div>
                 ))}
               </dl>

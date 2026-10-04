@@ -13,10 +13,29 @@ export interface SdxlBase {
   sampler: string;
   scheduler: string;
   clipSkip: number;
+  prediction: string;
+  rescale: number;
   seed: number;
 }
 
 export const round8 = (n: number) => Math.max(64, Math.round(n / 8) * 8);
+
+export const PREDICTION_AUTO = "Auto";
+export const V_PRED = "v-prediction (zsnr)";
+/** Whether a checkpoint is a v-prediction one: said on the form, else read from its name (NoobAI's v-pred files say so). */
+export const isVPred = (input: Pick<SdxlBase, "checkpoint" | "prediction">) => input.prediction === V_PRED || (input.prediction === PREDICTION_AUTO && /v.?pred/i.test(input.checkpoint.split(/[\\/]/).pop() ?? ""));
+/** The nodes a v-prediction checkpoint is sampled through. */
+export const PREDICTION_NODES = ["ModelSamplingDiscrete", "RescaleCFG"];
+/**
+ * A v-prediction checkpoint (NoobAI v-pred and merges of it) sampled as one: ComfyUI only knows when the
+ * file says so in its metadata, and many merges do not, which comes out as a grey, washed picture. The
+ * CFG is rescaled as those checkpoints' authors recommend.
+ */
+export function withPrediction(g: GraphBuilder, model: Ref, input: Pick<SdxlBase, "checkpoint" | "prediction" | "rescale">): Ref {
+  if (!isVPred(input)) return model;
+  model = g.out("ModelSamplingDiscrete", { model, sampling: "v_prediction", zsnr: true });
+  return input.rescale > 0 ? g.out("RescaleCFG", { model, multiplier: input.rescale }) : model;
+}
 
 /** The model and the LoRAs: what is asked up front. */
 export const modelInputs: InputSpec[] = [
@@ -33,7 +52,17 @@ export const samplingInputs = (steps = 28): InputSpec[] => [
   { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler_ancestral", advanced: true, perModel: true },
   { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "normal", advanced: true, perModel: true },
   { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = SDXL's own, which is already the second-last layer: what Civitai calls \"clip skip 2\" (Pony, Illustrious). Only raise it when a checkpoint's card asks for more than that", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
+  ...PREDICTION_INPUTS,
   { id: "seed", type: "seed", label: "Seed" },
+];
+
+/** Which prediction a checkpoint was trained for: read from its name, or said. */
+export const PREDICTION_INPUTS: InputSpec[] = [
+  {
+    id: "prediction", type: "choice", label: "Prediction", options: [PREDICTION_AUTO, "epsilon", V_PRED], default: PREDICTION_AUTO, advanced: true, perModel: true,
+    note: "v-prediction for NoobAI v-pred and its merges (Auto reads \"vpred\" in the file name): without it they come out grey and washed. Epsilon is every other SDXL checkpoint",
+  },
+  { id: "rescale", type: "number", label: "Rescale CFG", min: 0, max: 1, step: 0.05, default: 0.7, showWhen: { input: "prediction", in: [V_PRED] }, advanced: true, perModel: true, note: "0.7 is what the v-pred checkpoints' authors recommend; 0 turns it off" },
 ];
 
 /** The node classes loadSdxl() uses for these inputs. */
@@ -41,6 +70,7 @@ export const modelNodes = (input: SdxlBase) => [
   "CheckpointLoaderSimple", "CLIPTextEncode",
   ...(input.loras.some((l) => l.weight !== 0) ? ["LoraLoader"] : []),
   ...(input.clipSkip > 1 ? ["CLIPSetLastLayer"] : []),
+  ...(isVPred(input) ? (input.rescale > 0 ? PREDICTION_NODES : ["ModelSamplingDiscrete"]) : []),
 ];
 
 /** Checkpoint, LoRAs, clip skip, and both texts read. */
@@ -57,6 +87,7 @@ export function loadSdxl(g: GraphBuilder, input: SdxlBase, prompt: string) {
   }
   // N = stop at the Nth-last layer; SDXL's own default is already the second-last
   if (input.clipSkip > 1) clip = g.out("CLIPSetLastLayer", { clip, stop_at_clip_layer: -input.clipSkip });
+  model = withPrediction(g, model, input);
   const text = [input.quality.trim().replace(/,\s*$/, ""), prompt.trim()].filter(Boolean).join(", ");
   const positive = g.out("CLIPTextEncode", { text, clip });
   const negative = g.out("CLIPTextEncode", { text: input.negative, clip });
@@ -112,7 +143,9 @@ export function maskParts(g: GraphBuilder, maskFile: string, box: { x: number; y
   const grownPicture = g.out("MaskToImage", { mask: grown });
   const blurred = g.out("ImageBlur", { image: grownPicture, blur_radius: feather, sigma: Math.min(10, feather / 2) });
   const soft = g.out("ImageToMask", { image: blurred, channel: "red" });
-  return { forLatent, soft };
+  // the same soft edge at the size the part is redrawn at: with Differential Diffusion the model fades the new part in by it
+  const softForLatent = g.out("ImageToMask", { image: g.out("ImageScale", { image: blurred, upscale_method: "bilinear", width: size.width, height: size.height, crop: "disabled" }), channel: "red" });
+  return { forLatent, soft, softForLatent };
 }
 /** How the part that was redone is put back: how far past the mask it reaches, and how soft its edge is. */
 export interface MaskSettings {
@@ -166,6 +199,35 @@ export const hiresPass = (input: HiresPass) => ({
 
 export const MASK_NODES = ["LoadImageMask", "CropMask", "MaskToImage", "ImageToMask", "GrowMask", "ImageBlur", "ImageCrop", "ImageScale", "ImageCompositeMasked", "SetLatentNoiseMask"];
 
+/** How far an outpaint extends the picture on each side, and how softly the new part meets it. */
+export interface OutpaintSettings {
+  padLeft: number;
+  padTop: number;
+  padRight: number;
+  padBottom: number;
+  feathering: number;
+}
+export const OUTPAINT_INPUTS: InputSpec[] = [
+  { id: "padLeft", type: "number", label: "Extend left", min: 0, max: 1024, step: 8, default: 192, unit: " px" },
+  { id: "padRight", type: "number", label: "Extend right", min: 0, max: 1024, step: 8, default: 192, unit: " px" },
+  { id: "padTop", type: "number", label: "Extend up", min: 0, max: 1024, step: 8, default: 0, unit: " px" },
+  { id: "padBottom", type: "number", label: "Extend down", min: 0, max: 1024, step: 8, default: 0, unit: " px" },
+  { id: "feathering", type: "number", label: "Feathering", note: "how far into the picture the new part may blend: more hides the seam, less keeps the picture exact", min: 0, max: 256, step: 8, default: 40, unit: " px", advanced: true },
+];
+export const OUTPAINT_NODES = ["LoadImage", "ImagePadForOutpaint", "ImageScale", "MaskToImage", "ImageToMask", "VAEEncodeForInpaint", "VAEDecode", "PreviewImage"];
+/**
+ * The picture padded on the sides asked for (grey, with a soft edge into the picture), scaled to the size
+ * the model draws at, and encoded with the padding as the part to paint: what ComfyUI's own outpaint
+ * example does. Returns the latent to sample at denoise 1, and the size to bring the result back to.
+ */
+export function outpaintLatent(g: GraphBuilder, source: Ref, from: { width: number; height: number }, input: OutpaintSettings, size: { width: number; height: number }, vae: Ref) {
+  const padded = g.add("ImagePadForOutpaint", { image: source, left: input.padLeft, top: input.padTop, right: input.padRight, bottom: input.padBottom, feathering: input.feathering });
+  const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
+  const pixels = g.out("ImageScale", { image: [padded, 0], upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
+  const mask = g.out("ImageToMask", { image: g.out("ImageScale", { image: g.out("MaskToImage", { mask: [padded, 1] }), upscale_method: "bilinear", width: size.width, height: size.height, crop: "disabled" }), channel: "red" });
+  return { latent: g.out("VAEEncodeForInpaint", { pixels, vae, mask, grow_mask_by: 16 }), whole };
+}
+
 /** The upscale models that suit most pictures, best first. */
 /** Which upscale model a picture recipe starts on when its default is not there: UltraSharp, else Nomos8kSC (photos), else a general one, never an anime one. */
 export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)"];
@@ -179,7 +241,7 @@ export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4pl
 export const SDXL_PRESETS = [
   {
     match: "noob.*v.?pred|v.?pred.*noob|vpred",
-    values: { sampler: "euler", scheduler: "normal", cfg: 4.5, steps: 30, quality: "masterpiece, best quality, newest, absurdres, highres", negative: `${DEFAULT_NEGATIVE}, old, early` },
+    values: { sampler: "euler", scheduler: "normal", cfg: 4.5, steps: 30, quality: "masterpiece, best quality, newest, absurdres, highres", negative: `${DEFAULT_NEGATIVE}, old, early`, prediction: V_PRED },
     note: "NoobAI v-pred: euler (other samplers break on it), CFG 4 to 5, its quality tags",
   },
   {

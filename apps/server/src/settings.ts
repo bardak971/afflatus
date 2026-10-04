@@ -20,6 +20,18 @@ export type Llm = z.infer<typeof llmSchema>;
 const instructionSchema = z.object({ id: z.string().min(1).max(40), name: z.string().trim().min(1).max(60), text: z.string().max(8000).default("") });
 
 /** Everything the setup page edits. Stored as one JSON value per key. */
+export const finishSchema = z.object({
+  /** SeedVR2 (restores + enlarges, any clip), H3's latent re-sample (H3 clips; others take SeedVR2), RTX VSR, a pixel upscale model. */
+  route: z.enum(["seedvr", "latent", "rtx", "model"]).default("seedvr"),
+  factor: z.number().min(1).max(4).default(2),
+  colour: z.enum(["lab", "wavelet", "adain", "none"]).default("lab"),
+  /** The pixel route's model file; empty = the first found. */
+  upscaleModel: z.string().max(200).default(""),
+  latentDenoise: z.number().min(0.05).max(0.6).default(0.25),
+  latentSteps: z.number().int().min(1).max(6).default(2),
+});
+export type FinishSettings = z.infer<typeof finishSchema>;
+
 export const settingsSchema = z.object({
   comfyUrl: z.string().url().default("http://127.0.0.1:8188"),
   /**
@@ -54,6 +66,8 @@ export const settingsSchema = z.object({
    * model and day, which stay for good. 0: each one is kept for good.
    */
   renderHistoryDays: z.number().int().min(0).max(3650).default(90),
+  /** How "Finish all clips" brings a timeline to its final quality: the user's defaults, each run can differ. */
+  finish: finishSchema.prefault({}),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -129,6 +143,7 @@ export function publicSettings(s: Settings) {
     tagCheck: s.tagCheck,
     families: s.families,
     hasCivitaiKey: Boolean(s.civitaiKey),
+    finish: s.finish,
     civitaiLookups: s.civitaiLookups,
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,

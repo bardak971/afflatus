@@ -79,6 +79,8 @@ const renderBody = z.strictObject({
 const exportBody = z.strictObject({
   /** Enlarge every frame at the end. Nothing is rendered again. */
   scale: z.union([z.literal(1), z.literal(1.5), z.literal(2)]).default(1),
+  /** "largest": at the size of the largest take (the finished ones). */
+  fit: z.enum(["timeline", "largest"]).default("timeline"),
   music: z.boolean().default(true),
   /** Smooth motion: 48 pictures a second, worked out from the pictures there are. Slow. */
   smooth: z.boolean().default(false),
@@ -214,7 +216,47 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const view = await t.view(req.params.id);
     if (!view.durationMs) throw new UserError("There is nothing to export yet: no clip of this timeline has a take.");
     if (view.exporting) return { id: view.exporting.id };
-    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match }, `${view.name} · export`) };
+    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit }, `${view.name} · export`) };
+  });
+
+  /**
+   * Finish: every clip's selected take brought to its final quality by an upscale route, as a new take
+   * marked as the finished version of the draft (which stays in the list). SeedVR2, RTX and a pixel
+   * model run on the take's video in a job each; H3's latent re-sample renders the clip again with the
+   * same seed and form, plus the latent upscale pass. Clips finished already are skipped unless `redo`.
+   */
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/finish", async (req) => {
+    const b = z.strictObject({
+      route: z.enum(["seedvr", "latent", "rtx", "model"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(),
+      latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
+    }).parse(req.body);
+    const view = await t.view(req.params.id);
+    const jobs: string[] = [];
+    const skipped: Array<{ clip: number; why: string }> = [];
+    const folder = view.folderId ?? (await rootFolderOf(s.db, view.projectId)) ?? undefined;
+    for (const [i, clip] of view.clips.entries()) {
+      if (b.clips && !b.clips.includes(clip.id)) continue;
+      const take = clip.take;
+      if (clip.kind !== "video" || !take) { skipped.push({ clip: i + 1, why: clip.kind === "still" ? "a still" : "no take yet" }); continue; }
+      if (clip.job) { skipped.push({ clip: i + 1, why: "a render is on its way" }); continue; }
+      if (take.finishedFrom && !b.redo) { skipped.push({ clip: i + 1, why: "finished already" }); continue; }
+      // a redo starts from the draft again, never from a finished take (an upscale of an upscale)
+      const draft = (take.finishedFrom ? clip.takes.find((x) => x.id === take.finishedFrom) : undefined) ?? take;
+      const from = draft.id;
+      const label = `${view.name} · clip ${i + 1} · finish`;
+      if (b.route === "latent" && clip.recipe === "h3.video") {
+        const gen = await t.generationOf(draft.asset.id);
+        if (!gen) { skipped.push({ clip: i + 1, why: "not rendered here: no seed to repeat" }); continue; }
+        jobs.push(await s.queue.enqueue(gen.recipe, { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.25, upscaleSteps: b.latentSteps ?? 2 }, {
+          label, clip: { id: clip.id, fit: false }, look: clip.look ?? view.look, folder, finishedFrom: from,
+        }));
+        continue;
+      }
+      const route = b.route === "latent" ? "seedvr" : b.route;
+      jobs.push(await s.queue.enqueueCut({ asset: draft.asset.id, startMs: 0, endMs: draft.asset.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, clip: clip.id, finishedFrom: from }, label));
+    }
+    s.queue.events.emit("timeline");
+    return { jobs, skipped };
   });
 
   /** One clip becomes two at a moment of its take (the video's own time): the first plays up to it, the second from it. */

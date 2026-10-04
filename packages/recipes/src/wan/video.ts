@@ -1,6 +1,8 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
-import { pixelUpscale, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { pixelUpscale, UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { loadUnet, unetNodes } from "../shared/unet";
+import { CORE_VIDEO_OUT, saveVideo, VHS } from "../shared/out";
 
 /**
  * Wan's own negative prompt, as its authors give it (in Chinese: washed-out colours, overexposure, a
@@ -23,6 +25,7 @@ export interface WanVideo {
   fast: boolean;
   turboSteps: number;
   turboStrength: number;
+  turboHybrid: boolean;
   steps: number;
   split: number;
   cfg: number;
@@ -33,6 +36,7 @@ export interface WanVideo {
   upscale: string;
   upscaleBy: number;
   upscaleModel: string;
+  upscaleColour?: string;
   livePreview: boolean;
   fps: number;
   crf: number;
@@ -125,6 +129,10 @@ export const wanVideo = defineRecipe<WanVideo>({
       id: "turboStrength", type: "number", label: "Turbo LoRA strength (high noise)", min: 0.2, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true,
       note: "1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
     },
+    {
+      id: "turboHybrid", type: "toggle", label: "Hybrid turbo (motion first)", default: false, showWhen: "fast", advanced: true, perModel: true,
+      note: "the first step or two run on the high-noise model WITHOUT the turbo LoRA at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1: a draft that moves like a full render, a little slower. Only with the turbo LoRAs, not with a distilled model",
+    },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
       id: "split", type: "number", label: "High-noise steps (share)", min: 0.1, max: 0.9, step: 0.05, default: 0.5, advanced: true, perModel: true,
@@ -166,13 +174,14 @@ export const wanVideo = defineRecipe<WanVideo>({
     const any = (list: LoraValue[]) => list.some((l) => l.weight !== 0);
     return [
       ...routeNodes,
-      "UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", "ModelSamplingSD3", "KSamplerAdvanced", "VAEDecode", "VHS_VideoCombine",
+      ...unetNodes(input.model), "CLIPLoader", "VAELoader", "CLIPTextEncode", "ModelSamplingSD3", "KSamplerAdvanced", "VAEDecode",
       how.words ? "EmptyHunyuanLatentVideo" : how.both ? "WanFirstLastFrameToVideo" : "WanImageToVideo",
       ...(how.words ? [] : ["LoadImage"]),
       ...((input.fast && !picked.distilled) || any(input.loras) || any(input.lorasLow) ? ["LoraLoaderModelOnly"] : []),
     ];
   },
-  optionalNodes: ["RebatchImages", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
+  // the video is written by VideoHelperSuite when it is there, else by ComfyUI's own two nodes
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
 
   build(input, ctx) {
     const { slots, uploads, media } = ctx;
@@ -204,24 +213,26 @@ export const wanVideo = defineRecipe<WanVideo>({
     // files (and with a model that is not distilled) there is no Turbo: the clip takes the full steps.
     const turboLoras = input.fast && !picked.distilled && picked.turboHigh && picked.turboLow ? { high: picked.turboHigh, low: picked.turboLow } : null;
     const turbo = input.fast && (picked.distilled || Boolean(turboLoras));
-    const load = (file: string, turboLora: string | undefined, strength: number, loras: LoraValue[]) => {
-      let model: Ref = g.out("UNETLoader", { unet_name: file, weight_dtype: "default" });
-      if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: strength });
-      for (const l of loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
-      // the shift typed in, else the one that suits the steps: 8 at full steps (the template's), 5 for the turbo LoRAs
-      model = g.out("ModelSamplingSD3", { model, shift: input.shift > 0 ? input.shift : turbo ? 5 : 8 });
-      // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
-      // there), sent as a short clip. ComfyUI's own preview is the first frame alone: the start image, still
-      if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
-        model = g.out("ModelPreviewOverrideKJ", {
-          model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12,
-          tiny_vae: slots.tinyVae ?? "none",
-        });
-      }
-      return model;
+    // the shift typed in, else the one that suits the steps: 8 at full steps (the template's), 5 for the turbo LoRAs
+    const shift = input.shift > 0 ? input.shift : turbo ? 5 : 8;
+    // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
+    // there), sent as a short clip. ComfyUI's own preview is the first frame alone: the start image, still
+    const finish = (model: Ref): Ref => {
+      model = g.out("ModelSamplingSD3", { model, shift });
+      return input.livePreview && ctx.has("ModelPreviewOverrideKJ")
+        ? g.out("ModelPreviewOverrideKJ", { model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12, tiny_vae: slots.tinyVae ?? "none" })
+        : model;
     };
-    const high = load(picked.high, turboLoras?.high, input.turboStrength, input.loras);
-    const low = load(picked.low, turboLoras?.low, 1, input.lorasLow);
+    /** The model with its LoRAs, and the same model with the user's LoRAs but without the turbo one (for the hybrid pass). */
+    const load = (file: string, turboLora: string | undefined, strength: number, loras: LoraValue[]) => {
+      const base = loadUnet(g, ctx, file);
+      const own = (m: Ref) => { for (const l of loras) if (l.weight !== 0) m = g.out("LoraLoaderModelOnly", { model: m, lora_name: l.file, strength_model: l.weight }); return m; };
+      const boosted = own(turboLora ? g.out("LoraLoaderModelOnly", { model: base, lora_name: turboLora, strength_model: strength }) : base);
+      return { model: finish(boosted), plain: turboLora && input.turboHybrid ? finish(own(base)) : null };
+    };
+    const highBoth = load(picked.high, turboLoras?.high, input.turboStrength, input.loras);
+    const high = highBoth.model;
+    const low = load(picked.low, turboLoras?.low, 1, input.lorasLow).model;
 
     let positive: Ref = g.out("CLIPTextEncode", { clip, text: input.prompt });
     let negative: Ref = g.out("CLIPTextEncode", { clip, text: input.negative });
@@ -245,33 +256,48 @@ export const wanVideo = defineRecipe<WanVideo>({
     const steps = turbo ? input.turboSteps : input.steps;
     const cfg = turbo ? 1 : input.cfg;
     const handover = Math.max(1, Math.min(steps - 1, Math.round(steps * input.split)));
+    // the hybrid turbo pass: the first step or two on the high-noise model without its turbo LoRA, at the
+    // full CFG scale, where the motion is decided; then the LoRAs at CFG 1 as usual
+    const lead = turbo && input.turboHybrid && highBoth.plain ? Math.min(handover - 1, steps >= 6 ? 2 : 1) : 0;
+    const passes: Array<{ node: string; steps: number }> = [];
     g.phase("sampling");
+    let latentSoFar = latent;
+    if (lead > 0) {
+      const motion = g.add("KSamplerAdvanced", {
+        model: highBoth.plain!, positive, negative, latent_image: latentSoFar, add_noise: "enable", noise_seed: ctx.seed, steps, cfg: input.cfg,
+        sampler_name: input.sampler, scheduler: input.scheduler, start_at_step: 0, end_at_step: lead, return_with_leftover_noise: "enable",
+      });
+      latentSoFar = [motion, 0];
+      passes.push({ node: motion, steps: lead });
+    }
     const first = g.add("KSamplerAdvanced", {
-      model: high, positive, negative, latent_image: latent, add_noise: "enable", noise_seed: ctx.seed, steps, cfg,
-      sampler_name: input.sampler, scheduler: input.scheduler, start_at_step: 0, end_at_step: handover, return_with_leftover_noise: "enable",
+      model: high, positive, negative, latent_image: latentSoFar, add_noise: lead > 0 ? "disable" : "enable", noise_seed: lead > 0 ? 0 : ctx.seed, steps, cfg,
+      sampler_name: input.sampler, scheduler: input.scheduler, start_at_step: lead, end_at_step: handover, return_with_leftover_noise: "enable",
     });
+    passes.push({ node: first, steps: handover - lead });
     g.phase("refining");
     const second = g.add("KSamplerAdvanced", {
       model: low, positive, negative, latent_image: [first, 0], add_noise: "disable", noise_seed: 0, steps, cfg,
       sampler_name: input.sampler, scheduler: input.scheduler, start_at_step: handover, end_at_step: 10000, return_with_leftover_noise: "disable",
     });
+    passes.push({ node: second, steps: steps - handover });
 
     g.phase("decoding");
     let images = g.out("VAEDecode", { samples: [second, 0], vae });
+    // SeedVR2 goes before the frame interpolation (its cost grows with the frame count; RIFE's is small); the
+    // other pixel routes after it, on the final frames
+    const early = input.upscale === UPSCALE.seedvr;
+    const pixel = early ? pixelUpscale(g, images, input, { width, height }, ctx) : null;
+    if (pixel) images = pixel.images;
     const smooth = input.smooth && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
     if (smooth) {
       g.phase("interpolating");
       images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
     }
-    // the pixel routes: the final frames enlarged by an upscale model or by RTX VSR
-    const pixel = pixelUpscale(g, images, input, { width, height }, ctx);
-    images = pixel.images;
+    const late = pixel ?? pixelUpscale(g, images, input, { width, height }, ctx);
+    images = late.images;
     g.phase("encoding");
-    // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
-    const out = g.add("VHS_VideoCombine", {
-      images, frame_rate: smooth ? input.fps * 2 : input.fps, loop_count: 0, filename_prefix: "Afflatus/video", format: "video/h264-mp4",
-      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
-    });
+    const out = saveVideo(g, ctx, { images, fps: smooth ? input.fps * 2 : input.fps, crf: input.crf });
 
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [turboLora] : []), ...loras.filter((l) => l.weight !== 0).map((l) => l.file)].map((f) => `loras/${f}`);
     return {
@@ -279,9 +305,9 @@ export const wanVideo = defineRecipe<WanVideo>({
       phases: g.phases,
       outputs: [{ node: out, kind: "video", role: "result" }],
       totalSteps: steps,
-      passes: [{ node: first, steps: handover }, { node: second, steps: steps - handover }],
+      passes,
       loads: [
-        ...pixel.loads,
+        ...late.loads,
         `diffusion_models/${picked.high}`, `diffusion_models/${picked.low}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`,
         ...lorasOf(turboLoras?.high, input.loras), ...lorasOf(turboLoras?.low, input.lorasLow),
       ],
@@ -318,6 +344,8 @@ export const wanVideo = defineRecipe<WanVideo>({
       { name: "from words alone, Turbo", input: { prompt: "a", seconds: 3 }, slots: all },
       { name: "from words alone, full steps, wide", input: { prompt: "a", fast: false, steps: 30, split: 0.4, cfg: 4, shift: 12, shape: { width: 832, height: 480 }, negative: "blurry" }, slots: all },
       { name: "Turbo with the high-noise LoRA eased", input: { prompt: "a", start: "p1", fast: true, turboStrength: 0.7 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
+      { name: "hybrid Turbo: the motion decided without the LoRA first", input: { prompt: "a", start: "p1", fast: true, turboHybrid: true, turboSteps: 6 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
+      { name: "a GGUF model, SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", start: "p1", model: "wan2.2_i2v_high_noise_14B_Q5_K_M.gguf", modelLow: "wan2.2_i2v_low_noise_14B_Q5_K_M.gguf", upscale: "Video: SeedVR2 (restores)", smooth: false }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, uploads: { start: "a.png" }, media: { start: picture }, has: (n: string) => n !== "VHS_VideoCombine" },
       {
         // made for a few steps as it is: no turbo LoRA on top of it
         name: "a distilled fine-tune in two files, on a timeline's canvas",

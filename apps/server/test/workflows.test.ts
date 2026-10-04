@@ -71,7 +71,7 @@ describe("an imported workflow", () => {
     const { id } = await importWan();
     expect(id).toBe("workflow.wan-2-2-picture-to-video");
     const { families, recipes } = (await get(t.app, "/api/recipes")).json();
-    expect(families.map((f: { name: string }) => f.name)).toEqual(["SDXL", "FLUX.2 Klein", "Krea 2", "FLUX.1", "Qwen Image", "MiniMax H3", "Wan 2.2", "LTX 2.3", "Image tools", "Wan 2.2"]);
+    expect(families.map((f: { name: string }) => f.name)).toEqual(["SDXL", "FLUX.2 Klein", "Krea 2", "FLUX.1", "Qwen Image", "Qwen Image 2.1", "MiniMax H3", "Wan 2.2", "LTX 2.3", "Image tools", "Wan 2.2"]);
     const recipe = recipes.find((r: { id: string }) => r.id === id);
     expect(recipe).toMatchObject({ title: "Wan 2.2 · Picture to video", output: "video", family: "workflow-wan-2-2" });
     expect(recipe.inputs.map((i: { id: string }) => i.id)).toContain("seconds");

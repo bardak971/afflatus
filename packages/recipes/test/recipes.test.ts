@@ -43,12 +43,35 @@ describe("every recipe", () => {
     }
   });
 
+  it("puts in each phase the kind of node its label says, in every variant", () => {
+    // what the status strip and the render times call each phase has to be true of what runs in it
+    const kinds: Record<string, RegExp> = {
+      sampling: /Sampler/, refining: /Sampler|UltimateUpscale/, restoring: /SeedVR2|KSampler/, detailing: /Detailer/, processing: /RemoveBackground/,
+      upscaling: /Upscale|Upsampler|SuperRes|Resize|Rebatch|Params|SeedVR2|VAEEncodeTiled|VAELoader|UNETLoader|LoadImage|ImageScale|LTXVPreprocess|LTXVImgToVideoInplace|VAEDecode|VAEEncode|PreviewImage|LatentUpscaleModelLoader|UpscaleModelLoader|RTX/,
+      decoding: /Decode|PreviewImage|FrameInterpolationModelLoader/, interpolating: /Interpolat|Upsampler|LatentUpscaleModelLoader|Sampler|Sigmas|Noise|Guider|Latent/, encoding: /VideoCombine|CreateVideo|SaveVideo|PreviewImage/,
+    };
+    for (const r of recipes) for (const v of r.variants) {
+      const input = parseInput(r, v.input);
+      const built = r.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) }));
+      const byPhase = new Map<string, string[]>();
+      for (const [id, phase] of Object.entries(built.phases)) byPhase.set(phase, [...(byPhase.get(phase) ?? []), built.graph[id]!.class_type]);
+      for (const [phase, classes] of byPhase) {
+        if (phase === "loading") continue;
+        const kind = kinds[phase];
+        expect(kind, `${r.id} · ${v.name}: phase "${phase}" is not one the labels know`).toBeDefined();
+        // the phase holds at least one node of its kind, and nothing that plainly belongs to another phase
+        expect(classes.some((c) => kind!.test(c)), `${r.id} · ${v.name}: phase "${phase}" holds ${classes.join(", ")}`).toBe(true);
+        if (phase === "sampling" || phase === "refining") expect(classes.some((c) => /Sampler(Custom)?(Advanced)?$|^KSampler|UltimateUpscale/.test(c)), `${r.id} · ${v.name}: "${phase}" without a sampler: ${classes.join(", ")}`).toBe(true);
+      }
+    }
+  });
+
   it("builds every variant into a graph the node catalog accepts", () => {
     for (const r of recipes) {
       expect(r.variants.length, r.id).toBeGreaterThan(0);
       for (const v of r.variants) {
         const input = parseInput(r, v.input);
-        const built = r.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas }));
+        const built = r.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) }));
         expect(checkGraph(built, catalog), `${r.id} · ${v.name}`).toEqual([]);
         // what the graph uses is what nodes() says, plus the extras it only takes when ComfyUI has them
         const used = new Set(Object.values(built.graph).map((n) => n.class_type).filter((c) => !r.optionalNodes?.includes(c)));
@@ -785,10 +808,10 @@ describe("flux and qwen image, from what is said once about each", () => {
     expect(found(ltx, "audioVae", ["LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"])).toBe("LTX23_audio_vae_bf16.safetensors");
   });
 
-  it("gives every picture model the same five operations, under the names the tools look for", () => {
+  it("gives every picture model the same six operations, under the names the tools look for", () => {
     for (const family of ["flux", "qwen"]) {
       const ids = recipes.filter((r) => r.family === family).map((r) => r.id);
-      expect(ids).toEqual([`${family}.text-to-picture`, `${family}.edit`, `${family}.redraw`, `${family}.paint-over`, `${family}.sharper`, `${family}.fix-face`]);
+      expect(ids).toEqual([`${family}.text-to-picture`, `${family}.edit`, `${family}.redraw`, `${family}.paint-over`, `${family}.outpaint`, `${family}.sharper`, `${family}.fix-face`]);
     }
   });
 
@@ -1058,8 +1081,8 @@ describe("H3's upscale pass", () => {
 describe("the upscale routes of the video forms", () => {
   const node = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
   const photo = { width: 1536, height: 2048 };
-  const wanOf = (over: Record<string, unknown> = {}, has: (c: string) => boolean = () => true) =>
-    wanVideo.build(parseInput(wanVideo, { prompt: "a", start: "p", ...over }), dryContext({ slots: { i2vHigh: "h.safetensors", i2vLow: "l.safetensors", clip: "c.safetensors", vae: "v.safetensors", rife: "rife.pth" }, uploads: { start: "a.png" }, media: { start: photo }, has }));
+  const wanOf = (over: Record<string, unknown> = {}, has: (c: string) => boolean = () => true, more: Record<string, string> = {}) =>
+    wanVideo.build(parseInput(wanVideo, { prompt: "a", start: "p", ...over }), dryContext({ slots: { i2vHigh: "h.safetensors", i2vLow: "l.safetensors", clip: "c.safetensors", vae: "v.safetensors", rife: "rife.pth", ...more }, uploads: { start: "a.png" }, media: { start: photo }, has }));
 
   it("off by itself: nothing between the decode and the file", () => {
     const b = wanOf({ smooth: false });
@@ -1089,17 +1112,28 @@ describe("the upscale routes of the video forms", () => {
   });
 
   it("RTX Video Super Resolution goes through the node that drives it, and says so when there is none", () => {
+    // NVIDIA's own node first (a choice that brings its own input, sent as "resize_type.scale"), else DaSiWa's
     const b = wanOf({ upscale: "Pixel: RTX Video Super Resolution", upscaleBy: 2 });
-    expect(node(b, "DaSiWa_RTX_UpscalerRefiner")[0]!.inputs).toMatchObject({ upscale: "VSR", upscale_quality: "Ultra", resize_type: "Scale", scale: 2, width: 960, height: 1280 });
-    expect(wanVideo.nodes(parseInput(wanVideo, { prompt: "a", start: "p", upscale: "Pixel: RTX Video Super Resolution" }))).toContain("DaSiWa_RTX_UpscalerRefiner");
-    expect(() => wanOf({ upscale: "Pixel: RTX Video Super Resolution" }, (c) => c !== "DaSiWa_RTX_UpscalerRefiner")).toThrow(/RTX Video Super Resolution needs a node/);
+    expect(node(b, "RTXVideoSuperResolution")[0]!.inputs).toMatchObject({ resize_type: "scale by multiplier", "resize_type.scale": 2, quality: "ULTRA" });
+    const d = wanOf({ upscale: "Pixel: RTX Video Super Resolution", upscaleBy: 2 }, (c) => c !== "RTXVideoSuperResolution");
+    expect(node(d, "DaSiWa_RTX_UpscalerRefiner")[0]!.inputs).toMatchObject({ upscale: "VSR", upscale_quality: "Ultra", resize_type: "Scale", scale: 2, width: 960, height: 1280 });
+    expect(wanVideo.optionalNodes).toEqual(expect.arrayContaining(["RTXVideoSuperResolution", "DaSiWa_RTX_UpscalerRefiner"]));
+    expect(() => wanOf({ upscale: "Pixel: RTX Video Super Resolution" }, (c) => c !== "DaSiWa_RTX_UpscalerRefiner" && c !== "RTXVideoSuperResolution")).toThrow(/RTX Video Super Resolution needs a node/);
   });
 
   it("every video form offers the routes; only H3 offers the latent one", () => {
     const routes = (r: { inputs: Array<{ id: string; type: string; options?: unknown }> }) => (r.inputs.find((i) => i.id === "upscale") as { options: string[] }).options;
-    expect(routes(wanVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution"]);
-    expect(routes(ltxVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution"]);
-    expect(routes(h3Video)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Latent: re-sampled"]);
+    expect(routes(wanVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Video: SeedVR2 (restores)"]);
+    expect(routes(ltxVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Video: SeedVR2 (restores)"]);
+    expect(routes(h3Video)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Video: SeedVR2 (restores)", "Latent: re-sampled"]);
+    // SeedVR2: ComfyUI's own nodes, one step in temporal chunks, the frames matched in colour to the enlarged originals
+    const sv = wanOf({ upscale: "Video: SeedVR2 (restores)", upscaleBy: 2 }, undefined, { seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" });
+    expect(node(sv, "KSampler")[0]!.inputs).toMatchObject({ steps: 1, cfg: 1, denoise: 1 });
+    expect(node(sv, "SeedVR2TemporalChunk")[0]!.inputs).toMatchObject({ chunking_mode: "auto", temporal_overlap: 0 });
+    expect(node(sv, "ResizeImageMaskNode")[0]!.inputs).toMatchObject({ resize_type: "scale by multiplier", "resize_type.multiplier": 2 });
+    expect(node(sv, "SeedVR2PostProcessing")[0]!.inputs.color_correction_method).toBe("lab");
+    expect(sv.loads).toEqual(expect.arrayContaining(["diffusion_models/seedvr2_3b_int8_convrot.safetensors", "vae/seedvr2_ema_vae_fp16.safetensors"]));
+    expect(() => wanOf({ upscale: "Video: SeedVR2 (restores)" })).toThrow(/SeedVR2 needs its two files/);
     const ltx = ltxVideo.build(parseInput(ltxVideo, { prompt: "a", upscale: "Pixel: upscale model", upscaleModel: "u.pth" }), dryContext({ slots: { checkpoint: "ltx-2.3-22b-distilled.safetensors", clip: "g.safetensors", upscaler: "up.safetensors" } }));
     expect(node(ltx, "ImageUpscaleWithModel")).toHaveLength(1);
   });

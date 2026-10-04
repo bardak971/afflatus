@@ -105,8 +105,8 @@ export function checkGraph(built: BuiltGraph, catalog: NodeCatalog, opts: { file
     const kindOf = (name: string) => (all[name] as [unknown] | undefined)?.[0];
     for (const name of Object.keys(required)) {
       if (name in node.inputs) continue;
-      // a group that grows is never sent under its own name, only as "<group>.<member>"
-      if (kindOf(name) === "COMFY_AUTOGROW_V3" && Object.keys(node.inputs).some((k) => k.startsWith(`${name}.`))) continue;
+      // a group that grows is never sent under its own name, only as "<group>.<member>", and it may be empty
+      if (kindOf(name) === "COMFY_AUTOGROW_V3") continue;
       problems.push(`${id} ${node.class_type}: missing required "${name}"`);
     }
     // Inputs that belong to a group are sent as "<group>.<member>"

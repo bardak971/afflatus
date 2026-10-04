@@ -1,4 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, LoraValue, ReferenceValue, Ref } from "@afflatus/core";
+import { loadUnet, unetNodes } from "../shared/unet";
 
 /** What every Klein recipe asks for besides its own inputs. */
 export interface KleinBase {
@@ -46,14 +47,14 @@ export interface Klein {
   loads: string[];
 }
 
-export const LOAD_NODES = (input: KleinBase) => ["UNETLoader", "CLIPLoader", "VAELoader", ...(input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : [])];
+export const LOAD_NODES = (input: KleinBase) => [...unetNodes(input.model), "CLIPLoader", "VAELoader", ...(input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : [])];
 export const SAMPLE_NODES = ["CLIPTextEncode", "Flux2Scheduler", "CFGGuider", "KSamplerSelect", "RandomNoise", "SamplerCustomAdvanced", "VAEDecode"];
 export const REFERENCE_NODES = ["LoadImage", "ImageScaleToTotalPixels", "VAEEncode", "ReferenceLatent"];
 
 /** The model with its LoRAs, the text reader and the picture decoder. */
 export function loadKlein(g: GraphBuilder, input: KleinBase, ctx: BuildContext): Klein {
   const unet = input.model ?? ctx.slots.unet;
-  let model = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
+  let model = loadUnet(g, ctx, unet);
   for (const l of input.loras) {
     if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
   }

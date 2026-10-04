@@ -26,6 +26,8 @@ export interface DownloadView {
   total: number;
   status: "starting" | "downloading" | "saving" | "done" | "error" | "stopped";
   error?: string;
+  /** While starting: what it waits for (ComfyUI-Manager fetches one file at a time). */
+  waiting?: string;
 }
 
 interface Download extends DownloadView {
@@ -151,12 +153,32 @@ export class Downloads {
       this.fail(d, unreachable(err) ? "ComfyUI is not answering." : (err as Error).message);
       return this.list().find((v) => v.id === d.id)!;
     }
-    // Manager checks what it is allowed to do before it fetches: when it never comes, say why
-    setTimeout(() => {
-      if (d.status === "starting") {
-        this.fail(d, "ComfyUI-Manager did not start the download. Either it is not allowed to (in its config.ini, set network_mode = personal_cloud or security_level = normal, then restart ComfyUI), or ComfyUI cannot reach Afflatus at the address it was given.");
+    // Manager checks what it is allowed to do before it fetches: when it never comes, say why. But it
+    // fetches one file at a time: behind another download (ours, or any task of its queue) the fetch
+    // comes later, and the download waits its turn instead of being given up on
+    const watch = async () => {
+      if (d.status !== "starting") return;
+      const other = [...this.all.values()].find((o) => o !== d && (o.status === "downloading" || o.status === "saving"));
+      let queued = false;
+      if (!other) {
+        try {
+          const res = await fetch(comfy.client.baseUrl + "/v2/manager/queue/status", { signal: AbortSignal.timeout(5_000) });
+          const q = res.ok ? ((await res.json()) as { in_progress_count?: number; pending_count?: number }) : null;
+          // a task under way that is not ours (ours would be fetching already), or more than ours pending
+          queued = Boolean(q && ((q.in_progress_count ?? 0) > 0 || (q.pending_count ?? 0) > 1));
+        } catch {
+          queued = false;
+        }
       }
-    }, this.startsWithinMs).unref();
+      if (other || queued) {
+        d.waiting = other ? `behind ${other.file}` : "behind another task of ComfyUI-Manager";
+        this.tell(true);
+        setTimeout(() => void watch(), this.startsWithinMs).unref();
+        return;
+      }
+      this.fail(d, "ComfyUI-Manager did not start the download. Either it is not allowed to (in its config.ini, set network_mode = personal_cloud or security_level = normal, then restart ComfyUI), or ComfyUI cannot reach Afflatus at the address it was given.");
+    };
+    setTimeout(() => void watch(), this.startsWithinMs).unref();
     this.tell(true);
     return this.list().find((v) => v.id === d.id)!;
   }
@@ -169,6 +191,7 @@ export class Downloads {
     const d = this.all.get(id);
     if (!d || d.token !== token || d.status !== "starting") return null;
     d.status = "downloading";
+    delete d.waiting;
     this.tell(true);
     let res: Response;
     try {

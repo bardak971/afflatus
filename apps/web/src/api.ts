@@ -339,6 +339,8 @@ export interface Take {
   startMs: number;
   endMs: number;
   createdAt: string;
+  /** The take this one is the finished (upscaled) version of. */
+  finishedFrom: string | null;
 }
 export interface Clip {
   id: string;
@@ -584,6 +586,15 @@ export interface LlmInfo {
   /** The longest answer it may write, in tokens. */
   maxOutputTokens: number;
 }
+export interface FinishSettings {
+  route: "seedvr" | "latent" | "rtx" | "model";
+  factor: number;
+  colour: "lab" | "wavelet" | "adain" | "none";
+  upscaleModel: string;
+  latentDenoise: number;
+  latentSteps: number;
+}
+
 export interface Settings {
   comfyUrl: string;
   /** ComfyUI's folder on Afflatus's computer, when they share one; empty otherwise. */
@@ -604,6 +615,8 @@ export interface Settings {
   /** Model families switched on or off by hand; one that is not named follows its files. */
   families: Record<string, boolean>;
   hasCivitaiKey: boolean;
+  /** The user's defaults for "Finish all clips" on a timeline. */
+  finish: FinishSettings;
   /** Missing model files may be looked for on Civitai. */
   civitaiLookups: boolean;
   /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. */
@@ -639,6 +652,8 @@ export interface Download {
   total: number;
   status: "starting" | "downloading" | "saving" | "done" | "error" | "stopped";
   error?: string;
+  /** While starting: what it waits for (ComfyUI-Manager fetches one file at a time). */
+  waiting?: string;
 }
 /** A word about one choice of a form: slow, or probably too much, on the card it will run on. */
 export interface Advice {
@@ -886,7 +901,9 @@ export const api = {
   writeBetween: (clip: string, arrive?: string) => call<{ changes: Record<string, string>; note: string; was: Record<string, string> }>("POST", `/clips/${clip}/between`, arrive ? { arrive } : undefined),
   renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean; takes?: number }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */
-  exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
+  exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; fit?: "timeline" | "largest" }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
+  /** Every clip's selected take brought to its final quality by an upscale route, as a new take each; the drafts stay. */
+  finishTimeline: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }>("POST", `/timelines/${id}/finish`, opts),
   /** One frame of a video, saved as a picture in the library. */
   frame: (video: string, atMs: number) => call<Asset>("POST", `/assets/${video}/frame`, { atMs }),
   /** A range of a video as new videos, in the queue: copied, split out, or removed. */

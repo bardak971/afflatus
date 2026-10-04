@@ -91,6 +91,7 @@ const made = flowRecipes(spec);
 export const fluxPicture = made.picture;
 export const fluxRedraw = made.redraw;
 export const fluxPaintOver = made.paintOver;
+export const fluxOutpaint = made.outpaint;
 export const fluxSharper = made.sharper;
 export const fluxFixFace = made.fixFace;
 
@@ -126,7 +127,7 @@ export const fluxEdit = defineRecipe<FluxEdit>({
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the car to red, keep everything else the same." },
     ...kit.inputs.map((i) => (i.id === "guidance" ? { ...i, default: 2.5, note: "2.5 is Kontext's usual one" } : i) as InputSpec),
   ],
-  nodes: () => [...kit.LOAD_NODES, "LoadImage", "FluxKontextImageScale", "VAEEncode", "ReferenceLatent"],
+  nodes: (input) => [...kit.loadNodes(input), "LoadImage", "FluxKontextImageScale", "VAEEncode", "ReferenceLatent"],
   // the guidance is part of how Kontext is used: it is always there
   optionalNodes: kit.SOMETIMES,
   build(input, ctx) {

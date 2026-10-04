@@ -1,6 +1,12 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
-import { pixelUpscale, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { pixelUpscale, UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { loadUnet, unetNodes } from "../shared/unet";
+import { CORE_VIDEO_OUT, saveVideo, VHS } from "../shared/out";
+
+const SMOOTH_AUTO = "Auto";
+const SMOOTH_RIFE = "RIFE (pixels)";
+const SMOOTH_LTX = "LTX temporal (latent)";
 
 /** The schedule LTX's authors give for the distilled model: 8 steps, written out. */
 export const LTX_SIGMAS = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0";
@@ -49,9 +55,11 @@ export interface LtxVideo {
   endStrength: number;
   compression: number;
   smooth: boolean;
+  smoothWith: string;
   upscale: string;
   upscaleBy: number;
   upscaleModel: string;
+  upscaleColour?: string;
   livePreview: boolean;
   loras: LoraValue[];
   seed: number;
@@ -163,7 +171,11 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step, without its sound. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",
     },
-    { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE, from 25 to 50 a second", default: false, advanced: true },
+    { id: "smooth", type: "toggle", label: "Frame interpolation (×2)", note: "from 25 to 50 frames a second: with LTX's own temporal upscaler in latent space when its file is there (motion-aware, then a short refine), else RIFE on the pixels", default: false, advanced: true },
+    {
+      id: "smoothWith", type: "choice", label: "Interpolate with", options: [SMOOTH_AUTO, SMOOTH_LTX, SMOOTH_RIFE], default: SMOOTH_AUTO, showWhen: "smooth", advanced: true,
+      note: "Auto takes LTX's temporal upscaler when its file is there, else RIFE. The temporal upscaler doubles the latent's frames and a 2-step pass settles them: experimental, the refine after it is not Lightricks' published setting",
+    },
     { id: "loras", type: "loras", label: "LoRAs", max: 6 },
     { id: "seed", type: "seed", label: "Seed" },
   ],
@@ -173,13 +185,14 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     return [
       ...routeNodes,
       "CLIPTextEncode", "LTXVConditioning", "EmptyLTXVLatentVideo", "LTXVEmptyLatentAudio", "LTXVConcatAVLatent", "LTXVSeparateAVLatent",
-      "RandomNoise", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode", "VHS_VideoCombine",
+      "RandomNoise", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode",
+      ...(input.model ? unetNodes(input.model).filter((n) => n !== "UNETLoader") : []),
       ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
       ...(input.start || input.end ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
     ];
   },
   // which loaders, and which way the clip is made, depend on the files this ComfyUI has
-  optionalNodes: ["RebatchImages", 
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT,
     "UNETLoader", "DualCLIPLoader", "VAELoader", "CheckpointLoaderSimple", "LTXVAudioVAELoader", "LTXAVTextEncoderLoader", "LoraLoaderModelOnly",
     "LatentUpscaleModelLoader", "LTXVLatentUpsampler", "LTXVImgToVideoInplace", "LTXVAddGuide", "LTXVCropGuides", "ManualSigmas",
     "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
@@ -209,7 +222,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     let vae: Ref;
     let audioVae: Ref;
     if (picked.unet) {
-      model = g.out("UNETLoader", { unet_name: picked.unet, weight_dtype: "default" });
+      model = loadUnet(g, ctx, picked.unet);
       clip = g.out("DualCLIPLoader", { clip_name1: slots.clip, clip_name2: slots.projection, type: "ltxv", device: "default" });
       vae = g.out("VAELoader", { vae_name: slots.videoVae });
       audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
@@ -316,23 +329,43 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       audio = [done, 1];
     }
 
+    // twice the frames: LTX's temporal upscaler doubles the latent's frames (the sound is untouched), then a
+    // short pass settles them; else RIFE on the decoded pictures
+    const canTemporal = Boolean(slots.temporal) && ctx.has("LTXVLatentUpsampler") && ctx.has("LatentUpscaleModelLoader");
+    if (input.smooth && input.smoothWith === SMOOTH_LTX && !canTemporal) throw new Error("LTX's temporal upscaler was not found: put ltx-2.3-temporal-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder (one click in Settings → Models), or interpolate with RIFE.");
+    const temporal = input.smooth && input.smoothWith !== SMOOTH_RIFE && canTemporal;
+    if (temporal) {
+      g.phase("interpolating");
+      const doubled = g.out("LTXVLatentUpsampler", { samples: video, upscale_model: g.out("LatentUpscaleModelLoader", { model_name: slots.temporal }), vae });
+      const settled = g.add("SamplerCustomAdvanced", {
+        noise: g.out("RandomNoise", { noise_seed: ctx.seed + 2 }),
+        guider: g.out("CFGGuider", { model, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
+        sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(0.5, 2) }),
+        latent_image: g.out("LTXVConcatAVLatent", { video_latent: doubled, audio_latent: audio }),
+      });
+      passes.push({ node: settled, steps: 2 });
+      const apart = g.add("LTXVSeparateAVLatent", { av_latent: [settled, 0] });
+      video = [apart, 0];
+      audio = [apart, 1];
+    }
     g.phase("decoding");
     let images = g.out("VAEDecodeTiled", { samples: video, vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: 4 });
     const heard = g.out("LTXVAudioVAEDecode", { samples: audio, audio_vae: audioVae });
-    const smooth = input.smooth && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
-    if (smooth) {
+    // SeedVR2 goes before the frame interpolation (its cost grows with the frame count; RIFE's is small); the
+    // other pixel routes after it, on the final frames
+    const early = input.upscale === UPSCALE.seedvr;
+    const pixel = early ? pixelUpscale(g, images, input, { width, height }, ctx) : null;
+    if (pixel) images = pixel.images;
+    const rife = input.smooth && !temporal && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
+    if (rife) {
       g.phase("interpolating");
       images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
     }
-    // the pixel routes: the final frames enlarged by an upscale model or by RTX VSR
-    const pixel = pixelUpscale(g, images, input, { width, height }, ctx);
-    images = pixel.images;
+    const smooth = temporal || rife;
+    const late = pixel ?? pixelUpscale(g, images, input, { width, height }, ctx);
+    images = late.images;
     g.phase("encoding");
-    // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
-    const out = g.add("VHS_VideoCombine", {
-      images, audio: heard, frame_rate: smooth ? LTX_FPS * 2 : LTX_FPS, loop_count: 0, filename_prefix: "Afflatus/video", format: "video/h264-mp4",
-      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
-    });
+    const out = saveVideo(g, ctx, { images, audio: heard, fps: smooth ? LTX_FPS * 2 : LTX_FPS, crf: input.crf });
 
     return {
       graph: g.graph,
@@ -341,11 +374,12 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       totalSteps: passes.reduce((n, p) => n + p.steps, 0),
       passes,
       loads: [
-        ...pixel.loads,
+        ...late.loads,
         ...(picked.unet
           ? [`diffusion_models/${picked.unet}`, `text_encoders/${slots.clip}`, `text_encoders/${slots.projection}`, `vae/${slots.videoVae}`, `vae/${slots.audioVae}`]
           : [`checkpoints/${picked.checkpoint}`, `text_encoders/${slots.clip}`]),
         ...(how.twoPass ? [`latent_upscale_models/${slots.upscaler}`] : []),
+        ...(temporal ? [`latent_upscale_models/${slots.temporal}`] : []),
         ...(lora ? [`loras/${lora}`] : []),
         ...input.loras.filter((l) => l.weight !== 0).map((l) => `loras/${l.file}`),
       ],
@@ -367,6 +401,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     const one = { checkpoint: "ltx-2.3-22b-distilled-fp8.safetensors", clip: "gemma_3_12B_it.safetensors" };
     const parts = { unet: "SomeoneLTX23_v4.safetensors", videoVae: "LTX23_video_vae.safetensors", audioVae: "LTX23_audio_vae.safetensors", projection: "ltx-2.3_text_projection.safetensors", clip: "gemma_3_12B_it.safetensors" };
     const extras = { upscaler: "ltx-2.3-spatial-upscaler-x2.safetensors", turbo: "ltx_2.3_distilled_lora.safetensors", rife: "rife49.pth" };
+    const temporal = { ...extras, temporal: "ltx-2.3-temporal-upscaler-x2-1.0.safetensors" };
     const picture = { width: 832, height: 1216 };
     return [
       { name: "from words, the one checkpoint, one pass (no upscaler)", input: { prompt: "a" }, slots: one },
@@ -385,6 +420,10 @@ export const ltxVideo = defineRecipe<LtxVideo>({
         slots: { ...parts, ...extras }, uploads: { start: "a.png" }, media: { start: picture }, canvas: { width: 1024, height: 576 },
       },
       { name: "opens on a picture, one pass asked for, by steps unstretched", input: { prompt: "a", start: "p1", twoPass: false, schedule: "By steps", stretch: false }, slots: { ...one, ...extras }, uploads: { start: "a.png" }, media: { start: picture } },
+      { name: "twice the frames with LTX's temporal upscaler, two passes", input: { prompt: "a", start: "p1", smooth: true }, slots: { ...parts, ...temporal }, uploads: { start: "a.png" }, media: { start: picture } },
+      { name: "twice the frames with LTX's temporal upscaler, one pass with a last picture", input: { prompt: "a", end: "p2", smooth: true, smoothWith: "LTX temporal (latent)" }, slots: { ...one, ...temporal }, uploads: { end: "b.png" }, media: { end: picture } },
+      { name: "RIFE asked for although the temporal upscaler is there", input: { prompt: "a", smooth: true, smoothWith: "RIFE (pixels)" }, slots: { ...one, ...temporal } },
+      { name: "a GGUF diffusion model, ComfyUI's own video output", input: { prompt: "a", model: "ltx-2.3-22b-dev-Q4_K_M.gguf" }, slots: { ...parts, ...extras }, has: (n: string) => n !== "VHS_VideoCombine" },
     ];
   })(),
 });

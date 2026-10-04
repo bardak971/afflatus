@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, Redo2, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
+import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, Redo2, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Sparkles, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch, type Timeline } from "../api";
-import { useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSetup, useTimeline } from "../data";
+import { useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSettings, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
 import { LookBar, lookWords } from "../LookBar";
 import { estimateFor } from "../estimate";
@@ -17,6 +17,7 @@ import { Player, type PlayerHandle } from "../timeline/Player";
 import { Shelf } from "../timeline/Shelf";
 import { Track, type TimeRange } from "../timeline/Track";
 import { AutoText, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
+import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { useBanners } from "../store";
@@ -66,7 +67,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const entities = useEntities();
   const [note, setNote] = useState<string | null>(null);
   /** The export box: open, what was asked, and the export that was there before (to tell the new one). */
-  const [exp, setExp] = useState<{ scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; blend: boolean; match: boolean; before: string | null; asked: boolean } | null>(null);
+  const [exp, setExp] = useState<{ scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; blend: boolean; match: boolean; fit: "timeline" | "largest"; before: string | null; asked: boolean } | null>(null);
+  const [fin, setFin] = useState(false);
   const player = useRef<PlayerHandle>(null);
 
   const t = timeline.data;
@@ -397,7 +399,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     },
   });
   const duplicate = useMutation({ mutationFn: api.duplicateClip, onSuccess: (r) => { after(); setSelected(r.clip); } });
-  const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend: boolean; match: boolean }) => api.exportTimeline(id, v), onSuccess: after });
+  const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend: boolean; match: boolean; fit: "timeline" | "largest" }) => api.exportTimeline(id, v), onSuccess: after });
   const frame = useMutation({ mutationFn: (v: { asset: string; at: number }) => api.frame(v.asset, v.at), onSuccess: (a) => { setOpened(a); void client.invalidateQueries({ queryKey: ["assets"] }); } });
   /**
    * A loop ends where the clip begins: on its opening picture when it has one, else on the first frame
@@ -623,6 +625,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const misfits = clips.filter((c) => otherShape(c, t) && !c.fill).length;
   const exportDone = exp?.asked && !t.exporting && t.exported && t.exported.id !== exp.before ? t.exported : null;
   const exportSize = (scale: number) => (t.width && t.height ? `${Math.round((t.width * scale) / 2) * 2} × ${Math.round((t.height * scale) / 2) * 2}` : "");
+  // the finished size: the timeline's shape with as many pixels as its largest take, when a take is larger than the frame
+  const largest = Math.max(0, ...clips.map((c) => (c.take?.asset.width ?? 0) * (c.take?.asset.height ?? 0)));
+  const finishedK = t.width && t.height ? Math.sqrt(largest / (t.width * t.height)) : 1;
+  const finishedSize = finishedK > 1.05 && t.width && t.height ? `${Math.round((t.width * finishedK) / 8) * 8} × ${Math.round((t.height * finishedK) / 8) * 8}` : null;
   const playable = clips.filter((c) => c.lengthMs > 0).length;
 
   return (
@@ -671,7 +677,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}
           </Button>
         )}
-        <Button disabled={!t.durationMs} onClick={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}>
+        <Button disabled={!clips.some((c) => c.kind === "video" && c.take)} title="Every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={() => setFin(true)}>
+          <Sparkles size={15} /> Finish
+        </Button>
+        <Button disabled={!t.durationMs} onClick={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}>
           <Download size={15} /> {t.exporting ? "Exporting…" : "Export video"}
         </Button>
       </header>
@@ -844,7 +853,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 onMusic={() => setMusicOpen(true)}
                 onCast={() => setCasting(true)}
                 onRenderAll={() => render.mutate({ clips: missing })}
-                onExport={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}
+                onExport={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}
                 rendering={render.isPending}
               />
             ) : (
@@ -910,15 +919,29 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                   <Toggle on={exp.blend} onChange={(blend) => setExp({ ...exp, blend })} label="Blend joins" note="a clip that extends the one before is crossfaded in over the frames they share (up to 0.4 s), with its sound" />
                 )}
                 {playable > 1 && <Toggle on={exp.match} onChange={(match) => setExp({ ...exp, match })} label="Match colours at joins" note="each clip's brightness and tint nudged to the clip before, a few steps at most" />}
+                {finishedSize && <Toggle on={exp.fit === "largest"} onChange={(on) => setExp({ ...exp, fit: on ? "largest" : "timeline" })} label={`At the finished size (${finishedSize})`} note="the frame of the largest take: the finished clips as they are, the drafts enlarged to it. Off: the timeline's frame" />}
                 {misfits > 0 && <span className="text-xs text-ink-2">{misfits} clip{misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).</span>}
                 <div className="flex flex-wrap gap-2">
-                  <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined, blend: exp.blend, match: exp.match }); }}>Export</Button>
+                  <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined, blend: exp.blend, match: exp.match, fit: exp.fit }); }}>Export</Button>
                   <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
                 </div>
               </>
             )}
           </div>
         </div>
+      )}
+      {fin && (
+        <FinishDialog
+          timeline={id}
+          clips={clips}
+          upscaleModels={setup.data?.recipes.find((r) => r.id === "h3.video")?.options.upscaleModel ?? setup.data?.recipes.find((r) => r.id === "wan.video")?.options.upscaleModel ?? []}
+          onClose={() => setFin(false)}
+          onQueued={(r) => {
+            after();
+            setFin(false);
+            setNote(`${r.jobs.length} clip${r.jobs.length === 1 ? "" : "s"} finishing in the queue, one job each; the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
+          }}
+        />
       )}
       {casting && (
         <div role="dialog" aria-modal="true" aria-label="Cast and places" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setCasting(false)}>

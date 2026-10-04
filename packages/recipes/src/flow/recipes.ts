@@ -1,8 +1,9 @@
 import { defineRecipe, GraphBuilder, type BuildContext, type InputSpec, type LoraValue, type Preset, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
 import {
-  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
-  type FaceSettings, type HiresPass, type MaskSettings, type UpscaleSettings,
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, UPSCALER_PREFER,
+  type FaceSettings, type HiresPass, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
 } from "../sdxl/common";
+import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
 
 /**
  * The picture models that are built the same way in ComfyUI (a diffusion model in a file of its own, one
@@ -66,6 +67,7 @@ export interface FlowPicture extends FlowBase, HiresPass {
 }
 export interface FlowRedraw extends FlowBase { source: string; prompt: string; strength: number }
 export interface FlowPaintOver extends FlowBase, MaskSettings { source: string; mask: string; prompt: string; strength: number }
+export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: string; prompt: string }
 export interface FlowSharper extends FlowBase, UpscaleSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
 export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
 
@@ -103,13 +105,15 @@ export function flowKit(spec: FlowSpec) {
 
   /** The nodes every recipe that samples uses. The ones that depend on a setting or on a file are among `SOMETIMES`. */
   const LOAD_NODES = ["UNETLoader", ...spec.encoder.nodes, "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "PreviewImage"];
+  /** The same, with the loader the model picked on the form needs (the GGUF pack's for a .gguf file). */
+  const loadNodes = (input: { model?: string }) => [...unetNodes(input.model), ...LOAD_NODES.slice(1)];
   /** Nodes of ComfyUI itself that a setting, or a file that is there or not, brings in. */
   const SOMETIMES = ["LoraLoaderModelOnly", "ConditioningZeroOut", spec.shift.node, ...(spec.guidance ? ["FluxGuidance"] : [])];
 
   /** The model with its LoRAs (and the turbo LoRA when Turbo is on and the model needs it), the text encoder and the VAE. */
   function load(g: GraphBuilder, input: FlowBase, ctx: BuildContext) {
     const unet = input.model ?? ctx.slots.unet;
-    let model: Ref = g.out("UNETLoader", { unet_name: unet, weight_dtype: input.precision || "default" });
+    let model: Ref = loadUnet(g, ctx, unet, input.precision || "default");
     const made = spec.turbo ? spec.turbo.named.test(unet?.split(/[\\/]/).pop() ?? "") : false;
     const turboLora = spec.turbo && input.fast && !made ? ctx.slots[spec.turbo.slot] : undefined;
     // a model made for a few steps runs at them whether Turbo is on or not (40 steps at CFG 4 on a Lightning
@@ -169,13 +173,13 @@ export function flowKit(spec: FlowSpec) {
     return { width: r16(of.width * k), height: r16(of.height * k) };
   }
 
-  return { inputs, LOAD_NODES, SOMETIMES, load, shifted, cond, sample, sizeOf };
+  return { inputs, LOAD_NODES, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf };
 }
 
 /** The five operations of a picture model, from what is said about it once. */
-export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; redraw: Recipe<FlowRedraw>; paintOver: Recipe<FlowPaintOver>; sharper: Recipe<FlowSharper>; fixFace: Recipe<FlowFixFace> } {
+export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; redraw: Recipe<FlowRedraw>; paintOver: Recipe<FlowPaintOver>; outpaint: Recipe<FlowOutpaint>; sharper: Recipe<FlowSharper>; fixFace: Recipe<FlowFixFace> } {
   const kit = flowKit(spec);
-  const { inputs, LOAD_NODES, SOMETIMES, load, shifted, cond, sample, sizeOf } = kit;
+  const { inputs, LOAD_NODES, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf } = kit;
   const files = spec.files;
   const tuned = { model: spec.fineTune, shift: 4, cfg: 3, steps: 25, negative: "blurry", loras: [{ file: "l.safetensors", weight: 0.8 }] };
 
@@ -204,7 +208,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       inputs.at(-1)!,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [...LOAD_NODES, "EmptySD3LatentImage", ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : [])],
+    nodes: (input) => [...loadNodes(input), "EmptySD3LatentImage", ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : [])],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
       const g = new GraphBuilder();
@@ -236,6 +240,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
     },
     variants: [
       { name: "from words, as ComfyUI's template", input: { prompt: "a" } as Partial<FlowPicture>, slots: files },
+      { name: "a GGUF model, in fp8 asked for (no effect on it)", input: { prompt: "a", model: `${spec.family}-Q4_K_M.gguf`, precision: "fp8_e4m3fn" } as Partial<FlowPicture>, slots: files },
       { name: "a fine-tune with a shift, a LoRA, a negative prompt and hires fix", input: { prompt: "a", ...tuned, hires: true, hiresUpscaler: "u.pth", size: { width: 1152, height: 1536 } } as Partial<FlowPicture>, slots: files },
       ...(spec.turbo
         ? [
@@ -262,7 +267,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: () => [...LOAD_NODES, "LoadImage", "ImageScale", "VAEEncode"],
+    nodes: (input) => [...loadNodes(input), "LoadImage", "ImageScale", "VAEEncode"],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
       const g = new GraphBuilder();
@@ -305,7 +310,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: () => [...LOAD_NODES, "LoadImage", "VAEEncode", ...MASK_NODES],
+    nodes: (input) => [...loadNodes(input), "LoadImage", "VAEEncode", "DifferentialDiffusion", ...MASK_NODES],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
       const g = new GraphBuilder();
@@ -317,9 +322,10 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       const sized = g.out("ImageScale", { image: part, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
       const masks = maskParts(g, ctx.uploads.mask!, box, size, input);
       const c = cond(g, k, input, input.prompt);
-      const masked = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: sized, vae: k.vae }), mask: masks.forLatent });
+      // soft inpainting: the model fades the new part in by the soft edge (Differential Diffusion) instead of a hard mask and a halo
+      const masked = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: sized, vae: k.vae }), mask: masks.softForLatent });
       g.phase("sampling");
-      const { latent, pass } = sample(g, k, input, shifted(g, k.model, input, size), c, masked, ctx.seed, { denoise: input.strength });
+      const { latent, pass } = sample(g, k, input, g.out("DifferentialDiffusion", { model: shifted(g, k.model, input, size) }), c, masked, ctx.seed, { denoise: input.strength });
       g.phase("decoding");
       const drawn = g.out("VAEDecode", { samples: latent, vae: k.vae });
       const back = g.out("ImageScale", { image: drawn, upscale_method: "lanczos", width: box.width, height: box.height, crop: "disabled" });
@@ -338,6 +344,47 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
         input: { source: "p", mask: "m", prompt: "a", strength: 1, ...tuned } as Partial<FlowPaintOver>,
         slots: files, uploads: { source: "s.png", mask: "m.png" }, media: { source: photo },
       },
+    ],
+  });
+
+  // ---------------------------------------------------------------- outpaint
+  const outpaint = defineRecipe<FlowOutpaint>({
+    id: `${spec.family}.outpaint`,
+    family: spec.family,
+    version: 1,
+    title: "Outpaint",
+    summary: "Extends an image beyond its edges: the sides you choose are painted in from the prompt, the picture itself stays.",
+    output: "image",
+    inputs: [
+      spec.model,
+      { id: "source", type: "image", role: "source", label: "Image" },
+      { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "sentences", placeholder: "A wide shot of the terrace at sunset, the sea behind the railing, warm light." },
+      ...OUTPAINT_INPUTS,
+      ...inputs,
+    ],
+    ...(spec.presets ? { presets: spec.presets } : {}),
+    nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES],
+    optionalNodes: SOMETIMES,
+    build(input, ctx) {
+      if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
+      const g = new GraphBuilder();
+      const k = load(g, input, ctx);
+      const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
+      const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
+      const size = sizeOf(whole);
+      const source = g.out("LoadImage", { image: ctx.uploads.source });
+      const { latent: padded } = outpaintLatent(g, source, from, input, size, k.vae);
+      const c = cond(g, k, input, input.prompt);
+      g.phase("sampling");
+      const { latent, pass } = sample(g, k, input, shifted(g, k.model, input, size), c, padded, ctx.seed);
+      g.phase("decoding");
+      const drawn = g.out("VAEDecode", { samples: latent, vae: k.vae });
+      const out = g.add("PreviewImage", { images: g.out("ImageScale", { image: drawn, upscale_method: "lanczos", width: whole.width, height: whole.height, crop: "disabled" }) });
+      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: k.loads };
+    },
+    variants: [
+      { name: "wider on both sides", input: { source: "p", prompt: "a" } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
+      { name: "taller, a fine-tune with a LoRA", input: { source: "p", prompt: "a", padLeft: 0, padRight: 0, padTop: 256, padBottom: 0, ...tuned } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
     ],
   });
 
@@ -362,7 +409,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
     // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-    optionalNodes: [...LOAD_NODES.filter((n) => n !== "PreviewImage"), "VAEEncode", ...SOMETIMES],
+    optionalNodes: [...LOAD_NODES.filter((n) => n !== "PreviewImage"), GGUF_LOADER, "VAEEncode", ...SOMETIMES],
     build(input, ctx) {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -413,7 +460,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: () => [...LOAD_NODES.filter((n) => !["KSampler", "VAEDecode"].includes(n)), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer"],
+    nodes: (input) => [...loadNodes(input).filter((n) => !["KSampler", "VAEDecode"].includes(n)), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer"],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
       const g = new GraphBuilder();
@@ -439,5 +486,5 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
     ],
   });
 
-  return { picture, redraw, paintOver, sharper, fixFace };
+  return { picture, redraw, paintOver, outpaint, sharper, fixFace };
 }

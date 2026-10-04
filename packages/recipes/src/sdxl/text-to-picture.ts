@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
-import { HIRES_PASS_INPUTS, hiresPass, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
+import { HIRES_PASS_INPUTS, hiresPass, isVPred, PREDICTION_INPUTS, PREDICTION_NODES, SDXL_PRESETS, UPSCALER_PREFER, withPrediction } from "./common";
 import { DEFAULT_NEGATIVE } from "./family";
 
 export interface SdxlTextToPicture {
@@ -15,6 +15,8 @@ export interface SdxlTextToPicture {
   sampler: string;
   scheduler: string;
   clipSkip: number;
+  prediction: string;
+  rescale: number;
   hires: boolean;
   hiresScale: number;
   hiresUpscaler: string;
@@ -57,6 +59,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler_ancestral", advanced: true, perModel: true },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "normal", advanced: true, perModel: true },
     { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = SDXL's own, which is already the second-last layer: what Civitai calls \"clip skip 2\" (Pony, Illustrious). Only raise it when a checkpoint's card asks for more than that", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
+    ...PREDICTION_INPUTS,
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
     { id: "hiresScale", type: "number", label: "Upscale by", min: 1.1, max: 2, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
     {
@@ -79,6 +82,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
       "CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "KSampler", "VAEDecode", "PreviewImage",
       ...(input.loras.length ? ["LoraLoader"] : []),
       ...(input.clipSkip > 1 ? ["CLIPSetLastLayer"] : []),
+      ...(isVPred(input) ? (input.rescale > 0 ? PREDICTION_NODES : ["ModelSamplingDiscrete"]) : []),
       ...(!input.hires
         ? []
         : input.hiresUpscaler === LATENT_UPSCALE
@@ -101,6 +105,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     }
     // N = stop at the Nth-last layer; SDXL's own default is already the second-last
     if (input.clipSkip > 1) clip = g.out("CLIPSetLastLayer", { clip, stop_at_clip_layer: -input.clipSkip });
+    model = withPrediction(g, model, input);
     const text = [input.quality.trim().replace(/,\s*$/, ""), input.prompt].filter(Boolean).join(", ");
     const positive = g.out("CLIPTextEncode", { text, clip });
     const negative = g.out("CLIPTextEncode", { text: input.negative, clip });
@@ -159,6 +164,8 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
       },
     },
     { name: "hi-res fix, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true } },
+    { name: "a v-prediction checkpoint, read from its name", input: { prompt: "a", checkpoint: "noobaiXL_vPred10.safetensors" } },
+    { name: "said to be v-prediction, without the CFG rescale", input: { prompt: "a", checkpoint: "mystery.safetensors", prediction: "v-prediction (zsnr)", rescale: 0 } },
     {
       name: "hi-res fix, upscale model",
       input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: "u.pth", hiresScale: 2, sampler: "dpmpp_2m", scheduler: "karras" },

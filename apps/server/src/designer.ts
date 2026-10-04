@@ -21,6 +21,21 @@ import { cleanTags } from "./tags";
  * whole JSON reply unreadable (learned in Noctown).
  */
 
+/**
+ * Why a call never got an answer, in words: Node says "fetch failed" for every network failure and keeps
+ * the reason in the error's cause (the address did not resolve, nothing listens there, it timed out).
+ */
+export function whyNoAnswer(err: unknown): string {
+  const e = err as Error & { cause?: { code?: string; message?: string }; name?: string };
+  const code = e.cause?.code ?? "";
+  if (e.name === "TimeoutError" || code === "UND_ERR_CONNECT_TIMEOUT" || code === "ETIMEDOUT") return "it took too long to answer (timed out).";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "the address could not be found: no internet connection, or the address is misspelt.";
+  if (code === "ECONNREFUSED") return "nothing is listening at that address: the server is not running, or the port is wrong.";
+  if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") return "the connection was cut while waiting.";
+  if (code === "CERT_HAS_EXPIRED" || /certificate/i.test(e.cause?.message ?? "")) return `its certificate was refused (${e.cause?.message}).`;
+  return e.cause?.message ? `${e.message} (${e.cause.message}).` : `${e.message}.`;
+}
+
 export class DesignerError extends Error {
   statusCode = 400;
 }
@@ -80,7 +95,7 @@ export async function chat(cfg: Llm | undefined, messages: Message[], opts: { te
       res = await ask();
     }
   } catch (err) {
-    throw new DesignerError(`The language model did not answer at ${cfg.baseUrl}: ${(err as Error).message}`);
+    throw new DesignerError(`The language model did not answer at ${cfg.baseUrl}: ${whyNoAnswer(err)}`);
   }
   if (!res.ok) throw new DesignerError(`The language model refused (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}`);
   const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }> };

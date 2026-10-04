@@ -1,6 +1,8 @@
 import { defineRecipe, GraphBuilder, REFERENCE_ROLES, type ClipValue, type LoraValue, type MediaFacts, type Ref, type ReferenceValue, type SizeValue, type Variant } from "@afflatus/core";
 import { H3_FORM_PIXELS, H3_FPS, H3_MAX_FRAMES, h3Canvas, h3Frames } from "./family";
-import { pixelUpscale, UPSCALE, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { pixelUpscale, UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { loadUnet, unetNodes } from "../shared/unet";
+import { CORE_VIDEO_OUT, saveVideo, VHS } from "../shared/out";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
 /** The sampler left to the recipe: the one that suits the steps (euler for a turbo's few, res_multistep otherwise). */
@@ -42,6 +44,7 @@ export interface H3Video {
   upscale: string;
   upscaleBy: number;
   upscaleModel: string;
+  upscaleColour?: string;
   upscaleDenoise: number;
   upscaleSteps: number;
   upscaleTile: number;
@@ -248,8 +251,8 @@ export const h3Video = defineRecipe<H3Video>({
     const turboLora = input.fast && !(picked.turbo && (!how.reference || picked.hybrid));
     return [
       ...routeNodes,
-      "UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
-      "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", input.upscale === UPSCALE.latent ? "VAEDecodeTiled" : "VAEDecode", "VAEDecodeAudio", "VHS_VideoCombine",
+      ...unetNodes(input.model), "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
+      "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", input.upscale === UPSCALE.latent ? "VAEDecodeTiled" : "VAEDecode", "VAEDecodeAudio",
       ...(input.quick ? ["ModelAttentionBackend"] : []),
       ...(turboLora || input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
       ...(how.start || how.end || input.mid || input.references.length ? ["LoadImage"] : []),
@@ -258,7 +261,7 @@ export const h3Video = defineRecipe<H3Video>({
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: ["RebatchImages", 
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT,
     "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     "MMH3UltimateUpscale", "MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams", "MMH3SpatialSplitParams", "MMH3TemporalSplitParams",
   ],
@@ -304,7 +307,7 @@ export const h3Video = defineRecipe<H3Video>({
     // how many steps a turbo render takes: typed, else what the LoRA (or a distilled model) is named for, else 8
     const namedSteps = /(\d+)[ _-]?step/i.exec((lora ?? (distilled ? unet : "") ?? "").split(/[\\/]/).pop() ?? "");
     const turboSteps = input.turboSteps > 0 ? input.turboSteps : namedSteps ? Number(namedSteps[1]) : 8;
-    let model = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
+    let model = loadUnet(g, ctx, unet);
     // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
     if (input.cache && !turbo && ctx.has("MiniMaxH3Cache")) {
       model = g.out("MiniMaxH3Cache", { model, reuse_threshold: input.cacheThreshold, start_percent: Math.min(input.cacheStart, input.cacheEnd), end_percent: input.cacheEnd, max_steps: input.cacheSteps, device: "auto", verbose: false });
@@ -426,20 +429,20 @@ export const h3Video = defineRecipe<H3Video>({
       ? g.out("VAEDecodeTiled", { samples: finished, vae, tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 })
       : g.out("VAEDecode", { samples: finished, vae });
     const audio = g.out("VAEDecodeAudio", { samples: finished, vae: audioVae });
+    // SeedVR2 goes before the frame interpolation (its cost grows with the frame count; RIFE's is small); the
+    // other pixel routes after it, on the final frames
+    const early = input.upscale === UPSCALE.seedvr;
+    const pixel = early ? pixelUpscale(g, images, input, { width, height }, ctx) : null;
+    if (pixel) images = pixel.images;
     const smooth = input.smooth && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
     if (smooth) {
       g.phase("interpolating");
       images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
     }
-    // the pixel routes: the final frames enlarged by an upscale model or by RTX VSR
-    const pixel = pixelUpscale(g, images, input, { width, height }, ctx);
-    images = pixel.images;
+    const late = pixel ?? pixelUpscale(g, images, input, { width, height }, ctx);
+    images = late.images;
     g.phase("encoding");
-    // into ComfyUI's temp folder, which it clears itself: nothing piles up in output/
-    const out = g.add("VHS_VideoCombine", {
-      images, audio, frame_rate: smooth ? H3_FPS * 2 : H3_FPS, loop_count: 0, filename_prefix: "Afflatus/video", format: "video/h264-mp4",
-      pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: input.crf, save_metadata: false, trim_to_audio: false,
-    });
+    const out = saveVideo(g, ctx, { images, audio, fps: smooth ? H3_FPS * 2 : H3_FPS, crf: input.crf });
 
     const ms = (n: number) => Math.round((n / H3_FPS) * 1000);
     return {
@@ -448,7 +451,7 @@ export const h3Video = defineRecipe<H3Video>({
       outputs: [{ node: out, kind: "video", role: "result" }],
       totalSteps: steps,
       passes: [{ node: sampled, steps }],
-      loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...pixel.loads],
+      loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...late.loads],
       ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail) } } : {}),
     };
   },
@@ -527,6 +530,8 @@ export const h3Video = defineRecipe<H3Video>({
       { name: "latent upscale, H3's upscaler", input: { description: "a", upscale: UPSCALE.latent, upscaleBy: 1.5, fast: false }, slots: { ...all, latentUpscaler: "minimax_h3_latent_upscaler_3d_fp16.safetensors" } },
       { name: "pixel upscale with a model", input: { description: "a", upscale: UPSCALE.model, upscaleModel: "4x-UltraSharp.pth" }, slots: all },
       { name: "pixel upscale with RTX VSR", input: { description: "a", upscale: UPSCALE.rtx, upscaleBy: 2 }, slots: all },
+      { name: "pixel upscale with DaSiWa's RTX node, NVIDIA's absent", input: { description: "a", upscale: UPSCALE.rtx, upscaleBy: 2 }, slots: all, has: (n: string) => n !== "RTXVideoSuperResolution" },
+      { name: "SeedVR2 upscale", input: { description: "a", upscale: UPSCALE.seedvr, upscaleBy: 2, upscaleColour: "wavelet" }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" } },
       {
         name: "a voice only, with the picture of who speaks",
         input: { description: "a", start: "p1", voice: "v1" },

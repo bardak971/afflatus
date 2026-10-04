@@ -50,13 +50,23 @@ export interface CutOptions {
   asset: string;
   startMs: number;
   endMs: number;
-  /** "slow": the range slowed down by `factor`, as a new video (and, with `clip`, as a take of that clip). */
-  action: "copy" | "split" | "remove" | "slow";
+  /**
+   * "slow": the range slowed down by `factor`, as a new video (and, with `clip`, as a take of that clip).
+   * "finish": the whole video brought to its final quality by an upscale route, as a new video and, with
+   * `clip`, as a take of that clip marked as the finished version of `finishedFrom`.
+   */
+  action: "copy" | "split" | "remove" | "slow" | "finish";
   crf?: number;
   factor?: 2 | 4;
   /** How the frames in between are made: RIFE on the GPU through ComfyUI, or ffmpeg on the processor. */
   engine?: "rife" | "ffmpeg";
   clip?: string;
+  /** "finish": the route, how much larger, SeedVR2's colour match, the pixel route's model. */
+  route?: "seedvr" | "rtx" | "model";
+  by?: number;
+  colour?: string;
+  upscaleModel?: string;
+  finishedFrom?: string;
 }
 
 export const EXPORT_JOB = "afflatus.export";
@@ -73,6 +83,8 @@ export interface ExportOptions {
   blend?: boolean;
   /** Nudge each clip's brightness and tint to the clip before at the join (on unless said otherwise). */
   match?: boolean;
+  /** "largest": the frame of the largest take (the finished ones), the timeline's shape kept; else the timeline's own frame. */
+  fit?: "timeline" | "largest";
 }
 
 /** How many changes Undo can go back. */
@@ -259,6 +271,7 @@ export class Timelines {
     const takeView = (x: { take: TakeRow; asset: AssetRow }) => ({
       id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
       trimStartMs: x.take.trim_start_ms, trimEndMs: x.take.trim_end_ms, startMs: plays(x).start, endMs: plays(x).end, createdAt: x.take.created_at,
+      finishedFrom: x.take.finished_from,
     });
     let at = 0;
     const clips = all.map((p, i) => {
@@ -700,14 +713,16 @@ export class Timelines {
     await this.touch(clip.timeline_id);
   }
 
-  private async addTake(clipId: string, asset: AssetRow, overlap: { headMs: number; tailMs: number }, links: TakeLinks) {
+  private async addTake(clipId: string, asset: AssetRow, overlap: { headMs: number; tailMs: number }, links: TakeLinks, finishedFrom: string | null = null) {
     const id = newId();
+    // the finished version of a take keeps that take's overlaps and trims: it plays the same part, larger
+    const from = finishedFrom ? await this.db.selectFrom("takes").selectAll().where("id", "=", finishedFrom).executeTakeFirst() : undefined;
     await this.db
       .insertInto("takes")
       .values({
-        id, clip_id: clipId, asset_id: asset.id, head_ms: overlap.headMs, tail_ms: overlap.tailMs, trim_start_ms: 0, trim_end_ms: 0,
-        prev_take_id: links.prev?.take ?? null, prev_at_ms: links.prev?.at ?? null, next_take_id: links.next?.take ?? null, next_at_ms: links.next?.at ?? null,
-        created_at: now(),
+        id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? overlap.headMs, tail_ms: from?.tail_ms ?? overlap.tailMs, trim_start_ms: from?.trim_start_ms ?? 0, trim_end_ms: from?.trim_end_ms ?? 0,
+        prev_take_id: links.prev?.take ?? from?.prev_take_id ?? null, prev_at_ms: links.prev?.at ?? from?.prev_at_ms ?? null, next_take_id: links.next?.take ?? from?.next_take_id ?? null, next_at_ms: links.next?.at ?? from?.next_at_ms ?? null,
+        finished_from: from ? from.id : null, created_at: now(),
       })
       .execute();
     const clip = await this.db.updateTable("clips").set({ take_id: id, updated_at: now() }).where("id", "=", clipId).returning("timeline_id").executeTakeFirst();
@@ -767,14 +782,32 @@ export class Timelines {
   }
 
   /** A clip's job is done: its video becomes a take, and plays. The first take of a timeline decides its frame. */
-  async finished(clipId: string, generationId: string, overlap: { headMs: number; tailMs: number } | undefined, links: TakeLinks): Promise<void> {
+  async finished(clipId: string, generationId: string, overlap: { headMs: number; tailMs: number } | undefined, links: TakeLinks, finishedFrom: string | null = null): Promise<void> {
     const clip = await this.db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
     // the clip was removed while it rendered: the video is in the library all the same
     if (!clip) return;
     const asset = await this.db.selectFrom("assets").selectAll().where("generation_id", "=", generationId).where("kind", "=", "video").executeTakeFirst();
     if (!asset) return;
-    await this.addTake(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links);
+    if (finishedFrom) await this.remember(clip.timeline_id, "the finished take");
+    await this.addTake(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom);
     await this.touch(clip.timeline_id);
+  }
+
+  /** What a take was rendered with, to render it again the same: its form and its seed. Null for a video that was not rendered here. */
+  async generationOf(assetId: string): Promise<{ recipe: string; inputs: Record<string, unknown>; seed: number } | null> {
+    const asset = await this.db.selectFrom("assets").select("generation_id").where("id", "=", assetId).executeTakeFirst();
+    if (!asset?.generation_id) return null;
+    const g = await this.db.selectFrom("generations").select(["recipe_id", "inputs", "resolved"]).where("id", "=", asset.generation_id).executeTakeFirst();
+    if (!g) return null;
+    const seed = (JSON.parse(g.resolved) as { seed?: number }).seed;
+    return typeof seed === "number" ? { recipe: g.recipe_id, inputs: JSON.parse(g.inputs) as Record<string, unknown>, seed } : null;
+  }
+
+  /** The name of a video finished by an upscale route, after the video it was made from. */
+  finishName(video: AssetRow, route: string, by: number): string {
+    const base = (video.name || "video").replace(/\.[a-z0-9]+$/i, "").replace(/ · finished ×[\d.]+ \([^)]*\)$/, "");
+    const how = route === "seedvr" ? "SeedVR2" : route === "rtx" ? "RTX VSR" : "upscale model";
+    return `${base} · finished ×${by} (${how})`;
   }
 
   /**
@@ -1341,12 +1374,12 @@ export class Timelines {
   }
 
   /** A video becomes a take of a clip, and plays (what a slow-motion job hands back). One step to undo. */
-  async takeFrom(clipId: string, asset: AssetRow, label = "the slow-motion take"): Promise<void> {
+  async takeFrom(clipId: string, asset: AssetRow, label = "the slow-motion take", finishedFrom: string | null = null): Promise<void> {
     const clip = await this.db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
     // the clip was removed while the job ran: the video is in the library all the same
     if (!clip) return;
     await this.remember(clip.timeline_id, label);
-    await this.addTake(clipId, asset, { headMs: 0, tailMs: 0 }, {});
+    await this.addTake(clipId, asset, { headMs: 0, tailMs: 0 }, {}, finishedFrom);
     await this.touch(clip.timeline_id);
   }
 
@@ -1394,7 +1427,7 @@ export class Timelines {
    * The timeline as one video in the library: what plays, start to end, with its sounds and its music.
    * With a range: only that part, as a copy in the library (the music is left out).
    */
-  async export(id: string, opts: { scale?: number; music?: boolean; smooth?: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; signal?: AbortSignal } = {}) {
+  async export(id: string, opts: { scale?: number; music?: boolean; smooth?: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; fit?: "timeline" | "largest"; signal?: AbortSignal } = {}) {
     const t = await this.row(id);
     const laid = this.laid(await this.placed(id));
     const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
@@ -1404,7 +1437,13 @@ export class Timelines {
     const all = shown.map((l) => l.p);
     if (!all.length) throw new CutError("There is nothing to export yet: no clip of this timeline has a take.");
     const first = all[0]!.active?.asset ?? all[0]!.still;
-    const frame = t.width && t.height ? { width: t.width, height: t.height } : { width: first?.width ?? 576, height: first?.height ?? 1024 };
+    let frame = t.width && t.height ? { width: t.width, height: t.height } : { width: first?.width ?? 576, height: first?.height ?? 1024 };
+    // at the finished size: the timeline's shape, with as many pixels as its largest take (the drafts are enlarged to it)
+    if (opts.fit === "largest") {
+      const most = Math.max(0, ...all.map((p) => (p.active?.asset.width ?? 0) * (p.active?.asset.height ?? 0)));
+      const k = Math.sqrt(most / (frame.width * frame.height));
+      if (k > 1.05) frame = { width: Math.round((frame.width * k) / 8) * 8, height: Math.round((frame.height * k) / 8) * 8 };
+    }
     const fps = Math.round(Math.max(...all.map((p) => p.active?.asset.fps ?? 24), 1));
     const parts: ExportPart[] = [];
     for (const [i, l] of shown.entries()) {

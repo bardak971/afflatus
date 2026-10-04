@@ -123,7 +123,8 @@ export async function scan(
       const emptyInputs: string[] = [];
       for (const input of r.inputs) {
         if (input.type === "model") {
-          const all = await files(input.folder);
+          // quantized .gguf models sit in the same folders but are listed by the GGUF pack under its own name
+          const all = input.folder === "diffusion_models" ? [...(await files(input.folder)), ...(await files("unet_gguf"))] : await files(input.folder);
           // what a form starts on comes first: the family's own file when the input stands for a slot
           const usual = input.slot ? slots.find((s) => s.id === input.slot)?.file : null;
           const fits = input.match ? all.filter((f) => input.match!.some((p) => new RegExp(p, "i").test(f))) : [];

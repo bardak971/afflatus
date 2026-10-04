@@ -53,7 +53,7 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
       {named && <span className="font-semibold break-all">{fileLabel(d.file)} <span className="font-normal text-ink-2">into {d.folder}</span></span>}
       {stop.isError && <span className="text-xs text-warn-ink">{stop.error.message}</span>}
       <span className={cx("text-xs", d.status === "error" ? "text-warn-ink" : d.status === "done" ? "text-good" : "text-ink-2")}>
-        {d.status === "error" ? d.error : SAYS[d.status]}
+        {d.status === "error" ? d.error : d.status === "starting" && d.waiting ? `Waiting its turn, ${d.waiting}: ComfyUI-Manager fetches one file at a time` : SAYS[d.status]}
         {d.status === "downloading" && ` · ${size(d.bytes)}${d.total ? ` of ${size(d.total)}` : ""}`}
         {d.status === "downloading" && speed > 0 && ` · ${speed < 2 ** 20 ? `${Math.round(speed / 1024)} KB` : `${(speed / 2 ** 20).toFixed(1)} MB`}/s${left ? ` · ${left}` : ""}`}
         {d.status === "downloading" && speed > 0 && speed < 300 * 1024 && " · slow server"}

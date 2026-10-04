@@ -1,5 +1,6 @@
 import { frameOf } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
+import { SEEDVR_SLOTS } from "../video/upscale";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
 const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";
@@ -64,6 +65,7 @@ export const h3 = defineFamily({
       id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
       hint: "Without it, no frame interpolation: clips stay at 24 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
     },
+    ...SEEDVR_SLOTS,
   ],
   loraMatch: ["minimax", "\\bh3\\b"],
   guide: `MiniMax H3 makes the picture AND the sound (voices, effects, music) together.

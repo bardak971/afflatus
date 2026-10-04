@@ -1,5 +1,6 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
 import { flowKit, flowRecipes, type FlowSpec } from "../flow/recipes";
+import { loadUnet, unetNodes } from "../shared/unet";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files";
 const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files";
@@ -108,6 +109,7 @@ const made = flowRecipes(spec);
 export const qwenPicture = made.picture;
 export const qwenRedraw = made.redraw;
 export const qwenPaintOver = made.paintOver;
+export const qwenOutpaint = made.outpaint;
 export const qwenSharper = made.sharper;
 export const qwenFixFace = made.fixFace;
 
@@ -163,7 +165,7 @@ export const qwenEdit = defineRecipe<QwenEdit>({
     ...kit.inputs.map((i) => (i.id === "steps" ? { ...i, default: 40, note: "40 in ComfyUI's template" } : i.id === "fast" ? { ...i, note: "4 steps at CFG 1, with the Lightning LoRA made for Edit" } : i) as InputSpec),
   ],
   nodes: (input) => [
-    "UNETLoader", "CLIPLoader", "VAELoader", "KSampler", "VAEDecode", "PreviewImage", "LoadImage", "FluxKontextImageScale", "VAEEncode",
+    ...unetNodes(input.model), "CLIPLoader", "VAELoader", "KSampler", "VAEDecode", "PreviewImage", "LoadImage", "FluxKontextImageScale", "VAEEncode",
     "TextEncodeQwenImageEditPlus", "FluxKontextMultiReferenceLatentMethod", "CFGNorm",
     ...(input.shift > 0 ? ["ModelSamplingAuraFlow"] : []),
   ],
@@ -175,7 +177,7 @@ export const qwenEdit = defineRecipe<QwenEdit>({
     const clip = g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "qwen_image", device: "default" });
     const vae = g.out("VAELoader", { vae_name: ctx.slots.vae });
     // the model as ComfyUI's template prepares it: its LoRAs, the shift, the CFG kept in bounds, then the Lightning LoRA
-    let model: Ref = g.out("UNETLoader", { unet_name: unet, weight_dtype: input.precision || "default" });
+    let model: Ref = loadUnet(g, ctx, unet, input.precision || "default");
     for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     if (input.shift > 0) model = g.out("ModelSamplingAuraFlow", { model, shift: input.shift });
     model = g.out("CFGNorm", { model, strength: 1, pre_cfg: false });

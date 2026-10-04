@@ -81,13 +81,14 @@ const nodes = (graph: Graph, cls: string) => Object.values(graph).filter((n) => 
 
 /** Let the pretend ComfyUI finish the latest prompt with this video. */
 async function finish(bytes: Uint8Array, count: number) {
-  await until(() => fake.prompts.size === count);
+  // the job before may still be filing its result (ffmpeg): the next prompt comes when it is done
+  await until(() => fake.prompts.size === count, 20_000);
   const [promptId, graph] = prompts().at(-1)!;
   const out = Object.entries(graph).find(([, n]) => /VideoCombine/.test(n.class_type))![0];
   fake.files[`${promptId}.mp4`] = bytes;
   fake.pending = fake.pending.filter((p) => p !== promptId);
   fake.history[promptId] = { status: { completed: true }, outputs: { [out]: { gifs: [{ filename: `${promptId}.mp4`, subfolder: "", type: "temp" }] } } };
-  await until(async () => (await t.db.selectFrom("jobs").select("status").where("status", "in", ["queued", "running"]).execute()).length === 0 || fake.prompts.size > count);
+  await until(async () => (await t.db.selectFrom("jobs").select("status").where("status", "in", ["queued", "running"]).execute()).length === 0 || fake.prompts.size > count, 20_000);
   return graph;
 }
 
@@ -704,6 +705,58 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     const bad = await t.app.inject({ method: "POST", url: `/api/timelines/${tl}/range`, payload: { inMs: 2000, outMs: 2000, action: "loop" } });
     expect(bad.statusCode).toBe(400);
   });
+
+  it("finishes the clips: a job each on the take's video, the result a take marked as the finished version of the draft", async () => {
+    const { tl, a } = await twoRendered();
+    const r = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 2, upscaleModel: "RealESRGAN_x4plus.pth" });
+    expect(r.jobs).toHaveLength(2);
+    expect(r.skipped).toEqual([]);
+    // the first job: the take's video up to ComfyUI, the upscale model on its frames, the sound passed through, the video back
+    const graph = await finish(three!, 3);
+    expect(nodes(graph, "LoadVideo")).toHaveLength(1);
+    expect(nodes(graph, "ImageUpscaleWithModel")).toHaveLength(1);
+    expect(nodes(graph, "UpscaleModelLoader")[0]!.inputs.model_name).toBe("RealESRGAN_x4plus.pth");
+    expect(nodes(graph, "VHS_VideoCombine")[0]!.inputs.audio).toBeDefined();
+    await finish(three!, 4);
+    const v = await view(tl);
+    for (const c of v.clips) {
+      expect(c.takes).toHaveLength(2);
+      const [draft, done] = c.takes;
+      expect(done.finishedFrom).toBe(draft.id);
+      expect(c.take.id).toBe(done.id);
+      expect(done.asset.name).toMatch(/finished ×2 \(upscale model\)/);
+    }
+    expect(v.undo).toBe("the finished take");
+    // finished already: skipped, unless asked to redo; a clip whose render is on its way too
+    const again = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 2 });
+    expect(again.jobs).toEqual([]);
+    expect(again.skipped.map((x: { why: string }) => x.why)).toEqual(["finished already", "finished already"]);
+    const redo = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 1.5, upscaleModel: "RealESRGAN_x4plus.pth", redo: true, clips: [a] });
+    expect(redo.jobs).toHaveLength(1);
+    await finish(three!, 5);
+    const w = await view(tl);
+    // the redo is the finished version of the draft, not of the finished take
+    expect(w.clips[0].takes).toHaveLength(3);
+    expect(w.clips[0].takes[2].finishedFrom).toBe(w.clips[0].takes[0].id);
+    // SeedVR2 without its files: the job says what is missing
+    const sv = await call("POST", `/api/timelines/${tl}/finish`, { route: "seedvr", factor: 2, redo: true, clips: [a] });
+    expect(sv.jobs).toHaveLength(1);
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", sv.jobs[0]).executeTakeFirstOrThrow()).status === "failed");
+    expect((await t.db.selectFrom("jobs").select("error").where("id", "=", sv.jobs[0]).executeTakeFirstOrThrow()).error).toMatch(/SeedVR2 needs its two files/);
+    // H3's latent route: the clip rendered again with the same seed and the latent pass, the mark carried through the render
+    const lat = await call("POST", `/api/timelines/${tl}/finish`, { route: "latent", factor: 2, redo: true, clips: [a] });
+    expect(lat.jobs).toHaveLength(1);
+    const job = await t.db.selectFrom("jobs").selectAll().where("id", "=", lat.jobs[0]).executeTakeFirstOrThrow();
+    expect(job.recipe_id).toBe("h3.video");
+    expect(job.finished_from).toBe(w.clips[0].takes[0].id);
+    const input = JSON.parse(job.inputs) as Record<string, unknown>;
+    expect(input.upscale).toBe("Latent: re-sampled");
+    expect(typeof input.seed).toBe("number");
+    expect(input.seed).not.toBe(-1);
+    // the render is not run here: taken out of the queue
+    await call("POST", `/api/jobs/${lat.jobs[0]}/cancel`);
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("status", "in", ["queued", "running"]).execute()).length === 0, 10_000);
+  }, 90_000);
 
   it("scores how smoothly each take meets the clips around it", async () => {
     const { tl, a, b } = await twoRendered();

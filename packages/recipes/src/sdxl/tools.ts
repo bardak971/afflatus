@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder } from "@afflatus/core";
 import {
-  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, round8, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
-  type FaceSettings, type MaskSettings, type UpscaleSettings,
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, round8, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  type FaceSettings, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
 
@@ -76,7 +76,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
   family: "sdxl",
   version: 1,
   title: "Inpaint",
-  summary: "Paint a mask over a part of an image and prompt what goes there. Only the masked part is redrawn.",
+  summary: "Paint a mask over a part of an image and prompt what goes there. Only the masked part is redrawn, faded in by a soft edge (Differential Diffusion).",
   output: "image",
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image" },
@@ -88,7 +88,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
-  nodes: (input) => [...modelNodes(input), "LoadImage", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage", ...MASK_NODES],
+  nodes: (input) => [...modelNodes(input), "LoadImage", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage", "DifferentialDiffusion", ...MASK_NODES],
   build(input, ctx) {
     const g = new GraphBuilder();
     const m = loadSdxl(g, input, input.prompt);
@@ -99,9 +99,10 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     const sized = g.out("ImageScale", { image: part, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
     const masks = maskParts(g, ctx.uploads.mask!, box, size, input);
     const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
-    const masked = g.out("SetLatentNoiseMask", { samples: latent, mask: masks.forLatent });
+    // soft inpainting: the model fades the new part in by the soft edge (Differential Diffusion) instead of a hard mask and a halo
+    const masked = g.out("SetLatentNoiseMask", { samples: latent, mask: masks.softForLatent });
     g.phase("sampling");
-    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: masked, steps: input.steps, denoise: input.strength });
+    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), model: g.out("DifferentialDiffusion", { model: m.model }), latent_image: masked, steps: input.steps, denoise: input.strength });
     g.phase("decoding");
     const drawn = g.out("VAEDecode", { samples: sampled, vae: m.vae });
     const back = g.out("ImageScale", { image: drawn, upscale_method: "lanczos", width: box.width, height: box.height, crop: "disabled" });
@@ -123,6 +124,55 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
       input: { source: "p", mask: "m", prompt: "a", checkpoint: "x.safetensors", strength: 1, loras: [{ file: "l.safetensors", weight: 1 }] },
       uploads: { source: "s.png", mask: "m.png" }, media: { source: picture },
     },
+  ],
+});
+
+// ---------------------------------------------------------------- outpaint
+
+export interface SdxlOutpaint extends SdxlBase, OutpaintSettings {
+  source: string;
+  prompt: string;
+}
+
+/** The picture extended on the sides asked for: the new part is painted in at full denoise, the picture itself stays. */
+export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
+  id: "sdxl.outpaint",
+  family: "sdxl",
+  version: 1,
+  title: "Outpaint",
+  summary: "Extends an image beyond its edges: the sides you choose are painted in from the prompt, the picture itself stays.",
+  output: "image",
+  inputs: [
+    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "tags", placeholder: "terrace at sunset, wide shot, sea in the background" },
+    ...OUTPAINT_INPUTS,
+    ...modelInputs,
+    ...samplingInputs(),
+  ],
+  presets: SDXL_PRESETS,
+  nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler"],
+  build(input, ctx) {
+    if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
+    const g = new GraphBuilder();
+    const m = loadSdxl(g, input, input.prompt);
+    const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
+    const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
+    const size = workSize(whole);
+    const source = g.out("LoadImage", { image: ctx.uploads.source });
+    const { latent } = outpaintLatent(g, source, from, input, size, m.vae);
+    g.phase("sampling");
+    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps: input.steps, denoise: 1 });
+    g.phase("decoding");
+    const drawn = g.out("VAEDecode", { samples: sampled, vae: m.vae });
+    const out = g.add("PreviewImage", { images: g.out("ImageScale", { image: drawn, upscale_method: "lanczos", width: whole.width, height: whole.height, crop: "disabled" }) });
+    return {
+      graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
+      totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`],
+    };
+  },
+  variants: [
+    { name: "wider on both sides", input: { source: "p", prompt: "a", checkpoint: "x.safetensors" }, uploads: { source: "s.png" }, media: { source: picture } },
+    { name: "taller, a LoRA", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", padLeft: 0, padRight: 0, padTop: 256, padBottom: 128, feathering: 64, loras: [{ file: "l.safetensors", weight: 0.8 }] }, uploads: { source: "s.png" }, media: { source: { width: 1216, height: 832 } } },
   ],
 });
 
