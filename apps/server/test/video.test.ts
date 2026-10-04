@@ -1,3 +1,4 @@
+import { frozenTailAt } from "../src/cut";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -182,5 +183,23 @@ describe("the RIFE model a ComfyUI offers", () => {
     expect(rifeModelIn({ FrameInterpolationModelLoader: { input: { required: { model_name: ["COMBO", { options: ["rife_v4.26.safetensors"] }] } } } })).toBe("rife_v4.26.safetensors");
     expect(rifeModelIn({ FrameInterpolationModelLoader: { input: { required: { model_name: ["COMBO", { options: [] }] } } } })).toBeNull();
     expect(rifeModelIn({})).toBeNull();
+  });
+});
+
+describe("the frozen tail of a clip", () => {
+  const lively = (n: number) => Array.from({ length: n }, (_, i) => 1.2 + (i % 3) * 0.2);
+  it("is found when the motion dies before the end, and left alone when the clip moves to the last", () => {
+    // 4 s lively, then 0.6 s still: the hand-over is where it froze
+    expect(frozenTailAt([...lively(40), 0.1, 0.05, 0.1, 0.0, 0.1, 0.05], 10, 0, 4600)).toBe(4000);
+    // moving to the end: nothing to do
+    expect(frozenTailAt(lively(46), 10, 0, 4600)).toBeNull();
+    // a flicker of a tenth of a second at the end is not a frozen tail
+    expect(frozenTailAt([...lively(45), 0.1], 10, 0, 4600)).toBeNull();
+    // a clip still for most of its length: not a tail, the clip is like that (never more than a third)
+    expect(frozenTailAt([...lively(10), ...Array(30).fill(0.05)], 10, 0, 4000)).toBeNull();
+    // only the part that plays counts: a trimmed end that stops before the stillness
+    expect(frozenTailAt([...lively(40), 0.1, 0.05, 0.1, 0.0, 0.1, 0.05], 10, 0, 3900)).toBeNull();
+    // too short to judge
+    expect(frozenTailAt([1, 1, 0, 0, 0], 10, 0, 500)).toBeNull();
   });
 });

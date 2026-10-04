@@ -726,6 +726,8 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
       expect(c.take.id).toBe(done.id);
       expect(done.asset.name).toMatch(/finished ×2 \(upscale model\)/);
     }
+    // the finished takes stand for their drafts: a clip that followed the clip before still does
+    if (v.clips[1].joined === "continue") expect(v.clips[1].join).toBe("fresh");
     expect(v.undo).toBe("the finished take");
     // finished already: skipped, unless asked to redo; a clip whose render is on its way too
     const again = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 2 });

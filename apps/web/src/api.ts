@@ -748,6 +748,7 @@ export const api = {
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
   presetFiles: () => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files"),
+  nodePack: () => call<{ pack: string; path: string; written: boolean; loaded: boolean }>("GET", "/comfy/node-pack"),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
   queue: () => call<QueueStatus>("GET", "/queue"),
   jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number }) =>

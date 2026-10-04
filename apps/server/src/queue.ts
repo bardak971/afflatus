@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { ComfyCancelled, ComfyLost, ComfyUnreachable, detect, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@afflatus/comfy";
 import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue, type BuildContext, type Ref } from "@afflatus/core";
-import { cutFrames, referenceClip, frameAt, slowSoundOnto, soundPart } from "./cut";
+import { cutFrames, referenceClip, frameAt, slowSoundOnto, soundPart, repairJoinAudio } from "./cut";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
 import type { Comfy } from "./comfy";
@@ -106,6 +106,20 @@ const MODEL_KEY = "queue.model";
 /** The base models the last job had ComfyUI load, kept across restarts of this app (ComfyUI keeps running through them). */
 const LOADS_KEY = "queue.loads";
 const randomSeed = () => Math.floor(Math.random() * 2 ** 32);
+
+/** The frame count written in the metadata of a latent saved by the Afflatus node pack (a safetensors file: 8 bytes of header length, then the header). */
+export function latentFramesOf(bytes: Uint8Array): number {
+  try {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const n = Number(view.getBigUint64(0, true));
+    if (n <= 0 || n > 1_000_000 || 8 + n > bytes.byteLength) return 0;
+    const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + n))) as { __metadata__?: Record<string, string> };
+    const frames = Number(header.__metadata__?.frames ?? 0);
+    return Number.isFinite(frames) && frames > 0 ? Math.round(frames) : 0;
+  } catch {
+    return 0;
+  }
+}
 
 export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": the running job moved. */
@@ -807,12 +821,20 @@ export class Queue {
       } else if (spec.type === "clip" && value) {
         // of the clip it joins onto, the recipe gets a few frames with their sound, cut at the chosen moment
         const { asset: assetId, at } = value as ClipValue;
-        const asset = await this.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
-        if (!asset || asset.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
-        const bytes = await this.storage.get(asset.file_key);
-        const facts = asset.duration_ms && asset.width && asset.height
-          ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
-          : (await readVideo(bytes, extOf(asset.mime))).facts;
+        const shown = await this.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
+        if (!shown || shown.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
+        // a finished (upscaled) take is a copy of a render: the render's own latent and frames are what a join takes
+        const asset = await this.renderedOf(shown);
+        // the model's own frames when they were kept (before an upscale or interpolation changed them): a
+        // continuation guided by frames of its own kind joins without the step a changed frame leaves
+        const rawBytes = asset.raw_key ? await this.storage.get(asset.raw_key).catch(() => null) : null;
+        const rawRead = rawBytes ? await readVideo(rawBytes, extOf(asset.mime)).catch(() => null) : null;
+        const bytes = rawRead?.facts ? rawBytes! : await this.storage.get(asset.file_key);
+        const facts = rawRead?.facts
+          ? rawRead.facts
+          : asset.duration_ms && asset.width && asset.height
+            ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
+            : (await readVideo(bytes, extOf(asset.mime))).facts;
         if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
         // the form may say how many frames the join takes first; shorter counts stay as fallbacks for a short clip
         const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
@@ -820,6 +842,18 @@ export class Queue {
         const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at });
         uploads[spec.id] = await comfy.client.upload(cut.bytes, "mp4");
         media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
+        // the clip's own latent, when it was kept: a recipe that can join in the latent (the Afflatus node pack)
+        // takes it instead of the frames above. The clip before is continued from its end, as its latent holds
+        // it; the clip after is landed on where its playing part starts, a moment on the latent's frame grid
+        if (asset.latent_key && asset.latent_frames) {
+          const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
+          const fits = spec.role === "previous" ? at === undefined || at >= (facts.durationMs ?? 0) - 40 : (atFrames === 0 || atFrames % 17 === 5) && atFrames + Math.min(...counts) <= asset.latent_frames;
+          const saved = fits ? await this.storage.get(asset.latent_key).catch(() => null) : null;
+          if (saved) {
+            uploads[`${spec.id}.latent`] = await comfy.client.upload(saved, "safetensors");
+            media[spec.id] = { ...media[spec.id]!, latentFrames: asset.latent_frames, ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
+          }
+        }
       } else if (spec.type === "references" && Array.isArray(value)) {
         // each reference picture goes up under "<input>.<n>", in the order they were given
         for (const [i, ref] of (value as ReferenceValue[]).entries()) {
@@ -1014,6 +1048,23 @@ export class Queue {
     }
   }
 
+  /**
+   * The asset that was rendered, for one that is a finished (upscaled) version of it on a timeline: the
+   * latent and the model's own frames belong to the render, and a join takes them from there. The asset
+   * itself when it holds them, or was not finished from another.
+   */
+  private async renderedOf(asset: Tables["assets"]): Promise<Tables["assets"]> {
+    let current = asset;
+    for (let i = 0; i < 4 && !current.latent_key && !current.raw_key; i++) {
+      const take = await this.db.selectFrom("takes").select("finished_from").where("asset_id", "=", current.id).where("finished_from", "is not", null).executeTakeFirst();
+      if (!take?.finished_from) break;
+      const draft = await this.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").selectAll("assets").where("takes.id", "=", take.finished_from).executeTakeFirst();
+      if (!draft) break;
+      current = draft as unknown as Tables["assets"];
+    }
+    return current;
+  }
+
   /** Download the results, file them in the library, and record how they were made. */
   private async store(
     comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
@@ -1032,6 +1083,15 @@ export class Queue {
       for (const file of ofKind.length ? ofKind : returned) files.push({ file, kind: out.kind });
     }
     if (!files.length) throw new Error("ComfyUI finished but returned no output");
+    // the model's own frames, saved beside a result whose frames were changed after it: for the clips that carry on
+    let raw: OutputFile | null = null;
+    // the clip's own latent (MiniMax H3 with the Afflatus node pack): for the clips that continue it
+    let latent: OutputFile | null = null;
+    for (const out of resume.outputs) {
+      const o = outputs[out.node] as { gifs?: OutputFile[]; images?: OutputFile[]; latents?: OutputFile[] } | undefined;
+      if (out.role === "raw") raw = [...(o?.gifs ?? []), ...(o?.images ?? [])].find((f) => mimeOfFile(f.filename).startsWith("video/")) ?? null;
+      if (out.role === "latent") latent = o?.latents?.[0] ?? null;
+    }
 
     const generationId = newId();
     const at = now();
@@ -1065,8 +1125,15 @@ export class Queue {
         .execute();
     }
     for (const { file, kind } of files) {
-      const bytes = await comfy.client.view(file);
+      let bytes = await comfy.client.view(file);
       const mime = mimeOfFile(file.filename);
+      // a clip continued in the latent: the sound's hole at the hand-over is closed (see repairJoinAudio)
+      if (kind === "video" && resume.overlap?.latent && resume.overlap.headMs > 0) {
+        bytes = await repairJoinAudio(bytes, extOf(mime), resume.overlap.headMs).catch((err: Error) => {
+          console.warn(`[queue] the join's sound was not repaired: ${err.message}`);
+          return bytes;
+        });
+      }
       const id = newId();
       const key = `assets/${id.slice(0, 2)}/${id}.${extOf(mime)}`;
       await this.storage.put(key, bytes);
@@ -1078,10 +1145,27 @@ export class Queue {
       // a small version for the library grid; without one the grid falls back to the picture itself
       const thumb = kind === "image" ? await makeThumb(bytes) : video?.frame ? await makeThumb(own ?? video.frame) : null;
       if (thumb) await this.storage.put(thumbKey(id), thumb);
+      let rawKey: string | null = null;
+      if (kind === "video" && raw) {
+        rawKey = `assets/${id.slice(0, 2)}/${id}.raw.${extOf(mimeOfFile(raw.filename))}`;
+        await this.storage.put(rawKey, await comfy.client.view(raw));
+        raw = null;
+      }
+      let latentKey: string | null = null;
+      let latentFrames: number | null = null;
+      if (kind === "video" && latent) {
+        const bytes = await comfy.client.view(latent);
+        latentFrames = latentFramesOf(bytes);
+        if (latentFrames) {
+          latentKey = `assets/${id.slice(0, 2)}/${id}.latent.safetensors`;
+          await this.storage.put(latentKey, bytes);
+        }
+        latent = null;
+      }
       await this.db
         .insertInto("assets")
         .values({
-          id, owner_id: OWNER, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length,
+          id, owner_id: OWNER, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames,
           width: size?.width ?? null, height: size?.height ?? null,
           duration_ms: video?.facts?.durationMs ?? null, fps: video?.facts?.fps ?? null, has_sound: video?.facts?.hasSound ? 1 : 0,
           folder_id: folder, generation_id: generationId, kept_at: null, deleted_at: null, created_at: at,

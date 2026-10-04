@@ -5,6 +5,8 @@ import { buildApp, VERSION } from "./app";
 import { loadConfig } from "./config";
 import { migrate, openDb } from "./db";
 import { createServices } from "./services";
+import { readSettings } from "./settings";
+import { installNodePack } from "./nodePack";
 import { LocalStorage } from "./storage";
 
 /** The built web app, when there is one (`pnpm build`). In development Vite serves it instead. */
@@ -20,6 +22,14 @@ if (applied.length) console.log(`[db] migrated: ${applied.join(", ")}`);
 
 const services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")));
 const app = buildApp(services, { webDir: webDir() });
+// the node pack kept up to date in ComfyUI's folder, when it is known
+{
+  const { comfyDir } = await readSettings(db);
+  if (comfyDir.trim()) {
+    const put = await installNodePack(comfyDir).catch((err: Error) => (console.warn(`[node-pack] not written: ${err.message}`), null));
+    if (put?.changed) console.log(`[node-pack] written to ${put.path}: restart ComfyUI to load it`);
+  }
+}
 await app.listen({ host: config.host, port: config.port });
 console.log(`Afflatus ${VERSION} on http://${config.host}:${config.port} (${kind})`);
 await services.queue.start();

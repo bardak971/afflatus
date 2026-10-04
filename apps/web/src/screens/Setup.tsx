@@ -646,6 +646,23 @@ function ModelSwitches() {
   );
 }
 
+/** Afflatus's node pack (MiniMax H3 continued in the latent): written into ComfyUI's folder when it is known, loaded after a ComfyUI restart. */
+function NodePackLine() {
+  const settings = useSettings();
+  const pack = useQuery({ queryKey: ["node-pack", settings.data?.comfyDir], queryFn: api.nodePack, enabled: Boolean(settings.data), staleTime: 30_000 });
+  if (!pack.data) return null;
+  const p = pack.data;
+  return (
+    <div className="text-xs text-ink-2">
+      {p.loaded
+        ? <>Afflatus's node pack is loaded in ComfyUI: MiniMax H3 clips on a timeline continue from the clip before's own latent.</>
+        : p.written
+          ? <span className="text-warn-ink">Afflatus's node pack was written to ComfyUI's custom_nodes folder: <span className="font-semibold">restart ComfyUI</span> to load it. It lets MiniMax H3 clips continue from the clip before's own latent (no jump at the join).</span>
+          : <>With the folder set, Afflatus puts its node pack in ComfyUI's custom_nodes: MiniMax H3 clips then continue from the clip before's own latent, which keeps the motion, the look and the voice across the join.</>}
+    </div>
+  );
+}
+
 /** ComfyUI's address and folder, the test, and when its models are unloaded. */
 function ComfyCard() {
   const settings = useSettings();
@@ -724,6 +741,7 @@ function ComfyCard() {
           <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
         </div>
         {saveDir.isError && <ErrorNote>{saveDir.error.message}</ErrorNote>}
+        <NodePackLine />
       </div>
       {settings.data && (
         <div className="flex items-center justify-between gap-3 border-t border-line pt-3">

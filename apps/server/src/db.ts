@@ -44,6 +44,11 @@ export interface Tables {
     source_id: string | null;
     /** Of a video cut out of another: the range taken, "startMs-endMs". */
     source_range: string | null;
+    /** Of a generated video whose frames were changed after the model made them: the model's own output, kept beside it for the clips that carry on from it. */
+    raw_key: string | null;
+    /** Of a MiniMax H3 video made with the Afflatus node pack: its latent (video and audio), for the clips that continue it; and how many frames it holds. */
+    latent_key: string | null;
+    latent_frames: number | null;
     /** null = not kept: goes to the bin after a day. */
     kept_at: string | null;
     /** set = in the bin. */
@@ -236,6 +241,8 @@ export interface Tables {
     next_at_ms: number | null;
     /** The take this one is the finished (upscaled) version of: the draft stays in the list. */
     finished_from: string | null;
+    /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
+    join_kind: "latent" | "pixels" | null;
     created_at: string;
   };
   /** Imported ComfyUI workflows: the workflow and its mapping, as one JSON document each. */
@@ -642,6 +649,35 @@ migrations["0013_model_pages"] = {
 
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
+migrations["0028_join_kind"] = {
+  async up(db) {
+    await db.schema.alterTable("takes").addColumn("join_kind", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("takes").dropColumn("join_kind").execute();
+  },
+};
+
+migrations["0027_latent"] = {
+  async up(db) {
+    await db.schema.alterTable("assets").addColumn("latent_key", "text").execute();
+    await db.schema.alterTable("assets").addColumn("latent_frames", "integer").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("assets").dropColumn("latent_key").execute();
+    await db.schema.alterTable("assets").dropColumn("latent_frames").execute();
+  },
+};
+
+migrations["0026_raw"] = {
+  async up(db) {
+    await db.schema.alterTable("assets").addColumn("raw_key", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("assets").dropColumn("raw_key").execute();
+  },
+};
+
 migrations["0025_finish"] = {
   async up(db) {
     await db.schema.alterTable("takes").addColumn("finished_from", "text").execute();

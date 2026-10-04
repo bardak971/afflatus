@@ -60,6 +60,10 @@ export interface MediaFacts {
   frames?: number;
   fps?: number;
   hasSound?: boolean;
+  /** Of a clip that is continued or landed on: how many frames its saved latent holds, when it has one (uploaded as "<input>.latent"). */
+  latentFrames?: number;
+  /** Of a clip landed on: the frame of its latent where its playing part starts (its own overlap with the clip it extended comes before). */
+  latentAt?: number;
   /** Of a mask: the part that was painted, with room around it, in pixels of the picture it is painted over. */
   box?: { x: number; y: number; width: number; height: number };
 }

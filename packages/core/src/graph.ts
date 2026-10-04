@@ -17,8 +17,13 @@ export type Phase = (typeof PHASES)[number];
 export interface GraphOutput {
   node: string;
   kind: "image" | "video" | "audio";
-  /** result = what the user asked for; poster / tail = side files a video recipe also saves. */
-  role: "result" | "poster" | "tail";
+  /**
+   * result = what the user asked for; poster / tail = side files a video recipe also saves; raw = the
+   * video as the model made it, before any upscale, interpolation or colour pass: kept beside the result,
+   * never shown, and handed to the model when another clip carries on from this one; latent = the clip's
+   * own latent (MiniMax H3, with the Afflatus node pack), kept beside it for the clips that continue it.
+   */
+  role: "result" | "poster" | "tail" | "raw" | "latent";
 }
 
 export interface BuiltGraph {
@@ -38,7 +43,7 @@ export interface BuiltGraph {
    * The parts of a video that repeat its neighbours: its start replays the end of the clip it continues,
    * its end replays the start of the clip it arrives at. A timeline skips them, so the join is seamless.
    */
-  overlap?: { headMs: number; tailMs: number };
+  overlap?: { headMs: number; tailMs: number; /** The start continues the clip before's own latent (the Afflatus node pack), not re-encoded frames. */ latent?: boolean };
 }
 
 /** Nodes are numbered in insertion order and tagged with the phase that was current when they were added. */

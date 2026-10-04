@@ -378,6 +378,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                   <Form
                     key={`${clip.id}:${form.id}`}
                     recipe={form}
+                    given={carries ? { previous: true } : undefined}
                     status={status}
                     stored={stored}
                     onChange={(input, value) => onInputs({ ...stored, [input]: value })}

@@ -6,6 +6,7 @@ import { describeRecipe, fuzzyFilter, parseInput } from "@afflatus/core";
 import { findOnCivitai } from "./civitai";
 import { beginDownload, downloadBody } from "./fetchFile";
 import { registerPresetFiles } from "./presetFiles";
+import { installNodePack, registerNodePack } from "./nodePack";
 import { findOnHuggingFace } from "./huggingface";
 import { readEmbedded } from "./embedded";
 import { resolveLink } from "./fromLink";
@@ -101,6 +102,10 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const saved = await writeSettings(s.db, req.body);
     // a file chosen by hand for a family: what is ready is worked out again
     if (req.body && typeof req.body === "object" && "slotFiles" in req.body) (await s.comfy()).forgetScan();
+    // ComfyUI's folder set: Afflatus's node pack goes into its custom_nodes (ComfyUI loads it at its next start)
+    if (req.body && typeof req.body === "object" && "comfyDir" in req.body && saved.comfyDir.trim()) {
+      await installNodePack(saved.comfyDir).catch((err: Error) => console.warn(`[node-pack] not written: ${err.message}`));
+    }
     return publicSettings(saved);
   });
 
@@ -116,6 +121,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   registerDrafts(app, s);
   registerModelSettings(app, s);
   registerPresetFiles(app, s);
+  registerNodePack(app, s);
   registerModelInfo(app, s);
   registerModelPages(app, s);
   registerFolders(app, s);

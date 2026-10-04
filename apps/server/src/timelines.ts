@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { secondsInput, type Recipe } from "@afflatus/core";
-import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion } from "./cut";
+import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import type { Look } from "./entities";
 import { assetView, extOf, pngSize } from "./media";
@@ -238,8 +238,10 @@ export class Timelines {
     // after a picture: the clip follows it when it was made to open on that picture
     if (a.clip.kind === "still") return a.still && b.active.take.prev_take_id === stillRef(a.still.id) && b.active.take.trim_start_ms === 0 ? "fresh" : "stale";
     if (!a.active) return null;
-    const followed = b.active.take.prev_take_id === a.active.take.id && near(b.active.take.prev_at_ms, plays(a.active).end) && b.active.take.trim_start_ms === 0;
-    const landed = a.active.take.next_take_id === b.active.take.id && near(a.active.take.next_at_ms, plays(b.active).start) && a.active.take.trim_end_ms === 0;
+    // a finished take stands for its draft: a clip rendered against the draft still follows it (links are copied to the finished take)
+    const same = (id: string | null, t: TakeRow) => id !== null && (id === t.id || id === t.finished_from);
+    const followed = same(b.active.take.prev_take_id, a.active.take) && near(b.active.take.prev_at_ms, plays(a.active).end) && b.active.take.trim_start_ms === 0;
+    const landed = same(a.active.take.next_take_id, b.active.take) && near(a.active.take.next_at_ms, plays(b.active).start) && a.active.take.trim_end_ms === 0;
     return followed || landed ? "fresh" : "stale";
   }
 
@@ -534,7 +536,7 @@ export class Timelines {
         recipeId = recipe.id;
         inputs = this.ownInputs(recipe, JSON.parse(made.inputs) as Record<string, unknown>);
       } else recipeId = null;
-      const overlap = made ? (JSON.parse(made.resolved) as { overlap?: { headMs: number; tailMs: number } }).overlap : undefined;
+      const overlap = made ? (JSON.parse(made.resolved) as { overlap?: { headMs: number; tailMs: number; latent?: boolean } }).overlap : undefined;
       take = { asset, head: overlap?.headMs ?? 0, tail: overlap?.tailMs ?? 0 };
       // a video brought in starts on its own: it was not made to follow what is before it
       joined = "cut";
@@ -713,7 +715,7 @@ export class Timelines {
     await this.touch(clip.timeline_id);
   }
 
-  private async addTake(clipId: string, asset: AssetRow, overlap: { headMs: number; tailMs: number }, links: TakeLinks, finishedFrom: string | null = null) {
+  private async addTake(clipId: string, asset: AssetRow, overlap: { headMs: number; tailMs: number; latent?: boolean }, links: TakeLinks, finishedFrom: string | null = null) {
     const id = newId();
     // the finished version of a take keeps that take's overlaps and trims: it plays the same part, larger
     const from = finishedFrom ? await this.db.selectFrom("takes").selectAll().where("id", "=", finishedFrom).executeTakeFirst() : undefined;
@@ -721,6 +723,7 @@ export class Timelines {
       .insertInto("takes")
       .values({
         id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? overlap.headMs, tail_ms: from?.tail_ms ?? overlap.tailMs, trim_start_ms: from?.trim_start_ms ?? 0, trim_end_ms: from?.trim_end_ms ?? 0,
+        join_kind: from ? from.join_kind : overlap.headMs > 0 ? (overlap.latent ? "latent" : "pixels") : null,
         prev_take_id: links.prev?.take ?? from?.prev_take_id ?? null, prev_at_ms: links.prev?.at ?? from?.prev_at_ms ?? null, next_take_id: links.next?.take ?? from?.next_take_id ?? null, next_at_ms: links.next?.at ?? from?.next_at_ms ?? null,
         finished_from: from ? from.id : null, created_at: now(),
       })
@@ -758,8 +761,13 @@ export class Timelines {
       plan.input[startSpec.id] = prior.still.id;
       plan.links.prev = { take: stillRef(prior.still.id), at: 0 };
     } else if (clip.joined === "continue" && before) {
-      const at = plays(before).end;
+      let at = plays(before).end;
       if (prevSpec) {
+        // the clip before ends frozen: hand over where it still moved, unless the form says not to
+        if (raw.handover !== false) {
+          const lively = await this.handoverAt(before).catch(() => null);
+          if (lively !== null && lively < at - 40) at = lively;
+        }
         plan.input[prevSpec.id] = { asset: before.asset.id, at };
         plan.links.prev = { take: before.take.id, at };
       } else if (startSpec && recipe.traits?.continues === "frame") {
@@ -781,8 +789,15 @@ export class Timelines {
     return plan;
   }
 
+  /** The moment the clip before should hand over: before its frozen tail when it has one, else null. */
+  private async handoverAt(before: { take: TakeRow; asset: AssetRow }): Promise<number | null> {
+    const { rate, values } = await this.motion(before.asset.id);
+    const { start, end } = plays(before);
+    return frozenTailAt(values, rate, start, end);
+  }
+
   /** A clip's job is done: its video becomes a take, and plays. The first take of a timeline decides its frame. */
-  async finished(clipId: string, generationId: string, overlap: { headMs: number; tailMs: number } | undefined, links: TakeLinks, finishedFrom: string | null = null): Promise<void> {
+  async finished(clipId: string, generationId: string, overlap: { headMs: number; tailMs: number; latent?: boolean } | undefined, links: TakeLinks, finishedFrom: string | null = null): Promise<void> {
     const clip = await this.db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
     // the clip was removed while it rendered: the video is in the library all the same
     if (!clip) return;
@@ -790,6 +805,17 @@ export class Timelines {
     if (!asset) return;
     if (finishedFrom) await this.remember(clip.timeline_id, "the finished take");
     await this.addTake(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom);
+    // the take carried on from before the clip before's frozen tail: that clip now stops where the take picks up
+    if (links.prev && !finishedFrom) {
+      const prev = await this.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
+      if (prev?.duration_ms) {
+        const end = prev.duration_ms - prev.tail_ms - prev.trim_end_ms;
+        if (links.prev.at < end - 40) {
+          await this.remember(clip.timeline_id, "the hand-over before the frozen tail");
+          await this.db.updateTable("takes").set({ trim_end_ms: prev.duration_ms - prev.tail_ms - links.prev.at }).where("id", "=", prev.id).execute();
+        }
+      }
+    }
     await this.touch(clip.timeline_id);
   }
 
@@ -1457,13 +1483,24 @@ export class Timelines {
         parts.push({ kind: "still", bytes: await this.storage.get(p.still!.file_key), ext: extOf(p.still!.mime), startMs: from, endMs: to, hasSound: false, ...heard });
       } else {
         const x = p.active!;
-        // a clip that extends the one before rendered the frames they share again: the join is crossfaded over them
+        // a clip rendered as the continuation of the one before (it replayed the frames they share) starts its
+        // own part exactly where that one stops: the model restarts beside the pinned frames, and the first
+        // generated frames may step away from them. The export softens that step: the part before holds its
+        // last frame for a few frames while this one fades in over its first generated frames
         const before = parts[i - 1];
         const shared = x.take.head_ms - x.take.trim_start_ms;
-        const blend = opts.blend !== false && before && from === 0 && p.clip.joined === "continue" && shared >= 80
-          ? Math.min(BLEND_MS, shared, before.endMs - before.startMs - 40, to - 40)
+        // a join made in the latent continues the clip before's own tokens: its shared frames and the clip
+        // before's last frames show the same moments, so the fade runs over them with both sides moving. A
+        // pixel join restarts beside pinned frames: the clip before holds its last frame while this one fades in
+        const latent = x.take.join_kind === "latent";
+        const blend = opts.blend !== false && before && before.kind === "video" && from === 0 && shared >= 80
+          ? Math.min(BLEND_MS, to - 40, ...(latent ? [shared, before.endMs - before.startMs - 40] : []))
           : 0;
-        parts.push({ kind: "video", bytes: await this.storage.get(x.asset.file_key), ext: extOf(x.asset.mime), startMs: plays(x).start + from - (blend >= 80 ? blend : 0), endMs: plays(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard, ...(blend >= 80 ? { blendMs: blend } : {}) });
+        parts.push({
+          kind: "video", bytes: await this.storage.get(x.asset.file_key), ext: extOf(x.asset.mime),
+          startMs: plays(x).start + from - (blend >= 80 && latent ? blend : 0), endMs: plays(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
+          ...(blend >= 80 ? { blendMs: blend, blendMode: latent ? ("overlap" as const) : ("hold" as const) } : {}),
+        });
       }
     }
     const track = opts.music === false || win ? undefined : await this.assetRow(t.music_asset_id);

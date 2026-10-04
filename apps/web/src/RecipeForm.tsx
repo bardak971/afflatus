@@ -217,11 +217,13 @@ const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  * other setting. Each part is one line until it is opened. A screen adds its own controls to a part
  * through `made`, `look` and `helpers`.
  */
-export function Form({ recipe, status, stored, onChange, onClear, made, madeSummary, look, lookSummary, helpers }: {
+export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
   stored: Record<string, unknown> | undefined;
+  /** Inputs the screen fills in itself at render time (a timeline hands the clip before over): counted as set for what is shown, never stored. */
+  given?: Record<string, unknown>;
   onChange(input: string, value: unknown): void;
   /** Let these inputs follow the defaults again. */
   onClear(inputs: string[]): void;
@@ -244,7 +246,9 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
   const values = useMemo(() => ({ ...defaults, ...stored }), [defaults, stored]);
   // the two numbers that say which part of a sound is used are drawn with the sound, not as fields of their own
   const tucked = new Set(recipe.inputs.flatMap((i) => (i.type === "audio" && i.window ? [i.window.start, i.window.seconds] : [])));
-  const shown = recipe.inputs.filter((i) => isShown(i, values) && !tucked.has(i.id));
+  // what decides which settings show: the values, plus what the screen will fill in itself
+  const seen = given ? { ...values, ...given } : values;
+  const shown = recipe.inputs.filter((i) => isShown(i, seen) && !tucked.has(i.id));
   // where a LoRA's trigger words go, and the one text that is always open
   const mainText = mainTextOf(recipe);
   // what is heavy for the card: asked again only when a setting changes, not while text is typed
@@ -306,7 +310,7 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
     if (typeof w === "string") return `shown when ${labelOf(w)} is set`;
     return `shown when ${labelOf(w.input)} is ${w.in.map((v) => (v === true ? "on" : v === false ? "off" : fileLabel(String(v)))).join(" or ")}`;
   };
-  const hidden = q ? recipe.inputs.filter((i) => !isShown(i, values) && !tucked.has(i.id) && hit(i)) : [];
+  const hidden = q ? recipe.inputs.filter((i) => !isShown(i, seen) && !tucked.has(i.id) && hit(i)) : [];
 
   // ---- which input goes in which chapter
   // the negative prompt sits under the prompt in every form that has one, wherever its recipe filed it
@@ -477,7 +481,7 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
       {mainText && promptHit && (
         <div data-part="prompt" className="flex scroll-mt-12 flex-col gap-1.5">
           {!q && helpers}
-          {isShown(mainText, values) && (!q || hit(mainText)) && render(mainText)}
+          {isShown(mainText, seen) && (!q || hit(mainText)) && render(mainText)}
           {texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}
         </div>
       )}

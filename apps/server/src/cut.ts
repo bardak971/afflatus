@@ -269,11 +269,15 @@ export interface ExportPart {
    * plays, on frames that show the same moments as the end of the part before (a clip that extends the
    * one before it renders those frames again).
    */
+  /** This part fades in over this many milliseconds. */
   blendMs?: number;
+  /** "hold": the part before holds its last frame for as long, this one fades in after it (nothing of either is lost). "overlap": this part starts `blendMs` early, over the same moments as the part before's end, and the two are faded with both moving. */
+  blendMode?: "hold" | "overlap";
 }
 
 /** How long a blended join crossfades, at most. */
-export const BLEND_MS = 400;
+/** How long a continuation fades in over the clip before, which holds its last frame meanwhile: four frames at 24 a second. */
+export const BLEND_MS = 170;
 
 /** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
 async function meansOf(file: string, fromSec: number, seconds: number): Promise<{ y: number; u: number; v: number } | null> {
@@ -355,19 +359,24 @@ export async function joinVideos(
       } else carry = { y: 0, u: 0, v: 0 };
       prevFile = file;
       prevPart = p;
+      // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
+      const next = parts[i + 1];
+      const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - 40) : 0;
+      const pad = padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "";
+      const padded = sec(p.endMs - p.startMs + padMs);
       chains.push(
         p.kind === "still"
-          ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS[v${i}]`
-          : `[${main}:v]trim=start=${sec(p.startMs)}:end=${sec(p.endMs)},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p${tune}[v${i}]`,
+          ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS${pad}[v${i}]`
+          : `[${main}:v]trim=start=${sec(p.startMs)}:end=${sec(p.endMs)},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p${tune}${pad}[v${i}]`,
       );
       const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
       if (p.sound === "own" && p.kind === "video" && p.hasSound) {
-        chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${stereo},${loud},apad,atrim=duration=${length}[a${i}]`);
+        chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${stereo},${loud},apad,atrim=duration=${padded}[a${i}]`);
       } else if (p.sound === "file" && p.soundFile) {
         const file = await addInput(`sound${i}.${p.soundFile.ext}`, p.soundFile.bytes);
-        chains.push(`[${file}:a]${stereo},${loud},apad,atrim=duration=${length},asetpts=PTS-STARTPTS[a${i}]`);
+        chains.push(`[${file}:a]${stereo},${loud},apad,atrim=duration=${padded},asetpts=PTS-STARTPTS[a${i}]`);
       } else {
-        chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${length}[a${i}]`);
+        chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${padded}[a${i}]`);
       }
     }
     const music = opts.music;
@@ -385,12 +394,20 @@ export async function joinVideos(
       let a = `a${run[0]}`;
       let len = lenOf(parts[run[0]!]!);
       for (const j of run.slice(1)) {
-        const x = Math.min(parts[j]!.blendMs!, len - 40, lenOf(parts[j]!) - 40);
-        chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - x)}[vx${j}]`);
-        chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
+        const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - 40);
+        if (parts[j]!.blendMode === "overlap") {
+          // the part starts x early, over the part before's last x: the fade is between the same moments, both moving
+          chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - x)}[vx${j}]`);
+          chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
+          len = len - x + lenOf(parts[j]!);
+        } else {
+          // the part before was held for x: the fade runs over that hold, from where the part before really ends
+          chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len)}[vx${j}]`);
+          chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
+          len = len + lenOf(parts[j]!);
+        }
         v = `vx${j}`;
         a = `ax${j}`;
-        len = len - x + lenOf(parts[j]!);
       }
       outs.push(`[${v}][${a}]`);
       total += len;
@@ -465,6 +482,53 @@ export async function measureOf(source: Uint8Array, ext: string): Promise<{ moti
       if (!sound.length) sound = null;
     }
     return { motion, sound };
+  });
+}
+
+/**
+ * Where a clip's motion dies before its end: the moment the frozen tail begins, or null when the clip
+ * moves to the last. Over the part that plays (startMs to endMs) of a motion curve at `rate` samples a
+ * second: a tail is frozen when its samples stay under a fifth of the clip's median motion (and under a
+ * floor, for a clip that is calm throughout), for a quarter second or more, and for no more than a third
+ * of the part. H3 often reaches its last frame early and holds it; a continuation handed that still
+ * moment inherits the stillness and then lurches, so it is handed the last lively one instead.
+ */
+export function frozenTailAt(values: number[], rate: number, startMs: number, endMs: number): number | null {
+  const a = Math.max(0, Math.floor((startMs / 1000) * rate));
+  const b = Math.min(values.length, Math.ceil((endMs / 1000) * rate));
+  const part = values.slice(a, b);
+  if (part.length < rate) return null;
+  const sorted = [...part].sort((p, q) => p - q);
+  const median = sorted[Math.floor(sorted.length / 2)]!;
+  const still = Math.max(0.3, median * 0.2);
+  let n = 0;
+  while (n < part.length && part[part.length - 1 - n]! < still) n++;
+  const stillMs = (n / rate) * 1000;
+  if (stillMs < 250 || stillMs > (endMs - startMs) / 3) return null;
+  return Math.round(endMs - stillMs);
+}
+
+/**
+ * The seam of a clip continued in the latent: the model's first free audio token after the guided overlap
+ * comes out near-silent, a hole of about 30 ms right at the hand-over (measured at −70 dB against −45 dB
+ * around it, in the raw decode too). The hole is cut out of the sound track with a short crossfade and the
+ * track padded at its end: the sound then runs 36 ms ahead of the picture from the hand-over on, under what
+ * anyone notices. The picture is untouched (stream copy).
+ */
+export const JOIN_AUDIO_HOLE = { beforeMs: 8, afterMs: 28, fadeMs: 6 };
+export async function repairJoinAudio(source: Uint8Array, ext: string, headMs: number): Promise<Uint8Array> {
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    const output = join(dir, "out.mp4");
+    await writeFile(input, source);
+    const a = Math.max(0, headMs - JOIN_AUDIO_HOLE.beforeMs) / 1000;
+    const b = (headMs + JOIN_AUDIO_HOLE.afterMs) / 1000;
+    await must(tools.ffmpeg, [
+      "-loglevel", "error", "-y", "-i", input,
+      "-filter_complex", `[0:a]atrim=end=${a.toFixed(3)},asetpts=PTS-STARTPTS[a1];[0:a]atrim=start=${b.toFixed(3)},asetpts=PTS-STARTPTS[a2];[a1][a2]acrossfade=d=${(JOIN_AUDIO_HOLE.fadeMs / 1000).toFixed(3)}:c1=tri:c2=tri,apad[a]`,
+      "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", output,
+    ], { timeout: 10 * 60_000 });
+    return new Uint8Array(await readFile(output));
   });
 }
 

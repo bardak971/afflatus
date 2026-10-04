@@ -1,0 +1,238 @@
+"""Save and load a MiniMax H3 video+audio latent as one safetensors file.
+
+ComfyUI's own SaveLatent writes `samples["samples"]` as a single tensor; H3's latent is a nested pair
+(video, audio), so it cannot be stored that way. These two nodes keep both streams, with the frame count
+in the file's metadata, so that a finished clip's latent can be continued later with the MiniMax H3
+continuation nodes (Guided Continuation Window, Latent Tail Guide, Append Continuation).
+
+File layout: safetensors with tensors "video" [1, 24, T, H, W] and "audio" [1, 32, 2, T_audio], and
+metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}.
+"""
+
+import json
+import os
+
+import folder_paths
+import node_helpers
+import safetensors.torch
+import torch
+from comfy.nested_tensor import NestedTensor
+from comfy_api.latest import io
+
+from .continuation_nodes import (
+    AUDIO_LATENT_FPS,
+    _existing_keyframes,
+    _require_native_arbitrary_guides,
+    validate_h3_av_window,
+    video_latent_t,
+)
+
+FORMAT = "afflatus-h3-av-latent/1"
+FPS = 24
+
+
+def _streams(latent: dict, name: str = "samples") -> tuple[torch.Tensor, torch.Tensor]:
+    """The video and audio tensors of an H3 AV latent, checked."""
+    samples = latent.get("samples") if isinstance(latent, dict) else None
+    if samples is None:
+        raise ValueError(f"{name} has no 'samples'")
+    tensors = getattr(samples, "tensors", None)
+    if tensors is None or len(tensors) != 2:
+        raise ValueError(f"{name} is not a MiniMax H3 video+audio latent (two streams expected)")
+    video, audio = tensors
+    if not isinstance(video, torch.Tensor) or not isinstance(audio, torch.Tensor):
+        raise TypeError(f"{name} streams must be tensors")
+    if video.ndim != 5:
+        raise ValueError(f"{name} video must have shape [1, C, T, H, W], got {tuple(video.shape)}")
+    if audio.ndim != 4:
+        raise ValueError(f"{name} audio must have shape [1, 32, 2, T], got {tuple(audio.shape)}")
+    return video, audio
+
+
+def frames_of(video_t: int) -> int:
+    """Pixel frames represented by a video latent of temporal length `video_t` (the 5k + 2 grid)."""
+    if video_t < 2 or (video_t - 2) % 5 != 0:
+        raise ValueError(f"video temporal length {video_t} is not on MiniMax H3's 5k + 2 grid")
+    return ((video_t - 2) // 5) * 17 + 5
+
+
+class AfflatusSaveH3Latent(io.ComfyNode):
+    """Write an H3 video+audio latent to ComfyUI's output folder, both streams, with the frame count."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusSaveH3Latent",
+            display_name="Afflatus: Save H3 Latent",
+            category="Afflatus",
+            description="Saves a MiniMax H3 video+audio latent as one safetensors file (both streams), so that the clip can be continued later from its own latent.",
+            inputs=[
+                io.Latent.Input("samples", tooltip="The sampled MiniMax H3 latent (video and audio)."),
+                io.String.Input("filename_prefix", default="Afflatus/h3", tooltip="Where under the output folder, and how the file is named."),
+            ],
+            outputs=[],
+            is_output_node=True,
+        )
+
+    @classmethod
+    def execute(cls, samples, filename_prefix: str = "Afflatus/h3") -> io.NodeOutput:
+        video, audio = _streams(samples)
+        output_dir = folder_paths.get_output_directory()
+        full_output_folder, filename, counter, subfolder, _prefix = folder_paths.get_save_image_path(filename_prefix, output_dir)
+        name = f"{filename}_{counter:05}_.safetensors"
+        path = os.path.join(full_output_folder, name)
+        frames = frames_of(int(video.shape[2]))
+        metadata = {"format": FORMAT, "frames": str(frames), "fps": str(FPS)}
+        safetensors.torch.save_file(
+            {"video": video.detach().to("cpu").contiguous(), "audio": audio.detach().to("cpu").contiguous()},
+            path,
+            metadata=metadata,
+        )
+        results = [{"filename": name, "subfolder": subfolder, "type": "output"}]
+        return io.NodeOutput(ui={"latents": results})
+
+
+class AfflatusLoadH3Latent(io.ComfyNode):
+    """Read an H3 video+audio latent saved by Afflatus: Save H3 Latent (an uploaded file, or one of the input folder)."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusLoadH3Latent",
+            display_name="Afflatus: Load H3 Latent",
+            category="Afflatus",
+            description="Loads a MiniMax H3 video+audio latent saved by Afflatus: Save H3 Latent. The name may carry ComfyUI's folder annotation (\"name.safetensors [temp]\").",
+            inputs=[
+                io.String.Input("latent", default="", tooltip="The file's name in ComfyUI's input or temp folder, as an upload answers it."),
+            ],
+            outputs=[io.Latent.Output(display_name="latent"), io.Int.Output(display_name="frames")],
+        )
+
+    @classmethod
+    def fingerprint_inputs(cls, latent: str = ""):
+        path = folder_paths.get_annotated_filepath(latent)
+        try:
+            return f"{path}:{os.path.getmtime(path)}:{os.path.getsize(path)}"
+        except OSError:
+            return path
+
+    @classmethod
+    def validate_inputs(cls, latent: str = ""):
+        if not latent or not folder_paths.exists_annotated_filepath(latent):
+            return f"H3 latent file not found: {latent!r}"
+        return True
+
+    @classmethod
+    def execute(cls, latent: str = "") -> io.NodeOutput:
+        path = folder_paths.get_annotated_filepath(latent)
+        tensors = safetensors.torch.load_file(path, device="cpu")
+        if "video" not in tensors or "audio" not in tensors:
+            raise ValueError(f"{os.path.basename(path)} is not an Afflatus H3 latent (no video/audio streams)")
+        # ComfyUI samples its latents in float32: the continuation nodes want the previous latent to match
+        video = tensors["video"].float()
+        audio = tensors["audio"].float()
+        frames = frames_of(int(video.shape[2]))
+        return io.NodeOutput({"samples": NestedTensor((video, audio))}, frames)
+
+
+def read_frames(path: str) -> int:
+    """The frame count of a saved latent, from its header alone (no tensors read)."""
+    with open(path, "rb") as f:
+        n = int.from_bytes(f.read(8), "little")
+        header = json.loads(f.read(n))
+    meta = header.get("__metadata__") or {}
+    return int(meta.get("frames", 0))
+
+
+def audio_tokens_at(frame: int) -> int:
+    """The 40 Hz audio-latent index at a 24 fps frame boundary (the continuation nodes' rounding)."""
+    return round(frame * AUDIO_LATENT_FPS / FPS)
+
+
+class AfflatusNormalizeH3Latent(io.ComfyNode):
+    """Round a sampled H3 window's audio to its own frame boundary, so that it can be continued from later."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusNormalizeH3Latent",
+            display_name="Afflatus: Normalize H3 Latent",
+            category="Afflatus",
+            description="A sampled MiniMax H3 continuation window carries its audio on the previous run's boundaries, one token more or less than its own frame count says. This trims or pads it to its own boundary, so the window is a valid clip to continue from.",
+            inputs=[io.Latent.Input("samples", tooltip="A sampled MiniMax H3 latent (video and audio).")],
+            outputs=[io.Latent.Output(display_name="latent"), io.Int.Output(display_name="frames")],
+        )
+
+    @classmethod
+    def execute(cls, samples) -> io.NodeOutput:
+        video, audio = _streams(samples)
+        frames = frames_of(int(video.shape[2]))
+        want = audio_tokens_at(frames)
+        have = int(audio.shape[-1])
+        if have > want:
+            audio = audio[..., :want]
+        elif have < want:
+            audio = torch.cat((audio, audio.new_zeros((*audio.shape[:-1], want - have))), dim=-1)
+        return io.NodeOutput({"samples": NestedTensor((video, audio))}, frames)
+
+
+class AfflatusH3LatentHeadGuide(io.ComfyNode):
+    """Anchor the first tokens of the clip after at the end of a continuation window: the clip arrives at it."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusH3LatentHeadGuide",
+            display_name="Afflatus: H3 Latent Head Guide",
+            category="Afflatus",
+            description="Adds the clip after's first tokens (video and audio, from its own latent) as a native H3 guide at the last frames of the window being sampled, so the clip lands exactly where the clip after begins. The counterpart of the Latent Tail Guide at frame zero.",
+            inputs=[
+                io.Conditioning.Input("positive", tooltip="Positive conditioning for the window (after the tail guide, when there is one)."),
+                io.Latent.Input("next_av_latent", tooltip="The clip after's own latent (a sampled window, normalized)."),
+                io.Latent.Input("target_av_latent", tooltip="The window that will be sampled."),
+                io.Int.Input("guide_frames", default=22, min=5, max=3600, step=17, tooltip="How many of its first frames are pinned at the end: 5, 22 or 39 (17k + 5)."),
+                io.Int.Input("skip_frames", default=0, min=0, max=3600, step=17, tooltip="Frames of the clip after to skip first: its own overlap with the clip it extended (0, 5, 22, 39…: 0 or 17k + 5)."),
+            ],
+            outputs=[io.Conditioning.Output(display_name="positive")],
+            is_experimental=True,
+        )
+
+    @classmethod
+    def execute(cls, positive, next_av_latent, target_av_latent, guide_frames: int = 22, skip_frames: int = 0) -> io.NodeOutput:
+        _require_native_arbitrary_guides()
+        next_video, next_audio = _streams(next_av_latent, "next_av_latent")
+        target_video, _target_audio, target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
+        if guide_frames % 17 != 5:
+            raise ValueError("guide_frames must be 5, 22, 39… (17k + 5)")
+        if skip_frames != 0 and skip_frames % 17 != 5:
+            raise ValueError("skip_frames must be 0 or 17k + 5")
+        skip_t = 0 if skip_frames == 0 else video_latent_t(skip_frames)
+        guide_t = video_latent_t(guide_frames)
+        if skip_t + guide_t > int(next_video.shape[2]):
+            raise ValueError(f"the clip after's latent has {int(next_video.shape[2])} video tokens: not enough for {skip_frames} skipped + {guide_frames} guide frames")
+        skip_a = audio_tokens_at(skip_frames)
+        guide_a = audio_tokens_at(skip_frames + guide_frames) - skip_a
+        have_a = int(next_audio.shape[-1])
+        if skip_a >= have_a:
+            raise ValueError("the clip after's audio latent is shorter than the frames to skip")
+        guide_a = min(guide_a, have_a - skip_a)
+        at = target_frames - guide_frames
+        if at < 0:
+            raise ValueError(f"a {guide_frames}-frame guide does not fit in a {target_frames}-frame window")
+        if next_video.dtype != target_video.dtype:
+            next_video = next_video.to(target_video.dtype)
+            next_audio = next_audio.to(target_video.dtype)
+        keyframes = _existing_keyframes(positive)
+        for k in keyframes:
+            end = float(k["resolved_frame_index"]) + int(k["latent"].shape[2]) * 17 / 5
+            if end > at:
+                raise ValueError("another guide reaches into the window's last frames: the head guide needs them")
+        keyframes.append(
+            {
+                "resolved_frame_index": at,
+                "latent": next_video[:, :, skip_t : skip_t + guide_t].clone(),
+                "audio_latent": next_audio[..., skip_a : skip_a + guide_a].clone(),
+            }
+        )
+        keyframes.sort(key=lambda keyframe: float(keyframe["resolved_frame_index"]))
+        return io.NodeOutput(node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes}))
