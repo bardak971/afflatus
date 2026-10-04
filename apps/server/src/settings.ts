@@ -68,6 +68,10 @@ export const settingsSchema = z.object({
   renderHistoryDays: z.number().int().min(0).max(3650).default(90),
   /** How "Finish all clips" brings a timeline to its final quality: the user's defaults, each run can differ. */
   finish: finishSchema.prefault({}),
+  /** A family's file chosen by hand where several fit (family id → slot id → file name); a slot not named follows its patterns. */
+  slotFiles: z.record(z.string().max(120), z.record(z.string().max(80), z.string().max(400))).default({}),
+  /** The presets whose files' licence was accepted (by preset id): fetched without asking again. */
+  acceptedPresets: z.array(z.string().max(120)).max(500).default([]),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -144,6 +148,8 @@ export function publicSettings(s: Settings) {
     families: s.families,
     hasCivitaiKey: Boolean(s.civitaiKey),
     finish: s.finish,
+    slotFiles: s.slotFiles,
+    acceptedPresets: s.acceptedPresets,
     civitaiLookups: s.civitaiLookups,
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,

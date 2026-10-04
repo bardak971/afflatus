@@ -46,7 +46,8 @@ export interface WanVideo {
 }
 
 /** What a fine-tune is, as far as its file name says: merges made for a few steps are named for it, or are known ones. */
-const namedTurbo = /turbo|distill|lightning|lightx2v|lightspeed|rapid|smoothmix|dasiwa|(^|[^a-z0-9])\d+[ _-]?steps?/i;
+// DaSiWa's lines: "Lightspeed" is distilled, "TrueVision" is made for the full steps (20 to 30 at CFG 3.5), so his name alone says nothing
+const namedTurbo = /turbo|distill|lightning|lightx2v|lightspeed|rapid|smoothmix|(^|[^a-z0-9])\d+[ _-]?steps?/i;
 
 /** Which way the clip is made: from words alone (the words-to-video models), or opening / ending on a picture. */
 const uses = (input: WanVideo) => ({ words: !input.start && !input.end, both: Boolean(input.end) });

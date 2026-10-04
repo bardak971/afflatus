@@ -1,0 +1,22 @@
+{
+  "id": "dasiwa-krea2",
+  "name": "DaSiWa Krea 2: DarkDesire v3 Turbo (int8)",
+  "author": "Darksidewalker",
+  "note": "His Krea 2 turbo line, in int8: 8 steps at CFG 1 with euler and linear_quadratic, made for 1536 square. Both realism and anime, with anime composition pushed in each version. Krea 2's own text encoder and VAE beside it.",
+  "homepage": "https://civitai.com/models/2760803",
+  "licence": {
+    "name": "Krea 2 Community License",
+    "url": "https://krea.ai/krea-2-licensing",
+    "note": "Krea's licence for Krea 2 weights: commercial use under a yearly revenue ceiling, and content moderation required of anyone who serves the model to others. Read it before you fetch the file."
+  },
+  "recipe": "krea2.text-to-picture",
+  "inputs": { "model": "DasiwaKrea2TurboRaw_darkdesireV3TurboUC_int8.safetensors", "scheduler": "linear_quadratic" },
+  "files": [
+    {
+      "file": "DasiwaKrea2TurboRaw_darkdesireV3TurboUC_int8.safetensors",
+      "folder": "diffusion_models",
+      "size": 13470000000,
+      "civitai": { "version": 3362930, "pick": "DasiwaKrea2TurboRaw_darkdesireV3TurboUC_3251013.safetensors", "page": "https://civitai.com/models/2760803?modelVersionId=3362930" }
+    }
+  ]
+}

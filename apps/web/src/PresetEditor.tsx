@@ -8,6 +8,7 @@ import { useModelSettings } from "./data";
 import { Form } from "./RecipeForm";
 import { Select } from "./Select";
 import { AutoText } from "./ui";
+import { PresetFiles } from "./PresetFiles";
 
 /**
  * A preset, opened to be changed: the model and operation it is for (or none: then only the prompt and
@@ -15,7 +16,7 @@ import { AutoText } from "./ui";
  * follows the model's defaults and is no longer part of the preset), and who is in it. The same Form
  * as Studio's: what is stored is what the preset holds.
  */
-export function PresetEditor({ def, onChange }: { def: PresetDef; onChange(def: PresetDef): void }) {
+export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDef; onChange(def: PresetDef): void }) {
   const recipes = useRecipes();
   const setup = useSetup();
   const entities = useEntities();
@@ -56,6 +57,8 @@ export function PresetEditor({ def, onChange }: { def: PresetDef; onChange(def: 
           {" "}A field left at the model's default is not part of the preset; "Changed · reset" takes one out. Applying the preset changes only what it sets.
         </span>
       </div>
+
+      {def.files?.length ? <PresetFiles id={id ?? ""} def={def} /> : null}
 
       {recipe ? (
         <Form

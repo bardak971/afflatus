@@ -1,0 +1,22 @@
+{
+  "id": "dasiwa-ltx-dragonleap",
+  "name": "DaSiWa LTX 2.3: DragonLeap v4 (distilled)",
+  "author": "Darksidewalker",
+  "note": "His distilled LTX 2.3 line (DMD), fp8, as split files: 8 to 12 steps at CFG 1, no distilled LoRA on top; the form reads that from the name. Image-to-video and video-to-video first, with sound. LTX's own text encoder, VAEs, projection and upscalers beside it.",
+  "homepage": "https://civitai.com/models/2543443",
+  "licence": {
+    "name": "LTX-2 Community License",
+    "url": "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE",
+    "note": "Lightricks' licence for LTX-2 weights: free use, commercial too under a yearly revenue ceiling. Read it before you fetch the file."
+  },
+  "recipe": "ltx.video",
+  "inputs": { "model": "DasiwaLTX23_dragonleapV4.safetensors" },
+  "files": [
+    {
+      "file": "DasiwaLTX23_dragonleapV4.safetensors",
+      "folder": "diffusion_models",
+      "size": 26970000000,
+      "civitai": { "version": 3092188, "pick": "DasiwaLTX23_dragonleapV4_2972051.safetensors", "page": "https://civitai.com/models/2543443?modelVersionId=3092188" }
+    }
+  ]
+}

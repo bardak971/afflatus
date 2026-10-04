@@ -1,0 +1,22 @@
+{
+  "id": "dasiwa-ltx-goldenlace",
+  "name": "DaSiWa LTX 2.3: GoldenLace v3 (full steps)",
+  "author": "Darksidewalker",
+  "note": "His undistilled LTX 2.3 line, fp8, as split files: the model samples on LTX's own 8-step schedule with the distilled LoRA refining, or by steps (20 at CFG 3 to 4) with Schedule set to By steps. Image-to-video and video-to-video first, with sound. LTX's own text encoder, VAEs, projection and upscalers beside it.",
+  "homepage": "https://civitai.com/models/2543443",
+  "licence": {
+    "name": "LTX-2 Community License",
+    "url": "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE",
+    "note": "Lightricks' licence for LTX-2 weights: free use, commercial too under a yearly revenue ceiling. Read it before you fetch the file."
+  },
+  "recipe": "ltx.video",
+  "inputs": { "model": "DasiwaLTX23_goldenlaceV3.safetensors" },
+  "files": [
+    {
+      "file": "DasiwaLTX23_goldenlaceV3.safetensors",
+      "folder": "diffusion_models",
+      "size": 28480000000,
+      "civitai": { "version": 2967331, "pick": "DasiwaLTX23_goldenlaceV3_2851659.safetensors", "page": "https://civitai.com/models/2543443?modelVersionId=2967331" }
+    }
+  ]
+}

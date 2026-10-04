@@ -290,9 +290,9 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
-    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER] },
+    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER], section: "out" },
     FACTOR_INPUT,
-    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; skipped when the result is larger than about 2.5 megapixels", default: true },
+    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; skipped when the result is larger than about 2.5 megapixels", default: true, section: "out" },
     ...kleinInputs,
   ],
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],

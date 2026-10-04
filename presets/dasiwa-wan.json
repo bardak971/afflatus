@@ -1,0 +1,31 @@
+{
+  "id": "dasiwa-wan",
+  "name": "DaSiWa Wan 2.2 i2v: TrueVision SnatchKiss v11",
+  "author": "Darksidewalker",
+  "note": "His undistilled line of Wan 2.2 image-to-video: the high-noise and low-noise 14B models in fp8, made for 20 to 30 steps at CFG 3.5, up to 720p; the form's defaults already are that. Turbo still works on it with the lightx2v LoRAs, which Settings → Models offers. Wan's own text encoder and VAE beside it.",
+  "homepage": "https://civitai.com/models/2272580",
+  "licence": {
+    "name": "Apache 2.0 (Wan 2.2), with the author's distribution addendum",
+    "url": "https://civitai.com/models/2272580",
+    "note": "Wan 2.2 is Apache 2.0; the author adds a restriction on redistributing his files. The page says what."
+  },
+  "recipe": "wan.video",
+  "inputs": {
+    "model": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
+    "modelLow": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors"
+  },
+  "files": [
+    {
+      "file": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
+      "folder": "diffusion_models",
+      "size": 19000000000,
+      "civitai": { "version": 2959309, "pick": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors", "page": "https://civitai.com/models/2272580?modelVersionId=2959309" }
+    },
+    {
+      "file": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors",
+      "folder": "diffusion_models",
+      "size": 19000000000,
+      "civitai": { "version": 2959520, "pick": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors", "page": "https://civitai.com/models/2272580?modelVersionId=2959520" }
+    }
+  ]
+}

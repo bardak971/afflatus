@@ -36,7 +36,7 @@ export const seedvrPicture = defineRecipe<SeedvrPicture>({
   needs: ["seedvr", "seedvrVae"],
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image" },
-    { id: "upscaleBy", type: "number", label: "Upscale by", min: 1, max: 4, step: 0.25, default: 2, unit: "×", note: "1 restores without enlarging" },
+    { id: "upscaleBy", type: "number", label: "Upscale by", min: 1, max: 4, step: 0.25, default: 2, unit: "×", note: "1 restores without enlarging", section: "out" },
     { id: "upscaleColour", type: "choice", label: "Colour match", options: SEEDVR_COLOURS, default: "lab", advanced: true, note: "the result matched in colour to the original: lab (the most faithful), wavelet (keeps the new fine detail), adain (a global tint), none" },
   ],
   nodes: () => ["LoadImage", "PreviewImage", ...SEEDVR_NODES],

@@ -1,0 +1,140 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download as DownloadIcon, ExternalLink } from "lucide-react";
+import { Link } from "wouter";
+import { api, type PresetDef, type PresetFileView, type PresetFilesView } from "./api";
+import { useSettings } from "./data";
+import { fileLabel, gb } from "./format";
+import { DownloadRow, GetFile, useDownloads } from "./GetFile";
+import { Button, cx, ErrorNote } from "./ui";
+
+/**
+ * The model files a preset is made for: which ComfyUI has, a Download under each missing one, one button
+ * for all the required ones, and the licence they come under, accepted once. Shown on a preset in the
+ * Prompt kit; the same facts give Studio's form its "this file is missing" line.
+ */
+
+export const usePresetFiles = () => useQuery({ queryKey: ["preset-files"], queryFn: api.presetFiles, staleTime: 30_000 });
+
+/** Every file any preset names, by folder and name: where a missing file can be had. */
+export function presetFileIndex(data: { items: PresetFilesView[] } | undefined): Map<string, PresetFileView> {
+  const map = new Map<string, PresetFileView>();
+  for (const p of data?.items ?? []) for (const f of p.files) map.set(`${f.folder}:${(f.file.split(/[\\/]/).pop() ?? f.file).toLowerCase()}`, f);
+  return map;
+}
+export const fileKey = (folder: string, file: string) => `${folder}:${(file.split(/[\\/]/).pop() ?? file).toLowerCase()}`;
+
+const KEYS = [["preset-files"], ["setup"], ["downloads"], ["settings"]];
+
+export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
+  const all = usePresetFiles();
+  const settings = useSettings();
+  const downloads = useDownloads();
+  const client = useQueryClient();
+  const [licence, setLicence] = useState(false);
+  const [got, setGot] = useState<{ started: number; failed: Array<{ file: string; error: string }>; skipped: number } | null>(null);
+  const status = all.data?.items.find((p) => p.id === id);
+  const files = status?.files ?? (def.files ?? []).map((f) => ({ ...f, have: false }));
+  const fetching = Boolean(settings.data?.downloadModels);
+  const fetchAll = useMutation({
+    mutationFn: (accept?: boolean) => api.getPresetFiles(id, accept ? { accept } : {}),
+    onSuccess: (r) => {
+      setGot({ started: r.started.length, failed: r.failed, skipped: r.skipped });
+      void Promise.all(KEYS.map((k) => client.invalidateQueries({ queryKey: k })));
+    },
+  });
+  if (!files.length) return null;
+  const missing = files.filter((f) => !f.have);
+  const fetchable = missing.filter((f) => (f.url || f.civitai) && !f.optional);
+  const needsKey = fetchable.some((f) => f.civitai) && !settings.data?.hasCivitaiKey;
+  const bytes = fetchable.reduce((n, f) => n + (f.size ?? 0), 0);
+  const accepted = status?.accepted ?? !def.licence;
+  const go = () => (def.licence && !accepted ? setLicence(true) : fetchAll.mutate(undefined));
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-semibold text-ink-2">Model files</span>
+      <div className="flex flex-col divide-y divide-line rounded-md border border-line bg-panel">
+        {files.map((x) => {
+          const page = x.civitai?.page ?? x.page;
+          return (
+            <div key={`${x.folder}:${x.file}`} className="flex flex-col gap-1 px-2.5 py-1.5 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate font-mono text-[11px]" title={x.file}>{x.file}</span>
+                    {x.optional && <span className="shrink-0 rounded bg-raised px-1.5 py-px text-[10px] font-bold tracking-wide text-ink-3 uppercase">optional</span>}
+                  </span>
+                  {x.note && <span className="text-ink-3">{x.note}</span>}
+                </span>
+                <span className="grow" />
+                <span className="shrink-0 text-ink-3">models/{x.folder}{x.size ? ` · ${gb(x.size)}` : ""}</span>
+                <span className={cx("shrink-0 font-semibold", x.have ? "text-good" : "text-warn-ink")}>{x.have ? "in ComfyUI" : "missing"}</span>
+                {page && <a href={page} target="_blank" rel="noreferrer" title="Its page" className="shrink-0 text-ink-2 hover:text-ink"><ExternalLink size={12} /></a>}
+              </div>
+              {!x.have && fetching && accepted && (x.url || x.civitai) && (
+                <GetFile file={x.file} folder={x.folder} url={x.url} civitai={x.civitai?.version} pick={x.civitai?.pick} hints={[]} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {status?.needs && status.needs.missing.length > 0 && (
+        <div className="text-xs text-warn-ink">
+          {status.needs.name} itself is missing {status.needs.missing.join(", ").toLowerCase()}: <Link href="/settings/models" className="font-semibold underline">Settings → Models</Link> has them.
+        </div>
+      )}
+      {def.licence && (
+        <div className="text-xs text-ink-2">
+          Licence: {def.licence.url ? <a href={def.licence.url} target="_blank" rel="noreferrer" className="font-semibold underline">{def.licence.name}</a> : <span className="font-semibold">{def.licence.name}</span>}
+          {accepted ? " · accepted" : " · to accept before the files are fetched"}
+          {def.licence.note && !accepted ? <span className="block text-warn-ink">{def.licence.note}</span> : null}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {missing.length > 0 && fetching && fetchable.length > 0 && (
+          <Button size="sm" tone="primary" onClick={go} disabled={fetchAll.isPending} className="flex items-center gap-1.5">
+            <DownloadIcon size={13} /> Get the {fetchable.length} missing file{fetchable.length > 1 ? "s" : ""}{bytes ? ` (${gb(bytes)})` : ""}
+          </Button>
+        )}
+        {missing.length > 0 && !fetching && <span className="text-xs text-ink-2">To fetch them from here, turn on "Download missing models into ComfyUI" under <Link href="/settings/models" className="font-semibold underline">Settings → Models</Link>.</span>}
+        {missing.length > 0 && fetching && needsKey && <span className="text-xs text-ink-2">Civitai files need your Civitai key (Settings → Models) for most downloads.</span>}
+      </div>
+      {got && (
+        <div className="text-xs text-ink-2">
+          {got.started > 0 && <div>{got.started} download{got.started > 1 ? "s" : ""} started.</div>}
+          {got.failed.map((x) => <div key={x.file} className="text-warn-ink">{fileLabel(x.file)}: {x.error}</div>)}
+        </div>
+      )}
+      {fetchAll.isError && <ErrorNote>{fetchAll.error.message}</ErrorNote>}
+      {downloads.data?.items.filter((d) => files.some((f) => fileKey(f.folder, f.file) === fileKey(d.folder, d.file)) && d.status !== "done").map((d) => <DownloadRow key={d.id} d={d} named />)}
+      {licence && def.licence && (
+        <div role="dialog" aria-modal="true" aria-label={`Licence of the preset's files`} className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setLicence(false)}>
+          <div className="flex w-full max-w-[520px] flex-col gap-3 rounded-xl border border-line bg-panel p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-[15px] font-bold">Before the files are fetched</h3>
+            <div className="text-ink-2">
+              They come under the {def.licence.url ? <a href={def.licence.url} target="_blank" rel="noreferrer" className="font-semibold underline">{def.licence.name}</a> : <span className="font-semibold">{def.licence.name}</span>}.
+              {def.licence.note ? ` ${def.licence.note}` : ""}
+            </div>
+            <div className="text-xs text-ink-3">Accepting it is between you and the files' authors; Afflatus only remembers that you did, and asks once.</div>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" onClick={() => setLicence(false)}>Not now</Button>
+              <Button size="sm" tone="primary" onClick={() => { setLicence(false); fetchAll.mutate(true); }}>I accept, fetch the files</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Under a form's Model field: the file it names is not in ComfyUI, and where it is had when a preset knows. */
+export function MissingModel({ folder, file }: { folder: string; file: string }) {
+  const all = usePresetFiles();
+  const found = presetFileIndex(all.data).get(fileKey(folder, file));
+  return (
+    <div className="flex flex-col gap-1 text-xs text-warn-ink">
+      <span>ComfyUI does not have <span className="font-semibold">{fileLabel(file)}</span> in models/{folder}.{found ? " A preset says where it is had:" : ""}</span>
+      {found && <GetFile file={found.file} folder={found.folder} url={found.url} civitai={found.civitai?.version} pick={found.civitai?.pick} hints={[]} />}
+    </div>
+  );
+}

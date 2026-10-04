@@ -746,6 +746,51 @@ function ComfyCard() {
 }
 
 /** One recipe: ready, or what it lacks and how to get it. */
+/**
+ * The family's files where more than one fits (two SeedVR2 models, two turbo LoRAs): which one is used,
+ * chosen by hand or left to the patterns. Nothing shown for a family whose files are all one of a kind.
+ */
+function SlotChoices({ family }: { family: string }) {
+  const setup = useSetup();
+  const settings = useSettings();
+  const client = useQueryClient();
+  const slots = (setup.data?.families.find((f) => f.id === family)?.slots ?? []).filter((s) => s.choices.length > 1 || s.chosen);
+  const save = useMutation({
+    mutationFn: (v: { slot: string; file: string }) => {
+      const all = { ...(settings.data?.slotFiles ?? {}) };
+      const mine = { ...(all[family] ?? {}) };
+      if (v.file) mine[v.slot] = v.file;
+      else delete mine[v.slot];
+      if (Object.keys(mine).length) all[family] = mine;
+      else delete all[family];
+      return api.saveSettings({ slotFiles: all });
+    },
+    onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ["settings"] }), client.invalidateQueries({ queryKey: ["setup"] })]),
+  });
+  if (!slots.length) return null;
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2.5">
+      <span className="text-xs font-semibold">Files in use</span>
+      <span className="text-xs text-ink-2">More than one file fits here. Left to itself, Afflatus takes the first its patterns name; pick another to use it everywhere this family does.</span>
+      {slots.map((s) => (
+        <div key={s.id} className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 flex-col"><span className="truncate text-xs font-semibold">{s.label}</span><span className="truncate text-xs text-ink-3">{s.folder}</span></span>
+          <div className="w-80 shrink-0">
+            <Select
+              size="sm"
+              label={`File used for ${s.label}`}
+              value={s.chosen ? (s.file ?? "") : ""}
+              onChange={(file) => save.mutate({ slot: s.id, file })}
+              options={[{ value: "", label: s.auto ? `Automatic: ${fileLabel(s.auto)}` : "Automatic", note: "the first its patterns name" }, ...s.choices.map((f) => ({ value: f, label: fileLabel(f) }))]}
+            />
+          </div>
+        </div>
+      ))}
+      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+    </div>
+  );
+}
+
 function ReadyRow({ r }: { r: RecipeInfo }) {
   const setup = useSetup();
   const recipes = useRecipes();
@@ -845,7 +890,12 @@ function ReadyList() {
                 })()}
                 <ChevronDown size={14} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
               </button>
-              {open && <div className="flex flex-col divide-y divide-line border-t border-line bg-raised">{mine.map((r) => <ReadyRow key={r.id} r={r} />)}</div>}
+              {open && (
+                <div className="flex flex-col divide-y divide-line border-t border-line bg-raised">
+                  <SlotChoices family={family.id} />
+                  {mine.map((r) => <ReadyRow key={r.id} r={r} />)}
+                </div>
+              )}
             </div>
           );
         })}

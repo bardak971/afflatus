@@ -1,0 +1,22 @@
+{
+  "id": "dasiwa-h3-turbo",
+  "name": "DaSiWa MiniMax H3: Hybrid Turbo v3 (int8, 8 steps)",
+  "author": "Darksidewalker",
+  "note": "The hybrid with distillation blended in: 8 steps with euler, no turbo LoRA on top, about twice as fast, with the loss of detail any turbo has (his words: turbo is always a quality loss for H3 at the moment). For drafts; the full-steps preset for the final take.",
+  "homepage": "https://civitai.com/models/2877206",
+  "licence": {
+    "name": "MiniMax H3 Community License",
+    "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+    "note": "MiniMax's licence for H3 weights: it names territories where the weights may not be used (the EU, the UK, South Korea and the USA at the time of writing) and a revenue ceiling for commercial use. Read it before you fetch the file."
+  },
+  "recipe": "h3.video",
+  "inputs": { "model": "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors", "fast": true, "turboSteps": 8 },
+  "files": [
+    {
+      "file": "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors",
+      "folder": "diffusion_models",
+      "size": 20480000000,
+      "civitai": { "version": 3374439, "pick": "DasiwaMinimaxH3_dasiwaHybridTurboV3_3263048.safetensors", "page": "https://civitai.com/models/2877206?modelVersionId=3374439" }
+    }
+  ]
+}

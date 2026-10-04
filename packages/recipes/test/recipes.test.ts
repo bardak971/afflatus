@@ -600,6 +600,11 @@ describe("wan.video", () => {
     expect(passes(named)[0]).toMatchObject({ steps: 4, cfg: 1 });
     const said = build({ fast: true, model: "mine_high.safetensors", modelLow: "mine_low.safetensors", turboIn: "Yes", turboSteps: 6 });
     expect(all(said, "LoraLoaderModelOnly")).toEqual([]);
+    // DaSiWa's name is not a mark: his TrueVision line is made for the full steps and takes the LoRAs, his Lightspeed line is distilled
+    const trueVision = build({ fast: true, model: "High\\DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors", modelLow: "Low\\DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors" });
+    expect(all(trueVision, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["th.safetensors", "tl.safetensors"]);
+    const lightspeed = build({ fast: true, model: "High\\DasiwaWAN22I2V14BLightspeed_snatchkissHighV11.safetensors", modelLow: "Low\\DasiwaWAN22I2V14BLightspeed_snatchkissLowV11.safetensors" });
+    expect(all(lightspeed, "LoraLoaderModelOnly")).toEqual([]);
     expect(passes(said)[0]).toMatchObject({ steps: 6, end_at_step: 3 });
     // no turbo files and a model that is not distilled: the full steps, and the CFG of the form
     const none = build({ fast: true }, { slots });
@@ -680,6 +685,10 @@ describe("ltx.video", () => {
     expect(lorasOf(build({ turboIn: "No" }))).toEqual([["distilled_lora.safetensors", 0.5]]);
     // not distilled and no LoRA file: it is run as it is
     expect(lorasOf(build({}, { slots: parts }))).toEqual([]);
+    // DaSiWa's lines by name: DragonLeap and SolsticeCoin are distilled, GoldenLace is not
+    expect(lorasOf(build({}, { slots: { ...parts, ...extras, unet: "DasiwaLTX23_dragonleapV4.safetensors" } }))).toEqual([]);
+    expect(lorasOf(build({}, { slots: { ...parts, ...extras, unet: "DasiwaLTX23_solsticecoinV2.safetensors" } }))).toEqual([]);
+    expect(lorasOf(build({}, { slots: { ...parts, ...extras, unet: "DasiwaLTX23_goldenlaceV3.safetensors" } }))).toEqual([["distilled_lora.safetensors", 0.5]]);
   });
 
   it("makes the clip in two passes: half the size, enlarged, then refined, keeping the sound of the first", () => {

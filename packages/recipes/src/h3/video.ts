@@ -224,7 +224,7 @@ export const h3Video = defineRecipe<H3Video>({
     },
     { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
     { id: "sharpRefs", type: "toggle", label: "Reference images at full resolution", note: "holds a face better, several times slower", default: false, advanced: true },
-    { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
+    { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache, from the ComfyUI-DaSiWa-Nodes pack; without it nothing changes). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step, with its sound so far. A small cost per step. Needs the KJNodes pack",

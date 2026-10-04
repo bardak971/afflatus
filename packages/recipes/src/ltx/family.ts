@@ -30,14 +30,17 @@ export const ltx = defineFamily({
     {
       id: "videoVae", label: "Video VAE (split files)", folder: "vae", detect: ["ltx.?2?[._]?3.*video.?vae"], unless: "checkpoint",
       hint: "Only when the model is not one checkpoint: put LTX 2.3's video VAE (LTX23_video_vae_*.safetensors) in ComfyUI's models/vae folder.",
+      get: { file: "LTX23_video_vae_bf16.safetensors", url: "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_video_vae_bf16.safetensors" },
     },
     {
       id: "audioVae", label: "Audio VAE (split files)", folder: "vae", detect: ["ltx.?2?[._]?3.*audio.?vae"], unless: "checkpoint",
       hint: "Only when the model is not one checkpoint: put LTX 2.3's audio VAE (LTX23_audio_vae_*.safetensors) in ComfyUI's models/vae folder.",
+      get: { file: "LTX23_audio_vae_bf16.safetensors", url: "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_audio_vae_bf16.safetensors" },
     },
     {
       id: "projection", label: "Text projection (split files)", folder: "text_encoders", detect: ["ltx.?2[._]?3.*text.?projection"], unless: "checkpoint",
       hint: "Only when the model is not one checkpoint: put ltx-2.3_text_projection_*.safetensors in ComfyUI's models/text_encoders folder.",
+      get: { file: "ltx-2.3_text_projection_bf16.safetensors", url: "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/text_encoders/ltx-2.3_text_projection_bf16.safetensors" },
     },
     {
       id: "clip", label: "Text encoder (Gemma 3 12B)", folder: "text_encoders", detect: ["gemma.?3.?12b"],

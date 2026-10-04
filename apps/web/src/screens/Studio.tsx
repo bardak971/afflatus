@@ -5,7 +5,7 @@ import { Bookmark, ChevronDown, ChevronLeft, Film, Folder as FolderIcon, Minus, 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { hasWildcards } from "@afflatus/core";
-import { api, ApiError, thumbUrl, type Asset, type RecipeInfo, type RunningJob } from "../api";
+import { api, ApiError, thumbUrl, type Asset, type RecipeInfo, type RunningJob, type Entity } from "../api";
 import { askAboutDisk } from "../Confirm";
 import { useAssetFamilies, useAssetModels, useAssets, useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSetup, useTimelines } from "../data";
 import { useProject } from "../project";
@@ -13,7 +13,8 @@ import { Designer, WritingHelp, type DesignerTurn } from "../Designer";
 import { useDraft } from "../draft";
 import { estimateFor } from "../estimate";
 import { Form, mainTextOf } from "../RecipeForm";
-import { formDefaults } from "../form";
+import { formDefaults, matchFiles } from "../form";
+import { takePreset } from "../handoff";
 import { about, aboutMs, clock, fileLabel, notReady, phaseLabel, recipeLabel, when } from "../format";
 import { plainKey } from "../Keys";
 import { LivePreview } from "../LivePreview";
@@ -179,6 +180,18 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
   };
   // a preset is a whole setup, kept under a name: the model, its form, who is in it
   const presets = (entities.data?.items ?? []).filter((e) => e.kind === "preset");
+  const applyPreset = (p: Extract<Entity, { kind: "preset" }>) => {
+    const r = p.def.recipe ? all.find((x) => x.id === p.def.recipe) : undefined;
+    d.apply(p.def.recipe, r ? matchFiles(r, setup.data?.recipes.find((x) => x.id === r.id)?.options, p.def.inputs) : p.def.inputs, p.def.look ?? null);
+  };
+  // "Apply in Studio" on the Prompt kit: the preset it handed over, once the draft and the presets are here
+  useEffect(() => {
+    if (!draft || !entities.data) return;
+    const id = takePreset();
+    const p = id ? presets.find((x) => x.id === id) : undefined;
+    if (p?.kind === "preset") applyPreset(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.id, entities.data]);
   const [presetName, setPresetName] = useState("");
   // a draft being given a name of its own, instead of the start of what is written in it
   const [naming, setNaming] = useState<string | null>(null);
@@ -270,7 +283,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         value=""
         onChange={(id) => {
           const p = presets.find((x) => x.id === id);
-          if (p?.kind === "preset") d.apply(p.def.recipe, p.def.inputs, p.def.look ?? null);
+          if (p?.kind === "preset") applyPreset(p);
         }}
         options={presets.map((p) => ({ value: p.id, label: p.name, note: p.kind === "preset" ? (p.def.recipe ? recipeLabel(recipes.data?.families.find((f) => f.id === all.find((r) => r.id === p.def.recipe)?.family)?.name, all.find((r) => r.id === p.def.recipe)?.title ?? "model no longer installed") : "any model") : "" }))}
         footer={(close) => (

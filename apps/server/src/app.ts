@@ -3,7 +3,9 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
 import { describeRecipe, fuzzyFilter, parseInput } from "@afflatus/core";
-import { civitaiVersion, findOnCivitai } from "./civitai";
+import { findOnCivitai } from "./civitai";
+import { beginDownload, downloadBody } from "./fetchFile";
+import { registerPresetFiles } from "./presetFiles";
 import { findOnHuggingFace } from "./huggingface";
 import { readEmbedded } from "./embedded";
 import { resolveLink } from "./fromLink";
@@ -95,7 +97,12 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe) }));
 
   app.get("/api/settings", async () => publicSettings(await readSettings(s.db)));
-  app.put("/api/settings", async (req) => publicSettings(await writeSettings(s.db, req.body)));
+  app.put("/api/settings", async (req) => {
+    const saved = await writeSettings(s.db, req.body);
+    // a file chosen by hand for a family: what is ready is worked out again
+    if (req.body && typeof req.body === "object" && "slotFiles" in req.body) (await s.comfy()).forgetScan();
+    return publicSettings(saved);
+  });
 
   /** What ComfyUI can do: the setup page, and what the composer offers. Read-only on ComfyUI. */
   app.get<{ Querystring: { fresh?: string } }>("/api/setup", async (req) => (await s.comfy()).scan(Boolean(req.query.fresh)));
@@ -108,6 +115,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
 
   registerDrafts(app, s);
   registerModelSettings(app, s);
+  registerPresetFiles(app, s);
   registerModelInfo(app, s);
   registerModelPages(app, s);
   registerFolders(app, s);
@@ -207,56 +215,8 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     return { on: settings.downloadModels, items: s.downloads.list(), manager: settings.downloadModels ? await s.downloads.manager(await s.comfy()) : { found: false } };
   });
 
-  /**
-   * Fetch a missing model file into ComfyUI: from Civitai (a version found by "Find it on Civitai"),
-   * or from the address the workflow's author gave. ComfyUI-Manager does the saving; Afflatus passes the
-   * bytes through. Only when the user turned this on in Settings.
-   */
-  app.post("/api/downloads", async (req) => {
-    const b = z.strictObject({
-      // left empty for a Civitai version: the file keeps the name Civitai gives it
-      file: z.string().max(400).default(""), folder: z.string().min(1).max(120),
-      civitai: z.number().int().positive().optional(), url: z.string().url().max(2000).optional(),
-      // of a Civitai version with several files: the one to fetch, by the name Civitai gives it
-      pick: z.string().max(400).optional(),
-      // the page it comes from, kept for the file: its name then leads there
-      page: z.strictObject({ url: z.string().url().max(2000), title: z.string().max(300) }).optional(),
-    }).parse(req.body);
-    const settings = await readSettings(s.db);
-    if (!settings.downloadModels) throw Object.assign(new Error("Downloading into ComfyUI is turned off. Turn it on in Settings."), { statusCode: 400 });
-    if (!b.civitai === !b.url) throw Object.assign(new Error("a source is needed: a Civitai version or a URL"), { statusCode: 400 });
-    const comfy = await s.comfy();
-    // the address ComfyUI will fetch from: the one this page was opened at, unless one is set
-    const self = process.env.PUBLIC_URL?.trim() || `${req.protocol}://${req.headers.host}`;
-    const local = (host: string) => /^(localhost|127\.|\[::1\]|::1)/.test(host);
-    if (!process.env.PUBLIC_URL && local(new URL(self).hostname) && !local(new URL(comfy.url).hostname)) {
-      throw Object.assign(new Error("ComfyUI runs on another machine and cannot reach Afflatus at this URL. Open Afflatus by its network URL, or set PUBLIC_URL to it."), { statusCode: 400 });
-    }
-    const name = b.file.split(/[\\/]/).pop()!;
-    const keepPage = async (saved: string) => {
-      if (!b.page || !/^[\w-]{1,64}$/.test(b.folder)) return;
-      const key = { folder: b.folder, name: (saved.split(/[\\/]/).pop() ?? saved).toLowerCase() };
-      await s.db.insertInto("model_pages").values({ ...key, url: b.page.url, title: b.page.title, found_at: new Date().toISOString() })
-        .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: b.page!.url, title: b.page!.title })).execute();
-    };
-    if (b.url) {
-      if (!name) throw Object.assign(new Error("no filename given"), { statusCode: 400 });
-      if (!/^https:\/\//.test(b.url) && !process.env.CIVITAI_URL) throw Object.assign(new Error("only https URLs are downloaded"), { statusCode: 400 });
-      const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url });
-      await keepPage(started.file);
-      return started;
-    }
-    const found = await civitaiVersion(b.civitai!, b.pick ?? name, settings.civitaiKey);
-    if (!found?.file.downloadUrl) throw Object.assign(new Error("Civitai lists no file to download for that version."), { statusCode: 404 });
-    if (b.pick && found.file.name?.toLowerCase() !== b.pick.toLowerCase()) throw Object.assign(new Error(`That version has no file called ${b.pick}.`), { statusCode: 404 });
-    const saveAs = b.file || (found.file.name ?? "model.safetensors").replace(/[\\/:*?"<>|]/g, "_");
-    await keepPage(saveAs);
-    return s.downloads.start(comfy, self, {
-      file: saveAs, folder: b.folder, title: found.title || name,
-      source: found.file.downloadUrl, headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
-      total: Math.round((found.file.sizeKB ?? 0) * 1024),
-    });
-  });
+  /** Fetch a missing model file into ComfyUI (see fetchFile.ts). Only when the user turned this on in Settings. */
+  app.post("/api/downloads", async (req) => beginDownload(s, req, downloadBody.parse(req.body)));
 
   /**
    * What a link leads to (a model's page on Civitai, a file on Hugging Face): its files and sizes, the

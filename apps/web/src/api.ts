@@ -49,7 +49,7 @@ export interface Scan {
   comfy:
     | { online: true; url: string; version: string; device: string; vramTotal: number; vramFree: number; nodes: number }
     | { online: false; url: string; error: string };
-  families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; optional: boolean; hint: string; get?: { file: string; url: string } }> }>;
+  families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; choices: string[]; auto: string | null; chosen: boolean; optional: boolean; hint: string; get?: { file: string; url: string } }> }>;
   recipes: RecipeStatus[];
 }
 
@@ -279,12 +279,18 @@ export interface PresetDef {
   recipe?: string;
   inputs: Record<string, unknown>;
   look?: Look | null;
+  /** The model files it is made for, with where each is had. */
+  files?: PresetFile[];
+  author?: string;
+  note?: string;
+  homepage?: string;
+  licence?: { name: string; url?: string; note?: string };
 }
 export type Entity =
   | { id: string; kind: "person"; name: string; def: PersonDef; updatedAt: string }
   | { id: string; kind: "place"; name: string; def: PlaceDef; updatedAt: string }
   | { id: string; kind: "style"; name: string; def: StyleDef; updatedAt: string }
-  | { id: string; kind: "preset"; name: string; def: PresetDef; updatedAt: string }
+  | { id: string; kind: "preset"; name: string; def: PresetDef; updatedAt: string; source?: "shipped" }
   | { id: string; kind: "snippet"; name: string; def: SnippetDef; updatedAt: string };
 /** What a form becomes once its cast and style are worked in. */
 export interface Composed {
@@ -595,6 +601,29 @@ export interface FinishSettings {
   latentSteps: number;
 }
 
+/** One model file a preset is made for, and where it is had. */
+export interface PresetFile {
+  file: string;
+  folder: string;
+  url?: string;
+  civitai?: { version: number; pick?: string; page?: string };
+  page?: string;
+  size?: number;
+  note?: string;
+  optional?: boolean;
+}
+export interface PresetFileView extends PresetFile {
+  have: boolean;
+}
+/** A preset's files against this ComfyUI, and whether their licence was accepted. */
+export interface PresetFilesView {
+  id: string;
+  files: PresetFileView[];
+  accepted: boolean;
+  /** The family of its recipe and which of the family's own files are missing (Settings' to fetch). */
+  needs?: { family: string; name: string; missing: string[] };
+}
+
 export interface Settings {
   comfyUrl: string;
   /** ComfyUI's folder on Afflatus's computer, when they share one; empty otherwise. */
@@ -617,6 +646,10 @@ export interface Settings {
   hasCivitaiKey: boolean;
   /** The user's defaults for "Finish all clips" on a timeline. */
   finish: FinishSettings;
+  /** A family's file chosen by hand where several fit: family id → slot id → file. */
+  slotFiles: Record<string, Record<string, string>>;
+  /** The presets whose files' licence was accepted. */
+  acceptedPresets: string[];
   /** Missing model files may be looked for on Civitai. */
   civitaiLookups: boolean;
   /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. */
@@ -714,6 +747,8 @@ export const api = {
   health: () => call<{ ok: true; version: string; database: string }>("GET", "/health"),
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
+  presetFiles: () => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files"),
+  getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
   queue: () => call<QueueStatus>("GET", "/queue"),
   jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number }) =>
     call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`),

@@ -56,13 +56,14 @@ async function cast() {
 describe("people, places and styles", () => {
   it("are kept with what each kind holds, and what is used by them is kept in the library", async () => {
     const c = await cast();
-    const items = (await get(t.app, "/api/entities")).json().items;
+    // the presets that ship with Afflatus are listed too: here, only the user's own
+    const items = (await get(t.app, "/api/entities")).json().items.filter((e: { source?: string }) => !e.source);
     expect(items.map((e: { kind: string; name: string }) => [e.kind, e.name])).toEqual([["style", "Film look"], ["person", "Her"], ["place", "The terrace"]]);
     expect((await get(t.app, "/api/entities?kind=person")).json().items[0].def).toMatchObject({ voice: c.voice, outfits: [{ name: "Summer dress" }], models: { sdxl: { trigger: "her_character" } } });
     // a field that a kind does not have is refused
     expect((await t.app.inject({ method: "PUT", url: `/api/entities/${c.place}`, payload: { def: { voice: "x" } } })).statusCode).toBe(400);
     expect((await t.app.inject({ method: "DELETE", url: `/api/entities/${c.place}` })).statusCode).toBe(200);
-    expect((await get(t.app, "/api/entities")).json().items).toHaveLength(2);
+    expect((await get(t.app, "/api/entities")).json().items.filter((e: { source?: string }) => !e.source)).toHaveLength(2);
   });
 
   it("become tags and LoRAs for a model that reads tags", async () => {

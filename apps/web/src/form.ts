@@ -6,6 +6,26 @@ import { defaultOf } from "./fields";
  * file that is picked. A draft holds only what differs from this, so a draft follows its model's
  * settings until something is changed on purpose.
  */
+const baseName = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
+
+/**
+ * A preset's model files, as this ComfyUI names them: a preset made elsewhere says "model.safetensors",
+ * ComfyUI here may keep it as "High\\model.safetensors". The same file by name is taken for the same file.
+ */
+export function matchFiles(recipe: RecipeInfo, options: Record<string, string[]> | undefined, inputs: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...inputs };
+  for (const i of recipe.inputs) {
+    if (i.type !== "model" || typeof out[i.id] !== "string") continue;
+    const list = options?.[i.id] ?? [];
+    const value = out[i.id] as string;
+    if (!list.includes(value)) {
+      const same = list.find((o) => baseName(o) === baseName(value));
+      if (same) out[i.id] = same;
+    }
+  }
+  return out;
+}
+
 export function formDefaults(
   recipe: RecipeInfo,
   options: Record<string, string[]> | undefined,

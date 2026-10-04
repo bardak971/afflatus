@@ -104,8 +104,12 @@ describe("settings", () => {
       llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000 }],
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "",
       tagCheck: true, families: {}, hasCivitaiKey: true, civitaiLookups: false, downloadModels: false, renderHistoryDays: 90,
+      finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.25, latentSteps: 2 }, slotFiles: {}, acceptedPresets: [],
     });
     expect(res.body).not.toContain("secret");
+    // a family's file chosen by hand where several fit: kept by family and slot; a slot taken back follows its patterns again
+    expect((await put({ slotFiles: { h3: { seedvr: "seedvr2_7b_int8_convrot.safetensors" } } })).json().slotFiles).toEqual({ h3: { seedvr: "seedvr2_7b_int8_convrot.safetensors" } });
+    expect((await put({ slotFiles: {} })).json().slotFiles).toEqual({});
     // model families switched on or off by hand are kept by id; one not named follows its files
     expect((await put({ families: { ltx: true, wan: false } })).json().families).toEqual({ ltx: true, wan: false });
     expect((await put({ families: { ltx: true } })).json().families).toEqual({ ltx: true });

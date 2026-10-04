@@ -70,12 +70,14 @@ const link = "font-semibold underline";
  * its author gave, or look for it on Civitai and fetch it from there. Both only show when they were
  * turned on in Settings; without them this renders nothing and the plain links around it stay.
  */
-export function GetFile({ file, folder, url, civitai, hints }: {
+export function GetFile({ file, folder, url, civitai, pick, hints }: {
   file: string;
   folder: string | null;
   url?: string;
   /** Its Civitai version, when that is known: fetched without looking it up. */
   civitai?: number;
+  /** Of a Civitai version with several files: the one to fetch, by the name Civitai gives it. */
+  pick?: string;
   /** Words that say which model the file is for (a loader's type, the model's name): they help find the repository that has it. */
   hints?: string[];
 }) {
@@ -87,7 +89,7 @@ export function GetFile({ file, folder, url, civitai, hints }: {
   const find = useMutation({ mutationFn: () => api.civitaiFind(file, folder, hints) });
   const count = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} million` : n >= 1000 ? `${Math.round(n / 1000)} thousand` : String(n));
   const start = useMutation({
-    mutationFn: (from: { civitai: number } | { url: string }) => api.startDownload({ file, folder: folder!, ...from }),
+    mutationFn: (from: { civitai: number } | { url: string }) => api.startDownload({ file, folder: folder!, ...from, ...("civitai" in from && pick ? { pick } : {}) }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
   });
   const mine = downloads.data?.items.find((d) => d.file === file && d.folder === folder);

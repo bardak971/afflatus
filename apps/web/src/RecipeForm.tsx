@@ -11,6 +11,7 @@ import { Field, sameValue } from "./fields";
 import { formDefaults } from "./form";
 import { fileLabel } from "./format";
 import { Button, cx, ErrorNote, Segmented } from "./ui";
+import { MissingModel } from "./PresetFiles";
 
 /**
  * Which parts of a form are open. Kept for every form and every visit: a part folded once stays
@@ -82,8 +83,9 @@ type Group = "speed" | "upscale" | "file" | "rare";
 /** Where a setting goes: what its recipe says, else what its name says. */
 function groupOf(i: InputSpec): Group {
   if (i.section === "speed" || i.section === "file" || i.section === "rare") return i.section;
+  if (i.section === "out") return "upscale";
   const id = i.id;
-  if (/^upscale/i.test(id)) return "upscale";
+  if (/^upscale|^hires/i.test(id)) return "upscale";
   if (/fps|crf|smooth|encod|format|quality$|frame.?rate/i.test(id)) return "file";
   if (/preview|quick|^tile|loraStrength|sharpRefs|attention|offload|device|precision|cache(Threshold|Start|End|Steps)/i.test(id)) return "rare";
   return "speed";
@@ -262,6 +264,8 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
   // the model in use: the one picked in the form, else the one an imported workflow loads. LoRAs made for it come first.
   const picker = recipe.inputs.find((i) => i.type === "model");
   const inUse = (picker ? String(values[picker.id] ?? "") : recipe.models?.[0]) || undefined;
+  /** The form names a model file this ComfyUI does not list (a preset made elsewhere, a file removed). */
+  const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !status!.options[id]!.includes(String(values[id]));
   const render = (i: InputSpec) => {
     const a = word(i.id);
     return (
@@ -273,6 +277,7 @@ export function Form({ recipe, status, stored, onChange, onClear, made, madeSumm
           main={mainText?.type === "prompt" ? { text: String(values[mainText.id] ?? ""), style: mainText.style, set: (text) => onChange(mainText.id, text) } : undefined}
         />
         {a && <span className={cx("text-xs", a.level === "heavy" ? "font-semibold text-warn-ink" : "text-warn-ink")}>{a.level === "heavy" ? "Heavy: " : ""}{a.text}</span>}
+        {i.type === "model" && isMissingModel(i.id) && <MissingModel folder={i.folder} file={String(values[i.id])} />}
       </div>
     );
   };

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Bookmark, ChevronDown, ChevronRight, MapPin, Plus, Search, Sparkles, Trash2, User, X } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronRight, MapPin, Play, Plus, Search, Sparkles, Trash2, User, X, FileDown, Upload } from "lucide-react";
 import { fuzzyFilter, type InputSpec } from "@afflatus/core";
+import { useLocation } from "wouter";
 import { api, thumbUrl, type Entity, type FamilyInfo, type Outfit, type PersonDef, type PlaceDef, type RecipeInfo, type StyleDef } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
 import { Field, useLoraWordsOf } from "../fields";
@@ -9,6 +10,11 @@ import { fileLabel } from "../format";
 import { Picker, PictureField, SoundField } from "../PictureField";
 import { ModelLink } from "../ModelLink";
 import { PresetEditor } from "../PresetEditor";
+import { ShippedPreset } from "../ShippedPreset";
+import { usePresetFiles } from "../PresetFiles";
+import { importPresetFile, savePresetFile } from "../presetFile";
+import { handPreset } from "../handoff";
+import { useStudio } from "./Studio";
 import { Select } from "../Select";
 import { AutoText, Button, cx, Empty, ErrorNote, NumberBox, SectionTitle } from "../ui";
 
@@ -234,7 +240,7 @@ function summaryOf(e: Entity, recipes: RecipeInfo[]): string {
   if (e.kind === "person") return `${plural(e.def.pictures.length, "reference image")}, ${e.def.voice ? "voice sample" : "no voice sample"}, ${plural(e.def.outfits.length, "outfit")}`;
   if (e.kind === "place") return plural(e.def.pictures.length, "reference image");
   if (e.kind === "style") return `set up for ${plural(Object.values(e.def.models).filter((m) => m.loras.length || m.words.trim()).length, "model")}`;
-  if (e.kind === "preset") return `${e.def.recipe ? (recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here") : "any model"} · ${plural(Object.keys(e.def.inputs).length, "parameter")} set${e.def.look && (e.def.look.cast.length || e.def.look.style || e.def.look.snippets?.length) ? " · with references" : ""}`;
+  if (e.kind === "preset") return `${e.def.recipe ? (recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here") : "any model"} · ${plural(Object.keys(e.def.inputs).length, "parameter")} set`;
   return e.def.text;
 }
 /** Everything an item is found by. */
@@ -471,22 +477,61 @@ function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: string 
   );
 }
 
+type PresetFilter = "all" | "mine" | "builtin" | "missing";
+const FILTERS: Array<{ id: PresetFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "mine", label: "Mine" },
+  { id: "builtin", label: "Built in" },
+  { id: "missing", label: "Files missing" },
+];
+
+/** A small mark at the start of a row: the family a preset is for, an icon for a style. */
+function Mark({ children, title }: { children: ReactNode; title?: string }) {
+  return <span title={title} className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-raised px-1.5 text-[10px] font-bold tracking-wide text-ink-2 uppercase">{children}</span>;
+}
+function Badge({ tone = "plain", children }: { tone?: "plain" | "warn" | "good"; children: ReactNode }) {
+  return <span className={cx("shrink-0 rounded px-1.5 py-px text-[10px] font-bold tracking-wide uppercase", tone === "warn" ? "bg-warn-wash text-warn-ink" : tone === "good" ? "bg-good/15 text-good" : "bg-raised text-ink-3")}>{children}</span>;
+}
+/** One item of the list: a mark, its name, a line under it, and what must be seen at a glance on the right. */
+function Row({ active, onClick, mark, title, summary, badges }: { active: boolean; onClick(): void; mark: ReactNode; title: string; summary?: string; badges?: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} aria-current={active ? "true" : undefined} className={cx("flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left", active ? "border-accent bg-raised" : "border-transparent hover:bg-hover")}>
+      {mark}
+      <span className="flex min-w-0 grow flex-col gap-0.5">
+        <span className="truncate text-sm font-semibold">{title}</span>
+        {(summary || badges) && (
+          <span className="flex items-center gap-2">
+            {summary && <span className="min-w-0 truncate text-xs text-ink-2">{summary}</span>}
+            {badges && <span className="ml-auto flex shrink-0 items-center gap-1">{badges}</span>}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+const chip = (on: boolean) => cx("h-7 shrink-0 rounded-full border px-2.5 text-xs font-semibold", on ? "border-accent bg-raised text-ink" : "border-line text-ink-2 hover:text-ink");
+
 /**
  * The prompt kit: everything written once and added to prompts afterwards. The kinds are tabs across
- * the top (people, places, styles, snippets, presets), with a search; under them, what there is of
- * the chosen kind. People and places are cards with their picture, styles and presets a list: each
- * opens over the whole page to be changed. Snippets are changed in the list itself.
+ * the top (people, places, styles, snippets, presets), with a search. Under them, a list on the left
+ * and the item that is open on the right, so that the list stays while one is being changed. Presets
+ * are grouped by the model they are for, with filters for yours, the built-in ones and the ones whose
+ * files are missing. Snippets are changed in a table of their own.
  */
 export function People() {
   const entities = useEntities();
   const client = useQueryClient();
   const recipes = useRecipes();
+  const presetFiles = usePresetFiles();
+  const [, go] = useLocation();
   const all = entities.data?.items ?? [];
   // the tab named in the address ("/kit#snippets") when there is one, else the one last looked at
   const [tab, setTabNow] = useState<Tab>(() => TABS.find((t) => `#${t.title.toLowerCase()}` === window.location.hash)?.id ?? remembered<Tab>(TAB_KEY, "person"));
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [filter, setFilter] = useState<PresetFilter>("all");
+  const [familyFilter, setFamilyFilter] = useState<string | null>(null);
   const stored = all.find((e) => e.id === open) ?? null;
 
   // what is on screen is saved half a second after the last change
@@ -520,14 +565,16 @@ export function People() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 500);
   };
-  /** Back to the list, with what was changed kept. */
-  const close = () => void flush().then(() => {
-    setOpen(null);
+  /** Another item, or none, with what was changed kept. */
+  const select = (id: string | null) => void flush().then(() => {
+    setOpen(id);
     setRemoving(false);
   });
   const setTab = (next: Tab) => {
     remember(TAB_KEY, next);
     setQuery("");
+    setFilter("all");
+    setFamilyFilter(null);
     void flush().then(() => {
       setOpen(null);
       setRemoving(false);
@@ -551,17 +598,78 @@ export function People() {
       return client.invalidateQueries({ queryKey: ["entities"] });
     },
   });
+  const fileInput = useRef<HTMLInputElement>(null);
+  const doImport = useMutation({
+    mutationFn: async (file: File) => importPresetFile(file),
+    onSuccess: async (made) => {
+      await client.invalidateQueries({ queryKey: ["entities"] });
+      setOpen(made.id);
+    },
+  });
 
   const here = TABS.find((t) => t.id === tab)!;
   const mine = all.filter((e) => e.kind === tab);
   const found = query.trim() ? fuzzyFilter(mine, query, textOf) : mine;
   const editing = edit && open === edit.id && edit.kind !== "snippet" ? edit : null;
-  const newTile = (className: string) =>
-    tab !== "snippet" && (
-      <button type="button" disabled={create.isPending} onClick={() => create.mutate(tab)} className={cx("flex items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-dashed border-line-strong text-ink-2 hover:border-accent hover:text-ink", className)}>
-        <Plus size={16} /> {here.add}
-      </button>
+  // a preset that ships with Afflatus: shown, not changed
+  const shipped = editing && editing.kind === "preset" && editing.source === "shipped" ? editing : null;
+  const recipeList = recipes.data?.recipes ?? [];
+  const familyList = recipes.data?.families ?? [];
+  /** The family a preset is for: null for any model, undefined when its model is no longer here. */
+  const familyOf = (e: Entity) => {
+    if (e.kind !== "preset") return undefined;
+    if (!e.def.recipe) return null;
+    const r = recipeList.find((x) => x.id === e.def.recipe);
+    return r ? (familyList.find((f) => f.id === r.family) ?? undefined) : undefined;
+  };
+  const filesOf = (e: Entity) => presetFiles.data?.items.find((x) => x.id === e.id);
+  const missingOf = (e: Entity) => filesOf(e)?.files.filter((f) => !f.have && !f.optional).length ?? 0;
+  const presetsShown = found.filter((e) =>
+    e.kind === "preset"
+    && (filter === "all" || (filter === "mine" && !e.source) || (filter === "builtin" && e.source === "shipped") || (filter === "missing" && missingOf(e) > 0))
+    && (!familyFilter || familyOf(e)?.id === familyFilter));
+  const presetFamilies = familyList.filter((f) => found.some((e) => familyOf(e)?.id === f.id));
+  const groups = [
+    ...familyList.map((f) => ({ key: f.id, title: f.name, items: presetsShown.filter((e) => familyOf(e)?.id === f.id) })),
+    { key: "any", title: "Any model", items: presetsShown.filter((e) => familyOf(e) === null) },
+    { key: "gone", title: "Model no longer here", items: presetsShown.filter((e) => familyOf(e) === undefined) },
+  ].filter((g) => g.items.length);
+  const applyInStudio = (id: string) => {
+    handPreset(id);
+    useStudio.getState().set({ form: true });
+    go("/");
+  };
+  const presetBadges = (e: Extract<Entity, { kind: "preset" }>) => {
+    const st = filesOf(e);
+    const missing = missingOf(e);
+    return (
+      <>
+        {e.source === "shipped" && <Badge>built in</Badge>}
+        {!e.def.recipe && <Badge>any model</Badge>}
+        {missing > 0 ? <Badge tone="warn">{missing} file{missing > 1 ? "s" : ""} missing</Badge> : st && st.files.length > 0 ? <Badge tone="good">files ready</Badge> : null}
+      </>
     );
+  };
+  const presetLine = (e: Extract<Entity, { kind: "preset" }>) => {
+    const r = recipeList.find((x) => x.id === e.def.recipe);
+    const n = Object.keys(e.def.inputs).length;
+    return [e.def.author, r?.title, n ? `${n} parameter${n > 1 ? "s" : ""}` : "", e.def.look && (e.def.look.cast.length || e.def.look.style || e.def.look.snippets?.length) ? "with references" : ""].filter(Boolean).join(" · ");
+  };
+  const presetRow = (e: Extract<Entity, { kind: "preset" }>) => {
+    const f = familyOf(e);
+    // the group's heading says the model: the row itself carries only a mark for the two odd cases
+    return <Row key={e.id} active={open === e.id} onClick={() => select(e.id)} mark={f ? null : <Mark title={f === null ? "Any model" : "Model no longer here"}>{f === null ? "any" : "?"}</Mark>} title={e.name} summary={presetLine(e)} badges={presetBadges(e)} />;
+  };
+  const newButton = (
+    <button type="button" disabled={create.isPending} onClick={() => create.mutate(tab as "person" | "place" | "style" | "preset")} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed border-line-strong text-xs font-semibold text-ink-2 hover:border-accent hover:text-ink">
+      <Plus size={14} /> {here.add}
+    </button>
+  );
+  const explain = tab === "person"
+    ? "A person is reference images, a voice sample and prompt text. Afflatus gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
+    : tab === "place" ? "A place is reference images and prompt text: the clip or the image happens there."
+      : tab === "style" ? "A style is LoRAs and prompt text, set up for the models you use it with."
+        : "A preset is generation parameters kept under a name: a model and what you set on its form, a prompt, the references. Everything in it is optional. Save one from the form in Studio, under \"Model\", start an empty one here, or copy a built-in one.";
 
   return (
     <div className="flex min-h-0 min-w-0 grow flex-col">
@@ -578,88 +686,121 @@ export function People() {
           })}
         </div>
         <div className="flex items-center justify-end">
-          {!editing && (
-            <label className="flex h-9 w-64 min-w-0 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
-              <Search size={14} className="shrink-0 text-ink-3" />
-              <input data-search aria-label={`Search your ${here.title.toLowerCase()}`} placeholder={`Search your ${here.title.toLowerCase()}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
-              {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-            </label>
-          )}
+          <label className="flex h-9 w-64 min-w-0 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
+            <Search size={14} className="shrink-0 text-ink-3" />
+            <input data-search aria-label={`Search your ${here.title.toLowerCase()}`} placeholder={`Search ${here.title.toLowerCase()}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+            {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+          </label>
         </div>
       </header>
 
-      <main className="min-h-0 grow overflow-y-auto px-6 pb-8">
-        {(entities.isError || create.isError || remove.isError) && <div className="pb-3"><ErrorNote>{(entities.error ?? create.error ?? remove.error)?.message}</ErrorNote></div>}
-        {editing ? (
-          <div className="mx-auto flex max-w-3xl flex-col gap-5">
-            <div className="flex items-center gap-3">
-              <Button size="sm" onClick={close}><ArrowLeft size={14} /> {here.title}</Button>
-              <input aria-label="Name" value={editing.name} onChange={(e) => change({ ...editing, name: e.target.value })} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
-              <span className={cx("shrink-0 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>{saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : "Could not save"}</span>
-              {removing ? (
-                <>
-                  <span className="text-xs text-ink-2">{editing.kind === "person" || editing.kind === "place" ? "Its reference images stay in your library." : "It cannot be brought back."}</span>
-                  <Button size="sm" tone="danger" onClick={() => remove.mutate(editing.id)}>Delete</Button>
-                  <Button size="sm" tone="quiet" onClick={() => setRemoving(false)}>Cancel</Button>
-                </>
-              ) : (
-                <button type="button" aria-label={`Delete ${editing.name}`} onClick={() => setRemoving(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={15} /></button>
-              )}
-            </div>
-            {editing.kind === "person" && <PersonEditor def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
-            {editing.kind === "place" && <PlaceEditor def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
-            {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
-            {editing.kind === "preset" && <PresetEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
-          </div>
-        ) : tab === "snippet" ? (
+      {(entities.isError || create.isError || remove.isError || doImport.isError) && <div className="px-6 pb-3"><ErrorNote>{(entities.error ?? create.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
+
+      {tab === "snippet" ? (
+        <main className="min-h-0 grow overflow-y-auto px-6 pb-8">
           <SnippetTable snippets={all.filter((e): e is Snippet => e.kind === "snippet")} query={query} />
-        ) : (
-          <>
-            {mine.length === 0 && tab === "preset" && <Empty title="No presets yet">A preset is generation parameters kept under a name: a model and what you set on its form, a prompt, the references. Everything in it is optional. Save one from the form in Studio, under "Model", or start an empty one here.</Empty>}
-            {mine.length > 0 && found.length === 0 && <Empty title="Nothing matches">None of your {here.title.toLowerCase()} has these words.</Empty>}
-            {(tab === "person" || tab === "place") && (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3.5">
-                {found.map((e) => {
-                  const face = e.kind === "person" || e.kind === "place" ? e.def.pictures[0] : undefined;
-                  return (
-                    <button key={e.id} type="button" onClick={() => setOpen(e.id)} className="flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel text-left hover:border-accent">
-                      <span className="flex aspect-[4/5] items-center justify-center overflow-hidden bg-raised text-ink-3">
-                        {face ? <img src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : here.icon}
-                      </span>
-                      <span className="flex min-w-0 flex-col px-3 py-2">
-                        <span className="truncate font-semibold">{e.name}</span>
-                        <span className="truncate text-xs text-ink-2">{summaryOf(e, recipes.data?.recipes ?? [])}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-                {!query.trim() && newTile("aspect-[4/5] flex-col")}
+        </main>
+      ) : (
+        <div className="grid min-h-0 grow grid-cols-[440px_minmax(0,1fr)]">
+          <aside className="flex min-h-0 flex-col border-r border-line">
+            {tab === "preset" && (
+              <div className="flex flex-col gap-2 border-b border-line px-4 py-2.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {FILTERS.map((f) => <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)} className={chip(filter === f.id)}>{f.label}</button>)}
+                </div>
+                {presetFamilies.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" aria-pressed={!familyFilter} onClick={() => setFamilyFilter(null)} className={chip(!familyFilter)}>Every model</button>
+                    {presetFamilies.map((f) => <button key={f.id} type="button" aria-pressed={familyFilter === f.id} onClick={() => setFamilyFilter(familyFilter === f.id ? null : f.id)} className={chip(familyFilter === f.id)}>{f.name}</button>)}
+                  </div>
+                )}
               </div>
             )}
-            {(tab === "style" || tab === "preset") && (
-              <div className="mx-auto flex max-w-3xl flex-col gap-2">
-                {found.map((e) => (
-                  <button key={e.id} type="button" onClick={() => setOpen(e.id)} className="flex h-14 items-center gap-3 rounded-[10px] border border-line bg-panel px-4 text-left hover:border-accent">
-                    <span className="shrink-0 text-ink-3">{tab === "style" ? <Sparkles size={16} /> : <Bookmark size={16} />}</span>
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate font-semibold">{e.name}</span>
-                      <span className="truncate text-xs text-ink-2">{summaryOf(e, recipes.data?.recipes ?? [])}</span>
-                    </span>
-                  </button>
-                ))}
-                {!query.trim() && newTile("h-12")}
+            <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto px-3 py-3">
+              {!query.trim() && (
+                <div className="flex items-center gap-2 pb-1.5">
+                  {newButton}
+                  {tab === "preset" && (
+                    <>
+                      <Button size="sm" onClick={() => fileInput.current?.click()} disabled={doImport.isPending} title="A preset file: one saved from Afflatus, or one of the shipped shape" className="flex h-9 shrink-0 items-center gap-1.5"><Upload size={13} /> Import</Button>
+                      <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) doImport.mutate(f); e.target.value = ""; }} />
+                    </>
+                  )}
+                </div>
+              )}
+              {mine.length > 0 && found.length === 0 && <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>}
+              {tab === "preset" && found.length > 0 && presetsShown.length === 0 && <div className="px-2 py-6 text-center text-xs text-ink-2">No preset matches these filters.</div>}
+              {(tab === "person" || tab === "place") && found.map((e) => {
+                const face = e.kind === "person" || e.kind === "place" ? e.def.pictures[0] : undefined;
+                return (
+                  <Row
+                    key={e.id} active={open === e.id} onClick={() => select(e.id)} title={e.name} summary={summaryOf(e, recipeList)}
+                    mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-raised text-ink-3">{face ? <img src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
+                  />
+                );
+              })}
+              {tab === "style" && found.map((e) => (
+                <Row key={e.id} active={open === e.id} onClick={() => select(e.id)} title={e.name} summary={summaryOf(e, recipeList)} mark={<Mark><Sparkles size={12} /></Mark>} />
+              ))}
+              {tab === "preset" && groups.map((g) => (
+                <div key={g.key} className="flex flex-col gap-0.5">
+                  <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{g.title}</div>
+                  {g.items.map((e) => presetRow(e as Extract<Entity, { kind: "preset" }>))}
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <section className="min-h-0 overflow-y-auto px-8 py-5">
+            {shipped ? (
+              <div className="mx-auto flex max-w-3xl flex-col gap-5">
+                <div className="flex items-center gap-3">
+                  <h2 className="min-w-0 grow truncate text-xl font-semibold">{shipped.name}</h2>
+                  <Badge>built in</Badge>
+                  <Button size="sm" tone="primary" onClick={() => applyInStudio(shipped.id)} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
+                  <Button size="sm" onClick={() => savePresetFile(shipped)} className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
+                  <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+                </div>
+                <ShippedPreset e={shipped} onCopied={(c) => setOpen(c.id)} />
+              </div>
+            ) : editing ? (
+              <div className="mx-auto flex max-w-3xl flex-col gap-5">
+                <div className="flex items-center gap-3">
+                  <input aria-label="Name" value={editing.name} onChange={(e) => change({ ...editing, name: e.target.value })} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
+                  <span className={cx("shrink-0 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>{saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : "Could not save"}</span>
+                  {editing.kind === "preset" && (
+                    <>
+                      <Button size="sm" tone="primary" onClick={() => void flush().then(() => applyInStudio(editing.id))} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
+                      <Button size="sm" onClick={() => savePresetFile(editing)} title="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
+                    </>
+                  )}
+                  {removing ? (
+                    <>
+                      <span className="text-xs text-ink-2">{editing.kind === "person" || editing.kind === "place" ? "Its reference images stay in your library." : "It cannot be brought back."}</span>
+                      <Button size="sm" tone="danger" onClick={() => remove.mutate(editing.id)}>Delete</Button>
+                      <Button size="sm" onClick={() => setRemoving(false)}>Keep</Button>
+                    </>
+                  ) : (
+                    <button type="button" aria-label={`Delete ${editing.name}`} onClick={() => setRemoving(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={15} /></button>
+                  )}
+                  <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+                </div>
+                {editing.kind === "person" && <PersonEditor def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "place" && <PlaceEditor def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "preset" && <PresetEditor id={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}
+              </div>
+            ) : (
+              <div className="mx-auto flex max-w-xl flex-col items-center gap-4 pt-16 text-center">
+                <span className="text-ink-3">{here.icon}</span>
+                <h2 className="text-lg font-semibold">{mine.length ? `Choose ${tab === "person" ? "a person" : tab === "place" ? "a place" : tab === "style" ? "a style" : "a preset"} on the left` : `No ${here.title.toLowerCase()} yet`}</h2>
+                <p className="text-ink-2">{explain}</p>
+                <Button onClick={() => create.mutate(tab as "person" | "place" | "style" | "preset")} disabled={create.isPending} className="flex items-center gap-2"><Plus size={14} /> {here.add}</Button>
               </div>
             )}
-            {mine.length === 0 && tab !== "preset" && (
-              <div className="pt-4 text-center text-ink-2">
-                {tab === "person" ? "A person is reference images, a voice sample and prompt text. Afflatus gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
-                  : tab === "place" ? "A place is reference images and prompt text: the clip or the image happens there."
-                  : "A style is LoRAs and prompt text, set up for the models you use it with."}
-              </div>
-            )}
-          </>
-        )}
-      </main>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

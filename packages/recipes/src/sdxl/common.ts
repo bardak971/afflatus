@@ -179,7 +179,7 @@ export const FACE_INPUTS: InputSpec[] = [
 export interface UpscaleSettings {
   factor: number;
 }
-export const FACTOR_INPUT: InputSpec = { id: "factor", type: "number", label: "Upscale by", note: "2 doubles each edge. The light pass after it is skipped when the result is too large for it", min: 1.5, max: 4, step: 0.5, default: 2, unit: "×" };
+export const FACTOR_INPUT: InputSpec = { id: "factor", type: "number", label: "Upscale by", note: "2 doubles each edge. The light pass after it is skipped when the result is too large for it", min: 1.5, max: 4, step: 0.5, default: 2, unit: "×", section: "out" };
 
 /** A hires second pass with the sampler and the scheduler of the first, unless others are picked. */
 export const SAME_PASS = "As the first pass";

@@ -24,6 +24,21 @@ function perModelInputs(recipes: Recipe<any>[], family: string): Set<string> {
   return ids;
 }
 
+/** Save the settings that travel with a model file: only the family's per-model inputs are kept. */
+export async function saveModelSettings(s: Services, family: string, file: string, values: Record<string, unknown>) {
+  if (!s.registry.family(family)) throw Object.assign(new Error(`there is no model family called ${family}`), { statusCode: 400 });
+  const allowed = perModelInputs(s.registry.recipes(), family);
+  const kept = Object.fromEntries(Object.entries(values).filter(([id]) => allowed.has(id)));
+  const json = JSON.stringify(kept);
+  const at = now();
+  await s.db
+    .insertInto("model_settings")
+    .values({ owner_id: OWNER, family, file, values: json, updated_at: at })
+    .onConflict((oc) => oc.columns(["owner_id", "family", "file"]).doUpdateSet({ values: json, updated_at: at }))
+    .execute();
+  return { family, file, values: kept };
+}
+
 export function registerModelSettings(app: FastifyInstance, s: Services): void {
   app.get("/api/model-settings", async () => {
     const rows = await s.db.selectFrom("model_settings").select(["family", "file", "values"]).execute();
@@ -32,17 +47,7 @@ export function registerModelSettings(app: FastifyInstance, s: Services): void {
 
   app.put("/api/model-settings", async (req) => {
     const body = saveBody.parse(req.body);
-    if (!s.registry.family(body.family)) throw Object.assign(new Error(`there is no model family called ${body.family}`), { statusCode: 400 });
-    const allowed = perModelInputs(s.registry.recipes(), body.family);
-    const values = Object.fromEntries(Object.entries(body.values).filter(([id]) => allowed.has(id)));
-    const json = JSON.stringify(values);
-    const at = now();
-    await s.db
-      .insertInto("model_settings")
-      .values({ owner_id: OWNER, family: body.family, file: body.file, values: json, updated_at: at })
-      .onConflict((oc) => oc.columns(["owner_id", "family", "file"]).doUpdateSet({ values: json, updated_at: at }))
-      .execute();
-    return { family: body.family, file: body.file, values };
+    return saveModelSettings(s, body.family, body.file, body.values);
   });
 
   /** Back to the recipe's own defaults for this file. */

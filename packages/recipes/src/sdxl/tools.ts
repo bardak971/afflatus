@@ -200,10 +200,10 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "tags", optional: true, default: "" },
-    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER },
+    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
-    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; skipped when the result is larger than about 4 megapixels", default: true },
-    { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true },
+    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; skipped when the result is larger than about 4 megapixels", default: true, section: "out" },
+    { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true, section: "out" },
     ...modelInputs,
     ...samplingInputs(),
   ],

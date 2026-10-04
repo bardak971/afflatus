@@ -66,7 +66,8 @@ export interface LtxVideo {
 }
 
 /** What a model is, as far as its file name says: the distilled one, or a merge known to be made for a few steps. */
-const namedDistilled = /distill|turbo|lightning|dasiwa|(^|[^a-z0-9])\d+[ _-]?steps?/i;
+// DaSiWa's lines are named: DragonLeap and SolsticeCoin are distilled (DMD, 8 to 12 steps at CFG 1), GoldenLace is not
+const namedDistilled = /distill|turbo|lightning|lightspeed|dmd|dragonleap|solsticecoin|(^|[^a-z0-9])\d+[ _-]?steps?/i;
 
 /**
  * How the model is loaded. In separate files when a diffusion model is picked or found; otherwise from

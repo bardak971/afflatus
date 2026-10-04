@@ -1,6 +1,7 @@
 import { Comfy } from "./comfy";
 import type { Db, DbKind } from "./db";
 import { Downloads } from "./downloads";
+import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
 import { Registry } from "./registry";
 import { readSettings } from "./settings";
@@ -25,10 +26,16 @@ export interface Services {
   timelines: Timelines;
   /** Model files being fetched into ComfyUI. */
   downloads: Downloads;
+  /** The presets that ship with Afflatus (the repository's `presets/` folder). */
+  shippedPresets: ShippedPresets;
   close(): Promise<void>;
 }
 
-export async function createServices(db: Db, dbKind: DbKind, own: Storage, queueOptions: QueueOptions = DEFAULT_QUEUE_OPTIONS): Promise<Services> {
+export async function createServices(
+  db: Db, dbKind: DbKind, own: Storage, queueOptions: QueueOptions = DEFAULT_QUEUE_OPTIONS,
+  /** Where the shipped presets are read from: the repository's folder (or PRESETS_DIR) unless said otherwise; null for none. */
+  dirs: { shippedPresets?: string | null } = {},
+): Promise<Services> {
   // Afflatus's own files and the files of linked folders are read through the same door
   const storage = new RoutedStorage(own);
   const registry = new Registry(db);
@@ -40,6 +47,7 @@ export async function createServices(db: Db, dbKind: DbKind, own: Storage, queue
     if (current?.url !== comfyUrl) {
       current?.close();
       current = new Comfy(comfyUrl, registry);
+      current.overrides = async () => (await readSettings(db)).slotFiles;
     }
     return current;
   };
@@ -62,6 +70,7 @@ export async function createServices(db: Db, dbKind: DbKind, own: Storage, queue
   void runSweep();
   return {
     db, dbKind, storage, linked, registry, comfy, queue, timelines, downloads: new Downloads(queue.events),
+    shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
     async close() {
       clearInterval(sweeper);
       queue.stop();

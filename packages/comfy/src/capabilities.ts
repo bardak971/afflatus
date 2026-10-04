@@ -13,6 +13,12 @@ export interface SlotStatus {
   folder: string;
   /** The file found for this slot, or null. */
   file: string | null;
+  /** Every file of the folder that fits the slot's patterns: what can be chosen by hand. */
+  choices: string[];
+  /** The file its patterns would pick on their own (the choice when nothing is set by hand). */
+  auto: string | null;
+  /** `file` was chosen by hand (Settings). */
+  chosen: boolean;
   optional: boolean;
   hint: string;
   /** Where its usual file can be had, when the family says. */
@@ -91,9 +97,13 @@ export async function scan(
         f.slots.map(async (s): Promise<SlotStatus> => {
           const list = await files(s.folder);
           const chosen = overrides[f.id]?.[s.id];
+          const auto = detect(list, s.detect);
+          const byHand = Boolean(chosen && list.includes(chosen));
+          const patterns = s.detect.map((d) => new RegExp(d, "i"));
           return {
             id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(s.get ? { get: s.get } : {}),
-            file: chosen && list.includes(chosen) ? chosen : detect(list, s.detect),
+            file: byHand ? chosen! : auto, auto, chosen: byHand,
+            choices: [...new Set([...list.filter((x) => patterns.some((re) => re.test(x))), ...(byHand ? [chosen!] : [])])],
           };
         }),
       ),

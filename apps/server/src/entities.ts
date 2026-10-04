@@ -2,6 +2,7 @@ import type { InputSpec, LoraValue, Recipe, ReferenceValue } from "@afflatus/cor
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
+import { presetFileSchema, provenanceSchema, SHIPPED } from "./presetFiles";
 import type { Services } from "./services";
 
 /**
@@ -47,6 +48,10 @@ const defs = {
     recipe: z.string().min(1).optional(),
     inputs: z.record(z.string(), z.unknown()).default({}),
     look: z.unknown().optional(),
+    /** The model files it is made for, with where each is had: the preset says what is missing and fetches it. */
+    files: z.array(presetFileSchema).max(40).optional(),
+    // where it comes from, kept on a copy of a shipped preset
+    ...provenanceSchema,
   }),
   /**
    * A bit of text kept for prompts: ticked, it is added to what is written when something is made; or it
@@ -229,7 +234,10 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
   app.get<{ Querystring: { kind?: string } }>("/api/entities", async (req) => {
     let q = s.db.selectFrom("entities").selectAll().where("owner_id", "=", OWNER);
     if (req.query.kind) q = q.where("kind", "=", req.query.kind as EntityKind);
-    return { items: (await q.orderBy("name").execute()).map(view) };
+    const items: Array<ReturnType<typeof view> & { source?: "shipped" }> = (await q.orderBy("name").execute()).map(view);
+    // the presets that ship with Afflatus come after the user's own: read-only, to apply or to copy
+    if (!req.query.kind || req.query.kind === "preset") items.push(...s.shippedPresets.list().map((p) => s.shippedPresets.entity(p)));
+    return { items };
   });
 
   app.post("/api/entities", async (req) => {
@@ -242,7 +250,10 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     return view(row);
   });
 
+  const builtIn = () => Object.assign(new Error("a built-in preset cannot be changed: copy it to your presets first"), { statusCode: 400 });
+
   app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
+    if (req.params.id.startsWith(SHIPPED)) throw builtIn();
     const b = patch.parse(req.body);
     const row = await s.db.selectFrom("entities").selectAll().where("id", "=", req.params.id).executeTakeFirst();
     if (!row) throw missing();
@@ -259,6 +270,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
   });
 
   app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
+    if (req.params.id.startsWith(SHIPPED)) throw builtIn();
     const r = await s.db.deleteFrom("entities").where("id", "=", req.params.id).executeTakeFirst();
     if (!Number(r.numDeletedRows)) throw missing();
     changed();
