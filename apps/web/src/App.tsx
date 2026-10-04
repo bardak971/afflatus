@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "./api";
 import type { ReactNode } from "react";
 import { Link, Redirect, Route, Switch, useLocation } from "wouter";
 import { Film, LayoutGrid, ListOrdered, Plus, Settings2, Users, Workflow } from "lucide-react";
@@ -19,7 +21,7 @@ import { Setup } from "./screens/Setup";
 import { TimelineEditor } from "./screens/TimelineEditor";
 import { Timelines } from "./screens/Timelines";
 import { Workflows } from "./screens/Workflows";
-import { useSystem } from "./store";
+import { useSystem, useBanners } from "./store";
 import { StripModel, StripPlace } from "./ModelLoad";
 import { ProjectSwitch } from "./Projects";
 import { ThemeFlip } from "./theme/Appearance";
@@ -95,10 +97,31 @@ function Strip() {
   );
 }
 
+
+/** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
+function useMissingTools() {
+  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), staleTime: Infinity });
+  const push = useBanners((s) => s.push);
+  useEffect(() => {
+    for (const c of health.data?.checks ?? []) {
+      if (c.ok) continue;
+      const key = `afflatus.check.${c.id}`;
+      try {
+        if (sessionStorage.getItem(key)) continue;
+        sessionStorage.setItem(key, "1");
+      } catch {
+        // no session storage: said every time
+      }
+      push({ id: `check-${c.id}`, tone: "bad", title: `${c.label}: ${c.detail}`, text: `${c.without} ${c.fix}`, href: "/settings/about", go: "Open About in Settings" });
+    }
+  }, [health.data, push]);
+}
+
 export function App() {
   useLiveEvents();
   useTheme();
   const [path] = useLocation();
+  useMissingTools();
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">

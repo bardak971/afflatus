@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, Redo2, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Sparkles, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X } from "lucide-react";
+import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, Redo2, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Sparkles, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X, Music, SlidersHorizontal } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch, type Timeline } from "../api";
 import { useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSettings, useSetup, useTimeline } from "../data";
 import { Designer, type DesignerTurn } from "../Designer";
@@ -275,6 +275,37 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   });
   // the right-click menu of a clip: what the Inspector offers on it, at the pointer
   const clipMenu = useMenu<Clip>();
+  /** Right-click on a clip's audio strip and on the music strip: what the clip panel's sound section and the music panel do, in place. */
+  const soundMenu = useMenu<Clip>();
+  const musicMenu = useMenu<true>();
+  const [soundPick, setSoundPick] = useState<Clip | null>(null);
+  const [musicPick, setMusicPick] = useState(false);
+  const soundMenuItems = (c: Clip): MenuItem[] => {
+    const hasOwn = c.kind === "video" && Boolean(c.take?.asset.hasSound);
+    return [
+      { label: "Own audio", icon: <Volume2 size={14} />, note: hasOwn ? undefined : c.kind === "still" ? "a still has none" : "this video has no sound", disabled: !hasOwn || c.sound === "own", run: () => patch.mutate({ clip: c.id, patch: { sound: "own" } }) },
+      { label: "Mute", icon: <VolumeX size={14} />, disabled: c.sound === "muted", run: () => patch.mutate({ clip: c.id, patch: { sound: "muted" } }) },
+      ...(c.soundAsset ? [{ label: "Use the audio file", icon: <Music size={14} />, note: c.soundAsset.name || undefined, disabled: c.sound === "file", run: () => patch.mutate({ clip: c.id, patch: { sound: "file" } }) }] : []),
+      { label: c.soundAsset ? "Choose another audio file…" : "Choose an audio file…", icon: <Music size={14} />, run: () => setSoundPick(c) },
+      ...(c.soundAsset ? [{ label: "Remove the audio file", icon: <Trash2 size={14} />, danger: true, run: () => patch.mutate({ clip: c.id, patch: { soundAsset: null, sound: hasOwn ? "own" : "muted" } }) }] : []),
+      "—",
+      { label: "Volume and sound settings", icon: <SlidersHorizontal size={14} />, note: `${c.volume} % · in the clip panel`, run: () => { setSelected(c.id); setMusicOpen(false); } },
+    ];
+  };
+  const musicMenuItems = (): MenuItem[] => {
+    const m = t?.music;
+    return [
+      { label: m ? "Change the music…" : "Choose music…", icon: <Music size={14} />, run: () => setMusicPick(true) },
+      ...(m
+        ? [
+            { label: "Music settings", icon: <SlidersHorizontal size={14} />, note: `${m.volume} % · fades ${(m.fadeInMs / 1000).toFixed(1)} s / ${(m.fadeOutMs / 1000).toFixed(1)} s`, run: () => { setSelected(null); setMusicOpen(true); } },
+            { label: m.duck ? "Stop ducking under speech" : "Duck under speech", icon: <Volume2 size={14} />, note: "quieter while people talk", run: () => edit.mutate({ music: { duck: !m.duck } }) },
+            "—" as const,
+            { label: "Remove music", icon: <Trash2 size={14} />, danger: true, run: () => edit.mutate({ music: { asset: null } }) },
+          ]
+        : []),
+    ];
+  };
   /** Where the playhead stands on a clip, when it stands on this one. */
   const onClip = (c: Clip) => {
     const here = player.current?.where();
@@ -800,6 +831,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onTrim={(clip, p) => patch.mutate({ clip: clip.id, patch: p })}
           onNewClip={(afterId) => newClip(afterId)}
           onMenu={(clip, e) => clipMenu.open(e, clip)}
+          onSoundMenu={(clip, e) => soundMenu.open(e, clip)}
+          onMusicMenu={(e) => musicMenu.open(e, true)}
           range={range}
           onRange={setRange}
           onRangeMenu={(e) => rangeMenu.open(e, true)}
@@ -880,6 +913,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
       {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject)} onClose={clipMenu.close} />}
       {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" items={rangeItems()} onClose={rangeMenu.close} />}
+      {soundMenu.menu && <ContextMenu at={soundMenu.menu.at} label="The audio of this clip" items={soundMenuItems((shown?.clips ?? []).find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject)} onClose={soundMenu.close} />}
+      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" items={musicMenuItems()} onClose={musicMenu.close} />}
+      {soundPick && <Picker title={`Audio of clip ${(shown?.clips ?? []).findIndex((x) => x.id === soundPick.id) + 1}`} kind="audio" onClose={() => setSoundPick(null)} onPick={(soundAsset) => { patch.mutate({ clip: soundPick.id, patch: { soundAsset } }); setSoundPick(null); }} />}
+      {musicPick && <Picker title="Music" kind="audio" onClose={() => setMusicPick(false)} onPick={(asset) => { edit.mutate({ music: { asset } }); setMusicPick(false); setMusicOpen(true); }} />}
 
       {exp && (
         <div role="dialog" aria-modal="true" aria-label="Export video" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setExp(null)}>

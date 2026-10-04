@@ -45,6 +45,7 @@ export const useTimeline = (id: string | undefined) => useQuery({ queryKey: ["ti
 export const useEntities = () => useQuery({ queryKey: ["entities"], queryFn: api.entities });
 export const useWorkflows = () => useQuery({ queryKey: ["workflows"], queryFn: api.workflows });
 // read once per file by the server, then kept: the "models" live event says when more has arrived
+export const useModelUpdates = () => useQuery({ queryKey: ["model-updates"], queryFn: api.modelUpdates, staleTime: 5 * 60_000 });
 export const useModelInfo = (folder: string | undefined) => useQuery({ queryKey: ["model-info", folder], queryFn: () => api.modelInfo(folder!), staleTime: Infinity, enabled: Boolean(folder) });
 export const useModelPages = (folder: string) => useQuery({ queryKey: ["model-pages", folder], queryFn: () => api.modelPages(folder), staleTime: Infinity });
 export const useModelWords = (folder: string) => useQuery({ queryKey: ["model-words", folder], queryFn: () => api.modelWords(folder), staleTime: Infinity });

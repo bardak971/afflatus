@@ -258,6 +258,21 @@ export interface Tables {
    * own, and the ones its page gives. `asked_at` is set once its page was asked, found or not.
    */
   model_words: { folder: string; name: string; own: string | null; found: string | null; asked_at: string | null };
+  /** A model file matched to its Civitai version (by the file's name, lower case, without its sub-folder), and the newer version when Civitai has one. */
+  model_updates: {
+    folder: string;
+    name: string;
+    file: string;
+    model_id: number;
+    model_name: string;
+    version_id: number;
+    version_name: string;
+    latest_id: number | null;
+    latest_name: string | null;
+    latest_at: string | null;
+    latest_file: string | null;
+    checked_at: string;
+  };
   /** What suits one model file: the values that replace a recipe's defaults when that file is picked (JSON: input id → value). */
   model_settings: { owner_id: string; family: string; file: string; values: string; updated_at: string };
   /** Unfinished work, saved as it is typed. */
@@ -651,6 +666,30 @@ migrations["0013_model_pages"] = {
 
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
+migrations["0030_model_updates"] = {
+  async up(db) {
+    await db.schema
+      .createTable("model_updates")
+      .addColumn("folder", "text", (c) => c.notNull())
+      .addColumn("name", "text", (c) => c.notNull())
+      .addColumn("file", "text", (c) => c.notNull())
+      .addColumn("model_id", "integer", (c) => c.notNull())
+      .addColumn("model_name", "text", (c) => c.notNull())
+      .addColumn("version_id", "integer", (c) => c.notNull())
+      .addColumn("version_name", "text", (c) => c.notNull())
+      .addColumn("latest_id", "integer")
+      .addColumn("latest_name", "text")
+      .addColumn("latest_at", "text")
+      .addColumn("latest_file", "text")
+      .addColumn("checked_at", "text", (c) => c.notNull())
+      .addPrimaryKeyConstraint("model_updates_pk", ["folder", "name"])
+      .execute();
+  },
+  async down(db) {
+    await db.schema.dropTable("model_updates").execute();
+  },
+};
+
 migrations["0029_folder_chosen"] = {
   async up(db) {
     await db.schema.alterTable("timelines").addColumn("folder_chosen", "integer", (c) => c.notNull().defaultTo(0)).execute();

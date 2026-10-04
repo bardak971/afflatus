@@ -353,7 +353,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
         <button type="button" aria-label="Rename this draft" title="Rename this draft" disabled={!draft} onClick={() => setNaming(draft?.name ?? "")} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
         <button type="button" aria-label="Delete this draft" title="Delete this draft. Its outputs stay in your library." disabled={!draft} onClick={() => draft && void d.remove(draft.id)} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={13} /></button>
         <button type="button" title="New draft: an empty form. This one is kept." onClick={() => void d.startNew()} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
-        <button type="button" aria-label="Close the form" title="Close the form: the library takes the whole width" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 text-accent hover:bg-accent-wash"><ChevronLeft size={15} /></button>
+        <button type="button" aria-label="Close the form" title="Fold the form away: the library takes the whole width. N opens it again." onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 text-accent hover:bg-accent-wash"><ChevronLeft size={15} /></button>
       </div>
 
       <ScrollColumn className="flex flex-col gap-2.5 p-3">
@@ -515,9 +515,31 @@ function DraftResults({ draft, folder }: { draft: string; folder: string | undef
   );
 }
 
+/** The form folded away: a rail at the left edge, as the timeline's media shelf folds, with the way to open it. */
+function FormRail({ onOpen }: { onOpen(): void }) {
+  return (
+    <aside aria-label="Create (folded)" className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-line bg-panel py-2">
+      <button type="button" aria-label="Create: open the form" title="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink hover:brightness-110">
+        <Plus size={16} strokeWidth={2.6} />
+      </button>
+      <span aria-hidden className="mt-1 text-[10px] font-semibold tracking-wide text-ink-3 uppercase [writing-mode:vertical-rl]">Create</span>
+    </aside>
+  );
+}
+
 export function Studio({ open: forced }: { open?: boolean }) {
   const view = useStudio();
   const [, go] = useLocation();
+  // N opens the form, or folds it away, from anywhere on the screen (not while typing)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "n" || e.ctrlKey || e.metaKey || e.altKey || !plainKey(e)) return;
+      e.preventDefault();
+      useStudio.getState().set({ form: !useStudio.getState().form });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // "/create" (a link from elsewhere, a key in the viewer) opens the form; the screen itself lives at "/"
   useEffect(() => {
     if (!forced) return;
@@ -668,7 +690,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
 
   return (
     <div className="flex min-h-0 min-w-0 grow">
-      {view.form && <CreatePanel folder={folder ? { id: folder.id, name: folder.name, path: folder.path } : null} onClose={() => view.set({ form: false })} />}
+      {view.form ? <CreatePanel folder={folder ? { id: folder.id, name: folder.name, path: folder.path } : null} onClose={() => view.set({ form: false })} /> : <FormRail onOpen={() => view.set({ form: true })} />}
       <div className="flex min-w-0 grow flex-col">
         <header className="flex h-[60px] shrink-0 items-center gap-2 px-5">
           <h1 className="sr-only">Studio</h1>
@@ -760,11 +782,6 @@ export function Studio({ open: forced }: { open?: boolean }) {
               </button>
               <Segmented label="Thumbnail size" value={view.size} options={[{ value: "S", label: "S" }, { value: "M", label: "M" }, { value: "L", label: "L" }]} onChange={(size) => view.set({ size })} />
             </>
-          )}
-          {!view.form && (
-            <button type="button" onClick={() => view.set({ form: true })} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-accent px-4 font-bold text-accent-ink">
-              <Plus size={15} strokeWidth={2.6} /> Create
-            </button>
           )}
         </header>
 

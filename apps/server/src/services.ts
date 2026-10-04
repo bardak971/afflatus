@@ -9,7 +9,9 @@ import { Linked, RoutedStorage } from "./linked";
 import type { Storage } from "./storage";
 import { sweep } from "./sweep";
 import { fold } from "./renders";
+import type { ModelInfo } from "@afflatus/core";
 import { Timelines } from "./timelines";
+import { Updates } from "./modelUpdates";
 
 /** Everything the routes need, built once at start (and once per test). */
 export interface Services {
@@ -28,6 +30,8 @@ export interface Services {
   downloads: Downloads;
   /** The presets that ship with Afflatus (the repository's `presets/` folder). */
   shippedPresets: ShippedPresets;
+  /** Newer versions of the model files on Civitai. */
+  updates: Updates;
   close(): Promise<void>;
 }
 
@@ -48,6 +52,11 @@ export async function createServices(
       current?.close();
       current = new Comfy(comfyUrl, registry);
       current.overrides = async () => (await readSettings(db)).slotFiles;
+      current.infoOf = async () => {
+        const rows = await db.selectFrom("model_info").select(["folder", "file", "info"]).execute();
+        const known = new Map(rows.map((r) => [`${r.folder}/${r.file}`, JSON.parse(r.info) as ModelInfo]));
+        return (folder, file) => known.get(`${folder}/${file}`);
+      };
     }
     return current;
   };
@@ -68,9 +77,10 @@ export async function createServices(
   const sweeper = setInterval(runSweep, 60 * 60_000);
   sweeper.unref();
   void runSweep();
-  return {
+  const services: Services = {
     db, dbKind, storage, linked, registry, comfy, queue, timelines, downloads: new Downloads(queue.events),
     shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
+    updates: null as unknown as Updates,
     async close() {
       clearInterval(sweeper);
       queue.stop();
@@ -79,4 +89,10 @@ export async function createServices(
       await db.destroy();
     },
   };
+  services.updates = new Updates(services);
+  // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it
+  const checker = setInterval(() => void services.updates.daily(), 60 * 60_000);
+  checker.unref();
+  setTimeout(() => void services.updates.daily(), 30_000).unref();
+  return services;
 }

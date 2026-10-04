@@ -15,6 +15,7 @@ import { Select } from "./Select";
 import { PngInfo } from "./PngInfo";
 import { useBanners, useOpenDraft } from "./store";
 import { Button, cx, SectionTitle } from "./ui";
+import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "./dragging";
 import { ModelLink } from "./ModelLink";
 
 const ROLES: Record<string, string> = { start: "First frame", end: "Last frame", source: "Source image", previous: "Previous clip", next: "Next clip",
@@ -437,6 +438,15 @@ const OPS: Record<string, { ends: string[]; label: string }> = {
   r: { ends: [".change-shape"], label: "Outpaint" },
 };
 
+
+/** The item shown large, dragged like a tile: onto a folder, a form's picture field, a timeline. */
+const dragOf = (a: Asset) => (e: React.DragEvent) => {
+  e.dataTransfer.setData(DRAG_TYPE, a.id);
+  e.dataTransfer.setData(dragKind(a.kind), a.id);
+  if (a.kind === "video" && a.hasSound) e.dataTransfer.setData(DRAG_HAS_SOUND, a.id);
+  e.dataTransfer.effectAllowed = "copyMove";
+};
+
 export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails, into }: {
   asset: Asset;
   /** The list it was opened from: the arrow keys go to the item before and after. */
@@ -705,12 +715,12 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
         <div className="flex min-h-0 grow flex-col items-center justify-center gap-2">
           {a.kind === "image" && (
             <button type="button" onClick={onDetails} title="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
-              <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" />
+              <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} className="max-h-full max-w-full rounded-lg object-contain" />
             </button>
           )}
           {a.kind === "video" && (
             <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3">
-              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} draggable onDragStart={dragOf(a)} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
               {trim && trimRange && <RangeFrames asset={a} range={trimRange} />}
             </div>
           )}
@@ -760,10 +770,10 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   return (
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
       <div className="flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" onClick={onClose}>
-        {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
+        {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "video" && (
           <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3" onClick={onClose}>
-            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} draggable onDragStart={dragOf(a)} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
             {trim && trimRange && <RangeFrames asset={a} range={trimRange} />}
           </div>
         )}

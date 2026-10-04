@@ -58,7 +58,7 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onJoin, range, onRange, onRangeMenu, snapQuiet }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onJoin, range, onRange, onRangeMenu, snapQuiet }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -89,6 +89,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onNewClip(after: string | undefined): void;
   /** A right-click on a clip: its menu. */
   onMenu?(clip: Clip, e: React.MouseEvent): void;
+  /** Right-click on a clip's audio strip, and on the music strip. */
+  onSoundMenu?(clip: Clip, e: React.MouseEvent): void;
+  onMusicMenu?(e: React.MouseEvent): void;
   /** The join dot before a clip was clicked: it extends the clip before, or is a cut. */
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
   /** In and Out, on the clock of what plays; null = no range. */
@@ -627,6 +630,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     type="button"
                     onClick={() => onSelect(c.id)}
                     onDragOver={(e) => overClip(e, s)}
+                    onContextMenu={(e) => {
+                      if (!onSoundMenu) return;
+                      onSelect(c.id);
+                      onSoundMenu(c, e);
+                    }}
                     aria-label={`Audio of clip ${s.index + 1}: ${heard || "none yet"}`}
                     style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
                     className={cx(
@@ -661,6 +669,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               type="button"
               onClick={() => timeline.music && onSelectMusic()}
               onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? { kind: "music" } : null)}
+              onContextMenu={(e) => onMusicMenu?.(e)}
               aria-label={timeline.music ? `Music: ${timeline.music.asset.name || "an audio file"}` : "Music: none. Drop an audio file here."}
               aria-pressed={musicSelected}
               style={{

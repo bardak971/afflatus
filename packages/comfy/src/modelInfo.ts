@@ -1,4 +1,5 @@
-import { baseLabel, type ModelInfo } from "@afflatus/core";
+import { baseLabel, sameBase, type ModelInfo } from "@afflatus/core";
+import { architectureOf, tensorsOf } from "./architecture";
 
 export { baseLabel, type ModelInfo };
 
@@ -33,9 +34,20 @@ function tagsFrom(frequency: unknown): string[] {
 /** How many training words are kept: the head of the list is what matters, the tail is noise. */
 const KEPT_TAGS = 40;
 
-export function modelInfoFrom(header: Record<string, unknown>, file = ""): ModelInfo {
+/**
+ * What a file says about itself. `header` is either the whole safetensors header (its `__metadata__`
+ * and its tensors, when the file was read from the disk) or the metadata alone (what ComfyUI's endpoint
+ * gives). With the tensors, the model family comes from the weights, which cannot lie; the metadata
+ * only adds words.
+ */
+export function modelInfoFrom(headerOrMetadata: Record<string, unknown>, file = ""): ModelInfo {
+  const whole = "__metadata__" in headerOrMetadata && headerOrMetadata.__metadata__ && typeof headerOrMetadata.__metadata__ === "object";
+  const header = whole ? (headerOrMetadata.__metadata__ as Record<string, unknown>) : headerOrMetadata;
+  const arch = architectureOf(tensorsOf(headerOrMetadata));
   const title = text(header["modelspec.title"]) ?? text(header.ss_output_name) ?? text(header.name);
-  const base = text(header["modelspec.architecture"]) ?? text(header.ss_base_model_version);
+  const said = text(header["modelspec.architecture"]) ?? text(header.ss_base_model_version);
+  // the weights say which model; the metadata may add which version of it (the weights of Wan 2.1 and 2.2 are alike)
+  const base = arch && said && sameBase(arch.base, said) && baseLabel(said).length > arch.base.length ? baseLabel(said) : (arch?.base ?? (said ? baseLabel(said) : undefined));
   const trainedOn = text(header.ss_sd_model_name);
   const own = (text(header["modelspec.tags"]) ?? "").split(",").map((t) => t.trim()).filter(Boolean);
   const tags = [...new Set([...own, ...tagsFrom(header.ss_tag_frequency)])].slice(0, KEPT_TAGS);
@@ -47,7 +59,7 @@ export function modelInfoFrom(header: Record<string, unknown>, file = ""): Model
   return {
     ...(fingerprint ? { fingerprint } : {}),
     ...(title && title !== stem(file) ? { title } : {}),
-    ...(base ? { base: baseLabel(base) } : {}),
+    ...(base ? { base } : {}),
     ...(trainedOn ? { trainedOn: stem(trainedOn) } : {}),
     ...(trigger ? { trigger } : {}),
     ...(tags.length ? { tags } : {}),

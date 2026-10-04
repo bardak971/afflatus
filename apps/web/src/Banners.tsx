@@ -62,7 +62,7 @@ export function Banners() {
 
   if (!items.length) return null;
   return (
-    <div className="pointer-events-none fixed right-4 bottom-14 z-[65] flex w-[420px] max-w-[calc(100vw-2rem)] flex-col gap-2">
+    <div className="pointer-events-none fixed top-3 left-1/2 z-[65] flex w-[480px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2">
       {items.map((b) => (
         <div key={b.id} role={b.tone === "bad" ? "alert" : "status"} className={cx("pointer-events-auto flex items-start gap-2.5 rounded-xl border py-2.5 pr-2 pl-3.5 shadow-2xl", b.tone === "bad" ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>
           <span className="pt-0.5">{b.tone === "bad" ? <AlertTriangle size={16} /> : <Check size={16} className="text-good" />}</span>

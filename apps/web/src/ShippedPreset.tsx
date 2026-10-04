@@ -40,7 +40,7 @@ export function ShippedPreset({ e, onCopied }: { e: Extract<Entity, { kind: "pre
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-xs font-semibold text-ink-2">Model and operation</span>
-        <span>{recipe ? recipeLabel(family?.name, recipe.title) : `${def.recipe ?? "any model"} (not installed as a built-in here)`}</span>
+        <span>{recipe ? recipeLabel(family?.name, recipe.title) : `${def.recipe ?? "any model"} (no such form here)`}</span>
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-xs font-semibold text-ink-2">What it sets</span>
@@ -51,7 +51,7 @@ export function ShippedPreset({ e, onCopied }: { e: Extract<Entity, { kind: "pre
       <PresetFiles id={e.id} def={def} />
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => copy.mutate()} disabled={copy.isPending} className="flex items-center gap-1.5"><Copy size={13} /> Copy to my presets</Button>
-        <span className="text-xs text-ink-3">A built-in preset cannot be changed; a copy can, and keeps the files and the credit.</span>
+        <span className="text-xs text-ink-3">A shipped preset cannot be changed; a copy can, and keeps the files and the credit.</span>
       </div>
       {copy.isError && <ErrorNote>{copy.error.message}</ErrorNote>}
     </div>

@@ -2,7 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { ComfyUnreachable, modelInfoFrom, type ModelInfo } from "@afflatus/comfy";
 import { MODEL_INFO_VERSION } from "@afflatus/core";
 import { now } from "./db";
+import { modelDirs, readLocalHeader } from "./modelFiles";
 import type { Services } from "./services";
+import { readSettings } from "./settings";
 
 /**
  * What model files say about themselves (see ModelInfo), so that a search for a LoRA can find it by
@@ -26,6 +28,9 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
 
   async function read(folder: string, files: string[]): Promise<void> {
     const comfy = await s.comfy();
+    // ComfyUI's folders on this computer, when they are: the whole header is read from the disk then (tensor names
+    // and shapes, which say which model a file is for); otherwise ComfyUI gives the metadata alone
+    const dirs = await modelDirs((await readSettings(s.db)).comfyDir, folder);
     const left = [...files];
     let done = 0;
     let stopped = false;
@@ -36,7 +41,8 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
         if (there && (JSON.parse(there.info) as Kept).v === MODEL_INFO_VERSION) continue;
         let info: ModelInfo;
         try {
-          const header = await comfy.client.metadata(folder, file);
+          const local = dirs.length ? await readLocalHeader(dirs, file) : null;
+          const header = local ?? (await comfy.client.metadata(folder, file));
           // a file with no header is remembered as saying nothing, so it is not asked again
           info = header ? modelInfoFrom(header, file) : {};
         } catch (err) {

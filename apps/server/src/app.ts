@@ -21,8 +21,10 @@ import { folderIdsOf, registerProjects, rootFolderOf } from "./projects";
 import { isLinked } from "./linked";
 import { registerModelInfo } from "./modelInfo";
 import { registerModelPages } from "./modelPages";
+import { registerModelUpdates } from "./modelUpdates";
 import { registerModelSettings } from "./modelSettings";
 import type { Services } from "./services";
+import { preflight } from "./preflight";
 import { publicSettings, readSettings, writeSettings } from "./settings";
 import { assetView, extOf } from "./media";
 import { registerTags } from "./tags";
@@ -93,7 +95,11 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     return reply.status(status ?? 500).send({ error: status ? (err as Error).message : "something went wrong on the server" });
   });
 
-  app.get("/api/health", async () => ({ ok: true, version: VERSION, database: s.dbKind }));
+  /** Alive, the version, the database, and the start-up checks (the tools, the Node, the data folder); `?fresh=1` runs the checks again. */
+  app.get<{ Querystring: { fresh?: string } }>("/api/health", async (req) => {
+    const checks = req.query.fresh ? await preflight.run() : preflight.last;
+    return { ok: true, version: VERSION, database: s.dbKind, checks: checks?.checks ?? [], checkedAt: checks?.at ?? null };
+  });
 
   /** Everything the composer can make things with, and the form of each. */
   app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe) }));
@@ -125,6 +131,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   registerNodePack(app, s);
   registerModelInfo(app, s);
   registerModelPages(app, s);
+  registerModelUpdates(app, s, s.updates);
   registerFolders(app, s);
   registerProjects(app, s);
   registerWorkflows(app, s);

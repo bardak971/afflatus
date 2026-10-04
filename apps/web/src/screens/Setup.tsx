@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "wouter";
 import { ChevronDown, Search, X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
-import { api, type LlmInfo, type RecipeInfo, type Settings } from "../api";
-import { useFamilies, useRecipes, useSettings, useSetup, useStorage } from "../data";
+import { api, type LlmInfo, type RecipeInfo, type Settings, type UpdateRow } from "../api";
+import { useFamilies, useRecipes, useSettings, useSetup, useStorage, useModelUpdates } from "../data";
 import { fileLabel, gb, problemSaid, size } from "../format";
 import { allowNotifications, useNotify } from "../store";
 import { DownloadRow, GetFile, useDownloads } from "../GetFile";
@@ -279,9 +279,13 @@ function GuideEditor({ guide, own, open, onOpen, onSave }: {
 }
 
 /** Instructions of your own for the designer, under a name. */
-function InstructionEditor({ item, fresh, onSave, onRemove }: {
+function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove }: {
   item: Settings["designerInstructions"][number];
   fresh: boolean;
+  /** Picked as the usual one in the designer's panel. */
+  inUse: boolean;
+  open: boolean;
+  onOpen(): void;
   onSave(next: Settings["designerInstructions"][number]): Promise<unknown>;
   onRemove(): void;
 }) {
@@ -289,18 +293,31 @@ function InstructionEditor({ item, fresh, onSave, onRemove }: {
   const [text, setText] = useState(item.text);
   const dirty = fresh || name !== item.name || text !== item.text;
   const save = useMutation({ mutationFn: () => onSave({ id: item.id, name: name.trim(), text }) });
+  const firstLine = item.text.split(/\r?\n/).find((l) => l.trim()) ?? "";
+  if (!open && !fresh) {
+    return (
+      <button type="button" aria-expanded={false} onClick={onOpen} className="flex h-10 w-full items-center gap-2 rounded-lg border border-line px-3 text-left hover:bg-hover">
+        <span className="shrink-0 font-semibold">{item.name || "Unnamed"}</span>
+        {inUse && <span className="shrink-0 rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">in use</span>}
+        <span className="min-w-0 grow truncate text-xs text-ink-3">{firstLine}</span>
+        <span className="shrink-0 text-xs text-ink-2">{item.text.split(/\s+/).filter(Boolean).length} words · Read or change</span>
+      </button>
+    );
+  }
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
       <div className="flex items-center gap-2">
-        <input aria-label="Name of this system prompt" value={name} placeholder="A name: Cinematic, Anime tags, Explicit…" onChange={(e) => setName(e.target.value)} className="h-9 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-semibold placeholder:font-normal placeholder:text-ink-3" />
+        <input aria-label="Name of this system prompt" value={name} placeholder="A name: Photographer, Anime, Explicit…" onChange={(e) => setName(e.target.value)} className="h-9 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-semibold placeholder:font-normal placeholder:text-ink-3" />
+        {inUse && <span className="shrink-0 rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">in use</span>}
         {dirty && <Button size="sm" tone="primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Save</Button>}
         <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
+        {!fresh && <Button size="sm" tone="quiet" onClick={onOpen}>Close</Button>}
       </div>
       <AutoText
         aria-label="System prompt text"
-        rows={3}
+        rows={4}
         value={text}
-        placeholder="What the designer should always do when these are picked. For example: write like a film director, name the lens and the light; never soften or leave out explicit content; keep every prompt under 80 words."
+        placeholder="What the designer should always do when this is picked, beyond the model's guide. For example: keep every prompt under 60 words; write the spoken lines in French; describe clothes down to the fabric; never soften explicit content."
         onChange={(e) => setText(e.target.value)}
         className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 leading-normal placeholder:text-ink-3"
       />
@@ -315,8 +332,10 @@ function DesignerCard() {
   const client = useQueryClient();
   // ones added here and not saved yet
   const [newLlms, setNewLlms] = useState<LlmInfo[]>([]);
-  const [newNotes, setNewNotes] = useState<Settings["designerInstructions"]>([]);
   const [forgetting, setForgetting] = useState(false);
+  const [newNotes, setNewNotes] = useState<Settings["designerInstructions"]>([]);
+  /** The system prompt open for reading or changing; the rest are folded to a line. */
+  const [openNote, setOpenNote] = useState<string | null>(null);
   const put = async (patch: Record<string, unknown>) => client.setQueryData(["settings"], await api.saveSettings(patch));
   const change = useMutation({ mutationFn: put });
   const forget = useMutation({
@@ -371,12 +390,17 @@ function DesignerCard() {
       </div>
 
       <h3 className="mt-2 font-bold">System prompts</h3>
-      <div className="text-ink-2">Standing instructions of your own (added to the designer's system prompt), each under a name: one for film-like realism, one for anime tags, one for explicit content, whatever you want it held to. You pick one in the designer's panel, for that draft or clip: it then holds for every answer of that conversation, on top of what the designer knows about the model you are writing for.</div>
+      <div className="text-ink-2">
+        Standing instructions of your own, each under a name, picked in the designer's panel for a draft or a clip; the one picked holds for every answer of that conversation. They are added after the model's prompting guide (Settings → Prompts) and WIN over it: an instruction that says "always name the focal length" brings the lens back into every prompt, which the guides now avoid unless the picture calls for it. Say what the guide cannot know: your taste, your subject matter, your limits.
+      </div>
       {notes.map((n) => (
         <InstructionEditor
           key={n.id}
           item={n}
           fresh={false}
+          inUse={s?.designerInstruction === n.id}
+          open={openNote === n.id}
+          onOpen={() => setOpenNote(openNote === n.id ? null : n.id)}
           onSave={(next) => put({ designerInstructions: notes.map((x) => (x.id === n.id ? next : x)) })}
           onRemove={() => change.mutate({ designerInstructions: notes.filter((x) => x.id !== n.id) })}
         />
@@ -386,6 +410,9 @@ function DesignerCard() {
           key={n.id}
           item={n}
           fresh
+          inUse={false}
+          open
+          onOpen={() => {}}
           onSave={async (next) => {
             await put({ designerInstructions: [...notes, next] });
             setNewNotes((list) => list.filter((x) => x.id !== n.id));
@@ -397,12 +424,6 @@ function DesignerCard() {
         <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add system prompt</Button>
       </div>
       {change.isError && <ErrorNote>{change.error.message}</ErrorNote>}
-
-      <h3 className="mt-2 font-bold">Prompting guides</h3>
-      <div className="text-ink-2">
-        How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent.
-      </div>
-      <Guides own={s?.designerGuides ?? {}} onSave={(id, text) => put({ designerGuides: { ...(s?.designerGuides ?? {}), [id]: text } })} />
 
       <h3 className="mt-2 font-bold">Conversation history</h3>
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2.5">
@@ -421,6 +442,25 @@ function DesignerCard() {
         )}
       </div>
       {forget.isError && <ErrorNote>{forget.error.message}</ErrorNote>}
+    </section>
+  );
+}
+
+/** How prompts are written for each model: the prompting guides the designer is handed (and anyone can read). */
+function PromptsCard() {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const put = async (patch: Record<string, unknown>) => client.setQueryData(["settings"], await api.saveSettings(patch));
+  const s = settings.data;
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
+      <h2 className="text-[15px] font-bold">Prompts</h2>
+      <h3 className="font-bold">Prompting guides</h3>
+      <div className="text-ink-2">
+        How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent.
+      </div>
+      <Guides own={s?.designerGuides ?? {}} onSave={(id, text) => put({ designerGuides: { ...(s?.designerGuides ?? {}), [id]: text } })} />
+
     </section>
   );
 }
@@ -479,8 +519,60 @@ function CivitaiCard() {
           {settings.data?.hasCivitaiKey && <Button onClick={() => save.mutate({ civitaiKey: "" })} disabled={save.isPending}>Remove key</Button>}
         </div>
       )}
+      {on && <UpdateChecks />}
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
     </section>
+  );
+}
+
+/** Newer versions of the models here, on Civitai: a check on request, and once a day when asked for. */
+function UpdateChecks() {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const report = useModelUpdates();
+  const save = useMutation({ mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }) });
+  const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(["model-updates"], r) });
+  const get = useMutation({
+    mutationFn: (u: UpdateRow) => api.startDownload({ file: u.newer!.file ?? u.file, folder: u.folder, civitai: u.newer!.id, pick: u.newer!.file ?? undefined, page: { url: u.newer!.page, title: `${u.modelName} · ${u.newer!.name}` } }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
+  });
+  const r = report.data;
+  const newer = (r?.items ?? []).filter((u) => u.newer);
+  const daily = Boolean(settings.data?.updateChecks);
+  const fetching = Boolean(settings.data?.downloadModels);
+  return (
+    <div className="mt-1 flex flex-col gap-2 border-t border-line pt-3">
+      <Toggle on={daily} onChange={(v) => save.mutate({ updateChecks: v })} label="Check Civitai once a day for newer versions of the models here" />
+      <div className="text-xs text-ink-3">
+        A file is known to Civitai by its hash: the fingerprint a LoRA's trainer wrote in it, or the SHA-256 of the file, computed here once for files on this disk (a few per check). The hash says which file you have, and that is what is sent. Nothing is fetched or replaced by itself.
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={() => check.mutate()} disabled={check.isPending}>{check.isPending ? "Checking…" : "Check now"}</Button>
+        <span className="text-xs text-ink-2">
+          {check.isPending
+            ? "Asking Civitai, hashing a few files…"
+            : r?.checkedAt
+              ? `Last check ${new Date(r.checkedAt).toLocaleString()}: ${r.items.length} file${r.items.length === 1 ? "" : "s"} matched, ${newer.length} with a newer version${r.unmatched ? `, ${r.unmatched} not on Civitai or not readable` : ""}${r.hashesLeft ? `, ${r.hashesLeft} still to hash` : ""}.`
+              : "Not checked yet."}
+        </span>
+      </div>
+      {newer.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {newer.map((u) => (
+            <div key={`${u.folder}/${u.file}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-line px-3 py-2">
+              <span className="min-w-0 grow basis-60">
+                <span className="font-semibold">{u.modelName || fileLabel(u.file)}</span>
+                <span className="text-ink-2"> · you have {u.versionName || "an older version"} · newer: {u.newer!.name}{u.newer!.publishedAt ? ` (${new Date(u.newer!.publishedAt).toLocaleDateString()})` : ""}</span>
+                <span className="block truncate text-xs text-ink-3">{u.folder}/{u.file}</span>
+              </span>
+              <a href={u.newer!.page} target="_blank" rel="noreferrer" className="text-xs font-semibold underline">Open on Civitai</a>
+              {fetching && <Button size="sm" onClick={() => get.mutate(u)} disabled={get.isPending} title="Fetch the newer version into the same folder. The file you have stays until you remove it.">Get it</Button>}
+            </div>
+          ))}
+        </div>
+      )}
+      {(check.isError || get.isError) && <ErrorNote>{(check.error ?? get.error)?.message}</ErrorNote>}
+    </div>
   );
 }
 
@@ -987,9 +1079,12 @@ function ReadyList() {
 
 /** The app itself: its version, where it runs, what it talks to. */
 function AboutCard() {
-  const health = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: Infinity });
+  const client = useQueryClient();
+  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), staleTime: Infinity });
+  const recheck = useMutation({ mutationFn: () => api.health(true), onSuccess: (h) => client.setQueryData(["health"], h) });
   const setup = useSetup();
   const comfy = setup.data?.comfy;
+  const checks = health.data?.checks ?? [];
   return (
     <section id="about" className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
       <h2 className="text-[15px] font-bold">About</h2>
@@ -1000,6 +1095,23 @@ function AboutCard() {
         <dt>License</dt><dd className="text-ink">AGPL-3.0</dd>
         <dt>Source</dt><dd><a className="font-semibold text-ink underline" href="https://github.com/bardak971/afflatus" target="_blank" rel="noreferrer">github.com/bardak971/afflatus</a></dd>
       </dl>
+      <h3 className="mt-2 font-bold">On this computer</h3>
+      <div className="text-ink-2">What Afflatus needs where it runs, checked when it started{health.data?.checkedAt ? ` (${new Date(health.data.checkedAt).toLocaleTimeString()})` : ""}. ComfyUI is checked on its own tab.</div>
+      <div className="flex flex-col gap-1.5">
+        {checks.map((c) => (
+          <div key={c.id} className={cx("flex flex-col gap-0.5 rounded-lg border px-3 py-2", c.ok ? "border-line" : "border-warn bg-warn-wash")}>
+            <div className="flex items-center gap-2">
+              <span className={cx("font-semibold", c.ok ? "text-good" : "text-warn-ink")}>{c.ok ? "✓" : "✕"}</span>
+              <span className="font-semibold">{c.label}</span>
+              <span className="min-w-0 truncate text-ink-2">{c.detail}</span>
+            </div>
+            {!c.ok && <div className="text-xs text-ink-2">{c.without} {c.fix}</div>}
+          </div>
+        ))}
+        {health.isSuccess && !checks.length && <div className="text-xs text-ink-3">Not checked yet: the server started before these checks existed. Check now.</div>}
+      </div>
+      <div><Button size="sm" onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? "Checking…" : "Check again"}</Button></div>
+      {recheck.isError && <ErrorNote>{recheck.error.message}</ErrorNote>}
       <div className="text-xs text-ink-3">Afflatus runs in front of your own ComfyUI. Nothing leaves your computer unless you ask for a download or a lookup.</div>
     </section>
   );
@@ -1028,8 +1140,10 @@ const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
   { tab: "models", label: "Civitai lookups", words: "trigger words model pages lora names" },
   { tab: "models", label: "Download missing files into ComfyUI", words: "manager" },
   { tab: "models", label: "Download a model from a URL", words: "link hugging face civitai get" },
+  { tab: "models", label: "Newer versions of your models", words: "update check civitai lora checkpoint version" },
   { tab: "designer", label: "LLMs", words: "language model base url api key vision openai" },
-  { tab: "designer", label: "System prompts", words: "instructions designer" },
+  { tab: "designer", label: "System prompts", words: "instructions designer standing" },
+  { tab: "prompts", label: "Prompting guides per model", words: "designer rules examples family guide" },
   { tab: "designer", label: "Context size and max output tokens", words: "thinking" },
   { tab: "designer", label: "Forget every conversation", words: "chat history" },
   { tab: "prompts", label: "Danbooru tag check", words: "typo tags" },
@@ -1043,6 +1157,7 @@ const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
   { tab: "notifications", label: "Notify when the queue is empty", words: "browser notification" },
   { tab: "notifications", label: "Notify after each render", words: "browser notification" },
   { tab: "about", label: "Version", words: "about license source github" },
+  { tab: "about", label: "Start-up checks: ffmpeg, ffprobe, Node, data folder", words: "tools missing install path preflight" },
 ];
 
 /** Settings, in tabs: one for each thing being set up. The address carries the tab. */
@@ -1113,7 +1228,7 @@ export function Setup() {
           </div>
         )}
         {tab === "designer" && <div className="max-w-[900px]"><DesignerCard /></div>}
-        {tab === "prompts" && <div className="max-w-[760px]"><WritingCard /></div>}
+        {tab === "prompts" && <div className="flex max-w-[900px] flex-col gap-4"><PromptsCard /><WritingCard /></div>}
         {tab === "appearance" && <div className="max-w-[900px]"><AppearanceCard /></div>}
         {tab === "storage" && <div className="max-w-[760px]"><StorageCard /></div>}
         {tab === "notifications" && <div className="max-w-[760px]"><NotifyCard /></div>}

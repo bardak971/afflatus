@@ -5,3 +5,4 @@ export * from "./monitor";
 export * from "./system";
 export * from "./wait";
 export * from "./modelInfo";
+export * from "./architecture";

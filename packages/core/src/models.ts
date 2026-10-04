@@ -25,7 +25,7 @@ export interface ModelInfo {
 }
 
 /** The reading of a file's header that is current: raised when more is read from it, so that what was read before is read again. */
-export const MODEL_INFO_VERSION = 2;
+export const MODEL_INFO_VERSION = 4;
 
 /**
  * The ComfyUI model folder a node's file input reads from, told from the input's name (and the node's,
@@ -55,7 +55,10 @@ export function baseLabel(raw: string): string {
   if (/flux/.test(s)) return "FLUX.1";
   if (/ltx/.test(s)) return "LTX";
   if (/hunyuan/.test(s)) return "Hunyuan";
+  if (/krea[\s._-]*2|(^|[^a-z0-9])k2([^a-z0-9]|$)/.test(s)) return "Krea 2";
+  if (/qwen[\s._-]*image[\s._-]*2[._]1|qwen[\s._-]*2[._]1/.test(s)) return "Qwen Image 2.1";
   if (/qwen/.test(s)) return "Qwen Image";
+  if (/chroma/.test(s)) return "Chroma";
   if (/z[\s._-]*image/.test(s)) return "Z-Image";
   // "xl" as a word of its own: a file name can hold those two letters by chance
   if (/sdxl|(^|[^a-z])xl([^a-z]|$)|illustrious|pony|noob/.test(s)) return "SDXL";
@@ -68,6 +71,15 @@ export function baseLabel(raw: string): string {
 /** Versions of one model whose LoRAs are known to carry over (a Wan 2.1 LoRA works on Wan 2.2). */
 export function baseGroup(label: string): string {
   return /^Wan\b/.test(label) ? "Wan" : label;
+}
+
+/**
+ * Whether a file whose weights (or metadata) say it is for `base` is made for the family called
+ * `familyName`: the same model, or a version of it whose files carry over. Unknown bases never fit.
+ */
+export function sameBase(base: string | undefined, familyName: string): boolean {
+  if (!base) return false;
+  return baseGroup(baseLabel(base)) === baseGroup(baseLabel(familyName));
 }
 
 /**

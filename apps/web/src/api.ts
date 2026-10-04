@@ -157,6 +157,32 @@ export interface ClipOf {
   /** Of a take that is the finished version of another: how many times bigger (1 when the same size); null for the others. */
   upscaledBy: number | null;
 }
+/** A model file and its Civitai version; `newer` when Civitai has a later one. */
+export interface UpdateRow {
+  folder: string;
+  file: string;
+  modelId: number;
+  modelName: string;
+  versionId: number;
+  versionName: string;
+  newer: { id: number; name: string; publishedAt: string | null; file: string | null; page: string } | null;
+  checkedAt: string;
+}
+export interface UpdateReport {
+  items: UpdateRow[];
+  unmatched: number;
+  hashesLeft: number;
+  checkedAt: string | null;
+  lookups: boolean;
+}
+/** Alive, the version, and the start-up checks: what this computer has of what Afflatus needs. */
+export interface Health {
+  ok: true;
+  version: string;
+  database: string;
+  checks: Array<{ id: "node" | "ffmpeg" | "ffprobe" | "data"; label: string; ok: boolean; detail: string; without: string; fix: string }>;
+  checkedAt: string | null;
+}
 /** Where ComfyUI shows a workflow Afflatus put there: straight from the address, or from its Workflows sidebar. */
 export interface Opened {
   url: string;
@@ -683,6 +709,8 @@ export interface Settings {
   downloadModels: boolean;
   /** How many days the time of each render is kept one by one; 0 for good. Older ones become daily figures. */
   renderHistoryDays: number;
+  /** Once a day, Civitai is asked for newer versions of the models here (lookups on; hashes are sent). */
+  updateChecks: boolean;
 }
 /** What a dropped file carries about how it was made. */
 export interface Embedded {
@@ -771,7 +799,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const api = {
   recipes: () => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes"),
   setup: (fresh = false) => call<Scan>("GET", `/setup${fresh ? "?fresh=1" : ""}`),
-  health: () => call<{ ok: true; version: string; database: string }>("GET", "/health"),
+  health: (fresh = false) => call<Health>("GET", `/health${fresh ? "?fresh=1" : ""}`),
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
   presetFiles: () => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files"),
@@ -889,6 +917,9 @@ export const api = {
     call<{ note: string; clips: Array<Record<string, string>> }>("POST", "/designer/plan", body),
   /** The pages known for the files of a model folder, by file name (lower case, without sub-folder). */
   modelPages: (folder: string) => call<{ items: Record<string, ModelPage> }>("GET", `/models/${folder}/pages`),
+  /** The model files matched to their Civitai version, and the newer version when there is one. */
+  modelUpdates: () => call<UpdateReport>("GET", "/models/updates"),
+  checkModelUpdates: () => call<UpdateReport>("POST", "/models/updates/check"),
   /** Look for a file's page: the one known, or the one found for sure, or the ones it may be. */
   findModelPage: (folder: string, file: string) => call<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }>("POST", `/models/${folder}/page`, { file }),
   /** Say which page is the file's; null forgets it. */

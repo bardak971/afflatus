@@ -8,6 +8,7 @@ import { createServices } from "./services";
 import { readSettings } from "./settings";
 import { installNodePack } from "./nodePack";
 import { LocalStorage } from "./storage";
+import { preflight } from "./preflight";
 
 /** The built web app, when there is one (`pnpm build`). In development Vite serves it instead. */
 export function webDir(): string | undefined {
@@ -20,6 +21,8 @@ const { db, kind } = openDb(config);
 const applied = await migrate(db);
 if (applied.length) console.log(`[db] migrated: ${applied.join(", ")}`);
 
+// what this computer has of what Afflatus needs: said once here, kept for the health route and Settings → About
+await preflight.run(config.dataDir);
 const services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")));
 const app = buildApp(services, { webDir: webDir() });
 // the node pack kept up to date in ComfyUI's folder, when it is known

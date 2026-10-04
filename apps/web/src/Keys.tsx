@@ -60,7 +60,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
       ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "The menu of the item under the pointer"],
     ],
   },
-  { where: "Form, in Studio", keys: [["Ctrl + Enter", "Generate"]] },
+  { where: "Form, in Studio", keys: [["N", "Open the form, or fold it away to its rail"], ["Ctrl + Enter", "Generate"]] },
   {
     where: "Prompt",
     keys: [["Ctrl + ↑  ↓", "The weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],

@@ -1,9 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftRight, Check, ChevronDown, Copy, Minus, Pencil, Plus, X } from "lucide-react";
-import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@afflatus/core";
+import { baseGroup, baseLabel, lineOf, loraFit, modelFit, pickChoice, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels, sameBase } from "@afflatus/core";
 import { api, type FamilyInfo, type ModelInfo, type ModelWords, type TagIssue } from "./api";
-import { useModelInfo, useModelWords, useSettings } from "./data";
+import { useModelInfo, useModelWords, useSettings, useModelUpdates } from "./data";
 import { fileLabel } from "./format";
 import { MaskField } from "./MaskField";
 import { ClipField, PictureField, ReferencesField, SoundField } from "./PictureField";
@@ -205,7 +205,7 @@ const FOLDER_OF: Record<string, string> = {
 };
 
 /** A dropdown of model files, searched by what the files say about themselves when their folder is known. */
-function FileSelect({ id, label, value, files, folder, placeholder, match, onChange }: {
+function FileSelect({ id, label, value, files, folder, placeholder, match, family, onChange }: {
   id: string;
   label: string;
   value: string;
@@ -214,15 +214,31 @@ function FileSelect({ id, label, value, files, folder, placeholder, match, onCha
   placeholder?: string;
   /** Names of the files made for this form, when the folder holds other kinds too: those are listed apart from the rest. */
   match?: string[];
+  /** The model family the form is for: a file whose weights say they are its is "made for this" whatever its name. */
+  family?: string;
   onChange(value: string): void;
 }) {
   const known = useModelInfo(folder);
   const info = known.data?.items;
+  const updates = useModelUpdates();
+  const newerOf = (f: string) => updates.data?.items.find((u) => u.folder === folder && u.file === f && u.newer)?.newer ?? null;
   const options = useMemo(() => {
     const made = match?.map((p) => new RegExp(p, "i"));
-    // the files arrive with the ones made for it first
-    return files.map((f) => ({ ...fileOption(f, info?.[f]), ...(made ? { group: made.some((re) => re.test(f)) ? "Made for this" : `Everything else in models/${folder}` } : {}) }));
-  }, [files, info, match, folder]);
+    // the files arrive with the ones made for it first; a file that says it is another model's is told apart too
+    const groupOf = (f: string) => {
+      if (!made) return undefined;
+      const base = info?.[f]?.base;
+      if (made.some((re) => re.test(f)) || (family && sameBase(base, family))) return "Made for this";
+      if (base && family && !sameBase(base, family)) return `Made for other models (${base})`;
+      return `Everything else in models/${folder}`;
+    };
+    return files.map((f) => {
+      const o = fileOption(f, info?.[f]);
+      const newer = newerOf(f);
+      return { ...o, ...(newer ? { note: [o.note, `newer on Civitai: ${newer.name}`].filter(Boolean).join(" · ") } : {}), ...(made ? { group: groupOf(f) } : {}) };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, info, match, folder, family, updates.data]);
   return <Select id={id} label={label} value={value} onChange={onChange} options={options} placeholder={placeholder} searchHint={info && files.length > 1 ? `Search ${files.length} by name or model` : undefined} />;
 }
 
@@ -356,7 +372,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
       return (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={id} note={spec.note} aside={options?.length ? `${options.length} on your ComfyUI` : undefined}>{spec.label}</Label>
-          <FileSelect id={id} label={spec.label} value={String(value ?? "")} onChange={onChange} files={options ?? []} folder={spec.folder} match={spec.match} placeholder={options?.length ? "Choose a model" : `Nothing found in models/${spec.folder}`} />
+          <FileSelect id={id} label={spec.label} value={String(value ?? "")} onChange={onChange} files={options ?? []} folder={spec.folder} match={spec.match} family={family?.name} placeholder={options?.length ? "Choose a model" : `Nothing found in models/${spec.folder}`} />
         </div>
       );
 

@@ -1,4 +1,4 @@
-import { ComfyClient, Monitor, scan, systemLoadFromStatus, type Scan, type SystemLoad } from "@afflatus/comfy";
+import { ComfyClient, Monitor, scan, systemLoadFromStatus, type InfoLookup, type Scan, type SystemLoad } from "@afflatus/comfy";
 import type { NodeCatalog } from "@afflatus/core";
 import type { Registry } from "./registry";
 
@@ -23,12 +23,14 @@ export class Comfy {
   /** What this ComfyUI can do. The node catalog is large, so the answer is kept for a while. */
   /** The files chosen by hand for the families' slots (Settings), read when a scan is made. */
   overrides?: () => Promise<Record<string, Record<string, string>>>;
+  /** What is known of each model file from its header, read when a scan is made. */
+  infoOf?: () => Promise<InfoLookup>;
 
   async scan(fresh = false): Promise<Scan> {
     // asked to look again ("Test" in Settings): the node list is read again too, it is what says which files there are
     if (fresh) this.lastCatalog = null;
     if (fresh || !this.lastScan || Date.now() - this.lastScan.at > SCAN_TTL_MS) {
-      this.lastScan = { at: Date.now(), value: (async () => scan(this.client, this.registry.families(), this.registry.recipes(), (await this.overrides?.()) ?? {}))() };
+      this.lastScan = { at: Date.now(), value: (async () => scan(this.client, this.registry.families(), this.registry.recipes(), (await this.overrides?.()) ?? {}, (await this.infoOf?.()) ?? (() => undefined)))() };
     }
     const result = await this.lastScan.value;
     // an unreachable ComfyUI is asked again next time, not remembered

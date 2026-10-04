@@ -105,6 +105,30 @@ describe("scan", () => {
     expect((await run({ catalog, models }, { toy: { vae: "deleted.safetensors" } })).families[0]!.slots[0]!.file).toBe("toy_vae.safetensors");
   });
 
+  it("takes a file for the family when its weights say so, whatever its name; a file known to be another family's goes last", async () => {
+    const big = defineFamily({
+      id: "big", name: "Big", summary: "", promptStyle: "sentences", loraMatch: [],
+      slots: [{ id: "unet", label: "Diffusion model", folder: "diffusion_models", detect: ["big"], hint: "put big.safetensors in models/diffusion_models" }],
+    });
+    const make = defineRecipe<ToyInput>({
+      ...recipe, id: "big.make", family: "big",
+      inputs: recipe.inputs.map((i) => (i.id === "model" ? { id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["big"] } : i)),
+    });
+    const files = ["nameless_v3.safetensors", "big_fp8.safetensors", "someone_else.safetensors", "mystery.safetensors"];
+    fake = await startFakeComfy({ catalog, models: { vae: [], loras: [], checkpoints: [], diffusion_models: files } });
+    const known: Record<string, { base?: string }> = { "nameless_v3.safetensors": { base: "Big" }, "someone_else.safetensors": { base: "SDXL" }, "mystery.safetensors": {} };
+    const s = await scan(new ComfyClient(fake.url), [big], [make], {}, (folder, file) => (folder === "diffusion_models" ? known[file] : undefined));
+    // the slot: the name wins for the default; the nameless file is a choice all the same
+    expect(s.families[0]!.slots[0]).toMatchObject({ file: "big_fp8.safetensors", choices: ["big_fp8.safetensors", "nameless_v3.safetensors"] });
+    // the form: the usual file, the named one, the one the weights vouch for, the unknown, and the other family's last
+    expect(s.recipes[0]!.options.model).toEqual(["big_fp8.safetensors", "nameless_v3.safetensors", "mystery.safetensors", "someone_else.safetensors"]);
+    // with no named file at all, the weights pick the slot's default
+    await fake.close();
+    fake = await startFakeComfy({ catalog, models: { vae: [], loras: [], checkpoints: [], diffusion_models: ["nameless_v3.safetensors", "mystery.safetensors"] } });
+    const t = await scan(new ComfyClient(fake.url), [big], [make], {}, (_f, file) => known[file]);
+    expect(t.families[0]!.slots[0]!.file).toBe("nameless_v3.safetensors");
+  });
+
   it("only reads", async () => {
     await run({ catalog, models: { vae: [], loras: [], checkpoints: [] } });
     expect(fake!.calls.every((c) => c.startsWith("GET "))).toBe(true);

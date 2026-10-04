@@ -1,4 +1,4 @@
-import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameFile, type Family, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameBase, sameFile, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { ComfyClient, ComfyStatus } from "./client";
 
 /**
@@ -67,8 +67,11 @@ export function detect(files: string[], patterns: string[]): string | null {
 /** Slots can be set by hand (the setup page): family id → slot id → file. A file that is gone is ignored. */
 export type SlotOverrides = Record<string, Record<string, string>>;
 
+/** What is known of a file from its header (folder, file → info), when it was read: a file whose weights say which model it is for fits that family whatever its name. */
+export type InfoLookup = (folder: string, file: string) => ModelInfo | undefined;
+
 export async function scan(
-  client: ComfyClient, families: Family[], recipes: Recipe<any>[], overrides: SlotOverrides = {},
+  client: ComfyClient, families: Family[], recipes: Recipe<any>[], overrides: SlotOverrides = {}, infoOf: InfoLookup = () => undefined,
 ): Promise<Scan> {
   const at = new Date().toISOString();
   let status: ComfyStatus;
@@ -97,13 +100,15 @@ export async function scan(
         f.slots.map(async (s): Promise<SlotStatus> => {
           const list = await files(s.folder);
           const chosen = overrides[f.id]?.[s.id];
-          const auto = detect(list, s.detect);
+          // a file whose weights say they are this family's fits the slot whatever it is called (only the main model's folders: a VAE or a text encoder says nothing of a family)
+          const byWeights = s.folder === "diffusion_models" || s.folder === "checkpoints" ? list.filter((x) => sameBase(infoOf(s.folder, x)?.base, f.name)) : [];
+          const auto = detect(list, s.detect) ?? byWeights[0] ?? null;
           const byHand = Boolean(chosen && list.includes(chosen));
           const patterns = s.detect.map((d) => new RegExp(d, "i"));
           return {
             id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(s.get ? { get: s.get } : {}),
             file: byHand ? chosen! : auto, auto, chosen: byHand,
-            choices: [...new Set([...list.filter((x) => patterns.some((re) => re.test(x))), ...(byHand ? [chosen!] : [])])],
+            choices: [...new Set([...list.filter((x) => patterns.some((re) => re.test(x))), ...byWeights, ...(byHand ? [chosen!] : [])])],
           };
         }),
       ),
@@ -137,11 +142,17 @@ export async function scan(
           const all = input.folder === "diffusion_models" ? [...(await files(input.folder)), ...(await files("unet_gguf"))] : await files(input.folder);
           // what a form starts on comes first: the family's own file when the input stands for a slot
           const usual = input.slot ? slots.find((s) => s.id === input.slot)?.file : null;
-          const fits = input.match ? all.filter((f) => input.match!.some((p) => new RegExp(p, "i").test(f))) : [];
+          const family = families.find((x) => x.id === r.family);
+          const named = input.match ? all.filter((f) => input.match!.some((p) => new RegExp(p, "i").test(f))) : [];
+          // then the files whose weights say they are this family's; a file known to be another family's goes last
+          const infoFolder = input.folder === "diffusion_models" ? "diffusion_models" : input.folder;
+          const byWeights = family ? all.filter((f) => !named.includes(f) && sameBase(infoOf(infoFolder, f)?.base, family.name)) : [];
+          const foreign = family ? all.filter((f) => { const b = infoOf(infoFolder, f)?.base; return Boolean(b) && !named.includes(f) && !byWeights.includes(f) && !sameBase(b, family.name); }) : [];
+          const fits = [...named, ...byWeights];
           // a file that fills another slot of the family (H3's reference model) is used on its own when a clip
           // needs it: it is not a choice for this one
           const taken = input.slot ? slots.filter((s) => s.id !== input.slot && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
-          options[input.id] = [...new Set([...(usual ? [usual] : []), ...fits, ...all])].filter((f) => !taken.includes(f));
+          options[input.id] = [...new Set([...(usual ? [usual] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
           // with a slot, a missing file is the slot's to report
           if (!options[input.id]!.length && !input.slot) emptyInputs.push(input.id);
         } else if (input.type === "loras") {

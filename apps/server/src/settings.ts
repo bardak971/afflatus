@@ -61,6 +61,8 @@ export const settingsSchema = z.object({
   civitaiKey: z.string().default(""),
   /** Missing model files may be looked for on Civitai. Off: Afflatus never contacts Civitai. */
   civitaiLookups: z.boolean().default(false),
+  /** Once a day, Civitai is asked whether it has newer versions of the models here (only with lookups on; hashes of the files are sent). */
+  updateChecks: z.boolean().default(false),
   /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. Off: Afflatus never asks ComfyUI to download anything. */
   downloadModels: z.boolean().default(false),
   /**
@@ -154,6 +156,7 @@ export function publicSettings(s: Settings) {
     slotFiles: s.slotFiles,
     acceptedPresets: s.acceptedPresets,
     civitaiLookups: s.civitaiLookups,
+    updateChecks: s.updateChecks,
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,
   };

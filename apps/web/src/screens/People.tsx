@@ -477,13 +477,10 @@ function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: string 
   );
 }
 
-type PresetFilter = "all" | "mine" | "builtin" | "missing";
-const FILTERS: Array<{ id: PresetFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "mine", label: "Mine" },
-  { id: "builtin", label: "Built in" },
-  { id: "missing", label: "Files missing" },
-];
+/** "all", "mine", "missing", or "by:<author>" for the presets shipped under that author's name (none is Afflatus's own: they are called by who made them). */
+type PresetFilter = string;
+/** The author a shipped preset is filed under when its file names none. */
+const UNNAMED_AUTHOR = "Shipped";
 
 /** A small mark at the start of a row: the family a preset is for, an icon for a style. */
 function Mark({ children, title }: { children: ReactNode; title?: string }) {
@@ -515,7 +512,7 @@ const chip = (on: boolean) => cx("h-7 shrink-0 rounded-full border px-2.5 text-x
  * The prompt kit: everything written once and added to prompts afterwards. The kinds are tabs across
  * the top (people, places, styles, snippets, presets), with a search. Under them, a list on the left
  * and the item that is open on the right, so that the list stays while one is being changed. Presets
- * are grouped by the model they are for, with filters for yours, the built-in ones and the ones whose
+ * are grouped by the model they are for, with filters for yours, the shipped ones by author, and the ones whose
  * files are missing. Snippets are changed in a table of their own.
  */
 export function People() {
@@ -622,13 +619,23 @@ export function People() {
     const r = recipeList.find((x) => x.id === e.def.recipe);
     return r ? (familyList.find((f) => f.id === r.family) ?? undefined) : undefined;
   };
+  /** Who a shipped preset is by, as its file says; a shipped file that names nobody is filed under one word. */
+  const authorOf = (e: Entity) => (e.kind === "preset" && e.def.author?.trim()) || UNNAMED_AUTHOR;
   const filesOf = (e: Entity) => presetFiles.data?.items.find((x) => x.id === e.id);
   const missingOf = (e: Entity) => filesOf(e)?.files.filter((f) => !f.have && !f.optional).length ?? 0;
   const presetsShown = found.filter((e) =>
     e.kind === "preset"
-    && (filter === "all" || (filter === "mine" && !e.source) || (filter === "builtin" && e.source === "shipped") || (filter === "missing" && missingOf(e) > 0))
+    && (filter === "all" || (filter === "mine" && !e.source) || (filter.startsWith("by:") && e.source === "shipped" && authorOf(e) === filter.slice(3)) || (filter === "missing" && missingOf(e) > 0))
     && (!familyFilter || familyOf(e)?.id === familyFilter));
   const presetFamilies = familyList.filter((f) => found.some((e) => familyOf(e)?.id === f.id));
+  // the chips: the authors of the shipped presets present, each its own; Mine only once there is something that is not the user's
+  const authors = [...new Set(found.filter((e): e is Extract<Entity, { kind: "preset" }> => e.kind === "preset" && e.source === "shipped").map(authorOf))].sort();
+  const filters: Array<{ id: PresetFilter; label: string }> = [
+    { id: "all", label: "All" },
+    ...(authors.length ? [{ id: "mine", label: "Mine" }] : []),
+    ...authors.map((a) => ({ id: `by:${a}`, label: a })),
+    { id: "missing", label: "Files missing" },
+  ];
   const groups = [
     ...familyList.map((f) => ({ key: f.id, title: f.name, items: presetsShown.filter((e) => familyOf(e)?.id === f.id) })),
     { key: "any", title: "Any model", items: presetsShown.filter((e) => familyOf(e) === null) },
@@ -644,7 +651,7 @@ export function People() {
     const missing = missingOf(e);
     return (
       <>
-        {e.source === "shipped" && <Badge>built in</Badge>}
+        {e.source === "shipped" && <Badge>{authorOf(e)}</Badge>}
         {!e.def.recipe && <Badge>any model</Badge>}
         {missing > 0 ? <Badge tone="warn">{missing} file{missing > 1 ? "s" : ""} missing</Badge> : st && st.files.length > 0 ? <Badge tone="good">files ready</Badge> : null}
       </>
@@ -653,7 +660,7 @@ export function People() {
   const presetLine = (e: Extract<Entity, { kind: "preset" }>) => {
     const r = recipeList.find((x) => x.id === e.def.recipe);
     const n = Object.keys(e.def.inputs).length;
-    return [e.def.author, r?.title, n ? `${n} parameter${n > 1 ? "s" : ""}` : "", e.def.look && (e.def.look.cast.length || e.def.look.style || e.def.look.snippets?.length) ? "with references" : ""].filter(Boolean).join(" · ");
+    return [e.source === "shipped" ? "" : e.def.author, r?.title, n ? `${n} parameter${n > 1 ? "s" : ""}` : "", e.def.look && (e.def.look.cast.length || e.def.look.style || e.def.look.snippets?.length) ? "with references" : ""].filter(Boolean).join(" · ");
   };
   const presetRow = (e: Extract<Entity, { kind: "preset" }>) => {
     const f = familyOf(e);
@@ -669,7 +676,7 @@ export function People() {
     ? "A person is reference images, a voice sample and prompt text. Afflatus gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
     : tab === "place" ? "A place is reference images and prompt text: the clip or the image happens there."
       : tab === "style" ? "A style is LoRAs and prompt text, set up for the models you use it with."
-        : "A preset is generation parameters kept under a name: a model and what you set on its form, a prompt, the references. Everything in it is optional. Save one from the form in Studio, under \"Model\", start an empty one here, or copy a built-in one.";
+        : "A preset is generation parameters kept under a name: a model and what you set on its form, a prompt, the references. Everything in it is optional. Save one from the form in Studio, under \"Model\", start an empty one here, or copy one of the shipped ones.";
 
   return (
     <div className="flex min-h-0 min-w-0 grow flex-col">
@@ -706,7 +713,7 @@ export function People() {
             {tab === "preset" && (
               <div className="flex flex-col gap-2 border-b border-line px-4 py-2.5">
                 <div className="flex flex-wrap gap-1.5">
-                  {FILTERS.map((f) => <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)} className={chip(filter === f.id)}>{f.label}</button>)}
+                  {filters.map((f) => <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)} className={chip(filter === f.id)}>{f.label}</button>)}
                 </div>
                 {presetFamilies.length > 1 && (
                   <div className="flex flex-wrap gap-1.5">
@@ -756,7 +763,7 @@ export function People() {
               <div className="mx-auto flex max-w-3xl flex-col gap-5">
                 <div className="flex items-center gap-3">
                   <h2 className="min-w-0 grow truncate text-xl font-semibold">{shipped.name}</h2>
-                  <Badge>built in</Badge>
+                  <Badge>{authorOf(shipped)}</Badge>
                   <Button size="sm" tone="primary" onClick={() => applyInStudio(shipped.id)} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
                   <Button size="sm" onClick={() => savePresetFile(shipped)} className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
                   <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
