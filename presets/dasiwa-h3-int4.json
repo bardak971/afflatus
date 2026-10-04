@@ -2,7 +2,7 @@
   "id": "dasiwa-h3-int4",
   "name": "DaSiWa MiniMax H3: Hybrid v3 (int4, for 12 GB cards)",
   "author": "Darksidewalker",
-  "note": "The same hybrid stored in int4 ConvRot: 12 GB instead of 20, a little detail lost. Full 20 to 30 steps. For a card with 12 GB of VRAM, or less room on disk.",
+  "note": "The same hybrid stored in int4 ConvRot: 11.7 GB instead of 19.5, a little detail lost. For a card with 12 GB of VRAM, or less room on disk. His settings, set here: res_multistep/simple, shift 11 video and 4 sound, 24 steps. Rechecked against his page on 5 October 2026.",
   "homepage": "https://civitai.com/models/2877206",
   "licence": {
     "name": "MiniMax H3 Community License",
@@ -10,13 +10,24 @@
     "note": "MiniMax's licence for H3 weights: it names territories where the weights may not be used (the EU, the UK, South Korea and the USA at the time of writing) and a revenue ceiling for commercial use. Read it before you fetch the file."
   },
   "recipe": "h3.video",
-  "inputs": { "model": "DasiwaMinimaxH3_dasiwaHybridV3_int4.safetensors" },
+  "inputs": {
+    "model": "DasiwaMinimaxH3_dasiwaHybridV3_int4.safetensors",
+    "sampler": "res_multistep",
+    "scheduler": "simple",
+    "shiftVideo": 11,
+    "shiftAudio": 4,
+    "steps": 24
+  },
   "files": [
     {
       "file": "DasiwaMinimaxH3_dasiwaHybridV3_int4.safetensors",
       "folder": "diffusion_models",
-      "size": 12250000000,
-      "civitai": { "version": 3374445, "pick": "DasiwaMinimaxH3_dasiwaHybridV3_3262967.safetensors", "page": "https://civitai.com/models/2877206?modelVersionId=3374445" }
+      "size": 12541304504,
+      "civitai": {
+        "version": 3374445,
+        "pick": "DasiwaMinimaxH3_dasiwaHybridV3_3262967.safetensors",
+        "page": "https://civitai.com/models/2877206?modelVersionId=3374445"
+      }
     }
   ]
 }

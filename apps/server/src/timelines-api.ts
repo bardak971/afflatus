@@ -325,6 +325,11 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return reply.header("Cache-Control", "private, max-age=31536000, immutable").send(await t.motion(req.params.id));
   });
 
+  /** Where a video cuts between shots (ffmpeg's scene change), as moments: marks on the trim bar, "Extract every scene". */
+  app.get<{ Params: { id: string } }>("/api/assets/:id/scenes", async (req, reply) => {
+    return reply.header("Cache-Control", "private, max-age=31536000, immutable").send(await t.scenes(req.params.id));
+  });
+
   /** One small picture of a moment: what a hover over the trim bar shows. */
   app.get<{ Params: { id: string }; Querystring: { at?: string } }>("/api/assets/:id/peek", async (req, reply) => {
     const q = z.object({ at: z.coerce.number().min(0), h: z.coerce.number().int().min(48).max(480).optional() }).parse(req.query);

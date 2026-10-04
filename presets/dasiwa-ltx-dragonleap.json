@@ -2,7 +2,7 @@
   "id": "dasiwa-ltx-dragonleap",
   "name": "DaSiWa LTX 2.3: DragonLeap v4 (distilled)",
   "author": "Darksidewalker",
-  "note": "His distilled LTX 2.3 line (DMD), fp8, as split files: 8 to 12 steps at CFG 1, no distilled LoRA on top; the form reads that from the name. Image-to-video and video-to-video first, with sound. LTX's own text encoder, VAEs, projection and upscalers beside it.",
+  "note": "His distilled LTX 2.3 line (DMD), fp8, in one file: CFG 1 with euler_cfg_pp and LTX's own schedule (he gives 8 to 10 steps), no distilled LoRA on top; the form reads that from the name. Image-to-video and video-to-video first, with sound. LTX's own VAE (the audio one) and text encoder are the official files. Rechecked against his page on 5 October 2026: DragonLeap v4 is his newest distilled; the page also has GGUF and nf4 copies for smaller cards.",
   "homepage": "https://civitai.com/models/2543443",
   "licence": {
     "name": "LTX-2 Community License",
@@ -10,13 +10,21 @@
     "note": "Lightricks' licence for LTX-2 weights: free use, commercial too under a yearly revenue ceiling. Read it before you fetch the file."
   },
   "recipe": "ltx.video",
-  "inputs": { "model": "DasiwaLTX23_dragonleapV4.safetensors" },
+  "inputs": {
+    "model": "DasiwaLTX23_dragonleapV4.safetensors",
+    "cfg": 1,
+    "sampler": "euler_cfg_pp"
+  },
   "files": [
     {
       "file": "DasiwaLTX23_dragonleapV4.safetensors",
       "folder": "diffusion_models",
-      "size": 26970000000,
-      "civitai": { "version": 3092188, "pick": "DasiwaLTX23_dragonleapV4_2972051.safetensors", "page": "https://civitai.com/models/2543443?modelVersionId=3092188" }
+      "size": 27616639713,
+      "civitai": {
+        "version": 3092188,
+        "pick": "DasiwaLTX23_dragonleapV4_2972051.safetensors",
+        "page": "https://civitai.com/models/2543443?modelVersionId=3092188"
+      }
     }
   ]
 }

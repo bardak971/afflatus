@@ -368,6 +368,11 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
           </span>
         </div>
       )}
+      {r?.checks && r.checks.length > 0 && (
+        <ul className="flex flex-col gap-0.5 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink" aria-label="Against the model's rules">
+          {r.checks.map((c, i) => <li key={i} className="flex gap-1.5"><TriangleAlert size={12} className="mt-px shrink-0" /><span>{c.text}</span></li>)}
+        </ul>
+      )}
       {r?.tags && (
         <span className="text-xs text-ink-2">
           {r.tags.fixed.length > 0 && <>Fixed against the danbooru tag list: {r.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}

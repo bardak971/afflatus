@@ -91,8 +91,15 @@ export async function createServices(
   };
   services.updates = new Updates(services);
   // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it
-  const checker = setInterval(() => void services.updates.daily(), 60 * 60_000);
+  const checker = setInterval(() => void services.updates.daily().catch(() => {}), 60 * 60_000);
   checker.unref();
-  setTimeout(() => void services.updates.daily(), 30_000).unref();
+  const firstCheck = setTimeout(() => void services.updates.daily().catch(() => {}), 30_000);
+  firstCheck.unref();
+  const closeBefore = services.close;
+  services.close = async () => {
+    clearInterval(checker);
+    clearTimeout(firstCheck);
+    await closeBefore();
+  };
   return services;
 }

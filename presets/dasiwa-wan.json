@@ -2,7 +2,7 @@
   "id": "dasiwa-wan",
   "name": "DaSiWa Wan 2.2 i2v: TrueVision SnatchKiss v11",
   "author": "Darksidewalker",
-  "note": "His undistilled line of Wan 2.2 image-to-video: the high-noise and low-noise 14B models in fp8, made for 20 to 30 steps at CFG 3.5, up to 720p; the form's defaults already are that. Turbo still works on it with the lightx2v LoRAs, which Settings → Models offers. Wan's own text encoder and VAE beside it.",
+  "note": "His undistilled line of Wan 2.2 image-to-video: the high-noise and low-noise 14B models in fp8, made for 20 to 30 steps at CFG 3.5 with euler/simple (unipc_bh2/simple works too), up to 720p; set here at 24 steps. Turbo still works on it with the lightx2v LoRAs, with the motion loss any turbo has. Add one or two LoRAs at most, raised in small steps. Rechecked against his page on 5 October 2026: SnatchKiss v11 is his newest.",
   "homepage": "https://civitai.com/models/2272580",
   "licence": {
     "name": "Apache 2.0 (Wan 2.2), with the author's distribution addendum",
@@ -12,20 +12,32 @@
   "recipe": "wan.video",
   "inputs": {
     "model": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
-    "modelLow": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors"
+    "modelLow": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors",
+    "steps": 24,
+    "cfg": 3.5,
+    "sampler": "euler",
+    "scheduler": "simple"
   },
   "files": [
     {
       "file": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
       "folder": "diffusion_models",
-      "size": 19000000000,
-      "civitai": { "version": 2959309, "pick": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors", "page": "https://civitai.com/models/2272580?modelVersionId=2959309" }
+      "size": 19456201851,
+      "civitai": {
+        "version": 2959309,
+        "pick": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
+        "page": "https://civitai.com/models/2272580?modelVersionId=2959309"
+      }
     },
     {
       "file": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors",
       "folder": "diffusion_models",
-      "size": 19000000000,
-      "civitai": { "version": 2959520, "pick": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors", "page": "https://civitai.com/models/2272580?modelVersionId=2959520" }
+      "size": 19456201851,
+      "civitai": {
+        "version": 2959520,
+        "pick": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors",
+        "page": "https://civitai.com/models/2272580?modelVersionId=2959520"
+      }
     }
   ]
 }

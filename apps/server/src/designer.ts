@@ -6,6 +6,7 @@ import type { Services } from "./services";
 import { madeIn, type Step } from "./provenance";
 import { instructionsInUse, llmInUse, readSettings, type Llm } from "./settings";
 import { cleanTags } from "./tags";
+import { checkOutput, type OutputCheck } from "./outputChecks";
 
 /**
  * The prompt designer: a conversation with a language model (any OpenAI-style address, set in Settings)
@@ -277,6 +278,8 @@ export interface DesignerReply {
   clips: Array<Record<string, string>>;
   /** What the tag check did to what was written, when it is on: tags put right, and tags danbooru does not have. */
   tags?: { fixed: Array<{ from: string; to: string }>; unknown: string[] };
+  /** What it wrote held against the model's own rules (a line each); the text is not changed. */
+  checks?: OutputCheck[];
   /** It was asked a second time, and this is what it sent then. */
   retried?: boolean;
   /** It said it changed something and sent no text, twice: its note is not to be believed. */
@@ -555,6 +558,11 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
         unknown.push(...clean.unknown);
       }
       if (fixed.length || unknown.length) reply.tags = { fixed: fixed.slice(0, 30), unknown: unknown.slice(0, 30) };
+    }
+    // what it wrote, against the model's rules: said, not changed
+    if (reply.kind === "proposal") {
+      const checks = checkOutput(recipe, recipe.family, reply.changes, ctx.values);
+      if (checks.length) reply.checks = checks.slice(0, 6);
     }
     return { ...reply, sawPicture: Boolean(picture) };
   });

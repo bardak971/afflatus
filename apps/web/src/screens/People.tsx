@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, ChevronDown, ChevronRight, MapPin, Play, Plus, Search, Sparkles, Trash2, User, X, FileDown, Upload } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronRight, MapPin, Play, Plus, Search, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter, type InputSpec } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { api, thumbUrl, type Entity, type FamilyInfo, type Outfit, type PersonDef, type PlaceDef, type RecipeInfo, type StyleDef } from "../api";
@@ -13,6 +13,7 @@ import { PresetEditor } from "../PresetEditor";
 import { ShippedPreset } from "../ShippedPreset";
 import { usePresetFiles } from "../PresetFiles";
 import { importPresetFile, savePresetFile } from "../presetFile";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { handPreset } from "../handoff";
 import { useStudio } from "./Studio";
 import { Select } from "../Select";
@@ -490,9 +491,9 @@ function Badge({ tone = "plain", children }: { tone?: "plain" | "warn" | "good";
   return <span className={cx("shrink-0 rounded px-1.5 py-px text-[10px] font-bold tracking-wide uppercase", tone === "warn" ? "bg-warn-wash text-warn-ink" : tone === "good" ? "bg-good/15 text-good" : "bg-raised text-ink-3")}>{children}</span>;
 }
 /** One item of the list: a mark, its name, a line under it, and what must be seen at a glance on the right. */
-function Row({ active, onClick, mark, title, summary, badges }: { active: boolean; onClick(): void; mark: ReactNode; title: string; summary?: string; badges?: ReactNode }) {
+function Row({ active, onClick, onMenu, mark, title, summary, badges }: { active: boolean; onClick(): void; onMenu?(e: React.MouseEvent): void; mark: ReactNode; title: string; summary?: string; badges?: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? "true" : undefined} className={cx("flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left", active ? "border-accent bg-raised" : "border-transparent hover:bg-hover")}>
+    <button type="button" onClick={onClick} onContextMenu={onMenu} aria-current={active ? "true" : undefined} className={cx("flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left", active ? "border-accent bg-raised" : "border-transparent hover:bg-hover")}>
       {mark}
       <span className="flex min-w-0 grow flex-col gap-0.5">
         <span className="truncate text-sm font-semibold">{title}</span>
@@ -595,6 +596,16 @@ export function People() {
       return client.invalidateQueries({ queryKey: ["entities"] });
     },
   });
+  /** The right-click menu of a row: what the open item's header offers. */
+  const rowMenu = useMenu<Entity>();
+  const rowItems = (e: Entity): MenuItem[] => [
+    { label: open === e.id ? "Close" : "Open", icon: <Pencil size={14} />, run: () => select(open === e.id ? null : e.id) },
+    ...(e.kind === "preset" ? [
+      { label: "Apply in Studio", icon: <Play size={14} />, run: () => applyInStudio(e.id) },
+      { label: "Save as a file", icon: <FileDown size={14} />, run: () => savePresetFile(e) },
+    ] : []),
+    ...(e.kind === "preset" && e.source === "shipped" ? [] : ["—" as const, { label: "Delete", icon: <Trash2 size={14} />, danger: true, run: () => remove.mutate(e.id) }]),
+  ];
   const fileInput = useRef<HTMLInputElement>(null);
   const doImport = useMutation({
     mutationFn: async (file: File) => importPresetFile(file),
@@ -665,7 +676,7 @@ export function People() {
   const presetRow = (e: Extract<Entity, { kind: "preset" }>) => {
     const f = familyOf(e);
     // the group's heading says the model: the row itself carries only a mark for the two odd cases
-    return <Row key={e.id} active={open === e.id} onClick={() => select(e.id)} mark={f ? null : <Mark title={f === null ? "Any model" : "Model no longer here"}>{f === null ? "any" : "?"}</Mark>} title={e.name} summary={presetLine(e)} badges={presetBadges(e)} />;
+    return <Row key={e.id} active={open === e.id} onClick={() => select(e.id)} onMenu={(ev) => rowMenu.open(ev, e)} mark={f ? null : <Mark title={f === null ? "Any model" : "Model no longer here"}>{f === null ? "any" : "?"}</Mark>} title={e.name} summary={presetLine(e)} badges={presetBadges(e)} />;
   };
   const newButton = (
     <button type="button" disabled={create.isPending} onClick={() => create.mutate(tab as "person" | "place" | "style" | "preset")} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed border-line-strong text-xs font-semibold text-ink-2 hover:border-accent hover:text-ink">
@@ -701,6 +712,7 @@ export function People() {
         </div>
       </header>
 
+      {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
       {(entities.isError || create.isError || remove.isError || doImport.isError) && <div className="px-6 pb-3"><ErrorNote>{(entities.error ?? create.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
 
       {tab === "snippet" ? (
@@ -741,13 +753,13 @@ export function People() {
                 const face = e.kind === "person" || e.kind === "place" ? e.def.pictures[0] : undefined;
                 return (
                   <Row
-                    key={e.id} active={open === e.id} onClick={() => select(e.id)} title={e.name} summary={summaryOf(e, recipeList)}
+                    key={e.id} active={open === e.id} onClick={() => select(e.id)} onMenu={(ev) => rowMenu.open(ev, e)} title={e.name} summary={summaryOf(e, recipeList)}
                     mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-raised text-ink-3">{face ? <img src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
                   />
                 );
               })}
               {tab === "style" && found.map((e) => (
-                <Row key={e.id} active={open === e.id} onClick={() => select(e.id)} title={e.name} summary={summaryOf(e, recipeList)} mark={<Mark><Sparkles size={12} /></Mark>} />
+                <Row key={e.id} active={open === e.id} onClick={() => select(e.id)} onMenu={(ev) => rowMenu.open(ev, e)} title={e.name} summary={summaryOf(e, recipeList)} mark={<Mark><Sparkles size={12} /></Mark>} />
               ))}
               {tab === "preset" && groups.map((g) => (
                 <div key={g.key} className="flex flex-col gap-0.5">

@@ -50,6 +50,14 @@ type ApiModelBrief = { id: number; name: string; modelVersions?: ApiVersionBrief
 
 const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 
+/** The words of a version's name that say its precision or packing, not its content: int8, fp8, bf16, Q4_K_M, gguf, nf4, scaled, convrot. */
+const PRECISION = /^(int\d+|fp\d+(e\dm\d(fn)?)?|bf16|nf4|gguf|q\d(k)?(m|s|l)?|scaled|convrot|pruned)$/i;
+const tokensOf = (name: string) => name.toLowerCase().replace(/_/g, "").split(/[^a-z0-9.]+/).filter(Boolean);
+/** A version's name with its precision words taken out: what it is. */
+export const sansPrecision = (name: string) => tokensOf(name).filter((t) => !PRECISION.test(t)).join(" ");
+/** A version's precision words alone, sorted: which variant it is. */
+export const precisionOf = (name: string) => tokensOf(name).filter((t) => PRECISION.test(t)).sort().join(" ");
+
 /** The SHA-256 of a file, streamed. */
 export function sha256Of(path: string): Promise<string> {
   return new Promise((done, fail) => {
@@ -173,17 +181,20 @@ export class Updates {
       if (!m?.modelVersions?.length) continue;
       // Civitai lists versions newest first
       const versions = [...m.modelVersions].sort((a, b) => Date.parse(b.publishedAt ?? b.createdAt ?? "0") - Date.parse(a.publishedAt ?? a.createdAt ?? "0"));
-      const latest = versions[0]!;
       for (const r of rows.filter((x) => x.model_id === modelId)) {
         const mine = versions.findIndex((v) => v.id === r.version_id);
-        const newer = latest.id !== r.version_id && (mine < 0 || mine > 0);
-        const primary = latest.files?.find((f) => f.primary) ?? latest.files?.[0];
+        // the versions published after the one here; among them, the one of the same precision when there is one (an
+        // int8 file is told about the next int8, not about an int4 sibling); a sibling that only differs by precision is no update
+        const after = versions.slice(0, mine < 0 ? versions.length : mine).filter((v) => v.id !== r.version_id);
+        const latest = after.find((v) => precisionOf(v.name ?? "") === precisionOf(r.version_name)) ?? after[0];
+        const newer = Boolean(latest) && sansPrecision(latest!.name ?? "") !== sansPrecision(r.version_name);
+        const primary = latest?.files?.find((f) => f.primary) ?? latest?.files?.[0];
         await db
           .updateTable("model_updates")
           .set({
             model_name: m.name, checked_at: at,
-            latest_id: newer ? latest.id : null, latest_name: newer ? (latest.name ?? "") : null,
-            latest_at: newer ? (latest.publishedAt ?? latest.createdAt ?? null) : null, latest_file: newer ? (primary?.name ?? null) : null,
+            latest_id: newer ? latest!.id : null, latest_name: newer ? (latest!.name ?? "") : null,
+            latest_at: newer ? (latest!.publishedAt ?? latest!.createdAt ?? null) : null, latest_file: newer ? (primary?.name ?? null) : null,
           })
           .where("folder", "=", r.folder).where("name", "=", r.name)
           .execute();

@@ -533,6 +533,36 @@ export async function repairJoinAudio(source: Uint8Array, ext: string, headMs: n
 }
 
 /** Kept for the tests and callers that only want the motion. */
+/** The moments ffmpeg's scene filter prints, from its showinfo lines ("pts_time:12.345"). */
+export function parseSceneTimes(log: string): number[] {
+  const out: number[] = [];
+  for (const m of log.matchAll(/pts_time:\s*([0-9.]+)/g)) {
+    const ms = Math.round(Number(m[1]) * 1000);
+    if (Number.isFinite(ms) && ms > 0 && (out.length === 0 || ms - out[out.length - 1]! >= 400)) out.push(ms);
+  }
+  return out;
+}
+
+/**
+ * Where a video cuts from one shot to the next: ffmpeg's scene-change score over `threshold` (0.3 is
+ * its usual value: hard cuts, not pans), each as a moment in milliseconds. A video of one shot gives [].
+ */
+export async function scenesOf(source: Uint8Array, ext: string, threshold = 0.3): Promise<number[]> {
+  return inTemp(async (dir) => {
+    const file = join(dir, `in.${ext}`);
+    await writeFile(file, source);
+    const log = await new Promise<string>((done) => {
+      execFile(
+        tools.ffmpeg,
+        ["-hide_banner", "-i", file, "-vf", `select='gt(scene,${threshold})',showinfo`, "-an", "-f", "null", "-"],
+        { encoding: "utf8", timeout: 600_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true },
+        (_err, _stdout, stderr) => done(String(stderr ?? "")),
+      );
+    });
+    return parseSceneTimes(log);
+  });
+}
+
 export async function motionOf(source: Uint8Array, ext: string): Promise<number[]> {
   return (await measureOf(source, ext)).motion;
 }

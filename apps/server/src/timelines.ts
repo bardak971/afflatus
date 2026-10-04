@@ -2,7 +2,7 @@ import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { secondsInput, type Recipe, type InputSpec } from "@afflatus/core";
-import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion } from "./cut";
+import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion, scenesOf } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { rootFolderOf } from "./projects";
 import type { Look } from "./entities";
@@ -998,6 +998,18 @@ export class Timelines {
     }
     const { motion, sound } = await measureOf(await this.storage.get(asset.file_key), extOf(asset.mime));
     const made = { rate: MOTION_RATE, values: motion.map((v) => Math.round(v * 10) / 10), sound };
+    await this.storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
+    return made;
+  }
+
+  /** Where a video cuts between shots, kept once worked out (a video's frames do not change). */
+  async scenes(assetId: string): Promise<{ cuts: number[] }> {
+    const asset = await this.assetRow(assetId);
+    if (!asset || asset.kind !== "video") throw missing("this video");
+    const key = `scenes/${asset.id.slice(0, 2)}/${asset.id}.json`;
+    const have = await this.storage.get(key).catch(() => null);
+    if (have) return JSON.parse(Buffer.from(have).toString("utf8")) as { cuts: number[] };
+    const made = { cuts: await scenesOf(await this.storage.get(asset.file_key), extOf(asset.mime)) };
     await this.storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
   }

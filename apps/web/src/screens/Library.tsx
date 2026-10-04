@@ -181,11 +181,23 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     },
   });
   const look = useMutation({ mutationFn: api.scanFolder, onSuccess: refresh });
+  /** Files from the computer dropped on a folder: imported straight into it (pictures, videos and sounds; the rest is left to the drop tray). */
+  const bring = useMutation({
+    mutationFn: async (v: { files: File[]; folder: string | null }) => {
+      const media = v.files.filter((f) => /^(image|video|audio)\//.test(f.type));
+      for (const f of media) await api.upload(f, v.folder ? { folder: v.folder } : {});
+      return { count: media.length, folder: v.folder };
+    },
+    onSuccess: async (r) => {
+      await refresh();
+      if (r.count) onPlace(r.folder ? { type: "folder", id: r.folder } : { type: "unfiled" });
+    },
+  });
 
-  /** A row that items can be dropped on. */
+  /** A row that items can be dropped on: an item of the library, or files from the computer. */
   const drop = (key: string, folder: string | null) => ({
     onDragOver: (e: DragEvent) => {
-      if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
+      if (!e.dataTransfer.types.includes(DRAG_TYPE) && !e.dataTransfer.types.includes("Files")) return;
       e.preventDefault();
       setOver(key);
     },
@@ -195,6 +207,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       setOver(null);
       const asset = e.dataTransfer.getData(DRAG_TYPE);
       if (asset) move.mutate({ asset, folder });
+      else if (e.dataTransfer.files.length) bring.mutate({ files: [...e.dataTransfer.files], folder });
     },
   });
   const row = (on: boolean, key: string) =>
@@ -208,11 +221,12 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     setEditing(null);
     setText("");
   };
-  const error = create.error ?? rename.error ?? remove.error ?? move.error ?? link.error ?? look.error ?? empty.error ?? folders.error;
+  const error = create.error ?? rename.error ?? remove.error ?? move.error ?? bring.error ?? link.error ?? look.error ?? empty.error ?? folders.error;
 
   return (
     <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
-      {dragging && <div className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-accent-ink">Drop on a folder to move it there</div>}
+      {dragging && <div className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-accent-ink">Drop on a folder to put it there</div>}
+      {bring.isPending && <div className="rounded-lg bg-raised px-2.5 py-1.5 text-xs text-ink-2">Importing…</div>}
       <button type="button" onClick={() => onPlace({ type: "all" })} className={row(place.type === "all", "all")}>All</button>
       {tree(scoped).map((f) =>
         editing === f.id ? (

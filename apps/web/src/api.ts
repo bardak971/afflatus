@@ -252,6 +252,8 @@ export interface DesignerReply {
   sawPicture?: boolean;
   /** What the tag check did to what was written: tags put right, and tags danbooru does not have. */
   tags?: { fixed: Array<{ from: string; to: string }>; unknown: string[] };
+  /** What it wrote held against the model's own rules, a line each; the text is as it sent it. */
+  checks?: Array<{ part: string; text: string }>;
   /** It was asked a second time, and this is what it sent then. */
   retried?: boolean;
   /** It said it changed something and sent no text, twice: its note is not to be believed. */
@@ -1009,6 +1011,8 @@ export const api = {
   /** A range of a video: copied, split out, removed, or slowed down ("slow", ×2 or ×4: RIFE on the GPU when ComfyUI has it, else ffmpeg; `engine` says which). */
   range: (video: string, opts: { startMs: number; endMs: number; action: "copy" | "split" | "remove" | "slow"; crf?: number; factor?: 2 | 4 }) => call<{ id: string; engine?: "rife" | "ffmpeg" }>("POST", `/assets/${video}/range`, opts),
   /** How much moves along a video and how loud it is, `rate` samples a second (motion 0 = still; sound in dB, about -60 = silence): the curves on the track, the quiet moments and pauses a range snaps to. */
+  /** Where a video cuts between shots, as moments in milliseconds (ffmpeg's scene change; one shot gives none). */
+  scenes: (asset: string) => call<{ cuts: number[] }>("GET", `/assets/${asset}/scenes`),
   motion: (asset: string) => call<{ rate: number; values: number[]; sound: number[] | null }>("GET", `/assets/${asset}/motion`),
   /** How smoothly each take of a clip meets its neighbours: ×1 = like the clip's own motion, higher = a catch; null where there is no neighbour. */
   joins: (clip: string) => call<{ items: Array<{ take: string; in: number | null; out: number | null }> }>("GET", `/clips/${clip}/joins`),

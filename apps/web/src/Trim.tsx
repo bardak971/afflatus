@@ -67,7 +67,7 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
  * it over (its native controls are off while trimming). Keys: I / O set in and out at the playhead,
  * , and . step one frame (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
  */
-export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onFrame, onBetween, onExtendHere, onRange, onClose }: {
+export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onFrame, onBetween, onExtendHere, onRange, scenes, onEveryScene, onClose }: {
   asset: Asset;
   player: RefObject<HTMLVideoElement | null>;
   busy?: boolean;
@@ -89,6 +89,9 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   onExtendHere?(atMs: number): void;
   /** The range as it stands, for whoever shows its frames. */
   onRange?(range: Range): void;
+  /** Where the video cuts between shots (moments), shown as marks; and every shot copied out as its own video. */
+  scenes?: number[];
+  onEveryScene?(cuts: number[], crf: number): void;
   onClose(): void;
 }) {
   const duration = asset.durationMs ?? 0;
@@ -296,6 +299,12 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           {range.startMs > win.startMs && <div className="pointer-events-none absolute inset-y-0 left-0 bg-ground/70" style={{ width: pct(Math.min(range.startMs, win.endMs)) }} />}
           {range.endMs < win.endMs && <div className="pointer-events-none absolute inset-y-0 right-0 bg-ground/70" style={{ width: `${Math.max(0, Math.min(100, ((win.endMs - Math.max(range.endMs, win.startMs)) / span) * 100))}%` }} />}
           <div className="pointer-events-none absolute inset-y-0 border-y-2 border-accent" style={{ left: pct(Math.max(range.startMs, win.startMs)), width: `${Math.max(0, Math.min(100, ((Math.min(range.endMs, win.endMs) - Math.max(range.startMs, win.startMs)) / span) * 100))}%` }} />
+          {/* where the video cuts between shots: a tick each; a click on one later is the same as a press there */}
+          {(scenes ?? []).filter(inWin).map((ms) => (
+            <div key={ms} className="pointer-events-none absolute inset-y-0 w-px bg-amber-300/90 shadow-[0_0_0_1px_rgba(0,0,0,0.5)]" style={{ left: pct(ms) }} title={`Cut at ${clock(ms)}`}>
+              <div className="absolute -top-px left-1/2 h-1.5 w-1.5 -translate-x-1/2 rotate-45 bg-amber-300" />
+            </div>
+          ))}
           {/* the zoomed part, shown on the whole */}
           {kind === "whole" && zoom && <div className="pointer-events-none absolute inset-y-0 border-x-2 border-sky-400/80 bg-sky-400/30" style={{ left: pct(zoom.startMs), width: `${((zoom.endMs - zoom.startMs) / span) * 100}%` }} />}
         </div>
@@ -359,6 +368,9 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         <Button size="sm" tone="primary" disabled={busy || whole} title={whole ? "The whole video: there is nothing to cut." : "The range as a new video in your library; this one stays."} onClick={() => onCopy?.(range, crfN)}><Copy size={13} /> Copy to library</Button>
         <Button size="sm" disabled={busy || whole} title="Three videos: before the range, the range, after it. This one goes to the bin." onClick={() => onSplit?.(range, crfN)}><Split size={13} /> Split</Button>
         <Button size="sm" disabled={busy || whole} title="One video without the range. This one goes to the bin." onClick={() => onRemove?.(range, crfN)}><Scissors size={13} /> Remove range</Button>
+        {onEveryScene && scenes && scenes.length > 0 && (
+          <Button size="sm" disabled={busy} title={`${scenes.length + 1} shots found by their cuts: each copied out as its own video. This one stays.`} onClick={() => onEveryScene(scenes, crfN)}><Split size={13} /> Extract every scene ({scenes.length + 1})</Button>
+        )}
         {onSlow && (
           <>
             <span className="mx-1 h-5 border-l border-line" />

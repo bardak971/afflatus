@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpToLine, GripVertical, X } from "lucide-react";
 import { api, type SystemLoad } from "../api";
 import { useQueue } from "../data";
 import { about, aboutMs, phaseLabel, when } from "../format";
 import { allowNotifications, useNotify, useSystem } from "../store";
 import { Bar, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
 import { LivePreview } from "../LivePreview";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { ComfyLog } from "./queue/Log";
@@ -44,6 +45,24 @@ export function Queue() {
   const free = useMutation({ mutationFn: api.freeMemory });
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh });
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q) });
+  const runMenu = useMenu<true>();
+  /** The right-click menu of a waiting job: what its drag and its X do. */
+  const jobMenu = useMenu<{ id: string; label: string; index: number }>();
+  const jobItems = (j: { id: string; label: string; index: number }): MenuItem[] => {
+    const ids = (queue.data?.waiting ?? []).map((w) => w.id);
+    const moved = (to: number) => {
+      const next = ids.filter((x) => x !== j.id);
+      next.splice(Math.max(0, Math.min(next.length, to)), 0, j.id);
+      order.mutate(next);
+    };
+    return [
+      { label: "Move to the top", icon: <ArrowUpToLine size={14} />, disabled: j.index === 0, run: () => moved(0) },
+      { label: "Move up", icon: <ArrowUp size={14} />, disabled: j.index === 0, run: () => moved(j.index - 1) },
+      { label: "Move down", icon: <ArrowDown size={14} />, disabled: j.index >= ids.length - 1, run: () => moved(j.index + 1) },
+      "—",
+      { label: "Remove from the queue", icon: <X size={14} />, danger: true, run: () => cancel.mutate(j.id) },
+    ];
+  };
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [refused, setRefused] = useState(false);
@@ -122,7 +141,7 @@ export function Queue() {
             <section className="flex flex-col gap-2">
               <SectionTitle>{q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running"}</SectionTitle>
               {q.running ? (
-                <div className="flex flex-col gap-3 rounded-xl border border-line-strong bg-panel p-3">
+                <div className="flex flex-col gap-3 rounded-xl border border-line-strong bg-panel p-3" onContextMenu={(e) => runMenu.open(e, true)}>
                   {/* large enough to judge a render by, and to stop one that is not going where it should; a clip plays with its sound */}
                   <div data-stage className="flex h-[260px] items-center justify-center overflow-hidden rounded-lg bg-raised text-[11px] text-ink-2">
                     {q.running.previewSeq > 0 ? <LivePreview job={q.running} sound className="h-full w-auto max-w-full object-contain" /> : q.running.kind === "export" ? "no preview" : "no preview yet"}
@@ -157,6 +176,7 @@ export function Queue() {
               {q.waiting.map((w, i) => (
                 <div
                   key={w.id}
+                  onContextMenu={(e) => jobMenu.open(e, { id: w.id, label: w.label, index: i })}
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "move";
@@ -191,6 +211,8 @@ export function Queue() {
                 </div>
               ))}
               {!q.waiting.length && <div className="rounded-xl border border-line px-3.5 py-3 text-sm text-ink-2">Nothing queued.</div>}
+              {jobMenu.menu && <ContextMenu at={jobMenu.menu.at} label={`Actions on ${jobMenu.menu.subject.label}`} items={jobItems(jobMenu.menu.subject)} onClose={jobMenu.close} />}
+              {runMenu.menu && q.running && <ContextMenu at={runMenu.menu.at} label="Actions on the running render" items={[{ label: "Stop this render", icon: <X size={14} />, danger: true, run: () => cancel.mutate(q.running!.id) }]} onClose={runMenu.close} />}
               {q.waiting.length > 1 && <span className="text-xs text-ink-3">Drag to reorder. Images go before videos unless you move them.</span>}
             </section>
 

@@ -619,11 +619,35 @@ export function Studio({ open: forced }: { open?: boolean }) {
   useEffect(() => {
     const start = (e: DragEvent) => e.dataTransfer?.types.includes(DRAG_TYPE) && setFoldersOpen((o) => o || "drag");
     const end = () => setFoldersOpen((o) => (o === "drag" ? false : o));
+    // a file from the computer: the same panel, so that it can be dropped straight into a folder (the drop tray stays for the other actions)
+    const files = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes("Files"));
+    let depth = 0;
+    const enter = (e: DragEvent) => {
+      if (!files(e)) return;
+      depth++;
+      setFoldersOpen((o) => o || "drag");
+    };
+    const leave = (e: DragEvent) => {
+      if (!files(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) end();
+    };
+    const dropped = (e: DragEvent) => {
+      if (!files(e)) return;
+      depth = 0;
+      end();
+    };
     window.addEventListener("dragstart", start);
     window.addEventListener("dragend", end);
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", dropped);
     return () => {
       window.removeEventListener("dragstart", start);
       window.removeEventListener("dragend", end);
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", dropped);
     };
   }, []);
   const running = queue.data?.running ?? null;

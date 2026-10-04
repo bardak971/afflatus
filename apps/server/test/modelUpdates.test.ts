@@ -20,13 +20,16 @@ beforeEach(async () => {
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(body));
     };
-    if (req.url === "/api/v1/model-versions/by-hash/ABCDEF123456") return json({ id: 42, name: "v1", modelId: 9, model: { name: "Soft light" }, publishedAt: "2026-01-01T00:00:00Z" });
+    if (req.url === "/api/v1/model-versions/by-hash/ABCDEF123456") return json({ id: 42, name: "v1 Int8", modelId: 9, model: { name: "Soft light" }, publishedAt: "2026-01-01T00:00:00Z" });
     if (req.url === "/api/v1/models/9") {
       return json({
         id: 9, name: "Soft light",
         modelVersions: [
-          { id: 50, name: "v2", publishedAt: "2026-06-01T00:00:00Z", files: [{ name: "soft_light-v2.safetensors", primary: true }] },
-          { id: 42, name: "v1", publishedAt: "2026-01-01T00:00:00Z", files: [{ name: "soft_light.safetensors", primary: true }] },
+          // the newest is an int4 sibling of v2; the int8 file here is told about v2 int8, not about it
+          { id: 51, name: "v2 Int4", publishedAt: "2026-07-01T00:00:00Z", files: [{ name: "soft_light-v2-int4.safetensors", primary: true }] },
+          { id: 50, name: "v2 Int8", publishedAt: "2026-06-01T00:00:00Z", files: [{ name: "soft_light-v2.safetensors", primary: true }] },
+          { id: 45, name: "v1 Int4", publishedAt: "2026-02-01T00:00:00Z", files: [{ name: "soft_light-int4.safetensors", primary: true }] },
+          { id: 42, name: "v1 Int8", publishedAt: "2026-01-01T00:00:00Z", files: [{ name: "soft_light.safetensors", primary: true }] },
         ],
       });
     }
@@ -46,6 +49,18 @@ afterEach(async () => {
   await fake.close().catch(() => {});
 });
 
+import { precisionOf, sansPrecision } from "../src/modelUpdates";
+
+describe("a version's name, apart from its precision", () => {
+  it("tells a precision sibling from a newer version", () => {
+    expect(sansPrecision("v3.5 Int8 Extended")).toBe(sansPrecision("v3.5 Int4 Extended"));
+    expect(sansPrecision("v3.5 Int8 Extended")).not.toBe(sansPrecision("v3.6 Int8 Extended"));
+    expect(precisionOf("v2 fp8_e4m3fn scaled")).toBe("fp8e4m3fn scaled");
+    expect(precisionOf("Q4_K_M gguf")).toBe("gguf q4km");
+    expect(precisionOf("v7.77")).toBe("");
+  });
+});
+
 describe("newer versions on Civitai", () => {
   it("does nothing while lookups are off; then matches a file by its fingerprint, asks the model page once, and says which version is newer", async () => {
     expect((await post(t.app, "/api/models/updates/check", {})).json()).toMatchObject({ items: [], lookups: false });
@@ -56,7 +71,7 @@ describe("newer versions on Civitai", () => {
     const r = (await post(t.app, "/api/models/updates/check", {})).json();
     expect(r.lookups).toBe(true);
     expect(r.items).toHaveLength(1);
-    expect(r.items[0]).toMatchObject({ folder: "loras", file: "soft_light.safetensors", modelId: 9, modelName: "Soft light", versionId: 42, versionName: "v1", newer: { id: 50, name: "v2", file: "soft_light-v2.safetensors" } });
+    expect(r.items[0]).toMatchObject({ folder: "loras", file: "soft_light.safetensors", modelId: 9, modelName: "Soft light", versionId: 42, versionName: "v1 Int8", newer: { id: 50, name: "v2 Int8", file: "soft_light-v2.safetensors" } });
     expect(r.items[0].newer.page).toBe("https://civitai.com/models/9?modelVersionId=50");
     // the file with no hash and no copy on this disk is counted, not guessed
     expect(r.unmatched).toBe(1);

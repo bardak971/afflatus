@@ -17,6 +17,7 @@ import { useBanners, useOpenDraft } from "./store";
 import { Button, cx, SectionTitle } from "./ui";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "./dragging";
 import { ModelLink } from "./ModelLink";
+import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 
 const ROLES: Record<string, string> = { start: "First frame", end: "Last frame", source: "Source image", previous: "Previous clip", next: "Next clip",
   mid: "Keyframe", mask: "Mask", person: "Reference: person", place: "Reference: place", clothing: "Reference: clothing", object: "Reference: object", style: "Reference: style", voice: "Voice sample", sound: "Audio",
@@ -467,6 +468,19 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const [trim, setTrim] = useState(false);
   const [trimRange, setTrimRange] = useState<Range | null>(null);
   const asset = trail.at(-1) ?? first;
+  // where the video cuts between shots: read when Trim opens, kept
+  const scenes = useQuery({ queryKey: ["scenes", asset.id], queryFn: () => api.scenes(asset.id), enabled: trim && asset.kind === "video", staleTime: Infinity });
+  const everyScene = useMutation({
+    mutationFn: async (v: { cuts: number[]; crf: number }) => {
+      const edges = [0, ...v.cuts, asset.durationMs ?? 0];
+      for (let i = 0; i + 1 < edges.length; i++) {
+        if (edges[i + 1]! - edges[i]! < 200) continue;
+        await api.range(asset.id, { startMs: edges[i]!, endMs: edges[i + 1]!, action: "copy", crf: v.crf });
+      }
+    },
+  });
+  /** The video's own right-click menu: what the buttons under it do. */
+  const videoMenu = useMenu<true>();
   const detail = useAsset(asset.id);
   const recipes = useRecipes();
   const keep = useAssetAction((kept: boolean) => api.keep(asset.id, kept));
@@ -701,6 +715,20 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  const videoItems = (): MenuItem[] => [
+    { label: a.kept ? "Unkeep" : "Keep", key: "S", icon: <Star size={14} />, run: () => keep.mutate(!a.kept) },
+    { label: "Download the file", key: "D", icon: <Download size={14} />, run: download },
+    ...(g && recipe ? [
+      { label: "Variation: same parameters, new seed", key: "V", icon: <Shuffle size={14} />, run: () => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" }) },
+      { label: "Reuse parameters in the form", key: "L", icon: <Wand2 size={14} />, run: () => again.mutate(g) },
+    ] : []),
+    "—" as const,
+    { label: "Save this frame as an image", key: "G", icon: <Camera size={14} />, run: () => saveFrame.mutate() },
+    ...(!a.inBin ? [{ label: trim ? "Close Trim" : "Trim: pick a range", key: "T", icon: <Scissors size={14} />, run: () => setTrim(!trim) }] : []),
+    ...(carrier ? [{ label: "Extend: a new clip that carries on", key: "C", icon: <Clapperboard size={14} />, run: () => carryOn.mutate() }] : []),
+    "—" as const,
+    { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin() },
+  ];
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const mainText = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
   const prompt = typeof g?.inputs[mainText] === "string" ? (g.inputs[mainText] as string) : "";
@@ -709,9 +737,11 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const sources = detail.data?.id === asset.id ? detail.data.sources : [];
   const usedIn = detail.data?.id === asset.id ? detail.data.usedIn : [];
 
+  const menuElement = videoMenu.menu ? <ContextMenu at={videoMenu.menu.at} label="Actions on this video" items={videoItems()} onClose={videoMenu.close} /> : null;
   if (inline) {
     return (
       <div className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
+        {menuElement}
         <div className="flex min-h-0 grow flex-col items-center justify-center gap-2">
           {a.kind === "image" && (
             <button type="button" onClick={onDetails} title="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
@@ -720,7 +750,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           )}
           {a.kind === "video" && (
             <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3">
-              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} draggable onDragStart={dragOf(a)} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+              <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} draggable onDragStart={dragOf(a)} onContextMenu={(e) => videoMenu.open(e, true)} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
               {trim && trimRange && <RangeFrames asset={a} range={trimRange} />}
             </div>
           )}
@@ -739,6 +769,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
               onBetween={opener ? (range) => between.mutate(range) : undefined}
               onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
               onRange={setTrimRange}
+              scenes={scenes.data?.cuts}
+              onEveryScene={(cuts, crf) => everyScene.mutate({ cuts, crf })}
               onClose={() => setTrim(false)}
             />
           )}
@@ -769,11 +801,12 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
 
   return (
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
+      {menuElement}
       <div className="flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" onClick={onClose}>
         {a.kind === "image" && <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />}
         {a.kind === "video" && (
           <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3" onClick={onClose}>
-            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} draggable onDragStart={dragOf(a)} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+            <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} draggable onDragStart={dragOf(a)} onContextMenu={(e) => videoMenu.open(e, true)} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
             {trim && trimRange && <RangeFrames asset={a} range={trimRange} />}
           </div>
         )}
@@ -792,6 +825,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             onBetween={opener ? (range) => between.mutate(range) : undefined}
             onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
               onRange={setTrimRange}
+            scenes={scenes.data?.cuts}
+            onEveryScene={(cuts, crf) => everyScene.mutate({ cuts, crf })}
             onClose={() => setTrim(false)}
           />
         )}
