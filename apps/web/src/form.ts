@@ -16,6 +16,11 @@ export function formDefaults(
   const modelInput = recipe.inputs.find((i) => i.type === "model");
   const file = modelInput ? String(stored?.[modelInput.id] ?? base[modelInput.id] ?? "") : "";
   const saved = settings.find((s) => s.family === recipe.family && s.file === file)?.values ?? {};
+  const hasSaved = Object.keys(saved).length > 0;
+  // nothing saved for this file yet: what its line's authors recommend, read from its name (Pony, NoobAI v-pred, Krea…)
+  const name = file.split(/[\\/]/).pop() ?? "";
+  const preset = !hasSaved && name ? (recipe.presets ?? []).find((p) => new RegExp(p.match, "i").test(name)) : undefined;
+  const lined = preset ? Object.fromEntries(recipe.inputs.filter((i) => i.id in preset.values).map((i) => [i.id, preset.values[i.id]])) : {};
   const perModel = Object.fromEntries(recipe.inputs.filter((i) => i.perModel && i.id in saved).map((i) => [i.id, saved[i.id]]));
-  return { defaults: { ...base, ...perModel }, file, hasSaved: Object.keys(saved).length > 0 };
+  return { defaults: { ...base, ...lined, ...perModel }, file, hasSaved, preset: preset?.note };
 }

@@ -38,7 +38,7 @@ export const h3 = defineFamily({
     {
       // the turbo LoRA of the reference model is another file and does not fit this one
       id: "turbo", label: "Turbo LoRA", folder: "loras", detect: ["^(?!.*ref2v).*minimax_h3.*turbo"], optional: true,
-      hint: "Without it, Turbo is off and clips take the full step count. Put the MiniMax H3 turbo LoRA in ComfyUI's models/loras folder.",
+      hint: "Without it, Turbo is off and clips take the full step count. Put the MiniMax H3 turbo LoRA (the 8-step one, or the 4-step 768p one) in ComfyUI's models/loras folder.",
       get: { file: "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", url: "https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" },
     },
     {
@@ -81,6 +81,8 @@ More detail does not mean more actions: describe the same few actions precisely.
 });
 
 export const H3_FPS = 24;
+/** The longest clip the model was trained on: 362 frames (15 s at 24), joins included. */
+export const H3_MAX_FRAMES = 362;
 /** H3's largest canvas in one pass as it was trained: 768 × 1344 pixels. Both edges are multiples of 32. */
 export const H3_MAX_PIXELS = 768 * 1344;
 /** What a form may ask for: up to 1080p, past what the model was trained for, for cards that have the room. */

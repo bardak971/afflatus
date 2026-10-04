@@ -32,7 +32,7 @@ export const samplingInputs = (steps = 28): InputSpec[] => [
   { id: "cfg", type: "number", label: "CFG scale", note: "how closely it follows the prompt", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
   { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler_ancestral", advanced: true, perModel: true },
   { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "normal", advanced: true, perModel: true },
-  { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = the model's own setting", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
+  { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = SDXL's own, which is already the second-last layer: what Civitai calls \"clip skip 2\" (Pony, Illustrious). Only raise it when a checkpoint's card asks for more than that", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
   { id: "seed", type: "seed", label: "Seed" },
 ];
 
@@ -80,7 +80,11 @@ export function workSize(of: { width: number; height: number } | undefined, area
   return { width: round8(of.width * s), height: round8(of.height * s) };
 }
 
-/** The part of a picture a mask covers: what was painted with room around it, or all of it when nothing says. */
+/**
+ * The part of a picture a mask covers, or all of it when nothing says. The box comes with room around
+ * the paint already (the server reads the mask and adds 35 %, at least 48 px, each side): that room is
+ * what lets the model see what the new part has to join.
+ */
 export function boxOf(picture: MediaFacts | undefined, mask: MediaFacts | undefined) {
   const width = picture?.width || mask?.width || 1024;
   const height = picture?.height || mask?.height || 1024;
@@ -133,8 +137,8 @@ export const FACE_INPUTS: InputSpec[] = [
   { id: "faceThreshold", type: "number", label: "Detection threshold", note: "how sure the detector must be that it is a face. Lower finds more: small or turned faces, and more mistakes", min: 0.1, max: 0.95, step: 0.05, default: 0.5, advanced: true },
   { id: "faceCrop", type: "number", label: "Face crop factor", note: "how much around the face is redrawn with it, in face sizes: 3 takes in the hair and the neck", min: 1, max: 6, step: 0.5, default: 3, unit: "×", advanced: true },
   { id: "faceGrow", type: "number", label: "Face mask dilation", note: "the area that is found, made larger by this much before it is redrawn", min: 0, max: 64, step: 1, default: 10, unit: " px", advanced: true },
-  { id: "faceSize", type: "number", label: "Face guide size", note: "a face smaller than this is enlarged to it first: larger is sharper and slower", min: 256, max: 1536, step: 64, default: 768, unit: " px", advanced: true },
-  { id: "faceMax", type: "number", label: "Face max size", note: "a face larger than this is brought down to it", min: 512, max: 2048, step: 64, default: 1024, unit: " px", advanced: true },
+  { id: "faceSize", type: "number", label: "Face guide size", note: "the crop around the face (the face and its crop factor) is redrawn at this size, as ADetailer does: 1024 is what SDXL draws best; larger is slower", min: 256, max: 1536, step: 64, default: 1024, unit: " px", advanced: true },
+  { id: "faceMax", type: "number", label: "Face max size", note: "a crop larger than this is brought down to it", min: 512, max: 2048, step: 64, default: 1280, unit: " px", advanced: true },
   { id: "faceFeather", type: "number", label: "Mask feather", note: "how softly the redrawn face is blended back", min: 0, max: 64, step: 1, default: 5, unit: " px", advanced: true },
 ];
 
@@ -164,6 +168,35 @@ export const MASK_NODES = ["LoadImageMask", "CropMask", "MaskToImage", "ImageToM
 
 /** The upscale models that suit most pictures, best first. */
 /** Which upscale model a picture recipe starts on when its default is not there: UltraSharp, else Nomos8kSC (photos), else a general one, never an anime one. */
-export const UPSCALER_PREFER = ["ultrasharp", "nomos8ksc", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)"];
+export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)"];
+
+/**
+ * What a checkpoint starts on the first time it is used, by its line: the settings its authors give.
+ * Pony wants its score tags and a high CFG; Illustrious and NoobAI their quality tags; a NoobAI v-pred
+ * checkpoint runs on euler only, at a low CFG. Clip skip stays at 1: ComfyUI's SDXL encoders already
+ * read the second-last layer, which is what these cards call "clip skip 2".
+ */
+export const SDXL_PRESETS = [
+  {
+    match: "noob.*v.?pred|v.?pred.*noob|vpred",
+    values: { sampler: "euler", scheduler: "normal", cfg: 4.5, steps: 30, quality: "masterpiece, best quality, newest, absurdres, highres", negative: `${DEFAULT_NEGATIVE}, old, early` },
+    note: "NoobAI v-pred: euler (other samplers break on it), CFG 4 to 5, its quality tags",
+  },
+  {
+    match: "pony|(^|[^a-z])pdxl([^a-z]|$)",
+    values: { cfg: 7, sampler: "euler_ancestral", scheduler: "normal", steps: 25, quality: "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up" },
+    note: "Pony: its score tags up front and CFG 7, as its card says",
+  },
+  {
+    match: "illustrious|noob|(^|[^a-z])(il[\\s._-]?xl|illu|nai[\\s._-]?xl)([^a-z]|$)",
+    values: { cfg: 5.5, sampler: "euler_ancestral", scheduler: "normal", steps: 28, quality: "masterpiece, best quality, absurdres" },
+    note: "Illustrious / NoobAI: euler a, CFG 5 to 7, its quality tags",
+  },
+  {
+    match: "animagine",
+    values: { cfg: 6, sampler: "euler_ancestral", scheduler: "normal", steps: 28, quality: "masterpiece, best quality" },
+    note: "Animagine: euler a, CFG 5 to 7, its quality tags",
+  },
+];
 /** The face detectors of the Impact Pack, best first. */
 export const FACE_DETECTOR_PREFER = ["face_yolov8m", "face_yolov8", "face"];

@@ -1,5 +1,4 @@
 import type { BuildContext, GraphBuilder, InputSpec, LoraValue, ReferenceValue, Ref } from "@afflatus/core";
-import { KLEIN_NEGATIVE } from "./family";
 
 /** What every Klein recipe asks for besides its own inputs. */
 export interface KleinBase {
@@ -21,7 +20,8 @@ export const kleinModel: InputSpec = {
 /** How it samples: the values of ComfyUI's own Klein template for the base model, each kept per model once saved. */
 export const kleinInputs: InputSpec[] = [
   { id: "loras", type: "loras", label: "LoRAs", max: 4 },
-  { id: "negative", type: "prompt", label: "Negative prompt", note: "only acts with a CFG scale above 1, so not with a distilled model", style: "sentences", optional: true, default: KLEIN_NEGATIVE, advanced: true, perModel: true },
+  // empty, as ComfyUI's templates have it: a fixed list ("cartoon, illustration") fights the styles the model is asked for
+  { id: "negative", type: "prompt", label: "Negative prompt", note: "only acts with a CFG scale above 1, so not with a distilled model. Empty in ComfyUI's templates; a short list of what must not appear, when something does", style: "sentences", optional: true, default: "", advanced: true, perModel: true },
   { id: "steps", type: "number", label: "Steps", note: "20 for the base model, 4 for a distilled one", min: 1, max: 60, step: 1, default: 20, advanced: true, perModel: true },
   { id: "cfg", type: "number", label: "CFG scale", note: "5 for the base model, 1 for a distilled one", min: 1, max: 12, step: 0.5, default: 5, advanced: true, perModel: true },
   { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },

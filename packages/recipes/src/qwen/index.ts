@@ -18,14 +18,15 @@ export const qwen = defineFamily({
     {
       // the newest first; never the Edit or the layered models, which do something else
       id: "unet", label: "Diffusion model", folder: "diffusion_models",
-      detect: ["^(?!.*(edit|layered)).*qwen.?image.*2512", "^(?!.*(edit|layered)).*qwen.?image"],
+      // never Qwen Image 2.1 either: another encoder, another VAE, other nodes
+      detect: ["^(?!.*(edit|layered|2[._]1)).*qwen.?image.*2512", "^(?!.*(edit|layered|2[._]1)).*qwen.?image"],
       hint: "Put a Qwen Image model (qwen_image_2512_fp8_e4m3fn.safetensors, or a fine-tune) in ComfyUI's models/diffusion_models folder.",
       get: { file: "qwen_image_2512_fp8_e4m3fn.safetensors", url: `${HF}/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors` },
     },
     {
       id: "clip", label: "Text encoder (Qwen 2.5 VL 7B)", folder: "text_encoders", detect: ["qwen.?2[._]?5.?vl.?7b"],
       hint: "Put qwen_2.5_vl_7b_fp8_scaled.safetensors in ComfyUI's models/text_encoders folder.",
-      get: { file: "qwen_2.5_vl_7b_fp8_scaled.safetensors", url: "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors" },
+      get: { file: "qwen_2.5_vl_7b_fp8_scaled.safetensors", url: `${HF}/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors` },
     },
     {
       // Qwen Image works in the latent space of its own VAE, which is also that of the Wan 2.1 VAE
@@ -39,7 +40,7 @@ export const qwen = defineFamily({
       get: { file: "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning/resolve/main/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors" },
     },
     {
-      id: "edit", label: "Qwen Image Edit model", folder: "diffusion_models", detect: ["qwen.?image.?edit.*2511", "qwen.?image.?edit"], optional: true,
+      id: "edit", label: "Qwen Image Edit model", folder: "diffusion_models", detect: ["^(?!.*2[._]1).*qwen.?image.?edit.*2511", "^(?!.*2[._]1).*qwen.?image.?edit"], optional: true,
       hint: "Without it there is no Edit. Put qwen_image_edit_2511_*.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "qwen_image_edit_2511_fp8mixed.safetensors", url: `${HF_EDIT}/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors` },
     },
@@ -62,10 +63,13 @@ No weights, no quality tags. A LoRA's trigger words must stay in the prompt for 
 /** What a model or a LoRA made for a few steps is called. */
 const lightning = /lightning|turbo|distill|(^|[^a-z0-9])\d+[ _-]?steps?/i;
 
+/** Qwen Image's own negative prompt, as its authors and ComfyUI's template give it (low resolution, deformed hands, waxy skin, an "AI look", muddled composition, blurred text). */
+export const QWEN_NEGATIVE = "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲";
+
 const spec: FlowSpec = {
   family: "qwen",
   model: {
-    id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["^(?!.*(edit|layered)).*qwen.?image", "qwen"],
+    id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["^(?!.*(edit|layered|2[._]1)).*qwen.?image", "qwen"],
     note: "Qwen Image, or a fine-tune of it",
   },
   encoder: {
@@ -79,15 +83,20 @@ const spec: FlowSpec = {
     note: "a few steps at CFG 1: with the Lightning LoRA, or as it is with a model made for it",
     stepsNote: "4 or 8: as many as the Lightning LoRA you have is made for",
   },
-  negative: { default: "", note: "acts with a CFG scale above 1, so not with Turbo", empty: "encode" },
+  negative: { default: QWEN_NEGATIVE, note: "acts with a CFG scale above 1, so not with Turbo. The starting text is Qwen's own, in Chinese", empty: "encode" },
   sampling: {
-    steps: 20, stepsNote: "20 in ComfyUI's template; the 2512 model's authors give 50: more is sharper and slower",
+    steps: 50, stepsNote: "50 is what the 2512 model's authors and ComfyUI's template give; 20 is a quick draft",
     cfg: 4, cfgNote: "4 in ComfyUI's template (2.5 is softer). With Turbo it is 1", sampler: "euler", scheduler: "simple",
   },
+  // the sizes Qwen Image's authors list
   shapes: [
-    { id: "tall", label: "Portrait", width: 1104, height: 1472 },
+    { id: "tall", label: "Portrait 3:4", width: 1104, height: 1472 },
     { id: "square", label: "Square", width: 1328, height: 1328 },
-    { id: "wide", label: "Landscape", width: 1472, height: 1104 },
+    { id: "wide", label: "Landscape 4:3", width: 1472, height: 1104 },
+    { id: "tall-9-16", label: "Portrait 9:16", width: 928, height: 1664 },
+    { id: "wide-16-9", label: "Landscape 16:9", width: 1664, height: 928 },
+    { id: "tall-2-3", label: "Portrait 2:3", width: 1056, height: 1584 },
+    { id: "wide-3-2", label: "Landscape 3:2", width: 1584, height: 1056 },
   ],
   megapixels: 1.8,
   placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones.",
@@ -106,6 +115,7 @@ export const qwenFixFace = made.fixFace;
 
 export interface QwenEdit {
   model?: string;
+  precision?: string;
   source: string;
   prompt: string;
   references: ReferenceValue[];
@@ -165,13 +175,14 @@ export const qwenEdit = defineRecipe<QwenEdit>({
     const clip = g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "qwen_image", device: "default" });
     const vae = g.out("VAELoader", { vae_name: ctx.slots.vae });
     // the model as ComfyUI's template prepares it: its LoRAs, the shift, the CFG kept in bounds, then the Lightning LoRA
-    let model: Ref = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
+    let model: Ref = g.out("UNETLoader", { unet_name: unet, weight_dtype: input.precision || "default" });
     for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     if (input.shift > 0) model = g.out("ModelSamplingAuraFlow", { model, shift: input.shift });
     model = g.out("CFGNorm", { model, strength: 1, pre_cfg: false });
-    const made = /lightning|turbo|distill/i.test(unet.split(/[\\/]/).pop() ?? "");
+    // a model made for a few steps runs at them whether Turbo is on or not
+    const made = lightning.test(unet.split(/[\\/]/).pop() ?? "");
     const turboLora = input.fast && !made ? ctx.slots.editTurbo : undefined;
-    const turbo = input.fast && (made || Boolean(turboLora));
+    const turbo = made || (input.fast && Boolean(turboLora));
     if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: 1 });
 
     const picture = g.out("FluxKontextImageScale", { image: g.out("LoadImage", { image: ctx.uploads.source }) });

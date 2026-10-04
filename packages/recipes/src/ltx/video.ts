@@ -39,8 +39,10 @@ export interface LtxVideo {
   crf: number;
   schedule: string;
   steps: number;
-  scheduler: string;
-  shift: number;
+  maxShift: number;
+  baseShift: number;
+  terminal: number;
+  stretch: boolean;
   cfg: number;
   sampler: string;
   startStrength: number;
@@ -127,18 +129,17 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     },
     {
       id: "schedule", type: "choice", label: "Schedule", options: [OWN_SCHEDULE, BY_STEPS], default: OWN_SCHEDULE, advanced: true, perModel: true,
-      note: "LTX's own is the 8 steps its authors give for the distilled model. By steps: a number of steps, a scheduler and a shift of your choice",
+      note: "LTX's own is the 8 steps its authors give for the distilled model. By steps: LTX's scheduler at a number of steps, for the full (dev) model, which ComfyUI's template runs at 20 steps and CFG 4, the distilled LoRA refining only",
     },
-    { id: "steps", type: "number", label: "Steps", min: 2, max: 50, step: 1, default: 8, showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true },
+    { id: "steps", type: "number", label: "Steps", note: "20 in ComfyUI's template for the dev model", min: 2, max: 50, step: 1, default: 20, showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true },
     {
-      id: "scheduler", type: "choice", label: "Scheduler", options: { node: "BasicScheduler", input: "scheduler" }, default: "linear_quadratic",
-      showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true,
+      id: "maxShift", type: "number", label: "Max shift", min: 0, max: 10, step: 0.05, default: 2.05, showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true,
+      note: "LTX's scheduler shifts its schedule by the size of the clip, between the base shift (small clips) and this (large ones): 2.05 and 0.95 are the model's own",
     },
-    {
-      id: "shift", type: "number", label: "Shift", min: 0, max: 30, step: 0.5, default: 13, showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true,
-      note: "0 leaves the model's own",
-    },
-    { id: "cfg", type: "number", label: "CFG scale", note: "1 for a distilled model. Above 1 the negative prompt acts and every step takes twice as long", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true },
+    { id: "baseShift", type: "number", label: "Base shift", min: 0, max: 10, step: 0.05, default: 0.95, showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true },
+    { id: "terminal", type: "number", label: "Terminal sigma", note: "where the schedule ends: 0.1 is the model's own; lower runs it further towards a clean clip", min: 0, max: 0.99, step: 0.01, default: 0.1, showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true },
+    { id: "stretch", type: "toggle", label: "Stretch the schedule", note: "the schedule stretched so that it ends at the terminal sigma, as the model's own does", default: true, showWhen: { input: "schedule", in: [BY_STEPS] }, advanced: true, perModel: true },
+    { id: "cfg", type: "number", label: "CFG scale", note: "1 for a distilled model and LTX's own schedule; 3 to 4 with By steps on the dev model (ComfyUI's template: 4). Above 1 the negative prompt acts and every step takes twice as long", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true },
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
     {
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, advanced: true, perModel: true,
@@ -153,7 +154,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     },
     {
       id: "loraStrength", type: "number", label: "Distilled LoRA strength", min: 0, max: 1.5, step: 0.05, default: 0.5, advanced: true, perModel: true,
-      note: "only for a model that is not distilled: how strongly the distilled LoRA is put on it. 0.5 is what ComfyUI's template uses",
+      note: "only for a model that is not distilled: how strongly the distilled LoRA is put on it. 0.5 is what ComfyUI's template uses with LTX's own schedule; with By steps the LoRA refines only, at 1 in the template",
     },
     { id: "tile", type: "number", label: "VAE decode tile size", note: "the clip is turned into pictures piece by piece: smaller pieces need less memory and take longer", min: 256, max: 2048, step: 32, default: 768, unit: " px", advanced: true },
     { id: "tileFrames", type: "number", label: "VAE decode temporal tile", note: "fewer needs less memory. 4096 is all of them at once", min: 16, max: 4096, step: 8, default: 4096, advanced: true },
@@ -173,7 +174,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       ...routeNodes,
       "CLIPTextEncode", "LTXVConditioning", "EmptyLTXVLatentVideo", "LTXVEmptyLatentAudio", "LTXVConcatAVLatent", "LTXVSeparateAVLatent",
       "RandomNoise", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode", "VHS_VideoCombine",
-      ...(input.schedule === BY_STEPS ? ["BasicScheduler", ...(input.shift > 0 ? ["ModelSamplingSD3"] : [])] : []),
+      ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
       ...(input.start || input.end ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
     ];
   },
@@ -219,24 +220,24 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       audioVae = g.out("LTXVAudioVAELoader", { ckpt_name: picked.checkpoint });
       clip = g.out("LTXAVTextEncoderLoader", { text_encoder: slots.clip, ckpt_name: picked.checkpoint, device: "default" });
     }
-    // the full model works in 8 steps with the distilled LoRA at half strength, as ComfyUI's template has it
-    const lora = !picked.distilled && slots.turbo ? slots.turbo : undefined;
-    if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength });
     for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
-
     const byHand = input.schedule !== BY_STEPS;
-    if (!byHand && input.shift > 0) model = g.out("ModelSamplingSD3", { model, shift: input.shift });
     // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
     // there), sent as a short clip. ComfyUI's own preview is the first frame alone. No sound: the node
     // plays it for H3 alone (seen on a real render: an audio VAE given here is not used)
-    if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
-      model = g.out("ModelPreviewOverrideKJ", {
-        model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12,
-        tiny_vae: slots.tinyVae ?? "none",
-      });
-    }
+    const previewed = (m: Ref): Ref => (input.livePreview && ctx.has("ModelPreviewOverrideKJ")
+      ? g.out("ModelPreviewOverrideKJ", { model: m, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12, tiny_vae: slots.tinyVae ?? "none" })
+      : m);
+    // the full model: with LTX's own 8 steps the distilled LoRA goes on the whole render at half strength, as
+    // ComfyUI's template has it; with By steps the dev model samples on its own schedule and the LoRA refines only
+    const lora = !picked.distilled && slots.turbo ? slots.turbo : undefined;
+    const plain = previewed(model);
+    const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength })) : plain;
+    const firstModel = byHand ? boosted : plain;
+    model = boosted;
     const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
-    const sigmas = () => (byHand ? g.out("ManualSigmas", { sigmas: LTX_SIGMAS }) : g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: 1 }));
+    // By steps: LTX's own scheduler, shifted by the size of the latent it is given
+    const sigmas = (latent: Ref) => (byHand ? g.out("ManualSigmas", { sigmas: LTX_SIGMAS }) : g.out("LTXVScheduler", { steps, max_shift: input.maxShift, base_shift: input.baseShift, stretch: input.stretch, terminal: input.terminal, latent }));
 
     const cond = g.add("LTXVConditioning", {
       positive: g.out("CLIPTextEncode", { clip, text: input.prompt }),
@@ -263,8 +264,8 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       g.phase("sampling");
       const first = g.add("SamplerCustomAdvanced", {
         noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
-        guider: g.out("CFGGuider", { model, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
-        sampler, sigmas: sigmas(),
+        guider: g.out("CFGGuider", { model: firstModel, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
+        sampler, sigmas: sigmas(latent),
         latent_image: g.out("LTXVConcatAVLatent", { video_latent: latent, audio_latent: sound }),
       });
       passes.push({ node: first, steps });
@@ -305,7 +306,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       const only = g.add("SamplerCustomAdvanced", {
         noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
         guider: g.out("CFGGuider", { model, positive, negative, cfg: input.cfg }),
-        sampler, sigmas: sigmas(),
+        sampler, sigmas: sigmas(latent),
         latent_image: g.out("LTXVConcatAVLatent", { video_latent: latent, audio_latent: sound }),
       });
       passes.push({ node: only, steps });
@@ -380,10 +381,10 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       {
         // the full model: the distilled LoRA goes on it; a schedule of the user's own
         name: "the full model with the distilled LoRA, by steps with a shift, on a timeline's canvas",
-        input: { prompt: "a", start: "p1", model: "ltx-2.3-22b-dev.safetensors", schedule: "By steps", steps: 10, scheduler: "beta", shift: 9, cfg: 3, negative: "blurry" },
+        input: { prompt: "a", start: "p1", model: "ltx-2.3-22b-dev.safetensors", schedule: "By steps", steps: 10, maxShift: 2.5, terminal: 0.05, cfg: 3, negative: "blurry" },
         slots: { ...parts, ...extras }, uploads: { start: "a.png" }, media: { start: picture }, canvas: { width: 1024, height: 576 },
       },
-      { name: "opens on a picture, one pass asked for, by steps without a shift", input: { prompt: "a", start: "p1", twoPass: false, schedule: "By steps", shift: 0 }, slots: { ...one, ...extras }, uploads: { start: "a.png" }, media: { start: picture } },
+      { name: "opens on a picture, one pass asked for, by steps unstretched", input: { prompt: "a", start: "p1", twoPass: false, schedule: "By steps", stretch: false }, slots: { ...one, ...extras }, uploads: { start: "a.png" }, media: { start: picture } },
     ];
   })(),
 });

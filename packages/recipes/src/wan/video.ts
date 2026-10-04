@@ -22,6 +22,7 @@ export interface WanVideo {
   short: number;
   fast: boolean;
   turboSteps: number;
+  turboStrength: number;
   steps: number;
   split: number;
   cfg: number;
@@ -114,12 +115,16 @@ export const wanVideo = defineRecipe<WanVideo>({
       note: "the short side of the frame. Wan is made for 480p and 720p. Past 720p it is beyond what it was trained for: much slower, and it may drift",
     },
     ...upscaleInputs(),
-    { id: "fast", type: "toggle", label: "Turbo", note: "4 steps at CFG 1: with the lightx2v LoRAs, or as it is with a model made for it", default: true, advanced: true, perModel: true },
+    { id: "fast", type: "toggle", label: "Turbo", note: "4 steps at CFG 1, for drafts: with the lightx2v LoRAs (one click in Settings → Models), or as it is with a model made for it. Quicker, with less motion than the full steps", default: false, advanced: true, perModel: true },
     {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "made for a few steps: no turbo LoRA is added. Auto reads it from the file name",
     },
     { id: "turboSteps", type: "number", label: "Turbo steps", note: "4 is what the turbo LoRAs are made for; some fine-tunes ask for 6 or 8", min: 2, max: 12, step: 1, default: 4, showWhen: "fast", advanced: true, perModel: true },
+    {
+      id: "turboStrength", type: "number", label: "Turbo LoRA strength (high noise)", min: 0.2, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true,
+      note: "1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
+    },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
       id: "split", type: "number", label: "High-noise steps (share)", min: 0.1, max: 0.9, step: 0.05, default: 0.5, advanced: true, perModel: true,
@@ -132,8 +137,8 @@ export const wanVideo = defineRecipe<WanVideo>({
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerAdvanced", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSamplerAdvanced", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
     {
-      id: "shift", type: "number", label: "Shift", min: 0.5, max: 20, step: 0.5, default: 5, advanced: true, perModel: true,
-      note: "higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail). Some fine-tunes ask for 8",
+      id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 0, advanced: true, perModel: true,
+      note: "0 picks it: 8 at full steps (ComfyUI's template: with it the half-way handover meets the noise level the two models were split at), 5 with Turbo (what the lightx2v LoRAs are made for). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)",
     },
     {
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: WAN_NEGATIVE, advanced: true, perModel: true,
@@ -199,11 +204,12 @@ export const wanVideo = defineRecipe<WanVideo>({
     // files (and with a model that is not distilled) there is no Turbo: the clip takes the full steps.
     const turboLoras = input.fast && !picked.distilled && picked.turboHigh && picked.turboLow ? { high: picked.turboHigh, low: picked.turboLow } : null;
     const turbo = input.fast && (picked.distilled || Boolean(turboLoras));
-    const load = (file: string, turboLora: string | undefined, loras: LoraValue[]) => {
+    const load = (file: string, turboLora: string | undefined, strength: number, loras: LoraValue[]) => {
       let model: Ref = g.out("UNETLoader", { unet_name: file, weight_dtype: "default" });
-      if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: 1 });
+      if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: strength });
       for (const l of loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
-      model = g.out("ModelSamplingSD3", { model, shift: input.shift });
+      // the shift typed in, else the one that suits the steps: 8 at full steps (the template's), 5 for the turbo LoRAs
+      model = g.out("ModelSamplingSD3", { model, shift: input.shift > 0 ? input.shift : turbo ? 5 : 8 });
       // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
       // there), sent as a short clip. ComfyUI's own preview is the first frame alone: the start image, still
       if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
@@ -214,8 +220,8 @@ export const wanVideo = defineRecipe<WanVideo>({
       }
       return model;
     };
-    const high = load(picked.high, turboLoras?.high, input.loras);
-    const low = load(picked.low, turboLoras?.low, input.lorasLow);
+    const high = load(picked.high, turboLoras?.high, input.turboStrength, input.loras);
+    const low = load(picked.low, turboLoras?.low, 1, input.lorasLow);
 
     let positive: Ref = g.out("CLIPTextEncode", { clip, text: input.prompt });
     let negative: Ref = g.out("CLIPTextEncode", { clip, text: input.negative });
@@ -310,7 +316,8 @@ export const wanVideo = defineRecipe<WanVideo>({
       },
       { name: "ends on a picture only", input: { prompt: "a", end: "p2", fast: false }, slots: all, uploads: { end: "b.png" }, media: { end: picture } },
       { name: "from words alone, Turbo", input: { prompt: "a", seconds: 3 }, slots: all },
-      { name: "from words alone, full steps, wide", input: { prompt: "a", fast: false, steps: 30, split: 0.4, cfg: 4, shift: 8, shape: { width: 832, height: 480 }, negative: "blurry" }, slots: all },
+      { name: "from words alone, full steps, wide", input: { prompt: "a", fast: false, steps: 30, split: 0.4, cfg: 4, shift: 12, shape: { width: 832, height: 480 }, negative: "blurry" }, slots: all },
+      { name: "Turbo with the high-noise LoRA eased", input: { prompt: "a", start: "p1", fast: true, turboStrength: 0.7 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       {
         // made for a few steps as it is: no turbo LoRA on top of it
         name: "a distilled fine-tune in two files, on a timeline's canvas",

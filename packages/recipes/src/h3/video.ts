@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, REFERENCE_ROLES, type ClipValue, type LoraValue, type MediaFacts, type Ref, type ReferenceValue, type SizeValue, type Variant } from "@afflatus/core";
-import { H3_FORM_PIXELS, H3_FPS, h3Canvas, h3Frames } from "./family";
+import { H3_FORM_PIXELS, H3_FPS, H3_MAX_FRAMES, h3Canvas, h3Frames } from "./family";
 import { pixelUpscale, UPSCALE, upscaleInputs, upscaleNodes } from "../video/upscale";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
@@ -164,7 +164,7 @@ export const h3Video = defineRecipe<H3Video>({
       id: "subject", type: "prompt", weights: false, label: "Subject description", style: "sentences", optional: true, showWhen: "references", holds: "subject",
       placeholder: "brown hair, green eyes, freckles", note: "in a few words, to help the pictures",
     },
-    { id: "seconds", type: "number", label: "Duration", min: 2, max: 15, step: 0.5, default: 5, unit: " s" },
+    { id: "seconds", type: "number", label: "Duration", min: 4, max: 15, step: 0.5, default: 5, unit: " s", note: "the model is trained on 4 to 15 seconds. A clip that joins others is made longer by the frames it shares with them, within 15 seconds in all" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "tall", grid: 32, min: 256, max: 1344, ratioOnly: true,
       short: "short", maxPixels: H3_FORM_PIXELS, decidedBy: ["start", "end", "previous", "next"], scaledBy: { on: "upscale", by: "upscaleBy" },
@@ -192,12 +192,12 @@ export const h3Video = defineRecipe<H3Video>({
     { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
     { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
     { id: "upscaleChunk", type: "number", label: "Upscale temporal chunk", min: 17, max: 255, step: 17, default: 85, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the clip is re-sampled in stretches of this many frames, overlapping by 17" },
-    { id: "fast", type: "toggle", label: "Turbo", note: "8 steps, about twice as fast: with the turbo LoRA, or as it is with a turbo model", default: true, advanced: true, perModel: true },
+    { id: "fast", type: "toggle", label: "Turbo", note: "a few steps, about twice as fast, for drafts: with the turbo LoRA (one click in Settings → Models), or as it is with a turbo model. Without either, the full steps run", default: false, advanced: true, perModel: true },
     {
-      id: "turboSteps", type: "number", label: "Turbo steps", min: 2, max: 16, step: 1, default: 8, showWhen: "fast", advanced: true, perModel: true,
-      note: "8 is what the turbo LoRA is named for. ComfyUI's own template runs it at 6, and the reference model's turbo LoRA at 4",
+      id: "turboSteps", type: "number", label: "Turbo steps", min: 0, max: 16, step: 1, default: 0, showWhen: "fast", advanced: true, perModel: true,
+      note: "0 reads it from the LoRA's name (8step, 4step), else 8. ComfyUI's own template runs the 8-step LoRA at 6",
     },
-    { id: "steps", type: "number", label: "Steps", note: "15 here; ComfyUI's own template uses 20", min: 4, max: 50, step: 1, default: 15, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
+    { id: "steps", type: "number", label: "Steps", note: "20 is ComfyUI's own template; 15 is a little quicker, 25 a little finer", min: 4, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
       id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, extra: [AUTO_SAMPLER], default: AUTO_SAMPLER, advanced: true, perModel: true,
       note: "Auto: euler with Turbo, res_multistep without (ComfyUI's own template uses res_multistep for both)",
@@ -205,11 +205,11 @@ export const h3Video = defineRecipe<H3Video>({
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "BasicScheduler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
     {
       id: "shiftVideo", type: "number", label: "Shift (video)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
-      note: "0 picks it: 7 with Turbo, 11 without. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail). The model's own, when no shift is set at all, is 12",
+      note: "0 picks it: 11 at full steps, 12 with the 8-step turbo LoRA and 6 with a 4-step one (what they were trained at). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail). The model's own, when no shift is set at all, is 12",
     },
     {
       id: "shiftAudio", type: "number", label: "Shift (sound)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
-      note: "0 picks it: 4.5 with Turbo, 4 without",
+      note: "0 picks it: 4 at full steps, 3 with Turbo (the turbo LoRAs were trained at 3)",
     },
     {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
@@ -272,8 +272,10 @@ export const h3Video = defineRecipe<H3Video>({
     }
     const head = input.previous ? guideFrames(media.previous) : 0;
     const tail = input.next ? guideFrames(media.next) : 0;
-    // the frames shared with a neighbour are that neighbour's: the clip is made that much longer, so its own part keeps the length asked for
-    const seconds = input.seconds + (head + tail) / H3_FPS;
+    // the frames shared with a neighbour are that neighbour's: the clip is made that much longer, so its own
+    // part keeps the length asked for, within the 362 frames (15 s) the model was trained up to
+    const ownSeconds = Math.min(input.seconds, (H3_MAX_FRAMES - head - tail) / H3_FPS);
+    const seconds = ownSeconds + (head + tail) / H3_FPS;
     const frames = h3Frames(seconds);
 
     // the frame: a timeline's canvas, else the clip it joins, else the picture it opens or ends on, else the shape picked
@@ -299,6 +301,9 @@ export const h3Video = defineRecipe<H3Video>({
     const distilled = own ? picked.turbo : namedFor.turbo.test(unet?.split(/[\\/]/).pop() ?? "");
     const lora = input.fast && !distilled ? turboFile : undefined;
     const turbo = distilled || Boolean(lora);
+    // how many steps a turbo render takes: typed, else what the LoRA (or a distilled model) is named for, else 8
+    const namedSteps = /(\d+)[ _-]?step/i.exec((lora ?? (distilled ? unet : "") ?? "").split(/[\\/]/).pop() ?? "");
+    const turboSteps = input.turboSteps > 0 ? input.turboSteps : namedSteps ? Number(namedSteps[1]) : 8;
     let model = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
     // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
     if (input.cache && !turbo && ctx.has("MiniMaxH3Cache")) {
@@ -310,8 +315,8 @@ export const h3Video = defineRecipe<H3Video>({
     for (const l of input.loras) {
       if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     }
-    // the shifts typed in, else the ones that suit the steps: few steps (turbo) want less of it on the video
-    model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo > 0 ? input.shiftVideo : turbo ? 7 : 11, shift_audio: input.shiftAudio > 0 ? input.shiftAudio : turbo ? 4.5 : 4 });
+    // the shifts typed in, else the ones that suit the steps: the turbo LoRAs were trained at 12/3 (8 steps) and 6/3 (4 steps)
+    model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo > 0 ? input.shiftVideo : turbo ? (turboSteps <= 4 ? 6 : 12) : 11, shift_audio: input.shiftAudio > 0 ? input.shiftAudio : turbo ? 3 : 4 });
     // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is there)
     // and the sound so far, sent as a short clip to whoever queued the prompt: what ComfyUI itself shows
     if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
@@ -371,12 +376,12 @@ export const h3Video = defineRecipe<H3Video>({
     if (input.next) pin(uploads.next, media.next, -tail);
     // a picture the clip passes through: one frame pinned at its moment, counted after the frames shared with the clip before
     if (input.mid) {
-      const at = Math.max(1, Math.min(frames - tail - 2, head + Math.round(Math.min(input.midAt, input.seconds - 0.25) * H3_FPS)));
+      const at = Math.max(1, Math.min(frames - tail - 2, head + Math.round(Math.min(input.midAt, ownSeconds - 0.25) * H3_FPS)));
       positive = g.out("MiniMaxH3AddGuide", { positive, vae, audio_vae: audioVae, latent, image: g.out("LoadImage", { image: uploads.mid }), frame_idx: at });
     }
 
     // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
-    const steps = lora || (distilled && input.fast) ? input.turboSteps : input.steps;
+    const steps = lora || (distilled && input.fast) ? turboSteps : input.steps;
     g.phase("sampling");
     const sampled = g.add("SamplerCustomAdvanced", {
       noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
@@ -403,7 +408,7 @@ export const h3Video = defineRecipe<H3Video>({
       const tiles = g.out("MMH3SpatialSplitParams", {
         upscale_width: big.width, upscale_height: big.height, tile_size_mode: "specific_size", tile_width: input.upscaleTile, tile_height: input.upscaleTile, grid_rows: 2, grid_cols: 2,
         spatial_w_overlap: input.upscaleOverlap, spatial_h_overlap: input.upscaleOverlap, fade_width: 64, fade_height: 64, min_tile_size: 256,
-        overlap_mode: "later", overlap_blend: "linear", masked_area_noise: 0, brightness_match: false, dynamic_fade: "off", dynamic_fade_min: 32,
+        overlap_mode: "later", overlap_blend: "linear", masked_area_noise: 0.05, brightness_match: true, dynamic_fade: "widening", dynamic_fade_min: 32,
       });
       const stretches = g.out("MMH3TemporalSplitParams", { chunk_length: input.upscaleChunk, temporal_overlap: 17, anchor_strength: 0.999 });
       g.phase("refining");

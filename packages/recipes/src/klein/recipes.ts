@@ -31,7 +31,8 @@ export const kleinPicture = defineRecipe<KleinPicture>({
     kleinModel,
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A woman in a linen shirt drinks coffee on a terrace at sunrise, soft light, waist up." },
     {
-      id: "references", type: "references", label: "Reference images", max: 6, roles: [...ALL_ROLES],
+      // Klein's authors: up to 4 reference images
+      id: "references", type: "references", label: "Reference images", max: 4, roles: [...ALL_ROLES],
       note: "a person, a place, clothes, an object or a look: the picture keeps them. They are not changed themselves.",
     },
     {
@@ -87,7 +88,8 @@ export const kleinEdit = defineRecipe<KleinEdit>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "an instruction: what to change, and what stays", style: "sentences", placeholder: "Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same." },
     {
-      id: "references", type: "references", label: "Reference images", max: 5, roles: [...ALL_ROLES],
+      // 4 pictures in all, the one being changed included
+      id: "references", type: "references", label: "Reference images", max: 3, roles: [...ALL_ROLES],
       note: "optional: a place to put the person in, clothes to wear, more pictures of the same person",
     },
     ...kleinInputs,
@@ -147,7 +149,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
     { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 redoes the masked part from the prompt; lower only touches it up", min: 0.1, max: 1, step: 0.05, default: 1 },
-    { id: "references", type: "references", label: "Reference images", max: 4, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
+    { id: "references", type: "references", label: "Reference images", max: 3, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
     ...MASK_INPUTS,
     ...kleinInputs,
   ],
@@ -340,7 +342,7 @@ const SAME_FACE = "the same person's face, identical to the reference photos: sa
 /** What a face is redrawn with, whichever node does it. */
 const detail = (k: ReturnType<typeof loadKlein>, input: KleinFixFace, cond: { positive: unknown; negative: unknown }, seed: number) => ({
   model: k.model, clip: k.clip, vae: k.vae, positive: cond.positive, negative: cond.negative,
-  guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed, steps: input.steps, cfg: input.cfg,
+  guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed, steps: input.steps, cfg: input.cfg,
   sampler_name: input.sampler, scheduler: "simple", denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
 });
 

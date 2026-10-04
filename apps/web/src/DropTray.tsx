@@ -5,6 +5,8 @@ import { Film, FileDown, ImagePlus, Music, Workflow } from "lucide-react";
 import { api, type Asset, type Embedded } from "./api";
 import { PngInfo, workflowFile } from "./PngInfo";
 import { useHandover } from "./store";
+import { projectForNew } from "./project";
+import { openFolderId } from "./screens/Studio";
 import { cx } from "./ui";
 
 type Kind = "image" | "video" | "audio" | "json" | "other";
@@ -76,7 +78,8 @@ export function DropTray() {
   const media = (files: File[]) => files.filter((f) => ["image", "video", "audio"].includes(fileKind(f)));
   const bringIn = async (files: File[]) => {
     const added: Asset[] = [];
-    for (const f of files) added.push(await api.upload(f));
+    // into the folder that is open in the library, else the current project's root folder
+    for (const f of files) added.push(await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() }));
     await client.invalidateQueries({ queryKey: ["assets"] });
     return added;
   };

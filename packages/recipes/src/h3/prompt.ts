@@ -33,7 +33,7 @@ export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields): string {
     mode === "start"
       ? "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
       : mode === "both"
-        ? `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 2) aligns with the ${mark}-second mark of the target video.`
+        ? `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${mark}-second mark of the target video.`
         : mode === "land"
           ? `How the reference pictures align with the target video — <Picture 1> (from [Shot 1]) aligns with the ${mark}-second mark of the target video.`
           : "";

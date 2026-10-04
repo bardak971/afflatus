@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type BuildContext, type InputSpec, type LoraValue, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type BuildContext, type InputSpec, type LoraValue, type Preset, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
 import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
   type FaceSettings, type HiresPass, type MaskSettings, type UpscaleSettings,
@@ -29,6 +29,10 @@ export interface FlowSpec {
   /** The sizes offered for a new picture, and about how many megapixels a picture is redrawn at. */
   shapes: Array<{ id: string; label: string; width: number; height: number }>;
   megapixels: number;
+  /** The most pixels a new picture may have, when the model has a ceiling (FLUX.1: 2 MP). */
+  maxPixels?: number;
+  /** What a model file starts on the first time it is used, by its name. */
+  presets?: Preset[];
   placeholder: string;
   /** For the graph checker: the family's files under their usual names, and what a fine-tune could be called. */
   files: Record<string, string>;
@@ -37,6 +41,8 @@ export interface FlowSpec {
 
 export interface FlowBase {
   model?: string;
+  /** How the diffusion model's weights are held in memory (UNETLoader's weight_dtype). */
+  precision?: string;
   negative: string;
   loras: LoraValue[];
   fast?: boolean;
@@ -88,6 +94,10 @@ export function flowKit(spec: FlowSpec) {
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: spec.sampling.sampler, advanced: true, perModel: true },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: spec.sampling.scheduler, advanced: true, perModel: true },
     { id: "shift", type: "number", label: "Shift", note: spec.shift.note, min: 0, max: 12, step: 0.05, default: spec.shift.default, advanced: true, perModel: true },
+    {
+      id: "precision", type: "choice", label: "Weight precision", options: { node: "UNETLoader", input: "weight_dtype" }, default: "default", advanced: true, perModel: true,
+      note: "how the model's weights are held in memory: default keeps the file's own. fp8 halves the memory of a bf16 file (a 22 GB FLUX.1 dev fits a 12 GB card) at a slight cost in quality; a file that is fp8 already gains nothing",
+    },
     { id: "seed", type: "seed", label: "Seed" },
   ];
 
@@ -99,11 +109,12 @@ export function flowKit(spec: FlowSpec) {
   /** The model with its LoRAs (and the turbo LoRA when Turbo is on and the model needs it), the text encoder and the VAE. */
   function load(g: GraphBuilder, input: FlowBase, ctx: BuildContext) {
     const unet = input.model ?? ctx.slots.unet;
-    let model: Ref = g.out("UNETLoader", { unet_name: unet, weight_dtype: "default" });
+    let model: Ref = g.out("UNETLoader", { unet_name: unet, weight_dtype: input.precision || "default" });
     const made = spec.turbo ? spec.turbo.named.test(unet?.split(/[\\/]/).pop() ?? "") : false;
     const turboLora = spec.turbo && input.fast && !made ? ctx.slots[spec.turbo.slot] : undefined;
-    // Turbo with a model that is not made for it and no LoRA to make it so: the full steps, as without Turbo
-    const turbo = Boolean(spec.turbo && input.fast && (made || turboLora));
+    // a model made for a few steps runs at them whether Turbo is on or not (40 steps at CFG 4 on a Lightning
+    // merge comes out burnt). Turbo with a model that is not made for it and no LoRA to make it so: the full steps
+    const turbo = Boolean(spec.turbo && (made || (input.fast && turboLora)));
     if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: 1 });
     for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     return {
@@ -120,12 +131,15 @@ export function flowKit(spec: FlowSpec) {
   }
   type Loaded = ReturnType<typeof load>;
 
-  /** The model as it is sampled with: the shift typed in, or the model's own when it is 0. */
+  /**
+   * The model as it is sampled with. Flux's shift follows the size of the picture (its own 1.15 is for one
+   * megapixel: a hires pass at 1.5 MP wants more), so the node is always set, with the shift typed in as
+   * the largest when there is one. The others take the shift typed, or the model's own when it is 0.
+   */
   const shifted = (g: GraphBuilder, model: Ref, input: FlowBase, size: { width: number; height: number }): Ref => {
+    if (spec.shift.node === "ModelSamplingFlux") return g.out("ModelSamplingFlux", { model, max_shift: input.shift > 0 ? input.shift : 1.15, base_shift: 0.5, width: size.width, height: size.height });
     if (!(input.shift > 0)) return model;
-    return spec.shift.node === "ModelSamplingFlux"
-      ? g.out("ModelSamplingFlux", { model, max_shift: input.shift, base_shift: 0.5, width: size.width, height: size.height })
-      : g.out("ModelSamplingAuraFlow", { model, shift: input.shift });
+    return g.out("ModelSamplingAuraFlow", { model, shift: input.shift });
   };
 
   /** The two texts. Without a negative prompt, the negative side is the positive one emptied, or an empty text, as the family's template has it. */
@@ -176,7 +190,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
     inputs: [
       spec.model,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: spec.placeholder },
-      { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: spec.shapes },
+      { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
       ...inputs.slice(0, -1),
       { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
       { id: "hiresScale", type: "number", label: "Upscale by", min: 1.1, max: 2, step: 0.05, default: 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
@@ -189,6 +203,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       ...HIRES_PASS_INPUTS,
       inputs.at(-1)!,
     ],
+    ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: (input) => [...LOAD_NODES, "EmptySD3LatentImage", ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : [])],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
@@ -246,6 +261,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       { id: "strength", type: "number", label: "Denoising strength", note: "0.3 keeps it close, 0.7 only keeps the layout", min: 0.05, max: 1, step: 0.05, default: 0.55 },
       ...inputs,
     ],
+    ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => [...LOAD_NODES, "LoadImage", "ImageScale", "VAEEncode"],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
@@ -288,6 +304,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       ...MASK_INPUTS,
       ...inputs,
     ],
+    ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => [...LOAD_NODES, "LoadImage", "VAEEncode", ...MASK_NODES],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
@@ -342,6 +359,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true },
       ...inputs,
     ],
+    ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
     // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
     optionalNodes: [...LOAD_NODES.filter((n) => n !== "PreviewImage"), "VAEEncode", ...SOMETIMES],
@@ -394,6 +412,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       ...FACE_INPUTS,
       ...inputs,
     ],
+    ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => [...LOAD_NODES.filter((n) => !["KSampler", "VAEDecode"].includes(n)), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer"],
     optionalNodes: SOMETIMES,
     build(input, ctx) {
@@ -405,7 +424,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       g.phase("detailing");
       const fixed = g.add("FaceDetailer", {
         image: source, model: shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, positive: c.positive, negative: c.negative, bbox_detector: detector,
-        guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps: k.steps, cfg: k.cfg,
+        guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps: k.steps, cfg: k.cfg,
         sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true,
         bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
         sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",

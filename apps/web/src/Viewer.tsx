@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronLeft, Clapperboard, Copy, FileSearch, Film, FolderPlus, Link2, Music, Plus, Scissors, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Camera, ChevronDown, ChevronLeft, Clapperboard, Copy, Download, FileSearch, Film, FolderPlus, Link2, Music, Plus, Scissors, Shuffle, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { RangeFrames, Trim, type Range } from "./Trim";
 import { isShown, secondsInput, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
 import { askAboutDisk } from "./Confirm";
@@ -47,23 +47,65 @@ function valueOf(spec: InputSpec, value: unknown): ReactNode {
   }
 }
 
-/** A block of text that was sent (the description, what to avoid), whole, with a button to copy it. */
-function Sent({ title, text }: { title: string; text: string }) {
+/**
+ * A block of text that was sent (the description, what to avoid), whole, with a button to copy it. Folded:
+ * one line of it and a chevron, for the texts few people read again (what to avoid).
+ */
+function Sent({ title, text, folded }: { title: string; text: string; folded?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const copy = (
+    <button
+      type="button"
+      onClick={(e) => { e.preventDefault(); void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }}
+      className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-ink-2 hover:bg-hover hover:text-ink"
+    >
+      <Copy size={11} /> {copied ? "Copied" : "Copy"}
+    </button>
+  );
+  if (folded) {
+    return (
+      <details className="group rounded-lg bg-raised">
+        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-ink-2 hover:text-ink">
+          <ChevronDown size={13} className="shrink-0 transition-transform group-open:rotate-180" />
+          <span className="shrink-0 font-semibold">{title}</span>
+          <span className="min-w-0 grow truncate group-open:hidden">{text.replace(/\s+/g, " ")}</span>
+          <span className="grow group-not-open:hidden" />
+          {copy}
+        </summary>
+        <div className="border-t border-line px-3 py-2.5 leading-normal break-words whitespace-pre-wrap">{text}</div>
+      </details>
+    );
+  }
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
         <span className="text-xs text-ink-2">{title}</span>
-        <button
-          type="button"
-          onClick={() => void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-ink-2 hover:bg-hover hover:text-ink"
-        >
-          <Copy size={11} /> {copied ? "Copied" : "Copy"}
-        </button>
+        {copy}
       </div>
       <div className="rounded-lg bg-raised px-3 py-2.5 leading-normal break-words whitespace-pre-wrap">{text}</div>
     </div>
+  );
+}
+
+/** One thing to do with the item: an icon, a word, its key. Pressed: it is on (Kept, Trim). */
+function Act({ icon, label, k, pressed, onClick, disabled, title, wide }: { icon: ReactNode; label: string; k?: string; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-pressed={pressed}
+      className={cx(
+        "flex h-10 min-w-0 items-center gap-2 rounded-lg border px-3 text-left hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
+        pressed ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink",
+        wide && "col-span-2",
+      )}
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="min-w-0 grow truncate">{label}</span>
+      {k && <Kbd>{k}</Kbd>}
+    </button>
   );
 }
 
@@ -114,7 +156,7 @@ function OpenInComfy({ asset }: { asset: Asset }) {
   );
 }
 
-function Made({ g, recipe }: { g: NonNullable<AssetDetail["generation"]>; recipe: RecipeInfo | undefined }) {
+function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>; recipe: RecipeInfo | undefined; asset: Asset }) {
   const text = (id: string) => (typeof g.inputs[id] === "string" ? (g.inputs[id] as string).trim() : "");
   // the texts are shown whole above; pictures are shown as pictures; a setting that did not apply is left out
   const applied = (recipe?.inputs ?? []).filter((i) => !["prompt", "image", "clip", "references", "audio", "seed"].includes(i.type) && g.inputs[i.id] !== undefined && isShown(i, g.inputs));
@@ -125,24 +167,46 @@ function Made({ g, recipe }: { g: NonNullable<AssetDetail["generation"]>; recipe
   const texts = (recipe?.inputs ?? []).filter((i) => i.type === "prompt" && text(i.id));
   // made with a recipe that is gone: what was sent is still worth showing
   const loose = recipe ? [] : Object.entries(g.inputs).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v));
+  // the main text whole; what to avoid and the other texts folded to a line
+  const main = texts.find((i) => !("optional" in i && i.optional) && i.id !== "negative") ?? texts[0];
+  // what the form shows up front is what matters; what sits under Advanced is folded here too
+  const key = settings.filter((i) => !i.advanced);
+  const rest = settings.filter((i) => i.advanced);
+  const more = rest.length + (switches.length ? 1 : 0) + loose.length + (g.resolved.loads?.length ? 1 : 0);
+  const rows = (list: InputSpec[]) => list.map((i) => <Row key={i.id} label={i.label}>{valueOf(i, g.inputs[i.id])}</Row>);
   return (
     <>
-      {texts.map((i) => <Sent key={i.id} title={i.label} text={text(i.id)} />)}
+      {texts.map((i) => <Sent key={i.id} title={i.label} text={text(i.id)} folded={i !== main} />)}
       <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5">
         {typeof g.resolved.seed === "number" && <Row label="Seed"><span className="font-mono">{g.resolved.seed}</span></Row>}
-        {settings.map((i) => <Row key={i.id} label={i.label}>{valueOf(i, g.inputs[i.id])}</Row>)}
-        {switches.length > 0 && (
-          <Row label="Enabled">
-            {switches.some((i) => g.inputs[i.id]) ? switches.filter((i) => g.inputs[i.id]).map((i) => i.label).join(", ") : `None of the ${switches.length}`}
-          </Row>
-        )}
-        {loose.map(([k, v]) => <Row key={k} label={k}>{String(v)}</Row>)}
+        {rows(key)}
       </dl>
-      {g.resolved.loads && g.resolved.loads.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-ink-2">Model files loaded</span>
-          {g.resolved.loads.map((f) => <span key={f} title={f} className="truncate">{fileLabel(f)}</span>)}
-        </div>
+      {(more > 0 || recipe) && (
+        <details className="group rounded-lg border border-line">
+          <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink">
+            <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> {more > 0 ? `All parameters · ${more + key.length} more` : "In ComfyUI"}
+          </summary>
+          <div className="flex flex-col gap-3 border-t border-line p-3">
+            {(rest.length > 0 || switches.length > 0 || loose.length > 0) && (
+              <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5">
+                {rows(rest)}
+                {switches.length > 0 && (
+                  <Row label="Enabled">
+                    {switches.some((i) => g.inputs[i.id]) ? switches.filter((i) => g.inputs[i.id]).map((i) => i.label).join(", ") : `None of the ${switches.length}`}
+                  </Row>
+                )}
+                {loose.map(([k, v]) => <Row key={k} label={k}>{String(v)}</Row>)}
+              </dl>
+            )}
+            {g.resolved.loads && g.resolved.loads.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-ink-2">Model files loaded</span>
+                {g.resolved.loads.map((f) => <span key={f} title={f} className="truncate">{fileLabel(f)}</span>)}
+              </div>
+            )}
+            {recipe && <OpenInComfy asset={asset} />}
+          </div>
+        </details>
       )}
     </>
   );
@@ -723,7 +787,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
         )}
       </div>
 
-      <aside className="flex w-[400px] shrink-0 flex-col border-l border-line bg-panel">
+      <aside className="flex w-[440px] shrink-0 flex-col border-l border-line bg-panel">
         <div className="flex min-h-14 shrink-0 items-center gap-1 border-b border-line p-2">
           {trail.length > 0 && (
             <button type="button" aria-label="Back to the previous item" onClick={() => setTrail(trail.slice(0, -1))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><ChevronLeft size={16} /></button>
@@ -733,7 +797,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">?</button>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </div>
-        <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
+        <div className="flex min-h-0 grow flex-col gap-5 overflow-y-auto p-4">
           {a.inBin ? (
             <div className="flex items-center justify-between gap-3 rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">
               <span>In the bin.</span>
@@ -748,27 +812,39 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             )
           )}
 
-          <div className="flex flex-col gap-2">
-            <SectionTitle>{a.kind === "image" ? "Image" : a.kind === "video" ? "Video" : "Audio"}</SectionTitle>
-            <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5">
-              {a.name && <Row label="Name">{a.name}</Row>}
-              {a.width && a.height ? <Row label="Resolution">{a.width} × {a.height}</Row> : null}
-              {a.kind === "video" && a.durationMs ? <Row label="Duration">{(a.durationMs / 1000).toFixed(1)} s{a.fps ? `, ${Math.round(a.fps)} fps` : ""}</Row> : null}
-              {a.kind === "video" && a.durationMs ? <Row label="Audio">{a.hasSound ? "Yes" : "No"}</Row> : null}
-              {g?.resolved.overlap?.headMs ? <Row label="Head overlap">The first {(g.resolved.overlap.headMs / 1000).toFixed(1)} s repeat the end of the previous clip. A timeline skips them.</Row> : null}
-              {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap">The last {(g.resolved.overlap.tailMs / 1000).toFixed(1)} s repeat the start of the next clip. A timeline skips them.</Row> : null}
-              <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
-              {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
-              <Row label="Created">{made.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
-              {g && <Row label="Render time">{took(g.tookMs)}</Row>}
-            </dl>
+          {/* what it is, in one line; the file's details are folded at the end */}
+          <div className="-mt-1 text-xs text-ink-2">
+            {[
+              a.width && a.height ? `${a.width} × ${a.height}` : "",
+              a.kind === "video" && a.durationMs ? `${(a.durationMs / 1000).toFixed(1)} s` : "",
+              a.kind === "video" && a.fps ? `${Math.round(a.fps)} fps` : "",
+              a.kind === "video" && a.durationMs ? (a.hasSound ? "with audio" : "silent") : "",
+              `${FORMATS[a.mime] ?? a.mime} ${mb(a.bytes)}`,
+              when(a.createdAt),
+              g ? `rendered in ${took(g.tookMs)}` : "",
+            ].filter(Boolean).join(" · ")}
           </div>
+
+          {/* what to do with it: two columns, the item's own kind of things first */}
+          <div className="grid grid-cols-2 gap-1.5">
+            {g && recipe && <Act icon={<Wand2 size={15} />} label="Reuse parameters" k="L" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft." />}
+            {g && recipe && <Act icon={<Shuffle size={15} />} label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
+            {a.kind === "image" && !a.inBin && opener && <Act wide icon={<Clapperboard size={15} />} label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
+            {a.kind === "video" && !a.inBin && carrier && <Act icon={<Link2 size={15} />} label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
+            {a.kind === "video" && !a.inBin && <Act icon={<Scissors size={15} />} label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}
+            {a.kind === "video" && !a.inBin && <Act icon={<Camera size={15} />} label={saveFrame.isPending ? "Saving…" : "Save frame"} k="G" onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library." />}
+            {a.kind === "video" && !a.inBin && a.hasSound && <Act icon={<Music size={15} />} label={takeSound.isPending ? "Extracting…" : "Extract audio"} onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music." />}
+            {a.kind === "audio" && !a.inBin && follower && <Act wide icon={<Music size={15} />} label="Use as voice sample" onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample." />}
+            {a.kind !== "audio" && !a.inBin && !g && <Act icon={<FileSearch size={15} />} label="PNG info" k="P" onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form." />}
+            {!a.inBin && <Act icon={<Star size={15} fill={a.kept ? "currentColor" : "none"} />} label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
+            <Act icon={<Download size={15} />} label="Download" k="D" onClick={download} title="Download the file" />
+          </div>
+          {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="-mt-3 text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
 
           {g && (
             <div className="flex flex-col gap-2.5">
               <SectionTitle>Generation parameters</SectionTitle>
-              <Made g={g} recipe={recipe} />
-              {recipe && <OpenInComfy asset={a} />}
+              <Made g={g} recipe={recipe} asset={a} />
             </div>
           )}
 
@@ -791,79 +867,48 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             </div>
           )}
 
-          {!a.inBin && <FolderPicker asset={a} />}
-          {!a.inBin && a.kind !== "audio" && <TimelinePicker asset={a} />}
           {!a.inBin && a.kind === "image" && (
-            <ChangePicker madeWith={recipe} keys={Object.fromEntries((["i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [[toolFor(k)!.id, k]] : [])))} start={openTool} />
-          )}
-          {!a.inBin && a.kind === "image" && (
-            <div className="flex flex-wrap gap-1.5">
-              {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-                <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>
-                  {OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd>
-                </Button>
-              ))}
+            <div className="flex flex-col gap-2">
+              <SectionTitle>Image tools</SectionTitle>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
+                  <Act key={k} icon={<Wand2 size={15} />} label={OPS[k]!.label} k={k.toUpperCase()} disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)} />
+                ))}
+              </div>
+              <ChangePicker madeWith={recipe} keys={Object.fromEntries((["i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [[toolFor(k)!.id, k]] : [])))} start={openTool} />
             </div>
           )}
-          {!a.inBin && a.kind === "image" && <ReferencePicker asset={a} onDone={leave} />}
 
-          <div className="flex flex-col gap-2">
-            {g && recipe && (
-              <div className="flex gap-2">
-                <Button className="grow" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft.">Reuse parameters <Kbd>L</Kbd></Button>
-                <Button onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once.">Variation <Kbd>V</Kbd></Button>
-              </div>
-            )}
-            {a.kind === "image" && !a.inBin && opener && (
-              <Button onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`}>
-                <Clapperboard size={15} /> Image to video (i2v) <Kbd>M</Kbd>
-              </Button>
-            )}
-            {a.kind === "audio" && !a.inBin && follower && (
-              <Button onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample.">
-                <Music size={15} /> Use as voice sample
-              </Button>
-            )}
-            {a.kind !== "audio" && !a.inBin && !g && (
-              <Button onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form.">
-                <FileSearch size={15} /> PNG info <Kbd>P</Kbd>
-              </Button>
-            )}
-            {a.kind === "video" && !a.inBin && (
-              <Button onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library.">
-                <Camera size={15} /> {saveFrame.isPending ? "Saving…" : "Save frame"} <Kbd>G</Kbd>
-              </Button>
-            )}
-            {a.kind === "video" && !a.inBin && (
-              <Button onClick={() => setTrim(!trim)} className={cx(trim && "border-accent text-accent")} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them.">
-                <Scissors size={15} /> Trim <Kbd>T</Kbd>
-              </Button>
-            )}
-            {a.kind === "video" && !a.inBin && a.hasSound && (
-              <Button onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music.">
-                <Music size={15} /> {takeSound.isPending ? "Extracting…" : "Extract audio"}
-              </Button>
-            )}
-            {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
-            {a.kind === "video" && !a.inBin && carrier && (
-              <Button onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."}>
-                <Link2 size={15} /> Extend <Kbd>C</Kbd>
-              </Button>
-            )}
-            {!a.inBin && (
-              <Button onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")}>
-                <Star size={15} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
-              </Button>
-            )}
-            {!a.inBin && (
-              <div className="flex gap-2">
-                <Button className="grow" onClick={() => void toBin()}>
-                  <Trash2 size={15} /> Move to the bin <Kbd>Del</Kbd>
-                </Button>
-                <Button onClick={download} title="Download the file">Download <Kbd>D</Kbd></Button>
-              </div>
-            )}
-          </div>
+          {!a.inBin && (
+            <div className="flex flex-col gap-2">
+              <SectionTitle>Put it in</SectionTitle>
+              {a.kind !== "audio" && <TimelinePicker asset={a} />}
+              {a.kind === "image" && <ReferencePicker asset={a} onDone={leave} />}
+              <FolderPicker asset={a} />
+            </div>
+          )}
+
+          <details className="group rounded-lg border border-line">
+            <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink"><ChevronDown size={13} className="transition-transform group-open:rotate-180" /> File details</summary>
+            <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 border-t border-line p-3">
+              {a.name && <Row label="Name">{a.name}</Row>}
+              {a.width && a.height ? <Row label="Resolution">{a.width} × {a.height}</Row> : null}
+              {a.kind === "video" && a.durationMs ? <Row label="Duration">{(a.durationMs / 1000).toFixed(1)} s{a.fps ? `, ${Math.round(a.fps)} fps` : ""}</Row> : null}
+              {a.kind === "video" && a.durationMs ? <Row label="Audio">{a.hasSound ? "Yes" : "No"}</Row> : null}
+              {g?.resolved.overlap?.headMs ? <Row label="Head overlap">The first {(g.resolved.overlap.headMs / 1000).toFixed(1)} s repeat the end of the previous clip. A timeline skips them.</Row> : null}
+              {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap">The last {(g.resolved.overlap.tailMs / 1000).toFixed(1)} s repeat the start of the next clip. A timeline skips them.</Row> : null}
+              <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
+              {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
+              <Row label="Created">{made.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
+              {g && <Row label="Render time">{took(g.tookMs)}</Row>}
+            </dl>
+          </details>
+
+          {!a.inBin && (
+            <button type="button" onClick={() => void toBin()} className="flex h-9 items-center justify-center gap-2 self-start rounded-lg px-3 text-ink-2 hover:bg-warn-wash hover:text-warn-ink">
+              <Trash2 size={14} /> Move to the bin <Kbd>Del</Kbd>
+            </button>
+          )}
         </div>
       </aside>
       {info && <PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} />}

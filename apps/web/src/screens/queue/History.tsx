@@ -156,7 +156,7 @@ function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): v
   const dim = head.status === "cancelled";
   const title = head.prompt || head.label;
   return (
-    <div className={cx("group flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel", dim && "opacity-60 hover:opacity-100")} title={title}>
+    <div className={cx("group flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md", dim && "opacity-60 hover:opacity-100")} title={title}>
       <div data-stage className={cx("relative grid aspect-square gap-px bg-raised", shown.length > 1 ? "grid-cols-2" : "grid-cols-1", shown.length > 2 ? "grid-rows-2" : "grid-rows-1")}>
         {shown.length === 0 ? (
           <span className="flex h-full flex-col items-center justify-center gap-1.5 text-ink-2">
@@ -184,12 +184,11 @@ function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): v
         {head.status === "cancelled" && <span className="absolute top-1.5 left-1.5 rounded-full bg-ground/80 px-2 py-0.5 text-[11px] font-bold text-ink-2">Cancelled</span>}
       </div>
       <div className="flex flex-col gap-0.5 px-2.5 py-2">
-        <div className="flex items-center gap-1.5">
-          <span className="min-w-0 grow truncate text-[13px] font-semibold">{head.label}{head.model ? <span className="font-normal text-ink-2"> · {fileLabel(head.model)}</span> : ""}</span>
-        </div>
+        {/* what was asked first; then the model and the figures; then when, and the seed to copy */}
+        <span className="truncate text-[13px] font-semibold">{head.prompt || head.label}</span>
+        <span className="truncate text-xs text-ink-2">{[head.prompt ? head.label : "", head.model ? fileLabel(head.model) : "", ...facts].filter(Boolean).join(" · ")}</span>
         {head.seed !== null && jobs.length === 1 && <span className="truncate font-mono text-[11px] text-ink-3" title={`seed ${head.seed}`}>seed {head.seed}</span>}
-        {facts.length > 0 && <span className="truncate text-xs text-ink-2">{facts.join(" · ")}</span>}
-        <div className="flex items-center gap-1.5 text-xs text-ink-3">
+        <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
           <span className="min-w-0 grow truncate">{head.finishedAt ? when(head.finishedAt) : ""}</span>
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
             {head.kind === "render" && (

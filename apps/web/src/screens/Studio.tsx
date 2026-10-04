@@ -37,7 +37,7 @@ import { DRAG_TYPE, FolderPanel, Tile, type Place } from "./Library";
  */
 
 /** How the screen was left: kept from one visit to the next, and while another screen is open. */
-const useStudio = create<{
+export const useStudio = create<{
   form: boolean;
   size: "S" | "M" | "L";
   /** What the grid shows while the form is open: this draft's outputs, the whole folder, the last two days, what was kept. */
@@ -45,6 +45,11 @@ const useStudio = create<{
   place: Place;
   set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; scope: "draft" | "all" | "recent" | "kept"; place: Place }>): void;
 }>()(persist((set) => ({ form: false, size: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "afflatus.studio" }));
+/** The folder open in the library, for what is brought in from outside (a drop, an upload): null when none is. */
+export const openFolderId = (): string | null => {
+  const p = useStudio.getState().place;
+  return p.type === "folder" ? p.id : null;
+};
 
 const KINDS = [
   { id: "all", label: "All", kind: undefined },

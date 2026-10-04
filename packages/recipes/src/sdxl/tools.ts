@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder } from "@afflatus/core";
 import {
-  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, round8, samplerOf, samplingInputs, UPSCALER_PREFER, workSize,
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, round8, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -30,6 +30,7 @@ export const sdxlRedraw = defineRecipe<SdxlRedraw>({
     ...modelInputs,
     ...samplingInputs(),
   ],
+  presets: SDXL_PRESETS,
   nodes: (input) => [...modelNodes(input), "LoadImage", "ImageScale", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage"],
   build(input, ctx) {
     const g = new GraphBuilder();
@@ -86,6 +87,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     ...modelInputs,
     ...samplingInputs(),
   ],
+  presets: SDXL_PRESETS,
   nodes: (input) => [...modelNodes(input), "LoadImage", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage", ...MASK_NODES],
   build(input, ctx) {
     const g = new GraphBuilder();
@@ -155,6 +157,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     ...modelInputs,
     ...samplingInputs(),
   ],
+  presets: SDXL_PRESETS,
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
   // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
   optionalNodes: REFINE_NODES,
@@ -219,6 +222,7 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
     ...modelInputs,
     ...samplingInputs(),
   ],
+  presets: SDXL_PRESETS,
   nodes: (input) => [...modelNodes(input), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer", "PreviewImage"],
   build(input, ctx) {
     const g = new GraphBuilder();
@@ -229,7 +233,8 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
     g.phase("detailing");
     const fixed = g.add("FaceDetailer", {
       image: source, model: m.model, clip: m.clip, vae: m.vae, positive: m.positive, negative: m.negative, bbox_detector: detector,
-      guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps, cfg: input.cfg,
+      // the crop around the face is redrawn at the guide size (ADetailer's way); by the face alone (guide_size_for true) the crop blew past max_size and the face came out small
+      guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps, cfg: input.cfg,
       sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true,
       bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
       sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",

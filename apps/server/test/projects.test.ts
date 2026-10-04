@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { get, makeApp, type TestApp } from "./helpers";
+import { makePng } from "@afflatus/comfy/testing";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -19,6 +20,12 @@ describe("projects", () => {
   it("is made with a root folder of its name, and renamed with it", async () => {
     const p = await call("POST", "/api/projects", { name: "Film one" });
     expect(p.folderId).toBeTruthy();
+    // what is brought in while the project is on lands in its root folder; a named folder wins
+    const dropped = (await t.app.inject({ method: "POST", url: `/api/assets?name=drop.png&project=${p.id}`, headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(16, 16, [1, 2, 3], [4, 5, 6])) })).json();
+    expect(dropped.folderId).toBe(p.folderId);
+    const sub = await call("POST", "/api/folders", { name: "Bin A", parentId: p.folderId });
+    const placed = (await t.app.inject({ method: "POST", url: `/api/assets?name=drop2.png&project=${p.id}&folder=${sub.id}`, headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(16, 16, [1, 2, 3], [4, 5, 6])) })).json();
+    expect(placed.folderId).toBe(sub.id);
     const folders = (await get(t.app, "/api/folders")).json().items as Array<{ id: string; name: string; projectId: string | null }>;
     expect(folders.find((f) => f.id === p.folderId)).toMatchObject({ name: "Film one", projectId: p.id });
     await call("PATCH", `/api/projects/${p.id}`, { name: "Film two" });

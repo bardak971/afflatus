@@ -24,7 +24,8 @@ export interface Krea2Picture extends Krea2Base, HiresPass {
 }
 
 /** How many reference images the text encoder is shown. */
-const STYLE_IMAGES = 3;
+/** The style-reference LoRA was trained on one or two pictures. */
+const STYLE_IMAGES = 2;
 
 /**
  * A picture from a prompt, the way ComfyUI's own Krea 2 Turbo template makes it. With reference images
@@ -363,7 +364,7 @@ export const krea2FixFace = defineRecipe<Krea2FixFace>({
     g.phase("detailing");
     const fixed = g.add("FaceDetailer", {
       image: source, model: shifted(g, k.model, input), clip: k.clip, vae: k.vae, positive: cond.positive, negative: cond.negative, bbox_detector: detector,
-      guide_size: input.faceSize, guide_size_for: true, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps: input.steps, cfg: input.cfg,
+      guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps: input.steps, cfg: input.cfg,
       sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true,
       bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
       sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",

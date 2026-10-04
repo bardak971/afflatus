@@ -644,7 +644,8 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(made.joined).toBe("continue");
     expect(v.clips[2].joined).toBe("continue");
     expect(made.inputs.description).toBe("She walks to the window.");
-    expect(made.inputs.seconds).toBe(2);
+    // the two seconds of the range, brought up to the least the model takes (H3 is trained on 4 to 15 s)
+    expect(made.inputs.seconds).toBe(4);
     expect(made.inputs.start).toBeUndefined();
     expect(made.inputs.end).toBeUndefined();
     // what played between went: the first clip stops at 2 s, the second starts a second in
@@ -693,8 +694,8 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(made.joined).toBe("continue");
     expect(made.inputs.start).toBeUndefined();
     expect(typeof made.inputs.end).toBe("string");
-    // a second and a half, or the least the model allows
-    expect(made.inputs.seconds).toBe(2);
+    // a second and a half, or the least the model allows (H3: 4 s)
+    expect(made.inputs.seconds).toBe(4);
     expect(v.clips[3].joined).toBe("cut");
     expect(v.undo).toBe("the loop clip");
     await call("POST", `/api/timelines/${tl}/undo`);

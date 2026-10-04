@@ -76,10 +76,13 @@ describe("sdxl.text-to-picture", () => {
   });
 
   it("adds a second pass for hi-res fix, at the enlarged size", () => {
-    const { built } = build({ hires: true, hiresScale: 2, hiresSteps: 12 });
+    const { built } = build({ hires: true, hiresScale: 2, hiresSteps: 12, hiresUpscaler: "latent" });
     expect(nodesOf(built, "KSampler")).toHaveLength(2);
     expect(nodesOf(built, "LatentUpscale")[0]!.inputs).toMatchObject({ width: 1664, height: 2432 });
     expect(built.totalSteps).toBe(28 + 12);
+    // left alone, an upscale model: the enlarged latent is noisy and asks for a denoise that redraws
+    expect(nodesOf(build({ hires: true }).built, "ImageUpscaleWithModel")).toHaveLength(1);
+    expect(nodesOf(build({ hires: true }).built, "KSampler")[1]!.inputs.denoise).toBe(0.45);
   });
 
   it("puts the model's quality tags in front of the prompt, and nothing when there are none", () => {
@@ -123,43 +126,57 @@ describe("h3.video", () => {
       audio: one(b, "MiniMaxH3SigmaShift")[0]!.inputs.shift_audio,
     });
     // left alone: what suits a turbo's few steps, and what suits full steps
-    expect(of(build({ fast: true }))).toEqual({ sampler: "euler", scheduler: "simple", video: 7, audio: 4.5 });
+    expect(of(build({ fast: true }))).toEqual({ sampler: "euler", scheduler: "simple", video: 12, audio: 3 });
     expect(of(build({ fast: false }))).toEqual({ sampler: "res_multistep", scheduler: "simple", video: 11, audio: 4 });
+    // a 4-step LoRA: the shifts it was trained at, and its steps read from its name
+    const four = build({ fast: true }, { slots: { ...slots, turbo: "minimax_h3_fl2v_turbo_4step_v1.0_768p.safetensors" } });
+    expect(of(four)).toMatchObject({ video: 6, audio: 3 });
+    expect(one(four, "BasicScheduler")[0]!.inputs.steps).toBe(4);
     // set in the form: used as they are, with Turbo or without
     const own = { sampler: "dpmpp_2m", scheduler: "beta", shiftVideo: 9, shiftAudio: 3.5 };
     expect(of(build({ fast: true, ...own }))).toEqual({ sampler: "dpmpp_2m", scheduler: "beta", video: 9, audio: 3.5 });
     expect(of(build({ fast: false, ...own }))).toEqual({ sampler: "dpmpp_2m", scheduler: "beta", video: 9, audio: 3.5 });
     // one of the two shifts alone
-    expect(of(build({ fast: true, shiftAudio: 6 }))).toMatchObject({ video: 7, audio: 6 });
-    // the steps Turbo takes are a setting: 8 unless set
+    expect(of(build({ fast: true, shiftAudio: 6 }))).toMatchObject({ video: 12, audio: 6 });
+    // the steps Turbo takes are a setting: the LoRA's name, else 8, unless set
     const steps = (b: ReturnType<typeof build>) => one(b, "BasicScheduler")[0]!.inputs.steps;
     expect(steps(build({ fast: true }))).toBe(8);
     expect(steps(build({ fast: true, turboSteps: 6 }))).toBe(6);
-    expect(steps(build({ fast: false, turboSteps: 6 }))).toBe(15);
+    expect(steps(build({ fast: false, turboSteps: 6 }))).toBe(20);
   });
 
   it("writes the prompt in the model's layout, by what the clip opens and ends on", () => {
     const free = h3Prompt("free", 5, { description: "She waves.", soundscape: "wind" });
     expect(free).toBe("integrated_multimodal_description: [Shot 1] She waves.\n\noverall_soundscape: wind\n\nnon_diegetic_music: N/A");
     expect(h3Prompt("start", 5, { description: "x" })).toMatch(/^For the target video, at 0\.00 seconds .*<Picture 1>/);
-    expect(h3Prompt("both", 5, { description: "x" })).toContain("Picture 2 (from Shot 2) aligns with the 5.17-second mark");
+    expect(h3Prompt("both", 5, { description: "x" })).toContain("Picture 2 (from Shot 1) aligns with the 5.17-second mark");
     expect(h3Prompt("land", 5, { description: "x" })).toContain("<Picture 1> (from [Shot 1]) aligns with the 5.17-second mark");
     // a prompt already in the layout is sent as written
     const own = "integrated_multimodal_description: [Shot 1] mine\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A";
     expect(h3Prompt("start", 5, { description: own })).toBe(own);
   });
 
-  it("is 8 steps with the turbo LoRA, and the full count without it or with Fast off", () => {
-    expect(build().totalSteps).toBe(8);
-    expect(one(build(), "KSamplerSelect")[0]!.inputs.sampler_name).toBe("euler");
-    expect(one(build(), "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 7, shift_audio: 4.5 });
-    const slow = build({ fast: false, steps: 20 });
-    expect(slow.totalSteps).toBe(20);
+  it("is 8 steps with the turbo LoRA, and the full count (20, left alone) without it or with Fast off", () => {
+    expect(build().totalSteps).toBe(20);
+    const fast = build({ fast: true });
+    expect(fast.totalSteps).toBe(8);
+    expect(one(fast, "KSamplerSelect")[0]!.inputs.sampler_name).toBe("euler");
+    expect(one(fast, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 12, shift_audio: 3 });
+    const slow = build({ fast: false, steps: 25 });
+    expect(slow.totalSteps).toBe(25);
     expect(one(slow, "LoraLoaderModelOnly")).toHaveLength(0);
     expect(one(slow, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 11, shift_audio: 4 });
     // Fast asked for but the LoRA is not installed: it runs the slow way instead of failing
     const { turbo: _none, ...without } = slots;
-    expect(build({}, { slots: without }).totalSteps).toBe(15);
+    expect(build({ fast: true }, { slots: without }).totalSteps).toBe(20);
+  });
+
+  it("stays within the 362 frames the model was trained on, joins included", () => {
+    expect(one(build({ seconds: 15 }), "MiniMaxH3ImageToVideo")[0]!.inputs.length).toBe(362);
+    const long = { ...clip, frames: 39 };
+    const joined = build({ seconds: 15, previous: { asset: "a" }, next: { asset: "b" } }, { uploads: { previous: "a.mp4", next: "b.mp4" }, media: { previous: clip, next: long } });
+    expect(one(joined, "MiniMaxH3ImageToVideo")[0]!.inputs.length).toBe(362);
+    expect(joined.overlap).toEqual({ headMs: Math.round((22 / 24) * 1000), tailMs: Math.round((39 / 24) * 1000) });
   });
 
   it("takes its shape from the picture it opens on, at the size asked for", () => {
@@ -209,7 +226,7 @@ describe("h3.video", () => {
 describe("h3.video with references", () => {
   const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", turbo: "t.safetensors", refUnet: "ref.safetensors" };
   const build = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) =>
-    h3Video.build(parseInput(h3Video, { description: "She waves.", references: [{ asset: "r", role: "person" }], ...over }), dryContext({ seed: 7, slots, uploads: { "references.0": "r.png", start: "s.png", voice: "v.wav" }, ...ctx }));
+    h3Video.build(parseInput(h3Video, { description: "She waves.", fast: true, references: [{ asset: "r", role: "person" }], ...over }), dryContext({ seed: 7, slots, uploads: { "references.0": "r.png", start: "s.png", voice: "v.wav" }, ...ctx }));
   const one = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
 
   it("uses the reference model, with the usual turbo LoRA when it has none of its own", () => {
@@ -219,7 +236,7 @@ describe("h3.video with references", () => {
     expect(b.totalSteps).toBe(8);
     const own = build({}, { slots: { ...slots, refTurbo: "rt.safetensors" } });
     expect(one(own, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["rt.safetensors"]);
-    expect(one(own, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 7, shift_audio: 4.5 });
+    expect(one(own, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 12, shift_audio: 3 });
   });
 
   it("says who each picture is, and pins the opening picture at the first frame", () => {
@@ -294,7 +311,7 @@ describe("h3.video with another H3 model", () => {
   const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", turbo: "t.safetensors", refUnet: "ref.safetensors" };
   const refs = { references: [{ asset: "r", role: "person" }] };
   const build = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) =>
-    h3Video.build(parseInput(h3Video, { description: "She waves.", ...over }), dryContext({ seed: 7, slots, uploads: { "references.0": "r.png" }, ...ctx }));
+    h3Video.build(parseInput(h3Video, { description: "She waves.", fast: true, ...over }), dryContext({ seed: 7, slots, uploads: { "references.0": "r.png" }, ...ctx }));
   const one = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
   const unet = (b: ReturnType<typeof build>) => one(b, "UNETLoader")[0]!.inputs.unet_name;
   const loras = (b: ReturnType<typeof build>) => one(b, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name);
@@ -321,7 +338,7 @@ describe("h3.video with another H3 model", () => {
     expect(loras(b)).toEqual([]);
     expect(b.totalSteps).toBe(8);
     expect(one(b, "KSamplerSelect")[0]!.inputs.sampler_name).toBe("euler");
-    expect(one(b, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 7, shift_audio: 4.5 });
+    expect(one(b, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 12, shift_audio: 3 });
     expect(b.loads.some((l) => l.startsWith("loras/"))).toBe(false);
     expect(build({ model: "SomeoneH3_TurboV3.safetensors", fast: false, steps: 4 }).totalSteps).toBe(4);
     // the step cache is for full renders
@@ -541,24 +558,28 @@ describe("wan.video", () => {
     expect(second).toMatchObject({ add_noise: "disable", steps: 20, cfg: 3.5, start_at_step: 10, return_with_leftover_noise: "disable" });
     // each pass has its own model, shifted the same way
     expect(all(b, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["i2v_high.safetensors", "i2v_low.safetensors"]);
-    expect(all(b, "ModelSamplingSD3").map((n) => n.inputs.shift)).toEqual([5, 5]);
+    expect(all(b, "ModelSamplingSD3").map((n) => n.inputs.shift)).toEqual([8, 8]);
+    expect(all(build({ fast: false, shift: 6 }), "ModelSamplingSD3").map((n) => n.inputs.shift)).toEqual([6, 6]);
     expect(b.passes!.map((p) => p.steps)).toEqual([10, 10]);
     expect(build({ fast: false, steps: 30, split: 0.4 }).passes!.map((p) => p.steps)).toEqual([12, 18]);
   });
 
   it("runs Turbo with the two lightx2v LoRAs, with none on a model made for it, and at full steps without their files", () => {
-    const fast = build({});
+    const fast = build({ fast: true });
     expect(passes(fast)[0]).toMatchObject({ steps: 4, cfg: 1, end_at_step: 2 });
-    expect(all(fast, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["th.safetensors", "tl.safetensors"]);
+    expect(all(fast, "LoraLoaderModelOnly").map((n) => [n.inputs.lora_name, n.inputs.strength_model])).toEqual([["th.safetensors", 1], ["tl.safetensors", 1]]);
+    // the shift the LoRAs are made for; the high-noise LoRA eased when asked
+    expect(all(fast, "ModelSamplingSD3").map((n) => n.inputs.shift)).toEqual([5, 5]);
+    expect(all(build({ fast: true, turboStrength: 0.7 }), "LoraLoaderModelOnly").map((n) => n.inputs.strength_model)).toEqual([0.7, 1]);
     // a fine-tune named for it, or said to be one
-    const named = build({ model: "High\\SomeoneWAN22_lightningHigh.safetensors", modelLow: "Low\\SomeoneWAN22_lightningLow.safetensors" });
+    const named = build({ fast: true, model: "High\\SomeoneWAN22_lightningHigh.safetensors", modelLow: "Low\\SomeoneWAN22_lightningLow.safetensors" });
     expect(all(named, "LoraLoaderModelOnly")).toEqual([]);
     expect(passes(named)[0]).toMatchObject({ steps: 4, cfg: 1 });
-    const said = build({ model: "mine_high.safetensors", modelLow: "mine_low.safetensors", turboIn: "Yes", turboSteps: 6 });
+    const said = build({ fast: true, model: "mine_high.safetensors", modelLow: "mine_low.safetensors", turboIn: "Yes", turboSteps: 6 });
     expect(all(said, "LoraLoaderModelOnly")).toEqual([]);
     expect(passes(said)[0]).toMatchObject({ steps: 6, end_at_step: 3 });
     // no turbo files and a model that is not distilled: the full steps, and the CFG of the form
-    const none = build({}, { slots });
+    const none = build({ fast: true }, { slots });
     expect(all(none, "LoraLoaderModelOnly")).toEqual([]);
     expect(passes(none)[0]).toMatchObject({ steps: 20, cfg: 3.5 });
   });
@@ -569,7 +590,7 @@ describe("wan.video", () => {
     expect(all(opens, "WanImageToVideo")[0]!.inputs.end_image).toBeUndefined();
     const both = build({ end: "q" });
     expect(Object.keys(all(both, "WanFirstLastFrameToVideo")[0]!.inputs)).toEqual(expect.arrayContaining(["start_image", "end_image"]));
-    const fromWords = build({ start: undefined, seconds: 3, shape: { width: 832, height: 480 } }, { slots: words });
+    const fromWords = build({ start: undefined, seconds: 3, shape: { width: 832, height: 480 }, fast: true }, { slots: words });
     expect(all(fromWords, "EmptyHunyuanLatentVideo")[0]!.inputs).toMatchObject({ width: 832, height: 480, length: 49 });
     expect(all(fromWords, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["t2v_high.safetensors", "t2v_low.safetensors"]);
     expect(all(fromWords, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["wh.safetensors", "wl.safetensors"]);
@@ -667,13 +688,23 @@ describe("ltx.video", () => {
     expect(all(build({ twoPass: false }), "LTXVCropGuides")).toEqual([]);
   });
 
-  it("takes a schedule by steps, with a scheduler and a shift, in place of LTX's own", () => {
-    const b = build({ schedule: "By steps", steps: 12, scheduler: "beta", shift: 9, cfg: 3 });
-    expect(all(b, "BasicScheduler")[0]!.inputs).toMatchObject({ steps: 12, scheduler: "beta" });
-    expect(all(b, "ModelSamplingSD3")[0]!.inputs.shift).toBe(9);
+  it("takes a schedule by steps on LTX's own scheduler, in place of LTX's 8 sigmas", () => {
+    const b = build({ schedule: "By steps", steps: 12, maxShift: 2.5, terminal: 0.05, cfg: 3 });
+    expect(all(b, "LTXVScheduler")[0]!.inputs).toMatchObject({ steps: 12, max_shift: 2.5, base_shift: 0.95, stretch: true, terminal: 0.05 });
+    expect(all(b, "LTXVScheduler")[0]!.inputs.latent).toBeDefined();
+    expect(all(b, "BasicScheduler")).toEqual([]);
     expect(all(b, "CFGGuider").map((n) => n.inputs.cfg)).toEqual([3, 3]);
     expect(b.passes!.map((p) => p.steps)).toEqual([12, 3]);
-    expect(all(build({ schedule: "By steps", shift: 0 }), "ModelSamplingSD3")).toEqual([]);
+    expect(all(build({ schedule: "By steps", stretch: false }), "LTXVScheduler")[0]!.inputs.stretch).toBe(false);
+    // the dev model samples on its own schedule; the distilled LoRA refines only (with LTX's own 8 sigmas it is on the whole render)
+    const sourceOf = (b: ReturnType<typeof build>, id: string): string => {
+      const n = b.graph[id]!;
+      return n.class_type === "ModelPreviewOverrideKJ" ? sourceOf(b, (n.inputs.model as [string, number])[0]) : n.class_type;
+    };
+    const dev = build({ schedule: "By steps" }, { slots: { ...parts, ...extras } });
+    expect(all(dev, "CFGGuider").map((n) => sourceOf(dev, (n.inputs.model as [string, number])[0]))).toEqual(["UNETLoader", "LoraLoaderModelOnly"]);
+    const own = build({}, { slots: { ...parts, ...extras } });
+    expect(all(own, "CFGGuider").map((n) => sourceOf(own, (n.inputs.model as [string, number])[0]))).toEqual(["LoraLoaderModelOnly", "LoraLoaderModelOnly"]);
   });
 });
 
@@ -691,9 +722,12 @@ describe("flux and qwen image, from what is said once about each", () => {
     expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 20, cfg: 1, sampler_name: "euler", scheduler: "simple", seed: 7 });
     expect(all(b, "ConditioningZeroOut")).toHaveLength(1);
     expect(all(b, "EmptySD3LatentImage")[0]!.inputs).toMatchObject({ width: 896, height: 1152 });
-    // left alone the model keeps its own shift; one that is typed follows the size of the picture
-    expect(all(b, "ModelSamplingFlux")).toEqual([]);
+    // the shift follows the size of the picture, the model's own 1.15 as the largest; one that is typed takes its place
+    expect(all(b, "ModelSamplingFlux")[0]!.inputs).toMatchObject({ max_shift: 1.15, base_shift: 0.5, width: 896, height: 1152 });
     expect(all(fluxOf({ shift: 1.5 }), "ModelSamplingFlux")[0]!.inputs).toMatchObject({ max_shift: 1.5, width: 896, height: 1152 });
+    // the weights as the file holds them, or fp8 when asked
+    expect(all(b, "UNETLoader")[0]!.inputs.weight_dtype).toBe("default");
+    expect(all(fluxOf({ precision: "fp8_e4m3fn" }), "UNETLoader")[0]!.inputs.weight_dtype).toBe("fp8_e4m3fn");
     // a negative prompt that is written is encoded
     expect(all(fluxOf({ negative: "blurry", cfg: 2 }), "ConditioningZeroOut")).toEqual([]);
     expect(fluxPicture.inputs.map((i) => i.id)).toContain("guidance");
@@ -704,19 +738,21 @@ describe("flux and qwen image, from what is said once about each", () => {
     const b = qwenOf();
     expect(all(b, "CLIPLoader")[0]!.inputs).toMatchObject({ clip_name: "qwen_2.5_vl_7b.safetensors", type: "qwen_image" });
     expect(all(b, "ModelSamplingAuraFlow")[0]!.inputs.shift).toBe(3.1);
-    expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 20, cfg: 4 });
-    // an empty negative prompt is an empty text, as the template has it
-    expect(all(b, "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(["a cat", ""]);
+    expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 50, cfg: 4 });
+    // the negative prompt starts on Qwen's own; emptied, it is an empty text, as the template has it
+    expect(all(b, "CLIPTextEncode").map((n) => n.inputs.text)[1]).toMatch(/^低分辨率/);
+    expect(all(qwenOf({ negative: "" }), "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(["a cat", ""]);
     expect(all(b, "FluxGuidance")).toEqual([]);
     const fast = qwenOf({ fast: true }, { ...qwenFiles, turbo: "lightning.safetensors" });
     expect(all(fast, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["lightning.safetensors"]);
     expect(all(fast, "KSampler")[0]!.inputs).toMatchObject({ steps: 4, cfg: 1 });
     // Turbo with no LoRA and a model that is not made for it: the full steps
-    expect(all(qwenOf({ fast: true }), "KSampler")[0]!.inputs).toMatchObject({ steps: 20, cfg: 4 });
-    // a model named for it needs none
+    expect(all(qwenOf({ fast: true }), "KSampler")[0]!.inputs).toMatchObject({ steps: 50, cfg: 4 });
+    // a model named for it needs none, and runs at its few steps whether Turbo is on or not
     const made = qwenOf({ fast: true, turboSteps: 8, model: "someone_qwen_lightning_8steps.safetensors" }, { ...qwenFiles, turbo: "lightning.safetensors" });
     expect(all(made, "LoraLoaderModelOnly")).toEqual([]);
     expect(all(made, "KSampler")[0]!.inputs).toMatchObject({ steps: 8, cfg: 1 });
+    expect(all(qwenOf({ fast: false, turboSteps: 8, model: "someone_qwen_lightning_8steps.safetensors" }), "KSampler")[0]!.inputs).toMatchObject({ steps: 8, cfg: 1 });
   });
 
   it("finds each family's files by name, and not the files of another model that are named alike", () => {
@@ -769,7 +805,8 @@ describe("flux and qwen image, from what is said once about each", () => {
       dryContext({ seed: 7, slots: { ...qwenFiles, edit: "qwen_image_edit.safetensors" }, uploads: { source: "s.png", "references.0": "a.png" } }),
     );
     const read = all(edit, "TextEncodeQwenImageEditPlus");
-    expect(read.map((n) => n.inputs.prompt)).toEqual(["put her in image 2", ""]);
+    expect(read.map((n) => n.inputs.prompt)[0]).toBe("put her in image 2");
+    expect(read.map((n) => n.inputs.prompt)[1]).toMatch(/^低分辨率/);
     expect(Object.keys(read[0]!.inputs)).toEqual(expect.arrayContaining(["image1", "image2"]));
     expect(all(edit, "KSampler")[0]!.inputs).toMatchObject({ steps: 40, cfg: 4, denoise: 1 });
     expect(all(edit, "CFGNorm")).toHaveLength(1);
@@ -825,7 +862,7 @@ describe("what was fixed inside the recipes is the user's to set", () => {
   it("the face detailer: how sure it must be, the room around the face, and the sizes it works at", () => {
     for (const family of families) {
       const usual = node(build(`${family}.fix-face`, { source: "p", detector: "bbox/face.pt" }), "FaceDetailer")[0]!;
-      expect(usual, family).toMatchObject({ bbox_threshold: 0.5, bbox_dilation: 10, bbox_crop_factor: 3, guide_size: 768, max_size: 1024, feather: 5 });
+      expect(usual, family).toMatchObject({ bbox_threshold: 0.5, bbox_dilation: 10, bbox_crop_factor: 3, guide_size: 1024, guide_size_for: false, max_size: 1280, feather: 5 });
       const set = node(build(`${family}.fix-face`, { source: "p", detector: "bbox/face.pt", faceThreshold: 0.3, faceGrow: 20, faceCrop: 2, faceSize: 1024, faceMax: 1536, faceFeather: 12 }), "FaceDetailer")[0]!;
       expect(set, family).toMatchObject({ bbox_threshold: 0.3, bbox_dilation: 20, bbox_crop_factor: 2, guide_size: 1024, max_size: 1536, feather: 12 });
       // the largest size is never under the size it is redrawn at

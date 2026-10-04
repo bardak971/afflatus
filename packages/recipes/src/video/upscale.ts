@@ -39,9 +39,10 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
       note: "the final frame is said under the aspect ratio",
     },
     {
-      id: "upscaleModel", type: "choice", label: "Upscale model", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4xNomosUni_span_multijpg.pth", prefer: ["nomosuni.*span", "nomos8ksc", "nomos", "ultrasharp", "realesrgan", "esrgan", "animesharp", "nmkd", "."], section: "out",
+      // a 2× model first: the usual 2× asked for needs no 4×-then-down round trip, which costs time and softens
+      id: "upscaleModel", type: "choice", label: "Upscale model", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "2xNomosUni_span_multijpg.pth", prefer: ["^2x.*nomos", "^2x|_x2", "nomosuni.*span", "nomos8ksc", "nomos", "ultrasharp", "realesrgan", "esrgan", "animesharp", "nmkd", "."], section: "out",
       showWhen: { input: "upscale", in: [UPSCALE.model] },
-      note: "from models/upscale_models. The model enlarges by its own factor (usually 4×), then the frames are resized to the factor asked for. For video: 4xNomosUni_span (fast, steady from frame to frame, forgiving of compression) or 4xNomos8kSC (sharper on clean footage); UltraSharp and ESRGAN tend to flicker",
+      note: "from models/upscale_models. The model enlarges by its own factor, then the frames are resized to the factor asked for: a 2× model (2xNomosUni_span_multijpg, RealESRGAN_x2plus) is the direct road for ×2. NomosUni_span is fast, steady from frame to frame and forgiving of compression; Nomos8kSC is sharper on clean footage; UltraSharp and ESRGAN tend to flicker",
     },
   ];
 }

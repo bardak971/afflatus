@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { FolderUp, X } from "lucide-react";
 import { create } from "zustand";
 import { api, type Folder } from "./api";
+import { projectForNew } from "./project";
 import { Bar } from "./ui";
 
 /**
@@ -43,7 +44,7 @@ export const useFolderImport = create<{ run: Run | null; start(files: File[], in
           const parent = await folderFor(parts.slice(0, -1));
           const leaf = parts.at(-1)!.slice(0, 120);
           const there = known.find((f) => f.parentId === parent && f.name === leaf);
-          return there ? there.id : (await api.createFolder(leaf, parent)).id;
+          return there ? there.id : (await api.createFolder(leaf, parent, parent ? undefined : projectForNew())).id;
         })());
       }
       return made.get(key)!;
@@ -56,7 +57,7 @@ export const useFolderImport = create<{ run: Run | null; start(files: File[], in
       for (let file = left.shift(); file; file = left.shift()) {
         try {
           const folder = await folderFor(pathOf(file));
-          await api.upload(file, { folder: folder ?? undefined });
+          await api.upload(file, { folder: folder ?? undefined, project: projectForNew() });
           step({ done: get().run!.done + 1 });
         } catch {
           step({ done: get().run!.done + 1, failed: get().run!.failed + 1 });

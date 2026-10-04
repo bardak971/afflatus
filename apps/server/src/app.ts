@@ -13,7 +13,7 @@ import { registerDesigner } from "./designer";
 import { registerDrafts } from "./drafts";
 import { compose, lookSchema, registerEntities } from "./entities";
 import { registerFolders } from "./folders";
-import { folderIdsOf, registerProjects } from "./projects";
+import { folderIdsOf, registerProjects, rootFolderOf } from "./projects";
 import { isLinked } from "./linked";
 import { registerModelInfo } from "./modelInfo";
 import { registerModelPages } from "./modelPages";
@@ -545,7 +545,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
    * A picture, a video or a sound from the user's computer, sent as the request body. It is theirs, so
    * it is kept from the start and never goes to the bin on its own.
    */
-  app.post<{ Querystring: { name?: string; as?: string; folder?: string } }>("/api/assets", { bodyLimit: UPLOAD_LIMIT }, async (req) => {
+  app.post<{ Querystring: { name?: string; as?: string; folder?: string; project?: string } }>("/api/assets", { bodyLimit: UPLOAD_LIMIT }, async (req) => {
     const bytes = Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : null;
     // what the file is comes from its bytes, not from what the browser says it is
     const picture = bytes && (await readPicture(bytes));
@@ -564,8 +564,9 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
     const thumb = picture ? await makeThumb(bytes) : video?.frame ? await makeThumb(video.frame) : null;
     if (thumb) await s.storage.put(thumbKey(id), thumb);
     const at = now();
-    // a whole folder brought in from the computer: each file goes straight into the folder made for it
-    const into = req.query.folder && !mask ? (await s.db.selectFrom("folders").select("id").where("id", "=", req.query.folder).executeTakeFirst())?.id ?? null : null;
+    // into the folder named (a whole folder brought in from the computer: the folder made for each file; a drop: the folder open), else the project's root
+    const named = req.query.folder && !mask ? (await s.db.selectFrom("folders").select("id").where("id", "=", req.query.folder).executeTakeFirst())?.id ?? null : null;
+    const into = named ?? (!mask && req.query.project ? await rootFolderOf(s.db, req.query.project) : null);
     await s.db
       .insertInto("assets")
       .values({

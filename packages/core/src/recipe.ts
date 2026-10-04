@@ -123,6 +123,27 @@ export interface Recipe<In = Record<string, unknown>> {
   advice?(input: In, card: { vramGb: number }): Advice[];
   /** Sample inputs the graph checker builds without a GPU. Cover every branch of build(). */
   variants: Variant<In>[];
+  /**
+   * What a model file starts on the first time it is used, before anything is saved for it: the settings
+   * its line's authors recommend (Pony's score tags and CFG 7, Krea's guidance 4.5). The first whose
+   * pattern matches the file's name wins; a value saved for the file always wins over it.
+   */
+  presets?: Preset[];
+}
+
+/** Settings for the models whose file name matches `match` (a regular expression, case-insensitive). */
+export interface Preset {
+  match: string;
+  values: Record<string, unknown>;
+  /** Said under the form the first time: where the values come from. */
+  note?: string;
+}
+
+/** The preset of a recipe that applies to a model file, if any. */
+export function presetFor(recipe: { presets?: Preset[] }, file: string | undefined): Preset | undefined {
+  const name = (file ?? "").split(/[\\/]/).pop() ?? "";
+  if (!name) return undefined;
+  return (recipe.presets ?? []).find((p) => new RegExp(p.match, "i").test(name));
 }
 
 /** A word about one choice: it is slow, or probably too much, on this card. */
@@ -150,7 +171,7 @@ export function dryContext(over: Partial<BuildContext> = {}): BuildContext {
 export function describeRecipe(r: Recipe<any>) {
   return {
     id: r.id, family: r.family, version: r.version, title: r.title, summary: r.summary, output: r.output,
-    inputs: r.inputs, traits: r.traits ?? null,
+    inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [],
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };

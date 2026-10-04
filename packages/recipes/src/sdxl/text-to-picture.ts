@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
-import { HIRES_PASS_INPUTS, hiresPass } from "./common";
+import { HIRES_PASS_INPUTS, hiresPass, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
 import { DEFAULT_NEGATIVE } from "./family";
 
 export interface SdxlTextToPicture {
@@ -56,21 +56,23 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     { id: "cfg", type: "number", label: "CFG scale", note: "how closely it follows the prompt", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler_ancestral", advanced: true, perModel: true },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "normal", advanced: true, perModel: true },
-    { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = the model's own setting", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
+    { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = SDXL's own, which is already the second-last layer: what Civitai calls \"clip skip 2\" (Pony, Illustrious). Only raise it when a checkpoint's card asks for more than that", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
     { id: "hiresScale", type: "number", label: "Upscale by", min: 1.1, max: 2, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
     {
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
-      options: { node: "UpscaleModelLoader", input: "model_name" }, extra: [LATENT_UPSCALE], default: LATENT_UPSCALE,
+      // an upscale model when there is one: the enlarged latent is noisy and asks for a denoise that redraws the picture
+      options: { node: "UpscaleModelLoader", input: "model_name" }, extra: [LATENT_UPSCALE], default: "4xNomos8kSC.pth", prefer: UPSCALER_PREFER,
     },
     {
-      id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.55, showWhen: "hires", advanced: true, perModel: true,
-      note: "how much the second pass may redraw. Enlarging in latent space needs 0.5 or more, or the picture stays soft; with an upscale model 0.3 to 0.45 is enough",
+      id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.45, showWhen: "hires", advanced: true, perModel: true,
+      note: "how much the second pass may redraw. With an upscale model 0.3 to 0.45 keeps the picture and sharpens it; enlarging in latent space needs 0.5 or more, or it stays soft",
     },
     { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: 15, showWhen: "hires", advanced: true, perModel: true },
     ...HIRES_PASS_INPUTS,
     { id: "seed", type: "seed", label: "Seed" },
   ],
+  presets: SDXL_PRESETS,
 
   nodes(input) {
     return [

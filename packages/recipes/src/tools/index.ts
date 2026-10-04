@@ -6,7 +6,14 @@ export const tools = defineFamily({
   name: "Image tools",
   summary: "Small operations on an existing image, done without a diffusion model.",
   promptStyle: "sentences",
-  slots: [],
+  slots: [
+    {
+      // ComfyUI's own node reads BiRefNet-shaped files only: these two, from Comfy-Org
+      id: "bgModel", label: "Background removal model", folder: "background_removal", detect: ["lucida", "birefnet"],
+      hint: "Put birefnet.safetensors (or lucida.safetensors) in ComfyUI's models/background_removal folder.",
+      get: { file: "birefnet.safetensors", url: "https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors" },
+    },
+  ],
   loraMatch: [],
 });
 
@@ -29,8 +36,8 @@ export const removeBackground = defineRecipe<RemoveBackground>({
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image" },
     {
-      id: "model", type: "choice", label: "Background removal model", note: "from ComfyUI's models/background_removal folder",
-      options: { node: "LoadBackgroundRemovalModel", input: "bg_removal_name" }, default: "birefnet.safetensors", prefer: ["birefnet", "rmbg", "u2net"],
+      id: "model", type: "choice", label: "Background removal model", note: "from ComfyUI's models/background_removal folder. ComfyUI's node loads BiRefNet-type files: birefnet (general), lucida (a BiRefNet tuned for fine edges: hair, glass, text)",
+      options: { node: "LoadBackgroundRemovalModel", input: "bg_removal_name" }, default: "birefnet.safetensors", prefer: ["lucida", "birefnet", "rmbg"],
     },
   ],
   nodes: () => ["LoadImage", "LoadBackgroundRemovalModel", "RemoveBackground", "InvertMask", "JoinImageWithAlpha", "PreviewImage"],

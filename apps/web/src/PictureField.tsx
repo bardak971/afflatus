@@ -7,7 +7,7 @@ import { Select } from "./Select";
 import { api, fileUrl, thumbUrl, type Asset } from "./api";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
-import { useProject } from "./project";
+import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
 import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
@@ -16,7 +16,7 @@ import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
 function useUpload(onDone: (asset: Asset) => void) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => api.upload(file),
+    mutationFn: (file: File) => api.upload(file, { project: projectForNew() }),
     onSuccess: (asset) => {
       void client.invalidateQueries({ queryKey: ["assets"] });
       onDone(asset);

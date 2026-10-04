@@ -66,8 +66,8 @@ const spec: FlowSpec = {
     load: (g, slots) => g.out("DualCLIPLoader", { clip_name1: slots.clipL, clip_name2: slots.t5, type: "flux", device: "default" }),
     files: (slots) => [`text_encoders/${slots.clipL}`, `text_encoders/${slots.t5}`],
   },
-  shift: { node: "ModelSamplingFlux", default: 0, note: "0 leaves the model's own. Otherwise the largest shift (1.15 is the model's): higher gives the first steps more weight" },
-  guidance: { default: 3.5, note: "how closely the prompt is followed: 3.5 is the usual one, 2 to 2.5 looks more like a photograph. Schnell ignores it" },
+  shift: { node: "ModelSamplingFlux", default: 0, note: "0 is the model's own (1.15 at one megapixel, more for larger pictures, as FLUX.1 was trained). Otherwise the largest shift: higher gives the first steps more weight" },
+  guidance: { default: 3.5, note: "how closely the prompt is followed: 3.5 is the usual one, 4.5 for Krea dev (its authors' setting), 2 to 2.5 looks more like a photograph. Schnell ignores it" },
   negative: { default: "", note: "only acts with a CFG scale above 1, which FLUX.1 is not made for", empty: "zero" },
   sampling: { steps: 20, stepsNote: "20 for dev and Krea dev, 4 for schnell", cfg: 1, cfgNote: "1 is what FLUX.1 is made for: its Guidance does that job. Above 1 the negative prompt acts and every step takes twice as long", sampler: "euler", scheduler: "simple" },
   shapes: [
@@ -76,6 +76,12 @@ const spec: FlowSpec = {
     { id: "wide", label: "Landscape", width: 1152, height: 896 },
   ],
   megapixels: 1.6,
+  // FLUX.1 draws from 0.1 to 2 megapixels
+  maxPixels: 2.1e6,
+  presets: [
+    { match: "krea", values: { guidance: 4.5 }, note: "Krea dev: guidance 4.5, as its authors give it" },
+    { match: "schnell", values: { steps: 4 }, note: "schnell: 4 steps" },
+  ],
   placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up, shallow depth of field.",
   files: { unet: "flux1-dev.safetensors", clipL: "clip_l.safetensors", t5: "t5xxl_fp16.safetensors", vae: "ae.safetensors" },
   fineTune: "Flux\\someone_flux1_v2.safetensors",
@@ -132,7 +138,8 @@ export const fluxEdit = defineRecipe<FluxEdit>({
     const said = g.out("CLIPTextEncode", { text: input.prompt, clip: k.clip });
     const positive = g.out("FluxGuidance", { conditioning: g.out("ReferenceLatent", { conditioning: said, latent }), guidance: input.guidance ?? 2.5 });
     const negative = input.negative.trim() ? g.out("CLIPTextEncode", { text: input.negative, clip: k.clip }) : g.out("ConditioningZeroOut", { conditioning: said });
-    const size = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
+    // Kontext works at about a megapixel (FluxKontextImageScale brings the picture there): the shift goes with that size, not the picture's own
+    const size = kit.sizeOf(ctx.media.source, 1.05, 0.9);
     g.phase("sampling");
     const { latent: done, pass } = kit.sample(g, k, input, kit.shifted(g, k.model, input, size), { positive, negative }, latent, ctx.seed);
     g.phase("decoding");

@@ -22,8 +22,9 @@ export const klein = defineFamily({
       get: { file: "qwen_3_4b.safetensors", url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" },
     },
     {
-      id: "vae", label: "VAE", folder: "vae", detect: ["flux-?2.*vae", "flux2"],
-      hint: "Put flux2-vae.safetensors in ComfyUI's models/vae folder.",
+      // or the small decoder ComfyUI's Klein edit templates ship with (the full encoder, a faster decoder)
+      id: "vae", label: "VAE", folder: "vae", detect: ["flux-?2.*vae", "flux2", "full_encoder_small_decoder"],
+      hint: "Put flux2-vae.safetensors (or full_encoder_small_decoder.safetensors) in ComfyUI's models/vae folder.",
       get: { file: "flux2-vae.safetensors", url: "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" },
     },
   ],
@@ -41,4 +42,5 @@ REFERENCE PICTURES are numbered in the order they were given and are introduced 
 The part to avoid is a short list of what must not appear.`,
 });
 
-export const KLEIN_NEGATIVE = "blurry, low quality, deformed, distorted face, extra fingers, text, watermark, cartoon, illustration";
+/** Words for the negative prompt when one is wanted (the form starts empty, as ComfyUI's templates do). */
+export const KLEIN_NEGATIVE = "blurry, low quality, deformed, distorted face, extra fingers, text, watermark";
