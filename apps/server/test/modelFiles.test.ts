@@ -1,6 +1,6 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { extraDirs, modelDirs, readLocalHeader } from "../src/modelFiles";
 
@@ -11,7 +11,7 @@ const yaml = `#Rename this to extra_model_paths.yaml and ComfyUI will load it
 #     checkpoints: models/checkpoints/
 
 a1111:
-     base_path: D:/tools/webui
+     base_path: /tools/webui
      is_default: true
      checkpoints: models/Stable-diffusion
      configs: models/Stable-diffusion
@@ -25,7 +25,7 @@ a1111:
      controlnet: models/ControlNet
 
 a1111_diffusion_models:
-     base_path: D:/tools/webui
+     base_path: /tools/webui
      diffusion_models: models/Stable-diffusion/Krea2
 
 other:
@@ -35,14 +35,17 @@ other:
 
 describe("ComfyUI's model folders on this computer", () => {
   it("reads the directories a folder maps to from extra_model_paths.yaml: single paths, | blocks, several sections, the older names", () => {
+    // absolute paths as this platform resolves them (a drive letter on Windows, none elsewhere), slashes one way
+    const abs = (p: string) => resolve(p).replace(/\\/g, "/");
     const norm = (p: string) => p.replace(/\\/g, "/");
-    expect(extraDirs(yaml, "C:/comfy", "checkpoints").map(norm)).toEqual(["D:/tools/webui/models/Stable-diffusion"]);
-    expect(extraDirs(yaml, "C:/comfy", "loras").map(norm)).toEqual(["D:/tools/webui/models/LyCORIS", "D:/tools/webui/models/Lora"]);
-    expect(extraDirs(yaml, "C:/comfy", "upscale_models").map(norm)).toEqual(["D:/tools/webui/models/ESRGAN", "D:/tools/webui/models/RealESRGAN"]);
+    const comfy = abs("/comfy");
+    expect(extraDirs(yaml, comfy, "checkpoints").map(norm)).toEqual([abs("/tools/webui/models/Stable-diffusion")]);
+    expect(extraDirs(yaml, comfy, "loras").map(norm)).toEqual([abs("/tools/webui/models/LyCORIS"), abs("/tools/webui/models/Lora")]);
+    expect(extraDirs(yaml, comfy, "upscale_models").map(norm)).toEqual([abs("/tools/webui/models/ESRGAN"), abs("/tools/webui/models/RealESRGAN")]);
     // the folder's older name counts, and a relative base path sits under ComfyUI's folder
-    expect(extraDirs(yaml, "C:/comfy", "diffusion_models").map(norm)).toEqual(["D:/tools/webui/models/Stable-diffusion/Krea2", "C:/comfy/shared/big-models"]);
-    expect(extraDirs(yaml, "C:/comfy", "vae").map(norm)).toEqual(["D:/tools/webui/models/VAE"]);
-    expect(extraDirs(yaml, "C:/comfy", "embeddings")).toEqual([]);
+    expect(extraDirs(yaml, comfy, "diffusion_models").map(norm)).toEqual([abs("/tools/webui/models/Stable-diffusion/Krea2"), abs("/comfy/shared/big-models")]);
+    expect(extraDirs(yaml, comfy, "vae").map(norm)).toEqual([abs("/tools/webui/models/VAE")]);
+    expect(extraDirs(yaml, comfy, "embeddings")).toEqual([]);
   });
 
   const made: string[] = [];
