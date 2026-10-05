@@ -319,6 +319,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 
   /** How smoothly each take of a clip meets its neighbours (×1 = like the clip's own motion): for picking among takes. */
   app.get<{ Params: { id: string } }>("/api/clips/:id/joins", async (req) => ({ items: await t.joins(req.params.id) }));
+  /** The colour nudge each clip gets in the player, the export's matching made visible: toward the clip before at the join, within a few steps of 255. */
+  app.get<{ Params: { id: string } }>("/api/timelines/:id/match", async (req) => ({ items: await t.matches(req.params.id) }));
 
   /** How much moves along a video, ten samples a second: the curve under the ruler, and the quiet moments In and Out snap to. */
   app.get<{ Params: { id: string } }>("/api/assets/:id/motion", async (req, reply) => {

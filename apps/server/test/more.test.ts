@@ -304,7 +304,7 @@ describe.skipIf(!clip)("the sound of a video", () => {
     const tl = (await post(t.app, "/api/timelines", {})).json();
     const c = (await post(t.app, `/api/timelines/${tl.id}/clips`, { asset: video.id })).json().clip;
     const other = (await t.app.inject({ method: "POST", url: "/api/assets?name=other.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip!) })).json();
-    await t.db.insertInto("takes").values({ id: "idle", clip_id: c, asset_id: other.id, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, created_at: now() }).execute();
+    await t.db.insertInto("takes").values({ id: "idle", clip_id: c, asset_id: other.id, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, lead_ms: 0, created_at: now() }).execute();
     expect((await get(t.app, "/api/storage")).json().idleTakes).toMatchObject({ count: 1 });
     expect((await post(t.app, "/api/storage/bin-idle-takes")).json()).toEqual({ moved: 1 });
     expect((await get(t.app, `/api/timelines/${tl.id}`)).json().clips[0].takes).toHaveLength(1);

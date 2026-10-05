@@ -257,6 +257,14 @@ export interface ExportPart {
   endMs: number;
   /** Whether the video has a sound of its own. */
   hasSound: boolean;
+  /**
+   * The picture took over early, inside the frames shared with the part before (a take-over point): the part's
+   * own sound starts this much after its picture, at the hand-over proper, past the hole the model leaves in
+   * its sound there. The part before's own sound covers those first ms (its `soundGiveMs`).
+   */
+  soundLeadMs?: number;
+  /** The part after takes over early: this part's own sound runs on this much past its picture, under the part after's first frames. */
+  soundGiveMs?: number;
   /** What is heard: the video's own sound, nothing, or a sound file (cut or padded to the part's length). */
   sound: "own" | "muted" | "file";
   soundFile?: { bytes: Uint8Array; ext: string };
@@ -343,8 +351,32 @@ export async function lookOf(source: Uint8Array, ext: string, fromMs = 0): Promi
   });
 }
 
+/** How a clip is matched to the clip before at their join: over this long on each side, and by at most this many steps of 255. A nudge, never a grade. */
+export const MATCH = { lookSec: 0.4, mostSteps: 14 };
+export interface Means {
+  y: number;
+  u: number;
+  v: number;
+}
+/**
+ * The nudge a clip gets at its join: toward the clip before as it will look (its own nudge, `carry`, included),
+ * on luma and both chroma planes, within MATCH.mostSteps. The export and the player apply the same one.
+ */
+export function colourNudge(before: Means, after: Means, carry: Means): Means {
+  const nudge = (want: number, have: number) => Math.round(Math.max(-MATCH.mostSteps, Math.min(MATCH.mostSteps, want - have)) * 10) / 10;
+  return { y: nudge(before.y + carry.y, after.y), u: nudge(before.u + carry.u, after.u), v: nudge(before.v + carry.v, after.v) };
+}
+/** The mean luma and chroma of a stretch of a video, from its bytes (see meansOf). */
+export async function stretchMeans(source: Uint8Array, ext: string, fromMs: number, seconds: number): Promise<Means | null> {
+  return inTemp(async (dir) => {
+    const file = join(dir, `in.${ext}`);
+    await writeFile(file, source);
+    return meansOf(file, fromMs / 1000, seconds);
+  });
+}
+
 /** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
-async function meansOf(file: string, fromSec: number, seconds: number): Promise<{ y: number; u: number; v: number } | null> {
+async function meansOf(file: string, fromSec: number, seconds: number): Promise<Means | null> {
   const said = await must(tools.ffmpeg, ["-loglevel", "error", "-ss", Math.max(0, fromSec).toFixed(3), "-t", seconds.toFixed(3), "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"]).catch(() => "");
   const pick = (key: string) => [...said.matchAll(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`, "g"))].map((m) => Number(m[1]));
   const y = pick("YAVG");
@@ -401,6 +433,8 @@ export async function joinVideos(
     // colour matching carries along: a part is matched to the part before as it will look, nudge included
     let carry = { y: 0, u: 0, v: 0 };
     let prevFile: string | null = null;
+    /** The input of the part before: its sound covers the first ms of a part whose picture took over early. */
+    let prevMain: number | null = null;
     let prevPart: ExportPart | null = null;
     for (const [i, p] of parts.entries()) {
       const length = sec(p.endMs - p.startMs);
@@ -411,17 +445,16 @@ export async function joinVideos(
         : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
       let tune = "";
       if (opts.match && p.kind === "video" && prevPart?.kind === "video" && prevFile) {
-        const look = 0.4;
+        const look = MATCH.lookSec;
         const a = await meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look);
         const b = await meansOf(file, (p.startMs + (p.blendMs ?? 0)) / 1000, look);
         if (a && b) {
-          // a nudge, never a grade: within a few steps of 255
-          const nudge = (want: number, have: number) => Math.round(Math.max(-14, Math.min(14, want - have)) * 10) / 10;
-          carry = { y: nudge(a.y + carry.y, b.y), u: nudge(a.u + carry.u, b.u), v: nudge(a.v + carry.v, b.v) };
+          carry = colourNudge(a, b, carry);
           if (carry.y || carry.u || carry.v) tune = `,lutyuv=y='clip(val+(${carry.y}),0,255)':u='clip(val+(${carry.u}),0,255)':v='clip(val+(${carry.v}),0,255)'`;
         } else carry = { y: 0, u: 0, v: 0 };
       } else carry = { y: 0, u: 0, v: 0 };
       prevFile = file;
+      prevMain = main;
       prevPart = p;
       // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
       const next = parts[i + 1];
@@ -435,7 +468,19 @@ export async function joinVideos(
       );
       const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
       if (p.sound === "own" && p.kind === "video" && p.hasSound) {
-        chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${stereo},${loud},apad,atrim=duration=${padded}[a${i}]`);
+        const lead = p.soundLeadMs ?? 0;
+        const prev = i > 0 ? parts[i - 1] : undefined;
+        if (lead > 0 && prev && prevMain !== null) {
+          // the picture took over early: the first `lead` ms of sound are the part before's own, running on past
+          // its picture; then this part's own sound from the hand-over proper. What runs past this part's picture
+          // in turn is cut here and carried by the part after
+          const prevEnd = prev.endMs + (prev.soundGiveMs ?? 0);
+          if (prev.kind === "video" && prev.sound === "own" && prev.hasSound) {
+            chains.push(`[${prevMain}:a]atrim=start=${sec(Math.max(0, prevEnd - lead))}:end=${sec(prevEnd)},asetpts=PTS-STARTPTS,${stereo}[apre${i}]`);
+          } else chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${sec(lead)}[apre${i}]`);
+          chains.push(`[${main}:a]atrim=start=${sec(p.startMs + lead)},asetpts=PTS-STARTPTS,${stereo}[aown${i}]`);
+          chains.push(`[apre${i}][aown${i}]concat=n=2:v=0:a=1,${loud},apad,atrim=duration=${padded}[a${i}]`);
+        } else chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs + (p.soundGiveMs ?? 0))},asetpts=PTS-STARTPTS,${stereo},${loud},apad,atrim=duration=${padded}[a${i}]`);
       } else if (p.sound === "file" && p.soundFile) {
         const file = await addInput(`sound${i}.${p.soundFile.ext}`, p.soundFile.bytes);
         chains.push(`[${file}:a]${stereo},${loud},apad,atrim=duration=${padded},asetpts=PTS-STARTPTS[a${i}]`);

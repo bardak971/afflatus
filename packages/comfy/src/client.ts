@@ -23,7 +23,7 @@ export interface OutputFile {
 export interface HistoryEntry {
   status?: { status_str?: string; completed?: boolean; messages?: Array<[string, Record<string, unknown>]> };
   /** images: PreviewImage / SaveImage; gifs: VideoHelperSuite's combine node (videos too). */
-  outputs?: Record<string, { images?: OutputFile[]; gifs?: OutputFile[]; audio?: OutputFile[] }>;
+  outputs?: Record<string, { images?: OutputFile[]; gifs?: OutputFile[]; audio?: OutputFile[]; latents?: OutputFile[] }>;
 }
 
 const META_TIMEOUT = 15_000;

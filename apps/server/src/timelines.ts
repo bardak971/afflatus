@@ -1,8 +1,8 @@
 import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { joinKindOf, secondsInput, type Recipe, type InputSpec } from "@afflatus/core";
-import { BLEND_MS, CutError, type ExportMusic, type ExportPart, type Measure, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion, scenesOf } from "./cut";
+import { joinKindOf, secondsInput, type JoinKind, type Recipe, type InputSpec } from "@afflatus/core";
+import { BLEND_MS, colourNudge, CutError, type ExportMusic, type ExportPart, MATCH, type Means, type Measure, stretchMeans, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion, scenesOf } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { rootFolderOf } from "./projects";
 import type { Look } from "./entities";
@@ -105,10 +105,17 @@ export interface TakeLinks {
   next?: { take: string; at: number };
 }
 
+/** A take with its video, and what it gives up at its end to the clip after (that clip's take-over point, see `shown`). */
+interface Taken {
+  take: TakeRow;
+  asset: AssetRow;
+  give?: number;
+}
+
 interface Placed {
   clip: ClipRow;
-  takes: Array<{ take: TakeRow; asset: AssetRow }>;
-  active: { take: TakeRow; asset: AssetRow } | null;
+  takes: Taken[];
+  active: Taken | null;
   /** Of a still: its picture. Of a clip with a sound file: that file. */
   still: AssetRow | null;
   sound: AssetRow | null;
@@ -131,14 +138,35 @@ interface Laid {
   lengthMs: number;
 }
 
-/** The part of a take that plays, in its video's own time. */
+/**
+ * The take-over point of a join made in the latent: the continuation starts to play this many ms before its
+ * shared frames end, and the clip before stops as much earlier. Four frames at 24 a second. Measured on 25
+ * joins: a cut at the first own frame steps ×3.3 the clip's own motion (the model steps away from its guide
+ * there), a cut four or five frames earlier, still inside the shared frames, ×0.8: invisible.
+ */
+export const LEAD_MS = 167;
+/** The take-over point a new take gets: four frames early on a latent or hybrid join with room for it, else none. */
+const leadFor = (kind: JoinKind | null, headMs: number) => (kind && kind !== "pixels" && headMs >= 2 * LEAD_MS ? LEAD_MS : 0);
+
+/**
+ * The part of a take that plays, in its video's own time: after the frames it shares with the clip before
+ * and before the ones it shares with the clip after, less what was trimmed by hand. The joins anchor here
+ * (a continuation is cut from where this ends), whatever the take-over point does to what is seen.
+ */
 const plays = (t: { take: TakeRow; asset: AssetRow }) => {
   const start = t.take.head_ms + t.take.trim_start_ms;
   const end = Math.max(start, (t.asset.duration_ms ?? 0) - t.take.tail_ms - t.take.trim_end_ms);
   return { start, end };
 };
-/** How long a clip plays: its take's playing part, a still's time on screen, nothing when there is nothing to show. */
-const lengthOf = (p: Placed) => (p.clip.kind === "still" ? (p.still ? p.clip.still_ms : 0) : p.active ? plays(p.active).end - plays(p.active).start : 0);
+/** The part of a take that is seen: `plays`, moved by the take-over points, its own at the start and the clip after's at the end. */
+const visible = (t: Taken) => {
+  const p = plays(t);
+  const start = Math.max(0, p.start - (t.take.lead_ms ?? 0));
+  const end = Math.max(start, p.end - (t.give ?? 0));
+  return { start, end };
+};
+/** How long a clip plays: its take's seen part, a still's time on screen, nothing when there is nothing to show. */
+const lengthOf = (p: Placed) => (p.clip.kind === "still" ? (p.still ? p.clip.still_ms : 0) : p.active ? visible(p.active).end - visible(p.active).start : 0);
 /** What a take that opens on a still says it carried on from. */
 const stillRef = (assetId: string) => `still:${assetId}`;
 
@@ -245,8 +273,8 @@ export class Timelines {
     ];
     const assets = wanted.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", [...new Set(wanted)]).execute() : [];
     const byId = new Map(assets.map((a) => [a.id, a]));
-    return clips.map((clip) => {
-      const own = takes.filter((t) => t.clip_id === clip.id && byId.has(t.asset_id)).map((take) => ({ take, asset: byId.get(take.asset_id)! }));
+    const placed: Placed[] = clips.map((clip) => {
+      const own: Taken[] = takes.filter((t) => t.clip_id === clip.id && byId.has(t.asset_id)).map((take) => ({ take, asset: byId.get(take.asset_id)! }));
       return {
         clip, takes: own, active: own.find((t) => t.take.id === clip.take_id) ?? null,
         still: (clip.still_asset_id && byId.get(clip.still_asset_id)) || null,
@@ -254,6 +282,13 @@ export class Timelines {
         pictures: pinned(clip).flatMap((p) => (byId.has(p.id) ? [{ input: p.input, role: p.role, asset: byId.get(p.id)! }] : [])),
       };
     });
+    // a clip followed by a continuation with a take-over point gives it those last frames: they show the same moments
+    for (let i = 0; i < placed.length - 1; i++) {
+      const next = placed[i + 1]!;
+      const give = next.clip.kind === "video" && next.clip.joined === "continue" && next.active ? next.active.take.lead_ms ?? 0 : 0;
+      if (give > 0) for (const t of placed[i]!.takes) t.give = give;
+    }
+    return placed;
   }
 
   /** Whether the clip at `i` still follows the one before it: "fresh", "stale", "cut" (it never did), or null (nothing to compare yet). */
@@ -306,7 +341,9 @@ export class Timelines {
     const looks = new Map(records.map((g) => [g.id, (JSON.parse(g.resolved) as { measure?: Measure }).measure ?? null]));
     const takeView = (x: { take: TakeRow; asset: AssetRow }) => ({
       id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
-      trimStartMs: x.take.trim_start_ms, trimEndMs: x.take.trim_end_ms, startMs: plays(x).start, endMs: plays(x).end, createdAt: x.take.created_at,
+      trimStartMs: x.take.trim_start_ms, trimEndMs: x.take.trim_end_ms, startMs: visible(x).start, endMs: visible(x).end, createdAt: x.take.created_at,
+      /** Its take-over point: it starts to play this many ms before its shared frames end, and the clip before stops as much earlier (0: at its first own frame). */
+      leadMs: x.take.lead_ms ?? 0,
       finishedFrom: x.take.finished_from,
       /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
       joinKind: x.take.join_kind ?? null,
@@ -790,6 +827,7 @@ export class Timelines {
       .values({
         id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? overlap.headMs, tail_ms: from?.tail_ms ?? overlap.tailMs, trim_start_ms: from?.trim_start_ms ?? 0, trim_end_ms: from?.trim_end_ms ?? 0,
         join_kind: from ? from.join_kind : joinKindOf(overlap),
+        lead_ms: from ? from.lead_ms : leadFor(joinKindOf(overlap), overlap.headMs),
         prev_take_id: links.prev?.take ?? from?.prev_take_id ?? null, prev_at_ms: links.prev?.at ?? from?.prev_at_ms ?? null, next_take_id: links.next?.take ?? from?.next_take_id ?? null, next_at_ms: links.next?.at ?? from?.next_at_ms ?? null,
         finished_from: from ? from.id : null, created_at: now(),
       })
@@ -1025,6 +1063,41 @@ export class Timelines {
    * the take's first frame that plays; at Out, the take's last frame against the clip after's first.
    * ×1 = the join moves like the clip itself, higher = a catch. For picking among takes.
    */
+  /** The mean colour of stretches of takes already measured, by take, moment and length: the files do not change. */
+  private stretchMeans = new Map<string, Promise<Means | null>>();
+
+  /**
+   * The colour nudge each clip gets in the player: the same as the export's matching, a clip nudged toward the
+   * clip before over the last and first 0.4 s at their join, the clip before taken as it will look (its own
+   * nudge included), within a few steps of 255. Zero for the first clip, for a still, and after one.
+   */
+  async matches(timelineId: string): Promise<Array<{ clip: string } & Means>> {
+    const all = await this.placed(timelineId);
+    const mean = (t: Taken, fromMs: number) => {
+      const key = `${t.take.id}:${Math.round(fromMs)}`;
+      let got = this.stretchMeans.get(key);
+      if (!got) {
+        got = this.storage.get(t.asset.file_key).then((bytes) => stretchMeans(bytes, extOf(t.asset.mime), fromMs, MATCH.lookSec)).catch(() => null);
+        this.stretchMeans.set(key, got);
+      }
+      return got;
+    };
+    const out: Array<{ clip: string } & Means> = [];
+    let carry: Means = { y: 0, u: 0, v: 0 };
+    let before: Taken | null = null;
+    for (const p of all) {
+      const x = p.clip.kind === "video" ? p.active : null;
+      if (x && before) {
+        const a = await mean(before, Math.max(0, visible(before).end - MATCH.lookSec * 1000));
+        const b = await mean(x, visible(x).start);
+        carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
+      } else carry = { y: 0, u: 0, v: 0 };
+      out.push({ clip: p.clip.id, ...carry });
+      before = x && lengthOf(p) > 0 ? x : null;
+    }
+    return out;
+  }
+
   async joins(clipId: string): Promise<Array<{ take: string; in: number | null; out: number | null }>> {
     const clip = await this.clipRow(clipId);
     const all = await this.placed(clip.timeline_id);
@@ -1034,7 +1107,7 @@ export class Timelines {
       if (!p) return null;
       if (p.clip.kind === "still") return p.still ? { asset: p.still, atMs: 0, key: `still:${p.still.id}` } : null;
       if (!p.active) return null;
-      const { start, end } = plays(p.active);
+      const { start, end } = visible(p.active);
       return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}` };
     };
     const prev = edge(all[i - 1], "end");
@@ -1050,7 +1123,7 @@ export class Timelines {
     };
     const out: Array<{ take: string; in: number | null; out: number | null }> = [];
     for (const t of me.takes) {
-      const { start, end } = plays(t);
+      const { start, end } = visible(t);
       const key = `${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}`;
       let score = this.joinScores.get(key);
       if (!score) {
@@ -1207,14 +1280,15 @@ export class Timelines {
       return id;
     }
     const { take, asset } = p.active!;
-    const atMs = plays(p.active!).start + localMs;
+    const atMs = visible(p.active!).start + localMs;
     // the second half: the same video, trimmed to start where the first stops
     const second = newId();
     await this.db
       .insertInto("takes")
       .values({
         id: second, clip_id: id, asset_id: asset.id, head_ms: take.head_ms, tail_ms: take.tail_ms, trim_start_ms: Math.max(0, Math.round(atMs - take.head_ms)), trim_end_ms: take.trim_end_ms,
-        prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, created_at: at,
+        // the second half starts as a cut inside the video: no take-over point
+        prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, lead_ms: 0, created_at: at,
       })
       .execute();
     await this.db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();
@@ -1257,7 +1331,7 @@ export class Timelines {
     if (p.clip.kind === "still") return void (await this.db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(keepMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
     const x = p.active!;
     const total = x.asset.duration_ms ?? 0;
-    await this.db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round(total - x.take.tail_ms - (plays(x).start + keepMs))) }).where("id", "=", x.take.id).execute();
+    await this.db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round(total - x.take.tail_ms - (visible(x).start + keepMs))) }).where("id", "=", x.take.id).execute();
   }
 
   /** A clip plays from `fromMs` into what it played. It no longer starts where the clip before stopped: a cut. */
@@ -1326,7 +1400,7 @@ export class Timelines {
   private async pictureAt(l: Laid, localMs: number, edge: "start" | "end"): Promise<AssetRow> {
     if (l.p.clip.kind === "still") return l.p.still!;
     const x = l.p.active!;
-    const { start, end } = plays(x);
+    const { start, end } = visible(x);
     // the last frame that plays is a little before the moment the clip stops
     const ms = edge === "end" ? Math.max(start, Math.min(end - 20, start + localMs)) : Math.max(start, Math.min(end - 20, start + localMs));
     return this.frame(x.asset, ms, true);
@@ -1551,7 +1625,7 @@ export class Timelines {
       if (l.p.clip.kind === "still") {
         await this.db.updateTable("clips").set({ still_ms: Math.min(STILL_MS.most, Math.round(l.p.clip.still_ms * factor)), updated_at: at }).where("id", "=", l.p.clip.id).execute();
       } else if (l.p.active) {
-        const { start, end } = plays(l.p.active);
+        const { start, end } = visible(l.p.active);
         jobs.push({ clip: l.p.clip.id, asset: l.p.active.asset, startMs: start, endMs: end });
       }
       // a clip that followed what is now slowed down no longer does
@@ -1610,12 +1684,16 @@ export class Timelines {
         // before's last frames show the same moments, so the fade runs over them with both sides moving. A
         // pixel join restarts beside pinned frames: the clip before holds its last frame while this one fades in
         const latent = x.take.join_kind === "latent" || x.take.join_kind === "hybrid";
-        const blend = opts.blend !== false && before && before.kind === "video" && from === 0 && shared >= 80
+        // a take-over point inside the shared frames is a clean cut (both sides show the same moment): no fade
+        const blend = opts.blend !== false && !x.take.lead_ms && before && before.kind === "video" && from === 0 && shared >= 80
           ? Math.min(BLEND_MS, to - 40, ...(latent ? [shared, before.endMs - before.startMs - 40] : []))
           : 0;
         parts.push({
           kind: "video", bytes: await this.storage.get(x.asset.file_key), ext: extOf(x.asset.mime),
-          startMs: plays(x).start + from - (blend >= 80 && latent ? blend : 0), endMs: plays(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
+          startMs: visible(x).start + from - (blend >= 80 && latent ? blend : 0), endMs: visible(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
+          // the sound hands over at the frame the model's own begins, not where the picture took over early (see ExportPart)
+          ...(from === 0 && x.take.lead_ms ? { soundLeadMs: x.take.lead_ms } : {}),
+          ...(to === l.lengthMs && x.give ? { soundGiveMs: x.give } : {}),
           ...(blend >= 80 ? { blendMs: blend, blendMode: latent ? ("overlap" as const) : ("hold" as const) } : {}),
         });
       }

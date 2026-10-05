@@ -394,6 +394,8 @@ export interface Take {
   finishedFrom: string | null;
   /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
   joinKind: "latent" | "hybrid" | "pixels" | null;
+  /** Its take-over point: it starts to play this many ms before its shared frames end and the clip before stops as much earlier, a clean cut inside frames that show the same moment. 0: at its first own frame. */
+  leadMs: number;
   /** How long its render took, when it was rendered here; null otherwise. */
   renderMs: number | null;
   /** How its own part looks, measured on its frames when it was rendered here; null otherwise. */
@@ -1039,6 +1041,8 @@ export const api = {
   motion: (asset: string) => call<{ rate: number; values: number[]; sound: number[] | null }>("GET", `/assets/${asset}/motion`),
   /** How smoothly each take of a clip meets its neighbours: ×1 = like the clip's own motion, higher = a catch; null where there is no neighbour. */
   joins: (clip: string) => call<{ items: Array<{ take: string; in: number | null; out: number | null }> }>("GET", `/clips/${clip}/joins`),
+  /** The colour nudge each clip gets in the player (luma and chroma steps of 255), the same the export applies at the joins. */
+  matches: (timeline: string) => call<{ items: Array<{ clip: string; y: number; u: number; v: number }> }>("GET", `/timelines/${timeline}/match`),
 };
 
 export const fileUrl = (id: string) => `/api/assets/${id}/file`;

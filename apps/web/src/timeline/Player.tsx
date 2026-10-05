@@ -1,9 +1,15 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Film } from "lucide-react";
-import { fileUrl, type Clip, type RunningJob, type Take, type Timeline } from "../api";
+import { api, fileUrl, type Clip, type RunningJob, type Take, type Timeline } from "../api";
 import { phaseLabel } from "../format";
 import { LivePreview } from "../LivePreview";
 import { cx } from "../ui";
+
+/** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
+const PREROLL_MS = 400;
+/** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
+const CUT_EARLY_MS = 24;
 
 export interface PlayerHandle {
   /** Go to a moment of what plays. */
@@ -31,8 +37,20 @@ export const Player = forwardRef<PlayerHandle, {
   /** The clip that is rendering, when what is forming is to be watched here, and which clip it is. */
   live?: { job: RunningJob; clip: number } | null;
   onStop?(job: string): void;
-}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop }, ref) {
+  /** The timeline, for the colour matching at the joins (the export's, shown here too). */
+  timeline?: string;
+}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline }, ref) {
   const seq = useMemo(() => clips.filter((c) => c.lengthMs > 0 && (c.take || c.still)), [clips]);
+  // each clip's colour nudge toward the clip before at their join, as the export applies it: shown here as a colour matrix on the video
+  const matches = useQuery({
+    queryKey: ["match", timeline, clips.map((c) => `${c.take?.id ?? c.still?.id ?? "-"}:${c.take?.startMs ?? 0}:${c.take?.endMs ?? 0}`).join(",")],
+    queryFn: () => api.matches(timeline!),
+    enabled: Boolean(timeline) && clips.some((c) => c.take),
+    staleTime: 5 * 60_000,
+  });
+  const nudges = useMemo(() => new Map((matches.data?.items ?? []).filter((m) => m.y || m.u || m.v).map((m) => [m.clip, m])), [matches.data]);
+  /** The nudge as RGB offsets (0 to 1) for an SVG colour matrix: luma to all three, the chroma planes by BT.601. */
+  const rgbOf = (m: { y: number; u: number; v: number }) => ({ r: (m.y + 1.402 * m.v) / 255, g: (m.y - 0.344 * m.u - 0.714 * m.v) / 255, b: (m.y + 1.772 * m.u) / 255 });
   const total = seq.reduce((sum, c) => sum + c.lengthMs, 0);
   const [cur, setCur] = useState(0);
   const els = useRef(new Map<string, HTMLVideoElement>());
@@ -49,6 +67,8 @@ export const Player = forwardRef<PlayerHandle, {
   /** How long the next clip fades in over the end of this one: a clip that extends the one before, over the frames they share (as the export does). */
   const blendOf = (c: Clip | undefined, from: Clip | undefined) => {
     if (!c?.take || !from || c.joined !== "continue") return 0;
+    // a take-over point inside the shared frames is a clean cut: both sides show the same moment, a fade would only ghost it
+    if (c.take.leadMs > 0) return 0;
     const shared = c.take.headMs - c.take.trimStartMs;
     const x = Math.min(400, shared, c.lengthMs - 40, from.lengthMs - 40);
     return x >= 80 ? x : 0;
@@ -56,6 +76,20 @@ export const Player = forwardRef<PlayerHandle, {
   /** The next clip is fading in, over this many ms. */
   const [fading, setFading] = useState(0);
   const fadeOn = useRef(false);
+  /**
+   * The sound hands over later than the picture at a take-over point: the clip before keeps sounding, hidden,
+   * for the lead while the clip on screen stays muted; then they swap. The model leaves a hole in its sound
+   * where its own frames begin, and the clip before's real sound covers it.
+   */
+  const handing = useRef<{ id: string; until: number } | null>(null);
+  const [held, setHeld] = useState<Clip | null>(null);
+  const endHand = useCallback(() => {
+    const h = handing.current;
+    if (!h) return;
+    handing.current = null;
+    els.current.get(h.id)?.pause();
+    setHeld(null);
+  }, []);
 
   /** The music follows the playhead: at the same moment, as loud as its fades say. */
   const tuneMusic = useCallback(
@@ -79,15 +113,17 @@ export const Player = forwardRef<PlayerHandle, {
       if (!c) return;
       pos.current = { key: keyOf(c), local, at: performance.now() };
       fadeOn.current = false;
+      endHand();
       setFading(0);
       setCur(index);
       const el = c.take ? els.current.get(c.take.id) : undefined;
-      if (el) el.currentTime = (startOf(c) + local) / 1000;
+      // a seek on a video already there (it was started early, see step) would stall it for a frame
+      if (el && Math.abs(el.currentTime * 1000 - (startOf(c) + local)) > 40) el.currentTime = (startOf(c) + local) / 1000;
       if (clipSound.current) clipSound.current.currentTime = local / 1000;
       tuneMusic(c.atMs + local, true);
       onTime(c.atMs + local);
     },
-    [seq, onTime, tuneMusic],
+    [seq, onTime, tuneMusic, endHand],
   );
 
   useImperativeHandle(
@@ -115,15 +151,17 @@ export const Player = forwardRef<PlayerHandle, {
     if (!now?.take) return;
     const el = els.current.get(now.take.id);
     if (!el) return;
-    el.muted = now.sound !== "own";
+    // muted while the clip before still sounds under it (see handing)
+    el.muted = now.sound !== "own" || Boolean(handing.current);
     el.volume = Math.max(0, Math.min(1, now.volume / 100));
-  }, [now?.take, now?.sound, now?.volume, nowKey]);
+  }, [now?.take, now?.sound, now?.volume, nowKey, held]);
   useEffect(() => {
     if (clipSound.current) clipSound.current.volume = Math.max(0, Math.min(1, (now?.volume ?? 100) / 100));
   }, [now?.volume, nowKey]);
 
   useEffect(() => {
-    for (const [id, el] of els.current) if (id !== now?.take?.id || !playing) el.pause();
+    if (!playing) endHand();
+    for (const [id, el] of els.current) if ((id !== now?.take?.id && id !== handing.current?.id) || !playing) el.pause();
     if (!playing) {
       clipSound.current?.pause();
       musicEl.current?.pause();
@@ -134,7 +172,7 @@ export const Player = forwardRef<PlayerHandle, {
     void clipSound.current?.play().catch(() => {});
     if (music && now && now.atMs + pos.current.local < (music.asset.durationMs || total) - 30) void musicEl.current?.play().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, nowKey, onPlaying, Boolean(music)]);
+  }, [playing, nowKey, onPlaying, Boolean(music), endHand]);
 
   // looked at on every frame while it plays; the video's own clock also calls it, because a browser
   // stops drawing frames for a tab that is not in front while the video goes on playing
@@ -149,26 +187,56 @@ export const Player = forwardRef<PlayerHandle, {
       if (c.take && !el) return true;
       const t = performance.now();
       const local = el ? el.currentTime * 1000 - startOf(c) : pos.current.local + (t - pos.current.at);
-      if (local >= c.lengthMs - 8 || el?.ended) {
-        if (seq[at + 1]) place(at + 1, 0);
-        else {
+      // a frame early rather than late: late, the clip before shows the moment the clip after opens on, and it is seen twice
+      if (local >= c.lengthMs - CUT_EARLY_MS || el?.ended) {
+        if (seq[at + 1]) {
+          const lead = seq[at + 1]!.take?.leadMs ?? 0;
+          // the picture takes over now; the sound of this clip runs on for the lead, hidden, before the next is heard
+          const hand = lead > 0 && c.take && c.sound === "own" && el && !el.ended ? { id: c.take.id, until: t + lead } : null;
+          place(at + 1, 0);
+          if (hand) {
+            handing.current = hand;
+            setHeld(c);
+          }
+        } else {
           pos.current = { key: keyOf(c), local: c.lengthMs, at: t };
           onTime(c.atMs + c.lengthMs);
           onPlaying(false);
         }
         return false;
       }
-      // the clip after fades in over the end of this one, playing the frames they share
-      const blend = blendOf(seq[at + 1], c);
-      if (blend && !fadeOn.current && local >= c.lengthMs - blend) {
+      // the clip after starts running a little early, hidden and muted, so that it has frames decoded and is in
+      // step at the moment it takes over (a video started cold at the cut shows black for a frame, then rushes).
+      // A clip that fades in over the end of this one runs for the fade, playing the frames they share
+      const after = seq[at + 1];
+      const blend = blendOf(after, c);
+      const early = Math.max(blend, PREROLL_MS);
+      if (after?.take && !fadeOn.current && local >= c.lengthMs - early) {
         fadeOn.current = true;
-        const nextEl = seq[at + 1]?.take ? els.current.get(seq[at + 1]!.take!.id) : undefined;
+        const nextEl = els.current.get(after.take.id);
+        const remaining = c.lengthMs - local;
+        // where it must be now to arrive at its start when this clip ends; a clip that starts at its very first frame waits there
+        const from = blend ? startOf(after) - blend : startOf(after) - remaining;
         if (nextEl) {
-          nextEl.currentTime = Math.max(0, startOf(seq[at + 1]!) - blend) / 1000;
-          nextEl.muted = true;
-          void nextEl.play().catch(() => {});
+          if (from >= 0) {
+            nextEl.currentTime = from / 1000;
+            nextEl.muted = true;
+            void nextEl.play().catch(() => {});
+          }
         }
-        setFading(blend);
+        if (blend) setFading(blend);
+      }
+      // while it runs hidden, it is kept in step: a video starts with some delay, and a frame behind at the
+      // take-over shows the same moment twice. Corrected out of sight, never in the last frames before the cut
+      if (after?.take && fadeOn.current && !blend && local < c.lengthMs - 60) {
+        const nextEl = els.current.get(after.take.id);
+        const expected = startOf(after) - (c.lengthMs - local);
+        if (nextEl && expected >= 0 && !nextEl.paused && Math.abs(nextEl.currentTime * 1000 - expected) > 20) nextEl.currentTime = expected / 1000;
+      }
+      // the sound hands over: the clip before falls silent, this one is heard
+      if (handing.current && t >= handing.current.until) {
+        endHand();
+        if (el) el.muted = c.sound !== "own";
       }
       if (local >= 0) {
         pos.current = { key: keyOf(c), local, at: t };
@@ -221,7 +289,23 @@ export const Player = forwardRef<PlayerHandle, {
       )}
       {now && (
         <div className="relative overflow-hidden bg-black" style={{ width: w, height: h }}>
-          {[now, next].map((c) =>
+          {nudges.size > 0 && (
+            <svg className="absolute h-0 w-0" aria-hidden="true">
+              <defs>
+                {[now, next].flatMap((c) => {
+                  const m = c && nudges.get(c.id);
+                  if (!m) return [];
+                  const { r, g, b } = rgbOf(m);
+                  return [
+                    <filter key={c.id} id={`nudge-${c.id}`} colorInterpolationFilters="sRGB">
+                      <feColorMatrix type="matrix" values={`1 0 0 0 ${r.toFixed(4)}  0 1 0 0 ${g.toFixed(4)}  0 0 1 0 ${b.toFixed(4)}  0 0 0 1 0`} />
+                    </filter>,
+                  ];
+                })}
+              </defs>
+            </svg>
+          )}
+          {[held && held !== now && held !== next ? held : undefined, now, next].map((c) =>
             !c ? null : c.take ? (
               <video
                 key={c.take.id}
@@ -242,7 +326,7 @@ export const Player = forwardRef<PlayerHandle, {
                 onTimeUpdate={() => c === now && step.current()}
                 onEnded={() => c === now && step.current()}
                 onClick={() => onPlaying(!playing)}
-                style={c !== now && fading ? { transition: `opacity ${fading}ms linear` } : undefined}
+                style={{ ...(c !== now && fading ? { transition: `opacity ${fading}ms linear` } : {}), ...(nudges.has(c.id) ? { filter: `url(#nudge-${c.id})` } : {}) }}
                 className={cx("absolute inset-0 h-full w-full", c.fill ? "object-cover" : "object-contain", c === now ? "opacity-100" : fading ? "pointer-events-none opacity-100" : "pointer-events-none opacity-0")}
               />
             ) : (

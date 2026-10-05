@@ -731,7 +731,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         />
 
         <main className="flex min-w-0 grow flex-col">
-            <Player ref={player} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} />
+            <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} />
         </main>
         </div>
           {range && (() => {

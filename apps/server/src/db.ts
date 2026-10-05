@@ -245,6 +245,12 @@ export interface Tables {
     finished_from: string | null;
     /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
     join_kind: "latent" | "hybrid" | "pixels" | null;
+    /**
+     * The take-over point: this many ms before its shared frames end, the take starts to play and the clip
+     * before stops. Inside the shared frames both show the same moments, so the hand-over is invisible; at the
+     * first own frame the model steps away from its guide (measured: a three-fold jump). 0 = at the first own frame.
+     */
+    lead_ms: number;
     created_at: string;
   };
   /** Imported ComfyUI workflows: the workflow and its mapping, as one JSON document each. */
@@ -666,6 +672,17 @@ migrations["0013_model_pages"] = {
 
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
+migrations["0031_take_lead"] = {
+  async up(db) {
+    await db.schema.alterTable("takes").addColumn("lead_ms", "integer", (c) => c.notNull().defaultTo(0)).execute();
+    // the joins made in the latent so far hand over four frames early too (167 ms at 24 a second), when their shared part has room
+    await db.updateTable("takes").set({ lead_ms: 167 }).where("join_kind", "in", ["latent", "hybrid"]).where("head_ms", ">=", 334).execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("takes").dropColumn("lead_ms").execute();
+  },
+};
+
 migrations["0030_model_updates"] = {
   async up(db) {
     await db.schema

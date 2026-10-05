@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { Graph } from "@afflatus/core";
 import { wan } from "../../../packages/workflows/test/fixtures";
-import { cutFrames, frameAt, referenceClip } from "../src/cut";
+import { colourNudge, cutFrames, frameAt, MATCH, referenceClip } from "../src/cut";
 import { pngSize } from "../src/media";
 import { readVideo } from "../src/video";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -226,6 +226,85 @@ describe.skipIf(!three)("a timeline", () => {
     const v = await view(id);
     expect(v.clips.map((c: { takes: unknown[] }) => c.takes.length)).toEqual([2, 2]);
     expect(v.clips[1].join).toBe("fresh");
+  });
+
+  /** A saved H3 latent as the node pack writes it: the header says how many frames it holds; the values are zeros. */
+  function latentFile(frames: number): Uint8Array {
+    const shape = [1, 24, ((frames - 5) / 17) * 5 + 2, 2, 2];
+    const bytes = shape.reduce((p, x) => p * x, 1) * 4;
+    const header = new TextEncoder().encode(JSON.stringify({ __metadata__: { format: "afflatus-h3-av-latent/1", frames: String(frames) }, video: { dtype: "F32", shape, data_offsets: [0, bytes] }, audio: { dtype: "F32", shape: [1, 32, 2, 1], data_offsets: [bytes, bytes + 256] } }));
+    const out = new Uint8Array(8 + header.length + bytes + 256);
+    new DataView(out.buffer).setBigUint64(0, BigInt(header.length), true);
+    out.set(header, 8);
+    return out;
+  }
+  /** Like finish, with the clip's own latent among the outputs, as the node pack saves it. */
+  async function finishWithLatent(bytes: Uint8Array, count: number, frames: number) {
+    await until(() => fake.prompts.size === count, 20_000);
+    const [promptId, graph] = prompts().at(-1)!;
+    const out = Object.entries(graph).find(([, n]) => /VideoCombine/.test(n.class_type))![0];
+    const save = Object.entries(graph).find(([, n]) => n.class_type === "AfflatusSaveH3Latent")?.[0];
+    fake.files[`${promptId}.mp4`] = bytes;
+    fake.files[`${promptId}.safetensors`] = latentFile(frames);
+    fake.pending = fake.pending.filter((p) => p !== promptId);
+    fake.history[promptId] = {
+      status: { completed: true },
+      outputs: { [out]: { gifs: [{ filename: `${promptId}.mp4`, subfolder: "", type: "temp" }] }, ...(save ? { [save]: { latents: [{ filename: `${promptId}.safetensors`, subfolder: "", type: "output" }] } } : {}) },
+    };
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("status", "in", ["queued", "running"]).execute()).length === 0 || fake.prompts.size > count, 20_000);
+    return graph;
+  }
+
+  it("a clip continued in the latent takes over four frames before its shared frames end: the clip before gives them, the lengths add up, the join is a clean cut", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "Parrot" });
+    const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    await render(tl.id, [{ id: a }]);
+    const first = await finishWithLatent(three!, 1, 73);
+    expect(Object.values(first).some((n) => n.class_type === "AfflatusSaveH3Latent")).toBe(true);
+    const b = (await call("POST", `/api/timelines/${tl.id}/clips`, {})).clip as string;
+    await render(tl.id, [{ id: b }]);
+    const second = await finishWithLatent(three!, 2, 141);
+    // the second continued the first's latent: the hybrid guide on its frames, its latent for the sound
+    expect(Object.values(second).some((n) => n.class_type === "AfflatusH3TailGuide")).toBe(true);
+    const v = await view(tl.id);
+    const [one, two] = v.clips;
+    expect(two.take.joinKind).toBe("hybrid");
+    expect(two.take.leadMs).toBe(167);
+    expect(two.take.headMs).toBe(917);
+    // it starts to play four frames before its shared frames end...
+    expect(two.take.startMs).toBe(917 - 167);
+    // ...and the clip before stops as much earlier, so no moment is shown twice and nothing is lost
+    const own = one.take.asset.durationMs - one.take.tailMs - one.take.trimEndMs - (one.take.headMs + one.take.trimStartMs);
+    expect(one.lengthMs).toBe(own - 167);
+    expect(one.take.endMs).toBe(one.take.startMs + own - 167);
+    expect(two.atMs).toBe(one.lengthMs);
+    expect(v.durationMs).toBe(one.lengthMs + two.lengthMs);
+    // the first clip has no take-over point of its own; a take put on another timeline keeps its own
+    expect(one.take.leadMs).toBe(0);
+    const other = await call("POST", "/api/timelines", {});
+    const placed = (await call("POST", `/api/timelines/${other.id}/clips`, { asset: two.take.asset.id })).timeline.clips[0];
+    expect(placed.take).toMatchObject({ joinKind: "hybrid", leadMs: 167, headMs: 917 });
+    // on its own timeline it is a cut: it shows from its first own frame, nothing before it to hand over
+    expect(placed.take.startMs).toBe(917 - 167);
+    // exported: the picture hands over at the take-over point, the sound at the hand-over proper (the clip
+    // before's sound under the first frames); the whole is as long as the timeline says
+    const out = await exported(tl.id);
+    expect(out).toMatchObject({ kind: "video", hasSound: true });
+    expect(Math.abs(out.durationMs - v.durationMs)).toBeLessThan(120);
+  });
+
+  it("gives the player the export's colour matching: a nudge per clip toward the clip before at the join, within a few steps, zero for the first", async () => {
+    const { id } = await twoClips();
+    const { items } = (await get(t.app, `/api/timelines/${id}/match`)).json();
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ y: 0, u: 0, v: 0 });
+    for (const k of ["y", "u", "v"] as const) {
+      expect(Number.isFinite(items[1][k])).toBe(true);
+      expect(Math.abs(items[1][k])).toBeLessThanOrEqual(MATCH.mostSteps);
+    }
+    // the same nudge the export works out: toward the clip before as it will look, clamped
+    expect(colourNudge({ y: 120, u: 128, v: 130 }, { y: 100, u: 128, v: 131 }, { y: 0, u: 0, v: 0 })).toEqual({ y: 14, u: 0, v: -1 });
+    expect(colourNudge({ y: 120, u: 128, v: 128 }, { y: 118, u: 128, v: 128 }, { y: 5, u: 0, v: 0 })).toEqual({ y: 7, u: 0, v: 0 });
   });
 
   it("puts a video from the library on the timeline as it is, and a picture as a clip that opens on it", async () => {
