@@ -1,7 +1,7 @@
 import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
 import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
 import type { Comfy } from "./comfy";
-import { frameAt, lookOf, repairJoinAudio, type Measure } from "./cut";
+import { frameAt, lookOf, repairJoinAudio, runUpBreak, type Measure } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { latentDriftOf } from "./latentStats";
 import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
@@ -111,6 +111,10 @@ export async function store(
     // can then be checked for sliding darker or softer clip after clip (see lookOf)
     let measure: Measure | null = null;
     if (video?.facts) measure = await lookOf(bytes, extOf(mime), resume.overlap?.headMs ?? 0).catch(() => null);
+    // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join
+    // figures look at the take-over point, which sits inside the run-up and copies the clip before whatever
+    // happens next; a model that steps away from its guide cuts here, and only this figure says so
+    if (measure && resume.overlap?.headMs) measure.handover = (await runUpBreak(bytes, extOf(mime), resume.overlap.headMs).catch(() => null)) ?? undefined;
     // a clip that opens on the end of another one is shown by its own first frame, not by the other's
     const own = video?.frame && resume.overlap?.headMs ? await frameAt(bytes, extOf(mime), resume.overlap.headMs).catch(() => null) : null;
     // a small version for the library grid; without one the grid falls back to the picture itself

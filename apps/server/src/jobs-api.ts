@@ -12,6 +12,8 @@ const jobBody = z.strictObject({
   label: z.string().max(200).optional(),
   /** "Make 4 pictures": the same job this many times. Each draws its own seed when the seed is random. */
   count: z.number().int().min(1).max(8).default(1),
+  /** A typed seed that moves: each copy takes the next seed up or down from the one sent (the form's "+1" / "−1"). */
+  seedMode: z.enum(["up", "down"]).optional(),
   /** Who is in it and how it looks: worked into the form before it is queued. */
   look: lookSchema.optional(),
   /** The draft it is sent from, and the folder that is open: its results are filed there. */
@@ -27,7 +29,12 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     const recipe = s.registry.recipe(body.recipe);
     const input = recipe && body.look ? (await compose(s.db, recipe, body.input, body.look)).input : body.input;
     const ids: string[] = [];
-    for (let i = 0; i < body.count; i++) ids.push(await s.queue.enqueue(body.recipe, input, { label: body.label, draft: body.draft, folder: body.folder, look: body.look }));
+    const seed = typeof input.seed === "number" && input.seed >= 0 ? input.seed : null;
+    const range = 4294967296;
+    for (let i = 0; i < body.count; i++) {
+      const each = body.seedMode && seed !== null ? { ...input, seed: (((seed + (body.seedMode === "up" ? i : -i)) % range) + range) % range } : input;
+      ids.push(await s.queue.enqueue(body.recipe, each, { label: body.label, draft: body.draft, folder: body.folder, look: body.look }));
+    }
     return { ids };
   });
 

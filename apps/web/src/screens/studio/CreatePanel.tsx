@@ -8,6 +8,7 @@ import { DRAFT_LIST, useEntities, useEstimates, useFamilies, useModelSettings, u
 import type { DesignerTurn } from "../../Designer";
 import { WritingHelp } from "../../WritingHelp";
 import { useDraft } from "../../draft";
+import { movingSeed, seedAfter, useSeedMode } from "../../seedMode";
 import { estimateFor } from "../../estimate";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { formDefaults, matchFiles } from "../../form";
@@ -62,7 +63,11 @@ export function CreatePanel({ folder, onClose }: { folder: { id: string; name: s
       // a prompt shown as an example is not a prompt: nothing is made from somebody else's text by accident
       const unwritten = recipe.inputs.find((i) => i.type === "prompt" && i.example && !String(input[i.id] ?? "").trim());
       if (unwritten) throw new ApiError(`Fill in the ${unwritten.label.toLowerCase()} first.`);
-      await api.enqueue(recipe.id, input, count, draft.look, { draft: draft.id, folder: folder?.id });
+      // a seed meant to move: the batch takes the next seeds in a row, and the form shows the one after them
+      const mode = useSeedMode.getState().mode;
+      const seedMode = movingSeed(input.seed, mode);
+      await api.enqueue(recipe.id, input, count, draft.look, { draft: draft.id, folder: folder?.id, seedMode });
+      if (seedMode) d.setValue(recipe.id, "seed", seedAfter(input.seed as number, mode, count));
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }),
   });

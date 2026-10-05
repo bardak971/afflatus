@@ -59,8 +59,10 @@ describe("the designer's language model", () => {
     expect((await useLlm()).json().llm).toEqual({ baseUrl: llm.url, model: "test-model", hasApiKey: true, vision: false });
     // the address changes; the key is not sent again and stays
     await put("/api/settings", { llm: { vision: true } });
-    llm.answers.push("ready");
-    expect((await post(t.app, "/api/designer/test")).json()).toEqual({ ok: true, model: "test-model", answer: "ready" });
+    // with Vision on, the test also shows the model a red square: it answered the colour, so it reads pictures
+    llm.answers.push("ready", "Red.");
+    expect((await post(t.app, "/api/designer/test")).json()).toEqual({ ok: true, model: "test-model", answer: "ready", ms: expect.any(Number), thinks: false, vision: { ok: true, answer: "Red." } });
+    expect(llm.asked.at(-1)!.messages[0]!.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "image_url" })]));
     expect(llm.asked[0]).toMatchObject({ model: "test-model", auth: "Bearer secret" });
     expect((await get(t.app, "/api/settings")).json().llm).toMatchObject({ hasApiKey: true, vision: true });
   });
@@ -68,7 +70,7 @@ describe("the designer's language model", () => {
   it("can be one of several: each with its own key and sizes, one in use, changed without sending its key again", async () => {
     await useLlm();
     const first = (await get(t.app, "/api/settings")).json();
-    expect(first.llms).toEqual([{ id: "main", name: "", baseUrl: llm.url, model: "test-model", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000 }]);
+    expect(first.llms).toEqual([{ id: "main", name: "", baseUrl: llm.url, model: "test-model", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000, noThinking: false }]);
     expect(first.designerLlm).toBe("main");
 
     // a second one; the first is sent back without its key, which stays

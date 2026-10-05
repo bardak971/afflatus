@@ -42,6 +42,8 @@ export interface Measure {
   voice?: number | null;
   /** A join made in the latent: how wide the regenerated run-up came out against the tail it was guided by (1 = the same). */
   drift?: { width: number };
+  /** A continuation: how much the picture jumps where the run-up ends and its own frames begin, against its own motion (×1 carries on; past ×3 a cut shows there). */
+  handover?: number;
 }
 export interface Clip {
   id: string;

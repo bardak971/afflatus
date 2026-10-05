@@ -442,7 +442,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   };
   const heading = (title: string, note: string) => (
     <div className="flex items-baseline gap-2 border-b border-line pb-1">
-      <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
+      <span className="shrink-0 whitespace-nowrap text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
       <span className="truncate text-xs text-ink-3">{note}</span>
     </div>
   );

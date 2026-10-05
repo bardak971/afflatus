@@ -32,6 +32,7 @@ import { StartPanel } from "../timeline/StartPanel";
 import { useClipEdits } from "../timeline/useClipEdits";
 import { useEditorKeys } from "../timeline/useEditorKeys";
 import { useRange } from "../timeline/useRange";
+import { movingSeed, seedAfter, useSeedMode } from "../seedMode";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../Designer").then((m) => ({ default: m.Designer })));
@@ -113,7 +114,12 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const render = useMutation({
     mutationFn: async (v: { clips: Clip[]; fit?: boolean; takes?: number }) => {
       await save();
-      return api.renderClips(id, v.clips.map((c) => ({ id: c.id, input: ready(c).input ?? {}, ...(v.fit === undefined ? {} : { fit: v.fit }), ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}) })));
+      // a seed meant to move: the takes go out with the next seeds in a row, and the clip's form shows the one after them
+      const mode = useSeedMode.getState().mode;
+      const sent = v.clips.map((c) => ({ clip: c, input: ready(c).input ?? {} })).map((x) => ({ ...x, seedMode: movingSeed(x.input.seed, mode) }));
+      const made = await api.renderClips(id, sent.map(({ clip, input, seedMode }) => ({ id: clip.id, input, ...(v.fit === undefined ? {} : { fit: v.fit }), ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}), ...(seedMode ? { seedMode } : {}) })));
+      for (const x of sent) if (x.seedMode) await api.editClip(x.clip.id, { inputs: { ...inputsOf(x.clip), seed: seedAfter(x.input.seed as number, mode, v.takes ?? 1) } });
+      return made;
     },
     onSuccess: after,
   });

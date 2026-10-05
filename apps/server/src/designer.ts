@@ -78,35 +78,54 @@ export function fitting(cfg: Llm, system: string, history: Message[]): Message[]
   return kept;
 }
 
-/** One plain exchange with the language model. A busy server is asked a second time. */
-export async function chat(cfg: Llm | undefined, messages: Message[], opts: { temperature?: number; maxTokens?: number } = {}): Promise<string> {
+/** What one exchange came back with: the answer, whether the model thought before it (a <think> part, or a reasoning field), and how long it took. */
+export interface Reply { said: string; thought: boolean; ms: number }
+
+/** One plain exchange with the language model, with what else came back. A busy server is asked a second time. */
+export async function ask(cfg: Llm | undefined, messages: Message[], opts: { temperature?: number; maxTokens?: number } = {}): Promise<Reply> {
   if (!cfg || !cfg.baseUrl.trim() || !cfg.model.trim()) throw new DesignerError("The designer has no language model yet. Give it one in Settings.");
-  const ask = () =>
+  const started = Date.now();
+  const send = () =>
     fetch(`${cfg.baseUrl.trim().replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}) },
-      body: JSON.stringify({ model: cfg.model, messages, stream: false, max_tokens: opts.maxTokens ?? cfg.maxOutputTokens, temperature: opts.temperature ?? 0.6 }),
+      body: JSON.stringify({
+        model: cfg.model, messages, stream: false, max_tokens: opts.maxTokens ?? cfg.maxOutputTokens, temperature: opts.temperature ?? 0.6,
+        // asked not to think first: the field llama.cpp, vLLM and SGLang read, and the one Ollama reads
+        ...(cfg.noThinking ? { chat_template_kwargs: { enable_thinking: false }, think: false } : {}),
+      }),
       signal: AbortSignal.timeout(120_000),
     });
   let res: Response;
   try {
-    res = await ask();
+    res = await send();
     if (res.status >= 500) {
       await new Promise((r) => setTimeout(r, 1200));
-      res = await ask();
+      res = await send();
     }
   } catch (err) {
     throw new DesignerError(`The language model did not answer at ${cfg.baseUrl}: ${whyNoAnswer(err)}`);
   }
   if (!res.ok) throw new DesignerError(`The language model refused (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}`);
-  const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }> };
+  const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string; reasoning?: string }; finish_reason?: string }> };
+  const message = data.choices?.[0]?.message;
+  const raw = message?.content ?? "";
+  const thought = /<think>/i.test(raw) || Boolean(message?.reasoning_content || message?.reasoning);
   // a model that thinks before it answers may leave its thinking in the answer: it is not part of it
-  const said = (data.choices?.[0]?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*<\/think>/i, "").trim();
+  const said = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*<\/think>/i, "").trim();
   if (!said && data.choices?.[0]?.finish_reason === "length") {
     throw new DesignerError(`The language model used its whole answer (${opts.maxTokens ?? cfg.maxOutputTokens} tokens) before it wrote anything, as a model that thinks first can. Raise "Max output tokens" for it in Settings.`);
   }
-  return said;
+  return { said, thought, ms: Date.now() - started };
 }
+
+/** One plain exchange with the language model: its answer. */
+export async function chat(cfg: Llm | undefined, messages: Message[], opts: { temperature?: number; maxTokens?: number } = {}): Promise<string> {
+  return (await ask(cfg, messages, opts)).said;
+}
+
+/** A 32 × 32 picture filled with red, shown to a model said to read pictures: it is asked its colour. */
+const RED_SQUARE = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAKUlEQVR42u3NQQkAAAgEsBPs31gwhQ9hK7Ca3OoIBAKBQCAQCASCJ8ECA4QBews3utwAAAAASUVORK5CYII=";
 
 /** How a family's prompts are written, when the family does not say itself. */
 const GENERIC: Record<"tags" | "sentences", string> = {
@@ -667,14 +686,25 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     throw new DesignerError("The language model did not write the clip. Try again, or write it yourself.");
   });
 
-  /** Ask a language model one word, to see that the address, the model and the key work: the one named, else the one in use. */
+  /**
+   * Ask a language model one word, to see that the address, the model and the key work: the one named, else the one
+   * in use. With it, how long the answer took, whether the model thought first, and, for one said to read
+   * pictures, whether it names the colour of a red square.
+   */
   app.post("/api/designer/test", async (req) => {
     const { id } = z.strictObject({ id: z.string().optional() }).parse(req.body ?? {});
     const settings = await readSettings(s.db);
     const llm = id ? settings.llms.find((l) => l.id === id) : llmInUse(settings);
     // room for a model that thinks before it says its one word
-    const answer = await chat(llm, [{ role: "user", content: "Answer with the single word: ready" }], { maxTokens: Math.min(llm?.maxOutputTokens ?? 400, 400), temperature: 0 });
-    return { ok: true, model: llm!.model, answer: answer.slice(0, 80) };
+    const room = { maxTokens: Math.min(llm?.maxOutputTokens ?? 400, 400), temperature: 0 };
+    const first = await ask(llm, [{ role: "user", content: "Answer with the single word: ready" }], room);
+    let vision: { ok: boolean; answer: string } | null = null;
+    if (llm?.vision) {
+      const seen = await ask(llm, [{ role: "user", content: [{ type: "text", text: "What colour fills this image? Answer with one word." }, { type: "image_url", image_url: { url: `data:image/png;base64,${RED_SQUARE}` } }] }], room)
+        .catch((err: Error) => ({ said: err.message, thought: false, ms: 0 }));
+      vision = { ok: /\bred\b/i.test(seen.said), answer: seen.said.slice(0, 120) };
+    }
+    return { ok: true, model: llm!.model, answer: first.said.slice(0, 80), ms: first.ms, thinks: first.thought, vision };
   });
 
   /** A fresh start everywhere: every conversation with the designer is forgotten, in drafts and on timelines. What it wrote into forms stays. */

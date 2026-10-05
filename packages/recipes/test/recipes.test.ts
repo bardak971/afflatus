@@ -133,7 +133,8 @@ describe("h3.video", () => {
   const one = (b: ReturnType<typeof build>, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
 
   it("counts frames on the model's grid and keeps canvases within what it takes", () => {
-    expect([1, 5, 5.2, 10].map(h3Frames)).toEqual([39, 124, 141, 243]);
+    // the nearest count the model takes, unless that is more than four frames short: 1 s is 22 (two short), 5.9 s is 141 (one over), 4 s is 107 (90 would be six short)
+    expect([1, 5, 5.2, 5.9, 4, 10].map(h3Frames)).toEqual([22, 124, 124, 141, 107, 243]);
     for (const n of [2, 5, 9, 15].map(h3Frames)) expect(n % 17).toBe(5);
     expect(h3Canvas(832, 1216, 576)).toEqual({ width: 576, height: 832 });
     expect(h3Canvas(1920, 1080, 768)).toEqual({ width: 1344, height: 768 });
@@ -216,7 +217,7 @@ describe("h3.video", () => {
     expect(guide[0]!.inputs).toMatchObject({ frame_idx: 0 });
     expect(guide[0]!.inputs.audio).toBeDefined();
     // 5 s + 22 frames, on the grid; the frame of the clip it joins; the opening picture is not used
-    expect(one(b, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 576, height: 1024, length: 158 });
+    expect(one(b, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 576, height: 1024, length: 141 });
     expect(one(b, "MiniMaxH3ImageToVideo")[0]!.inputs.first_frame).toBeUndefined();
     expect(one(b, "LoadImage")).toHaveLength(0);
     expect(b.overlap).toEqual({ headMs: 917, tailMs: 0 });

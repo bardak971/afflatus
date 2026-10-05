@@ -318,6 +318,8 @@ export interface Measure {
   voice?: number | null;
   /** A join made in the latent: how wide the regenerated run-up came out against the latent tail it was guided by, as a ratio over the channels (1 = the same). */
   drift?: { width: number };
+  /** A continuation: how much the picture jumps where the run-up ends and the clip's own frames begin, against its own motion right after (×1 = it carries on; ×3 and past, the model stepped away from its guide and a cut shows there). */
+  handover?: number;
 }
 
 /**
@@ -727,6 +729,34 @@ export async function joinJump(a: { bytes: Uint8Array; ext: string; atMs: number
     }
     const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
     return Math.round(Math.min(20, meanDiff(last, first) / typical) * 10) / 10;
+  });
+}
+
+/**
+ * How much a continuation's picture jumps where its run-up (the frames regenerated from the clip before) ends
+ * and its own frames begin: the difference across that one frame step, against the difference between the
+ * frame steps right after (×1 = it carries on, ×3 = a visible catch, ×6 and past = a different shot). The
+ * steps are the model's own, 24 a second: an interpolated file's in-between frames are stepped over, and each
+ * seek lands a few milliseconds early so that a rounded `headMs` still picks the frame meant. null when a
+ * frame cannot be read.
+ */
+export async function runUpBreak(bytes: Uint8Array, ext: string, headMs: number): Promise<number | null> {
+  return inTemp(async (dir) => {
+    const file = join(dir, `in.${ext}`);
+    await writeFile(file, bytes);
+    const step = 1000 / 24;
+    const at = (k: number) => grayAt(file, headMs + k * step - 5);
+    const before = await at(-1);
+    const first = await at(0);
+    if (!before || !first) return null;
+    const own: number[] = [];
+    for (let k = 0; k < 3; k++) {
+      const x = await at(k);
+      const y = await at(k + 1);
+      if (x && y) own.push(meanDiff(x, y));
+    }
+    const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
+    return Math.round(Math.min(20, meanDiff(before, first) / typical) * 10) / 10;
   });
 }
 

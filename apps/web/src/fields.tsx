@@ -13,6 +13,7 @@ import { Select, type Option } from "./Select";
 import { AutoText, cx, NumberBox, Segmented, Toggle, Help, Note } from "./ui";
 import { ModelLink } from "./ModelLink";
 import { useExplain } from "./store";
+import { useSeedMode, type SeedMode } from "./seedMode";
 
 /**
  * One control per input type. This file is the only place that knows how an input is drawn: a recipe
@@ -439,32 +440,8 @@ export function Field({ spec, value, values, options, family, model, onChange, o
       );
     }
 
-    case "seed": {
-      const seed = Number(value ?? RANDOM_SEED);
-      const random = seed === RANDOM_SEED;
-      return (
-        <div className="flex items-center gap-3">
-          <label htmlFor={id} className="shrink-0">{spec.label}</label>
-          <Segmented
-            label="Seed"
-            value={random ? "random" : "fixed"}
-            options={[{ value: "random", label: "Random" }, { value: "fixed", label: "Fixed" }]}
-            onChange={(v) => onChange(v === "random" ? RANDOM_SEED : 0)}
-          />
-          {!random && (
-            <input
-              id={id}
-              type="number"
-              min={0}
-              max={4294967295}
-              value={seed}
-              onChange={(e) => onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-              className={cx(field, "h-9 min-w-0 grow font-mono")}
-            />
-          )}
-        </div>
-      );
-    }
+    case "seed":
+      return <SeedField id={id} label={spec.label} value={Number(value ?? RANDOM_SEED)} onChange={onChange} />;
 
     case "image":
       if (spec.role === "mask") {
@@ -565,6 +542,47 @@ const askedWords = new Set<string>();
  * for a file that gives none, what its page on Civitai gives. That page is asked by the file's
  * fingerprint, once (the server asks nothing unless looking things up is on in Settings).
  */
+/**
+ * Random, or a seed typed in that is kept the same, moved one up or one down after every render; the way it moves
+ * is one setting for every form (ComfyUI's "control after generate"). "Make 4" with +1 takes four seeds in a row.
+ */
+function SeedField({ id, label, value, onChange }: { id: string; label: string; value: number; onChange(v: number): void }) {
+  const mode = useSeedMode((s) => s.mode);
+  const setMode = useSeedMode((s) => s.set);
+  const random = value === RANDOM_SEED;
+  const pick = (v: "random" | SeedMode) => {
+    if (v === "random") return onChange(RANDOM_SEED);
+    setMode(v);
+    if (random) onChange(0);
+  };
+  // two lines: the label with the four chips, then the seed itself (four chips beside a number box fold into a block in a narrow panel)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3">
+        <label htmlFor={id} className="shrink-0">{label}</label>
+        <Segmented
+          label="Seed"
+          value={random ? "random" : mode}
+          options={[{ value: "random", label: "Random" }, { value: "fixed", label: "Fixed" }, { value: "up", label: "+1" }, { value: "down", label: "−1" }]}
+          onChange={pick}
+        />
+      </div>
+      {!random && (
+        <input
+          id={id}
+          type="number"
+          min={0}
+          max={4294967295}
+          value={value}
+          title={mode === "fixed" ? "This seed, every render" : mode === "up" ? "This seed, then one up after each render (a batch takes them in a row)" : "This seed, then one down after each render (a batch takes them in a row)"}
+          onChange={(e) => onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+          className={cx(field, "h-9 w-full font-mono")}
+        />
+      )}
+    </div>
+  );
+}
+
 export function useLoraWordsOf(files: string[]) {
   const known = useModelInfo("loras");
   const info = known.data?.items ?? {};

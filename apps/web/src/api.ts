@@ -49,8 +49,8 @@ export const api = {
   pause: () => call<QueueStatus>("POST", "/queue/pause"),
   resume: () => call<QueueStatus>("POST", "/queue/resume"),
   /** `into`: the draft it is sent from, and the folder that is open, where its results are filed. */
-  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string }) =>
-    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}) }),
+  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string; seedMode?: "up" | "down" }) =>
+    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}), ...(into?.seedMode ? { seedMode: into.seedMode } : {}) }),
   /** Load the models this form would render with, ahead of the render. A job in the queue that makes nothing. */
   warm: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ id: string }>("POST", "/jobs/warm", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
   /** Whether the models this form would render with are the ones ComfyUI was last asked to load. Null: it cannot be told. */
@@ -166,7 +166,7 @@ export const api = {
   setModelPage: (folder: string, file: string, url: string | null, title = "") => call<{ page: ModelPage | null }>("PUT", `/models/${folder}/page`, { file, url, title }),
   /** Unload ComfyUI's models now. */
   freeMemory: () => call<{ ok: true }>("POST", "/comfy/free"),
-  designerTest: (id?: string) => call<{ ok: true; model: string; answer: string }>("POST", "/designer/test", id ? { id } : {}),
+  designerTest: (id?: string) => call<{ ok: true; model: string; answer: string; ms: number; thinks: boolean; vision: { ok: boolean; answer: string } | null }>("POST", "/designer/test", id ? { id } : {}),
   /** Every conversation with the designer, in drafts and on timelines, is forgotten. */
   forgetConversations: () => call<{ forgotten: number }>("DELETE", "/designer/conversations"),
   /** New clips at the end of a timeline, one per planned text, each flowing on from the one before. */
@@ -238,7 +238,7 @@ export const api = {
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
   /** The designer writes a clip put between two others: what takes the action from the one to the other. `was` is what the form held when it was asked. */
   writeBetween: (clip: string, arrive?: string) => call<{ changes: Record<string, string>; note: string; was: Record<string, string> }>("POST", `/clips/${clip}/between`, arrive ? { arrive } : undefined),
-  renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean; takes?: number }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
+  renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean; takes?: number; seedMode?: "up" | "down" }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */
   exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; fit?: "timeline" | "largest" }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
   /** Every clip's selected take brought to its final quality by an upscale route, as a new take each; the drafts stay. */

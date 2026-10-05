@@ -197,7 +197,8 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
   label: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex shrink-0 gap-1 rounded-[9px] bg-raised p-[3px]">
+    // the chips wrap onto another line rather than run past the edge of a narrow panel (seven shapes do)
+    <div role="radiogroup" aria-label={label} className="flex max-w-full flex-wrap gap-1 rounded-[9px] bg-raised p-[3px]">
       {options.map((o) => (
         <button
           key={o.value}

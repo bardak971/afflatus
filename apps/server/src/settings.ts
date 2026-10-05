@@ -18,6 +18,8 @@ export const llmSchema = z.object({
   contextSize: z.number().int().min(2048).max(2_000_000).default(16384),
   /** The longest answer it may write, in tokens. A model that thinks before it answers spends these on thinking too. */
   maxOutputTokens: z.number().int().min(256).max(65536).default(3000),
+  /** Ask the model not to think before it answers (enable_thinking=false for llama.cpp, vLLM and SGLang; think=false for Ollama). A server that rejects fields it does not know answers with an error: then off. */
+  noThinking: z.boolean().default(false),
 });
 export type Llm = z.infer<typeof llmSchema>;
 

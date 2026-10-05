@@ -20,9 +20,9 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
   onUse(): void;
   onRemove(): void;
 }) {
-  const [form, setForm] = useState({ name: llm.name, baseUrl: llm.baseUrl, model: llm.model, apiKey: "", contextSize: llm.contextSize, maxOutputTokens: llm.maxOutputTokens, vision: llm.vision });
+  const [form, setForm] = useState({ name: llm.name, baseUrl: llm.baseUrl, model: llm.model, apiKey: "", contextSize: llm.contextSize, maxOutputTokens: llm.maxOutputTokens, vision: llm.vision, noThinking: llm.noThinking });
   const [open, setOpen] = useState(fresh);
-  const dirty = fresh || form.name !== llm.name || form.baseUrl !== llm.baseUrl || form.model !== llm.model || form.apiKey !== "" || form.contextSize !== llm.contextSize || form.maxOutputTokens !== llm.maxOutputTokens || form.vision !== llm.vision;
+  const dirty = fresh || form.name !== llm.name || form.baseUrl !== llm.baseUrl || form.model !== llm.model || form.apiKey !== "" || form.contextSize !== llm.contextSize || form.maxOutputTokens !== llm.maxOutputTokens || form.vision !== llm.vision || form.noThinking !== llm.noThinking;
   const save = async () => {
     const { apiKey, ...rest } = form;
     await onSave({ id: llm.id, ...rest, name: rest.name.trim(), baseUrl: rest.baseUrl.trim(), model: rest.model.trim(), ...(apiKey ? { apiKey } : {}) });
@@ -92,9 +92,20 @@ function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
             label="Vision (reads images)"
             note={form.vision ? "The designer is shown the image a form opens on before it writes. Turn this off if the model answers with an error about images." : "It works from your text only, and says so."}
           />
+          <Toggle
+            on={form.noThinking}
+            onChange={(on) => setForm({ ...form, noThinking: on })}
+            label="No thinking"
+            note={form.noThinking ? "It is asked to answer without thinking first (enable_thinking=false for llama.cpp, vLLM and SGLang; think=false for Ollama): faster, and the output tokens all go to the answer. A server that rejects fields it does not know will answer with an error: turn this off there." : "A model that thinks before it answers is left to. Test it to see whether it does."}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <Button tone={dirty ? "primary" : "plain"} onClick={() => test.mutate()} disabled={test.isPending || !usable}>{test.isPending ? "Asking…" : dirty ? "Save and test" : "Test it"}</Button>
-            {test.isSuccess && <span className="text-ink-2">It answered: "{test.data.answer}"</span>}
+            {test.isSuccess && (
+              <span className="text-ink-2">
+                It answered "{test.data.answer}" in {(test.data.ms / 1000).toFixed(1)} s{test.data.thinks ? ", thinking first" : ""}
+                {test.data.vision && (test.data.vision.ok ? " · it read the picture" : ` · it did not name the red picture's colour (it said "${test.data.vision.answer}"): turn Vision off, or pick a model that reads images`)}
+              </span>
+            )}
             <span className="grow" />
             <Button tone="quiet" onClick={onRemove}>Remove</Button>
           </div>
@@ -210,7 +221,7 @@ export function DesignerCard() {
         />
       ))}
       <div>
-        <Button onClick={() => setNewLlms((list) => [...list, { id: shortId(), name: "", baseUrl: "", model: "", hasApiKey: false, vision: false, contextSize: 16384, maxOutputTokens: 3000 }])}>
+        <Button onClick={() => setNewLlms((list) => [...list, { id: shortId(), name: "", baseUrl: "", model: "", hasApiKey: false, vision: false, noThinking: false, contextSize: 16384, maxOutputTokens: 3000 }])}>
           {all ? "Add another LLM" : "Add an LLM"}
         </Button>
       </div>

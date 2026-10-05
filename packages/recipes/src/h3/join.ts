@@ -88,11 +88,13 @@ export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
 export function frameFor(input: H3Video, ctx: BuildContext, how: H3Uses, latentJoin: boolean): { width: number; height: number } {
   const { media } = ctx;
   const like = input.previous ? media.previous : input.next ? media.next : how.start ? media.start : how.end ? media.end : undefined;
-  // (continued in the latent: the size is the latent's, which is the clip before's own)
+  // (continued in the latent: the size is the latent's, which is the clip before's own). A canvas or a neighbour
+  // is taken at its own size, within what a form may ask for, never the model's trained canvas: a 768 × 1376 clip
+  // before, allowed by the form, must not be continued at 768 × 1344 with its guide squashed to fit (seen 2026-10-05)
   return ctx.canvas && !latentJoin
-    ? h3Canvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height))
+    ? h3Canvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height), H3_FORM_PIXELS)
     : like && (input.previous || input.next)
-      ? h3Canvas(like.width, like.height, Math.min(like.width, like.height))
+      ? h3Canvas(like.width, like.height, Math.min(like.width, like.height), H3_FORM_PIXELS)
       : like
         ? h3Canvas(like.width, like.height, input.short, H3_FORM_PIXELS)
         : h3Canvas(input.shape.width, input.shape.height, input.short, H3_FORM_PIXELS);

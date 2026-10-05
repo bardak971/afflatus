@@ -20,6 +20,8 @@ export interface LlmInfo {
   contextSize: number;
   /** The longest answer it may write, in tokens. */
   maxOutputTokens: number;
+  /** Asked not to think before it answers. */
+  noThinking: boolean;
 }
 export interface FinishSettings {
   route: "seedvr" | "latent" | "rtx" | "model";

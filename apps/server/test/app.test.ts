@@ -114,7 +114,7 @@ describe("settings", () => {
     const res = await get(t.app, "/api/settings");
     expect(res.json()).toEqual({
       comfyUrl: "http://10.0.0.5:8188", comfyDir: "", llm: { baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false },
-      llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000 }],
+      llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000, noThinking: false }],
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "", designerGuides: {},
       tagCheck: true, families: {}, hasCivitaiKey: true, civitaiLookups: false, updateChecks: false, downloadModels: false, renderHistoryDays: 90,
       finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.25, latentSteps: 2 }, slotFiles: {}, acceptedPresets: [],

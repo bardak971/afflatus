@@ -211,7 +211,7 @@ describe.skipIf(!three)("a timeline", () => {
     const guide = nodes(second, "MiniMaxH3AddGuide");
     expect(guide).toHaveLength(1);
     expect(guide[0]!.inputs.frame_idx).toBe(0);
-    expect(nodes(second, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 192, height: 320, length: 158 });
+    expect(nodes(second, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 192, height: 320, length: 141 });
     expect(fake.uploads.filter((u) => u.endsWith(".mp4"))).toHaveLength(1);
 
     const v = await view(id);

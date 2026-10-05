@@ -67,8 +67,10 @@ const renderBody = z.strictObject({
       id: z.string(),
       /** The clip's whole form, as the composer would send it. */
       input: z.record(z.string(), z.unknown()),
-      /** How many takes at once: the first with the form's seed, the others with a fresh one each. */
+      /** How many takes at once: the first with the form's seed, the others with a fresh one each (or the next ones up or down, with a seed mode). */
       takes: z.number().int().min(1).max(4).optional(),
+      /** A typed seed that moves: each take after the first takes the next seed up or down (the form's "+1" / "−1"). */
+      seedMode: z.enum(["up", "down"]).optional(),
       /** End where the next clip begins, when that clip carries on from this one. On unless said otherwise. */
       fit: z.boolean().optional(),
     }))
@@ -174,8 +176,11 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       if (opening && !input[opening.id] && before && clip.joined === "continue" && (recipe.traits?.continues === "frame" || before.kind === "still")) input[opening.id] = FROM_PREVIOUS;
       const next = view.clips[i + 1];
       const count = ask.takes ?? 1;
+      const seed = typeof input.seed === "number" && input.seed >= 0 ? input.seed : null;
+      const range = 4294967296;
       for (let k = 0; k < count; k++) {
-        const id = await s.queue.enqueue(recipe.id, k === 0 ? input : { ...input, seed: RANDOM_SEED }, {
+        const each = k === 0 ? input : ask.seedMode && seed !== null ? { ...input, seed: (((seed + (ask.seedMode === "up" ? k : -k)) % range) + range) % range } : { ...input, seed: RANDOM_SEED };
+        const id = await s.queue.enqueue(recipe.id, each, {
           label: `${view.name} · clip ${i + 1}${count > 1 ? ` · take ${k + 1} of ${count}` : ""}`,
           dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
           // a clip rendered together with the one after it has nothing to fit: that one is made to follow it

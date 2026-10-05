@@ -100,11 +100,16 @@ export const H3_MAX_PIXELS = 768 * 1344;
 /** What a form may ask for: up to 1080p, past what the model was trained for, for cards that have the room. */
 export const H3_FORM_PIXELS = 1088 * 1920;
 
-/** How many frames make `seconds` at 24 a second, rounded up to a count the model takes (17k + 5). */
+/**
+ * How many frames make `seconds` at 24 a second, as a count the model takes (17k + 5): the nearest one, unless
+ * that falls more than four frames (a sixth of a second) short of what was typed, then the next one up. Rounding
+ * up every time, as before 2026-10-05, made a 5 s continuation 158 frames (5.7 s of its own) where the nearest
+ * count is 141 (5 s), a third more work on a card that is already full; the DaSiWa workflow snaps to the nearest.
+ */
 export function h3Frames(seconds: number): number {
-  let n = Math.max(5, Math.round(seconds * H3_FPS));
-  while (n % 17 !== 5) n++;
-  return n;
+  const wanted = Math.max(5, Math.round(seconds * H3_FPS));
+  const nearest = Math.max(5, Math.round((wanted - 5) / 17) * 17 + 5);
+  return wanted - nearest > 4 ? nearest + 17 : nearest;
 }
 
 /** The canvas for a shape: `short` pixels on the short edge, the shape's proportions, within `maxPixels` (what the model takes, unless a form asks for more). */

@@ -537,7 +537,7 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
   const signed = (x: number, digits = 1) => `${x < 0 ? "−" : "+"}${Math.abs(x).toFixed(digits)}`;
   const pct = (a: number | null | undefined, b: number | null | undefined, floor = 1) => (a == null || b == null ? null : `${a - b < 0 ? "−" : "+"}${Math.round((Math.abs(a - b) / Math.max(floor, Math.abs(b))) * 100)} %`);
   const diff = (a: number | null | undefined, b: number | null | undefined, unit = "") => (a == null || b == null ? null : `${signed(a - b)}${unit}`);
-  const rows: Array<{ label: string; value: string; since: string | null; why: string }> = [
+  const rows: Array<{ label: string; value: string; since: string | null; why: string; bad?: boolean }> = [
     { label: "Brightness", value: m.luma.toFixed(0), since: pct(m.luma, first?.luma), why: "Mean luma of the frames, 0 to 255." },
     { label: "Sharpness", value: m.sharp.toFixed(2), since: pct(m.sharp, first?.sharp, 0.01), why: "The mean absolute Laplacian of a small grey copy: 0 is flat, several units is crisp. A chain continued from exact latents loses it hop after hop." },
   ];
@@ -547,7 +547,8 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
   if (m.pace != null) rows.push({ label: "Pace", value: m.pace.toFixed(1), since: pct(m.pace, first?.pace, 0.1), why: "Mean frame-to-frame change, the ruler's motion figure. H3 tends to slow down after each hand-over." });
   if (m.voice != null) rows.push({ label: "Voice", value: `${m.voice} Hz`, since: pct(m.voice, first?.voice, 1), why: "Where the sound's energy sits (its spectral centroid). A voice carried over several clips dulls before it changes: it drifts down." });
   if (m.drift) rows.push({ label: "Run-up", value: `×${m.drift.width.toFixed(3)}`, since: null, why: "A join made in the latent: how wide the regenerated run-up came out against the latent it was guided by. 1.000 is the same; a chain of exact latents reads 1.02 to 1.05 at every hop, which is the drift." });
-  const brief = `${m.luma.toFixed(0)} luma · ${m.sharp.toFixed(1)} sharp${first ? ` · since clip ${k + 1}: ${pct(m.luma, first.luma)} / ${pct(m.sharp, first.sharp, 0.01)}` : ""}`;
+  if (m.handover != null) rows.push({ label: "Run-up end", value: `×${m.handover.toFixed(1)}`, since: null, bad: m.handover > 3, why: "A continuation: how much the picture jumps where the run-up (the frames shared with the clip before) ends and this clip's own frames begin, against its own motion right after. ×1 carries on; past ×3 the model stepped away from its guide and a cut shows there, whatever the join figure at the take-over point says." });
+  const brief = `${m.luma.toFixed(0)} luma · ${m.sharp.toFixed(1)} sharp${first ? ` · since clip ${k + 1}: ${pct(m.luma, first.luma)} / ${pct(m.sharp, first.sharp, 0.01)}` : ""}${m.handover != null && m.handover > 3 ? ` · run-up end ×${m.handover.toFixed(1)}` : ""}`;
   return (
     <div className="flex flex-col gap-2">
       {/* one line, folded: the table takes room that the form needs more often */}
@@ -562,7 +563,7 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
           {rows.map((r) => (
             <tr key={r.label} title={r.why}>
               <td className="py-0.5 text-ink-2">{r.label}</td>
-              <td className="py-0.5 text-right font-mono tabular-nums">{r.value}</td>
+              <td className={cx("py-0.5 text-right font-mono tabular-nums", r.bad && "text-warn-ink")}>{r.value}</td>
               <td className="py-0.5 pl-3 text-right font-mono tabular-nums text-ink-3">{r.since ?? ""}</td>
             </tr>
           ))}

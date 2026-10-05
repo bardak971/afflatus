@@ -133,10 +133,14 @@ export function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, 
             {joined.map((c) => {
               const i = clips.findIndex((x) => x.id === c.id);
               const figure = joinsOf.get(c.id);
-              const bad = figure !== undefined && figure !== null && figure > 3;
+              const jumped = figure !== undefined && figure !== null && figure > 3;
+              // where the clip's own frames begin after the run-up: a model that steps away from its guide cuts there, not at the take-over point
+              const carry = c.take?.measure?.handover ?? null;
+              const broke = carry !== null && carry > 3;
+              const bad = jumped || broke;
               return (
-                <button key={c.id} type="button" onClick={() => onPick(c.id)} title={`Clip ${i + 1}: the picture jumps ×${figure?.toFixed(1) ?? "?"} its own motion where it takes over from clip ${i}${bad ? ". Past ×3 the join shows" : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
-                  {i + 1}: {figure === undefined ? "…" : figure === null ? "–" : `×${figure.toFixed(1)}`}
+                <button key={c.id} type="button" onClick={() => onPick(c.id)} title={`Clip ${i + 1}: the picture jumps ×${figure?.toFixed(1) ?? "?"} its own motion where it takes over from clip ${i}${jumped ? ". Past ×3 the join shows" : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
+                  {i + 1}: {figure === undefined ? "…" : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
                 </button>
               );
             })}
