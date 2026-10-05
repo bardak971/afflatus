@@ -4,14 +4,22 @@ import { modelIndex } from "./comfy";
 import { httpError } from "./errors";
 import { ComfyUnreachable } from "@afflatus/comfy";
 import { isRef, type Graph } from "@afflatus/core";
-import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type WorkflowDef } from "@afflatus/workflows";
+import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type FileSource, type WorkflowDef } from "@afflatus/workflows";
 import type { Services } from "./services";
 import { openInComfy } from "./comfyOpen";
+import { installPacks, packStatus } from "./packs";
+import { readSettings } from "./settings";
+import { sourcesFor } from "./sources";
 
 /**
  * Importing a ComfyUI workflow: read it, show what was found, save it with the mapping the user
  * confirmed. From then on it is a recipe like any other.
  */
+
+const packsBody = z.strictObject({
+  classes: z.array(z.string().min(1).max(120)).max(200),
+  packs: z.record(z.string(), z.string().min(1).max(200)).default({}),
+});
 
 const saveBody = z.strictObject({
   title: z.string().trim().min(1).max(120),
@@ -78,6 +86,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
       throw err;
     }
     /** For each file that is missing: the other model folders of ComfyUI that hold a file of that name. */
+    /** … and, when lookups are on, where each can be had (the author's notes, the author's other models, Manager's list of standard files). */
     const withElsewhere = async <T extends ReturnType<typeof inspect>>(found: T) => {
       if (!found.missingFiles.length) return { ...found, elsewhere: {} as Record<string, string[]> };
       const index = await modelIndex(await s.comfy());
@@ -85,6 +94,14 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
       for (const m of found.missingFiles) {
         const hits = index.find(m.file).map((hit) => hit.folder);
         if (hits.length) elsewhere[m.file] = hits;
+      }
+      const settings = await readSettings(s.db);
+      if (settings.civitaiLookups) {
+        const sources: Record<string, FileSource> = await sourcesFor(found.missingFiles, found.links, settings.civitaiKey).catch(() => ({}));
+        for (const m of found.missingFiles) {
+          const source = sources[`${m.node}.${m.input}`];
+          if (source) m.source = source;
+        }
       }
       return { ...found, elsewhere };
     };
@@ -98,6 +115,20 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
   });
 
   app.get("/api/workflows", async () => ({ items: s.registry.workflows().map(brief) }));
+
+  /**
+   * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.
+   * `packs` is what the workflow itself says (its author's ComfyUI wrote each node's pack); the rest is
+   * looked up in Manager's map. The answer names the queued installs; GET reads where they stand.
+   */
+  app.post("/api/workflows/packs", async (req) => {
+    const body = packsBody.parse(req.body);
+    return installPacks(await s.comfy(), body.classes, body.packs);
+  });
+  app.get<{ Querystring: { ids?: string } }>("/api/workflows/packs", async (req) => {
+    const ids = (req.query.ids ?? "").split(",").map((x) => x.trim()).filter((x) => /^[\w-]{1,64}$/.test(x)).slice(0, 50);
+    return packStatus(await s.comfy(), ids);
+  });
 
   /** The whole thing: for editing, and for sharing as a file. */
   app.get<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {

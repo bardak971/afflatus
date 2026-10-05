@@ -70,8 +70,10 @@ const link = "font-semibold underline";
  * its author gave, or look for it on Civitai and fetch it from there. Both only show when they were
  * turned on in Settings; without them this renders nothing and the plain links around it stay.
  */
-export function GetFile({ file, folder, url, civitai, pick, hints }: {
+export function GetFile({ file, folder, url, civitai, pick, hints, auto }: {
   file: string;
+  /** Look the file up as soon as this shows, rather than on a click (the import page, where nothing else says where it is). */
+  auto?: boolean;
   folder: string | null;
   url?: string;
   /** Its Civitai version, when that is known: fetched without looking it up. */
@@ -97,6 +99,15 @@ export function GetFile({ file, folder, url, civitai, pick, hints }: {
   // the download runs through ComfyUI-Manager: without it in ComfyUI the button would only fail
   const noManager = downloads.data?.manager.found === false;
   const why = noManager ? "ComfyUI-Manager was not found in your ComfyUI: install it first (Settings → Models → Missing models says how), then Test again in Settings → ComfyUI." : undefined;
+  const looked = useRef(false);
+  useEffect(() => {
+    if (auto && lookups && !url && !civitai && !looked.current) {
+      looked.current = true;
+      find.mutate();
+    }
+    // once, when it shows and lookups are on
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, lookups]);
   if (!lookups && !fetching) return null;
 
   return (

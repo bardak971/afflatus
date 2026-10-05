@@ -110,6 +110,8 @@ function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string
     } else if (name !== "upload") gone.push(name);
     const next = saved[i];
     if (typeof next === "string" && AFTER_RUN.has(next) && (info ? changes(name) : typeof value === "number")) i++;
+    // a seed fed by a link keeps its slot and its "after a run" slot, the latter saved as null
+    else if (next === null && info && changes(name)) i++;
     else if (names === fromCatalog && optsOf(all[name]).image_upload && next === "image") i++;
   }
   // a field the node gained after the workflow was saved starts at its default, as in the editor
@@ -231,9 +233,21 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
       if (typeof m?.name === "string" && typeof m.url === "string" && /^https?:\/\//.test(m.url)) wiring.downloads[m.name] = m.url;
     }
     if (!NOTES.has(node.type) || !Array.isArray(node.widgets_values)) return;
-    for (const [, label, url] of String(node.widgets_values[0] ?? "").matchAll(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g)) {
-      if (wiring.links.length < 80 && !wiring.links.some((l) => l.url === url)) wiring.links.push({ label: label!.trim(), url: url! });
-    }
+    const text = String(node.widgets_values[0] ?? "");
+    const add = (label: string, url: string) => {
+      if (wiring.links.length < 80 && !wiring.links.some((l) => l.url === url)) wiring.links.push({ label: label.trim() || url.replace(/^https?:\/\//, ""), url });
+    };
+    for (const [, label, url] of text.matchAll(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g)) add(label!, url!);
+    // bare addresses, as people paste them: what the line says before it, else the line above, is what it is for
+    const lines = text.split(/\r?\n/);
+    lines.forEach((line, i) => {
+      for (const m of line.matchAll(/(?<!\()https?:\/\/[^\s)<>\]]+/g)) {
+        const url = m[0].replace(/[.,;:!?]+$/, "");
+        const before = line.slice(0, m.index).replace(/[-–:•*\s]+$/, "").trim();
+        const above = lines.slice(0, i).reverse().find((l) => l.trim() && !/https?:\/\//.test(l))?.trim() ?? "";
+        add(before || above, url);
+      }
+    });
   };
   const groups: Record<string, string> = {};
   const panel: Target[] = [];

@@ -30,6 +30,15 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+export interface PacksStarted {
+  jobs: Array<{ pack: string; id: string }>;
+  /** Node types no pack is known for. */
+  unknown: string[];
+  /** Packs Manager's queue cannot install (a single file, a gist). */
+  skipped: string[];
+}
+export interface PackState { id: string; state: "pending" | "done" | "failed"; message?: string }
+
 export const api = {
   recipes: () => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes"),
   setup: () => call<Scan>("GET", "/setup"),
@@ -206,6 +215,12 @@ export const api = {
   openRender: (assetId: string) => call<Opened>("POST", `/assets/${assetId}/open`),
   createWorkflow: (body: WorkflowBody) => call<WorkflowBrief>("POST", "/workflows", body),
   saveWorkflow: (id: string, body: WorkflowBody) => call<WorkflowBrief>("PUT", `/workflows/${id}`, body),
+  /** Have ComfyUI-Manager install the packs the missing node types come from; `packs` is what the workflow says about them. */
+  installPacks: (body: { classes: string[]; packs: Record<string, string> }) => call<PacksStarted>("POST", "/workflows/packs", body),
+  /** Have ComfyUI-Manager restart ComfyUI (after a pack install); refused while a render runs. */
+  restartComfy: () => call<{ ok: true }>("POST", "/comfy/restart"),
+  /** Where the queued installs stand. */
+  packsStatus: (ids: string[]) => call<{ items: PackState[]; installed: number }>("GET", `/workflows/packs?ids=${encodeURIComponent(ids.join(","))}`),
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),
   /** The timelines of the project the app looks at. */
   timelines: () => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`),

@@ -18,6 +18,22 @@ import { ancestors, prune, settle } from "./wiring";
  * names given to single settings, and the switches that turn parts on and off.
  */
 
+/** Where a missing file can be had, found before anyone searches: the server adds it from the author's notes, the author's other models, or Manager's list of standard files. */
+export interface FileSource {
+  how: "notes" | "creator" | "known";
+  /** The model and its version, as the site names them. */
+  title: string;
+  /** The file a download fetches. */
+  file: string;
+  /** That file has exactly the name asked for. */
+  exact: boolean;
+  page?: string;
+  /** A plain address to fetch from. */
+  url?: string;
+  /** Or a Civitai version, fetched with `file` picked. */
+  civitai?: number;
+}
+
 export interface Inspection {
   nodeCount: number;
   /** Node types the workflow uses that this ComfyUI does not have. */
@@ -25,7 +41,7 @@ export interface Inspection {
   /** Node types this ComfyUI does not have, used only by parts that are switched off. */
   missingWhenOn: string[];
   /** Files the workflow names that this ComfyUI does not list, with the files it does have for that input, and where to download it when the workflow says. */
-  missingFiles: Array<Target & { classType: string; file: string; label: string; options: string[]; url?: string }>;
+  missingFiles: Array<Target & { classType: string; file: string; label: string; options: string[]; url?: string; source?: FileSource }>;
   /**
    * Choices the workflow makes that this ComfyUI does not offer: a sampler or a scheduler that a node
    * pack adds on its author's machine. With the choices there are, and the one whose name is closest.

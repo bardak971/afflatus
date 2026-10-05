@@ -58,7 +58,11 @@ describe("reading the file ComfyUI's editor saves", () => {
   it("keeps what the file says about where its things come from", () => {
     expect(wiring.packs).toEqual({ "Power Lora Loader (rgthree)": "rgthree-comfy" });
     expect(wiring.downloads).toEqual({ "model.safetensors": "https://example.org/files/model.safetensors" });
-    expect(wiring.links).toEqual([{ label: "The checkpoint", url: "https://example.org/models/1" }, { label: "Its LoRA", url: "https://example.org/models/2" }]);
+    // markdown links, and bare addresses named by the line above or the words before them
+    expect(wiring.links).toEqual([
+      { label: "The checkpoint", url: "https://example.org/models/1" }, { label: "Its LoRA", url: "https://example.org/models/2" },
+      { label: "The upscaler", url: "https://example.org/models/3?modelVersionId=9" }, { label: "Discord", url: "https://example.org/chat" },
+    ]);
     // on a ComfyUI without that checkpoint and without that pack, both come with where to get them
     const { "Power Lora Loader (rgthree)": _gone, ...without } = catalog;
     const listed = { ...without, CheckpointLoaderSimple: { ...catalog.CheckpointLoaderSimple!, input: { required: { ckpt_name: [["other.safetensors"]] } } } };
@@ -66,7 +70,7 @@ describe("reading the file ComfyUI's editor saves", () => {
     expect(found.missingFiles).toMatchObject([{ file: "model.safetensors", url: "https://example.org/files/model.safetensors", options: ["other.safetensors"] }]);
     expect(found.missingNodes).toEqual(["Power Lora Loader (rgthree)"]);
     expect(found.packs).toEqual({ "Power Lora Loader (rgthree)": "rgthree-comfy" });
-    expect(found.links).toHaveLength(2);
+    expect(found.links).toHaveLength(4);
   });
 
   describe("what runs", () => {

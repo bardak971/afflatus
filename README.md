@@ -60,7 +60,7 @@ The default files of each family come from ComfyUI's own repackaged releases on 
 Everything above runs on ComfyUI's own nodes, plus:
 
 - **Afflatus's node pack**, written into ComfyUI by Settings or unpacked by hand: MiniMax H3 clips that continue from the clip before's own latent, and the reading of model files through ComfyUI. MIT, in [comfy-nodes](comfy-nodes).
-- **ComfyUI-Manager**, for downloads, as above.
+- **ComfyUI-Manager**, for downloads, as above, and for the node packs an imported workflow needs: the import lists what your ComfyUI lacks, pack by pack, with one button that has Manager install them and another that restarts ComfyUI once they are in.
 - Optional, each used only when present and said so in Settings when missing: the **Impact pack** for the face detailer, a **RIFE** model in `models/frame_interpolation` for 48 fps videos, **SeedVR2** for the restoring upscale, the **MiniMax H3 pack by DaSiWa** for the step cache, the re-sampled latent upscale and RTX Video Super Resolution (NVIDIA's own node does for the last), and **KJNodes** for the live preview of a video while it renders.
 
 ## Running it

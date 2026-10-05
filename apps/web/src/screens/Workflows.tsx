@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileUp } from "lucide-react";
-import { bindings as bindingsSchema, type Bindings } from "@afflatus/workflows";
+import { bindings as bindingsSchema, guessModel, type Bindings } from "@afflatus/workflows";
 import { useOpenInComfy } from "../actions";
 import { api, ApiError, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
@@ -32,12 +32,22 @@ async function readFile(file: File): Promise<Editing> {
     if (!parsed.success) throw new ApiError("This looks like a workflow shared from Afflatus, but its bindings could not be read.");
     bindings = parsed.data;
   }
-  if (!bindings) throw new ApiError("This workflow has no output: no Save or Preview node for an image, a video or audio.");
+  if (!bindings) {
+    // a save node of a pack this ComfyUI lacks is not known to be an output: the missing nodes are the news, not the output
+    const missing = inspection.missingNodes ?? [];
+    if (missing.length) {
+      const packs = [...new Set(Object.values(inspection.packs ?? {}))];
+      const some = missing.slice(0, 4).join(", ") + (missing.length > 4 ? ` and ${missing.length - 4} more` : "");
+      throw new ApiError(`This ComfyUI is missing ${missing.length} node type${missing.length > 1 ? "s" : ""} this workflow uses (${some})${packs.length ? `, from ${packs.join(", ")}` : ""}. Install ${packs.length > 1 ? "those packs" : "the pack"} in ComfyUI (ComfyUI-Manager's "Install missing custom nodes" takes them from the workflow), restart it, then import again.`);
+    }
+    throw new ApiError("This workflow has no output: no Save or Preview node for an image, a video or audio.");
+  }
   return {
     id: null,
     source: file.name,
     title: typeof shared?.title === "string" ? shared.title : file.name.replace(/\.json$/i, "").replace(/\s*\(API\)$/i, ""),
-    model: typeof shared?.model === "string" ? shared.model : "",
+    // a guess from the loaders and files, for the Model field to start with; the person can change it
+    model: typeof shared?.model === "string" ? shared.model : guessModel(inspection.graph as Parameters<typeof guessModel>[0]),
     graph: inspection.graph,
     wiring: inspection.wiring,
     editor: inspection.editor,

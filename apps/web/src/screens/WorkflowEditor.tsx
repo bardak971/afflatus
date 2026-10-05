@@ -7,6 +7,7 @@ import { api } from "../api";
 import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
 import { GetFile } from "../GetFile";
+import { MissingPacks } from "./MissingPacks";
 import { Select } from "../Select";
 import { Button, cx, ErrorNote, Help, SectionTitle, Note } from "../ui";
 
@@ -60,7 +61,8 @@ function rangeOf(c: Control): string {
 }
 
 export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved: boolean): void }) {
-  const found = start.inspection;
+  // read again after ComfyUI restarts with the packs it was missing
+  const [found, setFound] = useState(start.inspection);
   /** What says which model a missing file is for: its loader's "type", and the model the workflow is for. */
   const hintsFor = (node: string) => [graph[node]?.inputs.type, model].filter((x): x is string => typeof x === "string" && x.trim().length > 2 && x !== "default");
   /** Where ComfyUI looks for a file that is missing, and where else it has one of that name. */
@@ -382,27 +384,17 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
           <SectionTitle>Form preview</SectionTitle>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="wf-title" className="text-xs font-semibold">Name</label>
-            <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="i2v" className={text} />
+            <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Portrait, two passes" className={text} />
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="wf-model" className="text-xs font-semibold">Model</label>
-            <input id="wf-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Wan 2.2" className={text} />
-            <span className={cx("text-xs", model.trim() ? "text-ink-2" : "text-accent")}>{model.trim() ? "Workflows with the same model name are grouped together." : "Name the model it uses (\"Wan 2.2\", \"Qwen Image\") to be able to save."}</span>
+            <input id="wf-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, FLUX.1, Wan 2.2…" className={text} />
+            <span className={cx("text-xs", model.trim() ? "text-ink-2" : "text-accent")}>{model.trim() ? "Workflows with the same model name are grouped together." : "Which model it is for, as the families call them (SDXL, Wan 2.2): its LoRAs and saved settings go with that model's. Needed to save."}</span>
           </div>
 
           <div className="flex flex-col gap-1.5 text-xs">
             {found.missingNodes.length ? (
-              <div role="alert" className="flex flex-col gap-1.5 rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">
-                <span>Your ComfyUI is missing {found.missingNodes.length} node type{found.missingNodes.length > 1 ? "s" : ""} this workflow uses. You can save it, but it cannot run until they are installed (ComfyUI-Manager has "Install missing custom nodes").</span>
-                {found.missingNodes.map((n) => (
-                  <span key={n}>
-                    <span className="font-semibold">{n}</span>
-                    {found.packs[n]
-                      ? <> · from the node pack <a className={link} href={`https://registry.comfy.org/nodes/${encodeURIComponent(found.packs[n]!)}`} target="_blank" rel="noreferrer">{found.packs[n]}</a></>
-                      : <> · <a className={link} href={`https://github.com/search?q=${encodeURIComponent(`"${n}" comfyui`)}&type=code`} target="_blank" rel="noreferrer">search GitHub</a></>}
-                  </span>
-                ))}
-              </div>
+              <MissingPacks missing={found.missingNodes} packs={found.packs} graph={graph} wiring={start.wiring} onInspected={setFound} />
             ) : (
               <span className="text-good">Every node type it uses is installed in your ComfyUI.</span>
             )}
@@ -428,9 +420,17 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                     <span>
                       {f.url
                         ? <a className={link} href={f.url} target="_blank" rel="noreferrer">Download it (the URL is in the workflow)</a>
-                        : <>Search for it on {searchLinks(f.file).map((l, i) => <span key={l.url}>{i > 0 && " or "}<a className={link} href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)}</>}
+                        : f.source
+                          ? (
+                            <>
+                              {f.source.how === "notes" ? "The author's notes point to " : f.source.how === "creator" ? "The same author has it on Civitai: " : "A standard file, in ComfyUI-Manager's list: "}
+                              {f.source.page ? <a className={link} href={f.source.page} target="_blank" rel="noreferrer">{f.source.title}</a> : <span className="font-semibold">{f.source.title}</span>}
+                              {f.source.exact ? ", the file itself" : <>, whose file is <span className="font-semibold break-all">{f.source.file}</span>, not this one: take it only if it is the same model</>}
+                            </>
+                          )
+                          : <>Search for it on {searchLinks(f.file).map((l, i) => <span key={l.url}>{i > 0 && " or "}<a className={link} href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)}</>}
                       . {where(f)}
-                      <GetFile file={f.file} folder={folderOfFileInput(f.classType, f.input)} url={f.url} hints={hintsFor(f.node)} />
+                      <GetFile file={f.file} folder={folderOfFileInput(f.classType, f.input)} url={f.url ?? f.source?.url} civitai={f.source?.civitai} pick={f.source?.civitai ? f.source.file : undefined} hints={hintsFor(f.node)} auto={!f.url && !f.source} />
                     </span>
                   )}
                 </div>

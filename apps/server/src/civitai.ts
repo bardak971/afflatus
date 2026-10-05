@@ -15,15 +15,15 @@ const hostOf = (site: string) => {
 };
 
 /** What Civitai calls the kind of model that goes in each of ComfyUI's folders. */
-const KINDS: Record<string, string[]> = {
+export const KINDS: Record<string, string[]> = {
   checkpoints: ["Checkpoint"], diffusion_models: ["Checkpoint"], unet: ["Checkpoint"],
   loras: ["LORA", "LoCon", "DoRA"], vae: ["VAE"], text_encoders: ["TextEncoder"], clip: ["TextEncoder"],
   upscale_models: ["Upscaler"], controlnet: ["Controlnet"], embeddings: ["TextualInversion"],
 };
 
-type ApiFile = { name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string };
-type ApiVersion = { id?: number; name?: string; baseModel?: string; trainedWords?: string[]; files?: ApiFile[]; model?: { name?: string } };
-type ApiModel = { id: number; name: string; type?: string; modelVersions?: ApiVersion[] };
+export type ApiFile = { name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string };
+export type ApiVersion = { id?: number; name?: string; baseModel?: string; trainedWords?: string[]; files?: ApiFile[]; model?: { name?: string } };
+export type ApiModel = { id: number; name: string; type?: string; modelVersions?: ApiVersion[] };
 
 export interface CivitaiFound {
   name: string;
@@ -51,8 +51,8 @@ export interface CivitaiFound {
   have?: { folder: string; file: string };
 }
 
-const STEM = /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i;
-const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+export const STEM = /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i;
+export const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 /** The words of a file's name: "qwen3vl_4b_fp8_scaled" → qwen3vl, 4b, fp8, scaled. */
 export const wordsOf = (file: string) => [...new Set((file.split(/[\\/]/).pop() ?? file).replace(STEM, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2))];
 

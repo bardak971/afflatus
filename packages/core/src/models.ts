@@ -40,6 +40,9 @@ export function folderOfFileInput(classType: string, input: string): string | nu
   if (/^lora(_name)?(_?\d+)?$/.test(input) || /^lora_/.test(input)) return "loras";
   if (/^control_net_name/.test(input)) return "controlnet";
   if (input === "model_name" && /upscale/i.test(classType)) return "upscale_models";
+  // the Impact pack's detectors and segmenters (the face detailer's eyes and faces)
+  if (input === "model_name" && /ultralytics|detectorprovider/i.test(classType)) return "ultralytics";
+  if (input === "model_name" && /^SAMLoader/i.test(classType)) return "sams";
   if (/lora/i.test(classType) && /name|file/.test(input)) return "loras";
   return null;
 }

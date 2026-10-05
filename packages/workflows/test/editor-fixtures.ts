@@ -33,7 +33,7 @@ export const editorFile = {
     },
     { id: 40, type: "Reroute", pos: [900, 0], mode: 0, inputs: [socket("", "*", 6)], outputs: [{ name: "", type: "IMAGE", links: [7] }] },
     { id: 9, type: "SaveImage", pos: [1000, 0], mode: 0, inputs: [socket("images", "IMAGE", 7), field("filename_prefix", "STRING")], outputs: [], widgets_values: ["out"] },
-    { id: 50, type: "MarkdownNote", pos: [0, 400], mode: 0, inputs: [], outputs: [], widgets_values: ["How to use this workflow.\n- [The checkpoint](https://example.org/models/1)\n- [Its LoRA](https://example.org/models/2)"] },
+    { id: 50, type: "MarkdownNote", pos: [0, 400], mode: 0, inputs: [], outputs: [], widgets_values: ["How to use this workflow.\n- [The checkpoint](https://example.org/models/1)\n- [Its LoRA](https://example.org/models/2)\n\nThe upscaler\nhttps://example.org/models/3?modelVersionId=9\nDiscord: https://example.org/chat."] },
     { id: 51, type: "Label (rgthree)", pos: [0, 500], mode: 0, inputs: [], outputs: [], widgets_values: [] },
   ],
   links: [

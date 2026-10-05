@@ -33,6 +33,10 @@ export interface FakeComfy {
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */
   installed: Array<{ folder: string; file: string; bytes: number }>;
+  /** The node packs Manager was asked to install, as its queue got them. */
+  packs: Array<{ id: string; version: string; repository?: string }>;
+  /** How many times Manager was asked to restart ComfyUI. */
+  reboots: number;
   /** Files written into ComfyUI's user data, by path ("workflows/afflatus/x.json"). */
   userdata: Record<string, unknown>;
   /** Broadcast a websocket message to every connected client, as ComfyUI does. */
@@ -97,6 +101,12 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">>
    * never fetches, as a Manager that is not allowed to download does.
    */
   manager?: boolean | "refuses";
+  /** Manager's map of node types to packs (getmappings), for pretending to know where a node type comes from. */
+  mappings?: Record<string, [string[], { title_aux?: string }]>;
+  /** Pack ids whose install "fails", with this message in the history. */
+  packsFail?: string[];
+  /** Node types that appear in the catalog once ComfyUI "restarts" after a pack install (what the pack brings). */
+  afterReboot?: NodeCatalog;
   /**
    * Pretend to render: every prompt reports progress step by step, streams previews, and finishes with a
    * picture of the size that was asked for. A load snapshot is broadcast every second, as a monitor
@@ -111,7 +121,7 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">>
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: Omit<FakeComfy, "url" | "close" | "send" | "sendBinary"> = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], metadata: {}, headers: null, sockets: [], installed: [], userdata: {},
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], metadata: {}, headers: null, sockets: [], installed: [], packs: [], reboots: 0, userdata: {},
     catalog: init.catalog ?? {},
     models: init.models ?? {},
   };
@@ -122,6 +132,18 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     unet: "diffusion_models", diffusion_model: "diffusion_models", upscale: "upscale_models", controlnet: "controlnet", clip_vision: "clip_vision", embedding: "embeddings",
   };
   let installs: Array<{ type: string; save_path: string; url: string; filename: string }> = [];
+  type Task = { ui_id: string; client_id: string; kind: string; params: { id: string; version: string; repository?: string } };
+  let tasks: Task[] = [];
+  const history: Record<string, { ui_id: string; client_id: string; kind: string; timestamp: string; result: string; status: { status_str: string; completed: boolean; messages: string[] } }> = {};
+  const runTask = (t: Task) => {
+    const failed = init.packsFail?.includes(t.params.id);
+    if (!failed) fake.packs.push(t.params);
+    history[t.ui_id] = {
+      ui_id: t.ui_id, client_id: t.client_id, kind: t.kind, timestamp: new Date().toISOString(),
+      result: failed ? `Cannot resolve install target: '${t.params.id}@${t.params.version}'` : "success",
+      status: { status_str: failed ? "failed" : "success", completed: true, messages: [] },
+    };
+  };
   const install = async (task: (typeof installs)[number]) => {
     const got = await fetch(task.url).catch(() => null);
     if (!got?.ok) return;
@@ -150,6 +172,14 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     if (req.method === "GET") {
       if (path === "/system_stats") {
         return json(200, { system: { comfyui_version: "0.0.0-fake" }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
+      }
+      if (path === "/v2/customnode/getmappings" && init.manager) return json(200, init.mappings ?? {});
+      if (path === "/v2/manager/queue/history" && init.manager) {
+        const client = url.searchParams.get("client_id");
+        return json(200, { history: Object.fromEntries(Object.entries(history).filter(([, h]) => !client || h.client_id === client)) });
+      }
+      if (path === "/v2/manager/queue/status" && init.manager) {
+        return json(200, { total_count: tasks.length + installs.length, done_count: Object.keys(history).length, in_progress_count: 0, pending_count: tasks.length + installs.length, is_processing: false });
       }
       if (path === "/v2/manager/version" && init.manager) {
         res.writeHead(200, { "Content-Type": "text/plain" });
@@ -225,10 +255,33 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
         res.writeHead(200);
         return res.end();
       }
+      if (path === "/v2/manager/reboot" && init.manager) {
+        if (/^(application\/x-www-form-urlencoded|multipart\/form-data|text\/plain)/.test(req.headers["content-type"] ?? "")) {
+          res.writeHead(400);
+          return res.end("simple form posts are refused");
+        }
+        fake.reboots++;
+        if (fake.packs.length) Object.assign(fake.catalog, init.afterReboot ?? {});
+        res.writeHead(200);
+        return res.end();
+      }
+      if (path === "/v2/manager/queue/task" && init.manager) {
+        const task = JSON.parse(raw.toString("utf-8")) as Task;
+        if (!task.ui_id || !task.client_id || task.kind !== "install" || !task.params?.id) {
+          res.writeHead(400);
+          return res.end("Invalid task data");
+        }
+        tasks.push(task);
+        res.writeHead(200);
+        return res.end();
+      }
       if (path === "/v2/manager/queue/start" && init.manager) {
         const todo = installs;
         installs = [];
+        const queued = tasks;
+        tasks = [];
         if (init.manager !== "refuses") for (const task of todo) void install(task);
+        if (init.manager !== "refuses") for (const task of queued) runTask(task);
         res.writeHead(200);
         return res.end();
       }

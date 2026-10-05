@@ -1,3 +1,4 @@
+import { httpError } from "./errors";
 import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
 import { z } from "zod";
@@ -38,6 +39,27 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   /** ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds. */
   app.get("/api/comfy/logs", async () => ({ lines: await (await s.comfy()).client.logs() }));
+
+  /**
+   * Restart ComfyUI, through ComfyUI-Manager's reboot (it starts itself again with the same command
+   * line): after node packs were installed, which ComfyUI only loads at start. Refused while a render
+   * runs. What was learned of ComfyUI is forgotten: the new node types show at the next read.
+   */
+  app.post("/api/comfy/restart", async () => {
+    if ((await s.queue.status()).running) throw httpError("A render is running: restart ComfyUI once it is done.", 409);
+    const comfy = await s.comfy();
+    let res: Response | null = null;
+    try {
+      res = await fetch(comfy.client.baseUrl + "/v2/manager/reboot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) });
+    } catch {
+      // the process replaces itself as it answers: a dropped connection is the restart under way
+    }
+    if (res?.status === 404) throw httpError("This ComfyUI has no ComfyUI-Manager, which does the restarting: restart ComfyUI by hand.");
+    if (res?.status === 403) throw httpError("ComfyUI-Manager does not allow a restart from outside at its security level: restart ComfyUI by hand.");
+    if (res && !res.ok) throw httpError(`ComfyUI-Manager refused the restart (${res.status}): restart ComfyUI by hand.`);
+    comfy.forgetAll();
+    return { ok: true };
+  });
 
   /**
    * What a form will take, learned from this machine's own renders with the same model (see forecast.ts): a
