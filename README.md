@@ -2,23 +2,68 @@
 
 A self-hosted studio for pictures, videos and timelines, in front of your own [ComfyUI](https://github.com/comfyanonymous/ComfyUI).
 
-You keep running ComfyUI where your GPU is. Afflatus is the place you work in: a library of everything you make, a form per model with the right settings already in it, a prompt designer, and a timeline that turns clips into one video. It runs on one PC as a single process with a folder of data, or in a container on a server, and talks to ComfyUI over HTTP.
+ComfyUI keeps running where your GPU is. Afflatus is the place you work in: a library of everything you make, a form per model with the right settings already in it, a prompt designer, and a timeline that turns clips into one video. It runs as a single process with a folder of data, on the PC itself or in a container on a server, and talks to ComfyUI over HTTP.
+
+Afflatus is 0.2 and written for one person at a time. It is used every day on one machine; it has not yet been run on many.
+
+## What you need
+
+- **A ComfyUI**, 0.3.x or newer, that you can reach at an address. Afflatus does not bundle or install it. The desktop and portable builds work as well as a clone.
+- **ComfyUI-Manager**, if you want Afflatus to download missing models into ComfyUI for you. ComfyUI has had it built in since 0.3.7x, off until asked: in ComfyUI's folder run `pip install -r manager_requirements.txt` with ComfyUI's own Python (the venv's, or `python_embeded` in the portable build), then start ComfyUI with `--enable-manager`. The desktop build has it on already. Without it, missing models still get links that open in your browser.
+- **Nothing else** on Windows and Linux: ffmpeg is in the bundle. On macOS, `brew install ffmpeg` once.
+- Any card ComfyUI runs on. Afflatus assumes nothing about it: how long a render will take, and what the card can hold, it learns from your own renders and tells you on the form once it knows.
+
+## Get started
+
+1. Take the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it, start it (`Afflatus.bat` on Windows, `afflatus.sh` elsewhere), and open `http://127.0.0.1:8720`.
+2. **Settings → ComfyUI.** Enter your ComfyUI's address (`http://127.0.0.1:8188` when it runs on the same machine) and press Test. It reads the version, the card and the node list; it never starts a render.
+3. On the same page, give it **ComfyUI's folder** when it is on this computer (the one with `main.py`). With it, Afflatus writes its small node pack into ComfyUI's `custom_nodes` and reads your model files from the disk to tell what each one is. Restart ComfyUI once after that. When ComfyUI is on another machine, download the node pack from that page and unpack it into `custom_nodes` yourself.
+4. **Settings → Models.** Every model family lists what is ready and what is missing, file by file, with the folder each goes in. Turn on "Download missing models" to get a Download button on each (this is where ComfyUI-Manager is needed; the page says so if it is not there), or paste a Civitai or Hugging Face address in "Download a model from a URL". A family turns on by itself once one of its models is found.
+5. **Settings → Designer**, if you want the prompt designer: any OpenAI-style address (LM Studio, Ollama or llama.cpp on this machine, or a service) and a model name. "Test it" tells you how fast it answers, whether it thinks before answering, and whether it reads pictures.
+6. Press **Create** in the Studio, pick a model and an operation, write, Generate. The result lands in the library beside the form; its settings stay with it for good.
+
+Step by step, per way of running it: [Windows, Linux and macOS](docs/install-desktop.md) · [Docker](docs/install-docker.md) · [Kubernetes with the Helm chart](docs/install-cluster.md) · [from the sources](docs/develop.md).
 
 ## What it does
 
-- **Built-in forms** for the common model families, each with its defaults taken from ComfyUI's own templates and the models' authors: SDXL (Illustrious, NoobAI, Pony and the rest), FLUX.1 and Kontext, FLUX.2 Klein, Krea 2, Qwen Image and Qwen Image 2.1, MiniMax H3 (video with sound), Wan 2.2 and LTX 2.3. Text to picture, picture to picture, inpainting, outpainting, upscaling, face fixes, reference pictures, video from a first and a last frame, continuation of a clip.
-- **Your own ComfyUI workflows**, imported from the file the editor saves and used like any other form.
-- **A timeline**: clips that carry on from each other, several takes per clip, joins made in the model's latent for MiniMax H3 (through a small node pack Afflatus installs into ComfyUI), stills, music, a trim with scene detection, and an export as one video.
-- **A library** with folders and projects, where every file keeps the settings it was made with, and where a model file is recognised from its weights, not only its name.
-- **A prompt designer**: a conversation with a language model of your choice (any OpenAI-style address, local or not) that writes in each model's own idiom, with the model's rules and one example as its guide, and checks what it wrote against them.
-- **People, places, styles and presets**, written once and worked into any model's form; presets that ship with the files they need and say what is missing, and fetch them through ComfyUI-Manager when you allow it.
-- **Settings that look after the machine**: which models are ready and what is missing, downloads from Civitai and Hugging Face, newer versions of your models, the start-up checks for the tools Afflatus needs.
+**Studio** is the library and the place things are made. Folders and projects, a search over prompts and names, filters by kind, model and LoRA, and the Create shelf on the left: a form per model family with its defaults taken from ComfyUI's own templates and the models' authors, and the operations each family has (text to picture, picture to picture, inpainting, outpainting, upscaling, a face detailer, references of a person, variations). Several results at once with the seed kept, moved up or down, or random. Every file keeps the settings it was made with; a right-click on any tile gives everything that can be done with it, and the viewer opens it large with a compare mode for two takes side by side.
 
-Nothing leaves your computer unless you ask for a download or a lookup. There is no account and no password: Afflatus is meant to be reached on your own machine or network, behind whatever you already use to reach the rest of it.
+**Timelines** are videos made of clips that follow each other. A clip is a form of its own with several takes; the next clip can carry on from the one before, so the motion and the voices continue across the cut (for MiniMax H3 the join is made in the model's own latent, through the node pack, and the editor measures how clean each join came out). Pictures are held as stills or open a clip; a sound goes under a clip or under the whole video; a trim with scene detection; an export as one video with its colour matched across the cuts. The Media tab in the editor opens your whole library over the stage to drag from. A picture, a video or a selection in the Studio becomes a timeline in one click.
 
-## Run it
+**Prompt kit** holds what you write once and use everywhere: people with their reference pictures, places, styles, snippets, and presets. A preset is an operation with its settings and the files it needs; the ones that ship with Afflatus say what is missing and fetch it through ComfyUI-Manager when you allow it.
 
-Each release ships ready to run. Unpack, start, open `http://127.0.0.1:8720`, and give it the address of your ComfyUI in Settings.
+**Workflows** are your own ComfyUI graphs, imported from the file the editor saves and used like any other form, with the inputs you mark as the form's fields.
+
+**Queue** shows what is rendering with a live preview, what waits, what finished and what failed and why, with the model loads and the times per step kept as statistics; from those, each form says how long its render will take before you press the button.
+
+**Settings** look after the machine: which models are ready, downloads, newer versions of your models on Civitai, the language model, the prompting guides the designer follows per family, appearance, storage and backups, and the start-up checks for the tools Afflatus needs.
+
+### The model families
+
+| Family | Models | Operations |
+|---|---|---|
+| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL and the rest | text to picture, redraw, paint over, outpaint, upscale, face detailer |
+| FLUX.2 Klein | the 4B base and its fine-tunes | picture, edit by instruction, variation, paint over, outpaint, upscale, face detailer |
+| Krea 2 | | picture, redraw, paint over, upscale, face detailer |
+| FLUX.1 | dev and Kontext | picture, edit, redraw, paint over, outpaint, upscale, face detailer |
+| Qwen Image | 2512, and Qwen Image Edit | picture, edit, redraw, paint over, outpaint, upscale, face detailer |
+| Qwen Image 2.1 | | picture, edit |
+| MiniMax H3 | video with sound: text, a first frame, first and last frames, references, a clip that carries on | the timeline's native model |
+| Wan 2.2 | | video |
+| LTX 2.3 | | video |
+| Image tools | SeedVR2, background removal | upscale and restore, remove the background |
+
+The default files of each family come from ComfyUI's own repackaged releases on Hugging Face, so the download buttons point there. The Models page recognises a model file from its weights, not only its name, so a renamed file is still placed with its family.
+
+### Node packs it uses
+
+Everything above runs on ComfyUI's own nodes, plus:
+
+- **Afflatus's node pack**, written into ComfyUI by Settings or unpacked by hand: MiniMax H3 clips that continue from the clip before's own latent, and the reading of model files through ComfyUI. MIT, in [comfy-nodes](comfy-nodes).
+- **ComfyUI-Manager**, for downloads, as above.
+- Optional, each used only when present and said so in Settings when missing: the **Impact pack** for the face detailer, a **RIFE** model in `models/frame_interpolation` for 48 fps videos, **SeedVR2** for the restoring upscale, the **MiniMax H3 pack by DaSiWa** for the step cache, the re-sampled latent upscale and RTX Video Super Resolution (NVIDIA's own node does for the last), and **KJNodes** for the live preview of a video while it renders.
+
+## Running it
 
 | Platform | How |
 |---|---|
@@ -26,10 +71,13 @@ Each release ships ready to run. Unpack, start, open `http://127.0.0.1:8720`, an
 | Linux | `tar xzf afflatus-<version>-linux-x64.tar.gz` and run `afflatus.sh`. ffmpeg is inside. |
 | macOS (Apple Silicon) | `tar xzf afflatus-<version>-darwin-arm64.tar.gz` and run `afflatus.sh`. Install ffmpeg once with `brew install ffmpeg`. |
 | Docker | `docker run -p 8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or `docker compose up -d` with the [compose.yaml](compose.yaml) of this repository. ffmpeg is in the image. |
+| Kubernetes | The Helm chart in [chart](chart); see [the guide](docs/install-cluster.md). |
 
-The releases are on the [releases page](https://github.com/bardak971/afflatus/releases); the image is `ghcr.io/bardak971/afflatus`, tagged like the release and `latest`, for `linux/amd64` and `linux/arm64`. Your data (library, settings, timelines) lives in a `data` folder next to the launcher, or in the `/data` volume. Updating is unpacking the next release over the old one, or pulling the next image; the data stays.
+The image is `ghcr.io/bardak971/afflatus`, tagged like the release and `latest`, for `linux/amd64` and `linux/arm64`. Your data (library, settings, timelines) lives in a `data` folder next to the launcher, or in the `/data` volume. Updating is unpacking the next release over the old one, or pulling the next image; the database migrates itself at start. A backup is one zip from Settings → Storage.
 
-**ComfyUI** is not bundled and is not installed by Afflatus. It needs a ComfyUI of 0.3.x or newer, reachable at an address you give it. When ComfyUI's folder is on the same computer, Afflatus also installs its node pack there (for MiniMax H3 continuations in the latent) and reads model files from the disk to tell what they are; when ComfyUI is elsewhere, download the node pack from Settings → ComfyUI and unpack it into ComfyUI's `custom_nodes` folder by hand; model files are then told by their names, or read through the pack. Missing models can be downloaded into ComfyUI from Settings → Models; that goes through ComfyUI-Manager, built into ComfyUI since 0.3.7x and started with `--enable-manager` once its requirements are installed (`pip install -r manager_requirements.txt` with ComfyUI's Python), or the ComfyUI-Manager custom node on an older ComfyUI.
+When Afflatus runs on another machine than ComfyUI (a server with ComfyUI on your PC), ComfyUI must listen on the network (`--listen`), and Afflatus needs `PUBLIC_URL` set to the address ComfyUI can reach it at, so that ComfyUI-Manager can fetch downloads through it.
+
+Nothing leaves your computer unless you turn on a download or a lookup. There is no account and no password: Afflatus listens on localhost unless told otherwise, and is meant to be reached on your own machine or network, behind whatever you already use to reach the rest of it.
 
 ### From the sources
 
@@ -48,6 +96,8 @@ To try it without a GPU, `corepack pnpm demo` runs the same app against a preten
 | `PORT` | `8720` | Port to listen on |
 | `HOST` | `127.0.0.1` | Address to listen on; the image listens on all |
 | `DATA_DIR` | `./data` | Where the database and the files live |
+| `PUBLIC_URL` | empty | The address ComfyUI reaches Afflatus at, when they are on different machines |
+| `ALLOWED_HOSTS` | empty | Extra host names Afflatus answers to, when it is reached by a name of your own |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite. SQLite is the supported one; Postgres is written and not yet exercised |
 | `FFMPEG`, `FFPROBE` | from the PATH | The tools' paths |
 
@@ -63,10 +113,8 @@ corepack pnpm check:graphs   # builds every recipe variant and checks it against
 
 Three scripts talk to a ComfyUI, all read-only: `comfy:scan <url>` (what is ready), `comfy:load <url>` (the machine's load), `catalog:save <url>` (refresh the reference node list, with model file names removed).
 
-A release is a tag: `git tag v0.1.0 && git push --tags` runs the tests, builds the image and the three bundles, and publishes a GitHub release with them ([.github/workflows/release.yml](.github/workflows/release.yml)). The staging and packing scripts are in [scripts/release](scripts/release).
-
-Step by step, per way of running it: [Windows, Linux and macOS](docs/install-desktop.md) · [Docker](docs/install-docker.md) · [Kubernetes with the Helm chart](docs/install-cluster.md) · [from the sources, and contributing](docs/develop.md). The design notes are in [docs](docs) too: the architecture, the prompting research behind the designer's guides, and the plans of the larger parts.
+A release is a tag: `git tag v0.2.0 && git push --tags` runs the tests, builds the image and the three bundles, and publishes a GitHub release with them ([.github/workflows/release.yml](.github/workflows/release.yml)). The staging and packing scripts are in [scripts/release](scripts/release). How the parts fit, the conventions and the checks are in [docs/develop.md](docs/develop.md); the design notes are in [docs](docs) too: the architecture, the prompting research behind the designer's guides, and the plans of the larger parts.
 
 ## License
 
-[AGPL-3.0](LICENSE). The node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT and vendors the MIT continuation nodes by ttulttul; the ffmpeg builds in the Windows and Linux bundles are the LGPL builds by BtbN.
+[AGPL-3.0](LICENSE). The node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT and vendors the MIT continuation nodes by ttulttul; the ffmpeg builds in the Windows and Linux bundles are the LGPL builds by BtbN. The shipped presets in [presets](presets) point at other people's models under their own licences, accepted once before a download; nothing of theirs is bundled.
