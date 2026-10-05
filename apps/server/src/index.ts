@@ -33,7 +33,16 @@ const app = buildApp(services, { webDir: webDir() });
     if (put?.changed) console.log(`[node-pack] written to ${put.path}: restart ComfyUI to load it`);
   }
 }
-await app.listen({ host: config.host, port: config.port });
+try {
+  await app.listen({ host: config.host, port: config.port });
+} catch (err) {
+  // the one failure a person meets at start: the port is taken (another Afflatus, or a server of their own)
+  if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+    console.error(`Port ${config.port} is already in use on ${config.host}: another Afflatus, or another program. Start this one on another port, for example PORT=8730 (PowerShell: $env:PORT=8730; cmd: set PORT=8730), or stop the other first.`);
+    process.exit(1);
+  }
+  throw err;
+}
 console.log(`Afflatus ${VERSION} on http://${config.host}:${config.port} (${kind})`);
 await services.queue.start();
 
