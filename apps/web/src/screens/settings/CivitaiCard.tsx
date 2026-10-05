@@ -38,7 +38,7 @@ export function CivitaiCard() {
             : "This needs ComfyUI-Manager in your ComfyUI, and it was not found (or ComfyUI is not answering)."}
           {!downloads.data.manager.found && (
             <div className="mt-1 text-ink-2">
-              To install it: in ComfyUI's <code className="font-mono">custom_nodes</code> folder, run <code className="font-mono">git clone https://github.com/Comfy-Org/ComfyUI-Manager</code>, restart ComfyUI, then Test again in the ComfyUI tab. The portable and desktop builds of ComfyUI come with it.
+              ComfyUI has it built in since 0.3.7x, off until asked for: in ComfyUI's folder run <code className="font-mono">pip install -r manager_requirements.txt</code> with its own Python (the venv's, or <code className="font-mono">python_embeded</code> in the portable build), then start ComfyUI with <code className="font-mono">--enable-manager</code>. On an older ComfyUI, clone <code className="font-mono">https://github.com/Comfy-Org/ComfyUI-Manager</code> into its <code className="font-mono">custom_nodes</code> folder instead. Either way, restart ComfyUI, then Test again in the ComfyUI tab. The desktop build has it on already.
             </div>
           )}
         </div>
