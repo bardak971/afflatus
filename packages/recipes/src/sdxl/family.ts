@@ -6,8 +6,15 @@ export const sdxl = defineFamily({
   name: "SDXL",
   summary: "Illustrious, NoobAI, Pony and other SDXL checkpoints. Prompts are danbooru tags.",
   promptStyle: "tags",
-  // the checkpoint is picked per generation, so it is an input of each recipe, not a slot
-  slots: [],
+  // the checkpoint is picked per generation, so it is an input of each recipe; this slot only says, on the setup page,
+  // where one goes and offers the official base model as a start (any file in the folder satisfies it)
+  slots: [
+    {
+      id: "checkpoint", label: "Checkpoint", folder: "checkpoints", detect: ["."],
+      hint: "Put any SDXL checkpoint in ComfyUI's models/checkpoints folder: a fine-tune from Civitai (Illustrious, Pony, Juggernaut XL, RealVisXL…) is what most people use; the official base model, below, is a plain start. One file holds the model, CLIP and VAE.",
+      get: { file: "sd_xl_base_1.0.safetensors", url: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors" },
+    },
+  ],
   loraMatch: ["stable-diffusion-xl", "sdxl", "pony", "illustrious", "noob"],
   guide: `SDXL checkpoints come in three lineages; the model file in use (named in the context) tells which:
 - Illustrious, NoobAI, WAI, Hassaku, Animagine and other anime checkpoints: DANBOORU TAGS.
