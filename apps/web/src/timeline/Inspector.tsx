@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, type ReactNode } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ChevronDown, ImagePlus, Link2, Music, Repeat, Scissors, Trash2, Wand2, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ImagePlus, Link2, Music, Repeat, Scissors, Trash2, Wand2, X } from "lucide-react";
 import { secondsInput } from "@afflatus/core";
 import { api, thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
@@ -16,6 +16,8 @@ import { Select } from "../Select";
 import { AutoText, Bar, Button, cx, ErrorNote, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
 import { usePanelWidth } from "../store";
 import { otherShape, pinInputs, shapeOf } from "./model";
+import { DRAG_PICTURE, useDropZone } from "../dragging";
+import { projectForNew } from "../project";
 
 /** A slider that says its value while it moves and saves it when it is let go. */
 function Slide({ label, value, min = 0, max, step = 1, show, onCommit }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void }) {
@@ -70,7 +72,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, writing, writeError, onWriteBetween }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, writing, writeError, onWriteBetween, onClose }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -105,6 +107,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   writeError?: string | null;
   /** Ask the designer to write it (again). */
   onWriteBetween?(): void;
+  /** Back to the timeline's own panel (its name, music, cast, where renders land, export): also Escape. */
+  onClose?(): void;
 }) {
   const panelWidth = usePanelWidth((st) => st.width);
   const all = useRecipes();
@@ -176,7 +180,12 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   return (
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
       <PanelEdge side="left" />
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-2">
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Back to the timeline" title="Back to the timeline's own panel: its music, cast and export (Esc)" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink">
+            <ChevronLeft size={16} />
+          </button>
+        )}
         <span className="font-semibold">{still ? "Still" : "Clip"} {index + 1}</span>
         <span className="text-ink-2">{clip.lengthMs ? `${(clip.lengthMs / 1000).toFixed(1)} s` : "not rendered yet"}</span>
         <span className="grow" />
@@ -304,26 +313,27 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <SectionTitle>Pinned frames</SectionTitle>
             {[{ where: "start" as const, id: opens, input: pins.start, text: "First frame" }, { where: "end" as const, id: ends, input: pins.end, text: loops ? "Last frame, same as the first: it loops" : "Last frame" }].map((p) =>
               p.id ? (
-                <div key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
+                <PinDrop key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })}>
                   <img src={thumbUrl(p.id)} alt="" className="h-11 w-11 rounded-md object-cover" />
                   <span className="grow">{p.text}</span>
                   <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
                   <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(p.input))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
-                </div>
+                </PinDrop>
               ) : null,
             )}
             {through && pins.mid && pins.midAt && (
-              <div className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
+              <PinDrop className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}>
                 <img src={thumbUrl(through)} alt="" className="h-11 w-11 rounded-md object-cover" />
                 <span className="grow">Keyframe at</span>
                 <NumberBox label="When the clip reaches this keyframe, in seconds" value={Number(stored[pins.midAt] ?? (midSpec?.type === "number" ? midSpec.default : 2.5))} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
                 <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(pins.mid))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
-              </div>
+              </PinDrop>
             )}
             <div className="flex flex-wrap gap-1.5">
-              {pins.start && !carries && !opens && <Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> First frame</Button>}
-              {pins.mid && !through && <Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button>}
-              {pins.end && !ends && <Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button>}
+              {/* each takes a picture dropped on it: from the library, or a file from the computer */}
+              {pins.start && !carries && !opens && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.start!]: id })}><Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> First frame</Button></PinDrop>}
+              {pins.mid && !through && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}><Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button></PinDrop>}
+              {pins.end && !ends && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.end!]: id })}><Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button></PinDrop>}
             </div>
             <Note text={`${carries && pins.start ? `It extends clip ${index}, so it needs no first frame. ` : ""}Or drop an image on the clip: near its start for the first frame, near its end for the last frame${pins.mid ? ", in the middle for a keyframe" : ""}.${take ? " A pinned frame counts from the next take." : ""}`} />
           </div>
@@ -530,6 +540,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
  * darker, softer, duller or slower; a few per cent is the model's own variation.
  */
 function LookTable({ timeline, index, take }: { timeline: Timeline; index: number; take: Take }) {
+  const [open, setOpen] = useState(false);
   const m = take.measure!;
   let k = index;
   while (k > 0 && timeline.clips[k]!.joined === "continue") k--;
@@ -547,9 +558,16 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
   if (m.pace != null) rows.push({ label: "Pace", value: m.pace.toFixed(1), since: pct(m.pace, first?.pace, 0.1), why: "Mean frame-to-frame change, the ruler's motion figure. H3 tends to slow down after each hand-over." });
   if (m.voice != null) rows.push({ label: "Voice", value: `${m.voice} Hz`, since: pct(m.voice, first?.voice, 1), why: "Where the sound's energy sits (its spectral centroid). A voice carried over several clips dulls before it changes: it drifts down." });
   if (m.drift) rows.push({ label: "Run-up", value: `×${m.drift.width.toFixed(3)}`, since: null, why: "A join made in the latent: how wide the regenerated run-up came out against the latent it was guided by. 1.000 is the same; a chain of exact latents reads 1.02 to 1.05 at every hop, which is the drift." });
+  const brief = `${m.luma.toFixed(0)} luma · ${m.sharp.toFixed(1)} sharp${first ? ` · since clip ${k + 1}: ${pct(m.luma, first.luma)} / ${pct(m.sharp, first.sharp, 0.01)}` : ""}`;
   return (
     <div className="flex flex-col gap-2">
-      <SectionTitle>Look</SectionTitle>
+      {/* one line, folded: the table takes room that the form needs more often */}
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex items-center gap-2 text-left" title={open ? "Fold the figures" : "Every figure, with its meaning"}>
+        <SectionTitle>Look</SectionTitle>
+        <span className="min-w-0 grow truncate font-mono text-[11px] tabular-nums text-ink-3">{brief}</span>
+        <ChevronDown size={13} className={cx("shrink-0 text-ink-3 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
       <table className="w-full text-xs">
         <tbody>
           {rows.map((r) => (
@@ -561,7 +579,20 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
           ))}
         </tbody>
       </table>
-      <Note text={first ? `Measured on this take's own frames. The last column is the change since clip ${k + 1}, the first of this run; a few per cent is the model's own variation. Hover a row for what it means.` : "Measured on this take's own frames when it was rendered. Hover a row for what it means."} />
+      )}
+      {open && <Note text={first ? `Measured on this take's own frames. The last column is the change since clip ${k + 1}, the first of this run; a few per cent is the model's own variation. Hover a row for what it means.` : "Measured on this take's own frames when it was rendered. Hover a row for what it means."} />}
+    </div>
+  );
+}
+
+/** A place a picture can be dropped on to become a pinned frame: one from the library, or a file from the computer, which goes into the library first. */
+function PinDrop({ className, onPick, children }: { className?: string; onPick(id: string): void; children: ReactNode }) {
+  const upload = useMutation({ mutationFn: (file: File) => api.upload(file, { project: projectForNew() }), onSuccess: (a) => onPick(a.id) });
+  const drop = useDropZone([DRAG_PICTURE], onPick, (file) => file.type.startsWith("image/") && upload.mutate(file));
+  return (
+    <div {...drop.props} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} title={drop.wanted ? "Drop the picture here" : undefined}>
+      {children}
+      {upload.isPending && <span className="ml-1 text-xs text-ink-2">Adding…</span>}
     </div>
   );
 }

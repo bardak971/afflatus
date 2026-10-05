@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, Redo2, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Sparkles, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X, Music, SlidersHorizontal } from "lucide-react";
 import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch, type Timeline } from "../api";
 import { useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSettings, useSetup, useTimeline } from "../data";
@@ -41,6 +41,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const refresh = useCallback(() => client.invalidateQueries({ queryKey: ["timelines"] }), [client]);
 
   const [selected, setSelected] = useState<string | null>(null);
+  /** The clips picked with Ctrl + click on the track, to render together. */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [musicOpen, setMusicOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
@@ -592,9 +594,16 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         toggleLoopNow.current();
         return;
       }
+      if (e.key === "Escape" && !typing && !open) setPicked(new Set());
       if (e.key === "Escape" && !typing && !open && rangeRef.current) {
         e.preventDefault();
         setRange(null);
+        return;
+      }
+      // Escape with a clip open and no range: back to the timeline's own panel
+      if (e.key === "Escape" && !typing && !open && selectedNow.current) {
+        e.preventDefault();
+        setSelected(null);
         return;
       }
       // one frame back or forward (Shift: ten); , and . do the same
@@ -708,6 +717,11 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}
           </Button>
         )}
+        {picked.size > 0 && (
+          <Button tone="primary" disabled={render.isPending || !clips.some((c) => picked.has(c.id) && c.kind === "video" && ready(c).input)} title="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={() => { render.mutate({ clips: clips.filter((c) => picked.has(c.id) && c.kind === "video" && ready(c).input) }); setPicked(new Set()); }}>
+            Render {picked.size} picked
+          </Button>
+        )}
         <Button disabled={!clips.some((c) => c.kind === "video" && c.take)} title="Every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={() => setFin(true)}>
           <Sparkles size={15} /> Finish
         </Button>
@@ -797,6 +811,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onZoom={setPps}
           selected={musicOpen ? null : selected}
           musicSelected={musicOpen}
+          picked={picked}
+          onPick={(id) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
           time={time}
           running={running}
           onStop={(job) => stop.mutate(job)}
@@ -815,6 +831,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onMove={(clip, afterId) => patch.mutate({ clip, patch: { after: afterId } })}
           onJoin={(clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } })}
           onInsert={(asset, afterId) => add.mutate({ after: afterId, asset })}
+          onUpload={(file) => api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null }).then((a) => ({ id: a.id, kind: a.kind })).catch(() => null)}
           onPin={(clip, where, asset, atS) => {
             const pins = pinInputs(recipes.data?.recipes.find((r) => r.id === clip.recipe));
             const input = pins[where];
@@ -867,6 +884,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onRemoveTake={(takeId) => removeTake.mutate(takeId)}
             onStop={() => current.job && stop.mutate(current.job.id)}
             onDesigner={() => setDesigning(current.id)}
+            onClose={() => setSelected(null)}
             onPreview={setPreview}
             writing={writeBetween.isPending && writing === current.id}
             writeError={writeBetween.isError && writeBetween.variables?.clip === current.id && writeBetween.variables.force ? writeBetween.error.message : null}
@@ -887,7 +905,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 onCast={() => setCasting(true)}
                 onFolder={(folder) => edit.mutate({ folder })}
                 onRenderAll={() => render.mutate({ clips: missing })}
-                onExport={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}
+                picked={picked}
+                onRenderPicked={() => { render.mutate({ clips: clips.filter((c) => picked.has(c.id) && c.kind === "video" && ready(c).input) }); setPicked(new Set()); }}
                 rendering={render.isPending}
               />
             ) : (
@@ -1020,6 +1039,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           <Designer
             // on the left, over the media: the clip's own settings, on the right, stay in view and are seen to change
             side="left"
+            draftKey={`clip:${c.id}`}
             recipe={recipe}
             values={{ ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored }}
             previous={before && beforeMain ? String(inputsOf(before)[beforeMain.id] ?? "") || undefined : undefined}
@@ -1062,7 +1082,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
  * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
  * missing, export.
  */
-function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, onExport, rendering }: {
+function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
   timeline: Timeline;
   clips: Clip[];
   missing: Clip[];
@@ -1074,8 +1094,10 @@ function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic
   /** Where its renders and exports land; null = the project's root (the Inbox when it has no project). */
   onFolder(folder: string | null): void;
   onRenderAll(): void;
-  onExport(): void;
   rendering: boolean;
+  /** The clips picked with Ctrl + click on the track, rendered together. */
+  picked: Set<string>;
+  onRenderPicked(): void;
 }) {
   const projects = useProjects();
   const folders = useFolders();
@@ -1100,6 +1122,15 @@ function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic
   });
   const stale = clips.filter((c) => c.join === "stale");
   const failed = clips.filter((c) => c.failed && !c.take);
+  // the joins' figures, one request per clip that flows on and has a take (cached a minute, as the tooltip's)
+  const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
+  const joinQueries = useQueries({
+    queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => api.joins(c.id), staleTime: 60_000 })),
+  });
+  const joinsOf = new Map<string, number | null | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data ? (joinQueries[k]!.data!.items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined]));
+  const measured = clips.filter((c) => c.take?.renderMs);
+  const renderMs = measured.reduce((sum, c) => sum + (c.take!.renderMs ?? 0), 0);
+  const rendered = measured.length;
   const wrong = clips.filter((c) => otherShape(c, t) && !c.fill);
   const stills = clips.filter((c) => c.kind === "still").length;
   const videos = clips.length - stills;
@@ -1164,8 +1195,30 @@ function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic
         )}
       </section>
 
-      <span><Button onClick={onExport} disabled={!t.durationMs}><Download size={15} /> Export video</Button></span>
-      <span className="text-xs text-ink-3">Click a clip to work on it. Right-click one for its menu. I and O mark a range.</span>
+      <section className="flex flex-col gap-1.5">
+        <SectionTitle>Joins and renders</SectionTitle>
+        {/* the chain's health at a glance: how much the picture jumps at each join (×1 = the clip's own motion; past ×3 it shows), and what the renders cost */}
+        {joined.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1">
+            {joined.map((c) => {
+              const i = clips.findIndex((x) => x.id === c.id);
+              const figure = joinsOf.get(c.id);
+              const bad = figure !== undefined && figure !== null && figure > 3;
+              return (
+                <button key={c.id} type="button" onClick={() => onPick(c.id)} title={`Clip ${i + 1}: the picture jumps ×${figure?.toFixed(1) ?? "?"} its own motion where it takes over from clip ${i}${bad ? ". Past ×3 the join shows" : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
+                  {i + 1}: {figure === undefined ? "…" : figure === null ? "–" : `×${figure.toFixed(1)}`}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="text-sm text-ink-2">No clip flows on from another yet.</span>
+        )}
+        {renderMs > 0 && <span className="text-xs text-ink-2">Rendered in {aboutMs(renderMs)} in all{rendered < videos ? ` (${rendered} of ${videos} clips measured)` : ""}.</span>}
+        {picked.size > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderPicked}>Render {picked.size} picked</Button></span>}
+      </section>
+
+      <span className="text-xs text-ink-3">Click a clip to work on it. Right-click one for its menu. I and O mark a range. Ctrl + click picks clips to render together.</span>
     </>
   );
 }

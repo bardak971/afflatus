@@ -11,6 +11,7 @@ import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
 import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
+import { LoadMore } from "./LoadMore";
 
 /** Send a picture from this computer to the library, then hand it over. */
 function useUpload(onDone: (asset: Asset) => void) {
@@ -133,11 +134,7 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
               </button>
             ))}
           </div>
-          {assets.hasNextPage && (
-            <div className="flex justify-center">
-              <Button onClick={() => assets.fetchNextPage()} disabled={assets.isFetchingNextPage}>{assets.isFetchingNextPage ? "Loading…" : "Show more"}</Button>
-            </div>
-          )}
+          <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage} onMore={() => void assets.fetchNextPage()} />
         </div>
       </div>
     </div>
@@ -219,7 +216,9 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
   const [picking, setPicking] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const asset = useAsset(value?.asset ?? null);
-  const drop = useDropZone([DRAG_VIDEO], (id) => onChange({ asset: id }));
+  // a video from the computer goes into the library and lands here
+  const upload = useUpload((a) => onChange({ asset: a.id }));
+  const drop = useDropZone([DRAG_VIDEO], (id) => onChange({ asset: id }), (file) => file.type.startsWith("video/") && upload.mutate(file));
   const length = asset.data?.durationMs ?? 0;
   const edge = role === "previous" ? "its end" : "its start";
   return (
@@ -296,7 +295,9 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
   const explain = useExplain((st) => st.on);
   const [picking, setPicking] = useState(false);
   const add = (asset: string) => !value.some((v) => v.asset === asset) && value.length < max && onChange([...value, { asset, role: roles[0]! }]);
-  const drop = useDropZone([video ? DRAG_VIDEO : DRAG_PICTURE], add);
+  // a file from the computer goes into the library and is added here
+  const upload = useUpload((a) => add(a.id));
+  const drop = useDropZone([video ? DRAG_VIDEO : DRAG_PICTURE], add, (file) => file.type.startsWith(video ? "video/" : "image/") && upload.mutate(file));
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -360,7 +361,9 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
   const [picking, setPicking] = useState(false);
   const asset = useAsset(value);
   // a sound of the library, or a video that has sound
-  const drop = useDropZone([DRAG_SOUND, DRAG_HAS_SOUND], onChange);
+  // a sound file from the computer goes into the library and lands here
+  const upload = useUpload((a) => onChange(a.id));
+  const drop = useDropZone([DRAG_SOUND, DRAG_HAS_SOUND], onChange, (file) => file.type.startsWith("audio/") && upload.mutate(file));
   const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
   // the part as it will be cut: from where it was asked as long as two seconds are left, ending where the sound ends
   const from = part ? (total === null ? part.start : Math.max(0, Math.min(part.start, total - 2))) : 0;

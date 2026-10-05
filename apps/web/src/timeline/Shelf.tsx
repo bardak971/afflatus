@@ -10,6 +10,8 @@ import { ClipMark, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../sc
 import { Select } from "../Select";
 import { SHELF, useShelfWidth } from "../store";
 import { Button, cx, SectionTitle, Segmented } from "../ui";
+import { LoadMore } from "../LoadMore";
+import { TileTip, useTileTip } from "../TileTip";
 
 /**
  * The media beside the timeline: what this project has, what this timeline already uses, what was made
@@ -239,40 +241,58 @@ export function Shelf({ onAdd, selected, timeline }: {
             {tab === "audio" ? (
               <div className="flex flex-col gap-1.5">
                 {g.items.map((a) => (
-                  <button key={a.id} type="button" draggable onDragStart={drag(a)} onClick={() => onAdd(a)} title={what(a)} aria-label={what(a)} className="flex h-10 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 text-left hover:border-accent">
-                    <Music size={13} className="shrink-0 text-ink-2" />
-                    <span className="min-w-0 grow truncate text-xs">{a.name || "Audio file"}</span>
-                    {a.durationMs ? <span className="shrink-0 font-mono text-[11px] text-ink-2">{clock(a.durationMs)}</span> : null}
-                  </button>
+                  <ShelfSound key={a.id} asset={a} what={what(a)} onAdd={() => onAdd(a)} onDragStart={drag(a)} />
                 ))}
               </div>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2">
                 {g.items.map((a) => (
-                  <div key={a.id} draggable onDragStart={drag(a)} title={!fetched && inUse.playing.has(a.id) ? "The take this clip plays" : undefined} className={cx("group relative aspect-[3/4] overflow-hidden rounded-lg border bg-raised hover:border-accent", !fetched && inUse.playing.has(a.id) ? "border-accent ring-1 ring-accent" : "border-line")}>
-                    <HoverVideo asset={a.id} video={a.kind === "video"} alt={a.name} />
-                    {fetched && a.clipOf && <ClipMark of={a.clipOf} className="absolute right-1 bottom-1" />}
-                    {a.kind === "video" && (
-                      <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-ground/80 px-1 py-px text-[10px] font-semibold">
-                        <Play size={8} fill="currentColor" />
-                        {a.durationMs ? clock(a.durationMs) : "Video"}
-                      </span>
-                    )}
-                    <button type="button" onClick={() => onAdd(a)} title={what(a)} aria-label={what(a)} className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-ground/85 text-ink opacity-0 group-hover:opacity-100 focus-visible:opacity-100">
-                      <Plus size={13} strokeWidth={2.6} />
-                    </button>
-                  </div>
+                  <ShelfMedia key={a.id} asset={a} what={what(a)} playing={!fetched && inUse.playing.has(a.id)} mark={fetched} onAdd={() => onAdd(a)} onDragStart={drag(a)} />
                 ))}
               </div>
             )}
           </div>
         ))}
-        {fetched && assets.hasNextPage && (
-          <div className="mt-3 flex justify-center">
-            <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={assets.isFetchingNextPage}>Show more</Button>
-          </div>
-        )}
+        {fetched && <LoadMore size="sm" more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage} onMore={() => void assets.fetchNextPage()} />}
       </div>
     </aside>
+  );
+}
+
+/** A sound of the shelf: one line, with its tooltip after the pointer has rested on it. */
+function ShelfSound({ asset: a, what, onAdd, onDragStart }: { asset: Asset; what: string; onAdd(): void; onDragStart(e: React.DragEvent): void }) {
+  const tip = useTileTip();
+  return (
+    <>
+      {tip.tip && <TileTip asset={a} at={tip.tip} />}
+      <button type="button" draggable onDragStart={onDragStart} onClick={onAdd} title={what} aria-label={what} {...tip.props} className="flex h-10 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 text-left hover:border-accent">
+        <Music size={13} className="shrink-0 text-ink-2" />
+        <span className="min-w-0 grow truncate text-xs">{a.name || "Audio file"}</span>
+        {a.durationMs ? <span className="shrink-0 font-mono text-[11px] text-ink-2">{clock(a.durationMs)}</span> : null}
+      </button>
+    </>
+  );
+}
+
+/** A picture or video of the shelf: its tile, with its tooltip after the pointer has rested on it. */
+function ShelfMedia({ asset: a, what, playing, mark, onAdd, onDragStart }: { asset: Asset; what: string; playing: boolean; mark: boolean; onAdd(): void; onDragStart(e: React.DragEvent): void }) {
+  const tip = useTileTip();
+  return (
+    <>
+      {tip.tip && <TileTip asset={a} at={tip.tip} />}
+      <div draggable onDragStart={onDragStart} {...tip.props} className={cx("group relative aspect-[3/4] overflow-hidden rounded-lg border bg-raised hover:border-accent", playing ? "border-accent ring-1 ring-accent" : "border-line")}>
+        <HoverVideo asset={a.id} video={a.kind === "video"} alt={a.name} />
+        {mark && a.clipOf && <ClipMark of={a.clipOf} className="absolute right-1 bottom-1" />}
+        {a.kind === "video" && (
+          <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-ground/80 px-1 py-px text-[10px] font-semibold">
+            <Play size={8} fill="currentColor" />
+            {a.durationMs ? clock(a.durationMs) : "Video"}
+          </span>
+        )}
+        <button type="button" onClick={onAdd} title={what} aria-label={what} className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-ground/85 text-ink opacity-0 group-hover:opacity-100 focus-visible:opacity-100">
+          <Plus size={13} strokeWidth={2.6} />
+        </button>
+      </div>
+    </>
   );
 }

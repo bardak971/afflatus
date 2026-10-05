@@ -31,7 +31,29 @@ const asText = (r: DesignerReply) =>
  * proposes is shown with what changed marked, and goes in the form only when "Use it" is pressed.
  * A reply that claims a change and carries no text, or only a fragment, is said to be so.
  */
-export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose, side = "right" }: {
+/** What was typed but not sent, per conversation: kept while the designer is closed and opened again, and across a reload. */
+const typed = new Map<string, string>();
+const recall = (key: string | undefined) => {
+  if (!key) return "";
+  if (typed.has(key)) return typed.get(key)!;
+  try {
+    return sessionStorage.getItem(`afflatus:designer:${key}`) ?? "";
+  } catch {
+    return "";
+  }
+};
+const keep = (key: string | undefined, text: string) => {
+  if (!key) return;
+  typed.set(key, text);
+  try {
+    if (text) sessionStorage.setItem(`afflatus:designer:${key}`, text);
+    else sessionStorage.removeItem(`afflatus:designer:${key}`);
+  } catch {
+    /* no storage: kept for the session only */
+  }
+};
+
+export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose, side = "right", draftKey }: {
   recipe: RecipeInfo;
   /** The whole form as it is now. */
   values: Record<string, unknown>;
@@ -50,10 +72,13 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   onClose(): void;
   /** Which side of the screen it opens on: the one where it does not hide the form it writes into. */
   side?: "left" | "right";
+  /** What this conversation belongs to (a draft, a clip): what is typed and not yet sent is kept under it while the designer is closed. */
+  draftKey?: string;
 }) {
   const settings = useSettings();
   const client = useQueryClient();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => recall(draftKey));
+  useEffect(() => keep(draftKey, text), [draftKey, text]);
   const end = useRef<HTMLDivElement>(null);
   const boxes = recipe.inputs.filter((i) => i.type === "prompt");
   const ready = Boolean(settings.data?.llm.baseUrl && settings.data.llm.model);

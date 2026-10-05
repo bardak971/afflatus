@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, Film, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
 import { HoverVideo } from "../HoverVideo";
+import { TileTip, useTileTip } from "../TileTip";
 import { api, thumbUrl, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
 import { projectForNew, useProject } from "../project";
@@ -40,10 +41,15 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
 }) {
   // a video has a preview frame when the server could read one from it
   const [noFrame, setNoFrame] = useState(false);
+  // the tooltip, after the pointer has rested on the tile; gone as soon as it moves off or presses
+  const tip = useTileTip();
   return (
+    <>
+    {tip.tip && <TileTip asset={asset} at={tip.tip} />}
     <button
       type="button"
       draggable
+      {...tip.props}
       aria-pressed={onSelect ? Boolean(selected) : undefined}
       onDragStart={(e) => {
         e.dataTransfer.setData(DRAG_TYPE, (dragIds ?? [asset.id]).join(","));
@@ -100,6 +106,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       )}
       {asset.clipOf && <ClipMark of={asset.clipOf} className="absolute right-2 bottom-2" />}
     </button>
+    </>
   );
 }
 
@@ -231,54 +238,48 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       {tree(scoped).map((f) =>
         editing === f.id ? (
           <form key={f.id} onSubmit={submit((name) => rename.mutate({ id: f.id, name }))} style={{ paddingLeft: f.depth * 14 }}>
-            <input autoFocus aria-label="Folder name" value={text} onChange={(e) => setText(e.target.value)} onBlur={() => setEditing(null)} className="h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5" />
+            <input autoFocus aria-label="Folder name" value={text} onChange={(e) => setText(e.target.value)} onBlur={() => setEditing(null)} onKeyDown={(e) => e.key === "Escape" && setEditing(null)} className="h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5" />
           </form>
         ) : (
           <div key={f.id} style={{ paddingLeft: f.depth * 16 }}>
-            <button type="button" onClick={() => onPlace({ type: "folder", id: f.id })} className={row(selected === f.id, f.id)} {...drop(f.id, f.id)}>
-              <span className="flex min-w-0 items-center gap-2">
-                {/* a folder inside another one sits under it, with an arrow that says so */}
-                {f.depth > 0 ? <CornerDownRight size={13} className="shrink-0 text-ink-3" /> : f.path ? <HardDrive size={14} className="shrink-0 text-ink-2" /> : <FolderIcon size={14} className="shrink-0 text-ink-2" />}
-                <span className="truncate" title={f.path ?? undefined}>{f.name}</span>
+            {/* the row, and on hover what can be done to the folder, without going into it: rename in place, delete or unlink, rescan a folder of the disk */}
+            <div className="group relative" {...drop(f.id, f.id)}>
+              <button type="button" onClick={() => onPlace({ type: "folder", id: f.id })} className={row(selected === f.id, f.id)}>
+                <span className="flex min-w-0 items-center gap-2">
+                  {/* a folder inside another one sits under it, with an arrow that says so */}
+                  {f.depth > 0 ? <CornerDownRight size={13} className="shrink-0 text-ink-3" /> : f.path ? <HardDrive size={14} className="shrink-0 text-ink-2" /> : <FolderIcon size={14} className="shrink-0 text-ink-2" />}
+                  <span className="truncate" title={f.path ?? undefined}>{f.name}</span>
+                </span>
+                <span className="shrink-0 font-normal text-ink-2 group-hover:invisible">{f.count}</span>
+              </button>
+              <span className="absolute inset-y-0 right-1 hidden items-center gap-0.5 group-hover:flex">
+                {f.path && (
+                  <button type="button" aria-label={`Rescan ${f.name}`} title="Scan the folder on your disk again: what was added appears, what was removed is gone" disabled={look.isPending} onClick={() => look.mutate(f.id)} className="flex h-6 w-6 items-center justify-center rounded-md bg-raised text-ink-2 hover:bg-hover hover:text-ink">
+                    <RefreshCw size={12} className={look.isPending ? "animate-spin" : undefined} />
+                  </button>
+                )}
+                {(!f.path || f.root) && (
+                  <button type="button" aria-label={`Rename ${f.name}`} title="Rename" onClick={() => { setEditing(f.id); setText(f.name); }} className="flex h-6 w-6 items-center justify-center rounded-md bg-raised text-ink-2 hover:bg-hover hover:text-ink">
+                    <Pencil size={12} />
+                  </button>
+                )}
+                {(!f.path || f.root) && (
+                  <button type="button" aria-label={f.path ? `Unlink ${f.name}` : `Delete ${f.name}`} title={f.path ? "Unlink: nothing on your disk is touched" : "Delete: its items move to the parent folder"} onClick={() => setDeleting(f.id)} className="flex h-6 w-6 items-center justify-center rounded-md bg-raised text-ink-2 hover:bg-hover hover:text-ink">
+                    {f.path ? <Unlink size={12} /> : <Trash2 size={12} />}
+                  </button>
+                )}
               </span>
-              <span className="shrink-0 font-normal text-ink-2">{f.count}</span>
-            </button>
-            {selected === f.id && f.path && (
-              // a folder of the disk: it is read again on request; the linked one can be renamed here and unlinked, its sub-directories are changed on the disk
-              <div className="flex flex-col gap-1 py-1 pl-1.5">
-                <span className="truncate font-mono text-[11px] text-ink-3" title={f.path}>{f.path}</span>
-                <div className="flex flex-wrap items-center gap-1">
-                  {deleting === f.id ? (
-                    <>
-                      <span className="text-xs text-ink-2">Nothing on your disk is touched.</span>
-                      <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Unlink</button>
-                      <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
-                    </>
-                  ) : (
-                    <>
-                      <button type="button" disabled={look.isPending} title="Scan the folder on your disk again: what was added appears, what was removed is gone" onClick={() => look.mutate(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><RefreshCw size={12} /> {look.isPending ? "Scanning…" : "Rescan"}</button>
-                      {f.root && <button type="button" onClick={() => { setEditing(f.id); setText(f.name); }} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={12} /> Rename</button>}
-                      {f.root && <button type="button" onClick={() => setDeleting(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Unlink size={12} /> Unlink</button>}
-                    </>
-                  )}
-                </div>
+            </div>
+            {deleting === f.id && (
+              <div className="flex flex-wrap items-center gap-1 py-1 pl-1.5">
+                <span className="text-xs text-ink-2">{f.path ? "Nothing on your disk is touched." : "Its items move to the parent folder."}</span>
+                <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">{f.path ? "Unlink" : "Delete"}</button>
+                <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
               </div>
             )}
-            {selected === f.id && !f.path && (
-              <div className="flex items-center gap-1 py-1 pl-1.5">
-                {deleting === f.id ? (
-                  <>
-                    <span className="text-xs text-ink-2">Its items move to the parent folder.</span>
-                    <button type="button" onClick={() => { remove.mutate(f.id); setDeleting(null); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Delete</button>
-                    <button type="button" onClick={() => setDeleting(null)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
-                  </>
-                ) : (
-                  <>
-                    <button type="button" onClick={() => { setEditing(f.id); setText(f.name); }} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={12} /> Rename</button>
-                    <button type="button" onClick={() => setDeleting(f.id)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={12} /> Delete</button>
-                  </>
-                )}
-              </div>
+            {selected === f.id && f.path && (
+              // a folder of the disk: where it is
+              <span className="block truncate py-1 pl-1.5 font-mono text-[11px] text-ink-3" title={f.path}>{f.path}</span>
             )}
           </div>
         ),

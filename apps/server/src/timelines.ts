@@ -500,7 +500,8 @@ export class Timelines {
   async create(name: string | undefined, project?: string | null, folder?: string | null) {
     const id = newId();
     const at = now();
-    const count = Number((await this.db.selectFrom("timelines").select((eb) => eb.fn.countAll().as("n")).executeTakeFirst())?.n ?? 0);
+    // numbered within its project (or the Inbox): each is its own workspace
+    const count = Number((await this.db.selectFrom("timelines").select((eb) => eb.fn.countAll().as("n")).where("project_id", project ? "=" : "is", project ?? null).executeTakeFirst())?.n ?? 0);
     await this.db
       .insertInto("timelines")
       .values({

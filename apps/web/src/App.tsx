@@ -92,7 +92,6 @@ function Strip() {
         </span>
       )}
       <button type="button" title="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Shortcuts <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
-      <Link href="/queue" className="inline-flex h-7 items-center rounded-md border border-line-strong px-2.5 font-semibold">Open queue</Link>
     </footer>
   );
 }

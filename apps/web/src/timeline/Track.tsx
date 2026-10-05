@@ -58,7 +58,7 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onJoin, range, onRange, onRangeMenu, snapQuiet }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, time, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onJoin, range, onRange, onRangeMenu, snapQuiet }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -75,6 +75,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   /** Stop a clip's render, or take it out of the queue. */
   onStop(job: string): void;
   onSelect(clip: string): void;
+  /** The clips picked with Ctrl + click, to render together; and the pick itself. */
+  picked?: Set<string>;
+  onPick?(clip: string): void;
   onSelectMusic(): void;
   /** The playhead was moved: the moment of what plays, and where it stands on the track. */
   onSeek(playMs: number, trackMs?: number): void;
@@ -83,6 +86,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onInsert(asset: string, after: string | null): void;
   /** A picture pinned to a clip: it opens on it, ends on it, or passes through it at `atS` seconds. */
   onPin(clip: Clip, where: "start" | "end" | "mid", asset: string, atS?: number): void;
+  /** A file dropped from the computer: put into the library, giving what it became (null when it could not be). */
+  onUpload?(file: File): Promise<{ id: string; kind: string } | null>;
   onClipSound(clip: string, asset: string): void;
   onMusic(asset: string): void;
   onTrim(clip: Clip, patch: ClipPatch): void;
@@ -141,7 +146,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   // ---- what is being dragged, and what dropping it here would do
   const draggedOf = (e: DragEvent) => {
     const t = e.dataTransfer.types;
-    return t.includes(DRAG_CLIP) ? "clip" : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : null;
+    // a file from the computer is taken for a picture while it hovers (its kind is only known on the drop)
+    return t.includes(DRAG_CLIP) ? "clip" : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : onUpload && t.includes("Files") ? "picture" : null;
   };
   const hover = (e: DragEvent, what: Over | null) => {
     const d = draggedOf(e);
@@ -181,6 +187,22 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     if (!target) return;
     const moved = e.dataTransfer.getData(DRAG_CLIP);
     const asset = e.dataTransfer.getData(DRAG_TYPE);
+    // a file from the computer: into the library first, then placed as the item it became
+    const file = !moved && !asset ? e.dataTransfer.files[0] : undefined;
+    if (file && onUpload) {
+      void onUpload(file).then((made) => {
+        if (!made) return;
+        const picture = made.kind === "image";
+        if (target.kind === "pin" && picture) onPin(clips.find((c) => c.id === target.clip)!, target.where, made.id, target.atS);
+        else if (target.kind === "sound" && made.kind === "audio") onClipSound(target.clip, made.id);
+        else if (target.kind === "music" && made.kind === "audio") onMusic(made.id);
+        else if (made.kind !== "audio") {
+          const index = target.kind === "insert" ? target.index : clips.findIndex((c) => c.id === target.clip) + 1;
+          onInsert(made.id, index === 0 ? null : clips[index - 1]!.id);
+        }
+      });
+      return;
+    }
     if (target.kind === "insert") {
       const afterId = target.index === 0 ? null : clips[target.index - 1]!.id;
       if (moved) {
@@ -511,6 +533,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     onPointerLeave={leaveTip}
                     onPointerDown={leaveTip}
                     onClick={(e) => {
+                      // Ctrl: the clip is picked (or dropped) for a render of several together
+                      if ((e.ctrlKey || e.metaKey) && onPick) {
+                        onPick(c.id);
+                        return;
+                      }
                       // Shift: the range reaches to cover this clip too (or starts as this clip)
                       if (e.shiftKey && c.lengthMs > 0) {
                         onRange(range ? { inMs: Math.min(range.inMs, c.atMs), outMs: Math.max(range.outMs, c.atMs + c.lengthMs) } : { inMs: c.atMs, outMs: c.atMs + c.lengthMs });
@@ -532,7 +559,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                     style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }}
                     className={cx(
                       "absolute overflow-hidden rounded-lg border-2 text-left",
-                      on ? "border-accent" : s.planned ? "border-dashed border-line-strong" : "border-line-strong",
+                      on ? "border-accent" : picked?.has(c.id) ? "border-accent/60" : s.planned ? "border-dashed border-line-strong" : "border-line-strong",
+                      picked?.has(c.id) && "ring-2 ring-accent/40",
                       s.planned && "bg-raised",
                     )}
                   >

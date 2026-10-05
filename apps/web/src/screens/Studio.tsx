@@ -29,6 +29,7 @@ import { Bar, Button, cx, Empty, ErrorNote, ScrollColumn, Segmented, PanelEdge }
 import { Viewer } from "../Viewer";
 import { useTileMenu } from "../TileMenu";
 import { DRAG_TYPE, FolderPanel, Tile, type Place } from "./Library";
+import { LoadMore } from "../LoadMore";
 
 /**
  * Studio: the library, with the form that makes things as a panel that opens and closes on its left.
@@ -421,6 +422,7 @@ function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; 
           session={draft.designer}
           onSession={d.setDesigner}
           onApply={(changes) => d.setValues(recipe.id, changes)}
+          draftKey={`draft:${draft.id}`}
           onClose={() => setDesigning(false)}
         />
       )}
@@ -871,11 +873,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
                   />
                 ))}
               </div>
-              {!showTimelines && assets.hasNextPage && (
-                <div className="mt-5 flex justify-center">
-                  <Button onClick={() => assets.fetchNextPage()} disabled={assets.isFetchingNextPage}>{assets.isFetchingNextPage ? "Loading…" : "Show more"}</Button>
-                </div>
-              )}
+              {!showTimelines && <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage} onMore={() => void assets.fetchNextPage()} />}
             </>
           )}
         </div>

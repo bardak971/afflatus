@@ -1,9 +1,9 @@
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, Copy, Download, Eye, ExternalLink, Film, Plus, Shuffle, SquareCheck, Star, Trash2, Undo2 } from "lucide-react";
+import { Clapperboard, Copy, Download, Eye, ExternalLink, Film, FolderKanban, Plus, Shuffle, SquareCheck, Star, Trash2, Undo2 } from "lucide-react";
 import { api, fileUrl, thumbUrl, type Asset, type RecipeInfo } from "./api";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
-import { useAsset, useFamilies, useModelSettings, useRecipes, useSetup, useTimelines } from "./data";
+import { useAsset, useFamilies, useModelSettings, useProjects, useRecipes, useSetup, useTimelines } from "./data";
 import { useState } from "react";
 import { Button, ErrorNote } from "./ui";
 import { clock, when } from "./format";
@@ -102,6 +102,16 @@ export function useTileMenu({ onOpen, onSelect, into }: {
   });
   /** The dialog that adds the item to a timeline: which one, or a new one. */
   const [adding, setAdding] = useState<Asset | null>(null);
+  // the projects, to move an item into another's root folder (or out of every project, into the Inbox)
+  const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
+  const moveTo = useMutation({
+    mutationFn: (v: { ids: string[]; folder: string | null }) => api.moveAssets(v.ids, v.folder),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["assets"] });
+      void client.invalidateQueries({ queryKey: ["folders"] });
+      void client.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
   const download = (asset: Asset) => {
     const link = document.createElement("a");
     link.href = fileUrl(asset.id);
@@ -121,6 +131,13 @@ export function useTileMenu({ onOpen, onSelect, into }: {
       { label: "Variation", key: "V", icon: <Shuffle size={14} />, note: !reading && !g ? "not generated here" : "new seed, queued", disabled: reading || !g || !recipe || asset.inBin, run: () => recipe && variation.mutate(recipe) },
       { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: reading || !g || !(setup.data?.comfy.online ?? false), run: () => openInComfy.mutate(asset) },
       ...(asset.kind !== "audio" && !asset.inBin ? [{ label: "Add to a timeline…", icon: <Film size={14} />, note: asset.kind === "image" ? "at the end, as a still" : "at the end", run: () => setAdding(asset) }] : []),
+      ...(projects.length && !asset.inBin
+        ? [
+            "—" as const,
+            ...projects.map((p): MenuItem => ({ label: `Move to ${p.name}`, icon: <FolderKanban size={14} />, note: "its root folder", disabled: asset.folderId === p.folderId, run: () => moveTo.mutate({ ids: [asset.id], folder: p.folderId }) })),
+            { label: "Move to the Inbox", icon: <FolderKanban size={14} />, note: "out of every project", disabled: asset.folderId === null, run: () => moveTo.mutate({ ids: [asset.id], folder: null }) },
+          ]
+        : []),
       "—" as const,
       { label: "Download", key: "D", icon: <Download size={14} />, run: () => download(asset) },
       asset.inBin
