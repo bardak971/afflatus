@@ -36,6 +36,11 @@ export function CivitaiCard() {
           {downloads.data.manager.found
             ? `ComfyUI-Manager ${downloads.data.manager.version ?? ""} found.`
             : "This needs ComfyUI-Manager in your ComfyUI, and it was not found (or ComfyUI is not answering)."}
+          {!downloads.data.manager.found && (
+            <div className="mt-1 text-ink-2">
+              To install it: in ComfyUI's <code className="font-mono">custom_nodes</code> folder, run <code className="font-mono">git clone https://github.com/Comfy-Org/ComfyUI-Manager</code>, restart ComfyUI, then Test again in the ComfyUI tab. The portable and desktop builds of ComfyUI come with it.
+            </div>
+          )}
         </div>
       )}
       {(downloads.data?.items.length ?? 0) > 0 && (

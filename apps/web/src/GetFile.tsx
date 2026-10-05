@@ -94,18 +94,21 @@ export function GetFile({ file, folder, url, civitai, pick, hints }: {
   });
   const mine = downloads.data?.items.find((d) => d.file === file && d.folder === folder);
   const busy = start.isPending || (mine && (mine.status === "starting" || mine.status === "downloading" || mine.status === "saving"));
+  // the download runs through ComfyUI-Manager: without it in ComfyUI the button would only fail
+  const noManager = downloads.data?.manager.found === false;
+  const why = noManager ? "ComfyUI-Manager was not found in your ComfyUI: install it first (Settings → Models → Missing models says how), then Test again in Settings → ComfyUI." : undefined;
   if (!lookups && !fetching) return null;
 
   return (
     <span className="flex flex-col gap-1.5 pt-1">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {fetching && url && (
-          <button type="button" disabled={Boolean(busy)} onClick={() => start.mutate({ url })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
+          <button type="button" disabled={Boolean(busy) || noManager} title={why} onClick={() => start.mutate({ url })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
             <DownloadIcon size={13} /> Download into ComfyUI
           </button>
         )}
         {fetching && civitai && !url && (
-          <button type="button" disabled={Boolean(busy)} onClick={() => start.mutate({ civitai })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
+          <button type="button" disabled={Boolean(busy) || noManager} title={why} onClick={() => start.mutate({ civitai })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
             <DownloadIcon size={13} /> Download into ComfyUI
           </button>
         )}

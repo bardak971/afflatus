@@ -56,7 +56,7 @@ export function ModelSwitches() {
                     {slots.length} model file{slots.length > 1 ? "s" : ""} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
                   </button>
                 ) : (
-                  <span className="shrink-0 text-xs text-warn-ink">not ready</span>
+                  <span className="shrink-0 text-xs text-warn-ink" title="No model of this family was found in ComfyUI. Put one in its models folder (an SDXL checkpoint goes in models/checkpoints); it is listed as soon as ComfyUI sees it.">no model file yet</span>
                 ))}
                 {byHand && (
                   <button
@@ -210,7 +210,13 @@ export function ReadyList() {
       <h2 className="text-[15px] font-bold">What is ready</h2>
       {setup.isLoading && <div className="text-ink-2">Asking ComfyUI…</div>}
       {setup.isError && <ErrorNote>{setup.error.message}</ErrorNote>}
-      {setup.data && <div className="text-ink-2">{ready} of {listed.length} operations ready. Models that are off are not listed.</div>}
+      {setup.data && (
+        <div className="text-ink-2">
+          {listed.length
+            ? `${ready} of ${listed.length} operations ready. Models that are off are not listed.`
+            : "Nothing yet: no model of any family was found in ComfyUI. Put the files in, or download them (above), and each family turns on by itself; a switch above forces one on or off."}
+        </div>
+      )}
       <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
         {groups.map(({ family, recipes: mine }) => {
           const good = mine.filter((r) => readyOf(r.id)).length;
