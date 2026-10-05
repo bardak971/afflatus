@@ -49,7 +49,7 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   const own = !how.reference || picked.hybrid;
   const unet = own ? picked.file : slots.refUnet;
   // the reference model has a turbo LoRA of its own when one is installed; without it the usual one is
-  // used, as the DaSiWa H3 workflow does (one turbo LoRA after whichever model the clip needs)
+  // used, as the model author's own H3 workflow does (one turbo LoRA after whichever model the clip needs)
   const turboFile = how.reference && !picked.hybrid ? slots.refTurbo ?? slots.turbo : slots.turbo;
   // a turbo model is made for few steps as it is: the LoRA on top of it would be the same thing twice
   const distilled = own ? picked.turbo : namedFor.turbo.test(unet?.split(/[\\/]/).pop() ?? "");

@@ -18,7 +18,7 @@ export const UPSCALE = {
   latent: "Latent: re-sampled",
 } as const;
 
-/** The nodes that drive RTX VSR: NVIDIA's own pack, or DaSiWa's. Either does. */
+/** The nodes that drive RTX VSR: NVIDIA's own pack, or the RTX Upscaler & Refiner pack. Either does. */
 export const RTX_NVIDIA = "RTXVideoSuperResolution";
 export const RTX_NODE = "DaSiWa_RTX_UpscalerRefiner";
 export const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
@@ -100,7 +100,7 @@ export function pixelUpscale(g: GraphBuilder, images: Ref, input: UpscaleValues,
     return { images: chunked ? g.out("RebatchImages", { images: sized, batch_size: 4096 }) : sized, loads: [`upscale_models/${input.upscaleModel}`] };
   }
   if (input.upscale === UPSCALE.seedvr) return seedvrUpscale(g, images, input, ctx);
-  // NVIDIA's own node first (a choice that brings its own inputs: "resize_type.scale"), else DaSiWa's
+  // NVIDIA's own node first (a choice that brings its own inputs: "resize_type.scale"), else the other pack's
   if (ctx.has(RTX_NVIDIA)) {
     return { images: g.out(RTX_NVIDIA, { images, resize_type: "scale by multiplier", "resize_type.scale": Math.min(4, input.upscaleBy), quality: "ULTRA" }), loads: [] };
   }

@@ -4,12 +4,12 @@ import type { H3Video } from "./inputs";
 import { AUTO_SAMPLER } from "./model";
 
 /**
- * DaSiWa's MiniMax H3 pack, which the "Latent: re-sampled" upscale runs on: the pass itself, the two
+ * The third-party MiniMax H3 node pack, which the "Latent: re-sampled" upscale runs on: the pass itself, the two
  * splits it works in, and the two ways of enlarging the latent (one of the two is used, by the upscaler's file).
  */
 export const H3_LATENT_UPSCALE_NODES = ["MMH3UltimateUpscale", "MMH3SpatialSplitParams", "MMH3TemporalSplitParams"];
 export const H3_LATENT_ENLARGE_NODES = ["MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams"];
-const NO_DASIWA = `The "Latent: re-sampled" upscale runs on DaSiWa's MiniMax H3 nodes (the ComfyUI-DaSiWa-Nodes pack), which this ComfyUI does not have. Install the pack, or pick another upscale route.`;
+const NO_PACK = `The "Latent: re-sampled" upscale runs on DaSiWa's MiniMax H3 nodes (the ComfyUI-DaSiWa-Nodes pack), which this ComfyUI does not have. Install the pack, or pick another upscale route.`;
 
 /**
  * The upscale pass: the finished latent enlarged, then re-sampled lightly, one stretch of frames and one
@@ -22,12 +22,12 @@ export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3V
   const { model, positive, sampled, turbo, width, height } = pass;
   if (input.upscale !== UPSCALE.latent) return [sampled, 0];
   // the queue refuses up front on nodes(); this is for a build that reaches here with the pack gone
-  if (H3_LATENT_UPSCALE_NODES.some((n) => !ctx.has(n))) throw new Error(NO_DASIWA);
+  if (H3_LATENT_UPSCALE_NODES.some((n) => !ctx.has(n))) throw new Error(NO_PACK);
   const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
   const big = { width: r32(width * input.upscaleBy), height: r32(height * input.upscaleBy) };
   const withModel = input.upscaleWith !== "Plain resize" && Boolean(slots.latentUpscaler) && ctx.has("MMH3LatentUpscaleWithModelParams");
   if (input.upscaleWith === "H3's latent upscaler" && !withModel) throw new Error("H3's latent upscaler was not found: put minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, or set the upscale pass to a plain resize.");
-  if (!withModel && !ctx.has("MMH3LatentUpscaleParams")) throw new Error(NO_DASIWA);
+  if (!withModel && !ctx.has("MMH3LatentUpscaleParams")) throw new Error(NO_PACK);
   g.phase("upscaling");
   const enlarge = withModel
     ? g.out("MMH3LatentUpscaleWithModelParams", { model_name: slots.latentUpscaler, ...big, device: "cuda", precision: "fp16", offload_model: true })

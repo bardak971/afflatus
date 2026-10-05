@@ -35,7 +35,7 @@ function memory(v: unknown): SystemLoad["ram"] {
   return used !== undefined && total ? { used, total, percent: num(m.percent) ?? pct(used, total) } : undefined;
 }
 
-/** DaSiWa nodes: websocket message "dasiwa.system_monitor". */
+/** A third-party system monitor: websocket message "dasiwa.system_monitor". */
 function fromDasiwa(d: Rec): SystemLoad {
   return defined({
     at: Date.now(),

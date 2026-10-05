@@ -1,7 +1,7 @@
 /**
  * What a preset of the Prompt kit may bring beyond its form values: the model files it is made for, with
  * where each is fetched from, under whose licence, by whom. The built-ins stay on the official files;
- * presets are how a line of fine-tunes (DaSiWa's, say) is offered: one click in Studio, and the preset
+ * presets are how a line of fine-tunes (one author's, say) is offered: one click in Studio, and the preset
  * itself says what is missing. The same shape whether a preset ships with Afflatus (`presets/*.json`),
  * was saved by the user, or is passed around as a file.
  */

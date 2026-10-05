@@ -104,7 +104,7 @@ export const H3_FORM_PIXELS = 1088 * 1920;
  * How many frames make `seconds` at 24 a second, as a count the model takes (17k + 5): the nearest one, unless
  * that falls more than four frames (a sixth of a second) short of what was typed, then the next one up. Rounding
  * up every time, as before 2026-10-05, made a 5 s continuation 158 frames (5.7 s of its own) where the nearest
- * count is 141 (5 s), a third more work on a card that is already full; the DaSiWa workflow snaps to the nearest.
+ * count is 141 (5 s), a third more work on a card that is already full; other front-ends snap to the nearest.
  */
 export function h3Frames(seconds: number): number {
   const wanted = Math.max(5, Math.round(seconds * H3_FPS));
