@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
+import { readFile, writeFile } from "node:fs/promises";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebStream } from "node:stream/web";
 import { civitaiSites } from "./civitai";
@@ -13,8 +14,10 @@ import { assertPublicUrl, hostnameOf } from "./outbound";
  *
  * Manager's installer only takes an address and says nothing while it works. So it is handed a
  * one-time address on Afflatus, and Afflatus streams the file through it, counting the bytes on the way:
- * that is the progress bar. Nothing is stored by Afflatus, and a Civitai key never leaves it (Manager
- * only ever sees the one-time address).
+ * that is the progress bar. Nothing of the file is stored by Afflatus, and a Civitai key never leaves it
+ * (Manager only ever sees the one-time address). The list itself is written to a small file in the data
+ * folder at each change: a download cut short by Afflatus stopping or restarting is then listed as
+ * interrupted at the next start, instead of vanishing without a word.
  */
 
 export interface DownloadView {
@@ -44,6 +47,10 @@ interface Download extends DownloadView {
   abort: AbortController;
 }
 
+/** What the state file keeps of a download: enough to list it again. */
+type Kept = DownloadView & { finishedAt?: number };
+const INTERRUPTED = "Interrupted: Afflatus was stopped or restarted while it was downloading. Press Download again.";
+
 /** The folders ComfyUI-Manager knows by a type name; any other folder is given to it as a path under models/. */
 const MANAGER_TYPE: Record<string, string> = {
   checkpoints: "checkpoints", loras: "lora", vae: "vae", text_encoders: "clip", clip: "clip", diffusion_models: "unet", unet: "unet",
@@ -58,16 +65,49 @@ const unreachable = (err: unknown) => /fetch failed|ECONNREFUSED|did not answer/
 
 export class Downloads {
   private readonly all = new Map<string, Download>();
+  /** Downloads of an earlier run, read from the state file: finished ones still shown, interrupted ones said so. */
+  private past: Kept[] = [];
+  /** Done once the state file was read: list() before that shows this run's only. */
+  readonly restored: Promise<void>;
+  /** The writes of the state file, one after the other: two at once would interleave. */
+  private writing: Promise<void> = Promise.resolve();
   private lastTold = 0;
   /** How long Manager has to come and fetch before the download is given up (shorter in tests). */
   startsWithinMs = STARTS_WITHIN_MS;
   /** How often ComfyUI is asked whether the file is listed, once all of it was sent. */
   listedEveryMs = 3000;
 
-  constructor(private readonly events: EventEmitter) {}
+  constructor(private readonly events: EventEmitter, private readonly stateFile?: string) {
+    this.restored = this.restore();
+  }
+
+  /** The state file read: what was still under way when Afflatus last ran is listed as interrupted. */
+  private async restore(): Promise<void> {
+    if (!this.stateFile) return;
+    try {
+      const kept = JSON.parse(await readFile(this.stateFile, "utf8")) as Kept[];
+      const now = Date.now();
+      this.past = kept
+        .filter((k) => k && typeof k.id === "string")
+        .map((k) => (k.status === "starting" || k.status === "downloading" || k.status === "saving" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined } : k))
+        .filter((k) => !k.finishedAt || now - k.finishedAt < KEEP_MS);
+      if (this.past.some((k) => k.error === INTERRUPTED)) this.tell(true);
+    } catch {
+      // no file yet, or one that cannot be read: nothing to restore
+    }
+  }
+
+  /** The list as it stands, written for the next run. Never awaited: a failure to write changes nothing here. */
+  private persist(): void {
+    if (!this.stateFile) return;
+    const kept: Kept[] = [...this.past, ...[...this.all.values()].map(({ token: _t, source: _s, headers: _h, comfy: _c, abort: _a, ...view }) => view)];
+    const file = this.stateFile;
+    this.writing = this.writing.then(() => writeFile(file, JSON.stringify(kept))).catch(() => {});
+  }
 
   private tell(now = false): void {
-    // bytes arrive many times a second: say so twice a second at most
+    // bytes arrive many times a second: say so twice a second at most; the state file is written on the changes of state only
+    if (now) this.persist();
     if (!now && Date.now() - this.lastTold < 500) return;
     this.lastTold = Date.now();
     this.events.emit("downloads");
@@ -84,7 +124,9 @@ export class Downloads {
   /** Newest first. What finished is forgotten after an hour. */
   list(): DownloadView[] {
     for (const [id, d] of this.all) if (d.finishedAt && Date.now() - d.finishedAt > KEEP_MS) this.all.delete(id);
-    return [...this.all.values()].reverse().map(({ token: _t, source: _s, headers: _h, comfy: _c, finishedAt: _f, abort: _a, ...view }) => view);
+    this.past = this.past.filter((k) => !k.finishedAt || Date.now() - k.finishedAt < KEEP_MS);
+    const strip = ({ finishedAt: _f, ...view }: Kept): DownloadView => view;
+    return [...[...this.all.values()].reverse().map(({ token: _t, source: _s, headers: _h, comfy: _c, abort: _a, ...view }) => view), ...this.past.slice().reverse().map(strip)];
   }
 
   /**
@@ -94,7 +136,14 @@ export class Downloads {
    */
   stop(id: string): boolean | "late" {
     const d = this.all.get(id);
-    if (!d) return false;
+    if (!d) {
+      // one of an earlier run: taken off the list
+      const was = this.past.length;
+      this.past = this.past.filter((k) => k.id !== id);
+      if (this.past.length === was) return false;
+      this.tell(true);
+      return true;
+    }
     if (d.status === "saving") return "late";
     if (d.status === "starting" || d.status === "downloading") {
       d.status = "stopped";

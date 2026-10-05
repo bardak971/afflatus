@@ -1,4 +1,5 @@
 import { Comfy } from "./comfy";
+import { join } from "node:path";
 import type { Db, DbKind } from "./db";
 import { Downloads } from "./downloads";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
@@ -37,8 +38,8 @@ export interface Services {
 
 export async function createServices(
   db: Db, dbKind: DbKind, own: Storage, queueOptions: QueueOptions = DEFAULT_QUEUE_OPTIONS,
-  /** Where the shipped presets are read from: the repository's folder (or PRESETS_DIR) unless said otherwise; null for none. */
-  dirs: { shippedPresets?: string | null } = {},
+  /** Where the shipped presets are read from: the repository's folder (or PRESETS_DIR) unless said otherwise; null for none. And the data folder, where the downloads' state file is kept between runs. */
+  dirs: { shippedPresets?: string | null; dataDir?: string } = {},
 ): Promise<Services> {
   // Afflatus's own files and the files of linked folders are read through the same door
   const storage = new RoutedStorage(own);
@@ -79,7 +80,7 @@ export async function createServices(
   sweeper.unref();
   void runSweep();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, queue, timelines, downloads: new Downloads(queue.events),
+    db, dbKind, storage, linked, registry, comfy, queue, timelines, downloads: new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined),
     shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
     updates: null as unknown as Updates,
     async close() {

@@ -23,7 +23,7 @@ if (applied.length) console.log(`[db] migrated: ${applied.join(", ")}`);
 
 // what this computer has of what Afflatus needs: said once here, kept for the health route and Settings → About
 await preflight.run(config.dataDir);
-const services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")));
+const services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), undefined, { dataDir: config.dataDir });
 const app = buildApp(services, { webDir: webDir(), backup: { dataDir: config.dataDir, filesDir: join(config.dataDir, "files") } });
 // the node pack kept up to date in ComfyUI's folder, when it is known
 {

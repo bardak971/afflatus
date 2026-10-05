@@ -98,7 +98,6 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
 
   const draftId = useOpenDraft((s) => s.id);
   const openDraft = useOpenDraft((s) => s.open);
-  const draftOnly = view.form && view.scope === "draft" && Boolean(draftId);
 
   const [open, setOpen] = useState<Asset | null>(null);
   // an item just dropped on the app: opened large, with everything that can be done with it
@@ -113,6 +112,8 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
   const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });
   const { kind, q, made, lora, kept, showTimelines, reach, assets, items, filtered } = filters;
+  // the form open on "This draft" shows the draft's results in place of the grid; the timelines (the rail's entry) still show when asked for
+  const draftOnly = view.form && view.scope === "draft" && Boolean(draftId) && !showTimelines;
   const timelines = useTimelines();
   // the timelines of the place that is open: a folder lists those whose renders land in it, "No folder" those in none,
   // the project as a whole every one of its own (the list comes scoped to the project already)

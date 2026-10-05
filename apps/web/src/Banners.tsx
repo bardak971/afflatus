@@ -41,13 +41,12 @@ export function Banners() {
   useEffect(() => {
     const list = downloads.data?.items;
     if (!list) return;
-    if (seenDownloads.current) {
-      for (const d of list) {
-        if (seenDownloads.current.get(d.id) === d.status) continue;
-        const name = d.file.split(/[\\/]/).pop() ?? d.file;
-        if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings/models", go: "Open settings" });
-        if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" });
-      }
+    for (const d of list) {
+      // once the page is open, every change of state; at first, only what failed (the server lists failures of the last hour only, so it is news)
+      if (seenDownloads.current ? seenDownloads.current.get(d.id) === d.status : d.status !== "error") continue;
+      const name = d.file.split(/[\\/]/).pop() ?? d.file;
+      if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings/models", go: "Open settings" });
+      if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" });
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));
   }, [downloads.data, push]);
