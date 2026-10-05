@@ -41,7 +41,7 @@ In Settings → ComfyUI, give it the address as seen from inside the container:
 
 - ComfyUI on the same machine as Docker Desktop (Windows or macOS): `http://host.docker.internal:8188`.
 - ComfyUI on the same Linux machine: `http://host.docker.internal:8188` with the `extra_hosts` line above, or the machine's LAN address.
-- ComfyUI on another machine: its LAN address, `http://192.168.x.y:8188`. ComfyUI must listen on that address (`--listen`).
+- ComfyUI on another machine: its LAN address, `http://192.168.x.y:8188`. ComfyUI must listen on that address (`--listen`). For Afflatus to download models into it, its ComfyUI-Manager must then have `network_mode = personal_cloud` in its `config.ini` (`user/__manager/` for the built-in Manager, `custom_nodes/ComfyUI-Manager/` for the custom node): a ComfyUI that listens on the network refuses downloads from a URL otherwise.
 
 ## The node pack
 
