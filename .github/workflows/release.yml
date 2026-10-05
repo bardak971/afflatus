@@ -1,0 +1,117 @@
+# A release on every tag v*: the tests, the image on GHCR (amd64 and arm64, tagged like the tag), the bundles
+# for Windows, Linux and macOS, and a GitHub release that carries them with generated notes.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/afflatus
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+            type=sha
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: AFFLATUS_VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  bundles:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: win-x64 }
+          - { os: ubuntu-latest, platform: linux-x64 }
+          - { os: macos-latest, platform: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/release/stage.mjs
+        env: { AFFLATUS_VERSION: "${{ github.ref_name }}" }
+      - run: node scripts/release/bundle.mjs --platform ${{ matrix.platform }} --version ${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: release/dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [image, bundles]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release notes header
+        run: |
+          cat > notes.md <<EOF
+          ## Run it
+
+          **Windows**: unzip \`afflatus-${{ github.ref_name }}-win-x64.zip\`, double-click \`Afflatus.bat\`.
+          **Linux**: \`tar xzf afflatus-${{ github.ref_name }}-linux-x64.tar.gz && ./afflatus-${{ github.ref_name }}-linux-x64/afflatus.sh\`
+          **macOS (Apple Silicon)**: \`tar xzf afflatus-${{ github.ref_name }}-darwin-arm64.tar.gz && ./afflatus-${{ github.ref_name }}-darwin-arm64/afflatus.sh\` (needs \`brew install ffmpeg\`)
+          **Docker**: \`docker run -p 8720:8720 -v afflatus-data:/data ${{ env.IMAGE }}:${{ github.ref_name }}\`
+
+          Image: \`${{ env.IMAGE }}:${{ github.ref_name }}\` (also \`:latest\`), linux/amd64 and linux/arm64.
+          Then open http://127.0.0.1:8720 and, in Settings, give it the address of your ComfyUI.
+
+          ## What changed
+          EOF
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Afflatus ${{ github.ref_name }}
+          body_path: notes.md
+          generate_release_notes: true
+          append_body: true
+          files: |
+            dist/*

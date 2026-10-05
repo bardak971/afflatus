@@ -10,3 +10,6 @@ data-demo/
 .env
 .env.*
 !.env.example
+
+# what the release scripts stage and pack (scripts/release)
+release/

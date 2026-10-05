@@ -1,0 +1,26 @@
+# Afflatus with Docker Compose. ComfyUI is not part of it: run yours wherever the GPU is, and give Afflatus its
+# address in Settings → ComfyUI once it is up (http://host.docker.internal:8188 for a ComfyUI on the same
+# machine as Docker Desktop; its LAN address otherwise).
+#
+#   docker compose up -d        then open http://127.0.0.1:8720
+#   docker compose pull && docker compose up -d        to update
+#
+# Everything Afflatus keeps (library, settings, timelines) is in the afflatus-data volume; back it up as one.
+services:
+  afflatus:
+    image: ghcr.io/bardak971/afflatus:latest
+    container_name: afflatus
+    restart: unless-stopped
+    ports:
+      - "8720:8720"
+    volumes:
+      - afflatus-data:/data
+    environment:
+      # SQLite in the data volume is the default. For Postgres, give its address instead:
+      # DATABASE_URL: postgres://afflatus:password@db:5432/afflatus
+      TZ: ${TZ:-UTC}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  afflatus-data:

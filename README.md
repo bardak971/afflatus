@@ -2,47 +2,38 @@
 
 A self-hosted studio for pictures, videos and timelines, in front of your own [ComfyUI](https://github.com/comfyanonymous/ComfyUI).
 
-**Status: early.** Two built-in recipes (SDXL words to picture, MiniMax H3 video with sound) and your own imported ComfyUI workflows work from the form to the library, with a queue and live progress. There is a first timeline editor: clips that carry on from each other, takes, and export as one video. SDXL and imported workflows have rendered on a real ComfyUI; the built-in H3 recipe and the timeline have only run against a pretend one so far. The design, including what is still to come (characters, more built-in models, the rest of the timeline), is in [docs/architecture.md](docs/architecture.md).
+You keep running ComfyUI where your GPU is. Afflatus is the place you work in: a library of everything you make, a form per model with the right settings already in it, a prompt designer, and a timeline that turns clips into one video. It runs on one PC as a single process with a folder of data, or in a container on a server, and talks to ComfyUI over HTTP.
 
-## What it will be
+## What it does
 
-- A library of everything you make, a composer where you pick the model first, and a movie-maker style timeline for video.
-- Works with any model family ComfyUI can run. Built-in recipes cover the common ones; your own ComfyUI workflows can be imported and used like any other model.
-- Runs on one PC (SQLite, files in a folder, one process) or on a cluster (Postgres, S3).
-- It connects to a ComfyUI you already run. It does not install or bundle ComfyUI.
+- **Built-in forms** for the common model families, each with its defaults taken from ComfyUI's own templates and the models' authors: SDXL (Illustrious, NoobAI, Pony and the rest), FLUX.1 and Kontext, FLUX.2 Klein, Krea 2, Qwen Image and Qwen Image 2.1, MiniMax H3 (video with sound), Wan 2.2 and LTX 2.3. Text to picture, picture to picture, inpainting, outpainting, upscaling, face fixes, reference pictures, video from a first and a last frame, continuation of a clip.
+- **Your own ComfyUI workflows**, imported from the file the editor saves and used like any other form.
+- **A timeline**: clips that carry on from each other, several takes per clip, joins made in the model's latent for MiniMax H3 (through a small node pack Afflatus installs into ComfyUI), stills, music, a trim with scene detection, and an export as one video.
+- **A library** with folders and projects, where every file keeps the settings it was made with, and where a model file is recognised from its weights, not only its name.
+- **A prompt designer**: a conversation with a language model of your choice (any OpenAI-style address, local or not) that writes in each model's own idiom, with the model's rules and one example as its guide, and checks what it wrote against them.
+- **People, places, styles and presets**, written once and worked into any model's form; presets that ship with the files they need and say what is missing, and fetch them through ComfyUI-Manager when you allow it.
+- **Settings that look after the machine**: which models are ready and what is missing, downloads from Civitai and Hugging Face, newer versions of your models, the start-up checks for the tools Afflatus needs.
 
-## What exists today
-
-| Part | Where | State |
-|---|---|---|
-| Recipe contract: inputs, graph builder, graph checker | `packages/core` | Tested |
-| SDXL "words to picture" recipe, with hi-res fix | `packages/recipes` | Graphs checked against a ComfyUI node catalog. Rendered on a real ComfyUI, with hi-res fix and a LoRA |
-| Things done to a picture you have. SDXL: redraw it, paint over a part, twice as large, fix the faces. FLUX.2 Klein: a picture from sentences and reference pictures, change a picture from an instruction, a variation of a picture, paint over a part, another shape, twice as large, fix the face (two faces, each from its own person's pictures). Remove the background | `packages/recipes`, the mask painter in the form, "Change this picture" in the viewer | Graphs checked against a ComfyUI node catalog. Each one rendered on a real ComfyUI, except the variation and the two-faces fix. The face fixes need the Impact Pack nodes |
-| MiniMax H3 "video with sound" recipe: from words, a first and a last picture, a picture it passes through, people and places from reference pictures, a voice, carrying on from another clip, arriving at another clip | `packages/recipes` | Graphs checked against a ComfyUI node catalog. Rendered on a real ComfyUI: a plain clip, a clip that flows on, a redo fitted to the next clip, an opening picture with a picture on the way, a reference picture. A voice sample was not |
-| Timelines: clips in order, each can flow on from the one before; takes; a join that went stale is marked and redone on request; stills, pictures a clip opens or ends on, a sound per clip, music, undo; export as one video, enlarged and with smoother motion if wanted | `apps/server`, the Timelines screens | Tested against a pretend ComfyUI, with real ffmpeg cuts. Two real H3 clips were joined, one redone to fit the other, and exported. Needs ffmpeg on the machine Afflatus runs on |
-| Importing your own ComfyUI workflow as a recipe (reading it, mapping its inputs, running it) | `packages/workflows`, the Workflows screen | Works from the screen against a pretend ComfyUI. Reads the file ComfyUI's editor saves (group nodes, switched-off parts, switches) or an exported one. One large community Wan 2.2 workflow was imported from its editor file and rendered on a real ComfyUI, with and without one of its switches |
-| Getting a missing model file into ComfyUI, when turned on: from the address a workflow gives or from Civitai, saved by ComfyUI-Manager, with a progress bar | `apps/server/src/downloads.ts`, Settings and the import screen | Tested against a pretend ComfyUI-Manager and a pretend Civitai. Never run against the real ones |
-| Dropping a file from the computer anywhere: add it to the library, use the settings stored in a picture, import the workflow a ComfyUI picture or video carries, put it on the open timeline | `apps/web/src/DropTray.tsx`, `apps/server/src/embedded.ts` | Tested with made-up files and scripted drags against a pretend ComfyUI |
-| ComfyUI client and "what can this ComfyUI do" scan | `packages/comfy` | Tested against a fake ComfyUI. The read-only part was also run against a real one |
-| Live progress, previews and the machine's load (CPU, memory, GPU, temperature) | `packages/comfy` | Tested against a fake ComfyUI. The load feed was also read from a real one |
-| Server: settings, setup scan, queue (pause, cancel, retry, resume after a restart), library with thumbnails, drafts, live events, clean-up of unkept results; SQLite | `apps/server` | Tested on SQLite with a fake ComfyUI. The Postgres path is written and untested |
-| People, places, styles, presets: written once, worked into any model's form (words, LoRAs, reference pictures, a voice) | `apps/server`, the People screen | Tested against a pretend ComfyUI |
-| The prompt designer: a conversation with a language model of your choice (any OpenAI-style address) that writes and improves prompts, and plans a scene as clips | `apps/server`, the designer panel | Tested against a pretend language model only |
-| Web app: Library, Create, Timelines, People, Workflows, Queue, Settings | `apps/web` | Checked by hand in a browser against the pretend ComfyUI. No automated tests yet |
-
-## Try it without a GPU
-
-```
-corepack pnpm install
-corepack pnpm build
-corepack pnpm demo
-```
-
-Open `http://127.0.0.1:8720`. This is the real app with a pretend ComfyUI behind it: a render takes a few seconds and gives a coloured placeholder (a test pattern with a tone for a video, when ffmpeg is installed). The designer answers too, from a pretend language model that only repeats what it is told. It never contacts a real ComfyUI or a real language model, and keeps its data in `./data-demo`.
+Nothing leaves your computer unless you ask for a download or a lookup. There is no account and no password: Afflatus is meant to be reached on your own machine or network, behind whatever you already use to reach the rest of it.
 
 ## Run it
 
-Needs Node 22.16 or newer. No compiler and no other service. [ffmpeg](https://ffmpeg.org) is optional for pictures and single videos (without it, videos have no preview frame) and needed for timelines: joining clips and exporting are done with it. It is found on the PATH, or named by `FFMPEG` and `FFPROBE`.
+Each release ships ready to run. Unpack, start, open `http://127.0.0.1:8720`, and give it the address of your ComfyUI in Settings.
+
+| Platform | How |
+|---|---|
+| Windows | Unzip `afflatus-<version>-win-x64.zip`, double-click `Afflatus.bat`. ffmpeg is inside. |
+| Linux | `tar xzf afflatus-<version>-linux-x64.tar.gz` and run `afflatus.sh`. ffmpeg is inside. |
+| macOS (Apple Silicon) | `tar xzf afflatus-<version>-darwin-arm64.tar.gz` and run `afflatus.sh`. Install ffmpeg once with `brew install ffmpeg`. |
+| Docker | `docker run -p 8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or `docker compose up -d` with the [compose.yaml](compose.yaml) of this repository. ffmpeg is in the image. |
+
+The releases are on the [releases page](https://github.com/bardak971/afflatus/releases); the image is `ghcr.io/bardak971/afflatus`, tagged like the release and `latest`, for `linux/amd64` and `linux/arm64`. Your data (library, settings, timelines) lives in a `data` folder next to the launcher, or in the `/data` volume. Updating is unpacking the next release over the old one, or pulling the next image; the data stays.
+
+**ComfyUI** is not bundled and is not installed by Afflatus. It needs a ComfyUI of 0.3.x or newer, reachable at an address you give it. When ComfyUI's folder is on the same computer, Afflatus also installs its node pack there (for MiniMax H3 continuations in the latent) and reads model files from the disk to tell what they are; when ComfyUI is elsewhere, copy the node pack from [comfy-nodes](comfy-nodes) into its `custom_nodes` folder by hand; model files are then told by their names (a download of the pack from Settings, and the detection through the pack, are the next step).
+
+### From the sources
+
+Needs Node 22.16 or newer and [ffmpeg](https://ffmpeg.org) on the PATH (or named by `FFMPEG` and `FFPROBE`). Without ffmpeg the library and the designer work; trims, exports, joins and video previews do not.
 
 ```
 corepack pnpm install
@@ -50,35 +41,32 @@ corepack pnpm build
 corepack pnpm start
 ```
 
-Open `http://127.0.0.1:8720`, go to Settings, and enter the address of your ComfyUI. Data is kept in `./data`.
-
-While working on the web app, `corepack pnpm dev` (server) and `corepack pnpm dev:web` (Vite on port 8721, with hot reload) replace `build` and `start`.
+To try it without a GPU, `corepack pnpm demo` runs the same app against a pretend ComfyUI and a pretend language model, with its own data in `./data-demo`: a render takes a few seconds and gives a coloured placeholder.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `8720` | Port to listen on |
-| `HOST` | `127.0.0.1` | Address to listen on. Localhost only by default |
-| `DATA_DIR` | `./data` | Where the SQLite database and files live |
-| `DATABASE_URL` | empty | A `postgres://` address. Empty means SQLite |
+| `HOST` | `127.0.0.1` | Address to listen on; the image listens on all |
+| `DATA_DIR` | `./data` | Where the database and the files live |
+| `DATABASE_URL` | empty | A `postgres://` address instead of SQLite. SQLite is the supported one; Postgres is written and not yet exercised |
+| `FFMPEG`, `FFPROBE` | from the PATH | The tools' paths |
 
 ## Develop
 
 ```
-corepack pnpm test           # unit tests
-corepack pnpm typecheck      # TypeScript
+corepack pnpm dev            # the server, restarted on change
+corepack pnpm dev:web        # the web app on port 8721, with hot reload
+corepack pnpm test           # the tests (ffmpeg needed for the video ones)
+corepack pnpm typecheck
 corepack pnpm check:graphs   # builds every recipe variant and checks it against reference/comfy-object-info.json
 ```
 
-`check:graphs` needs no GPU and no ComfyUI. Give it a ComfyUI address to check against a live install instead; it only reads the node list.
+Three scripts talk to a ComfyUI, all read-only: `comfy:scan <url>` (what is ready), `comfy:load <url>` (the machine's load), `catalog:save <url>` (refresh the reference node list, with model file names removed).
 
-Three more scripts talk to a ComfyUI, all read-only (they never queue a job or load a model):
+A release is a tag: `git tag v0.1.0 && git push --tags` runs the tests, builds the image and the three bundles, and publishes a GitHub release with them ([.github/workflows/release.yml](.github/workflows/release.yml)). The staging and packing scripts are in [scripts/release](scripts/release).
 
-```
-corepack pnpm comfy:scan http://127.0.0.1:8188     # what is ready and what is missing
-corepack pnpm comfy:load http://127.0.0.1:8188     # CPU, memory, GPU load and temperature of that machine
-corepack pnpm catalog:save http://127.0.0.1:8188   # refresh the reference node list, with file names removed
-```
+The design notes are in [docs](docs): the architecture, the prompting research behind the designer's guides, and the plans of the larger parts.
 
 ## License
 
-[AGPL-3.0](LICENSE).
+[AGPL-3.0](LICENSE). The node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT and vendors the MIT continuation nodes by ttulttul; the ffmpeg builds in the Windows and Linux bundles are the LGPL builds by BtbN.

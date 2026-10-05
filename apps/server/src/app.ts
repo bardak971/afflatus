@@ -40,7 +40,8 @@ import { toEditor } from "@afflatus/workflows";
 import { readVideo } from "./video";
 import { registerWorkflows } from "./workflows";
 
-export const VERSION = "0.0.1";
+/** The release this is: set by the build (AFFLATUS_VERSION, from the git tag); "dev" when run from the sources. */
+export const VERSION = process.env.AFFLATUS_VERSION?.trim() || "dev";
 
 const notFound = (what: string) => Object.assign(new Error(`${what} was not found`), { statusCode: 404 });
 

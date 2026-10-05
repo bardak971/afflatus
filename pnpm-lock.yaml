@@ -20,6 +20,9 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.0
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -35,9 +38,6 @@ importers:
 
   apps/server:
     dependencies:
-      '@fastify/static':
-        specifier: ^10.1.5
-        version: 10.1.5
       '@afflatus/comfy':
         specifier: workspace:*
         version: link:../../packages/comfy
@@ -50,6 +50,9 @@ importers:
       '@afflatus/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+      '@fastify/static':
+        specifier: ^10.1.5
+        version: 10.1.5
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
@@ -72,18 +75,18 @@ importers:
 
   apps/web:
     dependencies:
-      '@fontsource-variable/instrument-sans':
-        specifier: ^5.2.8
-        version: 5.3.0
-      '@fontsource-variable/jetbrains-mono':
-        specifier: ^5.2.8
-        version: 5.3.0
       '@afflatus/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@afflatus/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+      '@fontsource-variable/instrument-sans':
+        specifier: ^5.2.8
+        version: 5.3.0
+      '@fontsource-variable/jetbrains-mono':
+        specifier: ^5.2.8
+        version: 5.3.0
       '@tanstack/react-query':
         specifier: ^5.104.0
         version: 5.104.0(react@19.3.0)

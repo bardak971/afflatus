@@ -1,7 +1,7 @@
 {
   "name": "afflatus",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A self-hosted studio for pictures, videos and timelines, in front of your own ComfyUI.",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -27,6 +27,7 @@
     "@afflatus/core": "workspace:*",
     "@afflatus/recipes": "workspace:*",
     "@types/node": "^24.0.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
