@@ -12,4 +12,4 @@ data-demo/
 !.env.example
 
 # what the release scripts stage and pack (scripts/release)
-release/
+/release/
