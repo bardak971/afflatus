@@ -1,0 +1,20 @@
+{{- if .Values.metrics.enabled }}
+# Afflatus's figures (queue, render times) in Prometheus format at /metrics, on the app's own port.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "afflatus.name" . }}
+  labels:
+    {{- include "afflatus.labels" . | nindent 4 }}
+    {{- with .Values.metrics.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "afflatus.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.interval }}
+{{- end }}

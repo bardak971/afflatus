@@ -18,6 +18,11 @@ export class Comfy {
   constructor(readonly url: string, private readonly registry: Registry) {
     this.client = new ComfyClient(url);
     this.monitor = new Monitor(this.client);
+    // the socket opening again means ComfyUI was restarted (or came back): its nodes and files may have
+    // changed, a node pack just written among them, so nothing kept about it holds
+    this.monitor.onOpen = (again) => {
+      if (again) this.forgetAll();
+    };
   }
 
   /** What this ComfyUI can do. The node catalog is large, so the answer is kept for a while. */
@@ -46,6 +51,11 @@ export class Comfy {
   /** This ComfyUI has a file it did not have: nothing learned about it holds any more. */
   forgetAll(): void {
     this.lastScan = null;
+    this.lastCatalog = null;
+  }
+
+  /** The node list is read again next time (a node pack was written, and ComfyUI may have loaded it). */
+  forgetCatalog(): void {
     this.lastCatalog = null;
   }
 

@@ -27,6 +27,8 @@ export interface FakeComfy {
   uploads: string[];
   /** What model files say about themselves, by "<folder>/<file>". A file not listed has no header. */
   metadata: Record<string, Record<string, unknown>>;
+  /** Whole headers (metadata and tensors) by "<folder>/<file>", served by the node pack's route when the pack is pretended to be there (`headers` set at all). */
+  headers: Record<string, Record<string, unknown>> | null;
   /** Client ids of the websockets that connected, in order. */
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */
@@ -109,7 +111,7 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">>
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: Omit<FakeComfy, "url" | "close" | "send" | "sendBinary"> = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], metadata: {}, sockets: [], installed: [], userdata: {},
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], metadata: {}, headers: null, sockets: [], installed: [], userdata: {},
     catalog: init.catalog ?? {},
     models: init.models ?? {},
   };
@@ -158,6 +160,11 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
       if (path.startsWith("/models/")) {
         const list = fake.models[decodeURIComponent(path.slice(8))];
         return list ? json(200, list) : json(404, { error: "unknown folder" });
+      }
+      if (path === "/afflatus/header") {
+        if (!fake.headers) return json(404, {});
+        const header = fake.headers[`${url.searchParams.get("folder") ?? ""}/${url.searchParams.get("filename") ?? ""}`];
+        return header ? json(200, header) : json(404, {});
       }
       if (path.startsWith("/view_metadata/")) {
         const header = fake.metadata[`${decodeURIComponent(path.slice(15))}/${url.searchParams.get("filename") ?? ""}`];

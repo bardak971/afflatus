@@ -22,6 +22,7 @@ import { isLinked } from "./linked";
 import { registerModelInfo } from "./modelInfo";
 import { registerModelPages } from "./modelPages";
 import { registerModelUpdates } from "./modelUpdates";
+import { registerBackup, type BackupPlaces } from "./backup";
 import { registerModelSettings } from "./modelSettings";
 import type { Services } from "./services";
 import { preflight } from "./preflight";
@@ -60,7 +61,7 @@ const jobBody = z.strictObject({
 /** A form as it stands, to load its models ahead or to ask whether they are loaded. */
 const warmBody = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()), look: lookSchema.optional() });
 
-export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyInstance {
+export function buildApp(s: Services, opts: { webDir?: string; /** Where the data is, for the backup; without it there is no backup. */ backup?: BackupPlaces } = {}): FastifyInstance {
   // a workflow with many nodes is a large body
   const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024 });
   /** Files from the computer are sent as the request body itself. */
@@ -133,6 +134,7 @@ export function buildApp(s: Services, opts: { webDir?: string } = {}): FastifyIn
   registerModelInfo(app, s);
   registerModelPages(app, s);
   registerModelUpdates(app, s, s.updates);
+  registerBackup(app, s, opts.backup);
   registerFolders(app, s);
   registerProjects(app, s);
   registerWorkflows(app, s);

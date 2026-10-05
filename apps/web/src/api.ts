@@ -74,7 +74,7 @@ export interface Job {
   /** The draft it was sent from, when it was sent from one. */
   draftId: string | null;
   /** Of a clip render, once its graph is built: how it joins the clip before (in the latent, or on pinned frames); null when it starts on its own. */
-  join: "latent" | "pixels" | null;
+  join: "latent" | "hybrid" | "pixels" | null;
   /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. "cut": a range of a video kept as new videos. */
   kind: "render" | "export" | "load" | "cut";
   /** Of a waiting job: about how long it will take, from past renders. */
@@ -393,9 +393,30 @@ export interface Take {
   /** The take this one is the finished (upscaled) version of. */
   finishedFrom: string | null;
   /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
-  joinKind: "latent" | "pixels" | null;
+  joinKind: "latent" | "hybrid" | "pixels" | null;
   /** How long its render took, when it was rendered here; null otherwise. */
   renderMs: number | null;
+  /** How its own part looks, measured on its frames when it was rendered here; null otherwise. */
+  measure: Measure | null;
+}
+/** How a take's own part looks, measured on its real frames when it was rendered (the server's lookOf). Older takes carry the first two only. */
+export interface Measure {
+  /** Mean luma, 0 to 255. */
+  luma: number;
+  /** The mean absolute Laplacian of a small grey copy: 0 is flat, several units is crisp. */
+  sharp: number;
+  /** Mean chroma against neutral: U blue (+) to yellow (−), V red (+) to green (−). */
+  chroma?: { u: number; v: number };
+  /** Where the darkest and the brightest tenth of the picture sit in luma. */
+  range?: { low: number; high: number };
+  /** Mean change of the frame's mean luma from one sampled frame to the next, as a percentage. */
+  flicker?: number;
+  /** Mean frame-to-frame change: the ruler's motion figure. */
+  pace?: number;
+  /** The sound's spectral centroid in Hz; null without sound. */
+  voice?: number | null;
+  /** A join made in the latent: how wide the regenerated run-up came out against the tail it was guided by (1 = the same). */
+  drift?: { width: number };
 }
 export interface Clip {
   id: string;
@@ -805,7 +826,7 @@ export const api = {
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
   presetFiles: () => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files"),
-  nodePack: () => call<{ pack: string; path: string; written: boolean; loaded: boolean }>("GET", "/comfy/node-pack"),
+  nodePack: () => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack"),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
   queue: () => call<QueueStatus>("GET", "/queue"),
   jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number }) =>
@@ -859,6 +880,8 @@ export const api = {
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
   storage: () => call<Storage>("GET", "/storage"),
+  /** What a backup would hold: the files and bytes, and whether the database comes with it (SQLite). */
+  backupPlan: () => call<{ available: boolean; files: number; bytes: number; database: boolean }>("GET", "/backup"),
   binIdleTakes: () => call<{ moved: number }>("POST", "/storage/bin-idle-takes"),
   emptyBin: () => call<{ erased: number }>("POST", "/storage/empty-bin"),
   assetFamilies: () => call<{ items: string[] }>("GET", "/assets/families"),

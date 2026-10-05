@@ -41,8 +41,9 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
         if (there && (JSON.parse(there.info) as Kept).v === MODEL_INFO_VERSION) continue;
         let info: ModelInfo;
         try {
+          // the disk when ComfyUI's folders are here; else the node pack's route on ComfyUI (the whole header); else ComfyUI's metadata alone
           const local = dirs.length ? await readLocalHeader(dirs, file) : null;
-          const header = local ?? (await comfy.client.metadata(folder, file));
+          const header = local ?? (await comfy.client.header(folder, file).catch((err) => { if (err instanceof ComfyUnreachable) throw err; return null; })) ?? (await comfy.client.metadata(folder, file));
           // a file with no header is remembered as saying nothing, so it is not asked again
           info = header ? modelInfoFrom(header, file) : {};
         } catch (err) {

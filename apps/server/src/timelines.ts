@@ -1,8 +1,8 @@
 import { chatJson } from "./designer";
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { secondsInput, type Recipe, type InputSpec } from "@afflatus/core";
-import { BLEND_MS, CutError, type ExportMusic, type ExportPart, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion, scenesOf } from "./cut";
+import { joinKindOf, secondsInput, type Recipe, type InputSpec } from "@afflatus/core";
+import { BLEND_MS, CutError, type ExportMusic, type ExportPart, type Measure, filmStrip, frameAt, frozenTailAt, joinJump, joinVideos, measureOf, MOTION_RATE, peekAt, rangeKeep, slowMotion, scenesOf } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { rootFolderOf } from "./projects";
 import type { Look } from "./entities";
@@ -300,9 +300,10 @@ export class Timelines {
       : [];
     // how long each take's render took, from the record of renders (a finish made by a cut has none)
     const made = [...new Set(all.flatMap((p) => p.takes.map((x) => x.asset.generation_id)).filter((g): g is string => Boolean(g)))];
-    const tookMs = new Map(
-      (made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms"]).where("id", "in", made).execute() : []).map((g) => [g.id, g.gen_ms]),
-    );
+    const records = made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms", "resolved"]).where("id", "in", made).execute() : [];
+    const tookMs = new Map(records.map((g) => [g.id, g.gen_ms]));
+    // how each render's own part looks (mean luma, sharpness), measured on its frames when it was stored
+    const looks = new Map(records.map((g) => [g.id, (JSON.parse(g.resolved) as { measure?: Measure }).measure ?? null]));
     const takeView = (x: { take: TakeRow; asset: AssetRow }) => ({
       id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
       trimStartMs: x.take.trim_start_ms, trimEndMs: x.take.trim_end_ms, startMs: plays(x).start, endMs: plays(x).end, createdAt: x.take.created_at,
@@ -311,6 +312,8 @@ export class Timelines {
       joinKind: x.take.join_kind ?? null,
       /** How long its render took, when it was rendered here and measured; null otherwise. */
       renderMs: (x.asset.generation_id && tookMs.get(x.asset.generation_id)) || null,
+      /** How its own part looks: mean luma (0–255) and a sharpness figure, measured on its frames when it was rendered here; null otherwise. */
+      measure: (x.asset.generation_id && looks.get(x.asset.generation_id)) || null,
     });
     let at = 0;
     const clips = all.map((p, i) => {
@@ -562,7 +565,7 @@ export class Timelines {
     let joined: ClipRow["joined"] = "continue";
     let kind: ClipRow["kind"] = "video";
     let still: string | null = null;
-    let take: { asset: AssetRow; head: number; tail: number } | null = null;
+    let take: { asset: AssetRow; head: number; tail: number; latent?: boolean; frames?: boolean } | null = null;
 
     const asset = await this.assetRow(opts.asset ?? null);
     if (opts.asset && !asset) throw missing("this item");
@@ -575,8 +578,8 @@ export class Timelines {
         recipeId = recipe.id;
         inputs = this.ownInputs(recipe, JSON.parse(made.inputs) as Record<string, unknown>);
       } else recipeId = null;
-      const overlap = made ? (JSON.parse(made.resolved) as { overlap?: { headMs: number; tailMs: number; latent?: boolean } }).overlap : undefined;
-      take = { asset, head: overlap?.headMs ?? 0, tail: overlap?.tailMs ?? 0 };
+      const overlap = made ? (JSON.parse(made.resolved) as { overlap?: { headMs: number; tailMs: number; latent?: boolean; frames?: boolean } }).overlap : undefined;
+      take = { asset, head: overlap?.headMs ?? 0, tail: overlap?.tailMs ?? 0, latent: overlap?.latent, frames: overlap?.frames };
       // a video brought in starts on its own: it was not made to follow what is before it
       joined = "cut";
     } else if (asset?.kind === "image" && opts.as === "clip") {
@@ -608,7 +611,7 @@ export class Timelines {
     const order = all.map((p) => p.clip.id);
     order.splice(index, 0, id);
     await this.renumber(timelineId, order);
-    if (take) await this.addTake(id, take.asset, { headMs: take.head, tailMs: take.tail }, {});
+    if (take) await this.addTake(id, take.asset, { headMs: take.head, tailMs: take.tail, latent: take.latent, frames: take.frames }, {});
     if (still) await this.keep(still);
     if (asset) await this.adoptFolder(t, asset, all);
     await this.touch(timelineId);
@@ -778,7 +781,7 @@ export class Timelines {
     await this.touch(clip.timeline_id);
   }
 
-  private async addTake(clipId: string, asset: AssetRow, overlap: { headMs: number; tailMs: number; latent?: boolean }, links: TakeLinks, finishedFrom: string | null = null) {
+  private async addTake(clipId: string, asset: AssetRow, overlap: { headMs: number; tailMs: number; latent?: boolean; frames?: boolean }, links: TakeLinks, finishedFrom: string | null = null) {
     const id = newId();
     // the finished version of a take keeps that take's overlaps and trims: it plays the same part, larger
     const from = finishedFrom ? await this.db.selectFrom("takes").selectAll().where("id", "=", finishedFrom).executeTakeFirst() : undefined;
@@ -786,7 +789,7 @@ export class Timelines {
       .insertInto("takes")
       .values({
         id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? overlap.headMs, tail_ms: from?.tail_ms ?? overlap.tailMs, trim_start_ms: from?.trim_start_ms ?? 0, trim_end_ms: from?.trim_end_ms ?? 0,
-        join_kind: from ? from.join_kind : overlap.headMs > 0 ? (overlap.latent ? "latent" : "pixels") : null,
+        join_kind: from ? from.join_kind : joinKindOf(overlap),
         prev_take_id: links.prev?.take ?? from?.prev_take_id ?? null, prev_at_ms: links.prev?.at ?? from?.prev_at_ms ?? null, next_take_id: links.next?.take ?? from?.next_take_id ?? null, next_at_ms: links.next?.at ?? from?.next_at_ms ?? null,
         finished_from: from ? from.id : null, created_at: now(),
       })
@@ -860,7 +863,7 @@ export class Timelines {
   }
 
   /** A clip's job is done: its video becomes a take, and plays. The first take of a timeline decides its frame. */
-  async finished(clipId: string, generationId: string, overlap: { headMs: number; tailMs: number; latent?: boolean } | undefined, links: TakeLinks, finishedFrom: string | null = null): Promise<void> {
+  async finished(clipId: string, generationId: string, overlap: { headMs: number; tailMs: number; latent?: boolean; frames?: boolean } | undefined, links: TakeLinks, finishedFrom: string | null = null): Promise<void> {
     const clip = await this.db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
     // the clip was removed while it rendered: the video is in the library all the same
     if (!clip) return;
@@ -1606,7 +1609,7 @@ export class Timelines {
         // a join made in the latent continues the clip before's own tokens: its shared frames and the clip
         // before's last frames show the same moments, so the fade runs over them with both sides moving. A
         // pixel join restarts beside pinned frames: the clip before holds its last frame while this one fades in
-        const latent = x.take.join_kind === "latent";
+        const latent = x.take.join_kind === "latent" || x.take.join_kind === "hybrid";
         const blend = opts.blend !== false && before && before.kind === "video" && from === 0 && shared >= 80
           ? Math.min(BLEND_MS, to - 40, ...(latent ? [shared, before.endMs - before.startMs - 40] : []))
           : 0;

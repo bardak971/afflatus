@@ -91,6 +91,9 @@ export class Monitor {
   /** The latest load snapshot a monitor extension broadcast (about one a second), if one is installed. */
   system: SystemLoad | null = null;
   onSystem: (load: SystemLoad) => void = () => {};
+  /** Called when the socket opens; `again` after the first time, which is how a ComfyUI restart shows (what it had may have changed). */
+  onOpen: (again: boolean) => void = () => {};
+  private opened = 0;
 
   constructor(private readonly client: ComfyClient) {}
 
@@ -100,6 +103,13 @@ export class Monitor {
     try {
       const ws = new WebSocket(`${this.client.baseUrl.replace(/^http/i, "ws")}/ws?clientId=${this.client.clientId}`);
       ws.binaryType = "arraybuffer";
+      ws.onopen = () => {
+        try {
+          this.onOpen(this.opened++ > 0);
+        } catch {
+          /* a listener's problem is not the socket's */
+        }
+      };
       ws.onmessage = (ev) => this.onMessage(ev.data);
       ws.onclose = () => {
         if (this.ws === ws) this.ws = null;

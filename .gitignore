@@ -13,3 +13,7 @@ data-demo/
 
 # what the release scripts stage and pack (scripts/release)
 /release/
+
+# Python bytecode from the node pack (ComfyUI writes it beside the sources)
+__pycache__/
+*.pyc

@@ -37,9 +37,25 @@ export function ClipTip({ clip, index, clips, at }: {
     const took = take.renderMs ? ` · rendered in ${spell(take.renderMs)}` : clip.recipe ? "" : " · imported";
     lines.push({ text: `${seconds(clip.lengthMs)}${took}` });
     if (index > 0) {
-      const kind = take.joinKind === "latent" ? "Latent join" : take.joinKind === "pixels" ? "Pixel join" : clip.joined === "continue" ? `Extends clip ${index}` : "Cut";
+      const kind = take.joinKind === "latent" ? "Latent join" : take.joinKind === "hybrid" ? "Frames + latent join" : take.joinKind === "pixels" ? "Pixel join" : clip.joined === "continue" ? `Extends clip ${index}` : "Cut";
       const figure = clip.joined === "continue" && jump !== null ? ` · ×${jump.toFixed(1)}` : "";
-      lines.push({ text: `${kind}${figure}`, tone: clip.joined === "continue" ? undefined : "dim" });
+      // a join made in the latent: how wide its run-up came out against the latent it was guided by (1.00 = the same)
+      const width = take.measure?.drift ? ` · run-up ×${take.measure.drift.width.toFixed(2)}` : "";
+      lines.push({ text: `${kind}${figure}${width}`, tone: clip.joined === "continue" ? undefined : "dim" });
+      // how far the picture has slid along this run of clips that flow on: against the run's first clip,
+      // measured on the real frames when each was rendered. A chain continued from exact latents drifts
+      // darker and softer clip after clip; a few per cent is the model's own variation
+      if (take.measure && clip.joined === "continue") {
+        let k = index;
+        while (k > 0 && clips[k]!.joined === "continue") k--;
+        const first = clips[k]?.take?.measure;
+        if (first && k < index) {
+          const luma = (take.measure.luma - first.luma) / Math.max(1, first.luma);
+          const sharp = (take.measure.sharp - first.sharp) / Math.max(0.01, first.sharp);
+          const pct = (x: number) => `${x < 0 ? "−" : "+"}${Math.round(Math.abs(x) * 100)} %`;
+          lines.push({ text: `Since clip ${k + 1}: brightness ${pct(luma)}, sharpness ${pct(sharp)}`, tone: luma < -0.08 || sharp < -0.15 ? "warn" : "dim" });
+        }
+      }
     }
     const n = clip.takes.findIndex((t) => t.id === take.id) + 1;
     const draft = take.finishedFrom ? clip.takes.find((t) => t.id === take.finishedFrom) : undefined;

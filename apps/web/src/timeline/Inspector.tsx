@@ -297,6 +297,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           </div>
         )}
 
+        {take?.measure && !still && <LookTable timeline={timeline} index={index} take={take} />}
+
         {recipe && !still && (pins.start || pins.end) && (
           <div className="flex flex-col gap-2">
             <SectionTitle>Pinned frames</SectionTitle>
@@ -519,5 +521,47 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         />
       )}
     </aside>
+  );
+}
+
+/**
+ * How the take looks, measured on its own frames when it was rendered, and how far it has moved from the
+ * first clip of the run it flows on from (clips joined one after the other). For catching a chain that slides
+ * darker, softer, duller or slower; a few per cent is the model's own variation.
+ */
+function LookTable({ timeline, index, take }: { timeline: Timeline; index: number; take: Take }) {
+  const m = take.measure!;
+  let k = index;
+  while (k > 0 && timeline.clips[k]!.joined === "continue") k--;
+  const first = k < index ? timeline.clips[k]?.take?.measure ?? null : null;
+  const signed = (x: number, digits = 1) => `${x < 0 ? "−" : "+"}${Math.abs(x).toFixed(digits)}`;
+  const pct = (a: number | null | undefined, b: number | null | undefined, floor = 1) => (a == null || b == null ? null : `${a - b < 0 ? "−" : "+"}${Math.round((Math.abs(a - b) / Math.max(floor, Math.abs(b))) * 100)} %`);
+  const diff = (a: number | null | undefined, b: number | null | undefined, unit = "") => (a == null || b == null ? null : `${signed(a - b)}${unit}`);
+  const rows: Array<{ label: string; value: string; since: string | null; why: string }> = [
+    { label: "Brightness", value: m.luma.toFixed(0), since: pct(m.luma, first?.luma), why: "Mean luma of the frames, 0 to 255." },
+    { label: "Sharpness", value: m.sharp.toFixed(2), since: pct(m.sharp, first?.sharp, 0.01), why: "The mean absolute Laplacian of a small grey copy: 0 is flat, several units is crisp. A chain continued from exact latents loses it hop after hop." },
+  ];
+  if (m.range) rows.push({ label: "Range", value: `${m.range.low.toFixed(0)}–${m.range.high.toFixed(0)}`, since: first?.range ? diff(m.range.high - m.range.low, first.range.high - first.range.low) : null, why: "Where the darkest and the brightest tenth of the picture sit. A shrinking range is crushed blacks or clipped whites." });
+  if (m.chroma) rows.push({ label: "Colour", value: `U ${signed(m.chroma.u)} · V ${signed(m.chroma.v)}`, since: first?.chroma ? `U ${diff(m.chroma.u, first.chroma.u)} · V ${diff(m.chroma.v, first.chroma.v)}` : null, why: "Mean chroma against neutral: U is blue (+) to yellow (−), V red (+) to green (−). A warming or greying chain shows here." });
+  if (m.flicker != null) rows.push({ label: "Flicker", value: `${m.flicker.toFixed(1)} %`, since: diff(m.flicker, first?.flicker, " pt"), why: "How much the frame's mean brightness changes from one frame to the next. Exposure flicker is a known continuation artefact that averages hide." });
+  if (m.pace != null) rows.push({ label: "Pace", value: m.pace.toFixed(1), since: pct(m.pace, first?.pace, 0.1), why: "Mean frame-to-frame change, the ruler's motion figure. H3 tends to slow down after each hand-over." });
+  if (m.voice != null) rows.push({ label: "Voice", value: `${m.voice} Hz`, since: pct(m.voice, first?.voice, 1), why: "Where the sound's energy sits (its spectral centroid). A voice carried over several clips dulls before it changes: it drifts down." });
+  if (m.drift) rows.push({ label: "Run-up", value: `×${m.drift.width.toFixed(3)}`, since: null, why: "A join made in the latent: how wide the regenerated run-up came out against the latent it was guided by. 1.000 is the same; a chain of exact latents reads 1.02 to 1.05 at every hop, which is the drift." });
+  return (
+    <div className="flex flex-col gap-2">
+      <SectionTitle>Look</SectionTitle>
+      <table className="w-full text-xs">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} title={r.why}>
+              <td className="py-0.5 text-ink-2">{r.label}</td>
+              <td className="py-0.5 text-right font-mono tabular-nums">{r.value}</td>
+              <td className="py-0.5 pl-3 text-right font-mono tabular-nums text-ink-3">{r.since ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Note text={first ? `Measured on this take's own frames. The last column is the change since clip ${k + 1}, the first of this run; a few per cent is the model's own variation. Hover a row for what it means.` : "Measured on this take's own frames when it was rendered. Hover a row for what it means."} />
+    </div>
   );
 }

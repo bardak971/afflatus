@@ -128,6 +128,20 @@ export class ComfyClient {
     return (await res.json()) as Record<string, unknown>;
   }
 
+  /**
+   * A model file's whole header (metadata, and each tensor's dtype and shape) through Afflatus's node pack,
+   * which adds that route to ComfyUI's server. Null when the pack is not there (ComfyUI answers 404 for an
+   * unknown route) or the file has no header. For an Afflatus that cannot read ComfyUI's disk.
+   */
+  async header(folder: string, file: string): Promise<Record<string, unknown> | null> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/header?folder=${encodeURIComponent(folder)}&filename=${encodeURIComponent(file)}`, { signal: AbortSignal.timeout(META_TIMEOUT) }).catch((err) => {
+      throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl}: ${(err as Error).message}`);
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new ComfyError(`ComfyUI /afflatus/header failed (${res.status})`);
+    return (await res.json()) as Record<string, unknown>;
+  }
+
   /** ComfyUI's own terminal log: the last few hundred lines it keeps, their colour codes stripped. Read-only. */
   async logs(): Promise<Array<{ t: string; m: string }>> {
     const res = await this.request("/internal/logs/raw");

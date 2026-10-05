@@ -1,0 +1,14 @@
+Afflatus {{ .Values.image.tag }} is deploying as {{ include "afflatus.name" . }} in {{ .Release.Namespace }}.
+
+Inside the cluster it answers on http://{{ include "afflatus.name" . }}.{{ .Release.Namespace }}.svc:{{ .Values.port }}
+{{- if .Values.ingress.enabled }}
+and outside on http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else }}
+; route to that service from your gateway or ingress.
+{{- end }}
+
+First visit: Settings → ComfyUI, give it the address of your ComfyUI (the machine with the GPU). Then
+download the node pack from the same page and unpack it into that ComfyUI's custom_nodes folder.
+
+Its data (database, library, settings) is in the {{ if .Values.persistence.enabled }}volume {{ .Values.persistence.existingClaim | default (include "afflatus.name" .) }}{{ else }}pod only (persistence is off: everything is lost with the pod){{ end }}.
+A backup is one zip from Settings → Storage → Back up now.

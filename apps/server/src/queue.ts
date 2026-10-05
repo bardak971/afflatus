@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
 import { ComfyCancelled, ComfyLost, ComfyUnreachable, detect, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@afflatus/comfy";
-import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue, type BuildContext, type Ref } from "@afflatus/core";
-import { cutFrames, referenceClip, frameAt, slowSoundOnto, soundPart, repairJoinAudio } from "./cut";
+import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue, type BuildContext, type Ref, type JoinKind, joinKindOf } from "@afflatus/core";
+import { cutFrames, referenceClip, frameAt, lookOf, slowSoundOnto, soundPart, repairJoinAudio, type Measure } from "./cut";
+import { latentDriftOf } from "./latentStats";
 import type { Registry } from "./registry";
 import { readSettings } from "./settings";
 import type { Comfy } from "./comfy";
@@ -419,10 +420,9 @@ export class Queue {
       return { ...plain(r), estimateMs: this.expected(usual, recipe, input, cold) };
     };
     /** How a clip render joins the clip before, once its graph is built: in the latent, or on pinned frames; null when it starts on its own or is not a clip. */
-    const joinOf = (r: JobRow): "latent" | "pixels" | null => {
+    const joinOf = (r: JobRow): JoinKind | null => {
       if (!r.clip_id || !r.resume) return null;
-      const overlap = (JSON.parse(r.resume) as Resume).overlap;
-      return overlap && overlap.headMs > 0 ? (overlap.latent ? "latent" : "pixels") : null;
+      return joinKindOf((JSON.parse(r.resume) as Resume).overlap);
     };
     const plain = (r: JobRow) => ({
       id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
@@ -1101,13 +1101,13 @@ export class Queue {
 
     const generationId = newId();
     const at = now();
+    // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
+    const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}) };
     await this.db
       .insertInto("generations")
       .values({
         id: generationId, owner_id: OWNER, recipe_id: recipe.id, recipe_version: recipe.version, family: recipe.family,
-        inputs: JSON.stringify(input),
-        // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
-        resolved: JSON.stringify({ seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}) }),
+        inputs: JSON.stringify(input), resolved: JSON.stringify(resolved),
         gen_ms: Date.now() - resume.startedAt, draft_id: row.draft_id, created_at: at,
       })
       .execute();
@@ -1146,6 +1146,17 @@ export class Queue {
       // a video is read for its size, its length and a frame to show (when ffmpeg is installed)
       const video = kind === "video" ? await readVideo(bytes, extOf(mime)) : null;
       const size = kind === "image" ? pngSize(bytes) : video?.facts ?? null;
+      // how the clip's own part looks (mean luma, sharpness), kept with the render: a run of clips that flow on
+      // can then be checked for sliding darker or softer clip after clip (see lookOf)
+      let measure: Measure | null = null;
+      const noteMeasure = async () => {
+        resolved.measure = measure;
+        await this.db.updateTable("generations").set({ resolved: JSON.stringify(resolved) }).where("id", "=", generationId).execute();
+      };
+      if (video?.facts) {
+        measure = await lookOf(bytes, extOf(mime), resume.overlap?.headMs ?? 0).catch(() => null);
+        if (measure) await noteMeasure();
+      }
       // a clip that opens on the end of another one is shown by its own first frame, not by the other's
       const own = video?.frame && resume.overlap?.headMs ? await frameAt(bytes, extOf(mime), resume.overlap.headMs).catch(() => null) : null;
       // a small version for the library grid; without one the grid falls back to the picture itself
@@ -1165,6 +1176,21 @@ export class Queue {
         if (latentFrames) {
           latentKey = `assets/${id.slice(0, 2)}/${id}.latent.safetensors`;
           await this.storage.put(latentKey, bytes);
+        }
+        // a join made in the latent: how wide its regenerated run-up came out against the tail it was guided
+        // by, read from the two latents (the clip before's is the one its join took)
+        const overlap = resume.overlap;
+        const prevSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "previous") as (InputSpec & { fps?: number }) | undefined;
+        const prevValue = prevSpec ? (input[prevSpec.id] as ClipValue | undefined) : undefined;
+        if (measure && overlap?.latent && overlap.headMs > 0 && latentFrames && prevValue?.asset) {
+          const shown = await this.db.selectFrom("assets").selectAll().where("id", "=", prevValue.asset).executeTakeFirst();
+          const before = shown ? await this.renderedOf(shown) : null;
+          const beforeBytes = before?.latent_key ? await this.storage.get(before.latent_key).catch(() => null) : null;
+          const drift = beforeBytes ? latentDriftOf(bytes, beforeBytes, Math.round((overlap.headMs / 1000) * (prevSpec?.fps ?? 24))) : null;
+          if (drift) {
+            measure.drift = drift;
+            await noteMeasure();
+          }
         }
         latent = null;
       }

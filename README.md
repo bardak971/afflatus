@@ -65,7 +65,7 @@ Three scripts talk to a ComfyUI, all read-only: `comfy:scan <url>` (what is read
 
 A release is a tag: `git tag v0.1.0 && git push --tags` runs the tests, builds the image and the three bundles, and publishes a GitHub release with them ([.github/workflows/release.yml](.github/workflows/release.yml)). The staging and packing scripts are in [scripts/release](scripts/release).
 
-The design notes are in [docs](docs): the architecture, the prompting research behind the designer's guides, and the plans of the larger parts.
+Step by step, per way of running it: [Windows, Linux and macOS](docs/install-desktop.md) · [Docker](docs/install-docker.md) · [Kubernetes with the Helm chart](docs/install-cluster.md) · [from the sources, and contributing](docs/develop.md). The design notes are in [docs](docs) too: the architecture, the prompting research behind the designer's guides, and the plans of the larger parts.
 
 ## License
 

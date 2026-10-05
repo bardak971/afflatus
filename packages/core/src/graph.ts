@@ -43,7 +43,25 @@ export interface BuiltGraph {
    * The parts of a video that repeat its neighbours: its start replays the end of the clip it continues,
    * its end replays the start of the clip it arrives at. A timeline skips them, so the join is seamless.
    */
-  overlap?: { headMs: number; tailMs: number; /** The start continues the clip before's own latent (the Afflatus node pack), not re-encoded frames. */ latent?: boolean };
+  overlap?: {
+    headMs: number;
+    tailMs: number;
+    /** The start continues the clip before's own latent (the Afflatus node pack): its run-up and its sound are the latent's. */
+    latent?: boolean;
+    /** With `latent`: the picture guide is the clip before's re-encoded frames, not its exact latent (a chain of exact latents drifts). */
+    frames?: boolean;
+  };
+}
+
+/**
+ * How a clip joins the clip before: "latent" continues its exact latent, "hybrid" its re-encoded frames for the
+ * picture and its latent for the sound and the run-up (what Auto does), "pixels" pinned frames and re-encoded
+ * sound (ComfyUI alone); null when it starts on its own.
+ */
+export type JoinKind = "latent" | "hybrid" | "pixels";
+export function joinKindOf(overlap: BuiltGraph["overlap"] | undefined): JoinKind | null {
+  if (!overlap || overlap.headMs <= 0) return null;
+  return overlap.latent ? (overlap.frames ? "hybrid" : "latent") : "pixels";
 }
 
 /** Nodes are numbered in insertion order and tagged with the phase that was current when they were added. */

@@ -41,6 +41,7 @@ export interface H3Video {
   smooth: boolean;
   quick: boolean;
   cache: boolean;
+  joinFrom: string;
   upscale: string;
   upscaleBy: number;
   upscaleModel: string;
@@ -68,10 +69,17 @@ export interface H3Video {
  */
 export const H3_JOIN_FRAMES = [22, 5];
 /**
- * The Afflatus node pack: a clip continues from the latent of the clip before, no re-encoded frames — the
- * window (a hidden overlap, then the new frames), the tail guide, the window sampled and decoded as the clip.
+ * The Afflatus node pack: a clip continues from the latent of the clip before — the window (a hidden overlap,
+ * then the new frames), a tail guide at frame zero, the window sampled and decoded as the clip.
  */
 export const H3_CONTINUATION_NODES = ["AfflatusLoadH3Latent", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide"];
+/**
+ * The tail guide Auto uses: the clip before's last frames re-encoded for the picture, its exact latent for the
+ * sound and the run-up. Measured on chains (2026-10-05): a window guided by the exact sampled latent copies the
+ * tail 2–4 % wider in every channel at every hop, nothing re-anchors it to real pixels, and the chain gets softer
+ * and darker clip after clip; frames encoded by the VAE have no such direction. The sound does not drift.
+ */
+export const H3_TAIL_GUIDE = "AfflatusH3TailGuide";
 /** The clip after's first tokens anchored at the window's end: a clip put between two others lands exactly on the next (the same pack). */
 export const H3_HEAD_GUIDE = "AfflatusH3LatentHeadGuide";
 /** The clip's own sampled window kept beside it, its audio rounded to its frame boundary, for the clips that continue it or land on it. */
@@ -157,6 +165,10 @@ export const h3Video = defineRecipe<H3Video>({
     {
       id: "context", type: "choice", label: "Frames from the clip before", options: [...H3_LANDINGS], default: "22", showWhen: "previous", advanced: true, section: "rare",
       note: "pinned at the start as the run-up: 5 is a position, 22 brings its motion and voice too, 39 a long run-in. When the join jumps, try another count",
+    },
+    {
+      id: "joinFrom", type: "choice", label: "Continue from", options: ["Auto", "Latent", "Frames"], default: "Auto", showWhen: "previous", advanced: true, section: "rare",
+      note: "what of the clip before guides this one. Auto: its last frames re-encoded for the picture, its own latent for the sound and the run-up (the Afflatus node pack; without it, frames). Latent: its exact latent for both, the closest join, but a chain of them gets softer and darker clip after clip. Frames: re-encoded frames and sound, ComfyUI alone",
     },
     {
       id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "landing", fps: H3_FPS, advanced: true,
@@ -279,7 +291,7 @@ export const h3Video = defineRecipe<H3Video>({
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...H3_CONTINUATION_NODES, H3_HEAD_GUIDE, ...H3_SAVE_LATENT,
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...H3_CONTINUATION_NODES, H3_TAIL_GUIDE, H3_HEAD_GUIDE, ...H3_SAVE_LATENT,
     "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     "MMH3UltimateUpscale", "MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams", "MMH3SpatialSplitParams", "MMH3TemporalSplitParams",
   ],
@@ -302,7 +314,12 @@ export const h3Video = defineRecipe<H3Video>({
     // continued from it (the motion, the look and the voice carry on as they are) instead of from its frames
     const prevLatent = input.previous ? uploads["previous.latent"] : undefined;
     const prevFrames = media.previous?.latentFrames ?? 0;
-    const latentJoin = Boolean(prevLatent && prevFrames >= head && H3_CONTINUATION_NODES.every((n) => ctx.has(n)));
+    const canLatent = Boolean(prevLatent && prevFrames >= head && H3_CONTINUATION_NODES.every((n) => ctx.has(n)));
+    // Auto: the run-up and the sound from the latent, the picture guide from the clip's re-encoded frames (a chain
+    // stays anchored to real pixels). The exact latent only when asked. An older pack without that guide, or
+    // none: the frames, as ComfyUI alone does it, rather than a chain that drifts
+    const hybrid = canLatent && input.joinFrom === "Auto" && ctx.has(H3_TAIL_GUIDE);
+    const latentJoin = hybrid || (canLatent && input.joinFrom === "Latent");
     // the clip after's own latent: the clip lands on its first tokens (after that clip's own overlap, when it has one)
     const nextLatent = input.next ? uploads["next.latent"] : undefined;
     const nextAt = media.next?.latentAt ?? 0;
@@ -407,8 +424,12 @@ export const h3Video = defineRecipe<H3Video>({
         ...(facts?.hasSound === false ? {} : { audio: [parts, 1] }),
       });
     };
-    if (window && prev) positive = g.out("MiniMaxH3LatentTailGuide", { positive, previous_av_latent: prev, target_av_latent: latent, overlap_video_tokens: [window, 2], overlap_audio_tokens: [window, 3] });
-    else if (input.previous) pin(uploads.previous, media.previous, 0);
+    if (window && prev) {
+      const tail = { positive, previous_av_latent: prev, target_av_latent: latent, overlap_video_tokens: [window, 2] as Ref, overlap_audio_tokens: [window, 3] as Ref };
+      positive = hybrid
+        ? g.out(H3_TAIL_GUIDE, { ...tail, frames: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: uploads.previous }) }), 0], vae })
+        : g.out("MiniMaxH3LatentTailGuide", tail);
+    } else if (input.previous) pin(uploads.previous, media.previous, 0);
     if (latentLanding) positive = g.out(H3_HEAD_GUIDE, { positive, next_av_latent: g.out("AfflatusLoadH3Latent", { latent: nextLatent }), target_av_latent: latent, guide_frames: tail, skip_frames: nextAt });
     else if (input.next) pin(uploads.next, media.next, -tail);
     // a picture the clip passes through: one frame pinned at its moment, counted after the frames shared with the clip before
@@ -497,7 +518,7 @@ export const h3Video = defineRecipe<H3Video>({
       totalSteps: steps,
       passes: [{ node: sampled, steps }],
       loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...late.loads],
-      ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}) } } : {}),
+      ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}), ...(hybrid ? { frames: true } : {}) } } : {}),
     };
   },
 
@@ -534,6 +555,8 @@ export const h3Video = defineRecipe<H3Video>({
         input: { description: "a", previous: { asset: "c1" }, start: "ignored" },
         slots: all, uploads: { previous: "a.mp4", start: "a.png" }, media: { previous: joined },
       },
+      // (the latent routes are not variants: nodes() declares the pixel route, which is always possible; the
+      // recipe tests build them and check them against the catalog)
       {
         name: "between two clips, the next one silent and short",
         input: { description: "a", previous: { asset: "c1", at: 3000 }, next: { asset: "c2" }, end: "ignored" },

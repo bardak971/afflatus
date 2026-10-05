@@ -12,6 +12,7 @@ metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}.
 import json
 import os
 
+import comfy.utils
 import folder_paths
 import node_helpers
 import safetensors.torch
@@ -22,7 +23,12 @@ from comfy_api.latest import io
 from .continuation_nodes import (
     AUDIO_LATENT_FPS,
     _existing_keyframes,
+    _reject_conflicting_head_guides,
     _require_native_arbitrary_guides,
+    _validate_append_compatibility,
+    _validate_overlap_tokens,
+    frame_count_from_video_latent_t,
+    validate_h3_av_latent,
     validate_h3_av_window,
     video_latent_t,
 )
@@ -232,6 +238,73 @@ class AfflatusH3LatentHeadGuide(io.ComfyNode):
                 "resolved_frame_index": at,
                 "latent": next_video[:, :, skip_t : skip_t + guide_t].clone(),
                 "audio_latent": next_audio[..., skip_a : skip_a + guide_a].clone(),
+            }
+        )
+        keyframes.sort(key=lambda keyframe: float(keyframe["resolved_frame_index"]))
+        return io.NodeOutput(node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes}))
+
+
+class AfflatusH3TailGuide(io.ComfyNode):
+    """The clip before's tail as the frame-zero guide: its decoded frames re-encoded for the picture, its own latent for the sound.
+
+    Measured on chains of continuations (Afflatus, 2026-10-05): a window guided by the clip before's *sampled*
+    latent reproduces that tail almost exactly (correlation 0.999), but 2 to 4 % wider in every latent channel,
+    with the same small per-channel biases at every hop. Nothing re-anchors the chain to real pixels, so the
+    error compounds: clip after clip the picture gets softer and darker. A guide encoded from the decoded frames
+    has no such direction (the VAE's encoder puts it back on its own manifold), and a chain of those stays flat.
+    The sound shows no drift and the exact audio latent keeps the voice, so it is used as it is.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusH3TailGuide",
+            display_name="Afflatus: H3 Tail Guide",
+            category="Afflatus",
+            description="Conditions a continuation window on the clip before's tail like the MiniMax H3 Latent Tail Guide, but the picture guide is encoded from the clip's decoded frames (connect its last frames and the video VAE) while the sound guide stays its exact audio latent. The round trip re-anchors each clip to real pixels: a chain continued from exact latents gets softer and darker clip after clip, the sound does not drift and keeps the voice. Without frames it is the exact latent tail guide.",
+            inputs=[
+                io.Conditioning.Input("positive", tooltip="Positive conditioning for the complete continuation window."),
+                io.Latent.Input("previous_av_latent", tooltip="The clip before's own latent (as Load H3 Latent gives it)."),
+                io.Latent.Input("target_av_latent", tooltip="The continuation window that will be sampled."),
+                io.Int.Input("overlap_video_tokens", min=1, force_input=True),
+                io.Int.Input("overlap_audio_tokens", min=1, force_input=True),
+                io.Image.Input("frames", optional=True, tooltip="The clip before's last frames, as the model made them (at least as many as the overlap: 22 for 7 tokens; the last ones are taken). Resized to the window's frame."),
+                io.Vae.Input("vae", optional=True, tooltip="The MiniMax H3 video VAE, to encode the frames."),
+            ],
+            outputs=[io.Conditioning.Output(display_name="positive")],
+            is_experimental=True,
+        )
+
+    @classmethod
+    def execute(cls, positive, previous_av_latent, target_av_latent, overlap_video_tokens: int, overlap_audio_tokens: int, frames=None, vae=None) -> io.NodeOutput:
+        _require_native_arbitrary_guides()
+        previous_video, previous_audio, previous_frame_count = validate_h3_av_latent(previous_av_latent, name="previous_av_latent")
+        target_video, target_audio, _target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
+        _validate_append_compatibility(previous_video, previous_audio, target_video, target_audio)
+        _validate_overlap_tokens(overlap_video_tokens, overlap_audio_tokens, int(target_video.shape[2]), int(target_audio.shape[-1]), previous_frame_count)
+        guide_frames = frame_count_from_video_latent_t(overlap_video_tokens)
+        if frames is not None:
+            if vae is None:
+                raise ValueError("encoding the frames needs the vae input (the MiniMax H3 video VAE)")
+            if int(frames.shape[0]) < guide_frames:
+                raise ValueError(f"the tail guide needs the clip before's last {guide_frames} frames, got {int(frames.shape[0])}")
+            height = int(target_video.shape[3]) * 16
+            width = int(target_video.shape[4]) * 16
+            tail = frames[-guide_frames:][..., :3].movedim(-1, 1)
+            tail = comfy.utils.common_upscale(tail, width, height, "lanczos", "center").movedim(1, -1)
+            video_guide = vae.encode(tail)
+            if video_guide.ndim != 5 or int(video_guide.shape[2]) != overlap_video_tokens:
+                raise ValueError(f"the encoded frames give {tuple(video_guide.shape)}: not the {overlap_video_tokens} video tokens of the overlap")
+            video_guide = video_guide.to(device=target_video.device, dtype=target_video.dtype)
+        else:
+            video_guide = previous_video[:, :, -overlap_video_tokens:].clone()
+        keyframes = _existing_keyframes(positive)
+        _reject_conflicting_head_guides(keyframes, guide_frames)
+        keyframes.append(
+            {
+                "resolved_frame_index": 0,
+                "latent": video_guide,
+                "audio_latent": previous_audio[..., -overlap_audio_tokens:].clone(),
             }
         )
         keyframes.sort(key=lambda keyframe: float(keyframe["resolved_frame_index"]))

@@ -45,7 +45,7 @@ export async function makeApp(opts: { db?: Db; dir?: string; comfyUrl?: string }
   await writeSettings(db, { comfyUrl: opts.comfyUrl ?? NOWHERE });
   const dir = opts.dir ?? mkdtempSync(join(tmpdir(), "afflatus-test-"));
   const services = await createServices(db, "sqlite", new LocalStorage(dir), FAST);
-  const app = buildApp(services);
+  const app = buildApp(services, { backup: { dataDir: dir, filesDir: dir } });
   return {
     app, services, db, dir,
     async close() {

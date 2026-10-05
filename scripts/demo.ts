@@ -165,7 +165,7 @@ await seedHistory(db);
 const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")));
 // WEB_DIR: another build of the web app than the one `pnpm start` serves
 const dist = process.env.WEB_DIR ? join(root, process.env.WEB_DIR) : join(root, "apps/web/dist");
-const app = buildApp(services, { webDir: existsSync(join(dist, "index.html")) ? dist : undefined });
+const app = buildApp(services, { webDir: existsSync(join(dist, "index.html")) ? dist : undefined, backup: { dataDir, filesDir: join(dataDir, "files") } });
 const port = Number(process.env.PORT) || 8720;
 await app.listen({ host: "127.0.0.1", port });
 await services.queue.start();

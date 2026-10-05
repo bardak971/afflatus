@@ -1,0 +1,76 @@
+# Afflatus on Kubernetes: one pod, its data on a volume. ComfyUI is not part of this: it runs where the GPU is,
+# and Afflatus is given its address in Settings once it is up (the setting lives in the data volume).
+
+image:
+  repository: ghcr.io/bardak971/afflatus
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# The GHCR pull secret, while the image is private.
+imagePullSecrets: []
+#  - name: ghcr-pull
+
+# One, always: SQLite in the volume is one writer, and the queue is one worker for one ComfyUI.
+replicas: 1
+
+port: 8720
+
+# Everything Afflatus keeps: the database, the library's files, the settings.
+persistence:
+  enabled: true
+  size: 50Gi
+  storageClassName: longhorn
+  accessModes: [ReadWriteOnce]
+  # An existing claim instead of one made by the chart.
+  existingClaim: ""
+
+# Postgres instead of SQLite, when wanted: a secret holding DATABASE_URL (postgres://…). SQLite is the
+# supported one; Postgres is written and not yet exercised. The files stay on the volume either way.
+database:
+  existingSecret: ""
+  key: DATABASE_URL
+
+# Plain environment for the container (TZ, FFMPEG… ; HOST, PORT and DATA_DIR are set by the chart).
+env: {}
+# Secrets and config maps whole, as environment.
+envFrom: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 2Gi
+
+# The container runs as the image's node user; the volume is made writable for it.
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  runAsNonRoot: true
+
+service:
+  type: ClusterIP
+
+# An Ingress, for clusters that route that way. Left off where a gateway or a central routes app does it
+# (then route to the service `<release>-afflatus` on `port`).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: afflatus.example.com
+  tls: []
+  #  - secretName: afflatus-tls
+  #    hosts: [afflatus.example.com]
+
+# Prometheus: Afflatus serves /metrics on its port (render times, queue). A PodMonitor for kube-prometheus-stack.
+metrics:
+  enabled: false
+  interval: 30s
+  # The label the cluster's Prometheus selects monitors by.
+  labels:
+    release: kube-prometheus-stack
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

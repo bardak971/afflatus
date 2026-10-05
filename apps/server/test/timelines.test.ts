@@ -751,7 +751,7 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     if (v.clips[1].joined === "continue") expect(v.clips[1].join).toBe("fresh");
     // a take says how it joined the clip before (the finished one inherits it) and how long it took
     expect(v.clips[0].take.joinKind).toBeNull();
-    if (v.clips[1].joined === "continue") expect(["latent", "pixels"]).toContain(v.clips[1].take.joinKind);
+    if (v.clips[1].joined === "continue") expect(["latent", "hybrid", "pixels"]).toContain(v.clips[1].take.joinKind);
     expect(v.clips[0].takes[0].renderMs === null || v.clips[0].takes[0].renderMs > 0).toBe(true);
     // the library says which clip each video is a take of
     const listed = (await get(t.app, "/api/assets?kind=video")).json().items as Array<{ id: string; clipOf: Record<string, unknown> | null }>;

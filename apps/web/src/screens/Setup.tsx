@@ -78,8 +78,28 @@ function StorageCard() {
       <div className="text-xs text-ink-3">
         Outputs you do not keep go to the bin after 24 hours{s && s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.
       </div>
+      <Backup />
       <RenderRecord />
     </section>
+  );
+}
+
+/** One zip of everything Afflatus keeps, made while it runs: the database and every file. */
+function Backup() {
+  const plan = useQuery({ queryKey: ["assets", "backup-plan"], queryFn: api.backupPlan, staleTime: 60_000 });
+  const p = plan.data;
+  if (p && !p.available) return null;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-line px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold">Backup</span>
+        <a href="/api/backup.zip" download className="inline-flex h-8 items-center rounded-lg border border-line-strong bg-raised px-3 text-xs font-semibold hover:bg-hover">Back up now{p ? ` · about ${size(p.bytes)}` : ""}</a>
+      </div>
+      <span className="text-xs text-ink-3">
+        One zip, made while Afflatus runs: {p?.database ? "the database (a consistent copy) and " : ""}every file of the library{p ? ` (${p.files} files)` : ""}. Not in it: the files of linked folders, which stay on your disk, and ComfyUI's models.
+        To restore, stop Afflatus, unpack the zip into an empty data folder, and start it again.{p && !p.database ? " With Postgres, back the database up with Postgres's own tools." : ""}
+      </span>
+    </div>
   );
 }
 
@@ -844,13 +864,21 @@ function NodePackLine() {
   const pack = useQuery({ queryKey: ["node-pack", settings.data?.comfyDir], queryFn: api.nodePack, enabled: Boolean(settings.data), staleTime: 30_000 });
   if (!pack.data) return null;
   const p = pack.data;
+  const why = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
   return (
-    <div className="text-xs text-ink-2">
-      {p.loaded
-        ? <>Afflatus's node pack is loaded in ComfyUI: MiniMax H3 clips on a timeline continue from the clip before's own latent.</>
-        : p.written
-          ? <span className="text-warn-ink">Afflatus's node pack was written to ComfyUI's custom_nodes folder: <span className="font-semibold">restart ComfyUI</span> to load it. It lets MiniMax H3 clips continue from the clip before's own latent (no jump at the join).</span>
-          : <>With the folder set, Afflatus puts its node pack in ComfyUI's custom_nodes: MiniMax H3 clips then continue from the clip before's own latent, which keeps the motion, the look and the voice across the join.</>}
+    <div className="flex flex-col gap-1.5 text-xs text-ink-2">
+      {p.loaded ? (
+        <span>Afflatus's node pack is loaded in ComfyUI. {why}</span>
+      ) : p.written ? (
+        <span className="text-warn-ink">Afflatus's node pack was written to ComfyUI's custom_nodes folder: <span className="font-semibold">restart ComfyUI</span> to load it. {why}</span>
+      ) : p.canWrite ? (
+        <span>With the folder set, Afflatus puts its node pack in ComfyUI's custom_nodes. {why}</span>
+      ) : (
+        <span>
+          ComfyUI's folder is not on this computer, so Afflatus cannot write its node pack there. Install it once by hand:{" "}
+          <a href="/api/comfy/node-pack.zip" download className="font-semibold text-ink underline">download the node pack</a>, unpack it into ComfyUI's <span className="font-mono">custom_nodes</span> folder (it makes <span className="font-mono">custom_nodes/afflatus-nodes/</span>) and restart ComfyUI. {why}
+        </span>
+      )}
     </div>
   );
 }
@@ -1191,6 +1219,7 @@ const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
   { tab: "storage", label: "Empty the bin", words: "trash delete" },
   { tab: "storage", label: "Takes that never play", words: "idle" },
   { tab: "storage", label: "Render times kept for", words: "history retention days forget" },
+  { tab: "storage", label: "Back up now", words: "backup zip export restore database files" },
   { tab: "notifications", label: "Notify when the queue is empty", words: "browser notification" },
   { tab: "notifications", label: "Notify after each render", words: "browser notification" },
   { tab: "about", label: "Version", words: "about license source github" },

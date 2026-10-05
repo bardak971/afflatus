@@ -19,6 +19,16 @@ afterEach(async () => {
 const info = async () => (await get(t.app, "/api/models/loras/info")).json() as { items: Record<string, unknown>; pending: number };
 
 describe("what model files say about themselves", () => {
+  it("reads the whole header through the node pack's route when ComfyUI has it, and tells the model from the tensors", async () => {
+    // the pretend ComfyUI has the pack: a LoRA with an empty metadata gives its tensors, which say it is a Krea 2 LoRA
+    fake.headers = { "loras/plain.safetensors": { __metadata__: {}, "diffusion_model.blocks.0.attn.wq.lora_A.weight": { dtype: "BF16", shape: [16, 6144] }, "diffusion_model.txtfusion.layerwise_blocks.0.attn.wk.lora_A.weight": { dtype: "BF16", shape: [16, 2560] } } };
+    await until(async () => (await info()).pending === 0);
+    expect((await info()).items["plain.safetensors"]).toEqual({ base: "Krea 2" });
+    // the route was asked for every file, the metadata only for the ones the route did not have
+    expect(fake.calls.filter((c) => c.includes("/afflatus/header")).length).toBe(3);
+    expect(fake.calls.filter((c) => c.includes("/view_metadata/")).length).toBe(2);
+  });
+
   it("is read in the background, once, and only with read-only calls", async () => {
     // the first answer comes at once, before anything was read
     expect(await info()).toEqual({ items: {}, pending: 3 });

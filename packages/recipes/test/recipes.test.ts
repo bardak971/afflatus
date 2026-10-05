@@ -1045,7 +1045,7 @@ describe("H3's upscale pass", () => {
     expect((node(b, "VAEDecodeTiled")[0] ?? node(b, "VAEDecode")[0])!.inputs.samples).toEqual((node(b, "VAEDecodeTiled")[0] ?? node(b, "VAEDecode")[0])!.inputs.samples);
   });
 
-  it("continues in the latent with the Afflatus node pack: window, tail guide, the window sampled and decoded as the clip, its latent kept", () => {
+  it("continues in the latent with the Afflatus node pack: window, tail guide on re-encoded frames and the latent's sound, the window sampled and decoded as the clip, its latent kept", () => {
     const joined = { width: 576, height: 1024, frames: 22, fps: 24, hasSound: true, latentFrames: 124 };
     const ctx = (has: (c: string) => boolean = () => true) => dryContext({ slots, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors [temp]" }, media: { previous: joined }, has });
     const b = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5 }), ctx());
@@ -1055,11 +1055,20 @@ describe("H3's upscale pass", () => {
     expect(win.inputs.overlap_frames).toBe(22);
     expect(Number(win.inputs.extension_frames) % 17).toBe(0);
     expect(node(b, "AfflatusLoadH3Latent")[0]!.inputs.latent).toBe("a.safetensors [temp]");
-    // the conditioning takes the window's length, the sampler the window's latent, the guide the previous latent's tail
+    // the conditioning takes the window's length, the sampler the window's latent
     expect(node(b, "MiniMaxH3ImageToVideo")[0]!.inputs.length).toEqual([winId, 1]);
     expect(node(b, "SamplerCustomAdvanced")[0]!.inputs.latent_image).toEqual([winId, 0]);
-    expect(node(b, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
+    // Auto: the guide's picture is the clip before's last frames re-encoded (a chain stays anchored to real
+    // pixels: an exact latent copied hop after hop drifts softer and darker), its sound the latent's tail
+    const guide = node(b, "AfflatusH3TailGuide")[0]!;
+    expect(guide.inputs).toMatchObject({ target_av_latent: [winId, 0], overlap_video_tokens: [winId, 2], overlap_audio_tokens: [winId, 3] });
+    expect(guide.inputs.frames).toBeDefined();
+    expect(guide.inputs.vae).toBeDefined();
+    expect(node(b, "LoadVideo")[0]!.inputs.file).toBe("a.mp4");
+    expect(node(b, "MiniMaxH3LatentTailGuide")).toHaveLength(0);
     expect(node(b, "MiniMaxH3AddGuide")).toHaveLength(0);
+    // the pack's nodes as the catalog knows them (the latent routes are not variants: nodes() declares the pixel route)
+    expect(checkGraph(b, catalog)).toEqual([]);
     // the window itself is decoded (overlap, then the clip's own frames): no cumulative latent, no append
     const sampled = node(b, "SamplerCustomAdvanced")[0]!;
     const sampledId = Object.entries(b.graph).find(([, n]) => n === sampled)![0];
@@ -1070,8 +1079,25 @@ describe("H3's upscale pass", () => {
     expect(norm.inputs.samples).toEqual([sampledId, 0]);
     expect(node(b, "AfflatusSaveH3Latent")).toHaveLength(1);
     expect(b.outputs.map((o) => o.role)).toEqual(["result", "latent"]);
-    // the take will know its start was made in the latent (the export fades such a join over the shared frames)
-    expect(b.overlap).toEqual({ headMs: 917, tailMs: 0, latent: true });
+    // the take will know its start was made in the latent (the export fades such a join over the shared frames), from frames
+    expect(b.overlap).toEqual({ headMs: 917, tailMs: 0, latent: true, frames: true });
+    // asked for the exact latent: the native tail guide, no frames read
+    const exact = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5, joinFrom: "Latent" }), ctx());
+    expect(node(exact, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
+    expect(node(exact, "AfflatusH3TailGuide")).toHaveLength(0);
+    expect(node(exact, "LoadVideo")).toHaveLength(0);
+    expect(exact.overlap).toEqual({ headMs: 917, tailMs: 0, latent: true });
+    expect(checkGraph(exact, catalog)).toEqual([]);
+    // asked for frames: ComfyUI's own pinned frames, no window; the clip's latent is still kept for later
+    const frames = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5, joinFrom: "Frames" }), ctx());
+    expect(node(frames, "MiniMaxH3AddGuide")).toHaveLength(1);
+    expect(node(frames, "MiniMaxH3GuidedContinuationWindow")).toHaveLength(0);
+    expect(frames.overlap).toEqual({ headMs: 917, tailMs: 0 });
+    expect(frames.outputs.map((o) => o.role)).toEqual(["result", "latent"]);
+    // an older pack without the tail guide: Auto takes the frames, not the exact latent that drifts
+    const older = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5 }), ctx((c) => c !== "AfflatusH3TailGuide"));
+    expect(node(older, "MiniMaxH3AddGuide")).toHaveLength(1);
+    expect(node(older, "MiniMaxH3GuidedContinuationWindow")).toHaveLength(0);
     // without the pack: the frames are pinned as before, and no latent is saved
     const plain = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5 }), ctx((c) => !c.startsWith("Afflatus") && !c.startsWith("MiniMaxH3Guided") && !c.startsWith("MiniMaxH3Latent")));
     expect(node(plain, "MiniMaxH3AddGuide")).toHaveLength(1);
@@ -1086,17 +1112,17 @@ describe("H3's upscale pass", () => {
     const b = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, next: { asset: "c2" }, seconds: 5 }), dryContext({ slots, uploads, media: { previous: joined, next: { ...joined, latentAt: 22 } } }));
     const win = node(b, "MiniMaxH3GuidedContinuationWindow")[0]!;
     const winId = Object.entries(b.graph).find(([, n]) => n === win)![0];
-    expect(node(b, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
+    expect(node(b, "AfflatusH3TailGuide")).toHaveLength(1);
     const headGuide = node(b, "AfflatusH3LatentHeadGuide")[0]!;
     expect(headGuide.inputs).toMatchObject({ guide_frames: 22, skip_frames: 22, target_av_latent: [winId, 0] });
     expect(node(b, "AfflatusLoadH3Latent").map((n) => n.inputs.latent).sort()).toEqual(["a.safetensors [temp]", "b.safetensors [temp]"]);
     expect(node(b, "MiniMaxH3AddGuide")).toHaveLength(0);
     // the window holds the overlap, the clip's own frames and the frames it lands on: the last 22 are the clip after's
     expect(Number(win.inputs.extension_frames) % 17).toBe(0);
-    expect(b.overlap).toEqual({ headMs: 917, tailMs: 917, latent: true });
+    expect(b.overlap).toEqual({ headMs: 917, tailMs: 917, latent: true, frames: true });
     // the clip after without a latent: its frames are pinned at the end as before, the start stays in the latent
     const mixed = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, next: { asset: "c2" }, seconds: 5 }), dryContext({ slots, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors [temp]", next: "b.mp4" }, media: { previous: joined, next: joined } }));
-    expect(node(mixed, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
+    expect(node(mixed, "AfflatusH3TailGuide")).toHaveLength(1);
     expect(node(mixed, "AfflatusH3LatentHeadGuide")).toHaveLength(0);
     expect(node(mixed, "MiniMaxH3AddGuide")).toHaveLength(1);
     expect(node(mixed, "MiniMaxH3AddGuide")[0]!.inputs.frame_idx).toBe(-22);

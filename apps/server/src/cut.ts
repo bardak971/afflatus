@@ -279,6 +279,70 @@ export interface ExportPart {
 /** How long a continuation fades in over the clip before, which holds its last frame meanwhile: four frames at 24 a second. */
 export const BLEND_MS = 170;
 
+/** How a video's own part looks, measured on its real frames when it was stored (see lookOf). */
+export interface Measure {
+  /** Mean luma, 0 to 255. */
+  luma: number;
+  /** Sharpness: the mean absolute Laplacian of a 256-pixel-wide grey copy. 0 is flat, several units is crisp. */
+  sharp: number;
+  /** Mean chroma against neutral: U is blue (+) to yellow (−), V red (+) to green (−); −128 to 127. */
+  chroma?: { u: number; v: number };
+  /** Where the darkest and the brightest tenth of the picture sit in luma (signalstats YLOW and YHIGH). */
+  range?: { low: number; high: number };
+  /** Exposure flicker: the mean change of the frame's mean luma from one sampled frame to the next, as a percentage of the mean (12 samples a second). */
+  flicker?: number;
+  /** Pace: the mean frame-to-frame difference on a small grey copy, ten samples a second (the ruler's motion figure). */
+  pace?: number;
+  /** The sound's spectral centroid in Hz, where its energy sits: a voice that dulls drifts down. null without sound. */
+  voice?: number | null;
+  /** A join made in the latent: how wide the regenerated run-up came out against the latent tail it was guided by, as a ratio over the channels (1 = the same). */
+  drift?: { width: number };
+}
+
+/**
+ * How a video's own part looks, in a few numbers measured on its real frames: mean luma, sharpness, chroma,
+ * luma range, flicker, pace and the sound's centre of weight (see Look). From `fromMs` on (a continuation's
+ * own part, after the frames it shares with the clip before). For telling whether a run of clips that flow
+ * on slides darker, softer, duller or slower clip after clip. Four small ffmpeg passes, under a second each.
+ */
+export async function lookOf(source: Uint8Array, ext: string, fromMs = 0): Promise<Measure | null> {
+  return inTemp(async (dir) => {
+    const input = join(dir, `in.${ext}`);
+    await writeFile(input, source);
+    const run = (args: string[]) => must(tools.ffmpeg, ["-loglevel", "error", "-ss", (Math.max(0, fromMs) / 1000).toFixed(3), "-i", input, ...args, "-f", "null", "-"], { timeout: 5 * 60_000 }).catch(() => "");
+    const pick = (said: string, key: string) => [...said.matchAll(new RegExp(`lavfi\\.${key}=(-?[\\d.]+)`, "g"))].map((m) => Number(m[1])).filter((v) => Number.isFinite(v));
+    const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+    const r1 = (x: number) => Math.round(x * 10) / 10;
+    const r2 = (x: number) => Math.round(x * 100) / 100;
+    // luma, its spread and the chroma, 12 frames a second on a small colour copy
+    const stats = await run(["-an", "-vf", "fps=12,scale=256:-2,signalstats,metadata=print:file=-"]);
+    const yavg = pick(stats, "signalstats\\.YAVG");
+    if (!yavg.length) return null;
+    // the Laplacian around 128, folded to its size: its mean over the frame is the sharpness
+    const sharp = pick(await run(["-an", "-vf", "fps=4,scale=256:-2,format=gray,convolution=0m='0 -1 0 -1 4 -1 0 -1 0':0bias=128,lutyuv=y='if(gt(val\\,128)\\,val-128\\,128-val)',signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-"]), "signalstats\\.YAVG");
+    if (!sharp.length) return null;
+    // the motion, as the ruler measures it (the first sample is a frame against nothing)
+    const pace = pick(await run(["-an", "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`]), "signalstats\\.YAVG").slice(1);
+    // the sound's spectral centroid; nothing when there is no sound (or no such filter)
+    const centroid = pick(await run(["-vn", "-af", "aspectralstats=measure=centroid,ametadata=print:key=lavfi.aspectralstats.1.centroid:file=-"]), "aspectralstats\\.1\\.centroid");
+    const luma = mean(yavg);
+    const steps = yavg.slice(1).map((v, i) => Math.abs(v - yavg[i]!));
+    const u = pick(stats, "signalstats\\.UAVG");
+    const v = pick(stats, "signalstats\\.VAVG");
+    const low = pick(stats, "signalstats\\.YLOW");
+    const high = pick(stats, "signalstats\\.YHIGH");
+    return {
+      luma: r1(luma),
+      sharp: r2(mean(sharp)),
+      ...(u.length && v.length ? { chroma: { u: r1(mean(u) - 128), v: r1(mean(v) - 128) } } : {}),
+      ...(low.length && high.length ? { range: { low: r1(mean(low)), high: r1(mean(high)) } } : {}),
+      flicker: steps.length ? r2((mean(steps) / Math.max(1, luma)) * 100) : 0,
+      pace: pace.length ? r2(mean(pace)) : 0,
+      voice: centroid.length ? Math.round(mean(centroid)) : null,
+    };
+  });
+}
+
 /** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
 async function meansOf(file: string, fromSec: number, seconds: number): Promise<{ y: number; u: number; v: number } | null> {
   const said = await must(tools.ffmpeg, ["-loglevel", "error", "-ss", Math.max(0, fromSec).toFixed(3), "-t", seconds.toFixed(3), "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"]).catch(() => "");
