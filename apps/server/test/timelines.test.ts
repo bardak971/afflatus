@@ -7,7 +7,9 @@ import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { Graph } from "@afflatus/core";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { colourNudge, cutFrames, frameAt, MATCH, referenceClip } from "../src/cut";
+import { OWNER } from "../src/db";
 import { pngSize } from "../src/media";
+import { EXPORT_JOB } from "../src/timelines";
 import { readVideo } from "../src/video";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 import { makePng } from "@afflatus/comfy/testing";
@@ -135,6 +137,52 @@ describe.skipIf(!three || !smooth || !silent)("the frames a clip joins onto", ()
   it("one frame comes out as a picture, the last one when the moment is past the end", async () => {
     expect(pngSize(await frameAt(three!, "mp4", 1500))).toEqual({ width: 192, height: 320 });
     expect(pngSize(await frameAt(three!, "mp4", 9000, 3000))).toEqual({ width: 192, height: 320 });
+  });
+});
+
+describe("a timeline, without rendering anything", () => {
+  it("reads its export state from its own export jobs, however many the other timelines ran since", async () => {
+    const mine = await call("POST", "/api/timelines", { name: "Mine" });
+    const other = await call("POST", "/api/timelines", { name: "Other" });
+    const exportJob = (id: string, timeline: string, status: "done" | "failed", error: string | null, agoMs: number) => {
+      const at = new Date(Date.now() - agoMs).toISOString();
+      return t.db
+        .insertInto("jobs")
+        .values({
+          id, owner_id: OWNER, recipe_id: EXPORT_JOB, label: "export", inputs: JSON.stringify({ timeline, scale: 1, music: true }), status, warm: 0, look: null, priority: 20, depends_on: null,
+          attempts: 1, resume: null, error, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: timeline, draft_id: null, folder_id: null, finished_from: null,
+          created_at: at, started_at: at, finished_at: at, updated_at: at,
+        })
+        .execute();
+    };
+    // mine failed an hour ago; the other timeline exported forty times since, the last one failing too
+    await exportJob("mine-1", mine.id, "failed", "ffmpeg was not found", 3_600_000);
+    for (let i = 0; i < 40; i++) await exportJob(`other-${i}`, other.id, i === 39 ? "failed" : "done", i === 39 ? "the disk is full" : null, 3_600_000 - (i + 1) * 60_000);
+    expect(await view(mine.id)).toMatchObject({ exporting: null, exportFailed: "ffmpeg was not found" });
+    expect(await view(other.id)).toMatchObject({ exporting: null, exportFailed: "the disk is full" });
+    // an export of mine that went through since: nothing to say any more
+    await exportJob("mine-2", mine.id, "done", null, 0);
+    expect((await view(mine.id)).exportFailed).toBeNull();
+  });
+
+  it("takes its frame as one thing: a width without a height is refused", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "Frame" });
+    const half = await t.app.inject({ method: "PATCH", url: `/api/timelines/${tl.id}`, payload: { width: 512 } });
+    expect(half.statusCode).toBe(400);
+    expect((await view(tl.id)).width).toBeNull();
+    expect(await call("PATCH", `/api/timelines/${tl.id}`, { width: 512, height: 768 })).toMatchObject({ width: 512, height: 768 });
+    expect(await call("PATCH", `/api/timelines/${tl.id}`, { width: null, height: null })).toMatchObject({ width: null, height: null });
+  });
+
+  it("takes what Redo remembered with it when it goes", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "Gone" });
+    await call("PATCH", `/api/timelines/${tl.id}`, { name: "Renamed" });
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    const future = () => t.db.selectFrom("timeline_future").select("id").where("timeline_id", "=", tl.id).execute();
+    expect(await future()).toHaveLength(1);
+    await call("DELETE", `/api/timelines/${tl.id}`);
+    expect(await future()).toHaveLength(0);
+    expect((await get(t.app, `/api/timelines/${tl.id}`)).statusCode).toBe(404);
   });
 });
 
@@ -826,11 +874,12 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
       expect(c.take.id).toBe(done.id);
       expect(done.asset.name).toMatch(/finished ×2 \(upscale model\)/);
     }
-    // the finished takes stand for their drafts: a clip that followed the clip before still does
-    if (v.clips[1].joined === "continue") expect(v.clips[1].join).toBe("fresh");
+    // the second clip was rendered as a cut (see twoRendered): finishing does not make it follow the first, and its takes know no join
+    expect(v.clips[1].joined).toBe("cut");
+    expect(v.clips[1].join).toBe("cut");
     // a take says how it joined the clip before (the finished one inherits it) and how long it took
     expect(v.clips[0].take.joinKind).toBeNull();
-    if (v.clips[1].joined === "continue") expect(["latent", "hybrid", "pixels"]).toContain(v.clips[1].take.joinKind);
+    expect(v.clips[1].take.joinKind).toBeNull();
     expect(v.clips[0].takes[0].renderMs === null || v.clips[0].takes[0].renderMs > 0).toBe(true);
     // the library says which clip each video is a take of
     const listed = (await get(t.app, "/api/assets?kind=video")).json().items as Array<{ id: string; clipOf: Record<string, unknown> | null }>;

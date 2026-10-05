@@ -26,7 +26,7 @@ import { checkOutput, type OutputCheck } from "./outputChecks";
  * Why a call never got an answer, in words: Node says "fetch failed" for every network failure and keeps
  * the reason in the error's cause (the address did not resolve, nothing listens there, it timed out).
  */
-export function whyNoAnswer(err: unknown): string {
+function whyNoAnswer(err: unknown): string {
   const e = err as Error & { cause?: { code?: string; message?: string }; name?: string };
   const code = e.cause?.code ?? "";
   if (e.name === "TimeoutError" || code === "UND_ERR_CONNECT_TIMEOUT" || code === "ETIMEDOUT") return "it took too long to answer (timed out).";

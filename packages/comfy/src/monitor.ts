@@ -302,6 +302,19 @@ export class Monitor {
       this.current = r;
     } else if (msg.type === "progress") {
       const node = String(d.node ?? "");
+      // tiled VAE decodes and upscale models report their tiles as progress too: they are not steps of the
+      // bar (counting them after the first sampler pins it at 0.99 and collapses the time left), but they do
+      // say which phase the render is on. Only a node whose phase is unknown is taken for a sampler on trust
+      const phase = r.phases[node];
+      const samples = phase === undefined || SAMPLER_PHASES.includes(phase) || Boolean(r.passes?.some((p) => p.node === node));
+      if (!samples) {
+        r.executing = node;
+        if (phase) r.phase = phase;
+        this.current = r;
+        r.clock.phase = Monitor.phaseOf(r);
+        this.onChange(r.promptId);
+        return;
+      }
       this.catchUp(r, node);
       // a new node reporting steps means the previous sampler is finished
       if (r.node && node !== r.node && r.max > 0 && r.value >= r.max) r.done += r.max;

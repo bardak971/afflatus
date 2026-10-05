@@ -28,6 +28,10 @@ spec:
         - name: afflatus
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.port }}
@@ -56,6 +60,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            # the server's working copies for ffmpeg (trims, exports, the backup's database copy) go to /tmp:
+            # a scratch volume of the pod's own, so the image's root can be read-only
+            - name: tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
@@ -78,6 +86,8 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: tmp
+          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

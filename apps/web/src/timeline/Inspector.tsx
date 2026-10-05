@@ -1,11 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ChevronDown, ChevronLeft, ImagePlus, Link2, Music, Repeat, Scissors, Trash2, Wand2, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ImagePlus, Music, Trash2, Wand2, X } from "lucide-react";
 import { secondsInput } from "@afflatus/core";
 import { api, thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
-import { WritingHelp } from "../Designer";
+import { WritingHelp } from "../WritingHelp";
 import { appendTo } from "../promptText";
 import { LookBar, lookWords } from "../LookBar";
 import { FormModel } from "../ModelLoad";
@@ -13,7 +13,7 @@ import { about, aboutMs, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { Select } from "../Select";
-import { AutoText, Bar, Button, cx, ErrorNote, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
+import { AutoText, Bar, Button, cx, ErrorNote, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
 import { usePanelWidth } from "../store";
 import { otherShape, pinInputs, shapeOf } from "./model";
 import { DRAG_PICTURE, useDropZone } from "../dragging";
@@ -133,7 +133,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     }
   };
   const takes = aboutMs(takesMs === null ? null : takesMs * count);
-  const [removing, setRemoving] = useState(false);
   const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
   const recipe = recipes.find((r) => r.id === clip.recipe) ?? all.data?.recipes.find((r) => r.id === clip.recipe);
   const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
@@ -189,17 +188,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         <span className="font-semibold">{still ? "Still" : "Clip"} {index + 1}</span>
         <span className="text-ink-2">{clip.lengthMs ? `${(clip.lengthMs / 1000).toFixed(1)} s` : "not rendered yet"}</span>
         <span className="grow" />
-        {removing ? (
-          <>
-            <span className="text-xs text-ink-2">{still ? "The image stays in your library." : "Its videos stay in your library."}</span>
-            <button type="button" onClick={onRemove} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Remove</button>
-            <button type="button" onClick={() => setRemoving(false)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
-          </>
-        ) : (
-          <button type="button" aria-label="Remove from timeline" title="Remove from timeline" onClick={() => setRemoving(true)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-            <Trash2 size={15} />
-          </button>
-        )}
+        <TwoStep title="Remove from timeline" icon={<Trash2 size={15} />} note={still ? "The image stays in your library." : "Its videos stay in your library."} yes="Remove" onYes={onRemove} className="rounded-lg" />
       </div>
 
       <div className="flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4">

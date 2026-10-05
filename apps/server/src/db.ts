@@ -51,6 +51,11 @@ export interface Tables {
     latent_frames: number | null;
     /** null = not kept: goes to the bin after a day. */
     kept_at: string | null;
+    /**
+     * When the one-day countdown of a result nobody kept started, when it did not start at its making:
+     * unkeeping it and taking it back from the bin start the day again. null = it counts from created_at.
+     */
+    countdown_from: string | null;
     /** set = in the bin. */
     deleted_at: string | null;
     /** Of a file of a linked folder that is in the bin: where it was on the disk, to put it back there. */
@@ -147,6 +152,8 @@ export interface Tables {
     generation_id: string | null;
     /** The timeline clip this renders a take of, when it is one. */
     clip_id: string | null;
+    /** The timeline an export or a cut job works on, when it works on one: the timeline's export state is read by it. */
+    timeline_id: string | null;
     /** For a clip: whether the take should end where the next clip begins (0 / 1). */
     clip_fit: number;
     /** A finish job: the take whose finished version its result is. */
@@ -670,6 +677,42 @@ migrations["0013_model_pages"] = {
   },
 };
 
+migrations["0033_countdown_from"] = {
+  async up(db) {
+    // a result nobody kept counts its day from here when it is set (unkept again, or back from the bin), else from its making
+    await db.schema.alterTable("assets").addColumn("countdown_from", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("assets").dropColumn("countdown_from").execute();
+  },
+};
+
+migrations["0032_job_timeline"] = {
+  async up(db) {
+    await db.schema.alterTable("jobs").addColumn("timeline_id", "text").execute();
+    await db.schema.createIndex("jobs_by_timeline").on("jobs").columns(["timeline_id", "created_at"]).execute();
+    // the exports and cuts there are: an export names its timeline in its inputs, a cut names a clip of one
+    const rows = await db.selectFrom("jobs").select(["id", "recipe_id", "inputs"]).where("recipe_id", "in", ["afflatus.export", "afflatus.cut"]).execute();
+    for (const r of rows) {
+      let inputs: { timeline?: unknown; clip?: unknown };
+      try {
+        inputs = JSON.parse(r.inputs) as { timeline?: unknown; clip?: unknown };
+      } catch {
+        continue;
+      }
+      let timeline = typeof inputs.timeline === "string" ? inputs.timeline : null;
+      if (!timeline && typeof inputs.clip === "string") {
+        timeline = (await db.selectFrom("clips").select("timeline_id").where("id", "=", inputs.clip).executeTakeFirst())?.timeline_id ?? null;
+      }
+      if (timeline) await db.updateTable("jobs").set({ timeline_id: timeline }).where("id", "=", r.id).execute();
+    }
+  },
+  async down(db) {
+    await db.schema.dropIndex("jobs_by_timeline").execute();
+    await db.schema.alterTable("jobs").dropColumn("timeline_id").execute();
+  },
+};
+
 // the app's earlier name, in the kind of an export job
 // a video cut out of another remembers the range
 migrations["0031_take_lead"] = {
@@ -951,9 +994,10 @@ migrations["0011_clip_chat"] = {
   },
 };
 
-export async function migrate(db: Db): Promise<string[]> {
+/** Bring the schema up to date. `upTo`: stop at that migration instead (tests, to seed a database as an older version left it). */
+export async function migrate(db: Db, upTo?: string): Promise<string[]> {
   const migrator = new Migrator({ db, provider: { getMigrations: async () => migrations } });
-  const { error, results } = await migrator.migrateToLatest();
+  const { error, results } = upTo ? await migrator.migrateTo(upTo) : await migrator.migrateToLatest();
   if (error) throw error instanceof Error ? error : new Error(String(error));
   return (results ?? []).filter((r) => r.status === "Success").map((r) => r.migrationName);
 }

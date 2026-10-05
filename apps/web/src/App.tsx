@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import type { ReactNode } from "react";
 import { Link, Redirect, Route, Switch, useLocation } from "wouter";
-import { Film, LayoutGrid, ListOrdered, Plus, Settings2, Users, Workflow } from "lucide-react";
+import { Film, LayoutGrid, ListOrdered, Settings2, Users, Workflow } from "lucide-react";
 import { useQueue } from "./data";
 import { Banners } from "./Banners";
 import { KeysHelp } from "./Keys";
@@ -15,13 +15,15 @@ import { useLiveEvents } from "./live";
 import { Studio } from "./screens/Studio";
 import { ConfirmHost } from "./Confirm";
 import { FolderImportNote } from "./folderImport";
-import { People } from "./screens/People";
-import { Queue } from "./screens/Queue";
-import { Setup } from "./screens/Setup";
-import { TimelineEditor } from "./screens/TimelineEditor";
 import { Timelines } from "./screens/Timelines";
-import { Workflows } from "./screens/Workflows";
 import { useSystem, useBanners } from "./store";
+
+// every screen but the Studio is a chunk of its own, fetched the first time its address is opened
+const People = lazy(() => import("./screens/People").then((m) => ({ default: m.People })));
+const Queue = lazy(() => import("./screens/Queue").then((m) => ({ default: m.Queue })));
+const Setup = lazy(() => import("./screens/Setup").then((m) => ({ default: m.Setup })));
+const TimelineEditor = lazy(() => import("./screens/TimelineEditor").then((m) => ({ default: m.TimelineEditor })));
+const Workflows = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.Workflows })));
 import { StripModel, StripPlace } from "./ModelLoad";
 import { ProjectSwitch } from "./Projects";
 import { ThemeFlip } from "./theme/Appearance";
@@ -144,6 +146,7 @@ export function App() {
           <span className="grow" />
           <ThemeFlip />
         </nav>
+        <Suspense fallback={<div className="grow p-8 text-ink-2">Loading…</div>}>
         <Switch>
           <Route path="/"><Studio /></Route>
           {/* links from elsewhere that mean "the form": the same screen, with the form open */}
@@ -163,6 +166,7 @@ export function App() {
             <div className="p-8 text-ink-2">Page not found. <Link href="/" className="underline">Back to Studio</Link></div>
           </Route>
         </Switch>
+        </Suspense>
       </div>
       <Strip />
       <DropTray />

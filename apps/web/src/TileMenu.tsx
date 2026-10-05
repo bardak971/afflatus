@@ -1,16 +1,17 @@
 import { useLocation } from "wouter";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, Copy, Download, Eye, ExternalLink, Film, FolderKanban, Plus, Shuffle, SquareCheck, Star, Trash2, Undo2 } from "lucide-react";
-import { api, fileUrl, thumbUrl, type Asset, type RecipeInfo } from "./api";
+import { useAddToTimeline, useOpenInComfy, useQueueVariation } from "./actions";
+import { api, fileUrl, thumbUrl, type Asset } from "./api";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
-import { useAsset, useFamilies, useModelSettings, useProjects, useRecipes, useSetup, useTimelines } from "./data";
+import { useAsset, useDrafts, useFamilies, useProjects, useRecipes, useSetup, useTimelines } from "./data";
+import { Dialog } from "./Dialog";
+import { useOpenNewDraft } from "./draft";
 import { useState } from "react";
 import { Button, ErrorNote } from "./ui";
 import { clock, when } from "./format";
-import { formDefaults } from "./form";
-import { notReady } from "./format";
 import { usedLast } from "./picker";
-import { useBanners, useOpenDraft } from "./store";
+import { useBanners } from "./store";
 
 const FORMATS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "audio/flac": "flac" };
 
@@ -32,11 +33,8 @@ export function useTileMenu({ onOpen, onSelect, into }: {
   const client = useQueryClient();
   const recipes = useRecipes();
   const setup = useSetup();
-  const modelSettings = useModelSettings();
   const on = useFamilies().isOn;
-  const drafts = useQuery({ queryKey: ["drafts"], queryFn: api.drafts, enabled: Boolean(a) });
-  const openDraft = useOpenDraft((s) => s.open);
-  const [, go] = useLocation();
+  const drafts = useDrafts(Boolean(a));
   const say = useBanners((b) => b.push);
   const refresh = () => client.invalidateQueries({ queryKey: ["assets"] });
 
@@ -48,12 +46,7 @@ export function useTileMenu({ onOpen, onSelect, into }: {
     drafts.data?.items,
     (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready),
   );
-  const toForm = (d: { id: string }) => {
-    client.setQueryData(["drafts", d.id], d);
-    void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-    openDraft(d.id);
-    go("/create");
-  };
+  const toForm = useOpenNewDraft();
   const keep = useMutation({ mutationFn: (v: { id: string; kept: boolean }) => api.keep(v.id, v.kept), onSuccess: refresh });
   const bin = useMutation({ mutationFn: (id: string) => api.bin(id), onSuccess: refresh });
   const restore = useMutation({ mutationFn: (id: string) => api.restore(id), onSuccess: refresh });
@@ -68,35 +61,8 @@ export function useTileMenu({ onOpen, onSelect, into }: {
     mutationFn: () => api.createDraft({ recipe: g!.recipe, forms: { [g!.recipe]: { ...g!.inputs, seed: -1 } } }),
     onSuccess: toForm,
   });
-  const variation = useMutation({
-    mutationFn: async (r: RecipeInfo) => {
-      const status = setup.data?.recipes.find((x) => x.id === r.id);
-      const why = setup.isSuccess ? notReady(status, setup.data.comfy.online) : null;
-      if (why) throw new Error(why);
-      const stored = { ...g!.inputs, seed: -1 };
-      const input: Record<string, unknown> = { ...formDefaults(r, status?.options, modelSettings.data?.items ?? [], stored).defaults, ...stored };
-      const has = new Set(r.inputs.map((i) => i.id));
-      for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
-      await api.enqueue(r.id, input, 1, null, into);
-    },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["queue"] });
-      say({ id: `menu:${Date.now()}`, tone: "good", title: "Variation queued", href: "/queue", go: "Open queue" });
-    },
-    onError: (err) => say({ id: `menu:${Date.now()}`, tone: "bad", title: "Variation could not be queued", text: err.message, href: "/settings/models", go: "Open settings" }),
-  });
-  const openInComfy = useMutation({
-    mutationFn: async (asset: Asset) => {
-      const tab = window.open("", "_blank");
-      try {
-        const r = await api.openRender(asset.id);
-        if (tab) tab.location.href = r.url;
-        return r;
-      } catch (err) {
-        tab?.close();
-        throw err;
-      }
-    },
+  const variation = useQueueVariation(into);
+  const openInComfy = useOpenInComfy((asset: Asset) => api.openRender(asset.id), {
     onSuccess: (r) => { if (!r.direct) say({ id: `menu:${Date.now()}`, tone: "good", title: "Saved in ComfyUI", text: `${r.path}: open the Workflows sidebar there (key W) and pick it under "afflatus".`, href: "/settings", go: "Open settings" }); },
     onError: (err) => say({ id: `menu:${Date.now()}`, tone: "bad", title: "Could not open in ComfyUI", text: err.message, href: "/settings", go: "Open settings" }),
   });
@@ -107,8 +73,8 @@ export function useTileMenu({ onOpen, onSelect, into }: {
   const moveTo = useMutation({
     mutationFn: (v: { ids: string[]; folder: string | null }) => api.moveAssets(v.ids, v.folder),
     onSuccess: () => {
+      // the folders' counts are under "assets" (data.ts): one invalidation covers the lists and them
       void client.invalidateQueries({ queryKey: ["assets"] });
-      void client.invalidateQueries({ queryKey: ["folders"] });
       void client.invalidateQueries({ queryKey: ["projects"] });
     },
   });
@@ -128,7 +94,7 @@ export function useTileMenu({ onOpen, onSelect, into }: {
       "—" as const,
       ...(asset.kind === "image" && opener && !asset.inBin ? [{ label: "Image to video (i2v)", key: "M", icon: <Clapperboard size={14} />, note: opener.title, run: () => animate.mutate(asset) }] : []),
       { label: "Reuse parameters", key: "L", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => again.mutate() },
-      { label: "Variation", key: "V", icon: <Shuffle size={14} />, note: !reading && !g ? "not generated here" : "new seed, queued", disabled: reading || !g || !recipe || asset.inBin, run: () => recipe && variation.mutate(recipe) },
+      { label: "Variation", key: "V", icon: <Shuffle size={14} />, note: !reading && !g ? "not generated here" : "new seed, queued", disabled: reading || !g || !recipe || asset.inBin, run: () => recipe && g && variation.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" }) },
       { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: reading || !g || !(setup.data?.comfy.online ?? false), run: () => openInComfy.mutate(asset) },
       ...(asset.kind !== "audio" && !asset.inBin ? [{ label: "Add to a timeline…", icon: <Film size={14} />, note: asset.kind === "image" ? "at the end, as a still" : "at the end", run: () => setAdding(asset) }] : []),
       ...(projects.length && !asset.inBin
@@ -158,25 +124,17 @@ export function useTileMenu({ onOpen, onSelect, into }: {
 /** Which timeline an item goes to the end of: one of the project's, or a new one. */
 function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): void }) {
   const timelines = useTimelines();
-  const client = useQueryClient();
   const [, go] = useLocation();
   const say = useBanners((b) => b.push);
-  const add = useMutation({
-    mutationFn: async (timeline: string | null) => {
-      const target = timeline ? { id: timeline, name: timelines.data?.items.find((t) => t.id === timeline)?.name ?? "the timeline" } : await api.createTimeline().then((t) => ({ id: t.id, name: t.name }));
-      await api.addClip(target.id, { asset: asset.id });
-      return target;
-    },
+  const add = useAddToTimeline(asset, {
     onSuccess: (target) => {
-      void client.invalidateQueries({ queryKey: ["timelines"] });
       say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${target.name}`, text: asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${target.id}`, go: "Open the timeline" });
       onClose();
     },
   });
   const items = timelines.data?.items ?? [];
   return (
-    <div role="dialog" aria-modal="true" aria-label="Add to a timeline" className="fixed inset-0 z-50 flex items-center justify-center bg-ground/85 p-8" onClick={onClose}>
-      <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5" onClick={(e) => e.stopPropagation()}>
+    <Dialog label="Add to a timeline" onClose={onClose} z="z-50" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
         <span className="text-base font-semibold">Add to a timeline</span>
         <span className="text-xs text-ink-2">{asset.kind === "image" ? "The image goes at the end, as a still you can animate or hold." : "The video goes at the end, as a clip of its own."}</span>
         {add.isError && <ErrorNote>{add.error.message}</ErrorNote>}
@@ -198,7 +156,6 @@ function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): void }) {
           <span className="grow" />
           <Button size="sm" tone="quiet" onClick={() => { onClose(); go("/timelines"); }}>All timelines</Button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

@@ -1,0 +1,4 @@
+{
+  "about": "SHA-256 of the archives bundle.mjs downloads when their release carries no checksum file of its own (BtbN's ffmpeg autobuilds without a checksums.sha256). Keyed by the archive's file name; written by `node scripts/release/bundle.mjs --record` the first time a tag is used, checked on every run after.",
+  "sha256": {}
+}

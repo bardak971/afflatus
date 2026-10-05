@@ -21,12 +21,14 @@ from comfy.nested_tensor import NestedTensor
 from comfy_api.latest import io
 
 from .continuation_nodes import (
-    AUDIO_LATENT_FPS,
+    FPS,
     _existing_keyframes,
+    _extract_h3_av_streams,
     _reject_conflicting_head_guides,
     _require_native_arbitrary_guides,
     _validate_append_compatibility,
     _validate_overlap_tokens,
+    audio_t_at_frame_boundary,
     frame_count_from_video_latent_t,
     validate_h3_av_latent,
     validate_h3_av_window,
@@ -34,32 +36,6 @@ from .continuation_nodes import (
 )
 
 FORMAT = "afflatus-h3-av-latent/1"
-FPS = 24
-
-
-def _streams(latent: dict, name: str = "samples") -> tuple[torch.Tensor, torch.Tensor]:
-    """The video and audio tensors of an H3 AV latent, checked."""
-    samples = latent.get("samples") if isinstance(latent, dict) else None
-    if samples is None:
-        raise ValueError(f"{name} has no 'samples'")
-    tensors = getattr(samples, "tensors", None)
-    if tensors is None or len(tensors) != 2:
-        raise ValueError(f"{name} is not a MiniMax H3 video+audio latent (two streams expected)")
-    video, audio = tensors
-    if not isinstance(video, torch.Tensor) or not isinstance(audio, torch.Tensor):
-        raise TypeError(f"{name} streams must be tensors")
-    if video.ndim != 5:
-        raise ValueError(f"{name} video must have shape [1, C, T, H, W], got {tuple(video.shape)}")
-    if audio.ndim != 4:
-        raise ValueError(f"{name} audio must have shape [1, 32, 2, T], got {tuple(audio.shape)}")
-    return video, audio
-
-
-def frames_of(video_t: int) -> int:
-    """Pixel frames represented by a video latent of temporal length `video_t` (the 5k + 2 grid)."""
-    if video_t < 2 or (video_t - 2) % 5 != 0:
-        raise ValueError(f"video temporal length {video_t} is not on MiniMax H3's 5k + 2 grid")
-    return ((video_t - 2) // 5) * 17 + 5
 
 
 class AfflatusSaveH3Latent(io.ComfyNode):
@@ -82,12 +58,12 @@ class AfflatusSaveH3Latent(io.ComfyNode):
 
     @classmethod
     def execute(cls, samples, filename_prefix: str = "Afflatus/h3") -> io.NodeOutput:
-        video, audio = _streams(samples)
+        video, audio = _extract_h3_av_streams(samples, name="samples")
         output_dir = folder_paths.get_output_directory()
         full_output_folder, filename, counter, subfolder, _prefix = folder_paths.get_save_image_path(filename_prefix, output_dir)
         name = f"{filename}_{counter:05}_.safetensors"
         path = os.path.join(full_output_folder, name)
-        frames = frames_of(int(video.shape[2]))
+        frames = frame_count_from_video_latent_t(int(video.shape[2]))
         metadata = {"format": FORMAT, "frames": str(frames), "fps": str(FPS)}
         safetensors.torch.save_file(
             {"video": video.detach().to("cpu").contiguous(), "audio": audio.detach().to("cpu").contiguous()},
@@ -137,7 +113,7 @@ class AfflatusLoadH3Latent(io.ComfyNode):
         # ComfyUI samples its latents in float32: the continuation nodes want the previous latent to match
         video = tensors["video"].float()
         audio = tensors["audio"].float()
-        frames = frames_of(int(video.shape[2]))
+        frames = frame_count_from_video_latent_t(int(video.shape[2]))
         return io.NodeOutput({"samples": NestedTensor((video, audio))}, frames)
 
 
@@ -148,11 +124,6 @@ def read_frames(path: str) -> int:
         header = json.loads(f.read(n))
     meta = header.get("__metadata__") or {}
     return int(meta.get("frames", 0))
-
-
-def audio_tokens_at(frame: int) -> int:
-    """The 40 Hz audio-latent index at a 24 fps frame boundary (the continuation nodes' rounding)."""
-    return round(frame * AUDIO_LATENT_FPS / FPS)
 
 
 class AfflatusNormalizeH3Latent(io.ComfyNode):
@@ -171,9 +142,9 @@ class AfflatusNormalizeH3Latent(io.ComfyNode):
 
     @classmethod
     def execute(cls, samples) -> io.NodeOutput:
-        video, audio = _streams(samples)
-        frames = frames_of(int(video.shape[2]))
-        want = audio_tokens_at(frames)
+        video, audio = _extract_h3_av_streams(samples, name="samples")
+        frames = frame_count_from_video_latent_t(int(video.shape[2]))
+        want = audio_t_at_frame_boundary(frames)
         have = int(audio.shape[-1])
         if have > want:
             audio = audio[..., :want]
@@ -206,7 +177,7 @@ class AfflatusH3LatentHeadGuide(io.ComfyNode):
     @classmethod
     def execute(cls, positive, next_av_latent, target_av_latent, guide_frames: int = 22, skip_frames: int = 0) -> io.NodeOutput:
         _require_native_arbitrary_guides()
-        next_video, next_audio = _streams(next_av_latent, "next_av_latent")
+        next_video, next_audio = _extract_h3_av_streams(next_av_latent, name="next_av_latent")
         target_video, _target_audio, target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
         if guide_frames % 17 != 5:
             raise ValueError("guide_frames must be 5, 22, 39… (17k + 5)")
@@ -216,8 +187,8 @@ class AfflatusH3LatentHeadGuide(io.ComfyNode):
         guide_t = video_latent_t(guide_frames)
         if skip_t + guide_t > int(next_video.shape[2]):
             raise ValueError(f"the clip after's latent has {int(next_video.shape[2])} video tokens: not enough for {skip_frames} skipped + {guide_frames} guide frames")
-        skip_a = audio_tokens_at(skip_frames)
-        guide_a = audio_tokens_at(skip_frames + guide_frames) - skip_a
+        skip_a = audio_t_at_frame_boundary(skip_frames)
+        guide_a = audio_t_at_frame_boundary(skip_frames + guide_frames) - skip_a
         have_a = int(next_audio.shape[-1])
         if skip_a >= have_a:
             raise ValueError("the clip after's audio latent is shorter than the frames to skip")

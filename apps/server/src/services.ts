@@ -63,7 +63,8 @@ export async function createServices(
   const queue = new Queue(db, storage, comfy, registry, queueOptions);
   const timelines = new Timelines(db, storage, registry, queue.events);
   queue.clips = timelines;
-  const linked = new Linked(db, storage, queue.events);
+  // a linked file that changed on the disk: what the timelines derived from it (strips, motion, scenes) goes too
+  const linked = new Linked(db, storage, queue.events, timelines);
   await linked.load();
   // what changed in the linked directories while Afflatus was not running: read in the background
   void linked.scanAll();

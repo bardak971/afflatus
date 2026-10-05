@@ -1,5 +1,6 @@
 import { ComfyClient, Monitor, scan, systemLoadFromStatus, type InfoLookup, type Scan, type SystemLoad } from "@afflatus/comfy";
 import type { NodeCatalog } from "@afflatus/core";
+import { fileName } from "./media";
 import type { Registry } from "./registry";
 
 const SCAN_TTL_MS = 60_000;
@@ -83,4 +84,33 @@ export class Comfy {
   close(): void {
     this.monitor.close();
   }
+}
+
+/** ComfyUI's model folders and the files in each, with a lookup by file name. */
+export interface ModelIndex {
+  folders: string[];
+  lists: Array<{ folder: string; files: string[] }>;
+  /**
+   * Every folder that holds a file of this name (its basename, case not minding), with the file as ComfyUI
+   * lists it; `first` names the folder to look in first (the one the loader reads from).
+   */
+  find(name: string, first?: string): Array<{ folder: string; file: string }>;
+}
+
+/** The folders and the files per folder of a ComfyUI, read once for one request. A folder that does not answer counts as empty. */
+export async function modelIndex(comfy: Comfy): Promise<ModelIndex> {
+  const client = comfy.client;
+  const folders = await client.folders().catch(() => [] as string[]);
+  const lists = await Promise.all(folders.map(async (folder) => ({ folder, files: await client.models(folder).catch(() => [] as string[]) })));
+  return {
+    folders, lists,
+    find(name, first) {
+      const wanted = fileName(name);
+      const ordered = first ? [...lists].sort((x, y) => Number(y.folder === first) - Number(x.folder === first)) : lists;
+      return ordered.flatMap((l) => {
+        const file = l.files.find((f) => fileName(f) === wanted);
+        return file ? [{ folder: l.folder, file }] : [];
+      });
+    },
+  };
 }

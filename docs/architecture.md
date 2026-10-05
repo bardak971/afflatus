@@ -229,7 +229,7 @@ Ported from `gpuQueue.ts` with its lessons kept:
 
 The job runner becomes generic: resolve input assets, upload them to ComfyUI, call `recipe.build`, check the graph, submit, wait, store the outputs the recipe named. It has no per-family branches.
 
-Kept from Studio: priorities (images before waiting videos), cancel, Wake-on-LAN, Prometheus metrics. One ComfyUI at first; the lane structure stays so a second GPU can be added later.
+Kept from Studio: priorities (images before waiting videos), cancel, Prometheus metrics (Studio's Wake-on-LAN was not carried over: Afflatus talks to a ComfyUI that is up). One ComfyUI at first; the lane structure stays so a second GPU can be added later.
 
 ## 6. ComfyUI client
 
@@ -333,7 +333,7 @@ Agreed on 2026-10-01 after the full set of screens ("very nice"):
 
 - Cast and places for the whole video (and a clip's own), look and mood, voices and reference pictures, time estimates on the buttons, the designer per clip, "describe a scene" planned as clips, typed lengths, timelines listed in the library.
 
-Not built yet: a picture in the middle of a clip, smooth motion as an export option, splitting long clips.
+Since built as well: a picture in the middle of a clip (the keyframe input, "Keyframe at"), smooth motion as an export option ("Frame interpolation": 48 fps with ffmpeg's minterpolate), splitting long clips (the range's "Split at In / Out" and "Split clip at playhead").
 
 Clickable mockups, eight boards on one canvas (timeline editor, empty timeline, library, create, models and workflows, import a workflow, queue, setup): https://claude.ai/artifact/AHKbDqpagHJQJvMBT2KcPE
 

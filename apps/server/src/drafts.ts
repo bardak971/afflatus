@@ -2,6 +2,7 @@ import { chatJson } from "./designer";
 import type { Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { httpError } from "./errors";
 import { newId, now, OWNER, type Tables } from "./db";
 import { lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
@@ -67,8 +68,8 @@ const full = (d: Tables["drafts"]) => ({
 });
 
 export function registerDrafts(app: FastifyInstance, s: Services): void {
-  const notFound = () => Object.assign(new Error("this draft was not found"), { statusCode: 404 });
-  const tooBig = () => Object.assign(new Error("this draft is too large to save"), { statusCode: 413 });
+  const notFound = () => httpError("this draft was not found", 404);
+  const tooBig = () => httpError("this draft is too large to save", 413);
   const get = async (id: string) => {
     const d = await s.db.selectFrom("drafts").selectAll().where("id", "=", id).executeTakeFirst();
     if (!d) throw notFound();

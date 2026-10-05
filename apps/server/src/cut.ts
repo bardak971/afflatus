@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tools } from "./video";
+import { factsOf, tools, type ProbeInfo, type VideoFacts } from "./video";
 
 /**
  * Cutting videos: the few frames a new clip joins onto, one frame as a picture, a strip of frames for
@@ -43,29 +43,42 @@ const countFrames = async (file: string) =>
  * What a file brought in from the computer is, read from its bytes: a video or a sound, in which
  * container, and how long. null when ffprobe is not installed or the file is neither.
  */
-export async function probeMedia(bytes: Uint8Array): Promise<{ kind: "video" | "audio"; mime: string; durationMs: number } | null> {
+export async function probeMedia(bytes: Uint8Array): Promise<ProbedMedia | null> {
   return inTemp(async (dir) => {
     const file = join(dir, "in.bin");
     await writeFile(file, bytes);
-    const out = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,codec_name:format=format_name,duration", "-of", "json", file]).catch(() => null);
-    if (!out) return null;
-    try {
-      const info = JSON.parse(out) as { streams?: Array<{ codec_type?: string; codec_name?: string }>; format?: { format_name?: string; duration?: string } };
-      const names = (info.format?.format_name ?? "").split(",");
-      // a picture is a "video" of one frame to ffprobe: only moving pictures count here
-      const video = info.streams?.some((s) => s.codec_type === "video" && !["mjpeg", "png", "webp", "bmp", "gif"].includes(s.codec_name ?? ""));
-      const audio = info.streams?.some((s) => s.codec_type === "audio");
-      if (!video && !audio) return null;
-      const has = (n: string) => names.includes(n);
-      const mime = video
-        ? has("webm") || has("matroska") ? "video/webm" : "video/mp4"
-        : has("wav") ? "audio/wav" : has("mp3") ? "audio/mpeg" : has("flac") ? "audio/flac" : has("ogg") ? "audio/ogg" : has("mp4") || has("m4a") || has("mov") ? "audio/mp4" : null;
-      if (!mime) return null;
-      return { kind: video ? "video" : "audio", mime, durationMs: Math.round(Number(info.format?.duration ?? 0) * 1000) };
-    } catch {
-      return null;
-    }
+    return probeMediaFile(file);
   });
+}
+
+export interface ProbedMedia {
+  kind: "video" | "audio";
+  mime: string;
+  durationMs: number;
+  /** Of a video: its size, speed and sound, read from the same answer of ffprobe. */
+  facts: VideoFacts | null;
+}
+
+/** The same for a file already on the disk (an upload written as it arrived): one run of ffprobe says everything. */
+export async function probeMediaFile(file: string): Promise<ProbedMedia | null> {
+  const out = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file]).catch(() => null);
+  if (!out) return null;
+  try {
+    const info = JSON.parse(out) as { streams?: Array<{ codec_type?: string; codec_name?: string }>; format?: { format_name?: string; duration?: string } };
+    const names = (info.format?.format_name ?? "").split(",");
+    // a picture is a "video" of one frame to ffprobe: only moving pictures count here
+    const video = info.streams?.some((s) => s.codec_type === "video" && !["mjpeg", "png", "webp", "bmp", "gif"].includes(s.codec_name ?? ""));
+    const audio = info.streams?.some((s) => s.codec_type === "audio");
+    if (!video && !audio) return null;
+    const has = (n: string) => names.includes(n);
+    const mime = video
+      ? has("webm") || has("matroska") ? "video/webm" : "video/mp4"
+      : has("wav") ? "audio/wav" : has("mp3") ? "audio/mpeg" : has("flac") ? "audio/flac" : has("ogg") ? "audio/ogg" : has("mp4") || has("m4a") || has("mov") ? "audio/mp4" : null;
+    if (!mime) return null;
+    return { kind: video ? "video" : "audio", mime, durationMs: Math.round(Number(info.format?.duration ?? 0) * 1000), facts: video ? factsOf(info as ProbeInfo) : null };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -165,7 +178,7 @@ export async function frameAt(source: Uint8Array, ext: string, atMs: number, dur
 }
 
 /** How many frames a strip holds, and how tall they are. */
-export const STRIP = { frames: 12, height: 72 };
+const STRIP = { frames: 12, height: 72 };
 
 /** Frames of a video side by side in one picture (a JPEG), spread evenly over its length: what a clip shows on the timeline. */
 export async function filmStrip(source: Uint8Array, ext: string, durationMs: number, opts: { frames?: number; height?: number; /** Only this part of the video, in milliseconds. */ fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
@@ -624,7 +637,7 @@ export function frozenTailAt(values: number[], rate: number, startMs: number, en
  * track padded at its end: the sound then runs 36 ms ahead of the picture from the hand-over on, under what
  * anyone notices. The picture is untouched (stream copy).
  */
-export const JOIN_AUDIO_HOLE = { beforeMs: 8, afterMs: 28, fadeMs: 6 };
+const JOIN_AUDIO_HOLE = { beforeMs: 8, afterMs: 28, fadeMs: 6 };
 export async function repairJoinAudio(source: Uint8Array, ext: string, headMs: number): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = join(dir, `in.${ext}`);
@@ -641,7 +654,6 @@ export async function repairJoinAudio(source: Uint8Array, ext: string, headMs: n
   });
 }
 
-/** Kept for the tests and callers that only want the motion. */
 /** The moments ffmpeg's scene filter prints, from its showinfo lines ("pts_time:12.345"). */
 export function parseSceneTimes(log: string): number[] {
   const out: number[] = [];
@@ -670,10 +682,6 @@ export async function scenesOf(source: Uint8Array, ext: string, threshold = 0.3)
     });
     return parseSceneTimes(log);
   });
-}
-
-export async function motionOf(source: Uint8Array, ext: string): Promise<number[]> {
-  return (await measureOf(source, ext)).motion;
 }
 
 /** ffmpeg's bytes, for a raw frame. */
@@ -780,7 +788,7 @@ export async function soundOf(source: Uint8Array, ext: string): Promise<Uint8Arr
 }
 
 /** The part of a sound that is used, given how long the sound is: see soundPart. */
-export function partOf(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
+function partOf(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
   if (total === null) return { start: Math.max(0, start), seconds };
   const from = Math.max(0, Math.min(start, total - 2));
   return { start: from, seconds: Math.max(0.1, Math.min(seconds, total - from)) };

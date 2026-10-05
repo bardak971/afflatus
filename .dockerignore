@@ -7,6 +7,8 @@ dist-demo
 data
 data-demo
 release
+__pycache__
+**/__pycache__
 .git
 .github
 HANDOVER.md

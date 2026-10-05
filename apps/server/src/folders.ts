@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { httpError } from "./errors";
 import { newId, now, OWNER } from "./db";
 import { isLinked } from "./linked";
 import type { Services } from "./services";
@@ -12,13 +13,12 @@ const createBody = z.strictObject({ name, parentId: z.string().nullable().defaul
 const editBody = z.strictObject({ name: name.optional(), parentId: z.string().nullable().optional(), project: z.string().nullable().optional() });
 const moveBody = z.strictObject({ ids: z.array(z.string()).min(1).max(500), folderId: z.string().nullable() });
 
-const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 
 export function registerFolders(app: FastifyInstance, s: Services): void {
   const all = () => s.db.selectFrom("folders").selectAll().where("owner_id", "=", OWNER).execute();
   const mustExist = async (id: string) => {
     const f = await s.db.selectFrom("folders").selectAll().where("id", "=", id).executeTakeFirst();
-    if (!f) throw bad("this folder was not found", 404);
+    if (!f) throw httpError("this folder was not found", 404);
     return f;
   };
 
@@ -71,20 +71,20 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     const body = editBody.parse(req.body);
     const folder = await mustExist(req.params.id);
     const rootLinked = folder.path && !(folder.parent_id && (await mustExist(folder.parent_id)).path);
-    if (folder.path && (body.parentId !== undefined || !rootLinked)) throw bad("This folder is a directory of your disk: rename or move it there, then press Look again. The linked folder itself can be given another name here.");
-    if (body.parentId && (await mustExist(body.parentId)).path) throw bad("A folder of the library cannot be moved into a linked folder. Make a new folder in it instead.");
+    if (folder.path && (body.parentId !== undefined || !rootLinked)) throw httpError("This folder is a directory of your disk: rename or move it there, then press Look again. The linked folder itself can be given another name here.");
+    if (body.parentId && (await mustExist(body.parentId)).path) throw httpError("A folder of the library cannot be moved into a linked folder. Make a new folder in it instead.");
     if (body.parentId) {
       // a folder cannot be moved into itself or into one of its own subfolders
       const rows = await all();
       for (let at: string | null = body.parentId; at; at = rows.find((f) => f.id === at)?.parent_id ?? null) {
-        if (at === folder.id) throw bad("a folder cannot be put inside itself");
+        if (at === folder.id) throw httpError("a folder cannot be put inside itself");
       }
       await mustExist(body.parentId);
     }
     // its project: the new parent's when it moves, the one named when it is given one at the top
     const parentProject = body.parentId ? (await mustExist(body.parentId)).project_id : body.parentId === null ? (body.project !== undefined ? body.project : folder.project_id) : undefined;
     const project = parentProject !== undefined ? parentProject : body.project !== undefined ? body.project : folder.project_id;
-    if (body.project !== undefined && body.project !== null && !(await s.db.selectFrom("projects").select("id").where("id", "=", body.project).executeTakeFirst())) throw bad("this project was not found", 404);
+    if (body.project !== undefined && body.project !== null && !(await s.db.selectFrom("projects").select("id").where("id", "=", body.project).executeTakeFirst())) throw httpError("this project was not found", 404);
     await s.db
       .updateTable("folders")
       .set({ name: body.name ?? folder.name, parent_id: body.parentId === undefined ? folder.parent_id : body.parentId, project_id: project })
@@ -106,7 +106,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     const folder = await mustExist(req.params.id);
     if (folder.path) {
       // a linked folder is unlinked: nothing on the disk is touched. One of its sub-directories is not deleted from here.
-      if (folder.parent_id && (await mustExist(folder.parent_id)).path) throw bad("This folder is a directory of your disk: delete it there, then press Look again.");
+      if (folder.parent_id && (await mustExist(folder.parent_id)).path) throw httpError("This folder is a directory of your disk: delete it there, then press Look again.");
       await s.linked.unlink(folder.id);
       return { ok: true };
     }
@@ -131,7 +131,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
       return { moved: items.length };
     }
     if (items.some((a) => isLinked(a.file_key))) {
-      throw bad("These are files of a linked folder: they live on your disk. Move them to another linked folder, or with your file manager.");
+      throw httpError("These are files of a linked folder: they live on your disk. Move them to another linked folder, or with your file manager.");
     }
     const moved = await s.db.updateTable("assets").set({ folder_id: body.folderId }).where("id", "in", body.ids).executeTakeFirst();
     // what someone took the trouble to file is not thrown away after a day

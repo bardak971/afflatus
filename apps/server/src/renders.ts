@@ -1,7 +1,9 @@
 import type { Selectable } from "kysely";
+import type { Measured } from "@afflatus/comfy";
 import { guess, modelOf, timeKey, type Guess, type Known, type Recipe } from "@afflatus/core";
-import type { Db, Tables } from "./db";
+import { now, OWNER, type Db, type Tables } from "./db";
 import type { Registry } from "./registry";
+import type { JobRow, Resume } from "./queueModel";
 
 /**
  * The record of render times: what every render took and where its time went.
@@ -120,6 +122,43 @@ export function merge(cells: Cell[]): Cell {
     vramUsual: mid((c) => c.vramUsual, (c) => c.renders), heatUsual: mid((c) => c.heatUsual, (c) => c.renders),
     hist: BUCKETS.map((_le, i) => sum(cells.map((c) => c.hist?.[i] ?? 0))),
   };
+}
+
+// ---------------------------------------------------------------- one render on the record
+
+/**
+ * One row for a render that ran on ComfyUI, finished or not: where its time went (loading, sampling, the
+ * passes after, the finishing), what it made, and what was expected of it. Written once: a job found
+ * again after a crash does not count twice. The queue calls this from its `note`, which never lets a
+ * failure here reach the render.
+ */
+export async function record(
+  db: Db, row: Pick<JobRow, "id" | "created_at">, recipe: Recipe<any>, resume: Pick<Resume, "timing" | "totalSteps" | "startedAt">, measured: Measured | null,
+  status: "done" | "failed" | "cancelled", whole: boolean, totalMs: number, generationId?: string,
+): Promise<void> {
+  const made = generationId ? await db.selectFrom("assets").select(["id", "kind", "width", "height", "duration_ms"]).where("generation_id", "=", generationId).orderBy("created_at").executeTakeFirst() : undefined;
+  const spent = measured?.phases ?? {};
+  const of = (...phases: string[]) => Math.round(phases.reduce((n, p) => n + (spent[p] ?? 0), 0));
+  const load = of("waiting", "loading");
+  const sample = of("sampling");
+  // every pass after the main sampling: a refine or hires pass, an upscale (pixel, latent, SeedVR2), a detailer, a tool's processing
+  const refine = of("upscaling", "refining", "restoring", "detailing", "processing");
+  // what is left is the finishing: decoding, smoothing, saving (and anything a workflow of its own does that has no name here)
+  const finish = measured ? Math.max(0, Math.round(totalMs) - load - sample - refine) : 0;
+  await db
+    .insertInto("render_stats")
+    .values({
+      id: row.id, owner_id: OWNER, recipe_id: recipe.id, family: recipe.family,
+      model: resume.timing?.model ?? "", model_file: resume.timing?.modelFile ?? "", time_key: resume.timing?.timeKey ?? "",
+      kind: made?.kind ?? null, width: made?.width ?? null, height: made?.height ?? null, duration_ms: made?.duration_ms ?? null,
+      steps: resume.totalSteps, status, whole: whole && measured ? 1 : 0, cold: resume.timing?.cold ? 1 : 0,
+      waited_ms: Math.max(0, resume.startedAt - new Date(row.created_at).getTime()),
+      total_ms: Math.round(totalMs), load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish,
+      step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null,
+      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, created_at: now(),
+    })
+    .onConflict((oc) => oc.column("id").doNothing())
+    .execute();
 }
 
 // ---------------------------------------------------------------- folding the old rows into days

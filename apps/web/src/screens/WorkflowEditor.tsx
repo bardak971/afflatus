@@ -8,7 +8,7 @@ import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
 import { GetFile } from "../GetFile";
 import { Select } from "../Select";
-import { Button, cx, ErrorNote, Help, SectionTitle, Toggle as Switch, Note } from "../ui";
+import { Button, cx, ErrorNote, Help, SectionTitle, Note } from "../ui";
 
 /** A workflow being imported or changed: the file, what was found in it, and the mapping so far. */
 export interface Editing {

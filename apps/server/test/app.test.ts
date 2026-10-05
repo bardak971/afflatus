@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { migrate } from "../src/db";
-import { CHECKPOINT, get, makeApp, makeFake, NOWHERE, type TestApp } from "./helpers";
+import { allowedHosts, hostAllowed } from "../src/hostCheck";
+import { CHECKPOINT, get, makeApp, makeFake, NOWHERE, post, type TestApp } from "./helpers";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -64,7 +65,7 @@ describe("GET /api/setup", () => {
       const before = fake.calls.length;
       await get(t.app, "/api/setup");
       expect(fake.calls.length).toBe(before);
-      await get(t.app, "/api/setup?fresh=1");
+      await post(t.app, "/api/setup/rescan");
       expect(fake.calls.length).toBeGreaterThan(before);
     } finally {
       await t.close();
@@ -74,22 +75,34 @@ describe("GET /api/setup", () => {
   });
 });
 
-describe("GET /api/system", () => {
-  it("is null when ComfyUI is not there", async () => {
-    expect((await get(t.app, "/api/system")).json()).toEqual({ load: null });
+describe("the Host header", () => {
+  it("is answered for the server's own names and refused for any other: a page elsewhere cannot point its name at this machine", async () => {
+    expect((await get(t.app, "/api/health", { host: "localhost:8720" })).statusCode).toBe(200);
+    expect((await get(t.app, "/api/health", { host: "127.0.0.1" })).statusCode).toBe(200);
+    expect((await get(t.app, "/api/health", { host: "[::1]:8720" })).statusCode).toBe(200);
+    const foreign = await get(t.app, "/api/health", { host: "evil.example.com:8720" });
+    expect(foreign.statusCode).toBe(403);
+    expect(foreign.json().error).toContain("evil.example.com");
   });
 
-  it("falls back to ComfyUI's memory numbers when no monitor extension is heard", async () => {
-    const fake = await makeFake();
-    try {
-      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: fake.url } });
-      const { load } = (await get(t.app, "/api/system")).json();
-      expect(load).toMatchObject({ source: "comfyui", gpus: [{ name: "fake gpu" }] });
-    } finally {
-      await t.close();
-      await fake.close();
-      t = await makeApp();
-    }
+  it("allows the bound address, PUBLIC_URL's host and ALLOWED_HOSTS, never a wildcard bind", () => {
+    const allowed = allowedHosts({ HOST: "0.0.0.0", PUBLIC_URL: "http://studio.lan:8720/", ALLOWED_HOSTS: "pc.home, 192.168.1.20:8720" });
+    expect(hostAllowed("studio.lan:8720", allowed)).toBe(true);
+    expect(hostAllowed("pc.home", allowed)).toBe(true);
+    expect(hostAllowed("192.168.1.20", allowed)).toBe(true);
+    expect(hostAllowed("0.0.0.0:8720", allowed)).toBe(false);
+    expect(hostAllowed("other.lan", allowed)).toBe(false);
+    expect(hostAllowed(undefined, allowed)).toBe(true);
+    expect(hostAllowed("192.168.1.30:8720", allowedHosts({ HOST: "192.168.1.30" }))).toBe(true);
+  });
+});
+
+describe("POST /api/health/check", () => {
+  it("runs the start-up checks again and says when", async () => {
+    const res = await post(t.app, "/api/health/check");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().checkedAt).toBeTruthy();
+    expect(res.json().checks.length).toBeGreaterThan(0);
   });
 });
 
@@ -126,6 +139,14 @@ describe("settings", () => {
     const res = await put({ nope: 1 });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("nope");
+  });
+
+  it("take only http and https addresses for ComfyUI and for a language model", async () => {
+    expect((await put({ comfyUrl: "file:///etc/passwd" })).statusCode).toBe(400);
+    expect((await put({ comfyUrl: "not an address" })).statusCode).toBe(400);
+    expect((await put({ llms: [{ id: "a", baseUrl: "ftp://llm/v1" }] })).statusCode).toBe(400);
+    expect((await put({ llms: [{ id: "a", baseUrl: "" }] })).statusCode).toBe(200);
+    expect((await put({ llms: [{ id: "a", baseUrl: "https://api.example.com/v1" }] })).statusCode).toBe(200);
   });
 
   it("reject a bad address with a 400 that says what is wrong", async () => {

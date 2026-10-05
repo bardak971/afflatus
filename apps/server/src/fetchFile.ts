@@ -1,7 +1,10 @@
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
-import { civitaiVersion } from "./civitai";
+import { civitaiSites, civitaiVersion } from "./civitai";
 import type { DownloadView } from "./downloads";
+import { httpError as bad } from "./errors";
+import { fileName } from "./media";
+import { assertPublicUrl, hostnameOf } from "./outbound";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 
@@ -22,16 +25,16 @@ export const downloadBody = z.strictObject({
 });
 export type DownloadBody = z.infer<typeof downloadBody>;
 
-const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
-
 /** The address ComfyUI will fetch from: the one this page was opened at, unless one is set. */
-export function selfUrl(req: FastifyRequest): string {
+function selfUrl(req: FastifyRequest): string {
   return process.env.PUBLIC_URL?.trim() || `${req.protocol}://${req.headers.host}`;
 }
 
 export async function beginDownload(s: Services, req: FastifyRequest, b: DownloadBody): Promise<DownloadView> {
   const settings = await readSettings(s.db);
   if (!settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn it on in Settings.");
+  // "Lookups off" means Afflatus never contacts Civitai or Hugging Face, which is where model files come from
+  if (!settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on Civitai lookups in Settings to fetch model files.");
   if (!b.civitai === !b.url) throw bad("a source is needed: a Civitai version or a URL");
   const comfy = await s.comfy();
   const self = selfUrl(req);
@@ -42,13 +45,15 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   const name = b.file.split(/[\\/]/).pop()!;
   const keepPage = async (saved: string) => {
     if (!b.page || !/^[\w-]{1,64}$/.test(b.folder)) return;
-    const key = { folder: b.folder, name: (saved.split(/[\\/]/).pop() ?? saved).toLowerCase() };
+    const key = { folder: b.folder, name: fileName(saved) };
     await s.db.insertInto("model_pages").values({ ...key, url: b.page.url, title: b.page.title, found_at: new Date().toISOString() })
       .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: b.page!.url, title: b.page!.title })).execute();
   };
   if (b.url) {
     if (!name) throw bad("no filename given");
     if (!/^https:\/\//.test(b.url) && !process.env.CIVITAI_URL) throw bad("only https URLs are downloaded");
+    // not an address inside this network (ComfyUI's own machine, and a pretend Civitai in the tests, are fine)
+    assertPublicUrl(b.url, [hostnameOf(comfy.url), ...civitaiSites().map(hostnameOf)]);
     const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url });
     await keepPage(started.file);
     return started;

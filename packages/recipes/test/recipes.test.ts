@@ -1179,8 +1179,13 @@ describe("H3's upscale pass", () => {
     expect(node(b, "MMH3LatentUpscaleParams")).toHaveLength(0);
     expect(node(build({ upscale: "Latent: re-sampled", upscaleWith: "Plain resize" }, { latentUpscaler: "x.safetensors" }), "MMH3LatentUpscaleParams")).toHaveLength(1);
     expect(() => build({ upscale: "Latent: re-sampled", upscaleWith: "H3's latent upscaler" })).toThrow(/latent_upscale_models/);
-    // without the node pack, the pass is left out rather than refused
-    expect(node(build({ upscale: "Latent: re-sampled" }, {}, (c) => !c.startsWith("MMH3")), "MMH3UltimateUpscale")).toHaveLength(0);
+    // without the node pack, the pass is refused, not quietly left out: the form announced an enlarged frame
+    expect(() => build({ upscale: "Latent: re-sampled" }, {}, (c) => !c.startsWith("MMH3"))).toThrow(/DaSiWa/);
+    expect(() => build({ upscale: "Latent: re-sampled", upscaleWith: "Plain resize" }, {}, (c) => c !== "MMH3LatentUpscaleParams")).toThrow(/DaSiWa/);
+    // and the queue refuses up front: the route's nodes are among what the recipe needs, only when it is chosen
+    const needs = (over: Record<string, unknown>) => h3Video.nodes(parseInput(h3Video, { description: "a", ...over }));
+    expect(needs({ upscale: "Latent: re-sampled" })).toEqual(expect.arrayContaining(["MMH3UltimateUpscale", "MMH3SpatialSplitParams", "MMH3TemporalSplitParams"]));
+    expect(needs({}).some((n) => n.startsWith("MMH3"))).toBe(false);
   });
 
   it("the frame: the short side in the shape's proportions, past 768p when asked, and a picture decides it instead", () => {

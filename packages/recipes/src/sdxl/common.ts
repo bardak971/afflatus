@@ -88,7 +88,8 @@ export function loadSdxl(g: GraphBuilder, input: SdxlBase, prompt: string) {
   // N = stop at the Nth-last layer; SDXL's own default is already the second-last
   if (input.clipSkip > 1) clip = g.out("CLIPSetLastLayer", { clip, stop_at_clip_layer: -input.clipSkip });
   model = withPrediction(g, model, input);
-  const text = [input.quality.trim().replace(/,\s*$/, ""), prompt.trim()].filter(Boolean).join(", ");
+  // the prompt goes in as written (a settled wildcard can end in a separator; what is sent is what the record says)
+  const text = [input.quality.trim().replace(/,\s*$/, ""), prompt].filter(Boolean).join(", ");
   const positive = g.out("CLIPTextEncode", { text, clip });
   const negative = g.out("CLIPTextEncode", { text: input.negative, clip });
   return { model, clip, vae, positive, negative };

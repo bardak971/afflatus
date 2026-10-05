@@ -49,6 +49,17 @@ securityContext:
   fsGroup: 1000
   runAsNonRoot: true
 
+# The container itself: no way up to more privilege, no capabilities, the runtime's seccomp profile, and the
+# image's root read-only. The server writes to /data and to /tmp (a scratch volume the chart mounts), and to
+# the ComfyUI folder only when one is given in Settings (then mount that folder writable).
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+  readOnlyRootFilesystem: true
+
 service:
   type: ClusterIP
 

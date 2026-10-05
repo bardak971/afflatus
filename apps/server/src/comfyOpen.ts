@@ -2,6 +2,7 @@ import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ComfyUnreachable } from "@afflatus/comfy";
 import type { Services } from "./services";
+import { httpError } from "./errors";
 import { readSettings } from "./settings";
 
 /**
@@ -16,7 +17,6 @@ import { readSettings } from "./settings";
 const PACK = "afflatus-workflows";
 const PACK_INIT = `# Afflatus's helper pack: no nodes. ComfyUI serves example_workflows/ so that Afflatus can open a workflow in the editor.\nNODE_CLASS_MAPPINGS = {}\n`;
 const exists = (p: string) => access(p).then(() => true, () => false);
-const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 
 export type Opened = { url: string; direct: true } | { url: string; direct: false; path: string; restart?: boolean };
 
@@ -32,7 +32,7 @@ export async function openInComfy(s: Services, name: string, title: string, file
     try {
       await comfy.client.storeUserData(path, file);
     } catch (err) {
-      if (err instanceof ComfyUnreachable) throw bad("ComfyUI has to be running: the workflow is written into its own workflows folder.", 503);
+      if (err instanceof ComfyUnreachable) throw httpError("ComfyUI has to be running: the workflow is written into its own workflows folder.", 503);
       throw err;
     }
     return path;
@@ -41,14 +41,14 @@ export async function openInComfy(s: Services, name: string, title: string, file
   if (!comfyDir.trim()) return { url: comfy.url, direct: false, path: await toSidebar() };
 
   const dir = comfyDir.trim();
-  if (!(await exists(join(dir, "custom_nodes")))) throw bad(`"${dir}" is not a ComfyUI folder: it has no custom_nodes folder. Check the ComfyUI folder in Settings.`);
+  if (!(await exists(join(dir, "custom_nodes")))) throw httpError(`"${dir}" is not a ComfyUI folder: it has no custom_nodes folder. Check the ComfyUI folder in Settings.`);
   const pack = join(dir, "custom_nodes", PACK);
   await mkdir(join(pack, "example_workflows"), { recursive: true });
   if (!(await exists(join(pack, "__init__.py")))) await writeFile(join(pack, "__init__.py"), PACK_INIT, "utf-8");
   await writeFile(join(pack, "example_workflows", `${name}.json`), JSON.stringify(file), "utf-8");
   // served only once ComfyUI has started with the pack there: asked, not assumed
   const served = await comfy.client.servesTemplate(PACK, name).catch((err) => {
-    if (err instanceof ComfyUnreachable) throw bad("ComfyUI has to be running to open a workflow in it.", 503);
+    if (err instanceof ComfyUnreachable) throw httpError("ComfyUI has to be running to open a workflow in it.", 503);
     throw err;
   });
   if (served) return { url: `${comfy.url}/?template=${encodeURIComponent(name)}&source=${PACK}`, direct: true };

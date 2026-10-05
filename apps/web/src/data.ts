@@ -1,8 +1,13 @@
 import { useMemo } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type TimesPeriod, type TimesWindow } from "./api";
+import { useProject } from "./project";
 
-/** The queries the screens share. Live events (live.ts) decide when they refetch. */
+/**
+ * The queries the screens share. Live events (live.ts) decide when they refetch. The lists that follow
+ * the project switcher (library, drafts, timelines) carry the project in their key, so a switch is a
+ * new query rather than a refetch of the old one.
+ */
 
 export const useRecipes = () => useQuery({ queryKey: ["recipes"], queryFn: api.recipes, staleTime: Infinity });
 export const useSetup = () => useQuery({ queryKey: ["setup"], queryFn: () => api.setup(), staleTime: 60_000 });
@@ -39,7 +44,17 @@ export function useFamilies() {
   }, [recipes.data, setup.data, settings.data]);
 }
 
-export const useTimelines = () => useQuery({ queryKey: ["timelines"], queryFn: api.timelines });
+/** The timelines of the project the app looks at. Its key starts with "timelines", like each timeline's, so both refetch on a "timeline" event. */
+export const useTimelines = () => {
+  const project = useProject((s) => s.id);
+  return useQuery({ queryKey: ["timelines", "list", project], queryFn: api.timelines });
+};
+/** The key of the drafts list, whatever project it is for: what to invalidate when a draft is made, saved or deleted (each draft is ["drafts", id]). */
+export const DRAFT_LIST = ["drafts", "list"] as const;
+export const useDrafts = (enabled = true) => {
+  const project = useProject((s) => s.id);
+  return useQuery({ queryKey: [...DRAFT_LIST, project], queryFn: api.drafts, enabled });
+};
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: api.projects });
 export const useTimeline = (id: string | undefined) => useQuery({ queryKey: ["timelines", id], queryFn: () => api.timeline(id!), enabled: Boolean(id) });
 export const useEntities = () => useQuery({ queryKey: ["entities"], queryFn: api.entities });
@@ -61,9 +76,15 @@ export const useStorage = () => useQuery({ queryKey: ["assets", "storage"], quer
 export const useAssetFamilies = () => useQuery({ queryKey: ["assets", "families"], queryFn: api.assetFamilies });
 export const useAssetModels = () => useQuery({ queryKey: ["assets", "models"], queryFn: api.assetModels });
 
+/**
+ * A list of the library, a page at a time. Every page it holds is read again when the library changes
+ * (a "library" event, a keep, a bin): the server's cursor only goes forward, so the pages cannot be
+ * capped (maxPages) without the first ones vanishing under a reader who scrolled past the cap.
+ */
 export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, enabled = true) {
+  const project = useProject((s) => s.id);
   return useInfiniteQuery({
-    queryKey: ["assets", filter],
+    queryKey: ["assets", "list", project, filter],
     queryFn: ({ pageParam }) => api.assets({ ...filter, after: pageParam || undefined }),
     initialPageParam: "",
     getNextPageParam: (last) => last.next ?? undefined,

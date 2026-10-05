@@ -61,7 +61,8 @@ try:
     from aiohttp import web
     from server import PromptServer
 
-    _HEADER_MOST = 64 * 1024 * 1024
+    # a safetensors header is a JSON index of the tensors: a few hundred KB on the largest models, so 8 MiB is ample
+    _HEADER_MOST = 8 * 1024 * 1024
 
     @PromptServer.instance.routes.get("/afflatus/header")
     async def _afflatus_header(request):

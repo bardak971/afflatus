@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
-import { HIRES_PASS_INPUTS, hiresPass, isVPred, PREDICTION_INPUTS, PREDICTION_NODES, SDXL_PRESETS, UPSCALER_PREFER, withPrediction } from "./common";
+import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, PREDICTION_INPUTS, PREDICTION_NODES, round8, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
 import { DEFAULT_NEGATIVE } from "./family";
 
 export interface SdxlTextToPicture {
@@ -29,8 +29,6 @@ export interface SdxlTextToPicture {
 
 /** The hi-res pass can enlarge in latent space (no extra model) or through an upscale model. */
 export const LATENT_UPSCALE = "latent";
-
-const round8 = (n: number) => Math.max(64, Math.round(n / 8) * 8);
 
 export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
   id: "sdxl.text-to-picture",
@@ -93,22 +91,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
 
   build(input, ctx) {
     const g = new GraphBuilder();
-    const ckpt = g.add("CheckpointLoaderSimple", { ckpt_name: input.checkpoint });
-    let model: Ref = [ckpt, 0];
-    let clip: Ref = [ckpt, 1];
-    const vae: Ref = [ckpt, 2];
-    for (const l of input.loras) {
-      if (l.weight === 0) continue;
-      const n = g.add("LoraLoader", { model, clip, lora_name: l.file, strength_model: l.weight, strength_clip: l.weight });
-      model = [n, 0];
-      clip = [n, 1];
-    }
-    // N = stop at the Nth-last layer; SDXL's own default is already the second-last
-    if (input.clipSkip > 1) clip = g.out("CLIPSetLastLayer", { clip, stop_at_clip_layer: -input.clipSkip });
-    model = withPrediction(g, model, input);
-    const text = [input.quality.trim().replace(/,\s*$/, ""), input.prompt].filter(Boolean).join(", ");
-    const positive = g.out("CLIPTextEncode", { text, clip });
-    const negative = g.out("CLIPTextEncode", { text: input.negative, clip });
+    const { model, vae, positive, negative } = loadSdxl(g, input, input.prompt);
     const W = round8(input.size.width);
     const H = round8(input.size.height);
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
@@ -163,7 +146,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
         loras: [{ file: "l.safetensors", weight: 0.8 }, { file: "off.safetensors", weight: 0 }],
       },
     },
-    { name: "hi-res fix, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true } },
+    { name: "hi-res fix, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: LATENT_UPSCALE } },
     { name: "a v-prediction checkpoint, read from its name", input: { prompt: "a", checkpoint: "noobaiXL_vPred10.safetensors" } },
     { name: "said to be v-prediction, without the CFG rescale", input: { prompt: "a", checkpoint: "mystery.safetensors", prediction: "v-prediction (zsnr)", rescale: 0 } },
     {

@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { create } from "zustand";
+import { Dialog } from "./Dialog";
 import { Button } from "./ui";
 
 /**
@@ -32,30 +32,17 @@ export function ask(question: Question): Promise<boolean> {
 
 export function ConfirmHost() {
   const open = useConfirm((s) => s.open);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        open.answer(false);
-      }
-    };
-    // before the screens' own keys: Escape answers the question and nothing else
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [open]);
   if (!open) return null;
+  // over every other dialog: Escape answers the question and nothing else
   return (
-    <div role="dialog" aria-modal="true" aria-label={open.title} className="fixed inset-0 z-[95] flex items-center justify-center bg-ground/85 p-8" onClick={() => open.answer(false)}>
-      <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-base font-semibold">{open.title}</h2>
-        <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button tone="quiet" onClick={() => open.answer(false)}>Cancel</Button>
-          <Button tone="danger" autoFocus onClick={() => open.answer(true)}>{open.yes}</Button>
-        </div>
+    <Dialog label={open.title} onClose={() => open.answer(false)} z="z-[95]" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
+      <h2 className="text-base font-semibold">{open.title}</h2>
+      <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button tone="quiet" onClick={() => open.answer(false)}>Cancel</Button>
+        <Button tone="danger" autoFocus onClick={() => open.answer(true)}>{open.yes}</Button>
       </div>
-    </div>
+    </Dialog>
   );
 }
 

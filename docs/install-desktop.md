@@ -31,6 +31,9 @@ The launcher reads a few environment variables. On Windows set them in the conso
 |---|---|---|
 | `PORT` | `8720` | The port. Change it when another program, or another Afflatus, has 8720 |
 | `HOST` | `127.0.0.1` | The address. `0.0.0.0` makes it reachable from other machines on your network; there is no login, so only do that on a network you trust |
+| `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, the `HOST` address and the host of `PUBLIC_URL`. A request that names any other host (a page on another site pointing one of its names at this machine) gets a 403. When you open Afflatus by your PC's name or LAN address, put that name or address here: `ALLOWED_HOSTS=pc.lan,192.168.1.20` |
+| `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.1.20:8720`), given to ComfyUI for model downloads when ComfyUI runs elsewhere; its host is answered to as well |
+| `LINK_ROOTS` | empty | Only the folders named here (and what is inside them) can be linked from Settings → Folders, separated as PATH is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus can be reached from other machines: without it, anyone who can open the page can link any folder of the disk Afflatus can read and have its pictures, videos and sounds served and written to. The system's own folders (Windows, Program Files, AppData, a drive's root, the home folder itself) are never linked, whatever is set |
 | `DATA_DIR` | the `data` folder beside the launcher | Where everything is kept |
 | `FFMPEG`, `FFPROBE` | the bundled ones (`bin/`), or the PATH on macOS | The tools' paths |
 

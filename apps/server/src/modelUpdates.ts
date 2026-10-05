@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import type { ModelInfo } from "@afflatus/core";
 import { civitaiGet } from "./civitai";
 import { now, type Db } from "./db";
+import { fileName } from "./media";
 import { modelDirs, readLocalHeader } from "./modelFiles";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -17,7 +19,7 @@ import { readSettings } from "./settings";
  */
 
 /** The folders worth checking: the ones that hold models with versions. */
-export const UPDATE_FOLDERS = ["checkpoints", "diffusion_models", "loras"] as const;
+const UPDATE_FOLDERS = ["checkpoints", "diffusion_models", "loras"] as const;
 /** How many files are hashed in one check: a 6 GB checkpoint takes a while. The rest wait for the next check. */
 const HASHES_PER_CHECK = 6;
 
@@ -48,7 +50,6 @@ export interface UpdateReport {
 type ApiVersionBrief = { id: number; name?: string; modelId?: number; createdAt?: string; publishedAt?: string; model?: { name?: string }; files?: Array<{ name?: string; primary?: boolean }> };
 type ApiModelBrief = { id: number; name: string; modelVersions?: ApiVersionBrief[] };
 
-const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 
 /** The words of a version's name that say its precision or packing, not its content: int8, fp8, bf16, Q4_K_M, gguf, nf4, scaled, convrot. */
 const PRECISION = /^(int\d+|fp\d+(e\dm\d(fn)?)?|bf16|nf4|gguf|q\d(k)?(m|s|l)?|scaled|convrot|pruned)$/i;
@@ -59,7 +60,7 @@ export const sansPrecision = (name: string) => tokensOf(name).filter((t) => !PRE
 export const precisionOf = (name: string) => tokensOf(name).filter((t) => PRECISION.test(t)).sort().join(" ");
 
 /** The SHA-256 of a file, streamed. */
-export function sha256Of(path: string): Promise<string> {
+function sha256Of(path: string): Promise<string> {
   return new Promise((done, fail) => {
     const hash = createHash("sha256");
     createReadStream(path).on("data", (d) => hash.update(d)).on("end", () => done(hash.digest("hex").toUpperCase())).on("error", fail);
@@ -125,14 +126,14 @@ export class Updates {
       const pages = await db.selectFrom("model_pages").select(["name", "url"]).where("folder", "=", folder).execute();
       const dirs = await modelDirs(settings.comfyDir, folder);
       for (const file of files) {
-        const name = nameOf(file);
+        const name = fileName(file);
         // already matched once: its version does not change
         const was = known.find((k) => k.name === name);
         if (was) {
           byVersion.set(was.version_id, [...(byVersion.get(was.version_id) ?? []), { folder, file }]);
           continue;
         }
-        const infoRow = infoRows.find((r) => r.file === file) ?? infoRows.find((r) => nameOf(r.file) === name);
+        const infoRow = infoRows.find((r) => r.file === file) ?? infoRows.find((r) => fileName(r.file) === name);
         const info: ModelInfo & { sha256?: string } = infoRow ? JSON.parse(infoRow.info) : {};
         // the page the user or a lookup already tied to the file names the version
         const page = pages.find((p) => p.name === name);
@@ -234,8 +235,9 @@ export function registerModelUpdates(app: FastifyInstance, s: Services, updates:
   /** Check now. Hashes a few more files each time; asks Civitai once per model. */
   app.post("/api/models/updates/check", async () => updates.check());
   /** A file's row forgotten: it is matched again at the next check (after the user replaced it, say). */
-  app.delete<{ Params: { folder: string }; Querystring: { file: string } }>("/api/models/updates/:folder", async (req) => {
-    await s.db.deleteFrom("model_updates").where("folder", "=", req.params.folder).where("name", "=", nameOf(req.query.file)).execute();
+  app.delete<{ Params: { folder: string } }>("/api/models/updates/:folder", async (req) => {
+    const { file } = z.object({ file: z.string().min(1).max(400) }).parse(req.query);
+    await s.db.deleteFrom("model_updates").where("folder", "=", req.params.folder).where("name", "=", fileName(file)).execute();
     return { ok: true };
   });
 }

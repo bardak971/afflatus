@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { api, type Embedded } from "./api";
 import { useRecipes } from "./data";
+import { Dialog } from "./Dialog";
+import { useOpenNewDraft } from "./draft";
 import { fileLabel, recipeLabel } from "./format";
 import { GetFile } from "./GetFile";
 import { Select } from "./Select";
-import { useHandover, useOpenDraft } from "./store";
+import { useHandover } from "./store";
 import { Button, cx, ErrorNote } from "./ui";
 
 /** The workflow a file carries, as a file the import screen can read. */
@@ -31,16 +32,12 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
   const [data, setData] = useState<Embedded | null>(first ?? null);
   const [failed, setFailed] = useState<string | null>(null);
   const recipes = useRecipes();
-  const client = useQueryClient();
   const [, go] = useLocation();
   const hand = useHandover((h) => h.set);
-  const openDraft = useOpenDraft((s) => s.open);
+  const openNew = useOpenNewDraft();
   const load = (recipe?: string) => read(recipe).then(setData, (err: Error) => setFailed(err.message));
   useEffect(() => {
     if (!first) void load();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nameOf = (id: string) => {
@@ -53,12 +50,9 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
       const fresh = (await read(data?.settings?.recipe)).settings ?? data?.settings;
       if (!fresh) return;
       const d = await api.createDraft({ recipe: fresh.recipe, forms: { [fresh.recipe]: fresh.input } });
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
-      openDraft(d.id);
       onClose();
       onSent?.();
-      go("/create");
+      openNew(d);
     } catch (err) {
       setFailed((err as Error).message);
     }
@@ -66,8 +60,7 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
 
   const s = data?.settings;
   return (
-    <div role="dialog" aria-modal="true" aria-label="PNG info" className="fixed inset-0 z-[80] flex items-center justify-center bg-ground/85 p-8" onClick={onClose}>
-      <div className="flex max-h-full w-full max-w-2xl flex-col rounded-2xl border border-line-strong bg-panel" onClick={(e) => e.stopPropagation()}>
+    <Dialog label="PNG info" onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-2xl border border-line-strong bg-panel">
         <header className="flex shrink-0 items-center gap-3 border-b border-line py-3 pr-3 pl-5">
           <div className="flex min-w-0 grow flex-col">
             <h2 className="text-base font-semibold">PNG info</h2>
@@ -128,8 +121,7 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
           <Button onClick={onClose}>Close</Button>
           {s && <Button tone="primary" onClick={() => void send()}>Send to form</Button>}
         </footer>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, X } from "lucide-react";
-import { api, thumbUrl, type HistoryJob } from "../../api";
+import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
 import { useAsset, useJobs, useRecipes } from "../../data";
 import { clock, fileLabel, took, when } from "../../format";

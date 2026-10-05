@@ -6,7 +6,7 @@ import { assetView } from "./media";
 import { rifeModelIn, UserError } from "./queue";
 import { rootFolderOf } from "./projects";
 import type { Services } from "./services";
-import { FROM_PREVIOUS } from "./timelines";
+import { clockOf, FROM_PREVIOUS } from "./timelines";
 
 const timelinePatch = z.strictObject({
   name: z.string().max(200).optional(),
@@ -304,8 +304,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       return made;
     } else {
       const view = await t.view(id);
-      const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
-      return { job: await s.queue.enqueueExport({ timeline: id, scale: body.scale ?? 1, music: false, range: { inMs: body.inMs, outMs: body.outMs } }, `${view.name} · copy ${clock(body.inMs)}–${clock(body.outMs)}`) };
+      return { job: await s.queue.enqueueExport({ timeline: id, scale: body.scale ?? 1, music: false, range: { inMs: body.inMs, outMs: body.outMs } }, `${view.name} · copy ${clockOf(body.inMs)}–${clockOf(body.outMs)}`) };
     }
     s.queue.events.emit("timeline");
     return { ok: true as const };
@@ -348,14 +347,13 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     if (!video || video.kind !== "video") throw Object.assign(new Error("this video was not found"), { statusCode: 404 });
     if (body.endMs - body.startMs < 20) throw Object.assign(new Error("That range is too short: pick at least one frame."), { statusCode: 400 });
     if (body.action !== "slow" && video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw Object.assign(new Error("That is the whole video: there is nothing to cut."), { statusCode: 400 });
-    const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms / 1000) % 60)).padStart(2, "0")}`;
     const name = video.name || "video";
     if (body.action === "slow") {
       const factor = body.factor ?? 2;
       const engine = await slowEngine(s);
-      return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf }, `${name} · slow ×${factor} ${clock(body.startMs)}–${clock(body.endMs)}`), engine };
+      return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf }, `${name} · slow ×${factor} ${clockOf(body.startMs)}–${clockOf(body.endMs)}`), engine };
     }
-    const said = body.action === "copy" ? `${name} · ${clock(body.startMs)}–${clock(body.endMs)} → library` : body.action === "split" ? `${name} · split at ${clock(body.startMs)} and ${clock(body.endMs)}` : `${name} · remove ${clock(body.startMs)}–${clock(body.endMs)}`;
+    const said = body.action === "copy" ? `${name} · ${clockOf(body.startMs)}–${clockOf(body.endMs)} → library` : body.action === "split" ? `${name} · split at ${clockOf(body.startMs)} and ${clockOf(body.endMs)}` : `${name} · remove ${clockOf(body.startMs)}–${clockOf(body.endMs)}`;
     return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf }, said) };
   });
 

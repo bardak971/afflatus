@@ -1,0 +1,157 @@
+import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { Copy, Gauge, Play, RefreshCw, Repeat, Scissors, Split, X } from "lucide-react";
+import { api, type Clip } from "../api";
+import type { MenuItem } from "../ContextMenu";
+import type { Banner } from "../store";
+import type { Clock } from "./clock";
+import type { PlayerHandle } from "./Player";
+import type { TimeRange } from "./Track";
+
+/**
+ * The range: In and Out on the clock of what plays, what is done with it, and the transport that knows
+ * about it (Play plays the range, Loop goes back to In).
+ */
+export function useRange({ id, clips, durationMs, clock, player, playing, setPlaying, on }: {
+  id: string;
+  clips: Clip[];
+  durationMs: number;
+  clock: Clock;
+  player: RefObject<PlayerHandle | null>;
+  playing: boolean;
+  setPlaying: Dispatch<SetStateAction<boolean>>;
+  /** What the range's actions reach beyond the range: the editor's own state. */
+  on: {
+    /** The timeline and the queue, read again. */
+    after(): void;
+    /** A clip selected, its panel open. */
+    select(clip: string): void;
+    /** A word in the header. */
+    note(text: string): void;
+    say(b: Banner): void;
+    /** The designer writing a clip put between two others. */
+    writeBetween(v: { clip: string; force: boolean; arrive?: string }): void;
+  };
+}) {
+  // ---- the range: In and Out on the clock of what plays; what is done with it
+  const [range, setRange] = useState<TimeRange | null>(null);
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const [loopRange, setLoopRange] = useState(false);
+  // In and Out snap to quiet moments of the clips; off with the magnet, remembered per browser
+  const [snapQuiet, setSnapQuiet] = useState(() => {
+    try {
+      return localStorage.getItem("afflatus.timeline.snapQuiet") !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSnapQuiet = () => {
+    setSnapQuiet((on) => {
+      try {
+        localStorage.setItem("afflatus.timeline.snapQuiet", on ? "off" : "on");
+      } catch {
+        // not remembered, nothing more
+      }
+      return !on;
+    });
+  };
+  const loopRef = useRef(loopRange);
+  loopRef.current = loopRange;
+  /** Playing the range: it stops at Out (or goes back to In). */
+  const playingRange = useRef(false);
+  const emptyRange = Boolean(range && range.outMs - range.inMs < 40);
+  // the range stays within what plays when the timeline changes under it
+  useEffect(() => {
+    setRange((r) => (r && r.outMs > durationMs ? (r.inMs >= durationMs ? null : { ...r, outMs: durationMs }) : r));
+  }, [durationMs]);
+  const totalRef = useRef(durationMs);
+  totalRef.current = durationMs;
+  const toggle = useCallback(() => {
+    const r = rangeRef.current;
+    const time = clock.get();
+    if (playing) playingRange.current = false;
+    else if (r && r.outMs - r.inMs >= 40) {
+      // with a range, Play plays it: from the playhead when it stands inside, else from In; it stops at Out
+      playingRange.current = true;
+      if (time < r.inMs || time >= r.outMs - 15) player.current?.seek(r.inMs);
+    } else if (totalRef.current && time >= totalRef.current - 30) player.current?.seek(0);
+    setPlaying((p) => !p);
+  }, [playing, clock]);
+  /** Loop on or off; turning it on while stopped starts the range. */
+  const toggleLoop = useCallback(() => {
+    const r = rangeRef.current;
+    setLoopRange((on) => !on);
+    if (!loopRef.current && !playing && r && r.outMs - r.inMs >= 40) toggle();
+  }, [playing, toggle]);
+  const toggleLoopNow = useRef(toggleLoop);
+  toggleLoopNow.current = toggleLoop;
+  /** Play from In; at Out it stops, or goes back to In when Loop is on. */
+  const playRange = () => {
+    if (!range || emptyRange) return;
+    playingRange.current = true;
+    player.current?.seek(range.inMs);
+    setPlaying(true);
+  };
+  const rangeAct = useMutation({
+    mutationFn: (ask: "split" | "remove" | "regenerate" | "loop" | "copy" | { slow: 2 | 4; inMs?: number; outMs?: number }) =>
+      typeof ask === "string"
+        ? api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: ask })
+        : api.timelineRange(id, { inMs: ask.inMs ?? range!.inMs, outMs: ask.outMs ?? range!.outMs, action: "slow", factor: ask.slow }),
+    onSuccess: (r, ask) => {
+      on.after();
+      if (typeof ask !== "string") {
+        const parts = "clips" in r ? r.clips : [];
+        if (parts[0]) on.select(parts[0]);
+        const engine = "engine" in r ? r.engine : "ffmpeg";
+        on.say({ id: `slow:${Date.now()}`, tone: "good", title: `Slow motion ×${ask.slow} in the queue`, text: `${parts.length > 1 ? `${parts.length} parts are clips of their own now; each slowed video` : "The part is a clip of its own now; the slowed video"} arrives as a take and plays, with its sound slowed. ${engine === "rife" ? "RIFE on the GPU." : "ffmpeg on the processor: slow, minutes for a few seconds."}`, href: "/queue", go: "Open queue" });
+        return;
+      }
+      const action = ask;
+      if (action === "regenerate" && "clip" in r && "context" in r) {
+        on.select(r.clip);
+        setRange(null);
+        const { start, end } = r.context;
+        const how =
+          start === "clip" && end === "clip" ? "it extends the clip before and ends where the clip after begins, so the motion carries across"
+          : start === "clip" ? (end === "frame" ? "it extends the clip before and ends on the frame at Out" : "it extends the clip before; nothing rendered plays after Out")
+          : end === "clip" ? "it opens on the frame at In and ends where the clip after begins"
+          : start === "none" ? "it ends on the frame at Out; nothing plays before In"
+          : end === "none" ? "it opens on the frame at In; nothing rendered plays after Out, so only that frame is pinned"
+          : "it is pinned to the frames at In and Out: the frames will match, the motion may not";
+        on.note(`The new clip is selected: ${how}. Change what happens in it, then render it. Undo takes the range back.`);
+        // with a clip after to arrive at, the designer writes the stretch; without a language model nothing happens
+        if (end !== "none") on.writeBetween({ clip: r.clip, force: false });
+      } else if (action === "loop" && "clip" in r && "context" in r) {
+        on.select(r.clip);
+        on.note(`The loop clip is selected, after Out: ${r.context.start === "clip" ? "it extends the clip at Out" : "it opens on the frame at Out"} and ends on the frame at In, so the range plays round. Keep it short, then render it; Undo takes it out.`);
+        // the designer writes the return towards the clip under In
+        on.writeBetween({ clip: r.clip, force: false, arrive: r.arrive });
+      } else if (action === "remove") setRange(null);
+      else if (action === "copy") on.say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
+    },
+  });
+  /** What can be done with the range: the bar under the video and the right-click on the band show the same list. */
+  const rangeItems = (): MenuItem[] => {
+    if (!range) return [];
+    const busy = rangeAct.isPending;
+    // slow motion needs a video under the range (each clip it covers is slowed on its own; stills are held longer)
+    const withinOne = clips.some((c) => c.kind === "video" && c.take && c.atMs < range.outMs && c.atMs + c.lengthMs > range.inMs);
+    return [
+      { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: emptyRange ? "In and Out are the same moment" : undefined, run: playRange },
+      { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => toggleLoop() },
+      "—" as const,
+      { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
+      { label: "Loop back to In", icon: <Repeat size={14} />, disabled: emptyRange || busy, note: "a short new clip after Out that returns to the frame at In: the range plays round", run: () => rangeAct.mutate("loop") },
+      { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: "the clips under them become two", run: () => rangeAct.mutate("split") },
+      { label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") },
+      { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
+      "—" as const,
+      { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "each part becomes a clip of its own and gets the slowed video as a take, sound slowed too; stills are held longer" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 2 }) },
+      { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "a quarter speed" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 4 }) },
+      "—" as const,
+      { label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) },
+    ];
+  };
+  return { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, playRange, rangeAct, rangeItems };
+}

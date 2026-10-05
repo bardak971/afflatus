@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { httpError } from "./errors";
+import { fileName } from "./media";
 import type { PresetFile, ShippedPreset } from "@afflatus/core";
 import { OWNER } from "./db";
 import type { DownloadView } from "./downloads";
@@ -45,8 +47,6 @@ const shippedSchema = z.strictObject({
 
 /** The id a shipped preset is listed under among the entities. */
 export const SHIPPED = "shipped:";
-const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
-const base = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
 
 /** Where the presets that ship with Afflatus are: the repository's `presets/` folder, or PRESETS_DIR. */
 export function shippedPresetsDir(): string {
@@ -105,7 +105,7 @@ export function registerPresetFiles(app: FastifyInstance, s: Services): void {
   };
   const find = async (id: string) => {
     const found = (await all()).find((p) => p.id === id);
-    if (!found) throw bad("that preset was not found, or names no files", 404);
+    if (!found) throw httpError("that preset was not found, or names no files", 404);
     return found;
   };
 
@@ -124,7 +124,7 @@ export function registerPresetFiles(app: FastifyInstance, s: Services): void {
     const scan = await comfy.scan().catch(() => null);
     return { files, scan, online: Boolean(scan?.comfy.online) };
   };
-  const has = async (ctx: Awaited<ReturnType<typeof listings>>, f: PresetFile) => (await ctx.files(f.folder)).some((x) => base(x) === base(f.file));
+  const has = async (ctx: Awaited<ReturnType<typeof listings>>, f: PresetFile) => (await ctx.files(f.folder)).some((x) => fileName(x) === fileName(f.file));
 
   const view = async (p: Preset, ctx: Awaited<ReturnType<typeof listings>>, accepted: string[]): Promise<PresetFilesView> => {
     const files: PresetFileView[] = [];
@@ -145,7 +145,7 @@ export function registerPresetFiles(app: FastifyInstance, s: Services): void {
     if (!p.licence) return;
     const settings = await readSettings(s.db);
     if (settings.acceptedPresets.includes(p.id)) return;
-    if (!accept) throw bad(`${p.name} comes under the ${p.licence.name}: accept it first.`);
+    if (!accept) throw httpError(`${p.name} comes under the ${p.licence.name}: accept it first.`);
     await writeSettings(s.db, { acceptedPresets: [...settings.acceptedPresets, p.id] });
   };
 

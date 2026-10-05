@@ -1,4 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, LoraValue, Ref } from "@afflatus/core";
+import { roundTo } from "../shared/round";
 import { loadUnet, unetNodes } from "../shared/unet";
 
 /** What every Krea 2 recipe asks for besides its own inputs. */
@@ -32,15 +33,13 @@ export const krea2Inputs: InputSpec[] = [
   { id: "seed", type: "seed", label: "Seed" },
 ];
 
-export const r16 = (n: number) => Math.max(16, Math.round(n / 16) * 16);
-
 /** The size a picture (or a part of one) is worked on at: its own shape, both edges multiples of 16, at most about `megapixels`. */
 export function krea2Size(of: { width: number; height: number } | undefined, megapixels = 1.6, least = 0.6) {
   if (!of?.width || !of.height) return { width: 1024, height: 1024 };
   const mp = (of.width * of.height) / (1024 * 1024);
   // large pictures are brought down to what the model draws well; small parts are brought up to where it has room to draw
   const k = mp > megapixels ? Math.sqrt(megapixels / mp) : mp < least ? Math.sqrt(least / mp) : 1;
-  return { width: r16(of.width * k), height: r16(of.height * k) };
+  return { width: roundTo(of.width * k, 16), height: roundTo(of.height * k, 16) };
 }
 
 export interface Krea2 {

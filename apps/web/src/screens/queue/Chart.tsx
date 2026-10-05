@@ -7,7 +7,7 @@ import { themeInUse, useThemeChoice } from "../../theme/store";
  * every series where the pointer is, and a legend whose entries can be clicked to look at one alone.
  */
 
-export interface Series {
+interface Series {
   name: string;
   /** One value per time; null where there is nothing to say (no render in that stretch): the line passes over it. */
   values: Array<number | null>;

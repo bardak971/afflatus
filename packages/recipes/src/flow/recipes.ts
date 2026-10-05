@@ -3,6 +3,7 @@ import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, UPSCALER_PREFER,
   type FaceSettings, type HiresPass, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
 } from "../sdxl/common";
+import { roundTo } from "../shared/round";
 import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
 
 /**
@@ -71,7 +72,6 @@ export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: strin
 export interface FlowSharper extends FlowBase, UpscaleSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
 export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
 
-export const r16 = (n: number) => Math.max(16, Math.round(n / 16) * 16);
 /** Past this many pixels an upscaled picture is only enlarged: a pass that large does not fit a common card. */
 const REFINE_MAX_PIXELS = 3.2e6;
 const SAME_PICTURE = "The same picture in high quality, with sharp, natural detail.";
@@ -170,7 +170,7 @@ export function flowKit(spec: FlowSpec) {
     const mp = (of.width * of.height) / (1024 * 1024);
     // large pictures are brought down to what the model draws well; small parts are brought up to where it has room to draw
     const k = mp > megapixels ? Math.sqrt(megapixels / mp) : mp < least ? Math.sqrt(least / mp) : 1;
-    return { width: r16(of.width * k), height: r16(of.height * k) };
+    return { width: roundTo(of.width * k, 16), height: roundTo(of.height * k, 16) };
   }
 
   return { inputs, LOAD_NODES, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf };
@@ -213,7 +213,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
     build(input, ctx) {
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
-      const size = { width: r16(input.size.width), height: r16(input.size.height) };
+      const size = { width: roundTo(input.size.width, 16), height: roundTo(input.size.height, 16) };
       const c = cond(g, k, input, input.prompt);
       const empty = g.out("EmptySD3LatentImage", { width: size.width, height: size.height, batch_size: 1 });
       g.phase("sampling");
@@ -222,7 +222,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       const passes = [first.pass];
       const loads = [...k.loads];
       if (input.hires) {
-        const large = { width: r16(size.width * input.hiresScale), height: r16(size.height * input.hiresScale) };
+        const large = { width: roundTo(size.width * input.hiresScale, 16), height: roundTo(size.height * input.hiresScale, 16) };
         g.phase("upscaling");
         // upscale models enlarge by their own factor (usually 4×): the result is scaled to the size asked for
         const pixels = g.out("VAEDecode", { samples: latent, vae: k.vae });
@@ -413,7 +413,7 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
     build(input, ctx) {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-      const size = { width: r16(from.width * input.factor), height: r16(from.height * input.factor) };
+      const size = { width: roundTo(from.width * input.factor, 16), height: roundTo(from.height * input.factor, 16) };
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       g.phase("upscaling");
       const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });

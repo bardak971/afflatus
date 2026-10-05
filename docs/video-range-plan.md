@@ -118,8 +118,9 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
   points; a join score on every take (how much the picture jumps at In and at Out, the smoothest marked); the
   designer's speech rule for a bridge. The H3 guide node has no strength input: anchors are hard, no Hold knob.
   Regen is done; what is left is the model and the choice of range (cut on pauses, give it 4–5 s).
-- **Loop** (slice E) is not built: with the range it would be "Regenerate with In and Out swapped"; wanted
-  only when asked for.
+- **Loop** (slice E) is built: `POST /api/timelines/:id/range` with `action: "loop"` (`Timelines.loopRange`)
+  inserts a new clip after Out that returns to the frame at In, so the range plays round; like Regenerate, the
+  clip comes back selected and nothing is rendered until New take.
 
 ## 5. Slice F — Slow motion (built 2026-10-04: a `slow` cut job, RIFE on the GPU when ComfyUI has it, ffmpeg otherwise; from Trim, from the timeline range — each clip under it slowed as its own clip with the slowed video as a take, stills held longer — and from a clip's menu; the sound slowed with it, pitch kept) (the owner, 2026-10-04: "if the GPU is faster and better quality, yes" → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
 

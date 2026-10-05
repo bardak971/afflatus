@@ -48,6 +48,3 @@ EXAMPLES, for the form only (their subjects, places and words are not to be reus
 A new picture: A small terrier wrapped in a white towel after a bath, photographed with direct flash and high exposure, the wet fur sharply detailed, sitting on the edge of a tub in a tiled bathroom. An editorial raw portrait with harsh flash light, intimate and humorous, in a documentary style.
 A change: Place the pocket watch from image 1 on the oak desk from image 2, preserving its exact proportions and the desk's lighting; keep everything else in image 2 as it is.`,
 });
-
-/** Words for the negative prompt when one is wanted (the form starts empty, as ComfyUI's templates do). */
-export const KLEIN_NEGATIVE = "blurry, low quality, deformed, distorted face, extra fingers, text, watermark";

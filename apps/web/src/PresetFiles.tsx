@@ -4,6 +4,7 @@ import { Download as DownloadIcon, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { api, type PresetDef, type PresetFileView, type PresetFilesView } from "./api";
 import { useSettings } from "./data";
+import { Dialog } from "./Dialog";
 import { fileLabel, gb } from "./format";
 import { DownloadRow, GetFile, useDownloads } from "./GetFile";
 import { Button, cx, ErrorNote } from "./ui";
@@ -17,12 +18,12 @@ import { Button, cx, ErrorNote } from "./ui";
 export const usePresetFiles = () => useQuery({ queryKey: ["preset-files"], queryFn: api.presetFiles, staleTime: 30_000 });
 
 /** Every file any preset names, by folder and name: where a missing file can be had. */
-export function presetFileIndex(data: { items: PresetFilesView[] } | undefined): Map<string, PresetFileView> {
+function presetFileIndex(data: { items: PresetFilesView[] } | undefined): Map<string, PresetFileView> {
   const map = new Map<string, PresetFileView>();
   for (const p of data?.items ?? []) for (const f of p.files) map.set(`${f.folder}:${(f.file.split(/[\\/]/).pop() ?? f.file).toLowerCase()}`, f);
   return map;
 }
-export const fileKey = (folder: string, file: string) => `${folder}:${(file.split(/[\\/]/).pop() ?? file).toLowerCase()}`;
+const fileKey = (folder: string, file: string) => `${folder}:${(file.split(/[\\/]/).pop() ?? file).toLowerCase()}`;
 
 const KEYS = [["preset-files"], ["setup"], ["downloads"], ["settings"]];
 
@@ -108,8 +109,7 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
       {fetchAll.isError && <ErrorNote>{fetchAll.error.message}</ErrorNote>}
       {downloads.data?.items.filter((d) => files.some((f) => fileKey(f.folder, f.file) === fileKey(d.folder, d.file)) && d.status !== "done").map((d) => <DownloadRow key={d.id} d={d} named />)}
       {licence && def.licence && (
-        <div role="dialog" aria-modal="true" aria-label={`Licence of the preset's files`} className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setLicence(false)}>
-          <div className="flex w-full max-w-[520px] flex-col gap-3 rounded-xl border border-line bg-panel p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <Dialog label="Licence of the preset's files" onClose={() => setLicence(false)} className="flex w-full max-w-[520px] flex-col gap-3 rounded-xl border border-line bg-panel p-5 shadow-xl">
             <h3 className="text-[15px] font-bold">Before the files are fetched</h3>
             <div className="text-ink-2">
               They come under the {def.licence.url ? <a href={def.licence.url} target="_blank" rel="noreferrer" className="font-semibold underline">{def.licence.name}</a> : <span className="font-semibold">{def.licence.name}</span>}.
@@ -120,8 +120,7 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
               <Button size="sm" onClick={() => setLicence(false)}>Not now</Button>
               <Button size="sm" tone="primary" onClick={() => { setLicence(false); fetchAll.mutate(true); }}>I accept, fetch the files</Button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );

@@ -28,7 +28,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /src/release/app /app
-RUN npm install --omit=dev --no-audit --no-fund --loglevel=error \
+# the exact dependency tree the staging resolved (its package-lock.json), not a fresh resolution per build
+RUN npm ci --omit=dev --no-audit --no-fund --loglevel=error \
  && npm cache clean --force \
  && mkdir -p /data && chown -R node:node /app /data
 ARG AFFLATUS_VERSION=dev

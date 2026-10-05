@@ -13,7 +13,7 @@ const CRFS = [
   { value: "16", label: "CRF 16 · very good", note: "half the size" },
   { value: "23", label: "CRF 23 · web", note: "small" },
 ];
-export const cutCrf = (): number => {
+const cutCrf = (): number => {
   try {
     return Number(localStorage.getItem(CRF_KEY) ?? 10) || 10;
   } catch {
@@ -26,11 +26,8 @@ export interface Range {
   endMs: number;
 }
 
-/** "0:04.20": a moment with hundredths. */
-const stamp = (ms: number) => {
-  const s = Math.max(0, ms) / 1000;
-  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}.${String(Math.floor((s % 1) * 100)).padStart(2, "0")}`;
-};
+/** "0:04.20": a moment to the frame, with hundredths. */
+const stamp = (ms: number) => clock(ms, { decimals: 2 });
 
 /** The most frames a strip holds: past that, one tile stands for several frames. */
 const STRIP_FRAMES = 120;
@@ -42,10 +39,6 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
     const t = setTimeout(() => setShown(range), 220);
     return () => clearTimeout(t);
   }, [range]);
-  const stamp = (ms: number) => {
-    const s = Math.max(0, ms) / 1000;
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}.${String(Math.floor((s % 1) * 100)).padStart(2, "0")}`;
-  };
   return (
     <div className="flex h-full min-h-0 w-[22%] max-w-[260px] min-w-[120px] shrink-0 flex-col justify-center gap-2" onClick={(e) => e.stopPropagation()}>
       {[{ label: "In", at: shown.startMs }, { label: "Out", at: shown.endMs }].map((f) => (
@@ -160,32 +153,6 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     setZoom({ startMs: a, endMs: b });
   }, [duration, frameMs]);
 
-  // the keys of the mode
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as Partial<HTMLElement> | null;
-      if (typeof el?.closest === "function" && el.closest("input, textarea, select, [contenteditable], [role=listbox]")) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const v = player.current;
-      const step = (e.shiftKey ? 10 : 1) * frameMs;
-      switch (e.key) {
-        case "i": case "I": e.preventDefault(); setRange((r) => ({ startMs: Math.min(at, r.endMs - frameMs), endMs: r.endMs })); break;
-        case "o": case "O": e.preventDefault(); setRange((r) => ({ startMs: r.startMs, endMs: Math.max(at, r.startMs + frameMs) })); break;
-        case ",": case "<": e.preventDefault(); v?.pause(); seek(at - step); break;
-        case ".": case ">": e.preventDefault(); v?.pause(); seek(at + step); break;
-        case "l": case "L": e.preventDefault(); toggleLoop(); break;
-        case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : range); break;
-        case " ": e.preventDefault(); if (v) { if (v.paused) void v.play(); else v.pause(); } break;
-        case "Home": e.preventDefault(); seek(0); break;
-        case "End": e.preventDefault(); seek(duration); break;
-        case "Escape": e.preventDefault(); onClose(); break;
-        default: return;
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [at, duration, frameMs, player, range, seek, onClose, zoom, zoomTo]);
-
   /** Loop on: from the range's start when the playhead is outside it, and playing. Loop off: the video goes on. */
   const toggleLoop = () => {
     const v = player.current;
@@ -195,6 +162,36 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     if (at < range.startMs - 1 || at > range.endMs - frameMs) seek(range.startMs);
     if (v.paused) void v.play();
   };
+
+  // the keys of the mode: bound once, reading the playhead, the range and the zoom as they stand (the
+  // playhead moves with every frame decoded; a listener re-bound each time would be the dearest part of playing)
+  const now = useRef({ at, range, zoom, toggleLoop, onClose });
+  now.current = { at, range, zoom, toggleLoop, onClose };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as Partial<HTMLElement> | null;
+      if (typeof el?.closest === "function" && el.closest("input, textarea, select, [contenteditable], [role=listbox]")) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const v = player.current;
+      const { at, range, zoom } = now.current;
+      const step = (e.shiftKey ? 10 : 1) * frameMs;
+      switch (e.key) {
+        case "i": case "I": e.preventDefault(); setRange((r) => ({ startMs: Math.min(at, r.endMs - frameMs), endMs: r.endMs })); break;
+        case "o": case "O": e.preventDefault(); setRange((r) => ({ startMs: r.startMs, endMs: Math.max(at, r.startMs + frameMs) })); break;
+        case ",": case "<": e.preventDefault(); v?.pause(); seek(at - step); break;
+        case ".": case ">": e.preventDefault(); v?.pause(); seek(at + step); break;
+        case "l": case "L": e.preventDefault(); now.current.toggleLoop(); break;
+        case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : range); break;
+        case " ": e.preventDefault(); if (v) { if (v.paused) void v.play(); else v.pause(); } break;
+        case "Home": e.preventDefault(); seek(0); break;
+        case "End": e.preventDefault(); seek(duration); break;
+        case "Escape": e.preventDefault(); now.current.onClose(); break;
+        default: return;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [duration, frameMs, player, seek, zoomTo]);
   const length = range.endMs - range.startMs;
   const frames = Math.round(length / frameMs);
   const whole = range.startMs <= 0 && range.endMs >= duration;

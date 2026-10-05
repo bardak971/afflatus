@@ -1,12 +1,14 @@
 import { useExplain } from "./store";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, fileUrl, thumbUrl, type Asset } from "./api";
+import { Dialog } from "./Dialog";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
+import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
@@ -32,30 +34,19 @@ const ACCEPT = { image: "image/png,image/jpeg,image/webp", video: "video/mp4,vid
 export function Picker({ title, kind = "image", onPick, onClose }: { title: string; kind?: "image" | "video" | "audio"; onPick(id: string): void; onClose(): void }) {
   // found by prompt and name; within the project the switcher looks at, or everything
   const [typed, setTyped] = useState("");
-  const [q, setQ] = useState("");
-  useEffect(() => {
-    const t = setTimeout(() => setQ(typed.trim()), 250);
-    return () => clearTimeout(t);
-  }, [typed]);
+  const q = useSettled(typed.trim());
   const project = useProject((s) => s.id);
   const [all, setAll] = useState(false);
   const assets = useAssets({ kind, q: q || undefined, all: all || undefined });
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
-  // where a sound is asked for, a video that has sound will do: its sound is what is used
-  const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined });
+  // where a sound is asked for, a video that has sound will do: its sound is what is used (the videos are only read then)
+  const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined }, kind === "audio");
   const sounding = kind === "audio" ? (videos.data?.pages.flatMap((p) => p.items) ?? []).filter((a) => a.hasSound) : [];
   const file = useRef<HTMLInputElement>(null);
   const upload = useUpload((a) => onPick(a.id));
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex items-center justify-center bg-ground/85 p-8" onClick={onClose}>
-      <div className="flex max-h-full w-full max-w-4xl flex-col rounded-2xl border border-line-strong bg-panel" onClick={(e) => e.stopPropagation()}>
+    <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-2xl border border-line-strong bg-panel">
         <header className="flex h-16 shrink-0 items-center gap-3 border-b border-line pr-3 pl-5">
           <h2 className="text-base font-semibold">{title}</h2>
           <span className="hidden text-ink-2 xl:inline">Pick one from your library, or bring one in.</span>
@@ -136,8 +127,7 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
           </div>
           <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage} onMore={() => void assets.fetchNextPage()} />
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -197,7 +187,7 @@ export function PictureField({ label, optional, value, onChange }: {
 }
 
 /** "0:03.4": a moment in a clip, to the tenth of a second. */
-const moment = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}.${Math.floor((ms % 1000) / 100)}`;
+const moment = (ms: number) => clock(ms, { decimals: 1 });
 
 /**
  * A slot for a video the new clip joins onto, and the moment in it. The clip carries on from that moment

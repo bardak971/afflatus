@@ -30,7 +30,7 @@ export interface Preflight {
 }
 
 /** The Node this was written for (package.json's engines). */
-export const NODE_LEAST = "22.16";
+const NODE_LEAST = "22.16";
 
 const atLeast = (version: string, least: string) => {
   const a = version.replace(/^v/, "").split(".").map(Number);

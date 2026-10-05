@@ -50,10 +50,12 @@ await build({
 console.log("[stage] layout");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
+// what a local run of ComfyUI or of the tests leaves in the tree does not ship
+const skip = (path) => /(^|[\\/])(__pycache__|\.pytest_cache)([\\/]|$)|\.pyc$/.test(path);
 const copy = (from, to = from) => {
   const src = join(root, from);
   if (!existsSync(src)) throw new Error(`missing: ${from}`);
-  cpSync(src, join(out, to), { recursive: true });
+  cpSync(src, join(out, to), { recursive: true, filter: (path) => !skip(path) });
 };
 copy("apps/server/dist");
 copy("apps/server/assets");
@@ -75,8 +77,13 @@ writeFileSync(join(out, "package.json"), JSON.stringify({ name: "afflatus", vers
 writeFileSync(join(out, "VERSION"), version + "\n");
 console.log(`[stage] ${Object.keys(deps).length} npm dependencies pinned:`, Object.entries(deps).map(([k, v]) => `${k}@${v}`).join(", "));
 
+// the whole tree, transitive packages included, resolved once here and written down: the Dockerfile and the
+// bundle script then run `npm ci`, which installs exactly this and nothing newer
+console.log("[stage] package-lock.json");
+run("npm", ["install", "--package-lock-only", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"], out);
+
 if (args.has("--install")) {
-  console.log("[stage] npm install --omit=dev");
-  run("npm", ["install", "--omit=dev", "--no-audit", "--no-fund", "--loglevel=error"], out);
+  console.log("[stage] npm ci --omit=dev");
+  run("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund", "--loglevel=error"], out);
 }
 console.log(`[stage] done: ${out}`);

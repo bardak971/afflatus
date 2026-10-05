@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { modelIndex } from "./comfy";
+import { httpError } from "./errors";
 import { ComfyUnreachable } from "@afflatus/comfy";
 import { isRef, type Graph } from "@afflatus/core";
 import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type WorkflowDef } from "@afflatus/workflows";
@@ -24,19 +26,18 @@ const saveBody = z.strictObject({
 /** A workflow Afflatus already holds (saved, or shared as a file): its nodes, and what its editor file knew. */
 const heldBody = z.object({ graph: graphSchema, wiring: wiringSchema.optional() });
 
-const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 
 /** An exported workflow: nodes by id, each with its type and inputs. */
 function mustBeWorkflow(body: unknown): Graph {
   const parsed = graphSchema.safeParse(body);
-  if (!parsed.success || !Object.keys(parsed.data).length) throw bad("This does not look like a ComfyUI workflow. Use the file ComfyUI saves, or one saved with Export (API).");
+  if (!parsed.success || !Object.keys(parsed.data).length) throw httpError("This does not look like a ComfyUI workflow. Use the file ComfyUI saves, or one saved with Export (API).");
   return parsed.data as Graph;
 }
 
 /** Every place the mapping points at must exist in the workflow. */
 function checkBindings(graph: Graph, b: Bindings): void {
   const at = (what: string, t: { node: string; input: string } | undefined) => {
-    if (t && !(t.input in (graph[t.node]?.inputs ?? {}))) throw bad(`${what} points at node ${t.node}, input "${t.input}", which is not in the workflow`);
+    if (t && !(t.input in (graph[t.node]?.inputs ?? {}))) throw httpError(`${what} points at node ${t.node}, input "${t.input}", which is not in the workflow`);
   };
   at("The prompt", b.prompt);
   at("The negative prompt", b.negative);
@@ -47,12 +48,12 @@ function checkBindings(graph: Graph, b: Bindings): void {
   at("The opening picture", b.startImage?.target);
   at("The ending picture", b.endImage?.target);
   b.controls.forEach((c) => at(`The control "${c.label}"`, c.target));
-  if (!graph[b.result.node]) throw bad(`the result points at node ${b.result.node}, which is not in the workflow`);
-  for (const p of b.loras) if (!graph[p.node]) throw bad(`LoRAs point at node ${p.node}, which is not in the workflow`);
-  for (const t of b.toggles) for (const e of t.effects) for (const n of e.nodes) if (!graph[n]) throw bad(`the switch "${t.label}" points at node ${n}, which is not in the workflow`);
-  for (const c of b.controls) if (isRef(graph[c.target.node]!.inputs[c.target.input])) throw bad(`the control "${c.label}" points at an input that is linked, not typed in`);
+  if (!graph[b.result.node]) throw httpError(`the result points at node ${b.result.node}, which is not in the workflow`);
+  for (const p of b.loras) if (!graph[p.node]) throw httpError(`LoRAs point at node ${p.node}, which is not in the workflow`);
+  for (const t of b.toggles) for (const e of t.effects) for (const n of e.nodes) if (!graph[n]) throw httpError(`the switch "${t.label}" points at node ${n}, which is not in the workflow`);
+  for (const c of b.controls) if (isRef(graph[c.target.node]!.inputs[c.target.input])) throw httpError(`the control "${c.label}" points at an input that is linked, not typed in`);
   const ids = [...b.controls.map((c) => c.id), ...b.toggles.map((t) => t.id)];
-  if (new Set(ids).size !== ids.length) throw bad("two controls have the same id");
+  if (new Set(ids).size !== ids.length) throw httpError("two controls have the same id");
 }
 
 const brief = (d: WorkflowDef) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length });
@@ -73,26 +74,23 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     try {
       catalog = await (await s.comfy()).catalog();
     } catch (err) {
-      if (err instanceof ComfyUnreachable) throw bad("ComfyUI has to be running to read a workflow: its node list says what each setting is.", 503);
+      if (err instanceof ComfyUnreachable) throw httpError("ComfyUI has to be running to read a workflow: its node list says what each setting is.", 503);
       throw err;
     }
     /** For each file that is missing: the other model folders of ComfyUI that hold a file of that name. */
     const withElsewhere = async <T extends ReturnType<typeof inspect>>(found: T) => {
       if (!found.missingFiles.length) return { ...found, elsewhere: {} as Record<string, string[]> };
-      const client = (await s.comfy()).client;
-      const folders = await client.folders().catch(() => [] as string[]);
-      const lists = await Promise.all(folders.map(async (folder) => ({ folder, files: await client.models(folder).catch(() => [] as string[]) })));
-      const name = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
+      const index = await modelIndex(await s.comfy());
       const elsewhere: Record<string, string[]> = {};
       for (const m of found.missingFiles) {
-        const hits = lists.filter((l) => l.files.some((f) => name(f) === name(m.file))).map((l) => l.folder);
+        const hits = index.find(m.file).map((hit) => hit.folder);
         if (hits.length) elsewhere[m.file] = hits;
       }
       return { ...found, elsewhere };
     };
     if (fromFile) {
       const read = fromEditor(body, catalog);
-      if (!Object.keys(read.graph).length) throw bad("No node that ComfyUI can run was found in this file.");
+      if (!Object.keys(read.graph).length) throw httpError("No node that ComfyUI can run was found in this file.");
       return { ...(await withElsewhere(inspect(read.graph, catalog, read.wiring, read.notes))), graph: read.graph, wiring: read.wiring, editor: body };
     }
     if (held?.success) return { ...(await withElsewhere(inspect(held.data.graph as Graph, catalog, held.data.wiring))), graph: held.data.graph, wiring: held.data.wiring };
@@ -104,7 +102,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
   /** The whole thing: for editing, and for sharing as a file. */
   app.get<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
     const def = s.registry.workflow(req.params.id);
-    if (!def) throw bad("this workflow was not found", 404);
+    if (!def) throw httpError("this workflow was not found", 404);
     return def;
   });
 
@@ -122,7 +120,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
 
   app.put<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
     const current = s.registry.workflow(req.params.id);
-    if (!current) throw bad("this workflow was not found", 404);
+    if (!current) throw httpError("this workflow was not found", 404);
     const body = saveBody.parse(req.body);
     checkBindings(body.graph as Graph, body.bindings);
     const def = workflowDef.parse({ id: current.id, ...body });
@@ -136,7 +134,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
    */
   app.post<{ Params: { id: string } }>("/api/workflows/:id/open", async (req) => {
     const def = s.registry.workflow(req.params.id);
-    if (!def) throw bad("this workflow was not found", 404);
+    if (!def) throw httpError("this workflow was not found", 404);
     const comfy = await s.comfy();
     let file = def.editor;
     if (!file) {
@@ -148,7 +146,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
 
   /** What was made with it stays in the library; drafts on it stay too, and say the workflow is gone. */
   app.delete<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
-    if (!(await s.registry.remove(req.params.id))) throw bad("this workflow was not found", 404);
+    if (!(await s.registry.remove(req.params.id))) throw httpError("this workflow was not found", 404);
     return { ok: true };
   });
 }

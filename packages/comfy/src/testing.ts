@@ -272,9 +272,18 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
       const seed = Number(first?.[1].inputs.seed ?? first?.[1].inputs.noise_seed ?? noise?.[1].inputs.noise_seed ?? 1);
       send("execution_start", { prompt_id: id });
       await pause(stepMs * 3); // "loading the model"
+      // a tiled decode and an upscale model report their tiles as progress too, as the real ones do
+      const tiles = (node: Graph[string]) => /^VAEDecodeTiled$|^ImageUpscaleWithModel$/.test(node.class_type);
       for (const [nodeId, node] of nodes) {
         if (!stillWanted(id)) break;
         send("executing", { prompt_id: id, node: nodeId });
+        if (tiles(node)) {
+          for (let tile = 1; tile <= 4 && stillWanted(id); tile++) {
+            await pause(stepMs / 2);
+            send("progress", { prompt_id: id, node: nodeId, value: tile, max: 4 });
+          }
+          continue;
+        }
         if (!samples(node)) continue;
         const steps = stepsOf(node);
         for (let step = 1; step <= steps && stillWanted(id); step++) {

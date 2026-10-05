@@ -99,7 +99,7 @@ describe("a clip that carries on from another", () => {
     { id: "description", type: "prompt", label: "What happens", style: "sentences" },
     { id: "soundscape", type: "prompt", label: "Sounds", style: "sentences", optional: true },
     { id: "start", type: "image", role: "start", label: "Start image", optional: true },
-    { id: "previous", type: "clip", role: "previous", label: "Continues from", optional: true, frames: 5, fps: 24 },
+    { id: "previous", type: "clip", role: "previous", label: "Continues from", optional: true, frames: [5], fps: 24 },
     { id: "seconds", type: "number", label: "Length", min: 2, max: 15, step: 0.5, default: 5 },
     { id: "steps", type: "number", label: "Steps", min: 1, max: 60, step: 1, default: steps },
     { id: "fast", type: "toggle", label: "Turbo", default: true },

@@ -1,14 +1,18 @@
 # A release on every tag v*: the tests, the image on GHCR (amd64 and arm64, tagged like the tag), the bundles
 # for Windows, Linux and macOS, and a GitHub release that carries them with generated notes.
+#
+# Every action is pinned to a commit SHA, with the tag it stood for as a comment beside it
+# (`uses: owner/action@<sha> # vN`). To move one, read the new SHA off the action's release page on GitHub
+# and change both; a bare tag can be moved by its owner, a SHA cannot.
 name: Release
 
 on:
   push:
     tags: ["v*"]
 
+# nothing writes by default: the jobs that publish ask for what they publish
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/afflatus
@@ -17,9 +21,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: pnpm }
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: pnpm install --frozen-lockfile
@@ -29,17 +33,21 @@ jobs:
   image:
     needs: test
     runs-on: ubuntu-latest
+    # pushes the image to GHCR
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -47,7 +55,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
             type=sha
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -71,15 +79,17 @@ jobs:
           - { os: macos-latest, platform: darwin-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: node scripts/release/stage.mjs
         env: { AFFLATUS_VERSION: "${{ github.ref_name }}" }
       - run: node scripts/release/bundle.mjs --platform ${{ matrix.platform }} --version ${{ github.ref_name }}
-      - uses: actions/upload-artifact@v4
+        # the GitHub API that lists the ffmpeg release's files is rate-limited without a token
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bundle-${{ matrix.platform }}
           path: release/dist/*
@@ -88,9 +98,12 @@ jobs:
   release:
     needs: [image, bundles]
     runs-on: ubuntu-latest
+    # creates the GitHub release and uploads the bundles to it
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { path: dist, pattern: "bundle-*", merge-multiple: true }
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
@@ -109,7 +122,7 @@ jobs:
 
           ## What changed
           EOF
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: Afflatus ${{ github.ref_name }}
           body_path: notes.md

@@ -3,7 +3,8 @@ import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
   type FaceSettings, type HiresPass, type MaskSettings, type UpscaleSettings,
 } from "../sdxl/common";
-import { krea2Cond, krea2Inputs, krea2Model, krea2Sample, krea2Size, LOAD_NODES, loadKrea2, r16, shifted, type Krea2Base } from "./common";
+import { roundTo } from "../shared/round";
+import { krea2Cond, krea2Inputs, krea2Model, krea2Sample, krea2Size, LOAD_NODES, loadKrea2, shifted, type Krea2Base } from "./common";
 
 const files = { unet: "krea2_turbo_fp8_scaled.safetensors", clip: "qwen3vl_4b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" };
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
@@ -76,8 +77,8 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = loadKrea2(g, input, ctx);
-    const W = r16(input.size.width);
-    const H = r16(input.size.height);
+    const W = roundTo(input.size.width, 16);
+    const H = roundTo(input.size.height, 16);
     const styled = input.references.length > 0;
     if (styled && !ctx.slots.styleRef) {
       throw new Error("Style reference images need Krea 2's style-reference LoRA: put krea2_style_reference.safetensors in ComfyUI's models/loras folder (it can be downloaded from Settings).");
@@ -104,8 +105,8 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     const loads = [...k.loads, ...(styled ? [`loras/${ctx.slots.styleRef}`] : [])];
 
     if (input.hires) {
-      const W2 = r16(W * input.hiresScale);
-      const H2 = r16(H * input.hiresScale);
+      const W2 = roundTo(W * input.hiresScale, 16);
+      const H2 = roundTo(H * input.hiresScale, 16);
       g.phase("upscaling");
       // upscale models enlarge by their own factor (usually 4×): the result is scaled to the size asked for
       const pixels = g.out("VAEDecode", { samples: latent, vae: k.vae });
@@ -291,8 +292,8 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const W = r16(from.width * input.factor);
-    const H = r16(from.height * input.factor);
+    const W = roundTo(from.width * input.factor, 16);
+    const H = roundTo(from.height * input.factor, 16);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     g.phase("upscaling");
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });

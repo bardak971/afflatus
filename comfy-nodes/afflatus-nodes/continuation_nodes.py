@@ -413,14 +413,19 @@ def _validate_transition_tokens(
 
 def _require_native_arbitrary_guides() -> None:
     """Require the upstream H3 layout that supports arbitrary guide positions."""
-    from comfy.ldm.minimax.model import PackedLayout
+    message = (
+        "MiniMax H3 Latent Tail Guide requires ComfyUI commit e01fb4c or newer, "
+        "which supports native guides at arbitrary frames."
+    )
+    # the check reads a private ComfyUI module: a rename there must read as "update ComfyUI", not as a bare ImportError
+    try:
+        from comfy.ldm.minimax.model import PackedLayout
+    except ImportError as err:
+        raise RuntimeError(message) from err
 
     parameters = inspect.signature(PackedLayout.__init__).parameters
     if "frame_count" in parameters:
-        raise RuntimeError(
-            "MiniMax H3 Latent Tail Guide requires ComfyUI commit e01fb4c or newer, "
-            "which supports native guides at arbitrary frames."
-        )
+        raise RuntimeError(message)
 
 
 def _existing_keyframes(positive: Any) -> list[dict[str, Any]]:

@@ -1,5 +1,5 @@
 /** A run of a text as it stands against an earlier one: kept, new, or gone. */
-export interface Piece {
+interface Piece {
   text: string;
   kind: "same" | "added" | "removed";
 }

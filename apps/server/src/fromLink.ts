@@ -1,4 +1,6 @@
-import { civitaiGet } from "./civitai";
+import { civitaiGet, civitaiSites } from "./civitai";
+import { httpError } from "./errors";
+import { assertPublicUrl, hostnameOf } from "./outbound";
 
 /**
  * A model from a link: the address of a model's page on Civitai, of one of its versions, or of a file
@@ -47,7 +49,7 @@ type ApiFile = { name?: string; sizeKB?: number; type?: string; metadata?: { fp?
 type ApiVersion = { id: number; name?: string; baseModel?: string; modelId?: number; model?: { name?: string; type?: string }; files?: ApiFile[] };
 type ApiModel = { id: number; name: string; type?: string; modelVersions?: ApiVersion[] };
 
-const bad = (message: string) => Object.assign(new Error(message), { statusCode: 400 });
+const bad = (message: string) => httpError(message);
 
 export async function resolveLink(link: string, key: string): Promise<LinkFound> {
   let at: URL;
@@ -60,6 +62,8 @@ export async function resolveLink(link: string, key: string): Promise<LinkFound>
   if (/(^|\.)huggingface\.co$/i.test(at.hostname) || /(^|\.)hf\.co$/i.test(at.hostname)) return fromHuggingFace(at);
   const name = decodeURIComponent(at.pathname.split("/").pop() ?? "");
   if (at.protocol === "https:" && MODEL_FILE.test(name)) {
+    // a file anywhere: anywhere on the internet, not inside this network
+    assertPublicUrl(at.href, civitaiSites().map(hostnameOf));
     return { source: "address", title: name, about: at.hostname, page: at.href, url: at.href, files: [{ name, bytes: await sizeOf(at.href), note: "" }], folder: null };
   }
   throw bad("Afflatus can fetch from a Civitai model page, a file on Hugging Face, or an https address that ends in a model file's name.");

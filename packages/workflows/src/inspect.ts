@@ -98,14 +98,21 @@ function literal(graph: Graph, catalog: NodeCatalog, node: string, input: string
   return isPrimitive(graph, catalog, value[0]) ? { node: value[0], input: Object.keys(graph[value[0]]!.inputs)[0]! } : null;
 }
 
-/** Follow an output downstream until an input name says what it is used as. */
-function usedAs(graph: Graph, uses: Map<string, Target[]>, from: Ref, names: Array<[RegExp, string]>, depth = 6): string | null {
-  for (const use of uses.get(`${from[0]}:${from[1]}`) ?? []) {
+/**
+ * Follow an output downstream until an input name says what it is used as. An output already followed as far
+ * as this is not followed again: a wide graph re-reaches the same node through every consumer and the search
+ * would grow by six to the depth without that (a revisit with more depth left may see further, so it goes on).
+ */
+function usedAs(graph: Graph, uses: Map<string, Target[]>, from: Ref, names: Array<[RegExp, string]>, depth = 6, seen = new Map<string, number>()): string | null {
+  const key = `${from[0]}:${from[1]}`;
+  if ((seen.get(key) ?? -1) >= depth) return null;
+  seen.set(key, depth);
+  for (const use of uses.get(key) ?? []) {
     for (const [re, role] of names) if (re.test(use.input)) return role;
     if (depth <= 0) continue;
     // not telling: keep following through that node's outputs (few nodes have more than a handful)
     for (let o = 0; o < 6; o++) {
-      const role = usedAs(graph, uses, [use.node, o], names, depth - 1);
+      const role = usedAs(graph, uses, [use.node, o], names, depth - 1, seen);
       if (role) return role;
     }
   }
@@ -131,29 +138,23 @@ function tame(c: Control, given = ""): Control {
   return { ...c, min: c.min !== undefined && c.min >= -1000 ? c.min : 0, max };
 }
 
-/**
- * @param source the workflow: as exported, or every node of an editor file (see `fromEditor`)
- * @param editor what only the editor's file knows, when the workflow came from one
- * @param notes what the reader of that file could not read with certainty
- */
-export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, notes: string[] = []): Inspection {
-  // what runs with the switches as they were saved: the parts are looked for in there
-  const pruned = prune(source, editor, editor?.modes ?? {});
-  settle(pruned);
-  const { graph } = pruned;
-  const ids = Object.keys(graph);
-  const uses = consumers(graph);
-  const missingNodes = [...new Set(ids.filter((id) => !catalog[graph[id]!.class_type]).map((id) => graph[id]!.class_type))];
-  const missingWhenOn = [...new Set(Object.keys(source).filter((id) => !graph[id] && !catalog[source[id]!.class_type]).map((id) => source[id]!.class_type))].filter((c) => !missingNodes.includes(c));
-
-  const titleOf = (id: string) => (source[id] as NodeMeta | undefined)?._meta?.title?.trim() || source[id]?.class_type || id;
+/** How the workflow's parts are named, and what one of its typed-in settings would be as a control. */
+interface Names {
+  titleOf(id: string): string;
   /** The name someone gave the node, when it is not just what ComfyUI calls that kind of node. */
+  givenName(id: string): string | null;
+  /** The name the author gave one setting (in the editor, the label on its socket). */
+  givenLabel(node: string, input: string): string | null;
+  control(node: string, input: string): Control | null;
+}
+
+function namesOf(source: Graph, catalog: NodeCatalog, editor?: Wiring): Names {
+  const titleOf = (id: string) => (source[id] as NodeMeta | undefined)?._meta?.title?.trim() || source[id]?.class_type || id;
   const givenName = (id: string): string | null => {
     const title = (source[id] as NodeMeta | undefined)?._meta?.title?.trim();
     const cls = source[id]!.class_type;
     return title && title !== cls && title !== catalog[cls]?.display_name ? title : null;
   };
-  /** The name the author gave one setting (in the editor, the label on its socket). */
   const givenLabel = (node: string, input: string) => editor?.labels[`${node}.${input}`]?.replace(/^[\s↳]+/, "").trim() || null;
 
   function control(node: string, input: string): Control | null {
@@ -185,8 +186,33 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     if (type === "STRING" && typeof value === "string" && o.multiline) return { ...base, kind: "text", default: value };
     return null;
   }
+  return { titleOf, givenName, givenLabel, control };
+}
 
-  // ---- what it saves
+/** What every step of the inspection reads. */
+interface Reading {
+  /** The workflow as saved: every node, switched on or off. */
+  source: Graph;
+  /** What runs with the switches as they were saved: the parts are looked for in there. */
+  graph: Graph;
+  /** The ids of `graph`. */
+  ids: string[];
+  catalog: NodeCatalog;
+  /** What only the editor's file knows, when the workflow came from one. */
+  editor?: Wiring;
+  /** Who reads each output of `graph`. */
+  uses: Map<string, Target[]>;
+  names: Names;
+}
+
+/** Where a setting sits on the author's own panel (the settings they meant to be changed, in their order), or -1 when it is not there. */
+const onPanel = (editor: Wiring | undefined, t: Target) => editor?.panel.findIndex((p) => p.node === t.node && p.input === t.input) ?? -1;
+
+type Output = Inspection["outputs"][number];
+
+// ---- what it saves
+function findOutputs(r: Reading): { outputs: Inspection["outputs"]; result: Output | undefined; reach: Set<string> } {
+  const { graph, ids, catalog, names } = r;
   const MEDIA = ["images", "image", "video", "audio"];
   const outputs: Inspection["outputs"] = [];
   for (const id of ids) {
@@ -201,14 +227,20 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     const kind = video ? "video" : fed.includes("images") || fed.includes("image") ? "image" : "audio";
     // a video whose frames come from a node that was given sound, or that takes sound itself
     const sound = kind === "video" && (isRef(n.inputs.audio) || (isRef(n.inputs.video) && isRef(graph[(n.inputs.video as Ref)[0]]?.inputs.audio)));
-    outputs.push({ node: id, title: titleOf(id), kind, sound: Boolean(sound) });
+    outputs.push({ node: id, title: names.titleOf(id), kind, sound: Boolean(sound) });
   }
   // previews are for the person watching ComfyUI: a save node, and a video over a picture, is the result
-  const rank = (o: Inspection["outputs"][number]) => (o.kind === "video" ? 4 : o.kind === "audio" ? 2 : 1) + (/preview/i.test(graph[o.node]!.class_type) ? 0 : 0.5);
+  const rank = (o: Output) => (o.kind === "video" ? 4 : o.kind === "audio" ? 2 : 1) + (/preview/i.test(graph[o.node]!.class_type) ? 0 : 0.5);
   // between two of a kind: the one added last when ids are plain numbers, otherwise the first in the file
   const result = [...outputs].sort((a, b) => rank(b) - rank(a) || (Number(b.node) - Number(a.node) || 0))[0];
+  // what the result is made from: a workflow can hold several ways of making it, of which one is in use
+  const reach = result ? ancestors(graph, result.node) : new Set<string>();
+  return { outputs, result, reach };
+}
 
-  // ---- the texts: by wiring first, by the names given to text nodes when the wiring does not tell
+// ---- the texts: by wiring first, by the names given to text nodes when the wiring does not tell
+function findTexts(r: Reading): { texts: Inspection["texts"]; prompt: Inspection["texts"][number] | undefined; negative: Inspection["texts"][number] | undefined } {
+  const { graph, ids, catalog, uses, names } = r;
   const texts: Inspection["texts"] = [];
   const seen = (t: Target) => texts.some((x) => x.target.node === t.node && x.target.input === t.input);
   for (const id of ids) {
@@ -220,12 +252,12 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       const at = literal(graph, catalog, id, input);
       if (!at || seen(at)) continue;
       const wired = usedAs(graph, uses, [id, info.output.indexOf("CONDITIONING")], [[/^negative/i, "negative"], [/^(positive|conditioning|cond$)/i, "positive"]]);
-      texts.push({ target: at, title: givenName(at.node) ?? titleOf(id), text: String(graph[at.node]!.inputs[at.input] ?? ""), role: (wired as "positive" | "negative" | null) ?? "unknown" });
+      texts.push({ target: at, title: names.givenName(at.node) ?? names.titleOf(id), text: String(graph[at.node]!.inputs[at.input] ?? ""), role: (wired as "positive" | "negative" | null) ?? "unknown" });
     }
   }
   for (const id of ids) {
     // a renamed multi-line text node that is not wired straight into an encoder (it goes through other nodes first)
-    const name = givenName(id);
+    const name = names.givenName(id);
     const input = Object.keys(graph[id]!.inputs)[0];
     if (!name || !input || !isPrimitive(graph, catalog, id) || typeof graph[id]!.inputs[input] !== "string" || seen({ node: id, input })) continue;
     if (!optsOf(specOf(catalog, graph[id]!.class_type, input)).multiline) continue;
@@ -239,21 +271,25 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       for (const [input, value] of Object.entries(graph[id]!.inputs)) {
         if (typeof value !== "string" || seen({ node: id, input }) || !optsOf(specOf(catalog, graph[id]!.class_type, input)).multiline) continue;
         const role = /negative/i.test(input) ? "negative" : /^(prompt|positive(_prompt)?|text|caption)$/i.test(input) ? "positive" : null;
-        if (role) texts.push({ target: { node: id, input }, title: titleOf(id), text: value, role });
+        if (role) texts.push({ target: { node: id, input }, title: names.titleOf(id), text: value, role });
       }
     }
   }
   const prompt = texts.find((t) => t.role === "positive") ?? texts.find((t) => t.role === "unknown");
   const negative = texts.find((t) => t.role === "negative" && t !== prompt);
+  return { texts, prompt, negative };
+}
 
-  // ---- seeds, size, length
+// ---- seeds, size, length
+function findSizeAndLength(r: Reading, reach: Set<string>): { seeds: Target[]; size: Bindings["size"]; length: Bindings["length"]; resolution: Target | undefined; duration: Target | undefined } {
+  const { graph, ids, catalog, names } = r;
   const seeds: Target[] = [];
   const addSeed = (at: Target | null) => {
     if (at && typeof graph[at.node]!.inputs[at.input] === "number" && !seeds.some((s) => s.node === at.node && s.input === at.input)) seeds.push(at);
   };
   for (const id of ids) for (const input of Object.keys(graph[id]!.inputs)) if (/^(noise_)?seed(_value)?$/.test(input)) addSeed(literal(graph, catalog, id, input));
   // a number node named "Seed" that reaches the samplers through something else
-  if (!seeds.length) for (const id of ids) if (isPrimitive(graph, catalog, id) && /^seed$/i.test(givenName(id) ?? "")) addSeed({ node: id, input: Object.keys(graph[id]!.inputs)[0]! });
+  if (!seeds.length) for (const id of ids) if (isPrimitive(graph, catalog, id) && /^seed$/i.test(names.givenName(id) ?? "")) addSeed({ node: id, input: Object.keys(graph[id]!.inputs)[0]! });
 
   let size: Bindings["size"];
   let length: Bindings["length"];
@@ -262,8 +298,6 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
   /** A length the workflow takes in seconds rather than in frames: a control for it, not a conversion. */
   let duration: Target | undefined;
   const sized = ids.filter((id) => "width" in graph[id]!.inputs && "height" in graph[id]!.inputs && !RESIZERS.test(graph[id]!.class_type));
-  // what the result is made from: a workflow can hold several ways of making it, of which one is in use
-  const reach = result ? ancestors(graph, result.node) : new Set<string>();
   const makesLatent = (id: string) => catalog[graph[id]!.class_type]?.output.includes("LATENT");
   // the node that makes the latent decides the size; a "length" beside it makes it a video
   const generator = sized.find((id) => reach.has(id) && makesLatent(id)) ?? sized.find(makesLatent) ?? sized[0];
@@ -300,11 +334,15 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       length = { target: at, fps: Number(rate) || 16, step, offset: ((frames % step) + step) % step, min: 1, max: 30 };
     }
   }
+  return { seeds, size, length, resolution, duration };
+}
 
-  // ---- pictures it loads: what they are named, then what they are wired to
+// ---- pictures it loads: what they are named, then what they are wired to
+function findImages(r: Reading, reach: Set<string>): { images: Inspection["images"]; loaded: string[]; start: ImageBinding | undefined; end: ImageBinding | undefined; pictures: Bindings["pictures"] } {
+  const { graph, ids, catalog, uses, names } = r;
   const loaded = ids.filter((id) => /^LoadImage/.test(graph[id]!.class_type) && typeof graph[id]!.inputs.image === "string");
   const imageRole = (id: string) => {
-    const name = givenName(id) ?? "";
+    const name = names.givenName(id) ?? "";
     if (/last|end|final/i.test(name)) return "end";
     if (/first|start|open/i.test(name)) return "start";
     return usedAs(graph, uses, [id, 0], [[/end|last/i, "end"], [/start|first/i, "start"], [/mask/i, "mask"]]);
@@ -315,34 +353,42 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     // a picture the result is not made from as things are set (the other side of a choice) can be left out too
     return { target: { node: id, input: "image" }, detach: optional ? direct : [], required: !optional && reach.has(id) };
   };
-  const images: Inspection["images"] = loaded.map((id) => ({ node: id, title: titleOf(id), role: imageRole(id) as Inspection["images"][number]["role"], binding: binding(id) }));
+  const images: Inspection["images"] = loaded.map((id) => ({ node: id, title: names.titleOf(id), role: imageRole(id) as Inspection["images"][number]["role"], binding: binding(id) }));
   const endId = loaded.find((id) => imageRole(id) === "end");
   const startId = loaded.find((id) => id !== endId && imageRole(id) === "start") ?? loaded.find((id) => id !== endId && imageRole(id) !== "mask");
   // the other pictures it loads (references, more pictures to work from): a slot each, named after their loader
   const others = loaded.filter((id) => id !== startId && id !== endId && imageRole(id) !== "mask");
-  const pictures = others.map((id, i) => ({ ...binding(id), id: `pic_${id}`.replace(/[^a-zA-Z0-9_]/g, "_"), label: givenName(id) ?? `Image ${i + 2}` }));
+  const pictures = others.map((id, i) => ({ ...binding(id), id: `pic_${id}`.replace(/[^a-zA-Z0-9_]/g, "_"), label: names.givenName(id) ?? `Image ${i + 2}` }));
+  return { images, loaded, start: startId ? binding(startId) : undefined, end: endId ? binding(endId) : undefined, pictures };
+}
 
-  // ---- where LoRAs can go
+// ---- where LoRAs can go
+function findLoraPoints(r: Reading): { loraPoints: Inspection["loraPoints"]; chosen: Inspection["loraPoints"] } {
+  const { graph, ids, catalog, names } = r;
   const loraPoints: Inspection["loraPoints"] = [];
   for (const id of ids) {
     const n = graph[id]!;
     const out = catalog[n.class_type]?.output ?? [];
     if (n.class_type === POWER_LORAS) {
       // a node that is a list of LoRAs already: Afflatus's list takes its place
-      loraPoints.push({ node: id, output: 0, title: titleOf(id), label: givenName(id) ?? "", power: true });
+      loraPoints.push({ node: id, output: 0, title: names.titleOf(id), label: names.givenName(id) ?? "", power: true });
       continue;
     }
     const takesModel = Object.entries(n.inputs).some(([k, v]) => k === "model" && isRef(v));
     if (!out.includes("MODEL") || takesModel || !/load/i.test(n.class_type) || /lora/i.test(n.class_type)) continue;
     const file = Object.values(n.inputs).find((v): v is string => typeof v === "string" && FILE.test(v));
-    loraPoints.push({ node: id, output: out.indexOf("MODEL"), title: titleOf(id), label: givenName(id) ?? (file ? stem(file) : n.class_type) });
+    loraPoints.push({ node: id, output: out.indexOf("MODEL"), title: names.titleOf(id), label: names.givenName(id) ?? (file ? stem(file) : n.class_type) });
   }
   // the workflow's own LoRA lists when it has them; else one loader, or a pair (a high and a low model, each
   // with its own LoRAs); with more the user says which
   const lists = loraPoints.filter((p) => p.power);
   const chosen = lists.length ? lists.slice(0, 4) : loraPoints.length <= 2 ? loraPoints : [];
+  return { loraPoints, chosen };
+}
 
-  // ---- everything else that could be a control
+// ---- what each kind of node does, and the switches explained by it
+function findAbout(r: Reading): { about: Record<string, string>; toggles: Toggle[] } {
+  const { source, catalog, editor, names } = r;
   /** What a kind of node does, when its author said. */
   const aboutOf = (classType: string | undefined) => {
     const d = classType ? catalog[classType]?.description : undefined;
@@ -362,18 +408,26 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       const d = aboutOf(type);
       if (!type || !d || seen.has(type)) continue;
       seen.add(type);
-      lines.push(`${titleOf(id)}: ${d}`);
+      lines.push(`${names.titleOf(id)}: ${d}`);
     }
     return lines.length ? { ...t, help: lines.slice(0, 3).join(" ") } : t;
   });
+  return { about, toggles };
+}
+
+// ---- everything else that could be a control
+function collectCandidates(
+  r: Reading,
+  found: { result: Output | undefined; prompt: Inspection["texts"][number] | undefined; negative: Inspection["texts"][number] | undefined; seeds: Target[]; size: Bindings["size"]; length: Bindings["length"]; toggles: Toggle[]; loaded: string[]; resolution: Target | undefined; duration: Target | undefined },
+): { candidates: Inspection["candidates"]; missingFiles: Inspection["missingFiles"]; relocated: Inspection["relocated"] } {
+  const { source, graph, catalog, editor, names } = r;
+  const { result, prompt, negative, seeds, size, length, toggles, loaded, resolution, duration } = found;
   const bound = new Set<string>();
   const mark = (t?: Target) => t && bound.add(`${t.node}.${t.input}`);
   [prompt?.target, negative?.target, ...seeds, size?.width, size?.height, length?.target, ...toggles.flatMap((t) => t.writes)].forEach(mark);
   for (const id of loaded) bound.add(`${id}.image`);
   // an input that only repeats a setting held elsewhere is not a setting of its own
   for (const others of Object.values(editor?.shared ?? {})) others.forEach(mark);
-  // on the author's own panel: the settings they meant to be changed, in their order
-  const onPanel = (t: Target) => editor?.panel.findIndex((p) => p.node === t.node && p.input === t.input) ?? -1;
   const candidates: Inspection["candidates"] = [];
   const missingFiles: Inspection["missingFiles"] = [];
   const relocated: Inspection["relocated"] = [];
@@ -383,7 +437,7 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     const primitive = isPrimitive(source, catalog, id);
     for (const input of Object.keys(n.inputs)) {
       if (bound.has(`${id}.${input}`)) continue;
-      const c = control(id, input);
+      const c = names.control(id, input);
       if (!c) continue;
       if (c.file && graph[id]) {
         const choices = choicesOf(specOf(catalog, n.class_type, input)) ?? [];
@@ -403,17 +457,27 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       const tuned = c.kind === "number" && (/^(steps(_total)?|scale_by|upscale_by)$/.test(input) || (input === "denoise" && Number(c.default) < 1));
       const upscaler = c.kind === "choice" && input === "model_name" && /upscale/i.test(n.class_type);
       const suggested = isResolution || isDuration || tuned || upscaler || (editor?.panel.length
-        ? onPanel(c.target) >= 0
-        : (c.kind === "number" && /^(steps(_total)?|cfg|guidance|shift)$/.test(input)) || (primitive && givenName(id) !== null && c.kind !== "text"));
-      const named = isResolution ? { ...c, front: true, label: givenLabel(id, input) ?? "Resolution" }
-        : isDuration ? { ...c, front: true, label: givenLabel(id, input) ?? "Seconds" }
+        ? onPanel(editor, c.target) >= 0
+        : (c.kind === "number" && /^(steps(_total)?|cfg|guidance|shift)$/.test(input)) || (primitive && names.givenName(id) !== null && c.kind !== "text"));
+      const named = isResolution ? { ...c, front: true, label: names.givenLabel(id, input) ?? "Resolution" }
+        : isDuration ? { ...c, front: true, label: names.givenLabel(id, input) ?? "Seconds" }
         : c;
       const offers = c.kind === "choice" ? choicesOf(specOf(catalog, n.class_type, input)) ?? undefined : undefined;
-      candidates.push({ ...tame(named, isDuration ? "seconds" : primitive ? (givenName(id) ?? "") : ""), classType: n.class_type, title: titleOf(id), suggested, ...(graph[id] ? {} : { off: true }), ...(offers?.length ? { offers } : {}) });
+      candidates.push({ ...tame(named, isDuration ? "seconds" : primitive ? (names.givenName(id) ?? "") : ""), classType: n.class_type, title: names.titleOf(id), suggested, ...(graph[id] ? {} : { off: true }), ...(offers?.length ? { offers } : {}) });
     }
   }
-  // ---- settings of the same name on several nodes are told apart: by the pass of sampling they belong to, else by their node
-  const samplerIds = ids.filter((id) => /KSampler|SamplerCustom/.test(graph[id]!.class_type)).sort((a, z) => ancestors(graph, a).size - ancestors(graph, z).size);
+  return { candidates, missingFiles, relocated };
+}
+
+/** The passes of sampling, the first pass first (the one the fewest nodes feed). */
+function samplerPasses(r: Reading): string[] {
+  const { graph, ids } = r;
+  return ids.filter((id) => /KSampler|SamplerCustom/.test(graph[id]!.class_type)).sort((a, z) => ancestors(graph, a).size - ancestors(graph, z).size);
+}
+
+// ---- settings of the same name on several nodes are told apart: by the pass of sampling they belong to, else by their node
+function tellApart(r: Reading, candidates: Inspection["candidates"], samplerIds: string[]): void {
+  const { graph } = r;
   const ORDINAL = ["first", "second", "third", "fourth", "fifth"];
   const passOf = (node: string): string | null => {
     // the pass a node works for: the first sampler that is made from it (or is it)
@@ -428,8 +492,13 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     if (c.front || (sameLabel.get(c.label) ?? 0) < 2) continue;
     c.label = `${c.label} · ${passOf(c.target.node) ?? `${c.title} #${c.target.node}`}`;
   }
+}
 
-  // ---- the places it can stop at: outputs of the result's kind that lie on the way to the result
+// ---- the places it can stop at: outputs of the result's kind that lie on the way to the result
+// (a hires-fix workflow also gets its second half's candidates renamed in place, as A1111 names them)
+function findStages(r: Reading, made: { result: Output | undefined; outputs: Inspection["outputs"]; candidates: Inspection["candidates"]; samplerIds: string[]; size: Bindings["size"] }): Inspection["stages"] {
+  const { graph, names } = r;
+  const { result, outputs, candidates, samplerIds, size } = made;
   const stages: Inspection["stages"] = [];
   if (result) {
     const whole = ancestors(graph, result.node);
@@ -456,7 +525,7 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
         const e = count(node, ENLARGE);
         const label = i === nodes.length - 1 ? "Full workflow"
           : i === 0 ? "Base pass only"
-            : p > passes ? `Through pass ${p}` : e > enlargings ? "Base + upscale, no second pass" : `Up to ${titleOf(node)} #${node}`;
+            : p > passes ? `Through pass ${p}` : e > enlargings ? "Base + upscale, no second pass" : `Up to ${names.titleOf(node)} #${node}`;
         passes = p;
         enlargings = e;
         stages.push({ node, label });
@@ -487,8 +556,12 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       }
     }
   }
+  return stages;
+}
 
-  // every fixed choice of what runs, whether or not it is a control: one ComfyUI refuses stops the render
+// ---- every fixed choice of what runs, whether or not it is a control: one ComfyUI refuses stops the render
+function findMissingChoices(r: Reading): Inspection["missingChoices"] {
+  const { graph, ids, catalog, names } = r;
   const missingChoices: Inspection["missingChoices"] = [];
   for (const id of ids) {
     const n = graph[id]!;
@@ -504,12 +577,41 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
         return i;
       };
       const best = [...options].sort((x, y) => shared(y) - shared(x) || x.length - y.length)[0];
-      missingChoices.push({ node: id, input, classType: n.class_type, title: titleOf(id), value, options, ...(best && shared(best) >= 3 ? { nearest: best } : {}) });
+      missingChoices.push({ node: id, input, classType: n.class_type, title: names.titleOf(id), value, options, ...(best && shared(best) >= 3 ? { nearest: best } : {}) });
     }
   }
+  return missingChoices;
+}
+
+/**
+ * @param source the workflow: as exported, or every node of an editor file (see `fromEditor`)
+ * @param editor what only the editor's file knows, when the workflow came from one
+ * @param notes what the reader of that file could not read with certainty
+ */
+export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, notes: string[] = []): Inspection {
+  // what runs with the switches as they were saved: the parts are looked for in there
+  const pruned = prune(source, editor, editor?.modes ?? {});
+  settle(pruned);
+  const { graph } = pruned;
+  const ids = Object.keys(graph);
+  const r: Reading = { source, graph, ids, catalog, editor, uses: consumers(graph), names: namesOf(source, catalog, editor) };
+  const missingNodes = [...new Set(ids.filter((id) => !catalog[graph[id]!.class_type]).map((id) => graph[id]!.class_type))];
+  const missingWhenOn = [...new Set(Object.keys(source).filter((id) => !graph[id] && !catalog[source[id]!.class_type]).map((id) => source[id]!.class_type))].filter((c) => !missingNodes.includes(c));
+
+  const { outputs, result, reach } = findOutputs(r);
+  const { texts, prompt, negative } = findTexts(r);
+  const { seeds, size, length, resolution, duration } = findSizeAndLength(r, reach);
+  const { images, loaded, start, end, pictures } = findImages(r, reach);
+  const { loraPoints, chosen } = findLoraPoints(r);
+  const { about, toggles } = findAbout(r);
+  const { candidates, missingFiles, relocated } = collectCandidates(r, { result, prompt, negative, seeds, size, length, toggles, loaded, resolution, duration });
+  const samplerIds = samplerPasses(r);
+  tellApart(r, candidates, samplerIds);
+  const stages = findStages(r, { result, outputs, candidates, samplerIds, size });
+  const missingChoices = findMissingChoices(r);
 
   const ticked = candidates.filter((c) => c.suggested).map(({ classType: _c, title: _t, suggested: _s, off: _o, offers: _f, ...c }) => c);
-  const place = (c: Control) => (onPanel(c.target) < 0 ? Number.MAX_SAFE_INTEGER : onPanel(c.target));
+  const place = (c: Control) => (onPanel(editor, c.target) < 0 ? Number.MAX_SAFE_INTEGER : onPanel(editor, c.target));
   ticked.sort((a, b) => place(a) - place(b));
 
   const suggested: Bindings | null = result
@@ -519,8 +621,8 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
         seeds,
         ...(size ? { size } : {}),
         ...(length && result.kind === "video" ? { length } : {}),
-        ...(startId ? { startImage: binding(startId) } : {}),
-        ...(endId ? { endImage: binding(endId) } : {}),
+        ...(start ? { startImage: start } : {}),
+        ...(end ? { endImage: end } : {}),
         pictures,
         loras: chosen.map((p) => ({ node: p.node, output: p.output, label: chosen.length > 1 ? p.label : "", ...(p.power ? { power: true } : {}) })),
         toggles,

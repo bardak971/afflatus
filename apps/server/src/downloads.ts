@@ -2,7 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebStream } from "node:stream/web";
+import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
+import { httpError } from "./errors";
+import { fileName } from "./media";
+import { assertPublicUrl, hostnameOf } from "./outbound";
 
 /**
  * Model files fetched straight into ComfyUI's model folders, through ComfyUI-Manager.
@@ -125,8 +129,10 @@ export class Downloads {
   async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
-    if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw Object.assign(new Error(`"${name}" is not a model file Afflatus can download.`), { statusCode: 400 });
-    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw Object.assign(new Error("that is not a models folder"), { statusCode: 400 });
+    if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw httpError(`"${name}" is not a model file Afflatus can download.`);
+    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw httpError("that is not a models folder");
+    // the source has to be out on the internet: the server can reach what a browser on this network cannot (outbound.ts)
+    assertPublicUrl(want.source, [hostnameOf(comfy.url), ...civitaiSites().map(hostnameOf)]);
     const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (d.status === "starting" || d.status === "downloading" || d.status === "saving"));
     if (busy) return this.list().find((v) => v.id === busy.id)!;
 
@@ -237,11 +243,11 @@ export class Downloads {
   }
 
   private async untilListed(d: Download): Promise<void> {
-    const name = d.file.split(/[\\/]/).pop()!.toLowerCase();
+    const name = fileName(d.file);
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, this.listedEveryMs));
       const files = await d.comfy.client.models(d.folder).catch(() => [] as string[]);
-      if (files.some((f) => f.split(/[\\/]/).pop()!.toLowerCase() === name)) {
+      if (files.some((f) => fileName(f) === name)) {
         d.status = "done";
         d.finishedAt = Date.now();
         // what was worked out about this ComfyUI no longer holds: it has one more file

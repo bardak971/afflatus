@@ -1,4 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, LoraValue, ReferenceValue, Ref } from "@afflatus/core";
+import { roundTo } from "../shared/round";
 import { loadUnet, unetNodes } from "../shared/unet";
 
 /** What every Klein recipe asks for besides its own inputs. */
@@ -29,14 +30,11 @@ export const kleinInputs: InputSpec[] = [
   { id: "seed", type: "seed", label: "Seed" },
 ];
 
-const r16 = (n: number) => Math.max(16, Math.round(n / 16) * 16);
-export { r16 };
-
 /** About one megapixel at this shape, both edges multiples of 16: where Klein draws best. */
 export function kleinSize(of: { width: number; height: number } | undefined, megapixels = 1) {
   if (!of?.width || !of.height) return { width: 1024, height: 1024 };
   const k = Math.sqrt((megapixels * 1024 * 1024) / (of.width * of.height));
-  return { width: r16(of.width * k), height: r16(of.height * k) };
+  return { width: roundTo(of.width * k, 16), height: roundTo(of.height * k, 16) };
 }
 
 export interface Klein {

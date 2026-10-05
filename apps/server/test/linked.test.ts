@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, parse } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
+import { whyNotLinkable } from "../src/linked";
 import { CHECKPOINT, complete, get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /** A directory with pictures in it and in a sub-directory, a hidden file and a text file. */
@@ -53,6 +54,32 @@ describe("a folder linked to a directory of the disk", () => {
     await link();
     expect((await post(t.app, "/api/folders/link", { path: dir })).statusCode).toBe(400);
     expect((await post(t.app, "/api/folders/link", { path: join(dir, "day 1") })).statusCode).toBe(400);
+  });
+
+  it("never links the system's own directories or the home folder itself, and only what LINK_ROOTS names when that is set", async () => {
+    const refused = async (path: string) => {
+      const res = await post(t.app, "/api/folders/link", { path });
+      expect(res.statusCode).toBe(400);
+      return res.json().error as string;
+    };
+    expect(await refused(homedir())).toContain("home folder");
+    expect(await refused(parse(dir).root)).toContain("root of a drive");
+    if (process.platform === "win32") {
+      expect(await refused(join(parse(dir).root, "Windows"))).toContain("Windows");
+      expect(await refused(join(parse(dir).root, "Windows", "System32"))).toContain("Windows");
+      expect(await refused(join(homedir(), "AppData", "Local"))).toContain("AppData");
+    } else {
+      expect(await refused("/etc")).toContain("system");
+      expect(whyNotLinkable("/var/log")).toContain("/var");
+    }
+    // the allow-list: a directory outside it is refused, one inside it goes through
+    process.env.LINK_ROOTS = join(dir, "day 1");
+    try {
+      expect(await refused(dir)).toContain("LINK_ROOTS");
+      expect((await post(t.app, "/api/folders/link", { path: join(dir, "day 1") })).statusCode).toBe(200);
+    } finally {
+      delete process.env.LINK_ROOTS;
+    }
   });
 
   it("is read again on request: what was added appears, what was removed is gone", async () => {

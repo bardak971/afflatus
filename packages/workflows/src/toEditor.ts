@@ -1,4 +1,5 @@
 import { isRef, type Graph, type NodeCatalog, type NodeInfo, type Ref } from "@afflatus/core";
+import { isWidget } from "./catalog";
 
 /**
  * A graph as ComfyUI's editor saves it, made from the graph Afflatus runs (the "API" form), so that the
@@ -48,12 +49,6 @@ function specsOf(info: NodeInfo | undefined): Array<[string, Spec]> {
   return out;
 }
 
-const WIDGET_TYPES = new Set(["INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"]);
-/** The input is typed in on the node (a widget), not fed by a link. */
-function isWidget([type, opts]: Spec): boolean {
-  if (opts?.forceInput === true) return false;
-  return Array.isArray(type) || (typeof type === "string" && WIDGET_TYPES.has(type));
-}
 /** The type of an input, as the editor writes it on a slot. */
 const slotType = ([type]: Spec): string => (Array.isArray(type) ? "COMBO" : typeof type === "string" ? type : "*");
 /** What a widget starts on when the graph does not say. */

@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { LibraryBig, Music, PanelLeftClose, PanelLeftOpen, Play, Plus, Search } from "lucide-react";
-import { api, thumbUrl, type Asset, type Timeline } from "../api";
+import { api, type Asset, type Timeline } from "../api";
 import { HoverVideo } from "../HoverVideo";
 import { Picker } from "../PictureField";
 import { useAssets, useFolders } from "../data";
 import { clock } from "../format";
+import { useSettled } from "../hooks";
 import { useProject } from "../project";
 import { ClipMark, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../screens/Library";
 import { Select } from "../Select";
-import { SHELF, useShelfWidth } from "../store";
+import { SHELF, useBanners, useShelfWidth } from "../store";
 import { Button, cx, SectionTitle, Segmented } from "../ui";
 import { LoadMore } from "../LoadMore";
 import { TileTip, useTileTip } from "../TileTip";
@@ -64,11 +65,8 @@ export function Shelf({ onAdd, selected, timeline }: {
   /** The whole library as a picker: one click adds what is picked. */
   const [browsing, setBrowsing] = useState(false);
   const [typed, setTyped] = useState("");
-  const [q, setQ] = useState("");
-  useEffect(() => {
-    const t = setTimeout(() => setQ(typed.trim()), 250);
-    return () => clearTimeout(t);
-  }, [typed]);
+  const q = useSettled(typed.trim());
+  const say = useBanners((b) => b.push);
   const project = useProject((s) => s.id);
   const width = useShelfWidth((s) => s.width);
   const setWidth = useShelfWidth((s) => s.set);
@@ -229,7 +227,7 @@ export function Shelf({ onAdd, selected, timeline }: {
           onClose={() => setBrowsing(false)}
           onPick={(id) => {
             setBrowsing(false);
-            void api.asset(id).then((a) => onAdd(a)).catch(() => {});
+            void api.asset(id).then((a) => onAdd(a)).catch((err: Error) => say({ id: `shelf:${Date.now()}`, tone: "bad", title: "Could not add it to the timeline", text: err.message, href: "/", go: "Open the library" }));
           }}
         />
       )}

@@ -12,10 +12,20 @@ export function about(seconds: number): string {
   return seconds < 90 ? `about ${Math.max(5, Math.round(seconds / 5) * 5)} s left` : `about ${Math.round(seconds / 60)} min left`;
 }
 
-/** The length of a clip: "0:05", "1:12". */
-export function clock(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+/**
+ * A length or a moment as minutes and seconds: "0:05", "1:12". With `decimals`, a moment to the tenth
+ * ("0:03.4") or the hundredth ("0:04.20") of a second, the seconds floored so that a frame never reads
+ * as the next second.
+ */
+export function clock(ms: number, opts: { decimals?: 0 | 1 | 2 } = {}): string {
+  const decimals = opts.decimals ?? 0;
+  const total = Math.max(0, ms);
+  const whole = decimals ? Math.floor(total / 1000) : Math.round(total / 1000);
+  const base = `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+  if (!decimals) return base;
+  // counted in milliseconds: 3300 ms is ".3", never ".2" through a floating point remainder
+  const part = Math.floor((total % 1000) / 10 ** (3 - decimals));
+  return `${base}.${String(part).padStart(decimals, "0")}`;
 }
 
 /** A time that is a guess, said as one: "about 40 s", "about 2 min". Empty when there is nothing to go on. */

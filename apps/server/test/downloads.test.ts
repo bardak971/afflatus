@@ -84,7 +84,8 @@ afterEach(async () => {
   await new Promise((r) => site.close(r));
 });
 
-const on = () => t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true, civitaiKey: "k-123" } });
+// fetching needs downloads on, and lookups on too: with lookups off Afflatus never contacts Civitai or Hugging Face
+const on = () => t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true, civitaiLookups: true, civitaiKey: "k-123" } });
 const list = async () => (await get(t.app, "/api/downloads")).json();
 const done = (id: string) => until(async () => ["done", "error"].includes((await list()).items.find((d: { id: string }) => d.id === id)?.status));
 
@@ -171,6 +172,27 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect((await t.app.inject({ method: "DELETE", url: "/api/downloads/nope" })).statusCode).toBe(404);
   });
 
+  it("is never done while lookups are off either: with lookups off Afflatus contacts neither Civitai nor Hugging Face", async () => {
+    await start(true);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
+    const res = await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42 });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("lookups");
+    expect((await post(t.app, "/api/downloads/resolve", { link: "https://civitai.com/models/9" })).statusCode).toBe(400);
+    expect(asked).toEqual([]);
+  });
+
+  it("fetches from the internet only: an address inside the network is refused before anything is asked of ComfyUI", async () => {
+    await start(true);
+    await on();
+    for (const url of ["http://10.1.2.3/x.safetensors", "http://192.168.0.9:8080/x.safetensors", "http://169.254.169.254/latest/x.safetensors", "http://router/x.safetensors"]) {
+      const res = await post(t.app, "/api/downloads", { file: "x.safetensors", folder: "loras", url });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("inside your own network");
+    }
+    expect(fake.calls.filter((c) => c.includes("manager/queue"))).toEqual([]);
+  });
+
   it("refuses what is not a model file or not a folder", async () => {
     await start(true);
     await on();
@@ -188,7 +210,7 @@ describe("a workflow whose model file is missing", () => {
     const found = (await post(t.app, "/api/workflows/inspect", wan)).json();
     const id = (await post(t.app, "/api/workflows", { title: "Wan", model: "Wan 2.2", source: "wan.json", graph: wan, bindings: found.suggested })).json().id as string;
     fake.catalog.UNETLoader!.input.required!.unet_name = [["some-other-model.safetensors"]];
-    const status = (await get(t.app, "/api/setup?fresh=1")).json().recipes.find((r: { id: string }) => r.id === id);
+    const status = (await post(t.app, "/api/setup/rescan")).json().recipes.find((r: { id: string }) => r.id === id);
     expect(status.missing).toEqual([{ file: "wan2.2_i2v_14B.safetensors", folder: "diffusion_models" }]);
   });
 });

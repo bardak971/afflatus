@@ -1,4 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
+import { roundTo } from "../shared/round";
 import { loadUnet } from "../shared/unet";
 
 /**
@@ -16,7 +17,6 @@ export const UPSCALE = {
   seedvr: "Video: SeedVR2 (restores)",
   latent: "Latent: re-sampled",
 } as const;
-export type UpscaleRoute = (typeof UPSCALE)[keyof typeof UPSCALE];
 
 /** The nodes that drive RTX VSR: NVIDIA's own pack, or DaSiWa's. Either does. */
 export const RTX_NVIDIA = "RTXVideoSuperResolution";
@@ -81,16 +81,13 @@ export function upscaleNodes(input: UpscaleValues): string[] {
 /** What a video recipe lists as optional for the routes: the RTX drivers, the chunking of the pixel route, the GGUF loader. */
 export const UPSCALE_OPTIONAL = ["RebatchImages", ...RTX_NODES];
 
-/** A frame on a grid of 8, as encoders want it. */
-const r8 = (n: number) => Math.max(64, Math.round(n / 8) * 8);
-
 /**
  * The decoded frames, enlarged by the pixel route the form asks for (none for the other routes). `frame`
  * is the clip's own size; the frames come out at `upscaleBy` times it.
  */
 export function pixelUpscale(g: GraphBuilder, images: Ref, input: UpscaleValues, frame: { width: number; height: number }, ctx: BuildContext): { images: Ref; loads: string[] } {
   if (input.upscale !== UPSCALE.model && input.upscale !== UPSCALE.rtx && input.upscale !== UPSCALE.seedvr) return { images, loads: [] };
-  const big = { width: r8(frame.width * input.upscaleBy), height: r8(frame.height * input.upscaleBy) };
+  const big = { width: roundTo(frame.width * input.upscaleBy, 8, 64), height: roundTo(frame.height * input.upscaleBy, 8, 64) };
   g.phase("upscaling");
   if (input.upscale === UPSCALE.model) {
     const model = g.out("UpscaleModelLoader", { model_name: input.upscaleModel });

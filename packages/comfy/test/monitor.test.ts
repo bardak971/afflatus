@@ -151,6 +151,65 @@ describe("Monitor", () => {
     expect(monitor.progress("p1").eta).toBeLessThan(92);
   });
 
+  it("does not count the tiles of a decode or an upscale model as steps, but shows their phase", async () => {
+    monitor.track({ ...tracking, passes: [{ node: "5", steps: 20 }, { node: "8", steps: 10 }] });
+    fake.send("execution_start", { prompt_id: "p1" });
+    fake.send("progress", { prompt_id: "p1", node: "5", value: 20, max: 20 });
+    fake.send("progress", { prompt_id: "p1", node: "8", value: 10, max: 10 });
+    await until(() => monitor.progress("p1").step === 30);
+    // the tiled decode reports its tiles: the bar stays at the sampler total, the phase follows the node
+    fake.send("executing", { prompt_id: "p1", node: "9" });
+    fake.send("progress", { prompt_id: "p1", node: "9", value: 1, max: 6 });
+    fake.send("progress", { prompt_id: "p1", node: "9", value: 6, max: 6 });
+    await until(() => monitor.progress("p1").phase === "decoding");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(monitor.progress("p1")).toMatchObject({ step: 30, steps: 30, progress: 0.99, phase: "decoding" });
+    // a node the tracking knows nothing about is taken for a sampler, as before
+    monitor.track({ promptId: "p2", totalSteps: 10, phases: {} });
+    fake.send("progress", { prompt_id: "p2", node: "77", value: 3, max: 10 });
+    await until(() => monitor.progress("p2").step === 3);
+  });
+
+  it("keeps the bar within the sampler total and the time left sane through the fake's tiled decode", async () => {
+    // a render as the fake plays it: a sampler, then a tiled decode and an upscale model that report tiles
+    const sim = await startFakeComfy({ simulate: { stepMs: 15 } });
+    const client = new ComfyClient(sim.url);
+    const watch = new Monitor(client);
+    await watch.ready();
+    try {
+      const graph = {
+        "1": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "x" } },
+        "2": { class_type: "KSampler", inputs: { seed: 1, steps: 6, model: ["1", 0] } },
+        "3": { class_type: "VAEDecodeTiled", inputs: { samples: ["2", 0], vae: ["1", 2] } },
+        "4": { class_type: "ImageUpscaleWithModel", inputs: { image: ["3", 0] } },
+        "5": { class_type: "PreviewImage", inputs: { images: ["4", 0] } },
+      };
+      const phases = { "1": "loading", "2": "sampling", "3": "decoding", "4": "upscaling", "5": "encoding" } as const;
+      const promptId = await client.submit(graph);
+      watch.track({ promptId, totalSteps: 6, phases, passes: [{ node: "2", steps: 6 }] });
+      const seen: Array<ReturnType<Monitor["progress"]>> = [];
+      watch.onChange = () => seen.push(watch.progress(promptId));
+      await until(() => Boolean(sim.history[promptId]), 5000);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(seen.length).toBeGreaterThan(6);
+      for (const p of seen) {
+        expect(p.step).toBeLessThanOrEqual(6);
+        expect(p.progress).toBeLessThanOrEqual(0.99);
+        expect(Number.isFinite(p.eta) && p.eta >= 0).toBe(true);
+      }
+      // the sampler done, the tiles leave the count alone and the time left is the finishing allowance, not more
+      const after = seen.filter((p) => p.phase === "decoding" || p.phase === "upscaling");
+      expect(after.length).toBeGreaterThan(0);
+      for (const p of after) {
+        expect(p).toMatchObject({ step: 6, progress: 0.99 });
+        expect(p.eta).toBeLessThanOrEqual(3);
+      }
+    } finally {
+      watch.close();
+      await sim.close();
+    }
+  });
+
   it("picks up the machine's load from a monitor extension's broadcast", async () => {
     expect(monitor.system).toBeNull();
     fake.send("dasiwa.system_monitor", {

@@ -145,13 +145,6 @@ export interface Preset {
   note?: string;
 }
 
-/** The preset of a recipe that applies to a model file, if any. */
-export function presetFor(recipe: { presets?: Preset[] }, file: string | undefined): Preset | undefined {
-  const name = (file ?? "").split(/[\\/]/).pop() ?? "";
-  if (!name) return undefined;
-  return (recipe.presets ?? []).find((p) => new RegExp(p.match, "i").test(name));
-}
-
 /** A word about one choice: it is slow, or probably too much, on this card. */
 export interface Advice {
   /** The input it is about. */

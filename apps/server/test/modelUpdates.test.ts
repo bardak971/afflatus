@@ -86,5 +86,9 @@ describe("newer versions on Civitai", () => {
     // the setting for the daily check is kept
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { updateChecks: true } });
     expect((await get(t.app, "/api/settings")).json().updateChecks).toBe(true);
+    // a file's row forgotten by name; without a name there is nothing to forget, and that is said rather than failed
+    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/loras" })).statusCode).toBe(400);
+    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/loras?file=Soft_Light.safetensors" })).statusCode).toBe(200);
+    expect((await get(t.app, "/api/models/updates")).json().items).toEqual([]);
   });
 });

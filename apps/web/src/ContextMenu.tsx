@@ -18,7 +18,7 @@ export type MenuItem =
     }
   | "—";
 
-export interface MenuAt {
+interface MenuAt {
   x: number;
   y: number;
 }
@@ -93,7 +93,8 @@ export function ContextMenu({ at, items, label, onClose }: { at: MenuAt; items: 
           <div key={`rule-${i}`} className="my-1 border-t border-line" />
         ) : (
           <button
-            key={it.label}
+            // by place, not by label: two items may say the same thing (two projects of one name under "Move to")
+            key={i}
             type="button"
             role="menuitem"
             disabled={it.disabled}

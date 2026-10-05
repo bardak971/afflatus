@@ -87,14 +87,14 @@ describe("an imported workflow", () => {
 
     // on a ComfyUI that lists its files, a model the workflow names and that is not there is reported
     fake.catalog.UNETLoader!.input.required!.unet_name = [["some-other-model.safetensors"]];
-    const again = (await get(t.app, "/api/setup?fresh=1")).json().recipes.find((r: { id: string }) => r.id === id);
+    const again = (await post(t.app, "/api/setup/rescan")).json().recipes.find((r: { id: string }) => r.id === id);
     expect(again).toMatchObject({ ready: false, missingFiles: ["wan2.2_i2v_14B.safetensors"] });
   });
 
   it("runs with a model this ComfyUI keeps in another sub-folder, named as ComfyUI lists it", async () => {
     const { id } = await importWan();
     fake.catalog.UNETLoader!.input.required!.unet_name = [["Wan\\wan2.2_i2v_14B.safetensors"]];
-    const status = (await get(t.app, "/api/setup?fresh=1")).json().recipes.find((r: { id: string }) => r.id === id);
+    const status = (await post(t.app, "/api/setup/rescan")).json().recipes.find((r: { id: string }) => r.id === id);
     expect(status).toMatchObject({ ready: true, missingFiles: [] });
     expect((await post(t.app, "/api/jobs", { recipe: id, input: { prompt: "a cat walks" } })).statusCode).toBe(200);
     await until(() => fake.prompts.size === 1);
@@ -242,7 +242,7 @@ describe("a workflow imported from the editor's own file", () => {
     const found = (await inspect(chooser)).json();
     expect(found.suggested.startImage.required).toBe(true);
     const saved = (await post(t.app, "/api/workflows", { title: "Chooser", model: "Test", source: "chooser.json", graph: found.graph, bindings: found.suggested })).json();
-    const setup = await get(t.app, "/api/setup?fresh=1");
+    const setup = await post(t.app, "/api/setup/rescan");
     expect(setup.statusCode).toBe(200);
     expect(setup.json().recipes.find((r: { id: string }) => r.id === saved.id)).toMatchObject({ ready: true });
     // and a job without the picture is refused with a reason, before anything is queued

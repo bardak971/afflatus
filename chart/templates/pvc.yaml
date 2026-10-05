@@ -5,6 +5,9 @@ metadata:
   name: {{ include "afflatus.name" . }}
   labels:
     {{- include "afflatus.labels" . | nindent 4 }}
+  # the library survives `helm uninstall`: the claim is left behind, to be bound again by the next install
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     {{- toYaml .Values.persistence.accessModes | nindent 4 }}

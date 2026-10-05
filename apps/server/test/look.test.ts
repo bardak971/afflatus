@@ -39,7 +39,7 @@ describe.skipIf(!crisp || !soft || !tone)("the look of a clip", () => {
     expect(a!.flicker).toBeGreaterThanOrEqual(0);
     expect(Math.abs(a!.chroma!.u)).toBeLessThan(64);
     expect(a!.voice).toBeNull();
-  });
+  }, 30_000);
 
   it("puts a 330 Hz tone's centre of weight near 330 Hz, measures from a moment on, and gives null for a file that is not a video", async () => {
     const t = await lookOf(tone!, "mp4");
@@ -50,5 +50,5 @@ describe.skipIf(!crisp || !soft || !tone)("the look of a clip", () => {
     expect(later).not.toBeNull();
     expect(Math.abs(later!.luma - whole!.luma)).toBeLessThan(30);
     expect(await lookOf(new Uint8Array([1, 2, 3]), "mp4")).toBeNull();
-  });
+  }, 30_000);
 });

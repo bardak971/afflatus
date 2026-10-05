@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { api, lookAdds, type Draft } from "./api";
+import { DRAFT_LIST, useDrafts } from "./data";
 import { useOpenDraft } from "./store";
 
 const SAVE_AFTER_MS = 500;
@@ -10,13 +12,33 @@ const holdsNothing = (d: Draft) =>
   !d.name && !d.chat.length && !lookAdds(d.look) && Object.values(d.forms).every((form) => Object.keys(form).length === 0);
 
 /**
+ * A draft that was just made (from a picture, a workflow, a file's parameters) opened in the form:
+ * it is put in the cache, the list is told, it becomes the open draft, and the screen goes to the form.
+ */
+export function useOpenNewDraft() {
+  const client = useQueryClient();
+  const open = useOpenDraft((s) => s.open);
+  const [, go] = useLocation();
+  return useCallback(
+    (d: { id: string }) => {
+      client.setQueryData(["drafts", d.id], d);
+      void client.invalidateQueries({ queryKey: DRAFT_LIST });
+      open(d.id);
+      go("/create");
+    },
+    [client, open, go],
+  );
+}
+
+/**
  * The draft being worked on. Edits apply at once on screen and are saved to the server half a second
- * after the last one; leaving the page or switching draft saves right away.
+ * after the last one; leaving the page or switching draft saves right away. A save that fails keeps the
+ * edit: the next flush, or Retry, sends it again.
  */
 export function useDraft(firstRecipe: string | undefined) {
   const client = useQueryClient();
   const { id: openId, open } = useOpenDraft();
-  const list = useQuery({ queryKey: ["drafts"], queryFn: api.drafts });
+  const list = useDrafts();
   const loaded = useQuery({ queryKey: ["drafts", openId], queryFn: () => api.draft(openId!), enabled: Boolean(openId), retry: false, staleTime: Infinity });
 
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -29,13 +51,15 @@ export function useDraft(firstRecipe: string | undefined) {
     timer.current = null;
     const d = unsaved.current;
     if (!d) return;
-    unsaved.current = null;
     try {
       const saved = await api.saveDraft(d.id, { recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer });
+      // what was sent is saved; an edit made meanwhile is still waiting
+      if (unsaved.current === d) unsaved.current = null;
       client.setQueryData(["drafts", d.id], saved);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      void client.invalidateQueries({ queryKey: DRAFT_LIST });
       if (!unsaved.current) setSaving("saved");
     } catch {
+      // the edit stays in `unsaved`: the next flush sends it again
       setSaving("failed");
     }
   }, [client]);
@@ -56,7 +80,7 @@ export function useDraft(firstRecipe: string | undefined) {
       creating.current = true;
       void api.createDraft({ recipe: firstRecipe }).then((d) => {
         client.setQueryData(["drafts", d.id], d);
-        void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+        void client.invalidateQueries({ queryKey: DRAFT_LIST });
         open(d.id);
         creating.current = false;
       });
@@ -73,7 +97,7 @@ export function useDraft(firstRecipe: string | undefined) {
     const idle = list.data.items.filter((d) => d.empty && d.target === "new" && d.id !== openId && !swept.current.has(d.id));
     if (!idle.length) return;
     for (const d of idle) swept.current.add(d.id);
-    void Promise.all(idle.map((d) => api.deleteDraft(d.id).catch(() => {}))).then(() => client.invalidateQueries({ queryKey: ["drafts"], exact: true }));
+    void Promise.all(idle.map((d) => api.deleteDraft(d.id).catch(() => {}))).then(() => client.invalidateQueries({ queryKey: DRAFT_LIST }));
   }, [list.data, openId, client]);
 
   const change = useCallback(
@@ -96,6 +120,11 @@ export function useDraft(firstRecipe: string | undefined) {
     // (an empty one that is not the open one is on its way out: it is not shown)
     drafts: (list.data?.items ?? []).filter((d) => !d.empty || d.id === openId),
     saving,
+    /** Send the edit that could not be saved again. */
+    retry: () => {
+      setSaving("saving");
+      void flush();
+    },
     setValue: (recipe: string, input: string, value: unknown) =>
       change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], [input]: value } } })),
     /** Drop what the draft holds for these inputs: they follow the defaults again. */
@@ -131,7 +160,7 @@ export function useDraft(firstRecipe: string | undefined) {
       await flush();
       const d = await api.createDraft({ recipe: draft?.recipe ?? firstRecipe! });
       client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      void client.invalidateQueries({ queryKey: DRAFT_LIST });
       open(d.id);
     },
     async remove(id: string) {
@@ -139,7 +168,7 @@ export function useDraft(firstRecipe: string | undefined) {
       await api.deleteDraft(id);
       client.removeQueries({ queryKey: ["drafts", id] });
       // the list first, so that what opens next is chosen among drafts that still exist
-      await client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+      await client.invalidateQueries({ queryKey: DRAFT_LIST });
       if (id === openId) {
         setDraft(null);
         open(null);

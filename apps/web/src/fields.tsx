@@ -340,7 +340,7 @@ function SizeField({ spec, value: size, values, onChange }: { spec: Extract<Inpu
 }
 
 /** The form's main text, for a field that puts words into it or takes them out (a LoRA's trigger words). */
-export interface MainText {
+interface MainText {
   text: string;
   style: "tags" | "sentences";
   set(text: string): void;

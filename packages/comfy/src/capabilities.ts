@@ -145,9 +145,8 @@ export async function scan(
           const family = families.find((x) => x.id === r.family);
           const named = input.match ? all.filter((f) => input.match!.some((p) => new RegExp(p, "i").test(f))) : [];
           // then the files whose weights say they are this family's; a file known to be another family's goes last
-          const infoFolder = input.folder === "diffusion_models" ? "diffusion_models" : input.folder;
-          const byWeights = family ? all.filter((f) => !named.includes(f) && sameBase(infoOf(infoFolder, f)?.base, family.name)) : [];
-          const foreign = family ? all.filter((f) => { const b = infoOf(infoFolder, f)?.base; return Boolean(b) && !named.includes(f) && !byWeights.includes(f) && !sameBase(b, family.name); }) : [];
+          const byWeights = family ? all.filter((f) => !named.includes(f) && sameBase(infoOf(input.folder, f)?.base, family.name)) : [];
+          const foreign = family ? all.filter((f) => { const b = infoOf(input.folder, f)?.base; return Boolean(b) && !named.includes(f) && !byWeights.includes(f) && !sameBase(b, family.name); }) : [];
           const fits = [...named, ...byWeights];
           // a file that fills another slot of the family (H3's reference model) is used on its own when a clip
           // needs it: it is not a choice for this one

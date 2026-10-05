@@ -15,7 +15,7 @@ import { zipOf } from "./zip";
 
 export const NODE_PACK = "afflatus-nodes";
 /** The node that says the pack is loaded in a running ComfyUI: its newest one, so an older copy still loaded says "restart ComfyUI". */
-export const NODE_PACK_PROBE = "AfflatusH3TailGuide";
+const NODE_PACK_PROBE = "AfflatusH3TailGuide";
 const exists = (p: string) => access(p).then(() => true, () => false);
 
 /** Where the pack's source is: the repository's folder, or NODE_PACK_DIR. */

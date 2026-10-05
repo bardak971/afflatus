@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { openSqlite } from "../src/db";
+import { openSqlite, OWNER } from "../src/db";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -401,5 +401,53 @@ describe("the queue's history", () => {
     expect((await get(t.app, "/api/jobs?status=failed")).json().items).toHaveLength(0);
     expect((await get(t.app, "/api/jobs?q=cat")).json().items).toHaveLength(1);
     expect((await get(t.app, "/api/jobs?q=zebra")).json().items).toHaveLength(0);
+  });
+
+  it("finds a model whose file name has an underscore in it, as nearly every model file has", async () => {
+    // a finished job as the queue leaves one, with a model file named the usual way
+    const at = new Date().toISOString();
+    await t.db
+      .insertInto("jobs")
+      .values({
+        id: "job-sdxl", owner_id: OWNER, recipe_id: "sdxl.text-to-picture", label: "a cat", inputs: JSON.stringify({ prompt: "a cat", checkpoint: "sdxl_base_1.0.safetensors" }),
+        status: "done", warm: 0, look: null, priority: 0, depends_on: null, attempts: 1, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: null,
+        draft_id: null, folder_id: null, finished_from: null, created_at: at, started_at: at, finished_at: at, updated_at: at,
+      })
+      .execute();
+    const byModel = (await get(t.app, "/api/jobs?model=sdxl_base")).json();
+    expect(byModel.items.map((i: { id: string }) => i.id)).toEqual(["job-sdxl"]);
+    expect(byModel.items[0].model).toBe("sdxl_base_1.0");
+    expect((await get(t.app, "/api/jobs?q=sdxl_base_1.0")).json().items).toHaveLength(1);
+    // the underscore is that letter, not any one letter; a percent sign is not any run of them
+    expect((await get(t.app, "/api/jobs?model=sdxlXbase")).json().items).toHaveLength(0);
+    expect((await get(t.app, "/api/jobs?q=sdxl%25base")).json().items).toHaveLength(0);
+  });
+});
+
+describe("a result filed just before the process died", () => {
+  it("is not filed twice when the job is picked up again: the job already names its generation", async () => {
+    const db = openSqlite(":memory:");
+    const first = await makeApp({ db, comfyUrl: fake.url });
+    await first.services.queue.start();
+    const id = (await post(first.app, "/api/jobs", job())).json().ids[0] as string;
+    await until(() => submitted().length === 1);
+    complete(fake, submitted()[0]!);
+    await until(async () => (await db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
+    first.services.queue.stop();
+    await first.services.queue.idle();
+    await first.app.close();
+    const was = await db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+    expect(was.generation_id).not.toBeNull();
+    // as the row looks when the process dies right after the result was filed: still running, its prompt to wait on, its generation named
+    await db.updateTable("jobs").set({ status: "running", finished_at: null }).where("id", "=", id).execute();
+
+    const second = await makeApp({ db, dir: first.dir, comfyUrl: fake.url });
+    await second.services.queue.start();
+    await until(async () => (await db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
+    expect((await db.selectFrom("jobs").select("generation_id").where("id", "=", id).executeTakeFirstOrThrow()).generation_id).toBe(was.generation_id);
+    expect(await db.selectFrom("generations").select("id").execute()).toHaveLength(1);
+    expect(await db.selectFrom("assets").select("id").execute()).toHaveLength(1);
+    expect(submitted()).toHaveLength(1);
+    await second.close();
   });
 });

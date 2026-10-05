@@ -5,7 +5,7 @@ import { api, type Asset } from "./api";
 import { clock, when } from "./format";
 
 /** How long the pointer rests on a tile before its tooltip shows. */
-export const TILE_TIP_AFTER_MS = 800;
+const TILE_TIP_AFTER_MS = 800;
 
 /** The tooltip's timer and place, for a tile: rest on it to show, leave or press to hide. */
 export function useTileTip() {

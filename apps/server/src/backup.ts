@@ -31,7 +31,7 @@ const stamp = () => {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
 };
 
-async function* walk(dir: string, base = dir): AsyncGenerator<{ path: string; rel: string; mtime: Date }> {
+async function* walk(dir: string, base = dir): AsyncGenerator<{ path: string; rel: string; mtime: Date; size: number }> {
   let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }> = [];
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -41,7 +41,10 @@ async function* walk(dir: string, base = dir): AsyncGenerator<{ path: string; re
   for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     const p = join(dir, e.name);
     if (e.isDirectory()) yield* walk(p, base);
-    else if (e.isFile()) yield { path: p, rel: relative(base, p).replace(/\\/g, "/"), mtime: (await stat(p)).mtime };
+    else if (e.isFile()) {
+      const info = await stat(p);
+      yield { path: p, rel: relative(base, p).replace(/\\/g, "/"), mtime: info.mtime, size: info.size };
+    }
   }
 }
 
@@ -53,7 +56,7 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
     let bytes = 0;
     for await (const f of walk(places.filesDir)) {
       files++;
-      bytes += (await stat(f.path)).size;
+      bytes += f.size;
     }
     const db = s.dbKind === "sqlite" ? await stat(join(places.dataDir, "afflatus.db")).then((x) => x.size).catch(() => 0) : 0;
     return { available: true, files, bytes: bytes + db, database: s.dbKind === "sqlite" };
@@ -65,7 +68,8 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
     const zip = new ZipStream();
     const name = `afflatus-backup-${stamp()}.zip`;
     reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${name}"`).header("Cache-Control", "no-store");
-    // what is written is a promise that runs beside the reply; the reply takes the stream now
+    // what is written is a promise that runs beside the reply; the reply takes the stream now. A write
+    // fails once the browser has gone (zipStream.ts), which ends the loop: the finally below always runs
     void (async () => {
       let tmp: string | null = null;
       try {
@@ -81,20 +85,23 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
           "linked folders are found again at their paths when they still exist there.",
           "",
         ].join("\n");
-        await zip.add("README.txt", Readable.from([Buffer.from(readme, "utf8")]));
+        const readmeBytes = Buffer.from(readme, "utf8");
+        await zip.add("README.txt", Readable.from([readmeBytes]), new Date(), readmeBytes.length);
         if (s.dbKind === "sqlite") {
           // SQLite's own consistent copy: a complete database file as of now, with the app running
           tmp = await mkdtemp(join(tmpdir(), "afflatus-backup-"));
           const copy = join(tmp, "afflatus.db");
           await sql`VACUUM INTO ${copy}`.execute(s.db);
-          await zip.add("afflatus.db", createReadStream(copy), new Date());
+          await zip.add("afflatus.db", createReadStream(copy), new Date(), (await stat(copy)).size);
         }
         for await (const f of walk(places.filesDir)) {
           if (req.raw.destroyed) break;
-          await zip.add(`files/${f.rel}`, createReadStream(f.path), f.mtime);
+          await zip.add(`files/${f.rel}`, createReadStream(f.path), f.mtime, f.size);
         }
         await zip.finish();
       } catch (err) {
+        // the browser going away is the usual way out and no news; anything else is said, since the user only sees a download that stopped
+        if (!req.raw.destroyed) console.warn(`[backup] given up: ${(err as Error).message}`);
         zip.abort(err as Error);
       } finally {
         if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});

@@ -1,5 +1,6 @@
 import { secondsOf } from "@afflatus/core";
 import type { Clip, RecipeInfo } from "../api";
+import { clock } from "../format";
 
 /** What the editor's parts share: how clips are laid out along the track, and a few words about them. */
 
@@ -11,11 +12,8 @@ export const ZOOM = { least: 12, most: 110, start: 40 };
 export const PAD = 10;
 export const NEW_CLIP = 116;
 
-/** "0:03.4": a moment, to the tenth of a second. */
-export const stamp = (ms: number) => {
-  const t = Math.max(0, ms);
-  return `${Math.floor(t / 60000)}:${String(Math.floor((t % 60000) / 1000)).padStart(2, "0")}.${Math.floor((t % 1000) / 100)}`;
-};
+/** "0:03.4": a moment on the timeline, to the tenth of a second. */
+export const stamp = (ms: number) => clock(ms, { decimals: 1 });
 
 /** One clip as it is drawn: where it starts and how long it is, in time and in pixels. */
 export interface Slot {
@@ -30,7 +28,7 @@ export interface Slot {
 }
 
 /** How long a clip that is not rendered yet will be: the length its form asks for, or five seconds. */
-export function plannedMs(clip: Clip, recipe: RecipeInfo | undefined): number {
+function plannedMs(clip: Clip, recipe: RecipeInfo | undefined): number {
   return Math.max(1000, ((recipe ? secondsOf(recipe.inputs, clip.inputs) : null) ?? 5) * 1000);
 }
 

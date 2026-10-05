@@ -10,6 +10,7 @@ import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDragged } from
 import { Field, sameValue } from "./fields";
 import { formDefaults } from "./form";
 import { fileLabel } from "./format";
+import { useSettled } from "./hooks";
 import { Button, cx, ErrorNote, Segmented } from "./ui";
 import { MissingModel } from "./PresetFiles";
 
@@ -26,7 +27,7 @@ const useParts = create<{ open: Record<string, boolean>; set(id: string, open: b
  * checked; open, its fields are under that line. A part that needs something from the user (a picture
  * that is not chosen yet) is open whatever was remembered.
  */
-export function Part({ id, title, summary, warn, needs, children }: {
+function Part({ id, title, summary, warn, needs, children }: {
   id: string;
   title: string;
   /** What it holds, in a few words. */
@@ -113,12 +114,14 @@ function Strip({ parts, open, query, setQuery, found }: {
   // a part clicked in the strip stays the current one until the user scrolls on their own: it may not
   // reach the top of the view (the form's end is near), and the strip must still say what was asked for
   const pinned = useRef(false);
+  // the listeners are bound again when the parts change, not on every keystroke (the array is new each render)
+  const partIds = parts.map((p) => p.id).join("|");
   useEffect(() => {
     // the nearest thing that scrolls: the form's parts scroll inside it
     let root = self.current?.parentElement ?? null;
     while (root && !/auto|scroll/.test(getComputedStyle(root).overflowY)) root = root.parentElement;
     if (!root) return;
-    const elements = parts.map((p) => root.querySelector<HTMLElement>(`[data-part="${p.id}"]`)).filter((e): e is HTMLElement => e !== null);
+    const elements = partIds.split("|").filter(Boolean).map((id) => root.querySelector<HTMLElement>(`[data-part="${id}"]`)).filter((e): e is HTMLElement => e !== null);
     // the current part is the one under the strip when a real stretch of it is still in view (not the
     // tail of a folded line), else the one that fills most of the view
     const tell = () => {
@@ -151,7 +154,7 @@ function Strip({ parts, open, query, setQuery, found }: {
       root.removeEventListener("wheel", unpin);
       root.removeEventListener("touchmove", unpin);
     };
-  }, [parts]);
+  }, [partIds]);
   return (
     <div ref={self} className="sticky top-0 z-10 flex shrink-0 items-center gap-x-0.5 overflow-x-hidden rounded-lg border border-line bg-raised/95 px-1 py-1 shadow-md shadow-shade/20 backdrop-blur">
       {searching ? (
@@ -256,10 +259,11 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     const texts = new Set(recipe.inputs.filter((i) => i.type === "prompt").map((i) => i.id));
     return Object.fromEntries(Object.entries(values).filter(([k, v]) => !texts.has(k) && v !== undefined));
   }, [recipe, values]);
-  const adviceKey = JSON.stringify(settingsOnly);
+  // asked once the settings have settled: a slider dragged across the form is one question, not one per pixel
+  const adviceKey = useSettled(JSON.stringify(settingsOnly), 500);
   const advice = useQuery({
     queryKey: ["advice", recipe.id, adviceKey],
-    queryFn: () => api.advice(recipe.id, { ...Object.fromEntries(recipe.inputs.filter((i) => i.type === "prompt" && !i.optional).map((i) => [i.id, "x"])), ...settingsOnly }),
+    queryFn: () => api.advice(recipe.id, { ...Object.fromEntries(recipe.inputs.filter((i) => i.type === "prompt" && !i.optional).map((i) => [i.id, "x"])), ...(JSON.parse(adviceKey) as Record<string, unknown>) }),
     staleTime: 60_000,
   });
   const word = (id: string) => advice.data?.items.find((a) => a.input === id);

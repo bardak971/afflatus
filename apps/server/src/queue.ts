@@ -1,101 +1,28 @@
 import { EventEmitter } from "node:events";
-import { ComfyCancelled, ComfyLost, ComfyUnreachable, detect, waitForOutputs, type Measured, type OutputFile, type WaitOptions } from "@afflatus/comfy";
-import { baseModels, mainModel, modelName, modelOf, timeKey, type Known, checkGraph, choicesOf, expandWildcards, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Phase, type Recipe, type ReferenceValue, type BuildContext, type Ref, type JoinKind, joinKindOf } from "@afflatus/core";
-import { cutFrames, referenceClip, frameAt, lookOf, slowSoundOnto, soundPart, repairJoinAudio, type Measure } from "./cut";
-import { latentDriftOf } from "./latentStats";
-import type { Registry } from "./registry";
-import { readSettings } from "./settings";
+import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
+import { expandWildcards, modelFileName, parseInput, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
-import { newId, now, OWNER, type Db, type Tables } from "./db";
-import { extOf, mimeOfFile, pngSize } from "./media";
+import { newId, now, OWNER, type Db } from "./db";
+import { estimateMs, rates } from "./estimates";
+import type { Registry } from "./registry";
+import { guessFor, known, record } from "./renders";
+import { readSettings } from "./settings";
 import type { Storage } from "./storage";
-import { makeThumb, maskBox, readPicture, thumbKey } from "./thumbs";
-import { estimateMs, rates, type Rate } from "./estimates";
-import { guessFor, known, usualParts } from "./renders";
-import { GraphBuilder } from "@afflatus/core";
-import { CUT_JOB, EXPORT_JOB, type CutOptions, type ExportOptions, type TakeLinks, type Timelines } from "./timelines";
-import { pixelUpscale, saveVideo, UPSCALE } from "@afflatus/recipes";
-import { readVideo } from "./video";
+import { CUT_JOB, EXPORT_JOB, type CutOptions, type ExportOptions, type Timelines } from "./timelines";
+import { DEFAULT_QUEUE_OPTIONS, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import * as submitting from "./queueSubmit";
+import * as storing from "./queueStore";
+import * as tools from "./queueTools";
+import * as view from "./queueView";
 
+// what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
+export { DEFAULT_QUEUE_OPTIONS, type QueueOptions };
+export { rifeModelIn } from "./queueTools";
 
-/** The RIFE model this ComfyUI offers for frame interpolation, when it has one. */
-export function rifeModelIn(catalog: Record<string, unknown>): string | null {
-  const node = catalog["FrameInterpolationModelLoader"] as { input?: { required?: Record<string, unknown[]> } } | undefined;
-  const spec = node?.input?.required?.model_name;
-  // older nodes list the choices in the type position; newer ones say "COMBO" and list them under options
-  const second = spec?.[1] as { options?: unknown[] } | undefined;
-  const options = Array.isArray(spec?.[0]) ? spec![0] : spec?.[0] === "COMBO" && Array.isArray(second?.options) ? second!.options : null;
-  if (!Array.isArray(options)) return null;
-  const files = options.filter((o): o is string => typeof o === "string");
-  return files.find((f) => /rife/i.test(f)) ?? files[0] ?? null;
-}
 /**
  * The queue. One ComfyUI, so one job at a time, in order. Jobs live in the database: a restart loses
  * nothing. Queued jobs stay queued, and a job ComfyUI already has is waited on again by its prompt id.
  */
-
-type JobRow = Tables["jobs"];
-
-/** What is stored once ComfyUI accepted the graph: enough to wait for it again after a restart. */
-interface Resume {
-  promptId: string;
-  seed: number;
-  outputs: BuiltGraph["outputs"];
-  totalSteps: number;
-  phases: Record<string, Phase>;
-  passes?: BuiltGraph["passes"];
-  /** The client id ComfyUI knows this prompt by: its progress is only sent to that client. */
-  clientId?: string;
-  loads: string[];
-  startedAt: number;
-  /** The inputs as they were sent, when some were filled in at the last moment (a timeline clip's neighbours). */
-  input?: Record<string, unknown>;
-  overlap?: BuiltGraph["overlap"];
-  /** A timeline clip: the takes it was joined onto, and what else it was made from. */
-  links?: TakeLinks;
-  sources?: Array<{ asset: string; role: string }>;
-  /** For the record of render times: what it is filed under, whether its model had to load, and what was expected of it. */
-  timing?: { model: string; modelFile: string; timeKey: string; cold: boolean; expectedMs: number | null; expect: { laterMs?: number; finishMs?: number } };
-}
-
-/** A form's values with something in every text that must be written: to load its models, what the text says does not matter. */
-function withTexts(recipe: Recipe<any>, raw: unknown): unknown {
-  if (!raw || typeof raw !== "object") return raw;
-  const input = { ...(raw as Record<string, unknown>) };
-  for (const spec of recipe.inputs as InputSpec[]) {
-    if (spec.type === "prompt" && !spec.optional && !String(input[spec.id] ?? "").trim()) input[spec.id] = "a";
-  }
-  return input;
-}
-
-/** A file choice left on its default, when this ComfyUI does not have that file: the best one it has. */
-function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>): Record<string, unknown> {
-  const chosen: Record<string, unknown> = { ...input };
-  for (const spec of recipe.inputs as InputSpec[]) {
-    if (spec.type !== "choice" || Array.isArray(spec.options)) continue;
-    const def = catalog[spec.options.node];
-    const offered = choicesOf(def?.input.required?.[spec.options.input] ?? def?.input.optional?.[spec.options.input]) ?? [];
-    const all = [...(spec.extra ?? []), ...offered];
-    if (all.length && !all.includes(String(chosen[spec.id])) && chosen[spec.id] === spec.default) chosen[spec.id] = pickChoice(spec, all);
-  }
-  return chosen;
-}
-
-export interface QueueOptions {
-  /** How long to wait before looking for ComfyUI again while it is away. */
-  offlineRetryMs: number;
-  /** Queued jobs are given up after ComfyUI has been away this long (not by their own age). */
-  offlineExpiryMs: number;
-  maxAttempts: number;
-  wait: Pick<WaitOptions, "timeoutMs" | "pollMs" | "offlineMs" | "queueCheckEvery">;
-}
-export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
-  offlineRetryMs: 15_000,
-  offlineExpiryMs: 2 * 60 * 60_000,
-  maxAttempts: 3,
-  // a cold model load plus a slow render; ComfyUI itself has no limit
-  wait: { timeoutMs: 90 * 60_000 },
-};
 
 export class UserError extends Error {
   statusCode = 400;
@@ -106,28 +33,13 @@ const PAUSED_KEY = "queue.paused";
 const MODEL_KEY = "queue.model";
 /** The base models the last job had ComfyUI load, kept across restarts of this app (ComfyUI keeps running through them). */
 const LOADS_KEY = "queue.loads";
-const randomSeed = () => Math.floor(Math.random() * 2 ** 32);
-
-/** The frame count written in the metadata of a latent saved by the Afflatus node pack (a safetensors file: 8 bytes of header length, then the header). */
-export function latentFramesOf(bytes: Uint8Array): number {
-  try {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const n = Number(view.getBigUint64(0, true));
-    if (n <= 0 || n > 1_000_000 || 8 + n > bytes.byteLength) return 0;
-    const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + n))) as { __metadata__?: Record<string, string> };
-    const frames = Number(header.__metadata__?.frames ?? 0);
-    return Number.isFinite(frames) && frames > 0 ? Math.round(frames) : 0;
-  } catch {
-    return 0;
-  }
-}
 
 export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": the running job moved. */
   readonly events = new EventEmitter();
   private busy = false;
   private paused = false;
-  private running: { id: string; abort: AbortController; promptId?: string; gpu: boolean } | null = null;
+  private running: Running | null = null;
   /** ComfyUI holds a model this app had it load. Unknown after a restart: taken as not. */
   private holds = false;
   private unloadTimer: NodeJS.Timeout | null = null;
@@ -146,14 +58,32 @@ export class Queue {
   private stopped = false;
   /** The timelines, for jobs that render a clip of one (set once both exist). */
   clips: Timelines | null = null;
+  /** The door the submitting, storing, tools and view modules reach this state through (queueModel.ts). */
+  private readonly core: QueueCore;
 
   constructor(
     private readonly db: Db,
-    private readonly storage: Storage,
+    storage: Storage,
     private readonly comfy: () => Promise<Comfy>,
     private readonly registry: Registry,
     private readonly opts: QueueOptions = DEFAULT_QUEUE_OPTIONS,
-  ) {}
+  ) {
+    const self = this;
+    this.core = {
+      db, storage, registry, opts, comfy, events: this.events,
+      // the state is read as it stands at the moment it is asked for, never copied
+      get clips() { return self.clips; },
+      get running() { return self.running; },
+      get paused() { return self.paused; },
+      get lastLoads() { return self.lastLoads; },
+      get lastModel() { return self.lastModel; },
+      get offlineSince() { return self.offlineSince; },
+      loaded: (loads, model) => this.loaded(loads, model),
+      usual: () => this.usual(),
+      expected: (usual, recipe, input, cold) => this.expected(usual, recipe, input, cold),
+      runTool: (row, work) => this.runTool(row, work),
+    };
+  }
 
   // ---------------------------------------------------------------- start / stop
 
@@ -194,7 +124,7 @@ export class Queue {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw new UserError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
-    const input = parseInput(recipe, opts.warm ? withTexts(recipe, rawInput) : rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
+    const input = parseInput(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
     for (const spec of recipe.inputs as InputSpec[]) {
       if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);
@@ -227,7 +157,8 @@ export class Queue {
       .insertInto("jobs")
       .values({
         id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: null,
-        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, draft_id: null, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
+        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: opts.timeline, draft_id: null, folder_id: null,
+        created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
     this.events.emit("queue");
@@ -240,11 +171,14 @@ export class Queue {
   async enqueueCut(opts: CutOptions, label: string, extra: { dependsOn?: string } = {}): Promise<string> {
     const id = newId();
     const at = now();
+    // a cut made for a clip works on that clip's timeline
+    const timeline = opts.clip ? (await this.db.selectFrom("clips").select("timeline_id").where("id", "=", opts.clip).executeTakeFirst())?.timeline_id ?? null : null;
     await this.db
       .insertInto("jobs")
       .values({
         id, owner_id: OWNER, recipe_id: CUT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: extra.dependsOn ?? null,
-        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, draft_id: null, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
+        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: timeline, draft_id: null, folder_id: null,
+        created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
     this.events.emit("queue");
@@ -280,7 +214,10 @@ export class Queue {
     const waiting = await this.db.selectFrom("jobs").select("id").where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
     const known = new Set(waiting.map((w) => w.id));
     const order = [...ids.filter((id) => known.has(id)), ...waiting.map((w) => w.id).filter((id) => !ids.includes(id))];
-    for (const [i, id] of order.entries()) await this.db.updateTable("jobs").set({ priority: -100_000 + i, updated_at: now() }).where("id", "=", id).where("status", "=", "queued").execute();
+    // the whole order lands at once: a pump reading the line in the middle of it would see a half-made one
+    await this.db.transaction().execute(async (tx) => {
+      for (const [i, id] of order.entries()) await tx.updateTable("jobs").set({ priority: -100_000 + i, updated_at: now() }).where("id", "=", id).where("status", "=", "queued").execute();
+    });
     this.events.emit("queue");
   }
 
@@ -362,7 +299,7 @@ export class Queue {
     return Number(r.numDeletedRows) > 0;
   }
 
-  private known: { at: number; rates: Record<string, Rate>; record: Record<string, Known> } | null = null;
+  private known: (Usual & { at: number }) | null = null;
   /** How long things usually take, worked out at most twice a minute. */
   private async usual() {
     if (!this.known || Date.now() - this.known.at > 30_000) this.known = { at: Date.now(), rates: await rates(this.db), record: await known(this.db) };
@@ -373,7 +310,7 @@ export class Queue {
    * About how long a render will take: from the record of renders like it (and then with what loading
    * its model adds, when it is not the one loaded), else from the totals of before there was a record.
    */
-  private expected(usual: { rates: Record<string, Rate>; record: Record<string, Known> }, recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): number | null {
+  private expected(usual: Usual, recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): number | null {
     const g = guessFor(usual.record, recipe, input);
     return g ? g.ms + (cold ? g.loadMs : 0) : estimateMs(usual.rates, recipe, input);
   }
@@ -390,77 +327,14 @@ export class Queue {
     if (!paused) void this.pump();
   }
 
-  // ---------------------------------------------------------------- what the queue screen shows
+  // ---------------------------------------------------------------- what the queue screen shows (queueView.ts)
 
-  async status() {
-    const rows = await this.db
-      .selectFrom("jobs")
-      .selectAll()
-      .where("status", "in", ["queued", "running"])
-      .orderBy("priority")
-      .orderBy("created_at")
-      .execute();
-    const recent = await this.db
-      .selectFrom("jobs")
-      .selectAll()
-      .where("status", "in", ["done", "failed", "cancelled"])
-      .orderBy("finished_at", "desc")
-      .limit(20)
-      .execute();
-    const usual = await this.usual();
-    // down the line, a job whose model is not the one before it has to load it first
-    let held = this.lastLoads === null ? null : new Set(this.lastLoads.split("|").map(modelName));
-    const brief = (r: JobRow) => {
-      const recipe = this.registry.recipe(r.recipe_id);
-      if (r.status !== "queued" || !recipe || r.warm) return { ...plain(r), estimateMs: null };
-      const input = JSON.parse(r.inputs) as Record<string, unknown>;
-      const model = modelOf(recipe.inputs, input);
-      const cold = Boolean(model && held && !held.has(model));
-      if (model) held = new Set([model]);
-      return { ...plain(r), estimateMs: this.expected(usual, recipe, input, cold) };
-    };
-    /** How a clip render joins the clip before, once its graph is built: in the latent, or on pinned frames; null when it starts on its own or is not a clip. */
-    const joinOf = (r: JobRow): JoinKind | null => {
-      if (!r.clip_id || !r.resume) return null;
-      return joinKindOf((JSON.parse(r.resume) as Resume).overlap);
-    };
-    const plain = (r: JobRow) => ({
-      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
-      kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const),
-      // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
-      input: r.status === "failed" && r.recipe_id !== EXPORT_JOB && r.recipe_id !== CUT_JOB ? (JSON.parse(r.inputs) as Record<string, unknown>) : null,
-      createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at,
-    });
-    const run = rows.find((r) => r.status === "running");
-    let running = null;
-    if (run) {
-      const promptId = this.running?.id === run.id ? this.running.promptId : undefined;
-      const monitor = (await this.comfy()).monitor;
-      running = {
-        ...brief(run),
-        ...(promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : run.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const), step: 0, steps: 0 }),
-        previewSeq: promptId ? monitor.preview(promptId).seq : 0,
-        previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
-      };
-    }
-    return {
-      paused: this.paused,
-      /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
-      model: this.lastLoads === null ? null : this.lastModel,
-      online: this.offlineSince === null,
-      offlineForMs: this.offlineSince ? Date.now() - this.offlineSince : 0,
-      running,
-      waiting: rows.filter((r) => r.status === "queued").map(brief),
-      recent: recent.map(brief),
-    };
-  }
-
+  /** The line as it stands, the running job's progress, and the last finished jobs. */
+  status() { return view.status(this.core); }
   /** The running job's latest live preview. */
-  async preview(jobId: string) {
-    if (this.running?.id !== jobId || !this.running.promptId) return null;
-    const p = (await this.comfy()).monitor.preview(this.running.promptId);
-    return p.bytes ? { bytes: p.bytes, mime: p.mime ?? "image/jpeg" } : null;
-  }
+  preview(jobId: string) { return view.preview(this.core, jobId); }
+  /** The finished jobs, newest first, with what each made: filtered and paged. */
+  history(opts: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number } = {}) { return view.history(this.core, opts); }
 
   // ---------------------------------------------------------------- the worker
 
@@ -478,11 +352,11 @@ export class Queue {
         const next = resumed ?? active.find((r) => r.status === "queued" && !(r.depends_on && waitingOn.has(r.depends_on)) && (!this.paused || r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB));
         if (!next) break;
         if (next.recipe_id === EXPORT_JOB) {
-          await this.runExport(next);
+          await tools.runExport(this.core, next);
           continue;
         }
         if (next.recipe_id === CUT_JOB) {
-          await this.runCut(next);
+          await tools.runCut(this.core, next);
           continue;
         }
         const comfy = await this.comfy();
@@ -526,9 +400,10 @@ export class Queue {
   }
 
   private async finish(id: string, status: "done" | "failed" | "cancelled", extra: { error?: string; generationId?: string } = {}) {
+    // a generation the job wrote before it ended badly stays named on it: what it made is in the library all the same
     await this.db
       .updateTable("jobs")
-      .set({ status, error: extra.error ?? null, generation_id: extra.generationId ?? null, finished_at: now(), updated_at: now() })
+      .set({ status, error: extra.error ?? null, ...(extra.generationId ? { generation_id: extra.generationId } : {}), finished_at: now(), updated_at: now() })
       .where("id", "=", id)
       .execute();
     // a job that waited on this one can never run now
@@ -540,8 +415,13 @@ export class Queue {
     this.events.emit("timeline");
   }
 
-  /** A cut: ffmpeg on the computer Afflatus runs on, like an export. */
-  private async runCut(row: JobRow): Promise<void> {
+  /**
+   * A job that needs no model: a cut or an export, done by ffmpeg on the computer Afflatus runs on (a
+   * finish or a RIFE slow-motion takes the GPU for a while all the same). Claimed in one statement, so
+   * that a cancel landing at the same moment wins; on a shutdown it is queued again for the next start,
+   * stopped by hand it is cancelled, anything else it threw is its failure.
+   */
+  private async runTool(row: JobRow, work: (run: Running) => Promise<void>): Promise<void> {
     const claimed = await this.db
       .updateTable("jobs")
       .set({ status: "running", attempts: row.attempts + 1, started_at: now(), updated_at: now() })
@@ -549,133 +429,15 @@ export class Queue {
       .where("status", "=", "queued")
       .executeTakeFirst();
     if (Number(claimed.numUpdatedRows) === 0) return;
-    const abort = new AbortController();
-    this.running = { id: row.id, abort, gpu: false };
+    const run: Running = { id: row.id, abort: new AbortController(), gpu: false };
+    this.running = run;
     this.events.emit("queue");
     try {
-      const opts = JSON.parse(row.inputs) as CutOptions;
-      if (!this.clips) throw new Error("timelines are not available");
-      const video = await this.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
-      if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
-      if (opts.action === "finish") {
-        // the whole video up to ComfyUI, the route run on its frames (the sound passed through), the result back as a video
-        const comfy = await this.comfy();
-        const catalog = await comfy.catalog();
-        // SeedVR2's two files, found by name as the setup page finds them (the full scan is not needed for that)
-        const slots: Record<string, string> = {};
-        for (const slot of (this.registry.family("tools")?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae")) {
-          const hit = detect(await comfy.client.models(slot.folder).catch(() => [] as string[]), slot.detect);
-          if (hit) slots[slot.id] = hit;
-        }
-        const route = opts.route === "rtx" ? UPSCALE.rtx : opts.route === "model" ? UPSCALE.model : UPSCALE.seedvr;
-        let upscaleModel = opts.upscaleModel || "";
-        if (route === UPSCALE.model && !upscaleModel) {
-          upscaleModel = (await comfy.client.models("upscale_models").catch(() => [] as string[]))[0] ?? "";
-          if (!upscaleModel) throw new Error("No upscale model in ComfyUI's models/upscale_models folder: put one there (2xNomosUni_span_multijpg, RealESRGAN_x2plus), or finish with SeedVR2.");
-        }
-        this.running.gpu = true;
-        const file = await comfy.client.upload(await this.storage.get(video.file_key), extOf(video.mime));
-        const g = new GraphBuilder();
-        const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
-        const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog };
-        const by = opts.by ?? 2;
-        const done = pixelUpscale(g, [parts, 0], { upscale: route, upscaleBy: by, upscaleModel, upscaleColour: opts.colour }, { width: video.width ?? 0, height: video.height ?? 0 }, ctx);
-        const outNode = saveVideo(g, ctx, { images: done.images, ...(video.has_sound ? { audio: [parts, 1] as Ref } : {}), fps: video.fps ?? 24, crf: 16 });
-        const promptId = await comfy.client.submit(g.graph);
-        this.running.promptId = promptId;
-        const output = await this.awaitPrompt(comfy, promptId, outNode, abort.signal);
-        const bytes = await comfy.client.view(output);
-        const made = await this.clips.keepCut(video, bytes, this.clips.finishName(video, opts.route ?? "seedvr", by), 0, video.duration_ms ?? 0);
-        if (opts.clip) {
-          await this.clips.takeFrom(opts.clip, made, "the finished take", opts.finishedFrom ?? null);
-          this.events.emit("timeline");
-        }
-      } else if (opts.action === "slow") {
-        const factor = opts.factor ?? 2;
-        let made;
-        if (opts.engine === "rife") {
-          // RIFE on the GPU: the range goes up to ComfyUI, a small graph interpolates it, the video comes back
-          const comfy = await this.comfy();
-          const catalog = await comfy.catalog();
-          const rife = rifeModelIn(catalog);
-          const missing = ["LoadVideo", "GetVideoComponents", "FrameInterpolationModelLoader", "FrameInterpolate", "VHS_VideoCombine"].filter((n) => !(n in catalog));
-          if (missing.length || !rife) throw new Error(`ComfyUI has no RIFE frame interpolation to run this on${missing.length ? ` (missing nodes: ${missing.join(", ")})` : " (no model in models/frame_interpolation)"}`);
-          this.running.gpu = true;
-          const part = await this.clips.rangeSlice(video, opts.startMs, opts.endMs);
-          const file = await comfy.client.upload(part.bytes, "mp4");
-          const g = new GraphBuilder();
-          const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
-          const images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: rife }), images: [parts, 0], multiplier: factor });
-          const outNode = g.add("VHS_VideoCombine", { images, frame_rate: part.fps, loop_count: 0, filename_prefix: "Afflatus/slow", format: "video/h264-mp4", pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: 16, save_metadata: false, trim_to_audio: false });
-          const promptId = await comfy.client.submit(g.graph);
-          this.running.promptId = promptId;
-          const output = await this.awaitPrompt(comfy, promptId, outNode, abort.signal);
-          const silent = await comfy.client.view(output);
-          // RIFE hands the picture back without sound: the range's own sound goes on it, slowed to match
-          const bytes = await slowSoundOnto(silent, part.bytes, factor);
-          made = await this.clips.keepCut(video, bytes, this.clips.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs);
-        } else made = await this.clips.slowRange(video, opts.startMs, opts.endMs, factor, { crf: opts.crf, signal: abort.signal });
-        if (opts.clip) {
-          await this.clips.takeFrom(opts.clip, made);
-          this.events.emit("timeline");
-        }
-      } else await this.clips.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: abort.signal });
+      await work(run);
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
-      else if (abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
-      else await this.finish(row.id, "failed", { error: (err as Error).message.slice(0, 600) });
-    } finally {
-      this.running = null;
-    }
-  }
-
-  /** Wait for a prompt queued outside the usual render path (a slow-motion job), and hand back the video it made. */
-  private async awaitPrompt(comfy: Comfy, promptId: string, node: string, signal: AbortSignal): Promise<OutputFile> {
-    const started = Date.now();
-    for (;;) {
-      if (signal.aborted) {
-        await comfy.client.interrupt(promptId).catch(() => {});
-        throw new Error("stopped by you");
-      }
-      const h = await comfy.client.history(promptId).catch(() => undefined);
-      if (h?.status?.completed) {
-        // VideoHelperSuite answers under "gifs"; ComfyUI's own SaveVideo under "images", with the video's name
-        const video = (o: { gifs?: OutputFile[]; images?: OutputFile[] } | undefined) => o?.gifs?.[0] ?? o?.images?.find((f) => /\.(mp4|webm|mkv|mov)$/i.test(f.filename));
-        const file = video(h.outputs?.[node]) ?? Object.values(h.outputs ?? {}).map(video).find(Boolean);
-        if (!file) throw new Error("ComfyUI finished without a video");
-        return file;
-      }
-      if (h?.status?.status_str === "error") {
-        const said = h.status.messages?.find((m) => m[0] === "execution_error")?.[1] as { exception_message?: string } | undefined;
-        throw new Error(said?.exception_message ? `ComfyUI: ${String(said.exception_message).slice(0, 300)}` : "ComfyUI could not run the frame interpolation");
-      }
-      if (Date.now() - started > 2 * 60 * 60_000) throw new Error("the frame interpolation did not finish in two hours");
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-
-  private async runExport(row: JobRow): Promise<void> {
-    const claimed = await this.db
-      .updateTable("jobs")
-      .set({ status: "running", attempts: row.attempts + 1, started_at: now(), updated_at: now() })
-      .where("id", "=", row.id)
-      .where("status", "=", "queued")
-      .executeTakeFirst();
-    if (Number(claimed.numUpdatedRows) === 0) return;
-    const abort = new AbortController();
-    this.running = { id: row.id, abort, gpu: false };
-    this.events.emit("queue");
-    try {
-      const opts = JSON.parse(row.inputs) as ExportOptions;
-      if (!this.clips) throw new Error("timelines are not available");
-      await this.clips.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, signal: abort.signal });
-      await this.finish(row.id, "done");
-    } catch (err) {
-      if (this.stopped) {
-        // shutting down: it starts over on the next start
-        await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
-      } else if (abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
+      else if (run.abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
       else await this.finish(row.id, "failed", { error: (err as Error).message.slice(0, 600) });
     } finally {
       this.running = null;
@@ -709,7 +471,7 @@ export class Queue {
     try {
       const input = JSON.parse(row.inputs) as Record<string, unknown>;
       if (!resume) {
-        resume = await this.submit(comfy, recipe, input, row);
+        resume = await submitting.submit(this.core, comfy, recipe, input, row);
         await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();
       }
       this.running.promptId = resume.promptId;
@@ -734,9 +496,12 @@ export class Queue {
         await this.finish(row.id, "done");
         return;
       }
-      const generationId = await this.store(comfy, recipe, resume.input ?? input, resume, outputs, row);
+      // a job found with its generation already named had filed its result before this process last stopped: not twice
+      const generationId = row.generation_id ?? (await storing.store(this.core, comfy, recipe, resume.input ?? input, resume, outputs, row));
       made = generationId;
-      if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {}, row.finished_from);
+      // its take on the clip, before the job closes (the two arrive on screen together). A clip that cannot take it (removed meanwhile,
+      // a fault here) is no reason to call the render failed; a job picked up again after a crash finds its take placed and places none
+      if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {}, row.finished_from).catch((err: Error) => console.warn(`[queue] the take of job ${row.id} was not placed on its clip: ${err.message}`));
       await this.finish(row.id, "done", { generationId });
       await this.note(row, recipe, resume, measured, "done", whole, tookMs, generationId);
       this.events.emit("library");
@@ -762,448 +527,20 @@ export class Queue {
     }
   }
 
-  /** Put a render on the record of render times. Never in the way of the render itself: a failure here is only said. */
+  /** Put a render on the record of render times (renders.ts). Never in the way of the render itself: a failure here is only said. */
   private async note(row: JobRow, recipe: Recipe<any>, resume: Resume, measured: Measured | null, status: "done" | "failed" | "cancelled", whole: boolean, totalMs: number, generationId?: string): Promise<void> {
     try {
-      const made = generationId ? await this.db.selectFrom("assets").select(["id", "kind", "width", "height", "duration_ms"]).where("generation_id", "=", generationId).orderBy("created_at").executeTakeFirst() : undefined;
-      const spent = measured?.phases ?? {};
-      const of = (...phases: string[]) => Math.round(phases.reduce((n, p) => n + (spent[p] ?? 0), 0));
-      const load = of("waiting", "loading");
-      const sample = of("sampling");
-      // every pass after the main sampling: a refine or hires pass, an upscale (pixel, latent, SeedVR2), a detailer, a tool's processing
-      const refine = of("upscaling", "refining", "restoring", "detailing", "processing");
-      // what is left is the finishing: decoding, smoothing, saving (and anything a workflow of its own does that has no name here)
-      const finish = measured ? Math.max(0, Math.round(totalMs) - load - sample - refine) : 0;
-      await this.db
-        .insertInto("render_stats")
-        .values({
-          id: row.id, owner_id: OWNER, recipe_id: recipe.id, family: recipe.family,
-          model: resume.timing?.model ?? "", model_file: resume.timing?.modelFile ?? "", time_key: resume.timing?.timeKey ?? "",
-          kind: made?.kind ?? null, width: made?.width ?? null, height: made?.height ?? null, duration_ms: made?.duration_ms ?? null,
-          steps: resume.totalSteps, status, whole: whole && measured ? 1 : 0, cold: resume.timing?.cold ? 1 : 0,
-          waited_ms: Math.max(0, resume.startedAt - new Date(row.created_at).getTime()),
-          total_ms: Math.round(totalMs), load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish,
-          step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null,
-          vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, created_at: now(),
-        })
-        .onConflict((oc) => oc.column("id").doNothing())
-        .execute();
+      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId);
       this.known = null;
     } catch (err) {
       console.warn(`[queue] the time of job ${row.id} was not put on record: ${(err as Error).message}`);
     }
   }
 
-  /** Check the graph against this ComfyUI, free its memory if another model is coming, and queue the prompt. */
-  private async submit(comfy: Comfy, recipe: Recipe<any>, raw: Record<string, unknown>, row: JobRow): Promise<Resume> {
-    const catalog = await comfy.catalog();
-    // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
-    const plan = row.clip_id && this.clips ? await this.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit)) : null;
-    const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
-    const chosen = settled(recipe, input, catalog);
-    const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
-    if (missing.length) throw new Error(`ComfyUI is missing custom nodes this needs: ${missing.join(", ")}`);
-    const slots = await this.slots(comfy, recipe);
+  // ---------------------------------------------------------------- a form against this ComfyUI (queueSubmit.ts)
 
-    // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
-    const uploads: Record<string, string> = {};
-    const media: Record<string, MediaFacts> = {};
-    for (const spec of recipe.inputs) {
-      const value = input[spec.id];
-      if (spec.type === "image") {
-        if (typeof value !== "string") continue;
-        const asset = await this.db.selectFrom("assets").select(["file_key", "mime", "width", "height"]).where("id", "=", value).executeTakeFirst();
-        if (!asset) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
-        const bytes = await this.storage.get(asset.file_key);
-        uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime));
-        const size = asset.width && asset.height ? { width: asset.width, height: asset.height } : await readPicture(bytes);
-        media[spec.id] = { width: size?.width ?? 0, height: size?.height ?? 0 };
-        if (spec.role === "mask") {
-          // only the part that was painted is redone: where it is comes from the mask itself
-          const painted = await maskBox(bytes);
-          if (painted && !painted.box) throw new Error("The mask is empty. Paint over the part to inpaint.");
-          if (painted?.box) media[spec.id] = { width: painted.width, height: painted.height, box: painted.box };
-        }
-      } else if (spec.type === "clip" && value) {
-        // of the clip it joins onto, the recipe gets a few frames with their sound, cut at the chosen moment
-        const { asset: assetId, at } = value as ClipValue;
-        const shown = await this.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
-        if (!shown || shown.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
-        // a finished (upscaled) take is a copy of a render: the render's own latent and frames are what a join takes
-        const asset = await this.renderedOf(shown);
-        // the model's own frames when they were kept (before an upscale or interpolation changed them): a
-        // continuation guided by frames of its own kind joins without the step a changed frame leaves
-        const rawBytes = asset.raw_key ? await this.storage.get(asset.raw_key).catch(() => null) : null;
-        const rawRead = rawBytes ? await readVideo(rawBytes, extOf(asset.mime)).catch(() => null) : null;
-        const bytes = rawRead?.facts ? rawBytes! : await this.storage.get(asset.file_key);
-        const facts = rawRead?.facts
-          ? rawRead.facts
-          : asset.duration_ms && asset.width && asset.height
-            ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
-            : (await readVideo(bytes, extOf(asset.mime))).facts;
-        if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
-        // the form may say how many frames the join takes first; shorter counts stay as fallbacks for a short clip
-        const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
-        const counts = Number.isFinite(wanted) && wanted > 0 ? [wanted, ...spec.frames.filter((c) => c < wanted)] : spec.frames;
-        const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at });
-        uploads[spec.id] = await comfy.client.upload(cut.bytes, "mp4");
-        media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
-        // the clip's own latent, when it was kept: a recipe that can join in the latent (the Afflatus node pack)
-        // takes it instead of the frames above. The clip before is continued from its end, as its latent holds
-        // it; the clip after is landed on where its playing part starts, a moment on the latent's frame grid
-        if (asset.latent_key && asset.latent_frames) {
-          const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
-          const fits = spec.role === "previous" ? at === undefined || at >= (facts.durationMs ?? 0) - 40 : (atFrames === 0 || atFrames % 17 === 5) && atFrames + Math.min(...counts) <= asset.latent_frames;
-          const saved = fits ? await this.storage.get(asset.latent_key).catch(() => null) : null;
-          if (saved) {
-            uploads[`${spec.id}.latent`] = await comfy.client.upload(saved, "safetensors");
-            media[spec.id] = { ...media[spec.id]!, latentFrames: asset.latent_frames, ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
-          }
-        }
-      } else if (spec.type === "references" && Array.isArray(value)) {
-        // each reference picture goes up under "<input>.<n>", in the order they were given
-        for (const [i, ref] of (value as ReferenceValue[]).entries()) {
-          const asset = await this.db.selectFrom("assets").select(["file_key", "mime", "width", "height", "kind"]).where("id", "=", ref.asset).executeTakeFirst();
-          if (spec.media === "video") {
-            // a reference video: its first three seconds, small, with its sound when it has one
-            if (!asset || asset.kind !== "video") throw new Error("a reference video is no longer in your library");
-            const clip = await referenceClip(await this.storage.get(asset.file_key), extOf(asset.mime), { seconds: 3, fps: 24, short: 384 });
-            uploads[`${spec.id}.${i}`] = await comfy.client.upload(clip.bytes, "mp4");
-            media[`${spec.id}.${i}`] = { width: clip.width, height: clip.height, frames: clip.frames, fps: 24, hasSound: clip.hasSound };
-            continue;
-          }
-          if (!asset || asset.kind !== "image") throw new Error("a reference image is no longer in your library");
-          const bytes = await this.storage.get(asset.file_key);
-          uploads[`${spec.id}.${i}`] = await comfy.client.upload(bytes, extOf(asset.mime));
-          media[`${spec.id}.${i}`] = { width: asset.width ?? 0, height: asset.height ?? 0 };
-        }
-      } else if (spec.type === "audio" && typeof value === "string") {
-        // a sound, or a video whose sound is used: ComfyUI's loader reads the sound track of either
-        const asset = await this.db.selectFrom("assets").select(["file_key", "mime", "kind", "has_sound", "duration_ms"]).where("id", "=", value).executeTakeFirst();
-        if (!asset || (asset.kind !== "audio" && !(asset.kind === "video" && asset.has_sound))) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
-        const whole = await this.storage.get(asset.file_key);
-        if (spec.window) {
-          // only the chosen part of it is handed over: a few clean seconds carry a voice better than a long take
-          // (a sound ffmpeg cannot cut, or no ffmpeg at all: the whole of it is used, as before there was a part to set)
-          const part = await soundPart(whole, extOf(asset.mime), { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8), durationMs: asset.duration_ms }).catch((err) => {
-            console.warn(`[queue] the part of the ${spec.label.toLowerCase()} could not be cut, the whole sound is used: ${(err as Error).message}`);
-            return null;
-          });
-          uploads[spec.id] = part ? await comfy.client.upload(part, "wav") : await comfy.client.upload(whole, extOf(asset.mime));
-        } else uploads[spec.id] = await comfy.client.upload(whole, extOf(asset.mime));
-      }
-    }
-
-    for (const spec of recipe.inputs) {
-      // a part painted on one picture cannot be put on another one
-      if (spec.type !== "image" || spec.role !== "mask" || !spec.of) continue;
-      const mask = media[spec.id];
-      const picture = media[spec.of];
-      if (mask && picture?.width && (mask.width !== picture.width || mask.height !== picture.height)) throw new Error("The mask was painted on another image. Paint it again on this one.");
-    }
-
-    const seed = typeof input.seed === "number" && input.seed !== RANDOM_SEED ? input.seed : randomSeed();
-    const built = recipe.build(chosen, { seed, slots, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
-    // a model kept in another sub-folder than the one the graph names is used from where it is
-    relocateFiles(built.graph, catalog);
-    const problems = checkGraph(built, catalog, { files: true, uploaded: Object.values(uploads) });
-    if (problems.length) {
-      const fix = recipe.id.startsWith("workflow.") ? " To fix it: Workflows, then Edit on this workflow." : "";
-      throw new Error(`this cannot run on your ComfyUI: ${problems.slice(0, 3).join("; ")}.${fix}`);
-    }
-
-    // Another base model is coming: ComfyUI's memory is cleared for it. A graph with no base model of
-    // its own (an upscale, a background removal) changes nothing: what is loaded stays, and stays noted.
-    const base = baseModels(built);
-    const cold = base.length > 0 && !this.holding(base);
-    if (base.length) {
-      if (cold) await comfy.client.free().catch(() => {});
-      await this.loaded(base.join("|"), mainModel(built));
-    }
-    const timing: Resume["timing"] = {
-      model: mainModel(built) ?? "", modelFile: modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase(),
-      timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: this.expected(await this.usual(), recipe, chosen, cold),
-      expect: await usualParts(this.db, recipe, chosen).catch(() => ({})),
-    };
-
-    comfy.monitor.ensure();
-    await comfy.monitor.ready();
-    if (row.warm) {
-      const warm = warmGraph(built);
-      if (!warm) throw new Error("this loads no model: there is nothing to preload");
-      if (!(WARM_SINK in catalog)) throw new Error(`ComfyUI is missing the ${WARM_SINK} node, which preloading a model needs. Update ComfyUI.`);
-      const promptId = await comfy.client.submit(warm.graph, { preview: "latent2rgb" });
-      return { promptId, seed, outputs: [], totalSteps: 1, phases: warm.phases, passes: warm.pass ? [warm.pass] : [], clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now() };
-    }
-    const promptId = await comfy.client.submit(built.graph, { preview: "latent2rgb" });
-    return {
-      promptId, seed, outputs: built.outputs, totalSteps: built.totalSteps, phases: built.phases, passes: built.passes,
-      clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now(), timing,
-      ...(plan ? { input, links: plan.links, sources: plan.sources } : {}),
-      ...(built.overlap ? { overlap: built.overlap } : {}),
-    };
-  }
-
-  /** The files a family's recipes need, as this ComfyUI has them. */
-  private async slots(comfy: Comfy, recipe: Recipe<any>): Promise<Record<string, string>> {
-    const slots: Record<string, string> = {};
-    const scanned = (await comfy.scan()).families.find((f) => f.id === recipe.family);
-    for (const s of scanned?.slots ?? []) {
-      if (s.file) slots[s.id] = s.file;
-      else if (!s.optional) throw new Error(`a model file ${this.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`);
-    }
-    return slots;
-  }
-
-  /** Every one of these base models is among the ones the last job loaded. */
-  private holding(base: string[]): boolean {
-    if (this.lastLoads === null) return false;
-    const held = new Set(this.lastLoads.split("|").map(modelFileName));
-    return base.every((f) => held.has(f));
-  }
-
-  /**
-   * The finished jobs, newest first, with what each made: for the queue's history. `q` looks in the
-   * label and the inputs (the prompt is there), `model` in the inputs too (the model file's name).
-   * Counts say how many of each status there are in all, so that a filter can show its number.
-   */
-  async history(opts: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number } = {}) {
-    const limit = Math.min(200, Math.max(1, opts.limit ?? 60));
-    const offset = Math.max(0, opts.offset ?? 0);
-    // a job that only loaded a model made nothing: not part of the history
-    let query = this.db.selectFrom("jobs").selectAll().where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0);
-    if (opts.status) query = query.where("status", "=", opts.status);
-    if (opts.q?.trim()) {
-      const like = `%${opts.q.trim().replace(/[%_]/g, (c) => `\\${c}`)}%`;
-      query = query.where((eb) => eb.or([eb("label", "like", like), eb("inputs", "like", like)]));
-    }
-    if (opts.model?.trim()) query = query.where("inputs", "like", `%${opts.model.trim().replace(/[%_]/g, (c) => `\\${c}`)}%`);
-    const rows = await query.orderBy("finished_at", "desc").orderBy("created_at", "desc").limit(limit + 1).offset(offset).execute();
-    const more = rows.length > limit;
-    const page = rows.slice(0, limit);
-    // what each made, and how it was settled
-    const genIds = page.map((r) => r.generation_id).filter((g): g is string => Boolean(g));
-    const gens = genIds.length ? await this.db.selectFrom("generations").select(["id", "resolved"]).where("id", "in", genIds).execute() : [];
-    const made = genIds.length
-      ? await this.db.selectFrom("assets").select(["id", "generation_id", "kind", "width", "height", "duration_ms", "kept_at", "deleted_at", "name"]).where("generation_id", "in", genIds).where("origin", "!=", "mask").orderBy("created_at").execute()
-      : [];
-    const counts = Object.fromEntries((await this.db.selectFrom("jobs").select(["status", (eb) => eb.fn.countAll<number>().as("n")]).where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0).groupBy("status").execute()).map((c) => [c.status, Number(c.n)])) as Partial<Record<"done" | "failed" | "cancelled", number>>;
-    const items = page.map((r) => {
-      const recipe = this.registry.recipe(r.recipe_id);
-      const input = r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB ? {} : (JSON.parse(r.inputs) as Record<string, unknown>);
-      const promptSpec = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
-      const prompt = promptSpec && typeof input[promptSpec.id] === "string" ? (input[promptSpec.id] as string).trim().slice(0, 240) : "";
-      const resolved = r.generation_id ? (JSON.parse(gens.find((g) => g.id === r.generation_id)?.resolved ?? "{}") as { seed?: number }) : {};
-      const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
-      return {
-        id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
-        kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const),
-        input: r.status === "failed" && r.recipe_id !== EXPORT_JOB && r.recipe_id !== CUT_JOB ? input : null,
-        createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, tookMs,
-        model: recipe ? modelOf(recipe.inputs, input) : null,
-        prompt,
-        seed: typeof resolved.seed === "number" ? resolved.seed : null,
-        // jobs asked for together ("Make 4"): the same form, the same second
-        batch: `${r.draft_id ?? ""}|${r.recipe_id}|${r.label}|${r.created_at.slice(0, 19)}`,
-        made: made.filter((a) => a.generation_id === r.generation_id).map((a) => ({ id: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, kept: a.kept_at !== null, inBin: a.deleted_at !== null, name: a.name })),
-      };
-    });
-    return { items, more, counts: { done: counts.done ?? 0, failed: counts.failed ?? 0, cancelled: counts.cancelled ?? 0 } };
-  }
-
-  /**
-   * The graph a form (or a past render: its inputs and its seed) gives, built without uploading anything:
-   * the files a render would send are stood in for by `names` (the file's own name, to be read in the
-   * graph), else by a placeholder. Null when the form is not complete enough to build.
-   */
-  async builtOf(recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string> } = {}): Promise<BuiltGraph | null> {
-    const recipe = this.registry.recipe(recipeId);
-    if (!recipe) return null;
-    const input = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
-    const comfy = await this.comfy();
-    const catalog = await comfy.catalog();
-    const uploads: Record<string, string> = {};
-    const media: Record<string, MediaFacts> = {};
-    const standIn = (key: string, asset: string) => {
-      uploads[key] = opts.names?.[asset] ?? "stand-in";
-      media[key] = { width: 1024, height: 1024 };
-    };
-    for (const spec of recipe.inputs as InputSpec[]) {
-      const value = input[spec.id];
-      if ((spec.type === "image" || spec.type === "audio" || spec.type === "clip") && typeof value === "string") standIn(spec.id, value);
-      else if (spec.type === "references" && Array.isArray(value)) value.forEach((v, i) => standIn(`${spec.id}.${i}`, typeof v === "string" ? v : String((v as { asset?: string })?.asset ?? "")));
-    }
-    const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: await this.slots(comfy, recipe), uploads, media, has: (cls: string) => cls in catalog });
-    relocateFiles(built.graph, catalog);
-    return built;
-  }
-
-  /**
-   * Whether the base models a form would use are the ones ComfyUI was last asked to load. Null when it
-   * cannot be told (the form is not complete enough to build its graph, ComfyUI is away). It is what
-   * this app last asked for: a ComfyUI that was restarted since, or used from elsewhere, is not seen.
-   */
-  async isLoaded(recipeId: string, rawInput: unknown): Promise<boolean | null> {
-    try {
-      const built = await this.builtOf(recipeId, rawInput);
-      if (!built) return null;
-      const base = baseModels(built);
-      return base.length ? this.holding(base) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * The asset that was rendered, for one that is a finished (upscaled) version of it on a timeline: the
-   * latent and the model's own frames belong to the render, and a join takes them from there. The asset
-   * itself when it holds them, or was not finished from another.
-   */
-  private async renderedOf(asset: Tables["assets"]): Promise<Tables["assets"]> {
-    let current = asset;
-    for (let i = 0; i < 4 && !current.latent_key && !current.raw_key; i++) {
-      const take = await this.db.selectFrom("takes").select("finished_from").where("asset_id", "=", current.id).where("finished_from", "is not", null).executeTakeFirst();
-      if (!take?.finished_from) break;
-      const draft = await this.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").selectAll("assets").where("takes.id", "=", take.finished_from).executeTakeFirst();
-      if (!draft) break;
-      current = draft as unknown as Tables["assets"];
-    }
-    return current;
-  }
-
-  /** Download the results, file them in the library, and record how they were made. */
-  private async store(
-    comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
-    outputs: Awaited<ReturnType<typeof waitForOutputs>>,
-    row: Pick<JobRow, "draft_id" | "folder_id" | "look">,
-  ): Promise<string> {
-    const files: Array<{ file: OutputFile; kind: "image" | "video" | "audio" }> = [];
-    for (const out of resume.outputs) {
-      if (out.role !== "result") continue;
-      const o = outputs[out.node];
-      const returned = [...(o?.images ?? []), ...(o?.gifs ?? []), ...(o?.audio ?? [])];
-      // a node can hand back more than its result (a video and a picture of its last frame): what is of the
-      // kind that was asked for is the result. When nothing is (an animated picture standing for a video),
-      // everything it returned is taken as that kind.
-      const ofKind = returned.filter((file) => mimeOfFile(file.filename).startsWith(`${out.kind}/`));
-      for (const file of ofKind.length ? ofKind : returned) files.push({ file, kind: out.kind });
-    }
-    if (!files.length) throw new Error("ComfyUI finished but returned no output");
-    // the model's own frames, saved beside a result whose frames were changed after it: for the clips that carry on
-    let raw: OutputFile | null = null;
-    // the clip's own latent (MiniMax H3 with the Afflatus node pack): for the clips that continue it
-    let latent: OutputFile | null = null;
-    for (const out of resume.outputs) {
-      const o = outputs[out.node] as { gifs?: OutputFile[]; images?: OutputFile[]; latents?: OutputFile[] } | undefined;
-      if (out.role === "raw") raw = [...(o?.gifs ?? []), ...(o?.images ?? [])].find((f) => mimeOfFile(f.filename).startsWith("video/")) ?? null;
-      if (out.role === "latent") latent = o?.latents?.[0] ?? null;
-    }
-
-    const generationId = newId();
-    const at = now();
-    // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
-    const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}) };
-    await this.db
-      .insertInto("generations")
-      .values({
-        id: generationId, owner_id: OWNER, recipe_id: recipe.id, recipe_version: recipe.version, family: recipe.family,
-        inputs: JSON.stringify(input), resolved: JSON.stringify(resolved),
-        gen_ms: Date.now() - resume.startedAt, draft_id: row.draft_id, created_at: at,
-      })
-      .execute();
-    // the folder that was open when it was sent, when it is still there. Being in a folder does not keep a result:
-    // it still goes to the bin after a day unless it is kept
-    const folder = row.folder_id ? (await this.db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;
-    // what it was made from: its pictures, the clips it joins onto, and what a timeline handed it
-    const sources = [...(resume.sources ?? [])];
-    for (const spec of recipe.inputs) {
-      const value = input[spec.id];
-      if (spec.type === "image" && typeof value === "string") sources.push({ asset: value, role: spec.role });
-      if (spec.type === "clip" && value) sources.push({ asset: (value as ClipValue).asset, role: spec.role });
-      if (spec.type === "references" && Array.isArray(value)) for (const ref of value as ReferenceValue[]) sources.push({ asset: ref.asset, role: ref.role });
-      if (spec.type === "audio" && typeof value === "string") sources.push({ asset: value, role: spec.role });
-    }
-    for (const s of sources) {
-      await this.db
-        .insertInto("generation_inputs")
-        .values({ generation_id: generationId, asset_id: s.asset, role: s.role })
-        .onConflict((oc) => oc.columns(["generation_id", "asset_id", "role"]).doNothing())
-        .execute();
-    }
-    for (const { file, kind } of files) {
-      let bytes = await comfy.client.view(file);
-      const mime = mimeOfFile(file.filename);
-      // a clip continued in the latent: the sound's hole at the hand-over is closed (see repairJoinAudio)
-      if (kind === "video" && resume.overlap?.latent && resume.overlap.headMs > 0) {
-        bytes = await repairJoinAudio(bytes, extOf(mime), resume.overlap.headMs).catch((err: Error) => {
-          console.warn(`[queue] the join's sound was not repaired: ${err.message}`);
-          return bytes;
-        });
-      }
-      const id = newId();
-      const key = `assets/${id.slice(0, 2)}/${id}.${extOf(mime)}`;
-      await this.storage.put(key, bytes);
-      // a video is read for its size, its length and a frame to show (when ffmpeg is installed)
-      const video = kind === "video" ? await readVideo(bytes, extOf(mime)) : null;
-      const size = kind === "image" ? pngSize(bytes) : video?.facts ?? null;
-      // how the clip's own part looks (mean luma, sharpness), kept with the render: a run of clips that flow on
-      // can then be checked for sliding darker or softer clip after clip (see lookOf)
-      let measure: Measure | null = null;
-      const noteMeasure = async () => {
-        resolved.measure = measure;
-        await this.db.updateTable("generations").set({ resolved: JSON.stringify(resolved) }).where("id", "=", generationId).execute();
-      };
-      if (video?.facts) {
-        measure = await lookOf(bytes, extOf(mime), resume.overlap?.headMs ?? 0).catch(() => null);
-        if (measure) await noteMeasure();
-      }
-      // a clip that opens on the end of another one is shown by its own first frame, not by the other's
-      const own = video?.frame && resume.overlap?.headMs ? await frameAt(bytes, extOf(mime), resume.overlap.headMs).catch(() => null) : null;
-      // a small version for the library grid; without one the grid falls back to the picture itself
-      const thumb = kind === "image" ? await makeThumb(bytes) : video?.frame ? await makeThumb(own ?? video.frame) : null;
-      if (thumb) await this.storage.put(thumbKey(id), thumb);
-      let rawKey: string | null = null;
-      if (kind === "video" && raw) {
-        rawKey = `assets/${id.slice(0, 2)}/${id}.raw.${extOf(mimeOfFile(raw.filename))}`;
-        await this.storage.put(rawKey, await comfy.client.view(raw));
-        raw = null;
-      }
-      let latentKey: string | null = null;
-      let latentFrames: number | null = null;
-      if (kind === "video" && latent) {
-        const bytes = await comfy.client.view(latent);
-        latentFrames = latentFramesOf(bytes);
-        if (latentFrames) {
-          latentKey = `assets/${id.slice(0, 2)}/${id}.latent.safetensors`;
-          await this.storage.put(latentKey, bytes);
-        }
-        // a join made in the latent: how wide its regenerated run-up came out against the tail it was guided
-        // by, read from the two latents (the clip before's is the one its join took)
-        const overlap = resume.overlap;
-        const prevSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "previous") as (InputSpec & { fps?: number }) | undefined;
-        const prevValue = prevSpec ? (input[prevSpec.id] as ClipValue | undefined) : undefined;
-        if (measure && overlap?.latent && overlap.headMs > 0 && latentFrames && prevValue?.asset) {
-          const shown = await this.db.selectFrom("assets").selectAll().where("id", "=", prevValue.asset).executeTakeFirst();
-          const before = shown ? await this.renderedOf(shown) : null;
-          const beforeBytes = before?.latent_key ? await this.storage.get(before.latent_key).catch(() => null) : null;
-          const drift = beforeBytes ? latentDriftOf(bytes, beforeBytes, Math.round((overlap.headMs / 1000) * (prevSpec?.fps ?? 24))) : null;
-          if (drift) {
-            measure.drift = drift;
-            await noteMeasure();
-          }
-        }
-        latent = null;
-      }
-      await this.db
-        .insertInto("assets")
-        .values({
-          id, owner_id: OWNER, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames,
-          width: size?.width ?? null, height: size?.height ?? null,
-          duration_ms: video?.facts?.durationMs ?? null, fps: video?.facts?.fps ?? null, has_sound: video?.facts?.hasSound ? 1 : 0,
-          folder_id: folder, generation_id: generationId, kept_at: null, deleted_at: null, created_at: at,
-        })
-        .execute();
-    }
-    return generationId;
-  }
+  /** The graph a form (or a past render) gives, built without uploading anything; null when the form is not complete enough to build. */
+  builtOf(recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string> } = {}): Promise<BuiltGraph | null> { return submitting.builtOf(this.core, recipeId, rawInput, opts); }
+  /** Whether the base models a form would use are the ones ComfyUI was last asked to load; null when it cannot be told. */
+  isLoaded(recipeId: string, rawInput: unknown): Promise<boolean | null> { return submitting.isLoaded(this.core, recipeId, rawInput); }
 }

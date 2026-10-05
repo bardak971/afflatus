@@ -48,7 +48,7 @@ export interface Embedded {
 // ---------------------------------------------------------------- containers
 
 /** PNG tEXt / zTXt / iTXt chunks, by keyword. */
-export function pngText(buf: Buffer): Record<string, string> {
+function pngText(buf: Buffer): Record<string, string> {
   const out: Record<string, string> = {};
   if (buf.length < 8 || buf.readUInt32BE(0) !== 0x89504e47) return out;
   let pos = 8;
@@ -310,7 +310,7 @@ export function parseA1111(infotext: string): FoundSettings {
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
 const isLink = (v: unknown): v is [string, number] => Array.isArray(v) && v.length === 2 && typeof v[0] === "string";
-export const isGraph = (v: unknown): v is Graph =>
+const isGraph = (v: unknown): v is Graph =>
   Boolean(v) && typeof v === "object" && !Array.isArray(v) && Object.values(v as object).length > 0 &&
   Object.values(v as object).every((n) => n && typeof n === "object" && typeof (n as Node).class_type === "string");
 

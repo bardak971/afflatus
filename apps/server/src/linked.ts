@@ -1,10 +1,11 @@
 import { createReadStream } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, delimiter, dirname, extname, join, parse, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import type { EventEmitter } from "node:events";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
-import { extOf, mimeOfFile } from "./media";
+import { extOf, mimeOfFile, newAssetRow } from "./media";
 import type { Storage } from "./storage";
 
 /**
@@ -18,10 +19,39 @@ import type { Storage } from "./storage";
  * item of the library into a linked folder writes it there as a file with a readable name.
  */
 
-export const LINKED = "linked:";
+const LINKED = "linked:";
 export const isLinked = (key: string) => key.startsWith(LINKED);
-export const diskPath = (key: string) => key.slice(LINKED.length);
+const diskPath = (key: string) => key.slice(LINKED.length);
 const under = (path: string, root: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+
+/**
+ * Whether a directory may be linked at all, and why not when it may not. Linking serves everything under
+ * the directory and writes into it, so the system's own directories are never linked: Windows, the program
+ * folders, a user's AppData and its three stores, the root of a drive, the home directory itself (what is
+ * in it is fine, folder by folder); on Linux and macOS the root, /etc, /usr, /bin, /sbin, /var and its
+ * first level, /System and /Library. LINK_ROOTS, when set (directories separated as PATH is), narrows
+ * linking to those directories and what is under them: for a server other machines can reach.
+ */
+export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = homedir()): string | null {
+  const windows = platform === "win32";
+  const norm = (p: string) => (windows ? p.toLowerCase() : p);
+  const d = norm(resolve(dir));
+  const root = norm(parse(resolve(dir)).root);
+  if (d === root || d === root.replace(/[\\/]$/, "")) return "The root of a drive cannot be linked: pick a folder on it.";
+  if (d === norm(resolve(home))) return "Your home folder itself cannot be linked: pick a folder inside it.";
+  const inside = (p: string, top: string) => p === top || p.startsWith(top + sep);
+  if (windows) {
+    const rest = d.slice(root.length).replace(/^[\\/]+/, "");
+    if (/^(windows|program files|program files \(x86\)|programdata)(\\|$)/.test(rest)) return "Windows's own folders and the program folders cannot be linked.";
+    if (/^users\\[^\\]+\\appdata(\\[^\\]+)?$/.test(rest)) return "AppData holds the settings of your programs: link a folder inside it, not the store itself.";
+  } else {
+    if (["/etc", "/usr", "/bin", "/sbin", "/System", "/Library"].some((top) => inside(d, top))) return "The system's own directories cannot be linked.";
+    if (/^\/var(\/[^/]+)?$/.test(d)) return "/var holds the system's own files: link a folder further inside it, not /var itself.";
+  }
+  const roots = (env.LINK_ROOTS ?? "").split(delimiter).map((r) => r.trim()).filter(Boolean).map((r) => norm(resolve(r)));
+  if (roots.length && !roots.some((r) => inside(d, r))) return `Linking is limited to the folders named in LINK_ROOTS (${roots.join(", ")}) and what is inside them.`;
+  return null;
+}
 
 export class LinkedError extends Error {
   statusCode = 400;
@@ -39,11 +69,14 @@ export class RoutedStorage implements Storage {
     if (!this.roots.some((r) => under(p, r))) throw new LinkedError("This file is in a folder that is not linked any more.");
     return p;
   }
+  // nothing is ever stored under a "linked:" key: a file goes into a linked directory by name, through Linked.into
   async put(key: string, bytes: Uint8Array): Promise<void> {
-    if (!isLinked(key)) return this.own.put(key, bytes);
-    const p = this.file(key);
-    await mkdir(dirname(p), { recursive: true });
-    await writeFile(p, bytes);
+    if (isLinked(key)) throw new LinkedError("A file is put into a linked folder by name, not by key.");
+    return this.own.put(key, bytes);
+  }
+  async putFile(key: string, path: string): Promise<void> {
+    if (isLinked(key)) throw new LinkedError("A file is put into a linked folder by name, not by key.");
+    return this.own.putFile(key, path);
   }
   async get(key: string): Promise<Uint8Array> {
     return isLinked(key) ? new Uint8Array(await readFile(this.file(key))) : this.own.get(key);
@@ -66,14 +99,18 @@ type Folder = Tables["folders"];
 type Asset = Tables["assets"];
 
 /** A name for a file on the disk: nothing a file system refuses, and no white space. */
-export const diskSafe = (name: string) => name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "").replace(/\s+/g, "_").replace(/^\.+/, "").slice(0, 120);
+const diskSafe = (name: string) => name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "").replace(/\s+/g, "_").replace(/^\.+/, "").slice(0, 120);
 /** The start of a text as a part of a file name: lower case, words joined by dashes. */
 const slug = (text: string) => text.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
 
 export class Linked {
   private scanning = new Map<string, Promise<{ files: number; folders: number }>>();
 
-  constructor(private readonly db: Db, private readonly storage: RoutedStorage, private readonly events: EventEmitter) {}
+  constructor(
+    private readonly db: Db, private readonly storage: RoutedStorage, private readonly events: EventEmitter,
+    /** Who holds what was derived from a file (film strips, motion, scenes): told when the file changed on the disk. */
+    private readonly derived: { forgetDerived(assetId: string): Promise<void> } = { forgetDerived: async () => {} },
+  ) {}
 
   /** The linked directories, as the storage needs them. Called at start and after every change. */
   async load(): Promise<void> {
@@ -100,6 +137,8 @@ export class Linked {
     const dir = resolve(path.trim());
     const there = await stat(dir).catch(() => null);
     if (!there?.isDirectory()) throw new LinkedError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
+    const refused = whyNotLinkable(dir);
+    if (refused) throw new LinkedError(refused);
     for (const f of await this.roots()) {
       const other = resolve(f.path!);
       if (under(dir, other) || under(other, dir)) throw new LinkedError(`This folder is already linked, or is inside or around "${f.name}", which is.`);
@@ -189,21 +228,23 @@ export class Linked {
         files++;
         const had = byKey.get(key);
         if (had) {
-          // changed since it was read: its small picture and what was measured of it are made again when it is next looked at
+          // changed since it was read: its small picture, what was measured of it and what the timelines derived from it (strips,
+          // motion, scenes: forgotten while the row still says how long the old file was) are made again when it is next looked at
           if (had.bytes !== info.size || had.created_at !== made) {
             if (had.thumb_key) await this.storage.delete(had.thumb_key).catch(() => {});
+            await this.derived.forgetDerived(had.id).catch(() => {});
             await this.db.updateTable("assets").set({ bytes: info.size, created_at: made, thumb_key: null, width: null, height: null, duration_ms: null }).where("id", "=", had.id).execute();
           }
           continue;
         }
         await this.db
           .insertInto("assets")
-          .values({
-            id: newId(), owner_id: OWNER, kind, origin: "uploaded", name: e.name.slice(0, 200), file_key: key, thumb_key: null, mime, bytes: info.size,
+          .values(newAssetRow({
+            id: newId(), kind, origin: "uploaded", name: e.name.slice(0, 200), file_key: key, thumb_key: null, mime, bytes: info.size,
             // what is measured of it (its size in pixels, its length) is read when it is first looked at
             width: null, height: null, duration_ms: null, fps: null, has_sound: kind === "audio" ? 1 : 0,
-            folder_id: folder.id, generation_id: null, kept_at: now(), deleted_at: null, linked_path: null, created_at: made,
-          })
+            folder_id: folder.id, generation_id: null, kept_at: now(), linked_path: null, created_at: made,
+          }))
           .execute();
       }
     };

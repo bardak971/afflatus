@@ -3,8 +3,9 @@ import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type UpscaleSettings,
 } from "../sdxl/common";
+import { roundTo } from "../shared/round";
 import {
-  introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSize, LOAD_NODES, loadKlein, r16, REFERENCE_NODES, SAMPLE_NODES, withIntro,
+  introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
 } from "./common";
 
@@ -49,7 +50,7 @@ export const kleinPicture = defineRecipe<KleinPicture>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = loadKlein(g, input, ctx);
-    const size = { width: r16(input.size.width), height: r16(input.size.height) };
+    const size = { width: roundTo(input.size.width, 16), height: roundTo(input.size.height, 16) };
     const pictures = input.references.map((_, i) => g.out("LoadImage", { image: ctx.uploads[`references.${i}`] }));
     const cond = kleinCond(g, k, withIntro(introduce(input.references), input.prompt), pictures);
     const empty = g.out("EmptyFlux2LatentImage", { width: size.width, height: size.height, batch_size: 1 });
@@ -301,7 +302,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const size = { width: r16(from.width * input.factor), height: r16(from.height * input.factor) };
+    const size = { width: roundTo(from.width * input.factor, 16), height: roundTo(from.height * input.factor, 16) };
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     g.phase("upscaling");
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });

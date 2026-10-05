@@ -63,7 +63,9 @@ git push origin v0.2.0
 
 [release.yml](../.github/workflows/release.yml) then runs the tests, builds the image for amd64 and arm64 and pushes it to GHCR tagged `0.2.0`, `0.2`, `latest` and by commit, builds the three bundles on Windows, Linux and macOS runners, and publishes a GitHub release with them and their checksums. The version the app shows comes from the tag. [ci.yml](../.github/workflows/ci.yml) runs the types, the tests and the staging on every push.
 
-To build what a release holds on your own machine: `node scripts/release/stage.mjs` stages the app under `release/app`, and `node scripts/release/bundle.mjs --platform win-x64` (or `linux-x64`, `darwin-arm64`) packs it with a Node runtime and ffmpeg into `release/dist/`. The Docker image builds with `docker build -t afflatus .`.
+To build what a release holds on your own machine: `node scripts/release/stage.mjs` stages the app under `release/app` (with a `package-lock.json` of the whole dependency tree, which the image and the bundles then install with `npm ci`), and `node scripts/release/bundle.mjs --platform win-x64` (or `linux-x64`, `darwin-arm64`) packs it with a Node runtime and ffmpeg into `release/dist/`. The Docker image builds with `docker build -t afflatus .`.
+
+What a bundle carries is pinned at the top of `bundle.mjs`: `NODE_VERSION`, one exact Node release checked against nodejs.org's `SHASUMS256.txt`, and `FFMPEG_TAG`, one dated BtbN autobuild (`autobuild-YYYY-MM-DD-HH-MM`; the ffmpeg 9.0 release-branch build in it, not the master nightly) checked against the release's `checksums.sha256`, or against `scripts/release/checksums.json` when a release has none (`--record` writes the entry the first time; commit it). The script refuses to run without a tag: the rolling "latest" build is never used. Bumping either is a change to those two constants.
 
 ## Licence
 

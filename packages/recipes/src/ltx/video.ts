@@ -245,9 +245,10 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     // the full model: with LTX's own 8 steps the distilled LoRA goes on the whole render at half strength, as
     // ComfyUI's template has it; with By steps the dev model samples on its own schedule and the LoRA refines only
     const lora = !picked.distilled && slots.turbo ? slots.turbo : undefined;
-    const plain = previewed(model);
-    const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength })) : plain;
-    const firstModel = byHand ? boosted : plain;
+    // the model without the LoRA is only sampled with when there is no LoRA, or By steps is off (the first pass runs on it)
+    const plain = lora && byHand ? null : previewed(model);
+    const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength })) : plain!;
+    const firstModel = byHand ? boosted : plain!;
     model = boosted;
     const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
     // By steps: LTX's own scheduler, shifted by the size of the latent it is given

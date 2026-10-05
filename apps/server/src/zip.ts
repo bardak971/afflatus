@@ -4,7 +4,7 @@ import { deflateRawSync } from "node:zlib";
  * A zip file made in memory from a few entries: the node pack handed out by Settings, a backup of the data.
  * Plain zip (PKZIP 2.0): one local header and one central-directory entry per file, deflate for anything
  * that gets smaller, stored otherwise. No zip64, so each file and the whole stay under 4 GB; that is what
- * these are for.
+ * these are for. The streamed, zip64-capable writer for a backup is zipStream.ts; it shares the checksum.
  */
 
 export interface ZipEntry {
@@ -25,10 +25,14 @@ const CRC_TABLE = (() => {
   return t;
 })();
 
-export function crc32(data: Uint8Array): number {
-  let c = 0xffffffff;
+/** The checksum carried on over another chunk: the running value (start at 0xffffffff), not yet inverted. */
+export function crcUpdate(c: number, data: Uint8Array): number {
   for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]!) & 0xff]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
+  return c;
+}
+
+export function crc32(data: Uint8Array): number {
+  return (crcUpdate(0xffffffff, data) ^ 0xffffffff) >>> 0;
 }
 
 /** A date as zip stores it: DOS time and date, local time, two-second steps, nothing before 1980. */
@@ -101,13 +105,26 @@ export function zipOf(entries: ZipEntry[]): Buffer {
   return Buffer.concat([...parts, ...central, end]);
 }
 
-/** The names of the files in a zip, read from its central directory: enough to check what one holds. */
+/**
+ * The names of the files in a zip, read from its central directory: enough to check what one holds.
+ * Reads the plain end record and, when the zip is zip64 (what zipStream.ts writes past 4 GB), the zip64
+ * end record its locator points at.
+ */
 export function zipNames(zip: Uint8Array): string[] {
   const b = Buffer.from(zip.buffer, zip.byteOffset, zip.byteLength);
   const endAt = b.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   if (endAt < 0) return [];
-  const count = b.readUInt16LE(endAt + 10);
+  let count = b.readUInt16LE(endAt + 10);
   let at = b.readUInt32LE(endAt + 16);
+  // a zip64 locator sits just before the end record; the zip64 end record it names has the real figures
+  const locatorAt = endAt - 20;
+  if (locatorAt >= 0 && b.readUInt32LE(locatorAt) === 0x07064b50) {
+    const z64 = Number(b.readBigUInt64LE(locatorAt + 8));
+    if (b.readUInt32LE(z64) === 0x06064b50) {
+      count = Number(b.readBigUInt64LE(z64 + 32));
+      at = Number(b.readBigUInt64LE(z64 + 48));
+    }
+  }
   const names: string[] = [];
   for (let i = 0; i < count; i++) {
     if (b.readUInt32LE(at) !== 0x02014b50) break;

@@ -1,29 +1,40 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Copy, Download, Eye, Gauge, ImagePlus, Link2, Magnet, Pause, Play, Plus, Redo2, RefreshCw, Repeat, Scissors, SkipBack, SkipForward, Sparkles, Split, Trash2, Undo2, Users, Volume2, VolumeX, Wand2, X, Music, SlidersHorizontal } from "lucide-react";
-import { api, fileUrl, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch, type Timeline } from "../api";
-import { useEntities, useEstimates, useFamilies, useFolders, useModelSettings, useProjects, useQueue, useRecipes, useSettings, useSetup, useTimeline } from "../data";
-import { Designer, type DesignerTurn } from "../Designer";
-import { LookBar, lookWords } from "../LookBar";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Camera, Download, Link2, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Users } from "lucide-react";
+import { api, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
+import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
+import type { DesignerTurn } from "../Designer";
+import { lookWords } from "../LookBar";
 import { estimateFor } from "../estimate";
 import { formDefaults } from "../form";
-import { aboutMs, clock, notReady } from "../format";
+import { aboutMs, notReady } from "../format";
 import { Picker } from "../PictureField";
 import { Select } from "../Select";
+import { useNewClock } from "../timeline/clock";
 import { Inspector, MusicPanel } from "../timeline/Inspector";
-import { layout, otherShape, pinInputs, placeOf, SHAPES, shapeOf, stamp, ZOOM, type Shape } from "../timeline/model";
+import { layout, otherShape, pinInputs, SHAPES, shapeOf, stamp, ZOOM, type Shape } from "../timeline/model";
 import { Player, type PlayerHandle } from "../timeline/Player";
 import { Shelf } from "../timeline/Shelf";
-import { Track, type TimeRange } from "../timeline/Track";
-import { AutoText, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
+import { Track } from "../timeline/Track";
+import { Button, cx, ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
-import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { ContextMenu, useMenu } from "../ContextMenu";
 import { useBanners } from "../store";
+import { CastDialog } from "../timeline/CastDialog";
+import { ExportDialog, type ExportAsk, type ExportOptions } from "../timeline/ExportDialog";
+import { clipMenuItems, musicMenuItems, soundMenuItems, type ClipMenuActions } from "../timeline/menus";
+import { Overview } from "../timeline/Overview";
+import { RangeBar } from "../timeline/RangeBar";
+import { Readout } from "../timeline/Readout";
+import { StartPanel } from "../timeline/StartPanel";
+import { useClipEdits } from "../timeline/useClipEdits";
+import { useEditorKeys } from "../timeline/useEditorKeys";
+import { useRange } from "../timeline/useRange";
 
-/** The range bar's words for its actions: the menu says them in full. */
-const SHORT: Record<string, string> = { "Play range": "Play", "Loop: on": "Loop", "Loop: off": "Loop", "Regenerate range": "Regenerate", "Insert a clip here": "Insert clip", "Split at In and Out": "Split at In / Out", "Remove range": "Remove", "Copy to library": "Copy", "Slow motion ×2": "Slow ×2", "Slow motion ×4": "×4" };
+// the designer's panel is a chunk of its own: fetched the first time it opens
+const Designer = lazy(() => import("../Designer").then((m) => ({ default: m.Designer })));
 
 /**
  * The timeline editor: your media on the left, the video in the middle, the selected clip on the right,
@@ -45,7 +56,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [musicOpen, setMusicOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [time, setTime] = useState(0);
+  // the moment of what plays: not state, so that a tick redraws the track and the readout, not the whole editor
+  const clock = useNewClock();
   const [pps, setPps] = useState(ZOOM.start);
   const [preview, setPreview] = useState<Take | null>(null);
   const [opened, setOpened] = useState<Asset | null>(null);
@@ -58,20 +70,16 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const [talks, setTalks] = useState<Record<string, DesignerTurn[]>>({});
   // the language model and instructions each clip's conversation is held with, as picked here before the timeline is read again
   const [sessions, setSessions] = useState<Record<string, DesignerSession>>({});
-  /** What a clip says happens, in a few words, for the designer: its main text, or what it is. */
-  const sayOf = (c: Clip) => {
-    if (c.kind === "still") return `(a picture held on screen for ${(c.lengthMs / 1000).toFixed(1)} s${c.still?.name ? `: ${c.still.name}` : ""})`;
-    const main = recipes.data?.recipes.find((r) => r.id === c.recipe)?.inputs.find((i) => i.type === "prompt" && !i.optional);
-    return main ? String(inputsOf(c)[main.id] ?? "") : "(a video that was added as it is)";
-  };
-  const [idea, setIdea] = useState("");
-  const [planned, setPlanned] = useState(4);
   const entities = useEntities();
   const [note, setNote] = useState<string | null>(null);
-  /** The export box: open, what was asked, and the export that was there before (to tell the new one). */
-  const [exp, setExp] = useState<{ scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; blend: boolean; match: boolean; fit: "timeline" | "largest"; before: string | null; asked: boolean } | null>(null);
+  const [exp, setExp] = useState<ExportAsk | null>(null);
   const [fin, setFin] = useState(false);
   const player = useRef<PlayerHandle>(null);
+  /** A clip selected, its panel open in place of the music's. */
+  const select = (clip: string | null) => {
+    setSelected(clip);
+    setMusicOpen(false);
+  };
 
   const t = timeline.data;
   const clips = useMemo(() => t?.clips ?? [], [t]);
@@ -90,75 +98,13 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const slots = useMemo(() => layout(clips, pps, videoRecipes), [clips, pps, videoRecipes]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
 
-  // ---- the clips' forms: shown at once, saved half a second after the last change
-  const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
-  const unsaved = useRef(new Map<string, Record<string, unknown>>());
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const save = useCallback(async (only?: string) => {
-    const ids = only ? [only] : [...unsaved.current.keys()];
-    await Promise.all(
-      ids.map(async (clipId) => {
-        const inputs = unsaved.current.get(clipId);
-        clearTimeout(timers.current.get(clipId));
-        timers.current.delete(clipId);
-        if (!inputs) return;
-        unsaved.current.delete(clipId);
-        await api.editClip(clipId, { inputs }).catch(() => {});
-      }),
-    );
-  }, []);
-  useEffect(() => () => void save(), [save]);
-  const inputsOf = useCallback((c: Clip) => edits[c.id] ?? c.inputs, [edits]);
-  const editInputs = (c: Clip, next: Record<string, unknown>) => {
-    setEdits((e) => ({ ...e, [c.id]: next }));
-    unsaved.current.set(c.id, next);
-    clearTimeout(timers.current.get(c.id));
-    timers.current.set(c.id, setTimeout(() => void save(c.id), 500));
+  const { dropEdits, saveFailed, save, inputsOf, editInputs, shown, formOf, ready } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
+  /** What a clip says happens, in a few words, for the designer: its main text, or what it is. */
+  const sayOf = (c: Clip) => {
+    if (c.kind === "still") return `(a picture held on screen for ${(c.lengthMs / 1000).toFixed(1)} s${c.still?.name ? `: ${c.still.name}` : ""})`;
+    const main = recipes.data?.recipes.find((r) => r.id === c.recipe)?.inputs.find((i) => i.type === "prompt" && !i.optional);
+    return main ? String(inputsOf(c)[main.id] ?? "") : "(a video that was added as it is)";
   };
-  /** The timeline as it is on screen: with what was typed and is not saved yet. */
-  const shown = useMemo(() => (t ? { ...t, clips: clips.map((c) => (edits[c.id] ? { ...c, inputs: edits[c.id]! } : c)) } : undefined), [t, clips, edits]);
-
-  /** The whole form of a clip as a render would send it, whether it is ready to render or not (its models are told from it). */
-  const formOf = useCallback(
-    (c: Clip): Record<string, unknown> | null => {
-      const recipe = c.kind === "still" ? undefined : recipes.data?.recipes.find((r) => r.id === c.recipe);
-      if (!recipe) return null;
-      const status = setup.data?.recipes.find((r) => r.id === recipe.id);
-      if (setup.isSuccess && notReady(status, comfyOnline)) return null;
-      const stored = inputsOf(c);
-      const input: Record<string, unknown> = { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored };
-      for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
-      return input;
-    },
-    [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data],
-  );
-
-  /** The whole form of a clip as it would be sent, or why it cannot be rendered yet. */
-  const recipeOf = (c: Clip) => recipes.data?.recipes.find((r) => r.id === c.recipe);
-  const ready = useCallback(
-    (c: Clip): { input?: Record<string, unknown>; why?: string } => {
-      if (c.kind === "still") return { why: "A still is not rendered." };
-      const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
-      if (!recipe) return { why: c.recipe ? "The model this clip was generated with is no longer here. Choose another one." : "Choose a model for this clip." };
-      const status = setup.data?.recipes.find((r) => r.id === recipe.id);
-      const blocked = setup.isSuccess ? notReady(status, comfyOnline) : null;
-      if (blocked) return { why: blocked };
-      const stored = inputsOf(c);
-      const input: Record<string, unknown> = { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored };
-      for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
-      const at = clips.findIndex((x) => x.id === c.id);
-      const before = at > 0 ? clips[at - 1] : undefined;
-      const carries = Boolean(before) && c.joined === "continue";
-      for (const i of recipe.inputs) {
-        if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(input[i.id] ?? "").trim()) return { why: `Write ${i.label.toLowerCase()} first.` };
-        // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture of its own
-        const given = carries && i.type === "image" && i.role === "start" && (recipe.traits?.continues === "frame" || before?.kind === "still");
-        if (i.type === "image" && !i.optional && !input[i.id] && !given) return { why: `Choose the ${i.label.toLowerCase()} first.` };
-      }
-      return { input };
-    },
-    [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
-  );
 
   const after = () => {
     void refresh();
@@ -185,34 +131,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const remove = useMutation({ mutationFn: api.deleteClip, onSuccess: after });
   const say = useBanners((b) => b.push);
   const split = useMutation({ mutationFn: (v: { clip: string; atMs: number }) => api.splitClip(v.clip, v.atMs), onSuccess: after });
-  // ---- the range: In and Out on the clock of what plays; what is done with it
-  const [range, setRange] = useState<TimeRange | null>(null);
-  const rangeRef = useRef(range);
-  rangeRef.current = range;
-  const [loopRange, setLoopRange] = useState(false);
-  // In and Out snap to quiet moments of the clips; off with the magnet, remembered per browser
-  const [snapQuiet, setSnapQuiet] = useState(() => {
-    try {
-      return localStorage.getItem("afflatus.timeline.snapQuiet") !== "off";
-    } catch {
-      return true;
-    }
-  });
-  const toggleSnapQuiet = () => {
-    setSnapQuiet((on) => {
-      try {
-        localStorage.setItem("afflatus.timeline.snapQuiet", on ? "off" : "on");
-      } catch {
-        // not remembered, nothing more
-      }
-      return !on;
-    });
-  };
-  const loopRef = useRef(loopRange);
-  loopRef.current = loopRange;
-  /** Playing the range: it stops at Out (or goes back to In). */
-  const playingRange = useRef(false);
-  const emptyRange = Boolean(range && range.outMs - range.inMs < 40);
   // the designer writing a clip put between two others: its texts go into the form unless something was typed there meanwhile
   const clipsNow = useRef(clips);
   clipsNow.current = clips;
@@ -232,48 +150,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     },
     onSettled: () => setWriting(null),
   });
-  const rangeAct = useMutation({
-    mutationFn: (ask: "split" | "remove" | "regenerate" | "loop" | "copy" | { slow: 2 | 4; inMs?: number; outMs?: number }) =>
-      typeof ask === "string"
-        ? api.timelineRange(id, { inMs: range!.inMs, outMs: range!.outMs, action: ask })
-        : api.timelineRange(id, { inMs: ask.inMs ?? range!.inMs, outMs: ask.outMs ?? range!.outMs, action: "slow", factor: ask.slow }),
-    onSuccess: (r, ask) => {
-      after();
-      if (typeof ask !== "string") {
-        const parts = "clips" in r ? r.clips : [];
-        if (parts[0]) {
-          setSelected(parts[0]);
-          setMusicOpen(false);
-        }
-        const engine = "engine" in r ? r.engine : "ffmpeg";
-        say({ id: `slow:${Date.now()}`, tone: "good", title: `Slow motion ×${ask.slow} in the queue`, text: `${parts.length > 1 ? `${parts.length} parts are clips of their own now; each slowed video` : "The part is a clip of its own now; the slowed video"} arrives as a take and plays, with its sound slowed. ${engine === "rife" ? "RIFE on the GPU." : "ffmpeg on the processor: slow, minutes for a few seconds."}`, href: "/queue", go: "Open queue" });
-        return;
-      }
-      const action = ask;
-      if (action === "regenerate" && "clip" in r && "context" in r) {
-        setSelected(r.clip);
-        setMusicOpen(false);
-        setRange(null);
-        const { start, end } = r.context;
-        const how =
-          start === "clip" && end === "clip" ? "it extends the clip before and ends where the clip after begins, so the motion carries across"
-          : start === "clip" ? (end === "frame" ? "it extends the clip before and ends on the frame at Out" : "it extends the clip before; nothing rendered plays after Out")
-          : end === "clip" ? "it opens on the frame at In and ends where the clip after begins"
-          : start === "none" ? "it ends on the frame at Out; nothing plays before In"
-          : end === "none" ? "it opens on the frame at In; nothing rendered plays after Out, so only that frame is pinned"
-          : "it is pinned to the frames at In and Out: the frames will match, the motion may not";
-        setNote(`The new clip is selected: ${how}. Change what happens in it, then render it. Undo takes the range back.`);
-        // with a clip after to arrive at, the designer writes the stretch; without a language model nothing happens
-        if (end !== "none") writeBetween.mutate({ clip: r.clip, force: false });
-      } else if (action === "loop" && "clip" in r && "context" in r) {
-        setSelected(r.clip);
-        setMusicOpen(false);
-        setNote(`The loop clip is selected, after Out: ${r.context.start === "clip" ? "it extends the clip at Out" : "it opens on the frame at Out"} and ends on the frame at In, so the range plays round. Keep it short, then render it; Undo takes it out.`);
-        // the designer writes the return towards the clip under In
-        writeBetween.mutate({ clip: r.clip, force: false, arrive: r.arrive });
-      } else if (action === "remove") setRange(null);
-      else if (action === "copy") say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
-    },
+  const durationMs = t?.durationMs ?? 0;
+  const { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, rangeAct, rangeItems } = useRange({
+    id, clips, durationMs, clock, player, playing, setPlaying,
+    on: { after, select, note: setNote, say, writeBetween: (v) => writeBetween.mutate(v) },
   });
   // the right-click menu of a clip: what the Inspector offers on it, at the pointer
   const clipMenu = useMenu<Clip>();
@@ -282,123 +162,12 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const musicMenu = useMenu<true>();
   const [soundPick, setSoundPick] = useState<Clip | null>(null);
   const [musicPick, setMusicPick] = useState(false);
-  const soundMenuItems = (c: Clip): MenuItem[] => {
-    const hasOwn = c.kind === "video" && Boolean(c.take?.asset.hasSound);
-    return [
-      { label: "Own audio", icon: <Volume2 size={14} />, note: hasOwn ? undefined : c.kind === "still" ? "a still has none" : "this video has no sound", disabled: !hasOwn || c.sound === "own", run: () => patch.mutate({ clip: c.id, patch: { sound: "own" } }) },
-      { label: "Mute", icon: <VolumeX size={14} />, disabled: c.sound === "muted", run: () => patch.mutate({ clip: c.id, patch: { sound: "muted" } }) },
-      ...(c.soundAsset ? [{ label: "Use the audio file", icon: <Music size={14} />, note: c.soundAsset.name || undefined, disabled: c.sound === "file", run: () => patch.mutate({ clip: c.id, patch: { sound: "file" } }) }] : []),
-      { label: c.soundAsset ? "Choose another audio file…" : "Choose an audio file…", icon: <Music size={14} />, run: () => setSoundPick(c) },
-      ...(c.soundAsset ? [{ label: "Remove the audio file", icon: <Trash2 size={14} />, danger: true, run: () => patch.mutate({ clip: c.id, patch: { soundAsset: null, sound: hasOwn ? "own" : "muted" } }) }] : []),
-      "—",
-      { label: "Volume and sound settings", icon: <SlidersHorizontal size={14} />, note: `${c.volume} % · in the clip panel`, run: () => { setSelected(c.id); setMusicOpen(false); } },
-    ];
-  };
-  const musicMenuItems = (): MenuItem[] => {
-    const m = t?.music;
-    return [
-      { label: m ? "Change the music…" : "Choose music…", icon: <Music size={14} />, run: () => setMusicPick(true) },
-      ...(m
-        ? [
-            { label: "Music settings", icon: <SlidersHorizontal size={14} />, note: `${m.volume} % · fades ${(m.fadeInMs / 1000).toFixed(1)} s / ${(m.fadeOutMs / 1000).toFixed(1)} s`, run: () => { setSelected(null); setMusicOpen(true); } },
-            { label: m.duck ? "Stop ducking under speech" : "Duck under speech", icon: <Volume2 size={14} />, note: "quieter while people talk", run: () => edit.mutate({ music: { duck: !m.duck } }) },
-            "—" as const,
-            { label: "Remove music", icon: <Trash2 size={14} />, danger: true, run: () => edit.mutate({ music: { asset: null } }) },
-          ]
-        : []),
-    ];
-  };
   /** Where the playhead stands on a clip, when it stands on this one. */
   const onClip = (c: Clip) => {
     const here = player.current?.where();
     return here && here.clip.id === c.id ? here : null;
   };
-  /** Split the clip at the playhead: on when the playhead stands inside what it plays. */
-  const splitHere = (c: Clip): MenuItem => {
-    const take = c.take!;
-    const here = player.current?.where();
-    const onIt = here && here.clip.id === c.id ? here : null;
-    const at = onIt?.assetMs ?? 0;
-    const inPlay = Boolean(onIt) && at >= take.startMs + 40 && at <= take.endMs - 40;
-    return { label: "Split clip at playhead", icon: <Split size={14} />, disabled: !inPlay || split.isPending, note: !onIt ? "put the playhead on this clip" : !inPlay ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => split.mutate({ clip: c.id, atMs: at }) };
-  };
-  const clipMenuItems = (c: Clip): MenuItem[] => {
-    const index = (shown?.clips ?? []).findIndex((x) => x.id === c.id);
-    const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
-    const canCarry = Boolean(recipe && index > 0 && recipe.inputs.some((i) => (i.type === "clip" && i.role === "previous") || (i.type === "image" && i.role === "start")));
-    const video = c.take?.asset ?? null;
-    return [
-      ...(c.kind === "video" && recipe ? [{ label: c.take ? "New take" : "Render this clip", key: "Ctrl + Enter", icon: <Wand2 size={14} />, disabled: Boolean(c.job) || render.isPending, run: () => render.mutate({ clips: [c] }) }] : []),
-      ...(canCarry ? [c.joined === "continue"
-        ? { label: "Make it a cut", icon: <Scissors size={14} />, note: `from clip ${index}`, run: () => patch.mutate({ clip: c.id, patch: { joined: "cut" } }) }
-        : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => patch.mutate({ clip: c.id, patch: { joined: "continue" } }) }]
-        // said rather than hidden: an imported workflow with no first-frame or previous-clip input cannot extend
-        : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true, run: () => {} }] : []),
-      "—" as const,
-      { label: "Set range to this clip", key: "I  O", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
-      ...(c.take ? [splitHere(c)] : []),
-      { label: "Duplicate clip", icon: <Copy size={14} />, disabled: duplicate.isPending, note: "a copy right after it, with its takes", run: () => duplicate.mutate(c.id) },
-      // a clip that plays round: its last frame pinned to its first (the model has to take a last frame)
-      ...(c.kind === "video" && recipe && pinInputs(recipe).end ? (() => {
-        const pins = pinInputs(recipe);
-        const stored = inputsOf(c);
-        const flows = index > 0 && c.joined === "continue";
-        const opens = !flows && pins.start && typeof stored[pins.start] === "string" ? (stored[pins.start] as string) : null;
-        const ends = typeof stored[pins.end!] === "string" ? (stored[pins.end!] as string) : null;
-        const loops = Boolean(ends && ends === opens);
-        return [{
-          label: "Make it loop", icon: <Repeat size={14} />, disabled: loops || (!opens && !c.take) || loop.isPending,
-          note: loops ? "it loops already: its last frame is its first" : opens ? "its last frame becomes its first frame, so it plays round and round" : c.take ? "its last frame becomes the first frame of its take, so it plays round and round; from the next take" : "give it a first frame, or render it once",
-          run: () => loop.mutate(c),
-        }];
-      })() : []),
-      ...(c.lengthMs > 0 ? [
-        { label: "Extend from this frame", icon: <Link2 size={14} />, disabled: !onClip(c) || add.isPending, note: onClip(c) ? "cuts it here; a new clip carries on" : "put the playhead on this clip", run: () => { const here = onClip(c); if (here) void continueFrom(c, here.localMs); } },
-        { label: "Save frame", icon: <Camera size={14} />, disabled: !onClip(c) || frame.isPending, note: onClip(c) ? "the frame at the playhead, to your library" : "put the playhead on this clip", run: () => { const here = onClip(c); if (!here) return; if (c.take) frame.mutate({ asset: c.take.asset.id, at: Math.round(here.assetMs) }); else if (c.still) setOpened(c.still); } },
-      ] : []),
-      ...(c.kind === "video" && c.take ? [
-        { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: rangeAct.isPending, note: "the whole clip at half speed, as a new take; sound slowed too", run: () => rangeAct.mutate({ slow: 2, inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
-        { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: rangeAct.isPending, note: "a quarter speed", run: () => rangeAct.mutate({ slow: 4, inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
-      ] : []),
-      ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer, with Trim", run: () => setOpened(video) }] : []),
-      // a still has no sound of its own to mute
-      ...(c.kind === "video" ? ["—" as const, c.sound === "muted"
-        ? { label: "Unmute", icon: <Volume2 size={14} />, run: () => patch.mutate({ clip: c.id, patch: { sound: "own" } }) }
-        : { label: "Mute", icon: <VolumeX size={14} />, run: () => patch.mutate({ clip: c.id, patch: { sound: "muted" } }) }] : []),
-      "—" as const,
-      { label: "Remove clip", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings it back", run: () => remove.mutate(c.id) },
-    ];
-  };
-  /** Play from In; at Out it stops, or goes back to In when Loop is on. */
-  const playRange = () => {
-    if (!range || emptyRange) return;
-    playingRange.current = true;
-    player.current?.seek(range.inMs);
-    setPlaying(true);
-  };
   const rangeMenu = useMenu<true>();
-  /** What can be done with the range: the bar under the video and the right-click on the band show the same list. */
-  const rangeItems = (): MenuItem[] => {
-    if (!range) return [];
-    const busy = rangeAct.isPending;
-    // slow motion needs a video under the range (each clip it covers is slowed on its own; stills are held longer)
-    const withinOne = clips.some((c) => c.kind === "video" && c.take && c.atMs < range.outMs && c.atMs + c.lengthMs > range.inMs);
-    return [
-      { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: emptyRange ? "In and Out are the same moment" : undefined, run: playRange },
-      { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => toggleLoop() },
-      "—" as const,
-      { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
-      { label: "Loop back to In", icon: <Repeat size={14} />, disabled: emptyRange || busy, note: "a short new clip after Out that returns to the frame at In: the range plays round", run: () => rangeAct.mutate("loop") },
-      { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: "the clips under them become two", run: () => rangeAct.mutate("split") },
-      { label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") },
-      { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
-      "—" as const,
-      { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "each part becomes a clip of its own and gets the slowed video as a take, sound slowed too; stills are held longer" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 2 }) },
-      { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "a quarter speed" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 4 }) },
-      "—" as const,
-      { label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) },
-    ];
-  };
   const removeTake = useMutation({ mutationFn: api.deleteTake, onSuccess: after });
   // a clip that is rendering, or waiting for its turn, is stopped from here: nothing is added, the clip keeps the takes it has
   const stop = useMutation({
@@ -415,7 +184,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     },
     onSuccess: (r) => {
       // what the server has now is what counts: what was typed was saved before the undo
-      setEdits({});
+      dropEdits();
       setNote(`Undone: ${r.undone}.`);
       after();
     },
@@ -426,13 +195,13 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       return api.redoTimeline(id);
     },
     onSuccess: (r) => {
-      setEdits({});
+      dropEdits();
       setNote(`Redone: ${r.redone}.`);
       after();
     },
   });
   const duplicate = useMutation({ mutationFn: api.duplicateClip, onSuccess: (r) => { after(); setSelected(r.clip); } });
-  const exportIt = useMutation({ mutationFn: (v: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend: boolean; match: boolean; fit: "timeline" | "largest" }) => api.exportTimeline(id, v), onSuccess: after });
+  const exportIt = useMutation({ mutationFn: (v: ExportOptions) => api.exportTimeline(id, v), onSuccess: after });
   const frame = useMutation({ mutationFn: (v: { asset: string; at: number }) => api.frame(v.asset, v.at), onSuccess: (a) => { setOpened(a); void client.invalidateQueries({ queryKey: ["assets"] }); } });
   /**
    * A loop ends where the clip begins: on its opening picture when it has one, else on the first frame
@@ -456,17 +225,17 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   });
   /** A scene in a few words, written as clips by the designer and put on the timeline. Nothing is rendered. */
   const plan = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (v: { idea: string; clips: number }) => {
       const recipe = clips.find((c) => c.recipe)?.recipe ?? firstRecipe();
       if (!recipe) throw new Error("There is no video model to plan clips for yet.");
-      const made = await api.designerPlan({ recipe, idea: idea.trim(), clips: planned, look: t?.look ?? null, mood: t?.mood });
+      const made = await api.designerPlan({ recipe, idea: v.idea.trim(), clips: v.clips, look: t?.look ?? null, mood: t?.mood });
       if (!made.clips.length) throw new Error(made.note || "The designer returned no clips.");
       return api.planTimeline(id, recipe, made.clips);
     },
     onSuccess: (r) => {
+      // the scene typed goes with the start panel, which the clips replace
       client.setQueryData(["timelines", id], r.timeline);
       setSelected(r.clips[0] ?? null);
-      setIdea("");
       after();
     },
   });
@@ -495,9 +264,12 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
   /** Where the playhead was put by hand on the track (it can stand on a clip that is not rendered yet); null while it follows what plays. */
   const [cursor, setCursor] = useState<number | null>(null);
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
   const onTime = useCallback((ms: number) => {
-    setTime(ms);
-    setCursor(null);
+    clock.set(ms);
+    // (set only when it stands somewhere: fifteen times a second, a no-op set still costs a render)
+    if (cursorRef.current !== null) setCursor(null);
     const r = rangeRef.current;
     if (playingRange.current && r && ms >= r.outMs - 15) {
       if (loopRef.current && r.outMs - r.inMs >= 40) player.current?.seek(r.inMs);
@@ -506,125 +278,21 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         setPlaying(false);
       }
     }
-  }, []);
-  const toggle = useCallback(() => {
-    const r = rangeRef.current;
-    if (playing) playingRange.current = false;
-    else if (r && r.outMs - r.inMs >= 40) {
-      // with a range, Play plays it: from the playhead when it stands inside, else from In; it stops at Out
-      playingRange.current = true;
-      if (time < r.inMs || time >= r.outMs - 15) player.current?.seek(r.inMs);
-    } else if (t && time >= t.durationMs - 30) player.current?.seek(0);
-    setPlaying((p) => !p);
-  }, [playing, t, time]);
-  /** Loop on or off; turning it on while stopped starts the range. */
-  const toggleLoop = useCallback(() => {
-    const r = rangeRef.current;
-    setLoopRange((on) => !on);
-    if (!loopRef.current && !playing && r && r.outMs - r.inMs >= 40) toggle();
-  }, [playing, toggle]);
-  const toggleLoopNow = useRef(toggleLoop);
-  toggleLoopNow.current = toggleLoop;
-  // the range stays within what plays when the timeline changes under it
-  const durationMs = t?.durationMs ?? 0;
-  useEffect(() => {
-    setRange((r) => (r && r.outMs > durationMs ? (r.inMs >= durationMs ? null : { ...r, outMs: durationMs }) : r));
-  }, [durationMs]);
-  const timeRef = useRef(time);
-  timeRef.current = time;
-  const totalRef = useRef(durationMs);
-  totalRef.current = durationMs;
+  }, [clock]);
   /** One frame of the clip under the playhead, in ms (24 a second when it is not known). */
   const frameMs = () => {
+    const time = clock.get();
     const c = clips.find((x) => x.lengthMs > 0 && time >= x.atMs && time < x.atMs + x.lengthMs);
     return 1000 / Math.max(1, c?.take?.asset.fps ?? 24);
   };
   const frameRef = useRef(frameMs);
   frameRef.current = frameMs;
-  const undoNow = undo.mutate;
-  const redoNow = redo.mutate;
-  const canRedo = Boolean(t?.redo);
-  const removeNow = remove.mutate;
   const selectedNow = useRef<string | null>(null);
   selectedNow.current = current?.id ?? null;
-  const canUndo = Boolean(t?.undo);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      const typing = Boolean(el.closest("input, textarea, select, [contenteditable]"));
-      if (e.code === "Space" && !typing && !el.closest("button, [role=listbox], [role=dialog]")) {
-        e.preventDefault();
-        toggle();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !typing && canUndo) {
-        e.preventDefault();
-        undoNow();
-      }
-      // Ctrl+Shift+Z or Ctrl+Y does again what Undo took back
-      if ((e.ctrlKey || e.metaKey) && !typing && canRedo && ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y")) {
-        e.preventDefault();
-        redoNow();
-      }
-      const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
-      const plain = !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open;
-      // I and O: In and Out at the playhead (one alone reaches to the end, or from the start)
-      // I and O: In and Out at the playhead (one alone reaches to the end, or from the start); with Shift: go to In / Out
-      if (plain && (e.key === "i" || e.key === "I")) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          if (rangeRef.current) player.current?.seek(rangeRef.current.inMs);
-          return;
-        }
-        const at = timeRef.current;
-        setRange((r) => (r ? { inMs: at, outMs: Math.max(at, r.outMs) } : { inMs: at, outMs: totalRef.current }));
-        return;
-      }
-      if (plain && (e.key === "o" || e.key === "O")) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          if (rangeRef.current) player.current?.seek(rangeRef.current.outMs);
-          return;
-        }
-        const at = timeRef.current;
-        setRange((r) => (r ? { inMs: Math.min(at, r.inMs), outMs: at } : { inMs: 0, outMs: at }));
-        return;
-      }
-      if (plain && (e.key === "l" || e.key === "L") && rangeRef.current) {
-        e.preventDefault();
-        toggleLoopNow.current();
-        return;
-      }
-      if (e.key === "Escape" && !typing && !open) setPicked(new Set());
-      if (e.key === "Escape" && !typing && !open && rangeRef.current) {
-        e.preventDefault();
-        setRange(null);
-        return;
-      }
-      // Escape with a clip open and no range: back to the timeline's own panel
-      if (e.key === "Escape" && !typing && !open && selectedNow.current) {
-        e.preventDefault();
-        setSelected(null);
-        return;
-      }
-      // one frame back or forward (Shift: ten); , and . do the same
-      const step = e.key === "ArrowLeft" || e.key === "," ? -1 : e.key === "ArrowRight" || e.key === "." ? 1 : 0;
-      if (step && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !el.closest("[role=listbox], [role=slider][aria-label=In], [role=slider][aria-label=Out]")) {
-        e.preventDefault();
-        const by = step * frameRef.current() * (e.shiftKey && e.key.startsWith("Arrow") ? 10 : 1);
-        player.current?.seek(Math.max(0, Math.min(totalRef.current, timeRef.current + by)));
-        return;
-      }
-      // Delete takes the selected clip off the timeline; Undo brings it back
-      if (e.key === "Delete" && !typing && selectedNow.current && !open) {
-        e.preventDefault();
-        removeNow(selectedNow.current);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, undoNow, canUndo, redoNow, canRedo, removeNow]);
+  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo), redo: redo.mutate, canRedo: Boolean(t?.redo), remove: remove.mutate, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked });
 
   const jump = (by: -1 | 1) => {
+    const time = clock.get();
     const playable = clips.filter((c) => c.lengthMs > 0);
     const here = playable.findIndex((c) => time >= c.atMs && time < c.atMs + c.lengthMs);
     // back: to the start of this clip, or of the one before when already there
@@ -660,16 +328,31 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   if (!t || !shown) return <div className="grow p-8 text-ink-2">Loading timeline…</div>;
 
   const why = current ? ready(current).why ?? null : null;
-  const head = placeOf(slots, time);
   const shape: Shape | "own" | "first" = !t.width || !t.height ? "first" : (Object.keys(SHAPES) as Shape[]).find((k) => SHAPES[k].width === t.width && SHAPES[k].height === t.height) ?? "own";
   const misfits = clips.filter((c) => otherShape(c, t) && !c.fill).length;
-  const exportDone = exp?.asked && !t.exporting && t.exported && t.exported.id !== exp.before ? t.exported : null;
-  const exportSize = (scale: number) => (t.width && t.height ? `${Math.round((t.width * scale) / 2) * 2} × ${Math.round((t.height * scale) / 2) * 2}` : "");
   // the finished size: the timeline's shape with as many pixels as its largest take, when a take is larger than the frame
   const largest = Math.max(0, ...clips.map((c) => (c.take?.asset.width ?? 0) * (c.take?.asset.height ?? 0)));
   const finishedK = t.width && t.height ? Math.sqrt(largest / (t.width * t.height)) : 1;
   const finishedSize = finishedK > 1.05 && t.width && t.height ? `${Math.round((t.width * finishedK) / 8) * 8} × ${Math.round((t.height * finishedK) / 8) * 8}` : null;
-  const playable = clips.filter((c) => c.lengthMs > 0).length;
+  /** What a clip's menu reaches: the editor's mutations, by name. */
+  const clipActs: ClipMenuActions = {
+    clips: shown.clips,
+    recipes: recipes.data?.recipes ?? [],
+    inputsOf,
+    onClip,
+    pending: { render: render.isPending, split: split.isPending, duplicate: duplicate.isPending, loop: loop.isPending, add: add.isPending, frame: frame.isPending, range: rangeAct.isPending },
+    render: (c) => render.mutate({ clips: [c] }),
+    patch: (clip, p) => patch.mutate({ clip, patch: p }),
+    setRange,
+    split: (clip, atMs) => split.mutate({ clip, atMs }),
+    duplicate: (clip) => duplicate.mutate(clip),
+    loop: (c) => loop.mutate(c),
+    continueFrom: (c, localMs) => void continueFrom(c, localMs),
+    frame: (asset, at) => frame.mutate({ asset, at }),
+    open: setOpened,
+    slow: (factor, inMs, outMs) => rangeAct.mutate({ slow: factor, inMs, outMs }),
+    remove: (clip) => remove.mutate(clip),
+  };
 
   return (
     <div className="flex min-w-0 grow flex-col">
@@ -705,7 +388,15 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           <span className="truncate">{lookWords(t.look, entities.data?.items ?? []) || "Cast and places"}</span>
         </Button>
         <span className="grow" />
-        {(error || note) && <span className={error ? "max-w-sm truncate text-warn-ink" : "max-w-sm truncate text-ink-2"} title={error?.message}>{error?.message ?? note}</span>}
+        {saveFailed ? (
+          // what was typed is still on screen and not on the server: said, with the way to send it again
+          <span className="flex max-w-sm items-center gap-2 text-warn-ink" title={saveFailed}>
+            <span className="truncate">Could not save the clip's form: {saveFailed}</span>
+            <Button size="sm" onClick={() => void save()}>Retry</Button>
+          </span>
+        ) : (error || note) ? (
+          <span className={error ? "max-w-sm truncate text-warn-ink" : "max-w-sm truncate text-ink-2"} title={error?.message}>{error?.message ?? note}</span>
+        ) : null}
         <Button className="px-3" disabled={!t.redo || redo.isPending} title={t.redo ? `Redo: ${t.redo} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => redo.mutate()} aria-label="Redo">
           <Redo2 size={15} />
         </Button>
@@ -748,28 +439,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} />
         </main>
         </div>
-          {range && (() => {
-            const spanned = clips.filter((c) => c.lengthMs > 0 && c.atMs < Math.max(range.outMs, range.inMs + 1) && c.atMs + c.lengthMs > range.inMs).map((c) => clips.indexOf(c) + 1);
-            const where = emptyRange ? "a cut" : spanned.length <= 1 ? `clip ${spanned[0] ?? "?"}` : `clips ${spanned[0]}–${spanned.at(-1)}`;
-            return (
-              <div role="toolbar" aria-label="Range" className="flex h-10 shrink-0 items-center gap-1.5 overflow-hidden border-t border-line bg-accent-wash/40 px-3 text-sm whitespace-nowrap">
-                <span className="shrink-0 font-semibold text-accent">Range</span>
-                <span className="shrink-0 font-mono">{stamp(range.inMs)} <span className="text-ink-3">→</span> {stamp(range.outMs)}</span>
-                <span className="min-w-0 truncate text-ink-2">· {emptyRange ? "" : `${((range.outMs - range.inMs) / 1000).toFixed(1)} s · `}{where}</span>
-                <button type="button" aria-label="Snap to quiet moments" aria-pressed={snapQuiet} title={snapQuiet ? "In and Out snap to quiet moments of the clips (the ticks under the ruler), to cuts and to the playhead. Click to snap to cuts and the playhead only." : "Snapping to quiet moments is off: In and Out snap to cuts and to the playhead. Click to snap to quiet moments too."} onClick={toggleSnapQuiet} className={cx("ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", snapQuiet ? "bg-accent-wash text-accent" : "text-ink-3 hover:bg-hover hover:text-ink")}><Magnet size={14} /></button>
-                <span className="grow" />
-                {rangeItems().filter((it): it is Exclude<MenuItem, "—"> => it !== "—" && it.key !== "Space" && it.key !== "L").map((it, i) =>
-                  it.label === "Clear the range" ? (
-                    <button key={i} type="button" aria-label="Clear the range (Esc)" title="Clear the range (Esc)" onClick={it.run} className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
-                  ) : (
-                    <Button key={i} size="sm" aria-label={it.label} disabled={it.disabled} title={[it.label, it.note].filter(Boolean).join(" · ")} onClick={it.run} className="shrink-0">
-                      {it.icon} {SHORT[it.label] ?? it.label}
-                    </Button>
-                  ),
-                )}
-              </div>
-            );
-          })()}
+          {range && <RangeBar range={range} emptyRange={emptyRange} clips={clips} snapQuiet={snapQuiet} onSnapQuiet={toggleSnapQuiet} items={rangeItems()} />}
           <div className="flex h-12 shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
             <button type="button" aria-label="Previous clip" title="Previous clip" disabled={!t.durationMs} onClick={() => jump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
             <button type="button" aria-label={playing ? "Pause" : range && !emptyRange ? "Play the range" : "Play"} title={range && !emptyRange ? "Play the range: from the playhead inside it, else from In; stops at Out (Space)" : "Play / pause (Space)"} disabled={!t.durationMs} onClick={toggle} className={cx("flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40", range && !emptyRange ? "bg-accent text-accent-ink" : "bg-ink text-ground")}>
@@ -779,12 +449,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             {range && !emptyRange && (
               <button type="button" aria-label="Loop the range" aria-pressed={loopRange} title={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={toggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>
             )}
-            <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
-            {head && cursor === null && head.slot.clip.lengthMs > 0 && (
-              <span className="hidden text-xs text-ink-2 lg:inline" title="Which clip is under the playhead, and where in it">
-                clip {head.slot.index + 1} · <span className="font-mono">{stamp(Math.max(0, time - head.slot.clip.atMs))}</span> of <span className="font-mono">{stamp(head.slot.clip.lengthMs)}</span>
-              </span>
-            )}
+            <Readout clock={clock} slots={slots} cursor={cursor} total={total} />
             <span className="grow" />
             <button type="button" aria-label="Extend from this frame" title="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || add.isPending} onClick={() => void continueHere()} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>
             <button
@@ -813,7 +478,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           musicSelected={musicOpen}
           picked={picked}
           onPick={(id) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
-          time={time}
+          clock={clock}
           running={running}
           onStop={(job) => stop.mutate(job)}
           busy={add.isPending}
@@ -831,7 +496,14 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onMove={(clip, afterId) => patch.mutate({ clip, patch: { after: afterId } })}
           onJoin={(clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } })}
           onInsert={(asset, afterId) => add.mutate({ after: afterId, asset })}
-          onUpload={(file) => api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null }).then((a) => ({ id: a.id, kind: a.kind })).catch(() => null)}
+          onUpload={(file) =>
+            api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null })
+              .then((a) => ({ id: a.id, kind: a.kind }))
+              .catch((err: Error) => {
+                say({ id: `upload:${Date.now()}`, tone: "bad", title: `${file.name} could not be added`, text: err.message, href: "/", go: "Open the library" });
+                return null;
+              })
+          }
           onPin={(clip, where, asset, atS) => {
             const pins = pinInputs(recipes.data?.recipes.find((r) => r.id === clip.recipe));
             const input = pins[where];
@@ -910,82 +582,34 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 rendering={render.isPending}
               />
             ) : (
-              <>
-                <span>A timeline plays clips one after the other. Each clip can extend the previous clip: the motion and the voices continue across the join.</span>
-                <span className="font-semibold text-ink">Start from an image</span>
-                <span>It becomes the first frame of your video.</span>
-                <span><Button onClick={() => setPicking(true)} disabled={add.isPending}><ImagePlus size={15} /> Choose an image</Button></span>
-                <span className="font-semibold text-ink">Or describe a scene</span>
-                <span>Write what should happen. The designer splits it into clips you can change before anything is rendered.</span>
-                <AutoText rows={3} aria-label="Scene" value={idea} placeholder="A woman has coffee on a terrace at sunset, walks to the railing and waves at a boat." onChange={(e) => setIdea(e.target.value)} className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 text-ink placeholder:text-ink-3" />
-                <span className="flex items-center gap-2">
-                  <span className="w-28"><Select size="sm" label="How many clips" value={String(planned)} onChange={(v) => setPlanned(Number(v))} options={[2, 3, 4, 5, 6, 8].map((n) => ({ value: String(n), label: `${n} clips` }))} /></span>
-                  <Button tone="primary" onClick={() => plan.mutate()} disabled={!idea.trim() || plan.isPending}>{plan.isPending ? "Planning…" : "Plan the clips"}</Button>
-                </span>
-                <span className="font-semibold text-ink">Or write it yourself</span>
-                <span><Button onClick={() => newClip()} disabled={add.isPending}><Plus size={15} strokeWidth={2.6} /> Add the first clip</Button></span>
-              </>
+              <StartPanel busy={add.isPending} planning={plan.isPending} onPickImage={() => setPicking(true)} onPlan={(idea, count) => plan.mutate({ idea, clips: count })} onNewClip={() => newClip()} />
             )}
           </aside>
         )}
       </div>
 
-      {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject)} onClose={clipMenu.close} />}
+      {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject, clipActs)} onClose={clipMenu.close} />}
       {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" items={rangeItems()} onClose={rangeMenu.close} />}
-      {soundMenu.menu && <ContextMenu at={soundMenu.menu.at} label="The audio of this clip" items={soundMenuItems((shown?.clips ?? []).find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject)} onClose={soundMenu.close} />}
-      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" items={musicMenuItems()} onClose={musicMenu.close} />}
-      {soundPick && <Picker title={`Audio of clip ${(shown?.clips ?? []).findIndex((x) => x.id === soundPick.id) + 1}`} kind="audio" onClose={() => setSoundPick(null)} onPick={(soundAsset) => { patch.mutate({ clip: soundPick.id, patch: { soundAsset } }); setSoundPick(null); }} />}
+      {soundMenu.menu && <ContextMenu at={soundMenu.menu.at} label="The audio of this clip" items={soundMenuItems(shown.clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject, { patch: (clip, p) => patch.mutate({ clip, patch: p }), pick: setSoundPick, select })} onClose={soundMenu.close} />}
+      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" items={musicMenuItems(t.music, { pick: () => setMusicPick(true), open: () => { setSelected(null); setMusicOpen(true); }, edit: (p) => edit.mutate(p) })} onClose={musicMenu.close} />}
+      {soundPick && <Picker title={`Audio of clip ${shown.clips.findIndex((x) => x.id === soundPick.id) + 1}`} kind="audio" onClose={() => setSoundPick(null)} onPick={(soundAsset) => { patch.mutate({ clip: soundPick.id, patch: { soundAsset } }); setSoundPick(null); }} />}
       {musicPick && <Picker title="Music" kind="audio" onClose={() => setMusicPick(false)} onPick={(asset) => { edit.mutate({ music: { asset } }); setMusicPick(false); setMusicOpen(true); }} />}
 
       {exp && (
-        <div role="dialog" aria-modal="true" aria-label="Export video" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setExp(null)}>
-          <div className="flex w-full max-w-md flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5" onClick={(e) => e.stopPropagation()}>
-            <span className="text-base font-semibold">Export video</span>
-            <span className="text-ink-2">{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable} clip${playable > 1 ? "s" : ""}`} · one MP4 in your library</span>
-            {exportDone ? (
-              <>
-                <span>Done. <span className="font-semibold text-ink">{exportDone.name}</span> is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}{exportDone.durationMs ? `, ${stamp(exportDone.durationMs)}` : ""}.</span>
-                <div className="flex flex-wrap gap-2">
-                  <a href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 font-semibold text-accent-ink"><Download size={15} /> Download</a>
-                  <Button onClick={() => { setOpened(exportDone); setExp(null); }}>Open</Button>
-                  <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
-                </div>
-              </>
-            ) : t.exporting || exportIt.isPending ? (
-              <>
-                <span>{t.exporting?.status === "queued" ? "Queued, after the renders that were asked for before it." : "Exporting."} It runs in the queue, you can keep working.</span>
-                <div><Button tone="quiet" onClick={() => setExp(null)}>Close</Button></div>
-              </>
-            ) : (
-              <>
-                {exp.asked && t.exportFailed && <ErrorNote>The export failed: {t.exportFailed}</ErrorNote>}
-                <div className="flex flex-col gap-1.5">
-                  <span className="flex items-baseline justify-between text-xs font-semibold"><span>Resolution</span><span className="font-normal text-ink-2">{exportSize(exp.scale)}</span></span>
-                  <Segmented<"1" | "1.5" | "2"> label="Resolution" value={String(exp.scale) as "1" | "1.5" | "2"} onChange={(v) => setExp({ ...exp, scale: Number(v) as 1 | 1.5 | 2 })} options={[{ value: "1", label: "As rendered" }, { value: "1.5", label: "1.5× upscale" }, { value: "2", label: "2× upscale" }]} />
-                  <span className="text-xs text-ink-2">Upscaling is done by ffmpeg (lanczos, then a light unsharp), not by a model: every frame is resized and a little sharper. The clips are not rendered again, so it works on a small card.</span>
-                </div>
-                {range && !emptyRange && <Toggle on={exp.range} onChange={(only) => setExp({ ...exp, range: only })} label="Only the range" note={`In ${stamp(range.inMs)} to Out ${stamp(range.outMs)}`} />}
-                {t.music && (exp.range && range ? <span className="text-xs text-ink-2">The music is left out of a range: it would start from its beginning, not from In.</span> : <Toggle on={exp.music} onChange={(music) => setExp({ ...exp, music })} label="Include the music" />)}
-                {Math.max(0, ...clips.map((c) => c.take?.asset.fps ?? 0)) < 47 && (
-                  <div className="flex flex-col gap-1">
-                    <Toggle on={exp.smooth} onChange={(smooth) => setExp({ ...exp, smooth })} label="Frame interpolation" note="48 fps, ffmpeg minterpolate" />
-                    <span className="text-xs text-ink-2">The frames in between are worked out by your processor, not by a model: slow (minutes for a short video), and fast motion can smear. Frame interpolation at render time (RIFE, in the clip's form) is better.</span>
-                  </div>
-                )}
-                {clips.some((c, i) => i > 0 && c.joined === "continue" && c.take && c.take.headMs > c.take.trimStartMs) && (
-                  <Toggle on={exp.blend} onChange={(blend) => setExp({ ...exp, blend })} label="Blend joins" note="a clip that extends the one before is crossfaded in over the frames they share (up to 0.4 s), with its sound" />
-                )}
-                {playable > 1 && <Toggle on={exp.match} onChange={(match) => setExp({ ...exp, match })} label="Match colours at joins" note="each clip's brightness and tint nudged to the clip before, a few steps at most" />}
-                {finishedSize && <Toggle on={exp.fit === "largest"} onChange={(on) => setExp({ ...exp, fit: on ? "largest" : "timeline" })} label={`At the finished size (${finishedSize})`} note="the frame of the largest take: the finished clips as they are, the drafts enlarged to it. Off: the timeline's frame" />}
-                {misfits > 0 && <span className="text-xs text-ink-2">{misfits} clip{misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).</span>}
-                <div className="flex flex-wrap gap-2">
-                  <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); exportIt.mutate({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined, blend: exp.blend, match: exp.match, fit: exp.fit }); }}>Export</Button>
-                  <Button tone="quiet" onClick={() => setExp(null)}>Close</Button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <ExportDialog
+          timeline={t}
+          clips={clips}
+          ask={exp}
+          onChange={setExp}
+          range={range}
+          emptyRange={emptyRange}
+          finishedSize={finishedSize}
+          misfits={misfits}
+          exporting={exportIt.isPending}
+          onExport={(v) => exportIt.mutate(v)}
+          onOpen={setOpened}
+          onClose={() => setExp(null)}
+        />
       )}
       {fin && (
         <FinishDialog
@@ -1000,31 +624,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           }}
         />
       )}
-      {casting && (
-        <div role="dialog" aria-modal="true" aria-label="Cast and places" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={() => setCasting(false)}>
-          <div className="flex w-full max-w-lg flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5" onClick={(e) => e.stopPropagation()}>
-            <span className="text-base font-semibold">Cast and places</span>
-            <span className="text-ink-2">Who is in the video, where it happens and how it looks. Set once here, used by every clip, unless a clip is given its own. It counts from the next take of each clip.</span>
-            <LookBar title="In this video" look={t.look} onChange={(look) => edit.mutate({ look })} />
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold">Look and mood</span>
-              <AutoText
-                rows={1}
-                value={mood ?? t.mood}
-                placeholder="warm evening light, calm, film grain"
-                onChange={(e) => setMood(e.target.value)}
-                onBlur={() => {
-                  if (mood !== null && mood.trim() !== t.mood) edit.mutate({ mood: mood.trim() });
-                  setMood(null);
-                }}
-                className="w-full rounded-lg border border-line bg-raised px-3 py-2 text-ink placeholder:text-ink-3"
-              />
-              <span className="text-xs text-ink-2">A few words every clip keeps: they are added to what happens in each clip, and the designer writes with them in mind.</span>
-            </label>
-            <div><Button tone="quiet" onClick={() => setCasting(false)}>Close</Button></div>
-          </div>
-        </div>
-      )}
+      {casting && <CastDialog timeline={t} mood={mood} onMood={setMood} onEdit={(p) => edit.mutate(p)} onClose={() => setCasting(false)} />}
       {designing && (() => {
         const c = clips.find((x) => x.id === designing);
         const recipe = recipes.data?.recipes.find((r) => r.id === c?.recipe);
@@ -1036,6 +636,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         const stored = inputsOf(c);
         const status = setup.data?.recipes.find((r) => r.id === recipe.id);
         return (
+          <Suspense fallback={null}>
           <Designer
             // on the left, over the media: the clip's own settings, on the right, stay in view and are seen to change
             side="left"
@@ -1060,6 +661,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onApply={(changes) => editInputs(c, { ...inputsOf(c), ...changes })}
             onClose={() => setDesigning(null)}
           />
+          </Suspense>
         );
       })()}
       {picking && (
@@ -1074,151 +676,5 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       )}
       {opened && <Viewer asset={opened} onClose={() => setOpened(null)} />}
     </div>
-  );
-}
-
-/**
- * The timeline as a whole, shown while no clip is selected: what it is, what needs attention (each line
- * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
- * missing, export.
- */
-function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
-  timeline: Timeline;
-  clips: Clip[];
-  missing: Clip[];
-  misfits: number;
-  allMs: number;
-  onPick(clip: string): void;
-  onMusic(): void;
-  onCast(): void;
-  /** Where its renders and exports land; null = the project's root (the Inbox when it has no project). */
-  onFolder(folder: string | null): void;
-  onRenderAll(): void;
-  rendering: boolean;
-  /** The clips picked with Ctrl + click on the track, rendered together. */
-  picked: Set<string>;
-  onRenderPicked(): void;
-}) {
-  const projects = useProjects();
-  const folders = useFolders();
-  const entities = useEntities();
-  const project = t.projectId ? projects.data?.items.find((p) => p.id === t.projectId) : undefined;
-  const folder = folders.data?.items.find((f) => f.id === (t.folderId ?? project?.folderId));
-  // the folders it can land in: its project's (every folder when it has no project), each with where it sits
-  const all = folders.data?.items ?? [];
-  const pathOf = (id: string | null): string => {
-    const f = all.find((x) => x.id === id);
-    return f ? [pathOf(f.parentId), f.name].filter(Boolean).join(" / ") : "";
-  };
-  const choices = all.filter((f) => (t.projectId ? f.projectId === t.projectId : true) && f.id !== project?.folderId);
-  const fromClips = Boolean(folder && !t.folderChosen && folder.id !== project?.folderId);
-  // takes already made that sit in another folder than the timeline's: offered a move, never moved unasked
-  const landing = t.folderId ?? project?.folderId ?? null;
-  const elsewhere = clips.flatMap((c) => c.takes.map((x) => x.asset)).filter((a) => (a.folderId ?? null) !== landing);
-  const client = useQueryClient();
-  const gather = useMutation({
-    mutationFn: () => api.moveAssets(elsewhere.map((a) => a.id), landing),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["assets"] }).then(() => client.invalidateQueries({ queryKey: ["timelines", t.id] })),
-  });
-  const stale = clips.filter((c) => c.join === "stale");
-  const failed = clips.filter((c) => c.failed && !c.take);
-  // the joins' figures, one request per clip that flows on and has a take (cached a minute, as the tooltip's)
-  const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
-  const joinQueries = useQueries({
-    queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => api.joins(c.id), staleTime: 60_000 })),
-  });
-  const joinsOf = new Map<string, number | null | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data ? (joinQueries[k]!.data!.items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined]));
-  const measured = clips.filter((c) => c.take?.renderMs);
-  const renderMs = measured.reduce((sum, c) => sum + (c.take!.renderMs ?? 0), 0);
-  const rendered = measured.length;
-  const wrong = clips.filter((c) => otherShape(c, t) && !c.fill);
-  const stills = clips.filter((c) => c.kind === "still").length;
-  const videos = clips.length - stills;
-  const cast = lookWords(t.look, entities.data?.items ?? []);
-  const row = (key: string, text: string, ids: string[], tone: "warn" | "plain" = "plain") => (
-    <div key={key} className="flex flex-wrap items-center gap-1.5">
-      <span className={cx("text-sm", tone === "warn" ? "text-warn-ink" : "text-ink")}>{text}</span>
-      {ids.slice(0, 8).map((id) => {
-        const i = clips.findIndex((c) => c.id === id);
-        return <button key={id} type="button" onClick={() => onPick(id)} className="rounded-md border border-line-strong px-1.5 py-px font-mono text-xs text-ink-2 hover:border-accent hover:text-ink">{i + 1}</button>;
-      })}
-    </div>
-  );
-  return (
-    <>
-      <span className="text-xs">
-        {[project?.name, `${clock(t.durationMs)}`, `${videos} clip${videos === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`, t.width && t.height ? `${t.width} × ${t.height}` : "frame from the first clip"].filter(Boolean).join(" · ")}
-      </span>
-
-      <section className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-3.5 py-3">
-        <SectionTitle>Needs attention</SectionTitle>
-        {missing.length === 0 && stale.length === 0 && failed.length === 0 && wrong.length === 0 && <span className="text-sm text-good">Every clip is rendered and every join holds.</span>}
-        {missing.filter((c) => !c.take).length > 0 && row("missing", `${missing.filter((c) => !c.take).length} not rendered yet`, missing.filter((c) => !c.take).map((c) => c.id))}
-        {stale.length > 0 && row("stale", `${stale.length} join${stale.length === 1 ? "" : "s"} no longer hold${stale.length === 1 ? "s" : ""}: the clip before changed`, stale.map((c) => c.id), "warn")}
-        {failed.length > 0 && row("failed", `${failed.length} failed to render`, failed.map((c) => c.id), "warn")}
-        {wrong.length > 0 && row("shape", `${misfits} in another aspect ratio, shown with bars`, wrong.map((c) => c.id))}
-        {missing.length > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderAll}>Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}</Button></span>}
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Music</SectionTitle>
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 grow truncate text-sm text-ink">{t.music ? `${t.music.asset.name || "Music"} · ${t.music.volume} %${t.music.duck ? " · ducks under voices" : ""}` : "None: drop a sound on the Music track."}</span>
-          {t.music && <Button size="sm" onClick={onMusic}>Settings</Button>}
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Cast and mood</SectionTitle>
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 grow truncate text-sm text-ink">{[cast, t.mood].filter(Boolean).join(" · ") || "Nobody yet, no mood set."}</span>
-          <Button size="sm" onClick={onCast}>Change</Button>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Renders land in</SectionTitle>
-        <Select
-          size="sm"
-          label="Where the renders and exports of this timeline land"
-          value={folder && folder.id !== project?.folderId ? folder.id : ""}
-          onChange={(id) => onFolder(id || null)}
-          options={[{ value: "", label: project ? `${project.name} (its root)` : "The Inbox, no folder" }, ...choices.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
-        />
-        <span className="text-xs text-ink-3">{fromClips ? "Taken from the first picture or clip you put here. Pick another to decide yourself." : "Every take and export of this timeline goes there."}</span>
-        {elsewhere.length > 0 && (
-          <span className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
-            {elsewhere.length === 1 ? "1 take sits in another folder." : `${elsewhere.length} takes sit in other folders.`}
-            <Button size="sm" disabled={gather.isPending} onClick={() => gather.mutate()} title="Move those videos into this folder in the library. Nothing on the timeline changes.">{gather.isPending ? "Moving…" : "Move them here"}</Button>
-            {gather.isError && <span className="text-warn-ink">{gather.error.message}</span>}
-          </span>
-        )}
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Joins and renders</SectionTitle>
-        {/* the chain's health at a glance: how much the picture jumps at each join (×1 = the clip's own motion; past ×3 it shows), and what the renders cost */}
-        {joined.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1">
-            {joined.map((c) => {
-              const i = clips.findIndex((x) => x.id === c.id);
-              const figure = joinsOf.get(c.id);
-              const bad = figure !== undefined && figure !== null && figure > 3;
-              return (
-                <button key={c.id} type="button" onClick={() => onPick(c.id)} title={`Clip ${i + 1}: the picture jumps ×${figure?.toFixed(1) ?? "?"} its own motion where it takes over from clip ${i}${bad ? ". Past ×3 the join shows" : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
-                  {i + 1}: {figure === undefined ? "…" : figure === null ? "–" : `×${figure.toFixed(1)}`}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <span className="text-sm text-ink-2">No clip flows on from another yet.</span>
-        )}
-        {renderMs > 0 && <span className="text-xs text-ink-2">Rendered in {aboutMs(renderMs)} in all{rendered < videos ? ` (${rendered} of ${videos} clips measured)` : ""}.</span>}
-        {picked.size > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderPicked}>Render {picked.size} picked</Button></span>}
-      </section>
-
-      <span className="text-xs text-ink-3">Click a clip to work on it. Right-click one for its menu. I and O mark a range. Ctrl + click picks clips to render together.</span>
-    </>
   );
 }

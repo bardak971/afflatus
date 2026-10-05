@@ -1,12 +1,17 @@
 import { z } from "zod";
 import type { Db } from "./db";
+import { httpError } from "./errors";
+
+/** An address the server will talk to: http or https, nothing else (no file:, no ftp:). */
+const httpUrl = z.url({ protocol: /^https?$/ });
 
 /** One language model the designer can write with: any OpenAI-compatible endpoint. */
 export const llmSchema = z.object({
   id: z.string().min(1).max(40),
   /** What the user calls it, for the list ("Local Qwen"). Empty: the model's own name is shown. */
   name: z.string().max(60).default(""),
-  baseUrl: z.string().default(""), model: z.string().default(""), apiKey: z.string().default(""),
+  /** The endpoint's address (an http or https URL), or empty for a model not yet set up. */
+  baseUrl: httpUrl.or(z.literal("")).default(""), model: z.string().default(""), apiKey: z.string().default(""),
   /** The model can read pictures: the designer is shown the picture a form opens on. */
   vision: z.boolean().default(false),
   /** How much the model can read at once, in tokens: the conversation is cut to what fits, oldest first. */
@@ -33,7 +38,7 @@ export const finishSchema = z.object({
 export type FinishSettings = z.infer<typeof finishSchema>;
 
 export const settingsSchema = z.object({
-  comfyUrl: z.string().url().default("http://127.0.0.1:8188"),
+  comfyUrl: httpUrl.default("http://127.0.0.1:8188"),
   /**
    * ComfyUI's own folder on the computer Afflatus runs on (the one with main.py), when they share a disk.
    * Lets Afflatus put a workflow where ComfyUI's page opens it straight away. Empty when ComfyUI is elsewhere.
@@ -84,7 +89,25 @@ export const llmInUse = (s: Settings): Llm | undefined => s.llms.find((l) => l.i
 /** The user's own instructions in use, when there are some. */
 export const instructionsInUse = (s: Settings): string => s.designerInstructions.find((i) => i.id === s.designerInstruction)?.text.trim() ?? "";
 
-export async function readSettings(db: Db): Promise<Settings> {
+/**
+ * The settings as last read, per database: they are asked for on every request that touches ComfyUI
+ * and on every tick of the event stream, and the table only changes through writeSettings, which
+ * forgets this. (The queue writes its own notes into the same table under keys the schema ignores.)
+ */
+const cached = new WeakMap<Db, Promise<Settings>>();
+
+export function readSettings(db: Db): Promise<Settings> {
+  let value = cached.get(db);
+  if (!value) {
+    value = load(db);
+    cached.set(db, value);
+    // a read that failed is not kept: the next one tries again
+    value.catch(() => cached.delete(db));
+  }
+  return value;
+}
+
+async function load(db: Db): Promise<Settings> {
   const rows = await db.selectFrom("settings").select(["key", "value"]).execute();
   const raw: Record<string, unknown> = {};
   for (const r of rows) {
@@ -97,6 +120,12 @@ export async function readSettings(db: Db): Promise<Settings> {
   // before there was a list, there was one model under "llm": it is the first of the list
   const { llm: one, ...rest } = raw;
   if (rest.llms === undefined && one && typeof one === "object" && (one as { baseUrl?: string }).baseUrl) rest.llms = [{ id: "main", ...one }];
+  const parsed = settingsSchema.safeParse(rest);
+  if (parsed.success) return parsed.data;
+  // a stored value the schema no longer takes (an address without its scheme, say) falls back to its default rather than locking every setting
+  const broken = new Set(parsed.error.issues.map((i) => String(i.path[0] ?? "")));
+  console.warn(`[settings] stored values that are no longer valid were set aside: ${[...broken].join(", ")}`);
+  for (const key of broken) delete rest[key];
   return settingsSchema.parse(rest);
 }
 
@@ -107,7 +136,7 @@ export async function writeSettings(db: Db, patch: unknown): Promise<Settings> {
   // which keys were sent is read from the body itself: parsing it would fill in every default
   const sent = { ...z.record(z.string(), z.unknown()).parse(patch) };
   const unknown = Object.keys(sent).filter((k) => !KEYS.includes(k));
-  if (unknown.length) throw Object.assign(new Error(`unknown setting: ${unknown.join(", ")}`), { statusCode: 400 });
+  if (unknown.length) throw httpError(`unknown setting: ${unknown.join(", ")}`);
   const current = await readSettings(db);
   // "llm" changes the model in use (or makes the first one): the short way, for one model
   if (sent.llm && typeof sent.llm === "object") {
@@ -121,15 +150,20 @@ export async function writeSettings(db: Db, patch: unknown): Promise<Settings> {
   delete sent.llm;
   const next = settingsSchema.parse({ ...current, ...sent });
   const ids = new Set(next.llms.map((l) => l.id));
-  if (ids.size !== next.llms.length) throw Object.assign(new Error("two language models have the same id"), { statusCode: 400 });
+  if (ids.size !== next.llms.length) throw httpError("two language models have the same id");
   const now = new Date().toISOString();
-  for (const key of Object.keys(sent) as Array<keyof Settings>) {
-    const value = JSON.stringify(next[key]);
-    await db
-      .insertInto("settings")
-      .values({ key, value, updated_at: now })
-      .onConflict((oc) => oc.column("key").doUpdateSet({ value, updated_at: now }))
-      .execute();
+  try {
+    for (const key of Object.keys(sent) as Array<keyof Settings>) {
+      const value = JSON.stringify(next[key]);
+      await db
+        .insertInto("settings")
+        .values({ key, value, updated_at: now })
+        .onConflict((oc) => oc.column("key").doUpdateSet({ value, updated_at: now }))
+        .execute();
+    }
+  } finally {
+    // what was read before is stale now, whether or not every key got written
+    cached.delete(db);
   }
   return next;
 }

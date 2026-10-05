@@ -7,7 +7,7 @@ import { api, type Entity, type PresetDef } from "./api";
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "preset";
 
-export function presetToFile(e: Extract<Entity, { kind: "preset" }>): Record<string, unknown> {
+function presetToFile(e: Extract<Entity, { kind: "preset" }>): Record<string, unknown> {
   const { recipe, inputs, look, files, author, note, homepage, licence } = e.def;
   return {
     id: e.source === "shipped" ? e.id.replace(/^shipped:/, "") : slug(e.name),

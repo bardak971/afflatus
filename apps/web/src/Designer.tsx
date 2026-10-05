@@ -3,11 +3,9 @@ import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Eye, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, Undo2, WandSparkles, X } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
-import { useEntities, useSettings } from "./data";
+import { useSettings } from "./data";
 import { changedShare, wordDiff } from "./diff";
 import { Select } from "./Select";
-import { mainTextOf } from "./RecipeForm";
-import { Snippets, TickedSnippets } from "./Snippets";
 import { AutoText, Button, cx, ErrorNote } from "./ui";
 
 /** One thing said in the conversation. What the designer said keeps what it proposed, to use or not. */
@@ -425,33 +423,6 @@ function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, 
           {r.options.map((o) => <button key={o} type="button" disabled={busy} onClick={() => onOption(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-left text-xs hover:bg-hover disabled:opacity-45">{o}</button>)}
         </span>
       )}
-    </div>
-  );
-}
-
-/**
- * The helpers that sit above a form's text: the designer, and snippets (bits of text kept under a
- * name: ticked, they are added to what is written each time something is made).
- */
-export function WritingHelp({ recipe, text, look, onLook, onInsert, onDesigner }: {
-  recipe: RecipeInfo;
-  /** What the main text box holds now, to keep as a snippet. */
-  text: string;
-  /** The ticked snippets are part of the look, with who is in it. */
-  look: Look | null;
-  onLook(look: Look): void;
-  onInsert(text: string): void;
-  onDesigner(): void;
-}) {
-  const main = mainTextOf(recipe);
-  if (main?.type !== "prompt") return null;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        <Button size="sm" onClick={onDesigner}><WandSparkles size={13} /> Designer</Button>
-        <Snippets style={main.style} look={look} onLook={onLook} text={text} onInsert={onInsert} />
-      </div>
-      <TickedSnippets look={look} onLook={onLook} />
     </div>
   );
 }

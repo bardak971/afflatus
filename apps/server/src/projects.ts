@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { httpError } from "./errors";
 import { newId, now, OWNER, type Db } from "./db";
 import type { Services } from "./services";
 
@@ -11,7 +12,6 @@ import type { Services } from "./services";
  */
 
 const name = z.string().trim().min(1).max(120);
-const bad = (message: string, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 
 /** The ids of a project's folders, or of the folders in no project. */
 export async function folderIdsOf(db: Db, project: string | "none"): Promise<string[]> {
@@ -32,7 +32,7 @@ export async function rootFolderOf(db: Db, project: string | null | undefined): 
 export function registerProjects(app: FastifyInstance, s: Services): void {
   const mustExist = async (id: string) => {
     const p = await s.db.selectFrom("projects").selectAll().where("id", "=", id).executeTakeFirst();
-    if (!p) throw bad("this project was not found", 404);
+    if (!p) throw httpError("this project was not found", 404);
     return p;
   };
   const view = async (p: { id: string; name: string; folder_id: string | null; archived_at: string | null; created_at: string; updated_at: string }) => {

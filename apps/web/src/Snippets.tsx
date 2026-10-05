@@ -21,7 +21,7 @@ const readOpen = (): Record<string, boolean> => {
 };
 
 /** One snippet of each category, picked at random: a new combination to try. */
-export function rollSnippets(snippets: Snippet[], random: () => number = Math.random): string[] {
+function rollSnippets(snippets: Snippet[], random: () => number = Math.random): string[] {
   const groups = new Map<string, Snippet[]>();
   for (const s of snippets) {
     if (!s.def.category) continue;

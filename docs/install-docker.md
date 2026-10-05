@@ -54,6 +54,9 @@ The container cannot write into ComfyUI's folder, so install Afflatus's node pac
 | `PORT` | `8720` | The port inside the container |
 | `HOST` | `0.0.0.0` | Listens on all addresses inside the container; publish the port as you see fit |
 | `DATA_DIR` | `/data` | The volume |
+| `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated. `localhost` and `127.0.0.1` always are; a request with any other `Host` header gets a 403, which keeps a page from another site from driving the API by pointing one of its names at this machine. Name here whatever you open Afflatus as from other machines, and the name a reverse proxy or a scraper uses (`ALLOWED_HOSTS=afflatus.home,192.168.1.20`) |
+| `PUBLIC_URL` | empty | The address ComfyUI reaches Afflatus at, for model downloads; its host is answered to as well |
+| `LINK_ROOTS` | empty | The directories that may be linked as folders, `:`-separated (a mounted volume: `LINK_ROOTS=/media`). Set it whenever the port is published beyond this machine: without it anyone who can open the page can link any directory the container can read |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite in the volume. SQLite is the supported one |
 | `TZ` | `UTC` | The time zone, for the times shown |
 

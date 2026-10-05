@@ -55,7 +55,7 @@ export function carryOver(from: RecipeInfo, to: RecipeInfo, stored: Record<strin
 }
 
 /** A model to make things with: a built-in family, the workflows imported under its name, or both. */
-export interface ModelGroup {
+interface ModelGroup {
   key: string;
   name: string;
   summary: string;

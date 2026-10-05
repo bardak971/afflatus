@@ -1,11 +1,13 @@
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 
 /** Where files live: a folder on a PC, an S3 bucket on a cluster. Keys are "a/b/c.ext", made by the server. */
 export interface Storage {
   put(key: string, bytes: Uint8Array): Promise<void>;
+  /** The same from a file already on this machine's disk (an upload written as it arrived): copied, not read into memory. */
+  putFile(key: string, path: string): Promise<void>;
   get(key: string): Promise<Uint8Array>;
   /** For serving: the size, and a stream of the whole file or of one byte range (both ends included). */
   open(key: string, range?: { start: number; end: number }): Promise<{ size: number; stream: Readable }>;
@@ -31,6 +33,12 @@ export class LocalStorage implements Storage {
     const p = this.path(key);
     await mkdir(dirname(p), { recursive: true });
     await writeFile(p, bytes);
+  }
+
+  async putFile(key: string, path: string): Promise<void> {
+    const p = this.path(key);
+    await mkdir(dirname(p), { recursive: true });
+    await copyFile(path, p);
   }
 
   async get(key: string): Promise<Uint8Array> {

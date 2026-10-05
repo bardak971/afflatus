@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api, type Clip, type FinishSettings } from "../api";
 import { useSettings } from "../data";
+import { Dialog } from "../Dialog";
 import { fileLabel } from "../format";
 import { Select } from "../Select";
 import { Button, ErrorNote, NumberBox, Segmented, Toggle } from "../ui";
@@ -48,8 +49,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
   const stills = clips.filter((c) => c.kind === "still").length;
   const h3 = videos.filter((c) => c.recipe === "h3.video").length;
   return (
-    <div role="dialog" aria-modal="true" aria-label="Finish all clips" className="fixed inset-0 z-40 flex items-center justify-center bg-ground/85 p-8" onClick={onClose}>
-      <div className="flex w-full max-w-lg flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5" onClick={(e) => e.stopPropagation()}>
+    <Dialog label="Finish all clips" onClose={onClose} className="flex w-full max-w-lg flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5">
         <span className="flex items-center gap-2 text-base font-semibold"><Sparkles size={16} className="text-accent" /> Finish all clips</span>
         <span className="text-ink-2">Each clip's selected take is brought to its final quality by the route below, as a new take that plays in its place. The motion stays the same; the draft stays in the takes list. One job per clip, in order.</span>
         <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
@@ -92,7 +92,6 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
           <span className="grow" />
           <Button tone="quiet" onClick={onClose}>Close</Button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

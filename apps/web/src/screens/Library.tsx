@@ -4,20 +4,20 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, Film, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
 import { HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
-import { api, thumbUrl, type Asset, type Folder } from "../api";
+import { api, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
 import { projectForNew, useProject } from "../project";
 import { clock, size } from "../format";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import { useFolderImport } from "../folderImport";
-import { cx, ErrorNote } from "../ui";
+import { cx, ErrorNote, TwoStep } from "../ui";
 
 /** The pieces of the library that several screens use: a tile, what dragging one carries, and the folders. The screen itself is Studio. */
 
-/** A result nobody kept goes to the bin a day after it was made: how long it has left. */
+/** A result nobody kept goes to the bin a day after its countdown started (when it was made, or when it was unkept or put back): how long it has left. */
 const UNKEPT_MS = 24 * 60 * 60_000;
 function left(asset: Asset): string {
-  const ms = new Date(asset.createdAt).getTime() + UNKEPT_MS - Date.now();
+  const ms = new Date(asset.countdownFrom ?? asset.createdAt).getTime() + UNKEPT_MS - Date.now();
   return ms <= 0 ? "going to the bin" : ms < 60 * 60_000 ? `${Math.max(1, Math.round(ms / 60_000))} min left` : `${Math.round(ms / (60 * 60_000))} h left`;
 }
 
@@ -44,7 +44,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
   // the tooltip, after the pointer has rested on the tile; gone as soon as it moves off or presses
   const tip = useTileTip();
   return (
-    <>
+    <div className="group relative">
     {tip.tip && <TileTip asset={asset} at={tip.tip} />}
     <button
       type="button"
@@ -65,27 +65,8 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       aria-label={`Open ${asset.kind}`}
       onContextMenu={onMenu}
       data-stage
-      className={cx("group relative block w-full aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
+      className={cx("relative block w-full aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
     >
-      {onSelect && (
-        <span
-          role="checkbox"
-          aria-checked={Boolean(selected)}
-          aria-label="Select, to move, keep or delete several at once"
-          title="Select (also Ctrl + click; Shift + click selects the range)"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(e.shiftKey);
-          }}
-          className={cx(
-            "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
-            selected ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
-            !selected && !selecting && "opacity-0 group-hover:opacity-100",
-          )}
-        >
-          ✓
-        </span>
-      )}
       {asset.kind === "image" || (asset.kind === "video" && !noFrame) ? (
         <HoverVideo asset={asset.id} video={asset.kind === "video"} onNoFrame={() => setNoFrame(true)} />
       ) : (
@@ -106,7 +87,30 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       )}
       {asset.clipOf && <ClipMark of={asset.clipOf} className="absolute right-2 bottom-2" />}
     </button>
-    </>
+    {/* the tick sits over the tile, beside the button rather than inside it: a button holds no other control */}
+    {onSelect && (
+      <span
+        role="checkbox"
+        tabIndex={0}
+        aria-checked={Boolean(selected)}
+        aria-label="Select, to move, keep or delete several at once"
+        title="Select (also Ctrl + click; Shift + click selects the range)"
+        onClick={(e) => onSelect(e.shiftKey)}
+        onKeyDown={(e) => {
+          if (e.key !== " " && e.key !== "Enter") return;
+          e.preventDefault();
+          onSelect(e.shiftKey);
+        }}
+        className={cx(
+          "absolute top-2 left-2 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
+          selected ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
+          !selected && !selecting && "opacity-0 group-hover:opacity-100 focus:opacity-100",
+        )}
+      >
+        ✓
+      </span>
+    )}
+    </div>
   );
 }
 
@@ -154,7 +158,6 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   const [text, setText] = useState("");
   const storage = useStorage();
   // the bin, emptied now instead of waiting a week: asked twice, it cannot be undone
-  const [emptying, setEmptying] = useState(false);
   const empty = useMutation({
     mutationFn: api.emptyBin,
     onSuccess: () => {
@@ -344,17 +347,17 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       </button>
       {storage.data && storage.data.bin.count > 0 && (
         <div className="flex flex-wrap items-center gap-1 py-1 pl-1.5">
-          {emptying ? (
-            <>
-              <span className="text-xs text-ink-2">This cannot be undone.</span>
-              <button type="button" disabled={empty.isPending} onClick={() => { empty.mutate(); setEmptying(false); }} className="rounded-md bg-warn px-2 py-1 text-xs font-bold text-warn-on">Erase {size(storage.data.bin.bytes)}</button>
-              <button type="button" onClick={() => setEmptying(false)} className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-hover">Cancel</button>
-            </>
-          ) : (
-            <button type="button" disabled={empty.isPending} title="Everything in the bin is erased now, files and all, instead of after its 7 days." onClick={() => setEmptying(true)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink">
-              <Trash2 size={12} /> {empty.isPending ? "Emptying…" : `Empty bin · ${size(storage.data.bin.bytes)}`}
-            </button>
-          )}
+          <TwoStep
+            label={empty.isPending ? "Emptying…" : `Empty bin · ${size(storage.data.bin.bytes)}`}
+            icon={<Trash2 size={12} />}
+            title="Everything in the bin is erased now, files and all, instead of after its 7 days."
+            note="This cannot be undone."
+            yes={`Erase ${size(storage.data.bin.bytes)}`}
+            disabled={empty.isPending}
+            busy={empty.isPending}
+            onYes={() => empty.mutate()}
+            className="h-7 border-0 px-1.5 text-ink-2 hover:text-ink"
+          />
         </div>
       )}
       {storage.data && (

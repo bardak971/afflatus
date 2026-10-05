@@ -1,6 +1,7 @@
 import type { InputSpec, LoraValue, Recipe, ReferenceValue } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { httpError } from "./errors";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { presetFileSchema, provenanceSchema, SHIPPED } from "./presetFiles";
 import type { Services } from "./services";
@@ -228,7 +229,7 @@ const body = z.strictObject({ kind: z.enum(["person", "place", "style", "preset"
 const patch = z.strictObject({ name: z.string().trim().min(1).max(120).optional(), def: z.unknown().optional() });
 
 export function registerEntities(app: FastifyInstance, s: Services): void {
-  const missing = () => Object.assign(new Error("this was not found"), { statusCode: 404 });
+  const missing = () => httpError("this was not found", 404);
   const changed = () => s.queue.events.emit("entities");
 
   app.get<{ Querystring: { kind?: string } }>("/api/entities", async (req) => {

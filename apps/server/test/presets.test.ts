@@ -88,7 +88,7 @@ describe("presets with files", () => {
     expect((await settings()).acceptedPresets).toEqual(["shipped:dasiwa-h3"]);
     expect((await files()).items.find((p) => p.id === "shipped:dasiwa-h3")!.accepted).toBe(true);
     // on: a preset of the user's own, one required file from a URL and one optional
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true, civitaiLookups: true } });
     const mine = (await post(t.app, "/api/entities", {
       kind: "preset", name: "Mine", def: { recipe: "h3.video", inputs: {}, files: [
         { file: "need.safetensors", folder: "loras", url: "https://example.com/need.safetensors" },

@@ -18,7 +18,7 @@ export function lighter(recipe: RecipeInfo | undefined, input: Record<string, un
   return null;
 }
 
-export const ranOutOfMemory = (error: string | null) => /out of memory|\boom\b|allocat|not enough memory/i.test(error ?? "");
+const ranOutOfMemory = (error: string | null) => /out of memory|\boom\b|allocat|not enough memory/i.test(error ?? "");
 /** Which memory ran out: the card's, or the machine's (a CPU allocator: the work had fallen back to the processor). */
 export const memoryThatRanOut = (error: string | null): "ram" | "vram" | null =>
   !ranOutOfMemory(error) ? null : /CPUAllocator|cannot allocate memory|system memory|\bRAM\b/i.test(error ?? "") ? "ram" : "vram";
