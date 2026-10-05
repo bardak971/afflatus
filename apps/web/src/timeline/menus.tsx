@@ -31,6 +31,9 @@ export interface ClipMenuActions {
   open(asset: Asset): void;
   slow(factor: 2 | 4, inMs: number, outMs: number): void;
   remove(clip: string): void;
+  /** The clips picked with Ctrl + click: a menu on one of them removes them all. */
+  picked: Set<string>;
+  removeMany(clips: string[]): void;
 }
 
 /** Split the clip at the playhead: on when the playhead stands inside what it plays. */
@@ -87,7 +90,9 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       ? { label: "Unmute", icon: <Volume2 size={14} />, run: () => act.patch(c.id, { sound: "own" }) }
       : { label: "Mute", icon: <VolumeX size={14} />, run: () => act.patch(c.id, { sound: "muted" }) }] : []),
     "—" as const,
-    { label: "Remove clip", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings it back", run: () => act.remove(c.id) },
+    act.picked.has(c.id) && act.picked.size > 1
+      ? { label: `Remove the ${act.picked.size} picked clips`, key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings them back one by one", run: () => act.removeMany([...act.picked]) }
+      : { label: "Remove clip", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings it back", run: () => act.remove(c.id) },
   ];
 };
 

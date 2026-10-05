@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronDown, ChevronLeft, Clapperboard, Copy, Download, FileSearch, FolderPlus, Film, Link2, Music, Plus, Scissors, Shuffle, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Camera, ChevronDown, ChevronLeft, Clapperboard, Columns2, Copy, Download, FileSearch, Film, FolderPlus, Link2, Music, Pencil, Plus, Scissors, Shuffle, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
-import { useAddToTimeline, useOpenInComfy } from "../actions";
+import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
+import { askText } from "../Confirm";
 import { useAssetAction, useFamilies, useFolders, useRecipes, useSetup, useTimelines, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { Kbd } from "../Keys";
@@ -275,8 +276,14 @@ function TimelinePicker({ asset }: { asset: Asset }) {
   const timelines = useTimelines();
   const [, go] = useLocation();
   const add = useAddToTimeline(asset, { onSuccess: (target) => go(`/timelines/${target.id}`) });
+  const last = useLast();
+  const start = useStartTimeline({ onSuccess: (target) => go(`/timelines/${target.id}`) });
   return (
     <div className="flex flex-col gap-1.5">
+      <div className="grid grid-cols-2 gap-1.5">
+        {last && <Button size="sm" disabled={add.isPending} title={`At the end of ${last.name}, the timeline you last added to`} onClick={() => add.mutate(last.id)}><span className="truncate">Add to {last.name}</span> <Kbd>A</Kbd></Button>}
+        <Button size="sm" disabled={start.isPending} title={asset.kind === "image" ? "A new timeline whose clip 1 opens on this picture, its form open" : "A new timeline whose clip 1 is this video"} onClick={() => start.mutate(asset)}>Start a timeline from it <Kbd>N</Kbd></Button>
+      </div>
       <Select
         dashed
         icon={<Film size={15} className="shrink-0" />}
@@ -385,7 +392,10 @@ function ChangePicker({ madeWith, keys, start }: {
  * Everything about the item, beside it: what it is, what can be done with it, how it was made, where it
  * came from and what it was used in, the tools for a picture, where to put it, and the file's details.
  */
-export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, trim, onTrim: setTrim, onInfo: setInfo, onClose }: {
+export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, trim, onTrim: setTrim, onInfo: setInfo, onClose, comparing, onCompare }: {
+  /** Compare: the one on screen is pinned and the arrow keys move the other; present when there is a list to move through. */
+  comparing?: boolean;
+  onCompare?(): void;
   acts: ViewerActions;
   detail: ReturnType<typeof useAsset>;
   /** The items followed from the first one: "made from" and "used to make"; Back steps out of it. */
@@ -400,6 +410,13 @@ export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, t
   onClose(): void;
 }) {
   const { a, g, recipe, recipes, keep, restore, leave, again, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, between, extendHere, toolFor, openTool, queued, quick, at, toBin, download } = acts;
+  const qc = useQueryClient();
+  // a name of the user's own, asked for in a box; the library shows it and the search goes by it
+  const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.renameAsset(v.id, v.name), onSuccess: (_, v) => { void qc.invalidateQueries({ queryKey: ["assets"] }); void qc.invalidateQueries({ queryKey: ["asset", v.id] }); } });
+  const renameIt = async (of: Asset) => {
+    const name = await askText({ title: "Rename", value: of.name, placeholder: "A name for it", yes: "Rename" });
+    if (name !== null && name !== of.name) rename.mutate({ id: of.id, name });
+  };
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
@@ -455,6 +472,8 @@ export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, t
           {a.kind === "video" && !a.inBin && a.hasSound && <Act icon={<Music size={15} />} label={takeSound.isPending ? "Extracting…" : "Extract audio"} onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music." />}
           {a.kind === "audio" && !a.inBin && follower && <Act wide icon={<Music size={15} />} label="Use as voice sample" onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample." />}
           {a.kind !== "audio" && !a.inBin && !g && <Act icon={<FileSearch size={15} />} label="PNG info" k="P" onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form." />}
+          {onCompare && a.kind !== "audio" && <Act icon={<Columns2 size={15} />} label="Compare" k="X" pressed={comparing} onClick={onCompare} title="Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe" />}
+          {!a.inBin && <Act icon={<Pencil size={15} />} label="Rename" onClick={() => void renameIt(a)} title="A name of your own for it: the library shows it and the search goes by it" />}
           {!a.inBin && <Act icon={<Star size={15} fill={a.kept ? "currentColor" : "none"} />} label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
           <Act icon={<Download size={15} />} label="Download" k="D" onClick={download} title="Download the file" />
         </div>

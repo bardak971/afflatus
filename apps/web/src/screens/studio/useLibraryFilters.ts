@@ -13,13 +13,21 @@ export const KINDS = [
 export type LibraryKind = (typeof KINDS)[number]["id"];
 
 /** What the library's grid is narrowed to: the kind, the search, the model and LoRA it was made with, Kept only; and the items that match. */
-export function useLibraryFilters({ place, view, draftId }: {
+export function useLibraryFilters({ place, view, draftId, initialKind = "all", onKind }: {
   place: Place;
+  /** What the grid opens on: the Timelines entry of the rail opens it on the timelines. */
+  initialKind?: LibraryKind;
+  /** Told when the kind is changed from the chips (the Studio moves between / and /timelines with it). */
+  onKind?(kind: LibraryKind): void;
   /** The form open or not, and what the grid shows beside it. */
   view: { form: boolean; scope: "draft" | "all" | "recent" | "kept" };
   draftId: string | null;
 }) {
-  const [kind, setKind] = useState<LibraryKind>("all");
+  const [kind, setKindState] = useState<LibraryKind>(initialKind);
+  const setKind = (k: LibraryKind) => {
+    setKindState(k);
+    onKind?.(k);
+  };
   const [typed, setTyped] = useState("");
   // what is typed is looked for once the typing stops
   const q = useSettled(typed);

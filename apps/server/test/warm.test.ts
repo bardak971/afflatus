@@ -80,6 +80,9 @@ describe("loading a model ahead of the render", () => {
     expect((await get(t.app, "/api/queue")).json().model).toBe("illustrious");
     expect((await post(t.app, "/api/comfy/loaded", form({ loras: [{ file: "a.safetensors", weight: 1 }] }))).json()).toEqual({ loaded: true });
     expect((await post(t.app, "/api/comfy/loaded", form({ checkpoint: "other.safetensors" }))).json()).toEqual({ loaded: false });
+    // a form too incomplete to build (a redraw with no picture yet): its chosen model alone says when the loaded one is not it, and nothing when it is
+    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: "other.safetensors" } })).json()).toEqual({ loaded: false });
+    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: CHECKPOINT } })).json()).toEqual({ loaded: null });
 
     await render({ prompt: "a dog" });
     expect(frees()).toBe(1);

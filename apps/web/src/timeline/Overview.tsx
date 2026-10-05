@@ -12,7 +12,9 @@ import { otherShape } from "./model";
  * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
  * missing, export.
  */
-export function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
+export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
+  /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
+  aspect: { value: string; options: Array<{ value: string; label: string; note?: string; detail?: string }>; onChange(value: string): void };
   timeline: Timeline;
   clips: Clip[];
   missing: Clip[];
@@ -96,6 +98,12 @@ export function Overview({ timeline: t, clips, missing, misfits, allMs, onPick, 
           <span className="min-w-0 grow truncate text-sm text-ink">{t.music ? `${t.music.asset.name || "Music"} · ${t.music.volume} %${t.music.duck ? " · ducks under voices" : ""}` : "None: drop a sound on the Music track."}</span>
           {t.music && <Button size="sm" onClick={onMusic}>Settings</Button>}
         </div>
+      </section>
+
+      <section className="flex flex-col gap-1.5">
+        <SectionTitle>Aspect ratio</SectionTitle>
+        <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
+        <span className="text-xs text-ink-3">{t.width && t.height ? `The video is ${t.width} × ${t.height}; every clip is made to fit it.` : "The first clip that is rendered decides; pick one to decide yourself."}</span>
       </section>
 
       <section className="flex flex-col gap-1.5">

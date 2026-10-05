@@ -8,7 +8,7 @@ import type { TimeRange } from "./Track";
  * the arrows step a frame, Escape clears, Delete removes the selected clip. What changes often is read
  * through refs, so the listener is only put back when an action it calls changes.
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
@@ -18,6 +18,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   redo(): void;
   canRedo: boolean;
   remove(clip: string): void;
+  /** Several clips are picked with Ctrl + click: Delete removes them all; true when it did. */
+  removePicked(): boolean;
   rangeRef: RefObject<TimeRange | null>;
   setRange: Dispatch<SetStateAction<TimeRange | null>>;
   /** How long the timeline is. */
@@ -95,13 +97,16 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         player.current?.seek(Math.max(0, Math.min(totalRef.current, clock.get() + by)));
         return;
       }
-      // Delete takes the selected clip off the timeline; Undo brings it back
-      if (e.key === "Delete" && !typing && selectedNow.current && !open) {
-        e.preventDefault();
-        remove(selectedNow.current);
+      // Delete takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one
+      if (e.key === "Delete" && !typing && !open) {
+        if (removePicked()) e.preventDefault();
+        else if (selectedNow.current) {
+          e.preventDefault();
+          remove(selectedNow.current);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, undo, canUndo, redo, canRedo, remove, clock]);
+  }, [toggle, undo, canUndo, redo, canRedo, remove, removePicked, clock]);
 }

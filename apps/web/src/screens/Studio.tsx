@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "wouter";
-import { Film, Plus } from "lucide-react";
+import { useLocation } from "wouter";
+import { Plus } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { api, thumbUrl, type Asset } from "../api";
+import { api, type Asset } from "../api";
 import { useFolders, useProjects, useQueue, useTimelines } from "../data";
 import { useProject } from "../project";
-import { clock, when } from "../format";
 import { plainKey } from "../Keys";
 import { Popover } from "../Popover";
 import { useBanners, useHandover, useOpenDraft } from "../store";
@@ -14,6 +13,7 @@ import { cx, Empty, ErrorNote } from "../ui";
 import { Viewer } from "../Viewer";
 import { useTileMenu } from "../TileMenu";
 import { DRAG_TYPE, FolderPanel, Tile, type Place } from "./Library";
+import { TimelineCards } from "./studio/TimelineCards";
 import { LoadMore } from "../LoadMore";
 import { CreatePanel } from "./studio/CreatePanel";
 import { DraftResults } from "./studio/DraftResults";
@@ -58,13 +58,13 @@ function FormRail({ onOpen }: { onOpen(): void }) {
   );
 }
 
-export function Studio({ open: forced }: { open?: boolean }) {
+export function Studio({ open: forced, timelines: onTimelines }: { open?: boolean; /** Opened from the rail's Timelines entry: the grid shows the timelines. */ timelines?: boolean }) {
   const view = useStudio();
   const [, go] = useLocation();
   // N opens the form, or folds it away, from anywhere on the screen (not while typing)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "n" || e.ctrlKey || e.metaKey || e.altKey || !plainKey(e)) return;
+      if (e.key.toLowerCase() !== "n" || e.ctrlKey || e.metaKey || e.altKey || !plainKey(e) || document.querySelector("[role=dialog][aria-modal=true]")) return;
       e.preventDefault();
       useStudio.getState().set({ form: !useStudio.getState().form });
     };
@@ -81,13 +81,16 @@ export function Studio({ open: forced }: { open?: boolean }) {
 
   const folders = useFolders();
   const place = view.place;
-  // a folder that is gone is no place to be
-  useEffect(() => {
-    if (place.type === "folder" && folders.isSuccess && !folders.data.items.some((f) => f.id === place.id)) view.set({ place: { type: "all" } });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [place, folders.data]);
-  // the folder what is made lands in: the one that is open, else the root of the project the app looks at
   const projectId = useProject((s) => s.id);
+  // a folder that is gone is no place to be, nor one of another project once the rail looks at a project (or the Inbox)
+  useEffect(() => {
+    if (place.type !== "folder" || !folders.isSuccess) return;
+    const open = folders.data.items.find((f) => f.id === place.id);
+    const elsewhere = open && projectId !== null && (projectId === "none" ? open.projectId !== null : open.projectId !== projectId);
+    if (!open || elsewhere) view.set({ place: { type: "all" } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [place, folders.data, projectId]);
+  // the folder what is made lands in: the one that is open, else the root of the project the app looks at
   const projectsList = useProjects();
   const rootId = projectId && projectId !== "none" ? projectsList.data?.items.find((p) => p.id === projectId)?.folderId ?? null : null;
   const folder = place.type === "folder" ? folders.data?.items.find((f) => f.id === place.id) : rootId ? folders.data?.items.find((f) => f.id === rootId) : undefined;
@@ -107,9 +110,13 @@ export function Studio({ open: forced }: { open?: boolean }) {
     hand({ show: null });
     void api.asset(shown).then((a) => setOpen(a)).catch((err: Error) => say({ id: `shown:${Date.now()}`, tone: "bad", title: "The item that was dropped could not be opened", text: err.message, href: "/", go: "Open the library" }));
   }, [shown, hand, say]);
-  const filters = useLibraryFilters({ place, view, draftId });
+  // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
+  const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });
   const { kind, q, made, lora, kept, showTimelines, reach, assets, items, filtered } = filters;
   const timelines = useTimelines();
+  // the timelines of the place that is open: a folder lists those whose renders land in it, "No folder" those in none,
+  // the project as a whole every one of its own (the list comes scoped to the project already)
+  const shownTimelines = (timelines.data?.items ?? []).filter((t) => (view.place.type === "folder" ? t.folderId === view.place.id : view.place.type === "unfiled" ? t.folderId === null : true));
   const queue = useQueue();
 
   // the folders: a panel under their button, which also opens by itself while something is dragged, to drop it on a folder
@@ -170,24 +177,7 @@ export function Studio({ open: forced }: { open?: boolean }) {
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
               {(bulk.isError || moveTo.isError) && <ErrorNote>{(bulk.error ?? moveTo.error)?.message}</ErrorNote>}
-              {showTimelines && (
-                <>
-                  {timelines.isSuccess && !timelines.data.items.length && <Empty title="No timeline yet">A timeline sequences clips one after the other. Create one in Timelines.</Empty>}
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3.5">
-                    {timelines.data?.items.map((t) => (
-                      <Link key={t.id} href={`/timelines/${t.id}`} className="flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel hover:border-accent">
-                        <span className="relative flex aspect-video items-center justify-center overflow-hidden bg-raised text-ink-3">
-                          {t.cover ? <img src={thumbUrl(t.cover)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /> : <Film size={26} />}
-                        </span>
-                        <span className="flex flex-col px-3 py-2">
-                          <span className="truncate font-semibold">{t.name}</span>
-                          <span className="text-xs text-ink-2">{t.clips === 0 ? "Empty" : `${t.clips} clip${t.clips > 1 ? "s" : ""}${t.durationMs ? ` · ${clock(t.durationMs)}` : ""}`} · {when(t.updatedAt)}</span>
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
-                </>
-              )}
+              {showTimelines && <TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} />}
               {!showTimelines && assets.isSuccess && !items.length && !running && (
                 <Empty title={filtered ? "No match" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}>
                   {filtered

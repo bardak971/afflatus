@@ -97,19 +97,6 @@ export const h3Video = defineRecipe<H3Video>({
     };
   },
 
-  advice(input, card) {
-    const out = [];
-    const small = card.vramGb <= 13;
-    const tiny = card.vramGb <= 9;
-    const gb = Math.round(card.vramGb);
-    if (input.short > 768) out.push({ input: "short", level: "heavy" as const, text: "past what the model was trained for: slower, and it may drift" });
-    if (input.upscale === UPSCALE.latent) out.push({ input: "upscale", level: "slow" as const, text: "about as long again as the clip itself" });
-    else if (input.short >= 768 && input.seconds > 6 && small) out.push({ input: "short", level: "heavy" as const, text: `probably too big for a ${gb} GB card at this length` });
-    else if (input.short > (tiny ? 480 : 576) && small) out.push({ input: "short", level: "slow" as const, text: `slow on your ${gb} GB card` });
-    if (input.seconds > 8 && small) out.push({ input: "seconds", level: "slow" as const, text: `long clips slow down a lot on a ${gb} GB card: two clips that flow on are faster` });
-    if (input.sharpRefs && input.references.length) out.push({ input: "sharpRefs", level: "slow" as const, text: "several times slower" });
-    return out;
-  },
 
   variants: ((): Variant<H3Video>[] => {
     const slots = { unet: "minimax_h3_fl2va.safetensors", clip: "qwen3vl_minimax_h3.safetensors", videoVae: "minimax_h3_video_vae.safetensors", audioVae: "minimax_h3_audio_vae.safetensors" };

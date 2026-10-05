@@ -122,11 +122,6 @@ export interface Recipe<In = Record<string, unknown>> {
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */
   optionalNodes?: string[];
   build(input: In, ctx: BuildContext): BuiltGraph;
-  /**
-   * What is heavy for the card it will run on, said next to the choice that makes it so. Never a limit:
-   * every option stays available. `vramGb` is the memory of the card ComfyUI runs on.
-   */
-  advice?(input: In, card: { vramGb: number }): Advice[];
   /** Sample inputs the graph checker builds without a GPU. Cover every branch of build(). */
   variants: Variant<In>[];
   /**

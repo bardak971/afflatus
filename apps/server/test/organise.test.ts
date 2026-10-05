@@ -26,6 +26,17 @@ async function addAsset(): Promise<string> {
   return id;
 }
 
+describe("renaming an item", () => {
+  it("gives it a name of the user own, trimmed, and keeps it on the item", async () => {
+    const id = await addAsset();
+    const res = await patch(`/api/assets/${id}`, { name: "  Sunset over the bay  " });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().name).toBe("Sunset over the bay");
+    expect((await t.app.inject({ method: "GET", url: `/api/assets/${id}` })).json().name).toBe("Sunset over the bay");
+    expect((await patch("/api/assets/nothing", { name: "x" })).statusCode).toBe(404);
+  });
+});
+
 describe("model settings", () => {
   const FILE = "illustrious.safetensors";
 

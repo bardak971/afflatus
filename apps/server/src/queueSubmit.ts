@@ -1,4 +1,5 @@
 import { baseModels, mainModel, modelOf, timeKey, checkGraph, choicesOf, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { forecast, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, referenceClip, soundPart } from "./cut";
 import { extOf } from "./media";
@@ -166,6 +167,8 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     model: mainModel(built) ?? "", modelFile: modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase(),
     timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: core.expected(await core.usual(), recipe, chosen, cold),
     expect: await usualParts(db, recipe, chosen).catch(() => ({})),
+    // what it samples per step, kept with its figures: the next form like it is forecast from them
+    work: workOf(built).pixels * workOf(built).frames,
   };
 
   comfy.monitor.ensure();
@@ -236,13 +239,44 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
  * cannot be told (the form is not complete enough to build its graph, ComfyUI is away). It is what
  * this app last asked for: a ComfyUI that was restarted since, or used from elsewhere, is not seen.
  */
-export async function isLoaded(core: QueueCore, recipeId: string, rawInput: unknown): Promise<boolean | null> {
+/**
+ * What this model's past renders say a form will take: its sampled work against theirs. Null for a form not
+ * complete enough to build, one whose model has no measured render yet, or one that samples nothing.
+ */
+export async function forecastOf(core: QueueCore, recipeId: string, rawInput: unknown): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number } } | null> {
+  const recipe = core.registry.recipe(recipeId);
+  if (!recipe) return null;
+  let built: BuiltGraph | null;
+  let chosen: Record<string, unknown>;
   try {
-    const built = await builtOf(core, recipeId, rawInput);
-    if (!built) return null;
-    const base = baseModels(built);
-    return base.length ? holding(core, base) : null;
+    chosen = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
+    built = await builtOf(core, recipeId, rawInput);
   } catch {
     return null;
   }
+  if (!built) return null;
+  const shape = workOf(built);
+  if (!shape.pixels) return null;
+  const modelFile = modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase();
+  const base = baseModels(built);
+  const f = await forecast(core.db, modelFile, shape.pixels * shape.frames, shape.steps, base.length > 0 && !holding(core, base));
+  return f ? { forecast: f, shape } : null;
+}
+
+export async function isLoaded(core: QueueCore, recipeId: string, rawInput: unknown): Promise<boolean | null> {
+  try {
+    const built = await builtOf(core, recipeId, rawInput);
+    if (built) {
+      const base = baseModels(built);
+      if (base.length) return holding(core, base);
+    }
+  } catch {
+    // the form could not be built: read below
+  }
+  // a form not complete enough to build (a variation with no picture yet): the model files it has chosen say
+  // on their own when the loaded one is NOT theirs, which is what the strip must not hide behind a green icon
+  const recipe = core.registry.recipe(recipeId);
+  const input = rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
+  const chosen = (recipe?.inputs ?? []).filter((i) => i.type === "model" && typeof input[i.id] === "string" && input[i.id]).map((i) => modelFileName(input[i.id] as string));
+  return chosen.length && core.lastLoads !== null && !holding(core, chosen) ? false : null;
 }

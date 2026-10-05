@@ -388,16 +388,6 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     };
   },
 
-  advice(input, card) {
-    const out = [];
-    const small = card.vramGb <= 13;
-    const gb = Math.round(card.vramGb);
-    if (input.short > 704 && small) out.push({ input: "short", level: "heavy" as const, text: `probably too big for a ${gb} GB card` });
-    else if (input.short > 512 && small) out.push({ input: "short", level: "slow" as const, text: `slow on your ${gb} GB card` });
-    if (input.seconds > 8 && small) out.push({ input: "seconds", level: "slow" as const, text: `long clips slow down a lot on a ${gb} GB card` });
-    if ((!input.twoPass || input.end) && small) out.push({ input: input.end ? "end" : "twoPass", level: "slow" as const, text: "one pass at full size: several times slower than two passes" });
-    return out;
-  },
 
   variants: ((): Variant<LtxVideo>[] => {
     const one = { checkpoint: "ltx-2.3-22b-distilled-fp8.safetensors", clip: "gemma_3_12B_it.safetensors" };

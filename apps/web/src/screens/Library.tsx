@@ -2,7 +2,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, Film, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Music, Pencil, Play, RefreshCw, Trash2, Unlink, VolumeX } from "lucide-react";
-import { HoverVideo } from "../HoverVideo";
+import { HoverAudio, HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
 import { api, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
@@ -44,7 +44,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
   // the tooltip, after the pointer has rested on the tile; gone as soon as it moves off or presses
   const tip = useTileTip();
   return (
-    <div className="group relative">
+    <div className="group relative select-none">
     {tip.tip && <TileTip asset={asset} at={tip.tip} />}
     <button
       type="button"
@@ -65,16 +65,24 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       aria-label={`Open ${asset.kind}`}
       onContextMenu={onMenu}
       data-stage
-      className={cx("relative block w-full aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
+      className={cx("relative block w-full select-none aspect-[3/4] overflow-hidden rounded-[10px] border bg-panel", selected ? "border-2 border-accent" : "border-line")}
     >
       {asset.kind === "image" || (asset.kind === "video" && !noFrame) ? (
         <HoverVideo asset={asset.id} video={asset.kind === "video"} onNoFrame={() => setNoFrame(true)} />
+      ) : asset.kind === "audio" ? (
+        <HoverAudio asset={asset.id} />
       ) : (
         <span className="flex h-full flex-col items-center justify-center gap-1.5 text-ink-2">
-          {asset.kind === "video" ? <Play size={20} /> : <Music size={20} />}
-          {asset.kind === "video" ? "Video" : "Audio"}
+          <Play size={20} />
+          Video
         </span>
       )}
+      {asset.kind === "audio" && asset.durationMs ? (
+        <span className="absolute bottom-3 left-2 flex items-center gap-1.5 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">
+          <Music size={10} />
+          {clock(asset.durationMs)}
+        </span>
+      ) : null}
       {asset.kind === "video" && (
         <span className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">
           <Play size={10} fill="currentColor" />

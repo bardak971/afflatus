@@ -1,8 +1,9 @@
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, Copy, Download, Eye, ExternalLink, Film, FolderKanban, Plus, Shuffle, SquareCheck, Star, Trash2, Undo2 } from "lucide-react";
-import { useAddToTimeline, useOpenInComfy, useQueueVariation } from "./actions";
+import { Clapperboard, Copy, Download, ExternalLink, Eye, Film, FolderKanban, Pencil, Plus, Shuffle, SquareCheck, Star, Trash2, Undo2 } from "lucide-react";
+import { useAddToLast, useAddToTimeline, useLast, useOpenInComfy, useQueueVariation, useStartTimeline } from "./actions";
 import { api, fileUrl, thumbUrl, type Asset } from "./api";
+import { askText } from "./Confirm";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { useAsset, useDrafts, useFamilies, useProjects, useRecipes, useSetup, useTimelines } from "./data";
 import { Dialog } from "./Dialog";
@@ -20,8 +21,10 @@ const FORMATS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg
  * entry mirrors a button or a key of the viewer. What needs the item's generation parameters (Reuse,
  * Variation, Open in ComfyUI) is offered once they are read, which starts when the menu opens.
  */
-export function useTileMenu({ onOpen, onSelect, into }: {
+export function useTileMenu({ onOpen, onSelect, into, first }: {
   onOpen(asset: Asset): void;
+  /** What the place the menu opens in does with the item, before everything else (the editor's library: add it to the timeline). */
+  first?(asset: Asset): MenuItem[];
   /** Tick it, for a move / keep / bin of several. */
   onSelect?(asset: Asset): void;
   /** Where a variation queued from here lands. */
@@ -31,6 +34,12 @@ export function useTileMenu({ onOpen, onSelect, into }: {
   const a = menu?.subject ?? null;
   const detail = useAsset(a?.id ?? null);
   const client = useQueryClient();
+  // a name of the user's own, asked for in a box; the library shows it and the search goes by it
+  const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.renameAsset(v.id, v.name), onSuccess: (_, v) => { void client.invalidateQueries({ queryKey: ["assets"] }); void client.invalidateQueries({ queryKey: ["asset", v.id] }); } });
+  const renameIt = async (of: Asset) => {
+    const name = await askText({ title: "Rename", value: of.name, placeholder: "A name for it", yes: "Rename" });
+    if (name !== null && name !== of.name) rename.mutate({ id: of.id, name });
+  };
   const recipes = useRecipes();
   const setup = useSetup();
   const on = useFamilies().isOn;
@@ -68,6 +77,10 @@ export function useTileMenu({ onOpen, onSelect, into }: {
   });
   /** The dialog that adds the item to a timeline: which one, or a new one. */
   const [adding, setAdding] = useState<Asset | null>(null);
+  const [, go] = useLocation();
+  const last = useLast();
+  const addToLast = useAddToLast();
+  const start = useStartTimeline({ onSuccess: (t) => go(`/timelines/${t.id}`) });
   // the projects, to move an item into another's root folder (or out of every project, into the Inbox)
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
   const moveTo = useMutation({
@@ -88,6 +101,7 @@ export function useTileMenu({ onOpen, onSelect, into }: {
   const items = (asset: Asset): MenuItem[] => {
     const reading = detail.isLoading;
     return [
+      ...(first?.(asset) ?? []),
       { label: "Open", icon: <Eye size={14} />, run: () => onOpen(asset) },
       { label: asset.kept ? "Unkeep" : "Keep", key: "S", icon: <Star size={14} />, disabled: asset.inBin, run: () => keep.mutate({ id: asset.id, kept: !asset.kept }) },
       ...(onSelect ? [{ label: "Select", key: "Ctrl + Click", icon: <SquareCheck size={14} />, run: () => onSelect(asset) }] : []),
@@ -96,7 +110,13 @@ export function useTileMenu({ onOpen, onSelect, into }: {
       { label: "Reuse parameters", key: "L", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => again.mutate() },
       { label: "Variation", key: "V", icon: <Shuffle size={14} />, note: !reading && !g ? "not generated here" : "new seed, queued", disabled: reading || !g || !recipe || asset.inBin, run: () => recipe && g && variation.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" }) },
       { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: reading || !g || !(setup.data?.comfy.online ?? false), run: () => openInComfy.mutate(asset) },
-      ...(asset.kind !== "audio" && !asset.inBin ? [{ label: "Add to a timeline…", icon: <Film size={14} />, note: asset.kind === "image" ? "at the end, as a still" : "at the end", run: () => setAdding(asset) }] : []),
+      ...(asset.kind !== "audio" && !asset.inBin
+        ? [
+            ...(last ? [{ label: `Add to ${last.name}`, key: "A", icon: <Film size={14} />, note: "the timeline you last added to", run: () => addToLast.mutate(asset) }] : []),
+            { label: "Add to a timeline…", icon: <Film size={14} />, note: asset.kind === "image" ? "at the end, as a still" : "at the end", run: () => setAdding(asset) },
+            { label: "Start a timeline from it", key: "N", icon: <Film size={14} />, note: asset.kind === "image" ? "clip 1 opens on this picture" : "clip 1 is this video", run: () => start.mutate(asset) },
+          ]
+        : []),
       ...(projects.length && !asset.inBin
         ? [
             "—" as const,
@@ -105,6 +125,7 @@ export function useTileMenu({ onOpen, onSelect, into }: {
           ]
         : []),
       "—" as const,
+      { label: "Rename…", icon: <Pencil size={14} />, run: () => void renameIt(asset) },
       { label: "Download", key: "D", icon: <Download size={14} />, run: () => download(asset) },
       asset.inBin
         ? { label: "Put back", icon: <Undo2 size={14} />, run: () => restore.mutate(asset.id) }

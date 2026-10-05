@@ -80,9 +80,17 @@ export function StripModel() {
   return form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />;
 }
 
-/** The model that is loaded, by its name. Nothing when none is. */
-function Held({ name }: { name: string | null }) {
+/** The model that is loaded, by its name. Nothing when none is. Not `sure`: whether the open form renders with it cannot be told yet, and the icon does not say it does. */
+function Held({ name, sure = true }: { name: string | null; sure?: boolean }) {
   if (!name) return null;
+  if (!sure) {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model ComfyUI has loaded. Whether this form renders with it cannot be told until the form is complete (a picture where one is needed).`}>
+        <MemoryStick size={13} className="shrink-0" />
+        <span className="max-w-72 truncate">{name}</span>
+      </span>
+    );
+  }
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
       <MemoryStick size={13} className="shrink-0 text-good" />
@@ -122,7 +130,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
   const state = loaded.data?.loaded;
   const held = queue.data?.model ?? null;
   // it cannot be told for this form (not complete enough to build its graph): what is loaded is still named
-  if (!running && !waiting && (state === undefined || state === null) && !load.isError) return <Held name={held} />;
+  if (!running && !waiting && (state === undefined || state === null) && !load.isError) return <Held name={held} sure={false} />;
   if (!running && !waiting && state) {
     return held ? <Held name={held} /> : (
       <span className="flex items-center gap-1.5 text-ink-2" title="This form's model is what ComfyUI has loaded: the render starts sampling at once.">

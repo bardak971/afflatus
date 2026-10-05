@@ -231,6 +231,15 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     return assetView(await asset(id));
   });
 
+  /** A new name for a picture, a video or a sound: what the library shows and searches by. The file on the disk keeps its own. */
+  app.patch<{ Params: { id: string } }>("/api/assets/:id", async (req) => {
+    const { name } = z.strictObject({ name: z.string().trim().max(200) }).parse(req.body ?? {});
+    await asset(req.params.id);
+    await s.db.updateTable("assets").set({ name }).where("id", "=", req.params.id).execute();
+    s.queue.events.emit("library");
+    return assetView(await asset(req.params.id));
+  });
+
   /**
    * Show how a result was made in ComfyUI's editor: its graph built again from its generation parameters
    * and its seed (nothing is uploaded: the images and sounds it used are named in the graph by their own

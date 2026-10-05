@@ -1,4 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { projectForNew } from "./project";
 import { api, type Asset, type Opened, type RecipeInfo } from "./api";
 import { useModelSettings, useSetup, useTimelines } from "./data";
 import { formDefaults } from "./form";
@@ -31,6 +34,15 @@ export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { on
 }
 
 /** An item put at the end of a timeline: one of the project's (by id), or a new one (null). Gives the timeline it went to. */
+/** The timeline an item was last added to, per project (the Inbox under "none"): "Add to <it>" with one key goes there. */
+export const useLastTimeline = create<{ by: Record<string, { id: string; name: string }>; set(project: string, t: { id: string; name: string }): void }>()(
+  persist((set) => ({ by: {}, set: (project, t) => set((s) => ({ by: { ...s.by, [project]: t } })) }), { name: "afflatus.last-timeline" }),
+);
+const projectKey = () => projectForNew() ?? "none";
+/** The timeline last added to in the project the rail looks at, or null. */
+export const useLast = () => useLastTimeline((s) => s.by[projectKey()] ?? null);
+const remember = (target: { id: string; name: string }) => useLastTimeline.getState().set(projectKey(), target);
+
 export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
   const timelines = useTimelines();
   const client = useQueryClient();
@@ -43,6 +55,63 @@ export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: { id: 
       return target;
     },
     onSuccess: (target) => {
+      remember(target);
+      void client.invalidateQueries({ queryKey: ["timelines"] });
+      opts.onSuccess?.(target);
+    },
+  });
+}
+
+/**
+ * A timeline started from one item, in the project the rail looks at: a video is its clip 1; a picture is the
+ * first frame of a clip 1 to render, its form open on it. Then the editor.
+ */
+export function useStartTimeline(opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (asset: Asset) => {
+      const t = await api.createTimeline();
+      await api.addClip(t.id, { asset: asset.id, ...(asset.kind === "image" ? { as: "clip" as const } : {}) });
+      return { id: t.id, name: t.name };
+    },
+    onSuccess: (target) => {
+      remember(target);
+      void client.invalidateQueries({ queryKey: ["timelines"] });
+      opts.onSuccess?.(target);
+    },
+  });
+}
+
+/** One item to the end of the timeline last added to; said in a banner, with the way there. */
+export function useAddToLast() {
+  const client = useQueryClient();
+  const say = useBanners((b) => b.push);
+  return useMutation({
+    mutationFn: async (asset: Asset) => {
+      const last = useLastTimeline.getState().by[projectKey()];
+      if (!last) throw new Error("No timeline was added to yet in this project: use \"Add to a timeline…\" once.");
+      await api.addClip(last.id, { asset: asset.id });
+      return { ...last, asset };
+    },
+    onSuccess: (r) => {
+      void client.invalidateQueries({ queryKey: ["timelines"] });
+      say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${r.name}`, text: r.asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${r.id}`, go: "Open the timeline" });
+    },
+    onError: (err) => say({ id: `add:${Date.now()}`, tone: "bad", title: "Could not add it", text: err.message, href: "/", go: "Open the library" }),
+  });
+}
+
+/** A new timeline of several items, in the order given: videos as clips, pictures as stills (as the Add dialog makes them). Then the editor. */
+export function useMakeTimelineOf(opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (assets: Asset[]) => {
+      const t = await api.createTimeline();
+      for (const a of assets) await api.addClip(t.id, { asset: a.id });
+      return { id: t.id, name: t.name };
+    },
+    onSuccess: (target) => {
+      remember(target);
       void client.invalidateQueries({ queryKey: ["timelines"] });
       opts.onSuccess?.(target);
     },

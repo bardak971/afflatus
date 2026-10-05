@@ -1,21 +1,19 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Camera, Download, Link2, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Users } from "lucide-react";
+import { Camera, Download, Link2, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2 } from "lucide-react";
 import { api, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
-import { lookWords } from "../LookBar";
 import { estimateFor } from "../estimate";
 import { formDefaults } from "../form";
 import { aboutMs, notReady } from "../format";
 import { Picker } from "../PictureField";
-import { Select } from "../Select";
 import { useNewClock } from "../timeline/clock";
 import { Inspector, MusicPanel } from "../timeline/Inspector";
 import { layout, otherShape, pinInputs, SHAPES, shapeOf, stamp, ZOOM, type Shape } from "../timeline/model";
 import { Player, type PlayerHandle } from "../timeline/Player";
-import { Shelf } from "../timeline/Shelf";
+import { MediaOverlay } from "../timeline/MediaOverlay";
 import { Track } from "../timeline/Track";
 import { Button, cx, ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
@@ -135,6 +133,15 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     },
   });
   const remove = useMutation({ mutationFn: api.deleteClip, onSuccess: after });
+  // the clips picked with Ctrl + click, removed one after the other (each comes back with Undo)
+  const removeMany = useMutation({ mutationFn: async (ids: string[]) => { for (const id of ids) await api.deleteClip(id); }, onSuccess: () => { setPicked(new Set()); after(); } });
+  const pickedNow = useRef(picked);
+  pickedNow.current = picked;
+  const removePicked = useCallback(() => {
+    if (pickedNow.current.size < 2) return false;
+    removeMany.mutate([...pickedNow.current]);
+    return true;
+  }, [removeMany]);
   const say = useBanners((b) => b.push);
   const split = useMutation({ mutationFn: (v: { clip: string; atMs: number }) => api.splitClip(v.clip, v.atMs), onSuccess: after });
   // the designer writing a clip put between two others: its texts go into the form unless something was typed there meanwhile
@@ -295,7 +302,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   frameRef.current = frameMs;
   const selectedNow = useRef<string | null>(null);
   selectedNow.current = current?.id ?? null;
-  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo), redo: redo.mutate, canRedo: Boolean(t?.redo), remove: remove.mutate, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked });
+  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo), redo: redo.mutate, canRedo: Boolean(t?.redo), remove: remove.mutate, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked });
 
   const jump = (by: -1 | 1) => {
     const time = clock.get();
@@ -358,12 +365,13 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     open: setOpened,
     slow: (factor, inMs, outMs) => rangeAct.mutate({ slow: factor, inMs, outMs }),
     remove: (clip) => remove.mutate(clip),
+    picked,
+    removeMany: (ids) => removeMany.mutate(ids),
   };
 
   return (
     <div className="flex min-w-0 grow flex-col">
       <header className="flex h-[56px] shrink-0 items-center gap-2.5 border-b border-line px-3">
-        <Link href="/timelines" aria-label="Back to the timelines" className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><ArrowLeft size={17} /></Link>
         <input
           aria-label="Timeline name"
           value={name ?? t.name}
@@ -376,23 +384,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           className="h-9 w-56 rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
         />
         <span className="shrink-0 text-ink-2">{clips.length === 0 ? "Empty" : `${stamp(total)} · ${clips.length} clip${clips.length > 1 ? "s" : ""}`}</span>
-        <div className="w-44 shrink-0" title={t.width && t.height ? `The video is ${t.width} × ${t.height}. Click to change its aspect ratio.` : "The first clip that is rendered decides the aspect ratio. Click to choose one."}>
-        <Select
-          size="sm"
-          label="Aspect ratio"
-          value={shape}
-          onChange={(v) => edit.mutate(v === "first" ? { width: null, height: null } : v === "own" ? {} : { width: SHAPES[v as Shape].width, height: SHAPES[v as Shape].height })}
-          options={[
-            ...(Object.keys(SHAPES) as Shape[]).map((k) => ({ value: k as string, label: SHAPES[k].label, note: `${SHAPES[k].width} × ${SHAPES[k].height}` })),
-            ...(shape === "own" ? [{ value: "own", label: SHAPES[shapeOf(t.width!, t.height!)].label, note: `${t.width} × ${t.height}` }] : []),
-            { value: "first", label: "The first clip decides", detail: "The video takes the aspect ratio of the first clip that is rendered." },
-          ]}
-        />
-        </div>
-        <Button size="sm" className="h-8 max-w-64" title="Who is in the video and how it looks: used by every clip that has no cast of its own." onClick={() => setCasting(true)}>
-          <Users size={14} className="shrink-0" />
-          <span className="truncate">{lookWords(t.look, entities.data?.items ?? []) || "Cast and places"}</span>
-        </Button>
         <span className="grow" />
         {saveFailed ? (
           // what was typed is still on screen and not on the server: said, with the way to send it again
@@ -430,10 +421,11 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       <div className="flex min-h-0 grow">
         {/* the media and the player side by side, and under both the row that plays: it starts at the left edge */}
         <div className="flex min-w-0 grow flex-col">
-        <div className="flex min-h-0 grow">
-        <Shelf
+        <div className="relative flex min-h-0 grow">
+        <MediaOverlay
           timeline={shown}
           selected={Boolean(current)}
+          onOpen={setOpened}
           onAdd={(a) => {
             if (a.kind !== "audio") return add.mutate({ asset: a.id });
             if (current) patch.mutate({ clip: current.id, patch: { soundAsset: a.id } });
@@ -574,6 +566,15 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             {clips.length ? (
               <Overview
                 timeline={t}
+                aspect={{
+                  value: shape,
+                  onChange: (v) => edit.mutate(v === "first" ? { width: null, height: null } : v === "own" ? {} : { width: SHAPES[v as Shape].width, height: SHAPES[v as Shape].height }),
+                  options: [
+                    ...(Object.keys(SHAPES) as Shape[]).map((k) => ({ value: k as string, label: SHAPES[k].label, note: `${SHAPES[k].width} × ${SHAPES[k].height}` })),
+                    ...(shape === "own" ? [{ value: "own", label: SHAPES[shapeOf(t.width!, t.height!)].label, note: `${t.width} × ${t.height}` }] : []),
+                    { value: "first", label: "The first clip decides", detail: "The video takes the aspect ratio of the first clip that is rendered." },
+                  ],
+                }}
                 clips={clips}
                 missing={missing}
                 misfits={misfits}

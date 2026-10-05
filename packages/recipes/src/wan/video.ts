@@ -315,15 +315,6 @@ export const wanVideo = defineRecipe<WanVideo>({
     };
   },
 
-  advice(input, card) {
-    const out = [];
-    const small = card.vramGb <= 13;
-    const gb = Math.round(card.vramGb);
-    if (input.short > 480 && small) out.push({ input: "short", level: input.short >= 640 ? ("heavy" as const) : ("slow" as const), text: `${input.short >= 640 ? "probably too big for" : "slow on"} a ${gb} GB card` });
-    if (input.seconds > 5 && small) out.push({ input: "seconds", level: "slow" as const, text: `long clips slow down a lot on a ${gb} GB card` });
-    if (!input.fast) out.push({ input: "fast", level: "slow" as const, text: "five times the steps, each twice as long" });
-    return out;
-  },
 
   variants: ((): Variant<WanVideo>[] => {
     const slots = { i2vHigh: "wan2.2_i2v_high_noise_14B.safetensors", i2vLow: "wan2.2_i2v_low_noise_14B.safetensors", clip: "umt5_xxl.safetensors", vae: "wan_2.1_vae.safetensors" };

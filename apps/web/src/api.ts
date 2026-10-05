@@ -75,7 +75,7 @@ export const api = {
   /** ComfyUI's terminal log, the last few hundred lines (`t`: when, `m`: the line). */
   comfyLogs: () => call<{ lines: Array<{ t: string; m: string }> }>("GET", "/comfy/logs"),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
-  advice: (recipe: string, input: Record<string, unknown>) => call<{ items: Advice[] }>("POST", "/advice", { recipe, input }),
+  advice: (recipe: string, input: Record<string, unknown>) => call<{ items: Advice[]; estimate: { text: string; pace: "usual" | "untested" | "over" } | null }>("POST", "/advice", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
       "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,
@@ -187,6 +187,7 @@ export const api = {
   editFolder: (id: string, patch: { name?: string; parentId?: string | null }) => call<{ ok: true }>("PATCH", `/folders/${id}`, patch),
   deleteFolder: (id: string) => call<{ ok: true }>("DELETE", `/folders/${id}`),
   moveAssets: (ids: string[], folderId: string | null) => call<{ moved: number }>("POST", "/assets/move", { ids, folderId }),
+  renameAsset: (id: string, name: string) => call<Asset>("PATCH", `/assets/${id}`, { name }),
   /** A picture, a video or a sound from this computer, into the library. The file is the request body. */
   upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean; /** The folder it goes into. */ folder?: string; /** Without a folder: the project whose root folder it goes into. */ project?: string | null } = {}) => {
     if (!/^(image|video|audio)\//.test(file.type)) throw new ApiError("This file is not a picture, a video or a sound.");

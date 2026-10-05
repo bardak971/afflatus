@@ -543,4 +543,6 @@ export class Queue {
   builtOf(recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string> } = {}): Promise<BuiltGraph | null> { return submitting.builtOf(this.core, recipeId, rawInput, opts); }
   /** Whether the base models a form would use are the ones ComfyUI was last asked to load; null when it cannot be told. */
   isLoaded(recipeId: string, rawInput: unknown): Promise<boolean | null> { return submitting.isLoaded(this.core, recipeId, rawInput); }
+  /** What this model's past renders say a form will take; null without history or for a form not complete enough to build. */
+  forecast(recipeId: string, rawInput: unknown) { return submitting.forecastOf(this.core, recipeId, rawInput); }
 }

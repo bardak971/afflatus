@@ -15,7 +15,6 @@ import { useLiveEvents } from "./live";
 import { Studio } from "./screens/Studio";
 import { ConfirmHost } from "./Confirm";
 import { FolderImportNote } from "./folderImport";
-import { Timelines } from "./screens/Timelines";
 import { useSystem, useBanners } from "./store";
 
 // every screen but the Studio is a chunk of its own, fetched the first time its address is opened
@@ -148,13 +147,14 @@ export function App() {
         </nav>
         <Suspense fallback={<div className="grow p-8 text-ink-2">Loading…</div>}>
         <Switch>
-          <Route path="/"><Studio /></Route>
+          <Route path="/"><Studio key="studio" /></Route>
           {/* links from elsewhere that mean "the form": the same screen, with the form open */}
           <Route path="/create"><Studio open /></Route>
           <Route path="/kit" component={People} />
           {/* the screen's old address still leads to it */}
           <Route path="/people"><Redirect to="/kit" /></Route>
-          <Route path="/timelines" component={Timelines} />
+          {/* the rail's Timelines entry: the Studio, on the timelines of the place it looks at */}
+          <Route path="/timelines"><Studio key="timelines" timelines /></Route>
           <Route path="/timelines/:id" component={TimelineEditor} />
           <Route path="/workflows" component={Workflows} />
           <Route path="/queue" component={Queue} />

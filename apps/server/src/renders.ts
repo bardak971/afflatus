@@ -154,7 +154,7 @@ export async function record(
       steps: resume.totalSteps, status, whole: whole && measured ? 1 : 0, cold: resume.timing?.cold ? 1 : 0,
       waited_ms: Math.max(0, resume.startedAt - new Date(row.created_at).getTime()),
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish,
-      step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null,
+      step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null, work: resume.timing?.work ?? null,
       vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, created_at: now(),
     })
     .onConflict((oc) => oc.column("id").doNothing())

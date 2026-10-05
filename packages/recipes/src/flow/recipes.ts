@@ -98,7 +98,7 @@ export function flowKit(spec: FlowSpec) {
     { id: "shift", type: "number", label: "Shift", note: spec.shift.note, min: 0, max: 12, step: 0.05, default: spec.shift.default, advanced: true, perModel: true },
     {
       id: "precision", type: "choice", label: "Weight precision", options: { node: "UNETLoader", input: "weight_dtype" }, default: "default", advanced: true, perModel: true,
-      note: "how the model's weights are held in memory: default keeps the file's own. fp8 halves the memory of a bf16 file (a 22 GB FLUX.1 dev fits a 12 GB card) at a slight cost in quality; a file that is fp8 already gains nothing",
+      note: "how the model's weights are held in memory: default keeps the file's own. fp8 halves the memory of a bf16 file (a 22 GB FLUX.1 dev takes 11) at a slight cost in quality; a file that is fp8 already gains nothing",
     },
     { id: "seed", type: "seed", label: "Seed" },
   ];

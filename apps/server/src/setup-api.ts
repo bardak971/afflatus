@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import { said } from "./forecast";
 import { z } from "zod";
-import { describeRecipe, parseInput } from "@afflatus/core";
+import {describeRecipe, type Advice } from "@afflatus/core";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
 import type { Services } from "./services";
@@ -38,17 +39,19 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   /** ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds. */
   app.get("/api/comfy/logs", async () => ({ lines: await (await s.comfy()).client.logs() }));
 
-  /** What is heavy for the card ComfyUI runs on, for one form: a word next to the choice that makes it so. */
+  /**
+   * What a form will take, learned from this machine's own renders with the same model (see forecast.ts): a
+   * line for the form, and, past where the card slowed down before, a word next to the setting that drives
+   * the size. Nothing is assumed about the card; a model never rendered here says nothing.
+   */
   app.post("/api/advice", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()) }).parse(req.body);
     const recipe = s.registry.recipe(b.recipe);
-    const scan = await (await s.comfy()).scan().catch(() => null);
-    if (!recipe?.advice || !scan?.comfy.online || !scan.comfy.vramTotal) return { items: [] };
-    try {
-      // a form that is half filled in gets no advice rather than an error
-      return { items: recipe.advice(parseInput(recipe, b.input), { vramGb: scan.comfy.vramTotal / 2 ** 30 }) };
-    } catch {
-      return { items: [] };
-    }
+    const got = recipe ? await s.queue.forecast(b.recipe, b.input).catch(() => null) : null;
+    if (!recipe || !got) return { items: [], estimate: null };
+    // said once, as a line at the end of the Output part; the form puts a few words in the part's header when it is past the cliff
+    const { text } = said(got.forecast, got.shape);
+    const items: Advice[] = [];
+    return { items, estimate: { text, pace: got.forecast.pace } };
   });
 }

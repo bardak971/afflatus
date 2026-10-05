@@ -32,7 +32,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     where: "Viewer (any item)",
     note: "An image, a video or an audio file: opened from the grid, or shown large under \"This draft\".",
     keys: [
-      ["←  →", "Previous item, next item"], ["S", "Keep / unkeep"], ["Del", "Move to the bin, and go to the next one"], ["D", "Download the file"],
+      ["←  →", "Previous item, next item"], ["X", "Compare: pin this one, the arrow keys change the other"], ["N", "Start a timeline from it"], ["A", "Add to the timeline last added to"], ["S", "Keep / unkeep"], ["Del", "Move to the bin, and go to the next one"], ["D", "Download the file"],
       ["L", "Reuse parameters: open the form with the same generation parameters"], ["V", "Variation: same parameters, new seed, queued at once"],
       ["Esc", "Close"],
     ],

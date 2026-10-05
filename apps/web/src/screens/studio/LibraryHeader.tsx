@@ -1,7 +1,9 @@
 import { useMemo, type RefObject } from "react";
-import { ChevronDown, Folder as FolderIcon, Search, Star, Trash2, Undo2, X } from "lucide-react";
+import { ChevronDown, Film, Folder as FolderIcon, Search, Star, Trash2, Undo2, X } from "lucide-react";
+import { useLocation } from "wouter";
+import { useMakeTimelineOf } from "../../actions";
 import type { Asset } from "../../api";
-import { useAssetFamilies, useAssetModels, useFolders, useRecipes } from "../../data";
+import { useAssetFamilies, useAssetModels, useFolders, useRecipes, useProjects } from "../../data";
 import { fileLabel } from "../../format";
 import { Select } from "../../Select";
 import { Button, cx, Segmented } from "../../ui";
@@ -32,22 +34,34 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
   const { kind, setKind, typed, setTyped, made, setMade, lora, setLora, kept, setKept } = filters;
   const { picked, setPicked, bulk, moveTo, chosen, binChosen } = selection;
   const folders = useFolders();
+  const projects = useProjects();
+  // the ticked pictures and videos, in the order they were ticked: what a new timeline is made of
+  const [, go] = useLocation();
+  const make = useMakeTimelineOf({ onSuccess: (t) => go(`/timelines/${t.id}`) });
+  const ordered = picked.map((id) => items.find((a) => a.id === id)).filter((a): a is Asset => Boolean(a && a.kind !== "audio"));
   const usedModels = useAssetModels();
   const families = useAssetFamilies();
   const recipes = useRecipes();
   const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
+  // every place a selection can go, grouped by project: the project itself (its root folder), then its folders
+  // indented under it; last the Inbox's folders. A folder's name alone does not say which project it is in.
   const folderOptions = useMemo(() => {
     const all = folders.data?.items ?? [];
-    const out: Array<{ value: string; label: string }> = [];
-    const walk = (parent: string | null, depth: number) => {
-      for (const f of all.filter((x) => x.parentId === parent)) {
-    out.push({ value: f.id, label: `${"\u2003".repeat(depth)}${depth ? "\u21b3 " : ""}${f.name}` });
-        walk(f.id, depth + 1);
+    const out: Array<{ value: string; label: string; note?: string; group: string }> = [];
+    const walk = (parent: string | null, project: string | null, path: string, group: string, skip: string | null) => {
+      for (const f of all.filter((x) => x.parentId === parent && x.projectId === project && x.id !== skip)) {
+        out.push({ value: f.id, label: path ? `${path} › ${f.name}` : f.name, group });
+        walk(f.id, project, path ? `${path} › ${f.name}` : f.name, group, skip);
       }
     };
-    walk(null, 0);
+    for (const p of (projects.data?.items ?? []).filter((x) => !x.archivedAt)) {
+      if (p.folderId) out.push({ value: p.folderId, label: "Root", note: "the project itself, in no folder", group: p.name });
+      walk(null, p.id, "", p.name, p.folderId);
+    }
+    walk(null, null, "", "Inbox", null);
+    out.push({ value: "__none__", label: "No folder", note: "out of every project", group: "Inbox" });
     return out;
-  }, [folders.data]);
+  }, [folders.data, projects.data]);
   return (
 
     <header className="flex h-[60px] shrink-0 items-center gap-2 px-5">
@@ -93,11 +107,12 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
             <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Restore</Button>
           ) : (
             <>
+              {ordered.length > 0 && <Button size="sm" disabled={make.isPending} title="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} /> {make.isPending ? "Making…" : "Make a timeline of these"}</Button>}
               <div className="w-44">
                 <Select
                   size="sm" label="Move the selected items to a folder" placeholder="Move to folder" searchHint="Search folders" value=""
                   onChange={(to) => moveTo.mutate(to === "__none__" ? null : to)}
-                  options={[...folderOptions, { value: "__none__", label: "No folder" }]}
+                  options={folderOptions}
                 />
               </div>
               {chosen.some((a) => !a.kept) && <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} /> Keep</Button>}

@@ -38,7 +38,7 @@ export interface Resume {
   links?: TakeLinks;
   sources?: Array<{ asset: string; role: string }>;
   /** For the record of render times: what it is filed under, whether its model had to load, and what was expected of it. */
-  timing?: { model: string; modelFile: string; timeKey: string; cold: boolean; expectedMs: number | null; expect: { laterMs?: number; finishMs?: number } };
+  timing?: { model: string; modelFile: string; timeKey: string; cold: boolean; expectedMs: number | null; expect: { laterMs?: number; finishMs?: number }; work?: number };
 }
 
 export interface QueueOptions {

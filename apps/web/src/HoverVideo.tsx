@@ -1,5 +1,47 @@
 import { useEffect, useRef, useState } from "react";
+import { Music } from "lucide-react";
 import { fileUrl, thumbUrl } from "./api";
+
+/**
+ * A sound's tile: it plays while the mouse rests on it, with a bar that fills as it goes, and stops and
+ * rewinds when the mouse leaves. Fills its box, like HoverVideo.
+ */
+export function HoverAudio({ asset, delay = 250 }: { asset: string; delay?: number }) {
+  const [playing, setPlaying] = useState(false);
+  const [at, setAt] = useState(0);
+  const timer = useRef<number | null>(null);
+  const el = useRef<HTMLAudioElement>(null);
+  const stop = () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+    setPlaying(false);
+    setAt(0);
+  };
+  useEffect(() => stop, []);
+  useEffect(() => {
+    const a = el.current;
+    if (!playing || !a) return;
+    a.play().catch(() => setPlaying(false));
+  }, [playing]);
+  return (
+    <span
+      className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-ink-2"
+      onPointerEnter={(e) => {
+        if (e.pointerType !== "mouse") return;
+        if (timer.current !== null) window.clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => setPlaying(true), delay);
+      }}
+      onPointerLeave={stop}
+    >
+      <Music size={20} />
+      {playing ? "Playing" : "Audio"}
+      {playing && <audio ref={el} src={fileUrl(asset)} preload="auto" onTimeUpdate={(e) => setAt(e.currentTarget.duration ? e.currentTarget.currentTime / e.currentTarget.duration : 0)} onEnded={stop} />}
+      <span aria-hidden className="absolute inset-x-0 bottom-0 h-1 bg-line">
+        <span className="block h-full bg-accent transition-[width] duration-150" style={{ width: `${Math.round(at * 100)}%` }} />
+      </span>
+    </span>
+  );
+}
 
 /**
  * A preview frame that plays as a video, with its sound, while the mouse rests on it. Clips that open on

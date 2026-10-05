@@ -521,7 +521,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
                     : `No defaults saved for ${model} yet: these are the recipe's.`}
               </span>
               <span className="flex flex-wrap gap-1.5">
-                {differs.length > 0 && <Button size="sm" tone="quiet" onClick={() => save.mutate()} disabled={save.isPending}>Save as defaults for {model}</Button>}
+                {differs.length > 0 && <Button size="sm" tone="quiet" onClick={() => save.mutate()} disabled={save.isPending} title={`Save these as the defaults of ${model}`}>Save as this model's defaults</Button>}
                 {differs.length > 0 && <Button size="sm" onClick={() => onClear(differs.map((i) => i.id))}>Reset all</Button>}
                 {hasSaved && !differs.length && <Button size="sm" onClick={() => forget.mutate()} disabled={forget.isPending}>Forget saved defaults</Button>}
               </span>
@@ -532,13 +532,19 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         </Part>
       )}
       {(out.length > 0 || encoding.length > 0 || upscaling.length > 0) && (
-        <Part id="output" title="Output" summary={<>{outSaid}{changedMark([...upscaling, ...encoding])}</>} warn={warnOf([...out, ...upscaling, ...encoding])} needs={Boolean(q)}>
+        <Part id="output" title="Output" summary={<>{outSaid}{changedMark([...upscaling, ...encoding])}</>} warn={warnOf([...out, ...upscaling, ...encoding]) ?? (advice.data?.estimate?.pace === "over" ? "past your card's usual pace" : undefined)} needs={Boolean(q)}>
           {out.map(render)}
           {/* the tuning of the upscale pass sits with the route that turns it on */}
           {upscaling.length > 0 && heading("Upscale pass", "the second sampling over the enlarged latent: how hard it re-samples, which upscaler, tiles and stretches")}
           {upscaling.map(setting)}
           {encoding.length > 0 && heading("Encode", "frame rate, frame interpolation, compression")}
           {encoding.map(setting)}
+          {/* what it will take, learned from this machine's own renders with the model: nothing assumed about the card */}
+          {advice.data?.estimate && (
+            <span className={cx("text-xs", advice.data.estimate.pace === "over" ? "font-semibold text-warn-ink" : "text-ink-2")} title="Learned from your own renders with this model on this machine: how long a step took at each size, and where the card stopped keeping its pace.">
+              {advice.data.estimate.text}
+            </span>
+          )}
         </Part>
       )}
       {rare.length > 0 && (

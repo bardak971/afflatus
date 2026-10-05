@@ -99,19 +99,13 @@ describe("the queue, arranged by hand", () => {
   });
 });
 
-describe("what is heavy for the card", () => {
-  it("is said next to the choice that makes it so, and never refuses anything", async () => {
-    const ask = async (input: Record<string, unknown>) => (await post(t.app, "/api/advice", { recipe: "h3.video", input })).json().items;
-    // the pretend card has 12 GB
-    expect(await ask({ description: "a" })).toEqual([]);
-    expect(await ask({ description: "a", short: 768, seconds: 9 })).toEqual([
-      { input: "short", level: "heavy", text: "probably too big for a 12 GB card at this length" },
-      { input: "seconds", level: "slow", text: expect.stringContaining("two clips that flow on are faster") },
-    ]);
-    expect(await ask({ description: "a", short: 672 })).toEqual([{ input: "short", level: "slow", text: "slow on your 12 GB card" }]);
-    // a form that is not filled in yet, or a recipe with nothing to say: no advice, no error
-    expect(await ask({})).toEqual([]);
-    expect((await post(t.app, "/api/advice", { recipe: "sdxl.text-to-picture", input: { prompt: "a" } })).json().items).toEqual([]);
+describe("what a render will take", () => {
+  it("is learned from this machine's renders with the model, and says nothing before there are any", async () => {
+    const ask = async (recipe: string, input: Record<string, unknown>) => (await post(t.app, "/api/advice", { recipe, input })).json();
+    // nothing assumed about the card: a model never rendered here gets no words, nor does a form that is not filled in
+    expect(await ask("h3.video", { description: "a", short: 768, seconds: 9 })).toEqual({ items: [], estimate: null });
+    expect(await ask("h3.video", {})).toEqual({ items: [], estimate: null });
+    expect(await ask("nothing.like-it", { prompt: "a" })).toEqual({ items: [], estimate: null });
   });
 });
 

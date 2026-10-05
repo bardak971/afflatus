@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Clapperboard, Link2, Scissors, Star, Trash2 } from "lucide-react";
+import { Camera, Clapperboard, Columns2, Link2, Scissors, Star, Trash2 } from "lucide-react";
 import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
@@ -9,6 +9,9 @@ import { Button, cx } from "./ui";
 import { ContextMenu, useMenu } from "./ContextMenu";
 import { OPS } from "./viewer/shared";
 import { useViewerActions } from "./viewer/useViewerActions";
+import { useAddToLast, useLast, useStartTimeline } from "./actions";
+import { useLocation } from "wouter";
+import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
 import { ViewerSidebar } from "./viewer/ViewerSidebar";
 
@@ -33,6 +36,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const [trim, setTrim] = useState(false);
   const [trimRange, setTrimRange] = useState<Range | null>(null);
   const asset = trail.at(-1) ?? first;
+  // Compare: one item pinned, the arrow keys move the other one beside it
+  const [pinned, setPinned] = useState<Asset | null>(null);
   /** The video's own right-click menu: what the buttons under it do. */
   const videoMenu = useMenu<true>();
   const imageMenu = useMenu<true>();
@@ -47,6 +52,10 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     // drawn in place, it leaves the keys to whatever is open over the screen
     if (inline && document.querySelector("[role=dialog][aria-modal=true]")) return;
     if (e.key === "Escape") {
+      if (pinned) {
+        setPinned(null);
+        return;
+      }
       if (inline) return;
       if (!document.querySelector("[data-keys-help], [role=listbox], [role=menu]") && !info) onClose();
       return;
@@ -57,7 +66,10 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     const inPlayer = (e.target as HTMLElement | null)?.tagName === "VIDEO";
     if (e.key === "ArrowLeft" && !inPlayer) move(-1);
     else if (e.key === "ArrowRight" && !inPlayer) move(1);
+    else if (k === "x" && canCompare) toggleCompare();
     else if (a.inBin) return;
+    else if (k === "n" && a.kind !== "audio") start.mutate(a);
+    else if (k === "a" && a.kind !== "audio" && last) addToLast.mutate(a);
     else if (k === "s") keep.mutate(!a.kept);
     else if (e.key === "Delete") void toBin();
     else if (k === "d") download();
@@ -79,6 +91,19 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // one key to a timeline: a new one from this item, or the end of the one last added to
+  const [, go] = useLocation();
+  const start = useStartTimeline({ onSuccess: (t) => { onClose(); go(`/timelines/${t.id}`); } });
+  const addToLast = useAddToLast();
+  const last = useLast();
+  const canCompare = Boolean(items && items.length > 1 && onOpen && a.kind !== "audio");
+  const toggleCompare = () => {
+    if (pinned) return setPinned(null);
+    setPinned(asset);
+    if (!move(1)) move(-1);
+  };
+  const comparing = pinned !== null && pinned.id !== asset.id;
+  const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={() => { const was = pinned!; setPinned(asset); onOpen?.(was); }} onClose={() => setPinned(null)} /> : null;
   const menuElement = videoMenu.menu
     ? <ContextMenu at={videoMenu.menu.at} label="Actions on this video" items={videoItems()} onClose={videoMenu.close} />
     : imageMenu.menu
@@ -103,8 +128,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     return (
       <div className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
         {menuElement}
-        {media(false)}
+        {compare ?? media(false)}
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
+          {canCompare && <Button size="sm" className={cx(comparing && "border-accent text-accent")} title="Compare: pin this one and move to another with the arrow keys; videos play in step, two pictures also with a wipe" onClick={toggleCompare}><Columns2 size={13} /> Compare <Kbd>X</Kbd></Button>}
           <Button size="sm" onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")} title={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
             <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
           </Button>
@@ -131,8 +157,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   return (
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
       {menuElement}
-      {media(true)}
-      <ViewerSidebar acts={acts} detail={detail} trail={trail} onTrail={setTrail} items={items} trim={trim} onTrim={setTrim} onInfo={setInfo} onClose={onClose} />
+      {compare ?? media(true)}
+      <ViewerSidebar acts={acts} detail={detail} trail={trail} onTrail={setTrail} items={items} trim={trim} onTrim={setTrim} onInfo={setInfo} onClose={onClose} comparing={comparing} onCompare={canCompare ? toggleCompare : undefined} />
       {info && <PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} />}
     </div>
   );

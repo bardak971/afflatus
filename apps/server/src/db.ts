@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Kysely, PostgresDialect, SqliteDialect, type SqliteDatabase } from "kysely";
+import { Kysely, PostgresDialect, SqliteDialect, sql, type SqliteDatabase } from "kysely";
 import { Migrator, type Migration } from "kysely/migration";
 import pg from "pg";
 import type { Config } from "./config";
@@ -114,6 +114,8 @@ export interface Tables {
     step_ms: number | null;
     /** What was expected before it started; null when nothing was known. */
     expected_ms: number | null;
+    /** How much it sampled per step: its largest canvas in pixels times its frames (1 for a picture); null for renders before it was kept, or backfilled roughly. */
+    work: number | null;
     /** Percent of the GPU's memory, and degrees; null when nothing reports them. */
     vram_peak: number | null;
     heat_peak: number | null;
@@ -674,6 +676,20 @@ migrations["0013_model_pages"] = {
   },
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
+  },
+};
+
+migrations["0034_render_work"] = {
+  async up(db) {
+    // what a render sampled per step, for forecasting the next from the renders before it (see forecast.ts). The
+    // rows from before are filled in roughly: the result's size, times 24 frames a second of its length for a
+    // video, where nothing was enlarged after the sampling; new rows carry the exact figure from the graph
+    await db.schema.alterTable("render_stats").addColumn("work", "integer").execute();
+    await sql`update render_stats set work = width * height * max(1, cast(round(duration_ms / 1000.0 * 24) as integer)) where kind = 'video' and width is not null and height is not null and duration_ms is not null and (time_key like '%upscale=Off%' or time_key not like '%upscale=%')`.execute(db);
+    await sql`update render_stats set work = width * height where kind = 'image' and width is not null and height is not null and time_key not like '%hires=true%' and time_key not like '%upscale=%'`.execute(db);
+  },
+  async down(db) {
+    await db.schema.alterTable("render_stats").dropColumn("work").execute();
   },
 };
 

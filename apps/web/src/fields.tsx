@@ -302,7 +302,7 @@ function SizeField({ spec, value: size, values, onChange }: { spec: Extract<Inpu
           const s = spec.shapes.find((x) => x.id === shapeId)!;
           onChange({ width: s.width, height: s.height });
         }} />
-        <div className="min-w-40 grow">
+        <div className="w-full">
           <Select
             size="sm"
             label="More shapes"

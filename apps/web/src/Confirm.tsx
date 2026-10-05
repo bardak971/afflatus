@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { create } from "zustand";
 import { Dialog } from "./Dialog";
 import { Button } from "./ui";
+import { field } from "./screens/kit/shared";
 
 /**
  * A question asked before something that cannot simply be undone from where it was done (a file taken
@@ -12,15 +14,30 @@ interface Question {
   /** What the button that goes ahead says. */
   yes: string;
 }
-const useConfirm = create<{ open: (Question & { answer(ok: boolean): void }) | null }>(() => ({ open: null }));
+/** A name or a line of text asked for: answered with what was typed, or null when closed. */
+interface TextQuestion {
+  title: string;
+  value: string;
+  placeholder?: string;
+  /** What the button that goes ahead says. */
+  yes: string;
+}
+type Open = (Question & { kind: "yes"; answer(ok: boolean): void }) | (TextQuestion & { kind: "text"; answer(text: string | null): void });
+const useConfirm = create<{ open: Open | null }>(() => ({ open: null }));
+const closeOpen = () => {
+  const open = useConfirm.getState().open;
+  if (open?.kind === "yes") open.answer(false);
+  else open?.answer(null);
+};
 
 export function ask(question: Question): Promise<boolean> {
   return new Promise((done) => {
     // one question at a time: a second one takes the place of the first, which is answered no
-    useConfirm.getState().open?.answer(false);
+    closeOpen();
     useConfirm.setState({
       open: {
         ...question,
+        kind: "yes",
         answer: (ok) => {
           useConfirm.setState({ open: null });
           done(ok);
@@ -30,9 +47,55 @@ export function ask(question: Question): Promise<boolean> {
   });
 }
 
+export function askText(question: TextQuestion): Promise<string | null> {
+  return new Promise((done) => {
+    closeOpen();
+    useConfirm.setState({
+      open: {
+        ...question,
+        kind: "text",
+        answer: (text) => {
+          useConfirm.setState({ open: null });
+          done(text);
+        },
+      },
+    });
+  });
+}
+
+/** The text question: a box with what it holds now, Enter or the button answers, Escape closes with nothing. */
+function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
+  const [text, setText] = useState(open.value);
+  const send = () => open.answer(text.trim());
+  return (
+    <Dialog label={open.title} onClose={() => open.answer(null)} z="z-[95]" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
+      <h2 className="text-base font-semibold">{open.title}</h2>
+      <input
+        autoFocus
+        value={text}
+        placeholder={open.placeholder}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            send();
+          }
+        }}
+        onFocus={(e) => e.currentTarget.select()}
+        className={field}
+      />
+      <div className="flex justify-end gap-2 pt-1">
+        <Button tone="quiet" onClick={() => open.answer(null)}>Cancel</Button>
+        <Button tone="primary" onClick={send}>{open.yes}</Button>
+      </div>
+    </Dialog>
+  );
+}
+
 export function ConfirmHost() {
   const open = useConfirm((s) => s.open);
   if (!open) return null;
+  if (open.kind === "text") return <TextAsk open={open} />;
   // over every other dialog: Escape answers the question and nothing else
   return (
     <Dialog label={open.title} onClose={() => open.answer(false)} z="z-[95]" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
