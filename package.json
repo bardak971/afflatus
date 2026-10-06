@@ -20,7 +20,8 @@
     "check:graphs": "tsx scripts/check-graphs.ts",
     "comfy:scan": "tsx scripts/comfy-scan.ts",
     "comfy:load": "tsx scripts/comfy-load.ts",
-    "catalog:save": "tsx scripts/save-node-catalog.ts"
+    "catalog:save": "tsx scripts/save-node-catalog.ts",
+    "corpus:expect": "tsx scripts/corpus-expect.mts"
   },
   "devDependencies": {
     "@afflatus/comfy": "workspace:*",

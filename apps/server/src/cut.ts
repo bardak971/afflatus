@@ -51,6 +51,25 @@ export async function probeMedia(bytes: Uint8Array): Promise<ProbedMedia | null>
   });
 }
 
+/**
+ * The workflow a video carries: ComfyUI's video savers write it into the file's comment, as JSON (the editor's
+ * form, sometimes beside the prompt). null when there is none.
+ */
+export async function embeddedWorkflowOf(file: string): Promise<unknown | null> {
+  const out = await must(tools.ffprobe, ["-v", "error", "-show_entries", "format_tags", "-of", "json", file]).catch(() => null);
+  if (!out) return null;
+  const tags = (JSON.parse(out) as { format?: { tags?: Record<string, string> } }).format?.tags ?? {};
+  for (const key of ["workflow", "comment", "description"]) {
+    const text = tags[key] ?? tags[key.toUpperCase()];
+    if (!text) continue;
+    try {
+      const parsed = JSON.parse(text) as { workflow?: unknown; nodes?: unknown };
+      if (parsed && typeof parsed === "object") return "nodes" in parsed ? parsed : "workflow" in parsed ? parsed.workflow : null;
+    } catch { /* not JSON: a plain comment */ }
+  }
+  return null;
+}
+
 export interface ProbedMedia {
   kind: "video" | "audio";
   mime: string;

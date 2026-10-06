@@ -13,7 +13,7 @@ import { Field, sameValue } from "./fields";
 import { formDefaults } from "./form";
 import { fileLabel } from "./format";
 import { useSettled } from "./hooks";
-import { Button, cx, ErrorNote, Segmented } from "./ui";
+import { Button, cx, ErrorNote, Help, Segmented } from "./ui";
 import { MissingModel } from "./PresetFiles";
 
 /**
@@ -29,9 +29,11 @@ const useParts = create<{ open: Record<string, boolean>; set(id: string, open: b
  * checked; open, its fields are under that line. A part that needs something from the user (a picture
  * that is not chosen yet) is open whatever was remembered.
  */
-function Part({ id, title, summary, warn, needs, head, children, startOpen }: {
+function Part({ id, title, help, summary, warn, needs, head, children, startOpen }: {
   id: string;
   title: string;
+  /** What the part is for, behind a ? beside the fold. */
+  help?: string;
   /** What it holds, in a few words. */
   summary: ReactNode;
   /** A word about something in it that is heavy or wrong, shown while it is folded too. */
@@ -57,6 +59,7 @@ function Part({ id, title, summary, warn, needs, head, children, startOpen }: {
           </span>
           <ChevronDown size={15} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
         </button>
+        {help && <span className="pr-3"><Help text={help} /></span>}
         {head}
       </div>
       {open && <div className="flex flex-col gap-3.5 px-3 pt-1 pb-3">{children}</div>}
@@ -571,7 +574,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         // what the chapter's switches say, for the folded line: "Hires fix on"
         const switches = items.filter((i) => i.type === "toggle").map((i) => `${i.label} ${values[i.id] ? "on" : "off"}`);
         return (
-          <Part key={ch.id} id={ch.id} title={ch.label} needs={Boolean(q)} warn={warnOf(items)} summary={<>{switches.length ? switches.join(" · ") : count(items.length, "setting")}{changedMark(items)}</>}>
+          <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} warn={warnOf(items)} summary={<>{switches.length ? switches.join(" · ") : count(items.length, "setting")}{changedMark(items)}</>}>
             {items.map(setting)}
           </Part>
         );

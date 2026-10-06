@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { isUpload } from "./uploadBody";
+import { embeddedWorkflowOf } from "./cut";
 import { z } from "zod";
 import { modelIndex } from "./comfy";
 import { httpError } from "./errors";
@@ -135,6 +137,14 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
    * `packs` is what the workflow itself says (its author's ComfyUI wrote each node's pack); the rest is
    * looked up in Manager's map. The answer names the queued installs; GET reads where they stand.
    */
+  // a video ComfyUI saved carries its workflow in the file's comment: the file is sent as the body
+  app.post("/api/workflows/extract", async (req) => {
+    if (!isUpload(req.body)) throw httpError("Send the video file as the request body.");
+    const workflow = await embeddedWorkflowOf(req.body.path);
+    if (!workflow) throw httpError("This video carries no workflow. ComfyUI's video savers write one into the videos they make; a video from elsewhere has none.");
+    return { workflow };
+  });
+
   app.post("/api/workflows/packs", async (req) => {
     const body = packsBody.parse(req.body);
     return installPacks(await s.comfy(), body.classes, body.packs);

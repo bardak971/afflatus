@@ -35,6 +35,12 @@ describe("the model a workflow seems to be for", () => {
       "3": { class_type: "CLIPLoader", inputs: { clip_name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", type: "minimax" } },
     })).toBe("MiniMax H3");
     expect(guessModel({ "1": { class_type: "DaSiWa_LTX2LoraLoader", inputs: { loras: "[]" } } })).toBe("");
+    // a Qwen text encoder serves other models too: the diffusion model's file decides, and when it says nothing, so does the guess
+    expect(guessModel({
+      "1": { class_type: "UNETLoader", inputs: { unet_name: "Anima/DaSiWa-ANIMA-ObsidianArchives-v2_int8.safetensors", weight_dtype: "default" } },
+      "2": { class_type: "CLIPLoader", inputs: { clip_name: "qwen_3_600m.safetensors", type: "qwen_image", device: "default" } },
+    })).toBe("");
+    expect(guessModel({ "1": { class_type: "UNETLoader", inputs: { unet_name: "qwen_image_fp8.safetensors" } }, "2": { class_type: "CLIPLoader", inputs: { clip_name: "qwen_2.5_vl_7b.safetensors" } } })).toBe("Qwen Image");
     expect(guessModel({ "1": { class_type: "MiniMaxH3Director", inputs: { mode: "I2VA" } } })).toBe("MiniMax H3");
   });
 

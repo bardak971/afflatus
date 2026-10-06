@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Graph } from "@afflatus/core";
-import { suggestSections, type Wiring } from "../src";
+import { chapterName, suggestSections, titleParts, type Toggle, type Wiring } from "../src";
 
 /**
  * A first arrangement from the author's frames: sections in reading order, a switch for a pass the
@@ -57,13 +57,17 @@ describe("a first arrangement from the author's frames", () => {
     // the frame with the output and nothing of the form in it, and the link frame, are left alone
     expect(s.why.find((w) => w.startsWith('"Save With Meta Data"'))).toMatch(/left alone/);
     expect(s.why.some((w) => w.includes("Patreon"))).toBe(false);
-    expect(s.why.at(-1)).toMatch(/1 setting in no frame/);
+    expect(s.why.at(-1)).toMatch(/1 setting placed nowhere stays under Advanced/);
   });
 
-  it("says so when there is nothing to go by", () => {
+  it("without frames, arranges by what the nodes do: Model, Output, Sampling, then a section per pass", () => {
     const none = suggestSections(graph, wiring([]), "9", placeables);
-    expect(none.sections).toEqual([]);
-    expect(none.why).toEqual(["This workflow has no frames to go by: nothing to suggest. Arrange it by hand."]);
+    expect(none.why[0]).toMatch(/no frames: arranged by what its nodes do/);
+    expect(none.sections.map((x) => x.label)).toEqual(["Model", "Output", "Sampling", "Hires fix", "Upscale"]);
+    expect(none.sections[2]!.items).toEqual(["ctl_3_steps", "ctl_3_cfg", "seed"]);
+    // the upscale that only feeds the second sampling is that pass's: one switch for both
+    expect(none.toggles.map((t) => [t.label, t.default, [...t.effects[0]!.nodes].sort()])).toEqual([["Hires fix", true, ["10", "11"]], ["Upscale", true, ["21"]]]);
+    expect(none.sections[3]!.items).toEqual([{ toggle: none.toggles[0]!.id, items: ["ctl_10_scale_by", "ctl_11_denoise"] }]);
   });
 
   it("makes no switch of a frame whose bypass would cut the output", () => {
@@ -71,5 +75,59 @@ describe("a first arrangement from the author's frames", () => {
     const odd = suggestSections(graph, wiring([{ title: "Decode", nodes: ["8"], box: [0, 0, 1, 1] }]), "9", [{ id: "ctl_8_x", node: "8" }]);
     expect(odd.sections[0]!.items).toEqual(["ctl_8_x"]);
     expect(odd.toggles).toEqual([]);
+  });
+});
+
+describe("frame titles as chapter names", () => {
+  it("drops numbering, markers, pictographs and instructions, and keeps what follows a dash as an aside", () => {
+    expect(chapterName("6  UPSCALE  hires pass 1.5x  (switch off in the toggles box)")).toBe("UPSCALE");
+    expect(chapterName("# ::Face 🙂")).toBe("Face");
+    expect(chapterName("🖼️➡️🎥 1st Pass Render")).toBe("1st Pass Render");
+    expect(chapterName("Step 1 - Upscaler and Save 3x3 Grid Image")).toBe("Upscaler and Save 3x3 Grid Image");
+    expect(chapterName("⚙️User Settings")).toBe("User Settings");
+    expect(titleParts("Face Detailer - Only use if faces are far away")).toEqual({ name: "Face Detailer", aside: "Only use if faces are far away" });
+    expect(titleParts("#").name).toBe("");
+  });
+});
+
+describe("what the suggester takes from the frames", () => {
+  const w = (frames: Wiring["frames"], modes: Wiring["modes"] = {}): Wiring => ({ ...wiring(frames), modes });
+  it("names a frame titled with a mark alone by what is in it, and merges two plain frames of one name", () => {
+    const s = suggestSections(graph, w([
+      { title: "#", nodes: ["4"], box: [0, 0, 1, 1] },
+      { title: "Sampling", nodes: ["3"], box: [10, 0, 1, 1] },
+      { title: "🎲 Sampling", nodes: ["5"], box: [20, 0, 1, 1] },
+    ]), "9", placeables);
+    expect(s.sections.map((x) => [x.label, x.items])).toEqual([["Model", ["ctl_4_ckpt_name"]], ["Sampling", ["ctl_3_steps", "ctl_3_cfg", "seed", "size"]]]);
+  });
+  it("starts a switch off when the author saved its frame off or its title says it is for some cases only, with the aside as its help", () => {
+    const s = suggestSections(graph, w([
+      { title: "2nd Pass", nodes: ["10", "11"], box: [0, 0, 1, 1] },
+      { title: "4K pass - usually not necessary", nodes: ["20", "21"], box: [10, 0, 1, 1], note: "Needs SeedVR2." },
+    ], { "10": "bypass", "11": "bypass" }), "9", placeables);
+    expect(s.toggles.map((t) => [t.label, t.default, t.help])).toEqual([["2nd Pass", false, undefined], ["4K pass", false, "usually not necessary\n\nNeeds SeedVR2."]]);
+    expect(s.why.join(" ")).toMatch(/off as the author saved it/);
+  });
+  it("makes the frames drawn inside a frame its switches, in one section", () => {
+    const s = suggestSections(graph, w([
+      { title: "Passes", nodes: [], box: [0, 0, 100, 100], note: "Turn on what you need." },
+      { title: "Hires", nodes: ["10", "11"], box: [0, 0, 10, 10], parent: 0 },
+      { title: "4K", nodes: ["20", "21"], box: [20, 0, 10, 10], parent: 0 },
+    ]), "9", placeables);
+    expect(s.sections).toHaveLength(1);
+    expect(s.sections[0]!.label).toBe("Passes");
+    expect(s.sections[0]!.help).toBe("Turn on what you need.");
+    expect(s.sections[0]!.items).toEqual([{ toggle: s.toggles[0]!.id, items: ["ctl_10_scale_by", "ctl_11_denoise"] }, { toggle: s.toggles[1]!.id, items: ["ctl_21_resolution"] }]);
+  });
+  it("uses the file's own switch over a frame rather than making one", () => {
+    const own: Toggle = { id: "sw_off_4k", label: "4K", default: false, writes: [], effects: [{ nodes: ["20", "21"], activeWhen: true, mode: "bypass" }] };
+    const s = suggestSections(graph, w([{ title: "4K", nodes: ["20", "21"], box: [0, 0, 1, 1] }]), "9", [...placeables, { id: "sw_off_4k", node: "20" }], undefined, [own]);
+    expect(s.toggles).toEqual([]);
+    expect(s.sections[0]!.items).toEqual([{ toggle: "sw_off_4k", items: ["ctl_21_resolution"] }]);
+  });
+  it("splits a long section by node", () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ id: `ctl_3_x${i}`, node: "3" })).concat(Array.from({ length: 6 }, (_, i) => ({ id: `ctl_5_y${i}`, node: "5" })));
+    const s = suggestSections(graph, w([{ title: "Base", nodes: ["3", "5"], box: [0, 0, 1, 1] }]), "9", many);
+    expect(s.sections.map((x) => [x.label, x.items.length])).toEqual([["Base", 10], ["Base · EmptyLatentImage", 6]]);
   });
 });

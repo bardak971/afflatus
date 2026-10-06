@@ -3,7 +3,8 @@ import {
 } from "@afflatus/core";
 import type { Chapter } from "@afflatus/core";
 import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
-import { ancestors, modesFor, prune, remove, settle, skipsFor, trim } from "./wiring";
+import { ancestors, cutFileNameChains, modesFor, prune, remove, settle, skipsFor, trim } from "./wiring";
+import { MEDIA_LOADERS } from "./inspect";
 
 /** The family a workflow recipe belongs to: the model name the user gave it. */
 export function familyOf(def: WorkflowDef): Family {
@@ -141,6 +142,8 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   const inputs: InputSpec[] = [];
   const video = b.result.kind === "video";
 
+  // the model file, as the form's Model picker: the file the workflow came with to begin with
+  if (b.model && g[b.model.target.node]) inputs.push({ id: "model", type: "model", label: "Model", folder: b.model.folder, default: String(read(g, b.model.target) ?? "") });
   // the prompt it was saved with is its author's, for one picture: the form starts empty and shows it as an example
   const savedPrompt = b.prompt ? String(read(g, b.prompt) ?? "") : "";
   if (b.prompt) inputs.push({ id: "prompt", type: "prompt", label: "Prompt", style: "sentences", default: savedPrompt, optional: true, example: true });
@@ -149,6 +152,10 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   if (b.startImage) inputs.push({ id: "startImage", type: "image", role: video ? "start" : "source", label: video ? "Start image" : "Image", optional: !b.startImage.required });
   if (b.endImage) inputs.push({ id: "endImage", type: "image", role: "end", label: "End image", optional: !b.endImage.required });
   for (const p of b.pictures ?? []) if (g[p.target.node]) inputs.push({ id: p.id, type: "image", role: "source", label: p.label, optional: !p.required });
+  // a video the workflow's own loader reads: the whole file goes up, the workflow takes the frames it wants of it
+  if (b.previousVideo && g[b.previousVideo.target.node]) inputs.push({ id: "previousVideo", type: "clip", role: "previous", label: "Previous clip", note: "the video it carries on from: the workflow reads its last frames", frames: [], fps: b.length?.fps ?? 24, whole: true, optional: !b.previousVideo.required });
+  if (b.nextVideo && g[b.nextVideo.target.node]) inputs.push({ id: "nextVideo", type: "clip", role: "next", label: "Next clip", note: "the video it arrives at", frames: [], fps: b.length?.fps ?? 24, whole: true, optional: !b.nextVideo.required });
+  if (b.sound && g[b.sound.target.node]) inputs.push({ id: "sound", type: "audio", role: "sound", label: "Sound", note: "a sound of the library, or a video's sound", optional: !b.sound.required });
   // one list for the model, or one per loader when the workflow has several that were told apart (a high and a low model)
   const separate = b.loras.length > 1 && b.loras.every((p) => p.label);
   const loraInput = (i: number) => (separate && i > 0 ? `loras_${i + 1}` : "loras");
@@ -281,14 +288,14 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
           for (const id of item.items) place(id, s.id, head.id);
         }
       }
-      if (ordered.length > before) chapters.push({ id: s.id, label: s.label });
+      if (ordered.length > before) chapters.push({ id: s.id, label: s.label, ...(s.help ? { help: s.help } : {}) });
     }
     inputs.splice(0, inputs.length, ...ordered, ...inputs.filter((i) => !placed.has(i.id)));
   }
   // no shelves of the form's own for an imported workflow: what the importer did not place goes under Advanced, folded.
   // The prompt stays at the top (the form's spine), its negative under it, and the pictures where they are dropped
   for (const i of inputs) {
-    if (i.chapter || i.id === "prompt" || i.id === "negative" || i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio") continue;
+    if (i.chapter || i.id === "prompt" || i.id === "negative" || i.type === "model" || i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio") continue;
     Object.assign(i, { advanced: true, section: "rare" });
   }
 
@@ -297,8 +304,8 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
         startFrame: Boolean(b.startImage),
         endFrame: Boolean(b.endImage),
         midFrames: false,
-        // a workflow that opens on a picture can pick up from the last frame of the clip before it
-        continues: b.startImage ? "frame" : false,
+        // a workflow that reads the clip before carries its motion on; one that opens on a picture picks up from its last frame
+        continues: b.previousVideo ? "clip" : b.startImage ? "frame" : false,
         endAnchor: false,
         sound: b.result.sound,
         fps: b.length?.fps ?? 16,
@@ -317,6 +324,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     const whole = structuredClone(g);
     if (b.prompt && typeof input.prompt === "string") write(whole, b.prompt, input.prompt);
     if (b.negative && typeof input.negative === "string") write(whole, b.negative, input.negative);
+    if (b.model && typeof input.model === "string" && input.model) write(whole, b.model.target, input.model);
     for (const s of b.seeds) write(whole, s, ctx.seed);
     if (b.size && input.size) {
       const size = input.size as SizeValue;
@@ -342,11 +350,15 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     const { graph } = pruned;
     // previews left out at import, with the branches that only served them: ComfyUI runs every output node it is sent
     for (const sk of b.skip ?? []) for (const id of [sk.node, ...sk.nodes]) if (id !== b.result.node) delete graph[id];
-    for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const)] as const) {
+    // a file name built by a chain of nodes: a plain name instead, and the chain goes (its packs are not needed)
+    cutFileNameChains(graph, slug(def.title) || "afflatus");
+    for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const), ["previousVideo", b.previousVideo], ["nextVideo", b.nextVideo], ["sound", b.sound]] as const) {
       if (!image) continue;
       const uploaded = ctx.uploads[id];
-      if (uploaded) write(graph, image.target, uploaded);
-      // no picture: take the loader out, with every link that read it
+      // a loader that takes a path, not a name of the input folder: the uploaded file is in ComfyUI's temp folder
+      const loader = graph[image.target.node] ? MEDIA_LOADERS[graph[image.target.node]!.class_type] : undefined;
+      if (uploaded) write(graph, image.target, loader?.path ? `temp/${uploaded.replace(/ \[temp\]$/, "")}` : uploaded);
+      // no picture, video or sound: take the loader out, with every link that read it
       else remove(pruned, image.target.node);
     }
     // where it stops: the result, or an earlier point the form asked for. What comes after that point is taken out.
@@ -418,7 +430,10 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   const everyPicture: Record<string, string> = {
     ...(b.startImage ? { startImage: "start.png" } : {}), ...(b.endImage ? { endImage: "end.png" } : {}),
     ...Object.fromEntries((b.pictures ?? []).map((p) => [p.id, `${p.id}.png`])),
+    ...(b.previousVideo ? { previousVideo: "previous.mp4" } : {}), ...(b.nextVideo ? { nextVideo: "next.mp4" } : {}), ...(b.sound ? { sound: "sound.wav" } : {}),
   };
+  /** A value of the right shape for each of them, for the dry run. */
+  const dryValue = (id: string): unknown => (id.endsWith("Video") ? { asset: "a-video" } : "a-picture");
   /** What the result is made from, for a given form. */
   const usedNodes = (input: Record<string, unknown>) => {
     const built = build(input, { seed: 1, uploads: everyPicture });
@@ -446,6 +461,6 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     nodes: (input) => [...new Set(usedNodes(input).map((n) => n.class_type))],
     build,
     // the workflow as it was saved, with a picture in every slot
-    variants: [{ name: "as imported", input: Object.fromEntries(Object.keys(everyPicture).map((id) => [id, "a-picture"])), uploads: everyPicture }],
+    variants: [{ name: "as imported", input: Object.fromEntries(Object.keys(everyPicture).map((id) => [id, dryValue(id)])), uploads: everyPicture }],
   };
 }

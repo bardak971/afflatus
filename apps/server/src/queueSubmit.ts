@@ -67,6 +67,15 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
         if (painted && !painted.box) throw new Error("The mask is empty. Paint over the part to inpaint.");
         if (painted?.box) media[spec.id] = { width: painted.width, height: painted.height, box: painted.box };
       }
+    } else if (spec.type === "clip" && value && spec.whole) {
+      // an imported workflow's own loader reads the video: the whole file goes up as it is
+      const { asset: assetId } = value as ClipValue;
+      const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
+      if (!asset || asset.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
+      const bytes = await storage.get(asset.file_key);
+      uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime));
+      const facts = asset.width && asset.height ? { width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) } : (await readVideo(bytes, extOf(asset.mime)).catch(() => null))?.facts;
+      media[spec.id] = { width: facts?.width ?? 0, height: facts?.height ?? 0, hasSound: facts?.hasSound ?? false };
     } else if (spec.type === "clip" && value) {
       // of the clip it joins onto, the recipe gets a few frames with their sound, cut at the chosen moment
       const { asset: assetId, at } = value as ClipValue;

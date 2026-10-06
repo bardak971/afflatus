@@ -14,7 +14,11 @@ const LORA_NODE = /lora/i;
 export function guessModel(graph: Graph): string {
   const nodes = Object.values(graph);
   const classes = nodes.map((n) => n.class_type).filter((c) => !LORA_NODE.test(c));
-  const files = nodes.flatMap((n) => Object.values(n.inputs).filter((v): v is string => typeof v === "string" && MODEL_FILE.test(v)));
+  // the diffusion model's file first: a text encoder's (a Qwen one serves other models) or a VAE's says less
+  const fileOf = (n: Graph[string], re: RegExp) => Object.entries(n.inputs).filter(([k, v]) => re.test(k) && typeof v === "string" && MODEL_FILE.test(v as string)).map(([, v]) => v as string);
+  const mainFiles = nodes.flatMap((n) => fileOf(n, /^(unet_name|ckpt_name|model_name|model)$/));
+  // a text encoder's or a VAE's file is left out altogether: a Qwen encoder or VAE serves models of other families
+  const otherFiles = nodes.flatMap((n) => fileOf(n, /^(?!unet_name$|ckpt_name$|model_name$|model$|clip_name|text_encoder|vae_name)/));
   const from = (names: string) => {
     const has = (re: RegExp) => re.test(names);
     if (has(/minimax|mmh3|(^|[^a-z0-9])h3([^a-z0-9]|$)/i)) return "MiniMax H3";
@@ -32,8 +36,9 @@ export function guessModel(graph: Graph): string {
     if (has(/sd15|sd[_ -]?1[._]5|v1-5/i)) return "SD 1.5";
     return "";
   };
-  // H3 workflows load a Qwen text encoder beside the H3 model: the diffusion model's file, not the encoder's, says
-  const byFile = from(files.join("\n"));
+  const byMain = from(mainFiles.join("\n"));
+  if (byMain) return byMain;
+  const byFile = from(otherFiles.join("\n"));
   if (byFile) return byFile;
   const byClass = from(classes.join("\n"));
   if (byClass) return byClass;

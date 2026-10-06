@@ -153,7 +153,8 @@ export async function scan(
           const taken = input.slot ? slots.filter((s) => s.id !== input.slot && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
           options[input.id] = [...new Set([...(usual ? [usual] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
           // with a slot, a missing file is the slot's to report
-          if (!options[input.id]!.length && !input.slot) emptyInputs.push(input.id);
+          // with a slot, a missing file is the slot's to report; with a file of its own (an imported workflow's), the list is not needed
+          if (!options[input.id]!.length && !input.slot && !input.default) emptyInputs.push(input.id);
         } else if (input.type === "loras") {
           // every LoRA for now: sorting them by the family they fit needs their metadata, which is read later
           options[input.id] = await files("loras");

@@ -17,3 +17,11 @@ data-demo/
 # Python bytecode from the node pack (ComfyUI writes it beside the sources)
 __pycache__/
 *.pyc
+
+# a local corpus of other people's workflows for the importer's regression check (packages/workflows/test/corpus.test.ts): not published
+packages/workflows/test/corpus/*
+!packages/workflows/test/corpus/expect.json
+!packages/workflows/test/corpus/README.md
+
+# working notes, kept locally only
+STATUS.md

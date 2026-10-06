@@ -99,6 +99,8 @@ export const section = z.object({
   label: z.string(),
   /** Ids of inputs (controls, the file's switches, the mapping's own inputs), or switch groups, in the order shown. */
   items: z.array(z.union([z.string(), switchGroup])).default([]),
+  /** What the author wrote about it (the notes in its frame): the chapter's ? */
+  help: z.string().optional(),
 });
 export type Section = z.infer<typeof section>;
 
@@ -132,7 +134,17 @@ export const wiring = z.object({
   /** The frames the author drew around nodes (the editor's groups): their titles and the nodes inside, for making switches. */
   /** The inputs of each node that its kind declares optional: a link to one that leads nowhere is dropped, not broken. */
   optional: z.record(z.string(), z.array(z.string())).default({}),
-  frames: z.array(z.object({ title: z.string(), nodes: z.array(z.string()), /** Where the author drew it: x, y, width, height; for reading frames in their order. */ box: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional() })).default([]),
+  frames: z.array(z.object({
+    title: z.string(),
+    /** The nodes it holds itself; those in a frame drawn inside it belong to that one. */
+    nodes: z.array(z.string()),
+    /** Where the author drew it: x, y, width, height; for reading frames in their order. */
+    box: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+    /** The frame it is drawn inside, by its place in this list. */
+    parent: z.number().optional(),
+    /** What the author wrote in the notes inside it. */
+    note: z.string().optional(),
+  })).default([]),
 });
 export type Wiring = z.infer<typeof wiring>;
 
@@ -144,6 +156,9 @@ const image = z.object({
   required: z.boolean(),
 });
 export type ImageBinding = z.infer<typeof image>;
+/** A video or a sound the workflow loads, bound the way a picture is: the loader's file input, what to detach without one. */
+const media = image;
+export type MediaBinding = z.infer<typeof media>;
 
 export const bindings = z.object({
   prompt: target.optional(),
@@ -153,6 +168,8 @@ export const bindings = z.object({
   size: z.object({ width: target, height: target, step: z.number(), min: z.number(), max: z.number() }).optional(),
   /** Video length: seconds on the form, frames in the graph (frames = step × k + offset). */
   length: z.object({ target, fps: z.number(), step: z.number(), offset: z.number(), min: z.number(), max: z.number() }).optional(),
+  /** The loader whose file is the form's Model picker: ComfyUI's folder it is picked from. */
+  model: z.object({ target, folder: z.string() }).optional(),
   startImage: image.optional(),
   endImage: image.optional(),
   /**
@@ -160,6 +177,11 @@ export const bindings = z.object({
    * is a slot of its own in the form, under the name its loader was given.
    */
   pictures: z.array(image.extend({ id: z.string(), label: z.string() })).default([]),
+  /** A video loader the workflow reads the clip before from (its last frames carry on), and one it arrives at. */
+  previousVideo: media.optional(),
+  nextVideo: media.optional(),
+  /** A sound loader: a sound of the library, or a video's sound. */
+  sound: media.optional(),
   /** Outputs of model loaders after which the user's LoRAs are chained. */
   loras: z.array(z.object({
     node: z.string(),

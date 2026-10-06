@@ -37,8 +37,10 @@ interface ENode {
   properties?: Record<string, unknown>;
 }
 interface ELink { id: number; origin_id: number | string; origin_slot: number; target_id: number | string; target_slot: number }
-interface EGraph { nodes?: ENode[]; links?: unknown[]; groups?: Array<{ title?: string; bounding?: number[] }> }
-interface ESubgraph extends EGraph { id: string; inputNode?: { id: number }; outputNode?: { id: number }; outputs?: Array<{ linkIds?: number[] }> }
+/** A link the "Anything Everywhere" pack makes without drawing it: the file writes the links it resolved to. */
+interface UELink { upstream?: number | string; upstream_slot?: number; downstream?: number | string; downstream_slot?: number }
+interface EGraph { nodes?: ENode[]; links?: unknown[]; groups?: Array<{ title?: string; bounding?: number[] }>; extra?: { ue_links?: UELink[] } }
+interface ESubgraph extends EGraph { id: string; inputNode?: { id: number }; outputNode?: { id: number }; inputs?: Array<{ name?: string; type?: unknown; linkIds?: number[] }>; outputs?: Array<{ name?: string; type?: unknown; linkIds?: number[] }> }
 
 /** The editor's save has a list of nodes with positions and a list of links; an exported workflow has nodes by id. */
 export function isEditorFormat(json: unknown): boolean {
@@ -50,7 +52,9 @@ const SWITCH = "DaSiWa_NodeStatusSwitch";
 const POWER_LORAS = "Power Lora Loader (rgthree)";
 const NOTES = new Set(["Note", "MarkdownNote"]);
 /** Nodes that exist only in the editor and stand for a link or a value. */
-const VIRTUAL = new Set(["Reroute", "PrimitiveNode", "GetNode", "SetNode"]);
+const VIRTUAL = new Set(["Reroute", "Reroute (rgthree)", "PrimitiveNode", "GetNode", "SetNode", "easy getNode", "easy setNode"]);
+/** A switch that picks one of two inputs by a yes/no typed on it (Crystools): read as a link to the one picked. */
+const CRYSTOOLS_SWITCH = /^Switch .*\[Crystools\]$/;
 /** What the editor stores after a number that can change between runs. */
 const AFTER_RUN = new Set(["fixed", "increment", "decrement", "randomize"]);
 
@@ -97,7 +101,9 @@ function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string
   const changes = (name: string) => Boolean(optsOf(all[name]).control_after_generate) || (/^(noise_)?seed$/.test(name) && typeOf(all[name]) === "INT");
   // newer files list every field; older ones (and trimmed ones) only the linked fields
   const complete = fromFile.length > 0 && fromFile.length + fromFile.filter(changes).length >= saved.length;
-  const names = complete || !fromCatalog.length ? fromFile : fromCatalog;
+  let names = complete || !fromCatalog.length ? fromFile : fromCatalog;
+  // a kind this ComfyUI lacks that lists its values without naming them (a literal of a small pack): named by their place
+  if (!info && !names.length && saved.length) names = saved.map((_, i) => (saved.length === 1 ? "value" : `value_${i}`));
 
   const out: Record<string, unknown> = {};
   const gone: string[] = [];
@@ -142,14 +148,43 @@ interface Scope {
 interface Promoted { key: string; label?: string }
 type Origin = { ref: Ref } | { literal: unknown; promoted?: Promoted } | undefined;
 
-/** The value typed into a field on the front of a group node (the file lists them in the order of its fields). */
-function hostValue(host: ENode, slot: number): unknown {
-  const socket = host.inputs?.[slot];
-  const name = socket?.widget?.name;
-  const saved = host.widgets_values;
-  if (!socket || !name || !saved) return undefined;
-  if (!Array.isArray(saved)) return (saved as Record<string, unknown>)[name];
-  return saved[(host.inputs ?? []).filter((s) => s.widget?.name).indexOf(socket)];
+/**
+ * The fields on the front of a group node, in the order the file lists their values: the group's own inputs,
+ * in the group's order, that a widget inside reads (an input nothing inside reads counts when it is of a
+ * widget's type). The node that stands for the group lists its sockets in another order, and only some.
+ */
+function frontFields(scope: Scope): string[] {
+  const def = scope.host?.def;
+  if (!def) return [];
+  const WIDGET = /^(INT|FLOAT|STRING|BOOLEAN|COMBO|IMAGEUPLOAD)$/;
+  return (def.inputs ?? []).flatMap((i) => {
+    const targets = (i.linkIds ?? []).map((l) => scope.links.get(l)).filter((l): l is ELink => Boolean(l));
+    const field = targets.length
+      ? targets.some((l) => scope.nodes.get(String(l.target_id))?.inputs?.[l.target_slot]?.widget?.name)
+      : WIDGET.test(typeName(i.type));
+    return field ? [i.name ?? ""] : [];
+  });
+}
+/** Field name → the value typed on the front of the group node this scope is inside of. */
+function frontValues(scope: Scope): Map<string, unknown> {
+  const out = new Map<string, unknown>();
+  const host = scope.host?.node;
+  const saved = host?.widgets_values;
+  if (!host || !saved) return out;
+  const fields = frontFields(scope);
+  if (!Array.isArray(saved)) {
+    for (const f of fields) out.set(f, (saved as Record<string, unknown>)[f]);
+    return out;
+  }
+  // after a number the editor may store what to do with it after a run ("randomize"): not a field
+  let k = 0;
+  for (const f of fields) {
+    if (k >= saved.length) break;
+    const value = saved[k++];
+    out.set(f, value);
+    if (typeof value === "number" && typeof saved[k] === "string" && AFTER_RUN.has(saved[k] as string)) k++;
+  }
+  return out;
 }
 
 export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings {
@@ -158,12 +193,22 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   const notes: string[] = [];
   const note = (text: string) => void (notes.includes(text) || notes.push(text));
 
-  const scopeOf = (g: EGraph, path: string[], host?: Scope["host"], off?: Mode): Scope => ({
-    path, host, off,
-    nodes: new Map((g.nodes ?? []).map((n) => [String(n.id), n])),
-    links: new Map((g.links ?? []).flatMap((raw) => { const l = parseLink(raw); return l ? [[l.id, l] as const] : []; })),
-    groups: g.groups ?? [],
-  });
+  const scopeOf = (g: EGraph, path: string[], host?: Scope["host"], off?: Mode): Scope => {
+    const nodes = new Map((g.nodes ?? []).map((n) => [String(n.id), n]));
+    const links = new Map((g.links ?? []).flatMap((raw) => { const l = parseLink(raw); return l ? [[l.id, l] as const] : []; }));
+    // links the "Anything Everywhere" pack makes without drawing them: the file says what they resolved to, and the
+    // socket they lead to has no link of its own. They get ids of their own, below every id the file uses.
+    let next = -1000;
+    for (const ue of g.extra?.ue_links ?? []) {
+      if (ue.upstream === undefined || ue.downstream === undefined || typeof ue.upstream_slot !== "number" || typeof ue.downstream_slot !== "number") continue;
+      const socket = nodes.get(String(ue.downstream))?.inputs?.[ue.downstream_slot];
+      if (!socket || socket.link != null || !nodes.has(String(ue.upstream))) continue;
+      const id = next--;
+      links.set(id, { id, origin_id: ue.upstream, origin_slot: ue.upstream_slot, target_id: ue.downstream, target_slot: ue.downstream_slot });
+      socket.link = id;
+    }
+    return { path, host, off, nodes, links, groups: g.groups ?? [] };
+  };
   const flatId = (scope: Scope, node: ENode) => [...scope.path, String(node.id)].join(":");
   const opened = new Map<string, Scope>();
   /** What is inside a group node, when the node is one. */
@@ -178,6 +223,8 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   const kindOf = (node: ENode): "real" | "switch" | "skip" => {
     if (node.type === SWITCH) return "switch";
     if (NOTES.has(node.type) || VIRTUAL.has(node.type)) return "skip";
+    // a Crystools switch with its yes/no typed on it is read as a link (fromOutput): the node itself is not sent
+    if (CRYSTOOLS_SWITCH.test(node.type) && typeof (Array.isArray(node.widgets_values) ? node.widgets_values[0] : undefined) === "boolean" && (node.inputs ?? []).find((i) => i.name === "boolean")?.link == null) return "skip";
     // labels, bookmarks and other things an extension draws on the canvas: unknown to ComfyUI and wired to nothing
     return catalog[node.type] || linked(node) ? "real" : "skip";
   };
@@ -188,12 +235,16 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
     if (!link) return undefined;
     // from the edge of a group node: what is plugged into that socket one level up
     if (scope.host && String(link.origin_id) === String(scope.host.def.inputNode?.id)) {
-      const { node: host, scope: outer } = scope.host;
-      const socket = host.inputs?.[link.origin_slot];
+      const { node: host, scope: outer, def } = scope.host;
+      // the slot is the group's own input; the node that stands for the group lists its sockets in its own order
+      // (a field the node has no socket for is read by its name alone; another socket must not stand in for it)
+      const name = def.inputs?.[link.origin_slot]?.name;
+      const socket = name !== undefined ? host.inputs?.find((s) => s.name === name) : host.inputs?.[link.origin_slot];
+      const key = name ?? socket?.name;
       if (socket?.link != null) return fromLink(outer, socket.link, seen);
       // nothing plugged in: the value typed on the front of the group node, when it has a field there
-      const value = hostValue(host, link.origin_slot);
-      return value === undefined || !socket ? undefined : { literal: value, promoted: { key: `${flatId(outer, host)}.${socket.name}`, label: socket.label } };
+      const value = key === undefined ? undefined : frontValues(scope).get(key);
+      return value === undefined ? undefined : { literal: value, promoted: { key: `${flatId(outer, host)}.${key}`, label: socket?.label } };
     }
     return fromOutput(scope, String(link.origin_id), link.origin_slot, seen);
   };
@@ -204,20 +255,37 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
     seen.add(key);
     const within = inside(scope, node);
     if (within) {
-      // the group node says which link feeds each of its outputs; a file can also hold links left over from deleted nodes
       const def = within.host!.def;
+      // a group node bypassed as a whole hands each output the input of its type (the same index first), as ComfyUI does
+      if (modeOf(node) === "bypass") {
+        const outType = typeName(def.outputs?.[slot]?.type);
+        const ins = def.inputs ?? [];
+        const at = typeName(ins[slot]?.type) === outType ? slot : ins.findIndex((i) => typeName(i.type) === outType);
+        const name = at >= 0 ? ins[at]?.name : undefined;
+        const socket = name !== undefined ? node.inputs?.find((s) => s.name === name) : undefined;
+        if (socket?.link != null) return fromLink(scope, socket.link, seen);
+        const value = name !== undefined ? frontValues(within).get(name) : undefined;
+        return value === undefined ? undefined : { literal: value };
+      }
+      // the group node says which link feeds each of its outputs; a file can also hold links left over from deleted nodes
       const edge = String(def.outputNode?.id);
       const listed = (def.outputs?.[slot]?.linkIds ?? []).map((id) => within.links.get(id)).find((l) => l && within.nodes.has(String(l.origin_id)) || String(l?.origin_id) === String(def.inputNode?.id));
       const link = listed ?? [...within.links.values()].find((l) => String(l.target_id) === edge && l.target_slot === slot && within.nodes.has(String(l.origin_id)));
       return fromLink(within, link?.id, seen);
     }
-    if (node.type === "Reroute" || node.type === "SetNode") return fromLink(scope, node.inputs?.[0]?.link, seen);
+    if (node.type === "Reroute" || node.type === "SetNode" || node.type === "easy setNode") return fromLink(scope, node.inputs?.[0]?.link, seen);
     const first = Array.isArray(node.widgets_values) ? node.widgets_values[0] : undefined;
     if (node.type === "PrimitiveNode") return { literal: first };
-    if (node.type === "GetNode") {
+    if (node.type === "GetNode" || node.type === "easy getNode") {
       // reads what a "Set" node of the same name was given
-      const setter = [...scope.nodes.values()].find((n) => n.type === "SetNode" && Array.isArray(n.widgets_values) && n.widgets_values[0] === first);
+      const setter = [...scope.nodes.values()].find((n) => (n.type === "SetNode" || n.type === "easy setNode") && Array.isArray(n.widgets_values) && n.widgets_values[0] === first);
       return fromLink(scope, setter?.inputs?.[0]?.link, seen);
+    }
+    if (CRYSTOOLS_SWITCH.test(node.type)) {
+      // the yes/no typed on it says which input it hands on; one wired from elsewhere cannot be read here
+      const yes = (node.inputs ?? []).find((s) => s.name === "boolean");
+      const typed = typeof first === "boolean" && yes?.link == null;
+      if (typed) return fromLink(scope, (node.inputs ?? []).find((s) => s.name === (first ? "on_true" : "on_false"))?.link, seen);
     }
     return kindOf(node) === "real" ? { ref: [flatId(scope, node), slot] } : undefined;
   };
@@ -255,31 +323,67 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   /** Field on the front of a group node → the inputs inside that read it, in the order they were met. */
   const promoted = new Map<string, Target[]>();
 
+  type Group = NonNullable<EGraph["groups"]>[number];
+  type Box = [number, number, number, number];
+  const boxOf = (g: Group): Box => [0, 1, 2, 3].map((i) => Number(g.bounding?.[i] ?? 0)) as Box;
+  const area = (g: Group) => boxOf(g)[2] * boxOf(g)[3];
+  const holds = (a: Box, b: Box) => a[0] <= b[0] && a[1] <= b[1] && a[0] + a[2] >= b[0] + b[2] && a[1] + a[3] >= b[1] + b[3];
   /** The innermost box drawn around a node. */
-  const groupOf = (scope: Scope, node: ENode): string | undefined => {
+  const innermostAt = (scope: Scope, node: ENode): Group | undefined => {
     const pos = node.pos as Record<number, number> | undefined;
     if (!pos || typeof pos[0] !== "number" || typeof pos[1] !== "number") return undefined;
     const around = scope.groups.filter((g) => {
-      const [x = 0, y = 0, w = 0, h = 0] = g.bounding ?? [];
-      return g.title && pos[0]! >= x && pos[0]! <= x + w && pos[1]! >= y && pos[1]! <= y + h;
+      const [x, y, w, h] = boxOf(g);
+      return g.title && g.bounding && pos[0]! >= x && pos[0]! <= x + w && pos[1]! >= y && pos[1]! <= y + h;
     });
-    const innermost = around.sort((a, b) => a.bounding![2]! * a.bounding![3]! - b.bounding![2]! * b.bounding![3]!)[0];
-    if (innermost?.title && innermost.bounding && !boxes.has(innermost.title)) boxes.set(innermost.title, innermost.bounding.slice(0, 4) as [number, number, number, number]);
-    return innermost?.title;
+    return around.sort((a, b) => area(a) - area(b))[0];
   };
+  const groupOf = (scope: Scope, node: ENode): string | undefined => innermostAt(scope, node)?.title;
   /** The frame a node is in: its own, else the one around the group node it sits inside (and so on up). */
-  const frameOf = (scope: Scope, node: ENode): string | undefined => groupOf(scope, node) ?? (scope.host ? frameOf(scope.host.scope, scope.host.node) : undefined);
-  const boxes = new Map<string, [number, number, number, number]>();
+  const frameOf = (scope: Scope, node: ENode): { scope: Scope; group: Group } | undefined => {
+    const group = innermostAt(scope, node);
+    if (group) return { scope, group };
+    return scope.host ? frameOf(scope.host.scope, scope.host.node) : undefined;
+  };
+  /** Each box drawn, as a frame: one per box (two boxes of the same title are two frames), with the box it is drawn inside. */
+  const frameList: Wiring["frames"] = [];
+  const frameIds = new Map<Group, number>();
+  const frameFor = (scope: Scope, g: Group): number => {
+    const known = frameIds.get(g);
+    if (known !== undefined) return known;
+    const box = boxOf(g);
+    const around = scope.groups
+      .filter((o) => o !== g && o.title && o.bounding && holds(boxOf(o), box) && !holds(box, boxOf(o)))
+      .sort((a, b) => area(a) - area(b))[0];
+    const parent = around ? frameFor(scope, around) : undefined;
+    const i = frameList.length;
+    frameList.push({ title: g.title!, nodes: [], box, ...(parent !== undefined ? { parent } : {}) });
+    frameIds.set(g, i);
+    return i;
+  };
 
 
   const visit = (scope: Scope) => {
     for (const node of scope.nodes.values()) {
       sources(node);
+      // what the author wrote in a note inside a frame: what that part is for
+      if (NOTES.has(node.type) && Array.isArray(node.widgets_values)) {
+        const at = frameOf(scope, node);
+        const text = String(node.widgets_values[0] ?? "").trim();
+        if (at && text) {
+          const f = frameList[frameFor(at.scope, at.group)]!;
+          f.note = f.note ? `${f.note}\n\n${text}` : text;
+        }
+      }
       const within = inside(scope, node);
       if (within) {
-        if (modeOf(node) === "bypass") note(`"${node.title ?? "A group node"}" is bypassed as a whole. Afflatus treats everything inside it as switched off.`);
-        const fields = (node.inputs ?? []).filter((s) => s.widget?.name).length;
-        if (Array.isArray(node.widgets_values) && node.widgets_values.length !== fields) note(`"${node.title ?? "A group node"}" holds ${node.widgets_values.length} values for ${fields} fields on its front: some of them may have been read wrong.`);
+        if (modeOf(node) === "bypass") note(`"${node.title ?? "A group node"}" is bypassed as a whole: what is inside it does not run, and each of its outputs hands on its input of the same kind.`);
+        const fields = frontFields(within).length;
+        // no values on the front at all: the fields inside keep their own, nothing was read wrong
+        if (Array.isArray(node.widgets_values) && node.widgets_values.length) {
+          const extras = node.widgets_values.filter((v) => typeof v === "string" && AFTER_RUN.has(v)).length;
+          if (node.widgets_values.length !== fields && node.widgets_values.length !== fields + extras) note(`"${node.title ?? "A group node"}" holds ${node.widgets_values.length} values for ${fields} fields on its front: some of them may have been read wrong.`);
+        }
         for (const entry of (node.properties?.proxyWidgets as unknown[] | undefined) ?? []) {
           if (Array.isArray(entry) && entry.length >= 2) panel.push({ node: `${flatId(scope, node)}:${entry[0]}`, input: String(entry[1]) });
         }
@@ -320,8 +424,11 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
       if (loose.length) wiring.optional[id] = loose;
       const off = scope.off ?? modeOf(node);
       if (off) wiring.modes[id] = off;
-      const group = frameOf(scope, node);
-      if (group) groups[id] = group;
+      const at = frameOf(scope, node);
+      if (at) {
+        groups[id] = at.group.title!;
+        frameList[frameFor(at.scope, at.group)]!.nodes.push(id);
+      }
     }
   };
   visit(scopeOf(root, []));
@@ -356,13 +463,15 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   const follow = (scope: Scope, linkId: number, own: Root, seen: Set<string>): Root => {
     const link = scope.links.get(linkId);
     if (scope.host && link && String(link.origin_id) === String(scope.host.def.inputNode?.id)) {
-      const { node: host, scope: outer } = scope.host;
-      const socket = host.inputs?.[link.origin_slot];
+      const { node: host, scope: outer, def } = scope.host;
+      const name = def.inputs?.[link.origin_slot]?.name;
+      const socket = name !== undefined ? host.inputs?.find((s) => s.name === name) : host.inputs?.[link.origin_slot];
+      const key = name ?? socket?.name;
       const named = { ...own, label: socket?.label ?? own.label };
       if (socket?.link != null) return follow(outer, socket.link, named, seen);
-      const value = hostValue(host, link.origin_slot);
+      const value = key === undefined ? undefined : frontValues(scope).get(key);
       // a field on the front of the group node: that field is the switch
-      if (typeof value === "boolean" && socket) return { ...named, key: `${flatId(outer, host)}.${socket.name}`, value };
+      if (typeof value === "boolean" && key !== undefined) return { ...named, key: `${flatId(outer, host)}.${key}`, value };
     }
     const from = sourceNode(scope, linkId);
     if (!from) {
@@ -405,9 +514,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   // the editor applies its switches when it queues: what they say wins over how the nodes were saved
   wiring.modes = modesFor(wiring, wiring.toggles, {});
 
-  // the frames, by title, with the nodes each holds in the order they were met
-  const frames = new Map<string, string[]>();
-  for (const [id, title] of Object.entries(groups)) frames.set(title, [...(frames.get(title) ?? []), id]);
-  wiring.frames = [...frames].map(([title, nodes]) => ({ title, nodes, ...(boxes.has(title) ? { box: boxes.get(title)! } : {}) }));
+  // the frames, each with the nodes it holds itself (not those of the frames drawn inside it) in the order they were met
+  wiring.frames = frameList;
   return { graph, wiring, groups, notes };
 }

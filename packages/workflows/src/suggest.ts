@@ -1,13 +1,14 @@
 import { isRef, type Graph } from "@afflatus/core";
-import { slug, type Section, type Toggle, type Wiring } from "./types";
+import { slug, type Section, type SwitchGroup, type Toggle, type Wiring } from "./types";
 import { ancestors, prune } from "./wiring";
 
 /**
  * A first arrangement of an imported workflow's form, from what its author already said: the frames
  * drawn around nodes become sections, in the order they are laid out; a frame that is a pass of work
  * the output can do without (a second sampling, an upscale, a detailer) becomes a switch, with its
- * settings under it; whatever is placed nowhere stays under Advanced. It only says what the file
- * says: a workflow with no frames gives nothing, and the person edits the rest.
+ * settings under it, on or off as the author left it; a frame drawn inside another is a part of that
+ * one's section. A workflow without frames is arranged by what its nodes do: Model, Inputs, Output,
+ * Sampling, then a section per pass. Whatever is placed nowhere stays under Advanced; the person edits the rest.
  */
 
 /** Something the form holds that can be placed: its input id, and the node it belongs to. */
@@ -18,16 +19,31 @@ export interface Placeable {
 
 export interface Suggestion {
   sections: Section[];
-  /** The switches made, one per frame the output can do without. */
+  /** The switches made, one per frame (or pass) the output can do without. */
   toggles: Toggle[];
   /** What was decided and why, a line per frame, for the person. */
   why: string[];
 }
 
+type Frame = Wiring["frames"][number];
+
 /** A node that does work worth switching off, besides a sampler (which has a step count): upscaling, detailing, interpolating. */
-const WORK = /Detailer|Upscale|SeedVR|Interpolat|RIFE|FILM|Refin|Enhance|Restor/i;
+export const PASS_WORK = /Detailer|Upscale|SeedVR|Interpolat|RIFE|FILM|Refin|Enhance|Restor/i;
 /** A frame that is a note rather than a part of the workflow. */
-const NOTE = /https?:\/\/|discord|patreon|civitai|^\W*$/i;
+const NOTE = /https?:\/\/|discord|patreon|civitai|buy me a coffee|ko-?fi|\b(workflow|made|created) by\b|^\W*credits?\b/i;
+/** What an author writes in a frame's title of a part that is usually left off. */
+const OFF_WORDS = /\b(only (use )?(if|when)|usually not|not (usually )?(needed|necessary|required)|optional|if needed|experimental|disabled|unused|off by default)\b/i;
+/** More settings than this in a section and it is split by node. */
+const LONG = 12;
+
+/** The nodes of a frame, with those of the frames drawn inside it. */
+export function frameNodes(frames: Frame[], i: number): string[] {
+  const out = [...(frames[i]?.nodes ?? [])];
+  frames.forEach((f, j) => {
+    if (f.parent === i && j !== i) out.push(...frameNodes(frames, j));
+  });
+  return out;
+}
 
 /** The sampling passes: every node with a step count, the base pass being the one with the fewest nodes behind it. */
 function samplers(graph: Graph): { all: Set<string>; base: string | null } {
@@ -55,13 +71,58 @@ function survivesBypass(graph: Graph, wiring: Wiring | undefined, nodes: string[
   return Object.values(out.inputs).every((v) => !isRef(v) || Boolean(pruned.graph[v[0]]));
 }
 
-/** A frame's title as a chapter's name: without the author's numbering and the instructions in brackets ("6  UPSCALE  hires pass 1.5x  (switch off in the toggles box)" → "UPSCALE hires pass 1.5x"). */
-export const chapterName = (title: string) => {
-  const bare = title.replace(/^\s*\d+[\s.:)-]+/, "").replace(/\s*[([][^()[\]]*[)\]]\s*$/, "");
+/** Pictographs, the joiners and selectors that go with them, and arrows: what titles are decorated with. */
+const DECOR = /[\p{Extended_Pictographic}\p{Emoji_Modifier}‍️⃣←-⇿➔➡⬅-⬇]/gu;
+
+/**
+ * A frame's title as a chapter's name, and what it says besides: without the author's numbering, markers
+ * and pictographs, and the instructions in brackets or after a dash ("6  UPSCALE  hires pass 1.5x  (switch off
+ * in the toggles box)" → "UPSCALE"; "# ::Face 🙂" → "Face"; "Face Detailer - Only use if faces are far away"
+ * → "Face Detailer", aside "Only use if faces are far away"). Empty when nothing is left.
+ */
+export function titleParts(title: string): { name: string; aside: string } {
+  let t = title.normalize("NFKC").replace(DECOR, " ");
+  let aside = "";
+  const bracket = /\s*[([]([^()[\]]*)[)\]]\s*$/.exec(t);
+  if (bracket) {
+    aside = bracket[1]!.trim();
+    t = t.slice(0, bracket.index);
+  }
+  t = t.replace(/^[\s#:;|>*=~_.\-–—]+/, "").replace(/^(step|part|stage|section|group)?\s*\d+[a-z]?\s*[.:)\-–—]+\s*/i, "").replace(/^\d+\s{2,}/, "");
   // "UPSCALE  hires pass 1.5x": a title written as segments set apart by two spaces is named by its first
-  const first = bare.split(/\s{2,}/)[0] ?? bare;
-  return first.trim() || bare.replace(/\s+/g, " ").trim() || title.trim();
-};
+  t = t.trim().split(/\s{2,}/)[0] ?? t;
+  // "Face Detailer - Only use if faces are far away": a name, then what it is for
+  const dash = /^(.{3,}?)\s+[-–—:|]\s+(.+)$/.exec(t);
+  if (dash) {
+    t = dash[1]!;
+    aside = [dash[2]!.trim(), aside].filter(Boolean).join(" · ");
+  }
+  // a colour written into the title, a version, and the editor's own name for a new frame say nothing
+  t = t.replace(/#[0-9a-f]{6}\b/gi, " ").replace(/\s+(version\s*\d[\d.]*|v\d+(\.\d+)*)\s*$/i, "");
+  const name = t.replace(/[\s#:;|*=~_\-–—]+$/, "").replace(/\s+/g, " ").trim().replace(/^(new )?group( \d+)?$/i, "");
+  return { name, aside };
+}
+
+/** A frame's title as a chapter's name (see titleParts). */
+export const chapterName = (title: string) => titleParts(title).name || title.replace(DECOR, " ").replace(/\s+/g, " ").trim();
+
+/** What a part does, said in a word, when its title says nothing: from the nodes in it. */
+function nameFromNodes(graph: Graph, nodes: string[], base: string | null): string {
+  const classes = nodes.map((id) => graph[id]?.class_type ?? "");
+  if (classes.some((c) => /Interpolat|RIFE|FILM/i.test(c))) return "Interpolation";
+  if (classes.some((c) => /Detailer/i.test(c))) return "Detailer";
+  if (classes.some((c) => /Upscale|SeedVR/i.test(c))) return nodes.some((id) => id !== base && graph[id] && "steps" in graph[id]!.inputs) ? "Hires fix" : "Upscale";
+  if (classes.some((c) => /Refin/i.test(c))) return "Refiner";
+  if (nodes.some((id) => graph[id] && "steps" in graph[id]!.inputs)) return nodes.includes(base ?? "") ? "Sampling" : "2nd pass";
+  if (classes.some((c) => /Lora/i.test(c))) return "LoRAs";
+  if (classes.some((c) => /Loader|Checkpoint|UNET/i.test(c))) return "Model";
+  if (classes.some((c) => /TextEncode|Prompt/i.test(c))) return "Prompt";
+  if (classes.some((c) => /^Load(Image|Video|Audio)|VHS_Load/i.test(c))) return "Inputs";
+  if (classes.some((c) => /Save|Combine|Preview/i.test(c))) return "Output";
+  return "Settings";
+}
+
+const titleOf = (graph: Graph, id: string | undefined) => ((id && ((graph[id] as { _meta?: { title?: string } } | undefined)?._meta?.title ?? graph[id]?.class_type)) || "").replace(DECOR, " ").replace(/\s+/g, " ").trim();
 
 export function suggestSections(graph: Graph, wiring: Wiring | undefined, result: string, placeables: Placeable[], frames: Wiring["frames"] = wiring?.frames ?? [], existing: Toggle[] = []): Suggestion {
   const sections: Section[] = [];
@@ -75,46 +136,215 @@ export function suggestSections(graph: Graph, wiring: Wiring | undefined, result
     ids.add(id);
     return id;
   };
-  // the author's frames in reading order: left to right, then top to bottom; those with no place known keep their file order
-  const ordered = frames
-    .map((f, i) => ({ ...f, i, nodes: f.nodes.filter((id) => graph[id]) }))
-    .filter((f) => f.nodes.length && !NOTE.test(f.title))
-    .sort((a, b) => (a.box && b.box ? a.box[0] - b.box[0] || a.box[1] - b.box[1] : a.i - b.i));
+  const nodeOf = new Map(placeables.map((p) => [p.id, p.node]));
   const placedIds = new Set<string>();
-  for (const f of ordered) {
-    const inFrame = new Set(f.nodes);
-    const items = placeables.filter((p) => p.node && inFrame.has(p.node) && !placedIds.has(p.id)).map((p) => p.id);
-    const holdsOutput = inFrame.has(result);
-    const work = f.nodes.some((id) => "steps" in graph[id]!.inputs || WORK.test(graph[id]!.class_type));
-    const isBase = base !== null && inFrame.has(base);
-    const switchable = work && !holdsOutput && !isBase && survivesBypass(graph, wiring, f.nodes, result);
-    if (!items.length && !switchable) {
-      why.push(`"${f.title}": nothing of the form in it${holdsOutput ? " (it holds the output)" : ""}: left alone.`);
+  /** The settings on these nodes not placed yet, in the form's order; marked placed. */
+  const take = (nodes: string[]) => {
+    const inside = new Set(nodes);
+    const items = placeables.filter((p) => p.node && inside.has(p.node) && !placedIds.has(p.id)).map((p) => p.id);
+    for (const id of items) placedIds.add(id);
+    return items;
+  };
+  /** Saved switched off in the file: every node of it. */
+  const savedOff = (nodes: string[]) => nodes.length > 0 && nodes.every((id) => wiring?.modes[id]);
+  const plural = (n: number) => `${n} setting${n === 1 ? "" : "s"}`;
+
+  /**
+   * A part as a switch, when it can be one: the author's own switch over its nodes, else one made here when it is a
+   * pass of work the output can do without. Null when it is neither (the base pass, the output, a part that cannot be skipped).
+   */
+  const switchFor = (nodes: string[], label: string, aside: string, note: string | undefined): { group: (items: string[]) => SwitchGroup; said: string } | null => {
+    if (!nodes.length) return null;
+    const own = existing.find((t) => !t.made && t.effects.some((e) => nodes.every((id) => e.nodes.includes(id))));
+    if (own) return { group: (items) => ({ toggle: own.id, items: items.filter((id) => id !== own.id) }), said: `the author's own switch "${own.label}" covers it` };
+    const work = nodes.some((id) => "steps" in graph[id]!.inputs || PASS_WORK.test(graph[id]!.class_type));
+    if (!work || nodes.includes(result) || (base !== null && nodes.includes(base)) || !survivesBypass(graph, wiring, nodes, result)) return null;
+    const off = savedOff(nodes) || OFF_WORDS.test(aside) || OFF_WORDS.test(label);
+    const help = [aside, note].filter(Boolean).join("\n\n");
+    const toggle: Toggle = {
+      id: uniqueId("sw_made", label), label, default: !off,
+      effects: [{ nodes, activeWhen: true, mode: "skip" }], writes: [], front: true, made: true,
+      ...(help ? { help } : {}),
+    };
+    toggles.push(toggle);
+    return { group: (items) => ({ toggle: toggle.id, items }), said: `a pass the output can do without: a switch, ${off ? (savedOff(nodes) ? "off as the author saved it" : "off, as its title says") : "on"}` };
+  };
+
+  // the author's frames, drawn around something: the outermost in reading order (left to right, then top to bottom; those
+  // with no place known keep their file order), each with the frames drawn inside it
+  const live = frames.map((f, i) => ({ ...f, i, deep: frameNodes(frames, i).filter((id) => graph[id]) }));
+  const usable = (f: (typeof live)[number]) => f.deep.length > 0 && !NOTE.test(f.title);
+  const topOf = (f: (typeof live)[number]): (typeof live)[number] => {
+    const up = f.parent !== undefined ? live[f.parent] : undefined;
+    return up && usable(up) ? topOf(up) : f;
+  };
+  const reading = <T extends { box?: number[]; i: number }>(a: T, b: T) => (a.box && b.box ? a.box[0]! - b.box[0]! || a.box[1]! - b.box[1]! : a.i - b.i);
+  const tops = live.filter((f) => usable(f) && topOf(f) === f).sort(reading);
+
+  for (const f of tops) {
+    const { name, aside } = titleParts(f.title);
+    const label = name || nameFromNodes(graph, f.deep, base);
+    // the frames drawn inside it, each with all that is inside it in turn
+    const children = live.filter((c) => c.parent === f.i && usable(c)).sort(reading);
+    const ownNodes = f.nodes.filter((id) => graph[id]);
+    const parts: Array<{ sw: ReturnType<typeof switchFor>; nodes: string[]; label: string }> = children.map((c) => {
+      const t = titleParts(c.title);
+      const cl = t.name || nameFromNodes(graph, c.deep, base);
+      return { sw: switchFor(c.deep, cl, t.aside, c.note), nodes: c.deep, label: cl };
+    });
+    const sectionId = uniqueId("sec", label);
+    let items: Section["items"];
+    let said: string;
+    if (parts.some((p) => p.sw)) {
+      // switches inside: the frame is the chapter, each switch with what is in its own frame
+      items = [...take(ownNodes)];
+      for (const p of parts) {
+        const got = take(p.nodes);
+        if (p.sw) items.push(p.sw.group(got));
+        else items.push(...got);
+      }
+      // a frame inside that was not made a switch: no switch of its own was made for nothing
+      const made = parts.filter((p) => p.sw).map((p) => `"${p.label}" (${p.sw!.said})`);
+      said = `a section, with ${made.length === 1 ? "a switch" : `${made.length} switches`} inside: ${made.join(", ")}`;
+    } else {
+      const sw = switchFor(f.deep, label, aside, f.note);
+      const got = take(f.deep);
+      if (sw) {
+        items = [sw.group(got)];
+        said = `${sw.said}, with ${plural(got.length)} under it`;
+      } else {
+        items = got;
+        const why = f.deep.includes(result) ? " (it holds the output)" : base !== null && f.deep.includes(base) ? " (the base pass: never a switch)" : f.deep.some((id) => "steps" in graph[id]!.inputs || PASS_WORK.test(graph[id]!.class_type)) ? " (bypassing it would cut the output)" : "";
+        said = `a section with ${plural(got.length)}${why}`;
+      }
+    }
+    const count = items.reduce<number>((n, it) => n + (typeof it === "string" ? 1 : 1 + it.items.length), 0);
+    if (!count) {
+      why.push(`"${label}": nothing of the form in it${f.deep.includes(result) ? " (it holds the output)" : ""}: left alone.`);
       continue;
     }
-    for (const id of items) placedIds.add(id);
-    const label = chapterName(f.title);
-    const sectionId = uniqueId("sec", label);
-    // a switch the file already has over these nodes (the author's own bypass group) is used rather than a new one
-    const own = existing.find((t) => !t.made && t.effects.some((e) => f.nodes.every((id) => e.nodes.includes(id))));
-    if (own) {
-      sections.push({ id: sectionId, label, items: [{ toggle: own.id, items: items.filter((id) => id !== own.id) }] });
-      why.push(`"${label}": the author's own switch "${own.label}" covers it: placed, with ${items.length} setting${items.length === 1 ? "" : "s"} under it.`);
-    } else if (switchable) {
-      const toggle: Toggle = {
-        id: uniqueId("sw_made", label), label, default: true,
-        effects: [{ nodes: f.nodes, activeWhen: true, mode: "skip" }], writes: [], front: true, made: true,
-      };
-      toggles.push(toggle);
-      sections.push({ id: sectionId, label, items: [{ toggle: toggle.id, items }] });
-      why.push(`"${label}": a pass the output can do without: a switch, on, with ${items.length} setting${items.length === 1 ? "" : "s"} under it.`);
-    } else {
-      sections.push({ id: sectionId, label, items });
-      why.push(`"${label}": a section with ${items.length} setting${items.length === 1 ? "" : "s"}${isBase ? " (the base pass: never a switch)" : holdsOutput ? " (it holds the output)" : work ? " (bypassing it would cut the output)" : ""}.`);
+    // what the author wrote: in the title besides its name, and in the notes inside the frame
+    const help = [parts.some((p) => p.sw) ? aside : "", f.note && !items.some((it) => typeof it !== "string" && toggles.some((t) => t.id === it.toggle && t.help?.includes(f.note!))) ? f.note : ""].filter(Boolean).join("\n\n");
+    sections.push({ id: sectionId, label, items, ...(help ? { help } : {}) });
+    why.push(`"${label}": ${said}.`);
+  }
+
+  if (!sections.length) {
+    why.push(frames.length ? "None of this workflow's frames holds part of the form: arranged by what its nodes do." : "This workflow has no frames: arranged by what its nodes do.");
+    byRole();
+  }
+
+  /** Without frames: Model, Inputs, Output, Sampling, then a section per pass of work (a switch when it can be skipped). */
+  function byRole() {
+    const at = (id: string) => nodeOf.get(id);
+    const cls = (id: string) => graph[at(id) ?? ""]?.class_type ?? "";
+    const rest = () => placeables.filter((p) => !placedIds.has(p.id));
+    const pick = (test: (p: Placeable) => boolean) => {
+      const items = rest().filter(test).map((p) => p.id);
+      for (const id of items) placedIds.add(id);
+      return items;
+    };
+    const add = (label: string, items: Section["items"]) => {
+      if (items.length) sections.push({ id: uniqueId("sec", label), label, items });
+    };
+    // the passes: each sampling after the base one and each node of work, with the nodes only it is made from
+    const consumersOf = new Map<string, string[]>();
+    for (const [id, n] of Object.entries(graph)) for (const v of Object.values(n.inputs)) if (isRef(v)) consumersOf.set(v[0], [...(consumersOf.get(v[0]) ?? []), id]);
+    const behindResult = ancestors(graph, result);
+    const heads = Object.entries(graph)
+      .filter(([id, n]) => behindResult.has(id) && id !== base && ("steps" in n.inputs || PASS_WORK.test(n.class_type)) && !/Loader$/i.test(n.class_type))
+      .map(([id]) => id);
+    // the main line: the base pass, what it is made from, and what is made from it; a pass's own nodes are off it
+    const beforeBase = base ? new Set([base, ...ancestors(graph, base)]) : new Set<string>();
+    const afterBase = new Set(Object.keys(graph).filter((id) => base !== null && ancestors(graph, id).has(base)));
+    /** A pass: its node of work, with what feeds only it from off the main line (its loaders, its own prompt). */
+    const passOf = (head: string) => {
+      const nodes = new Set([head]);
+      for (let grew = true; grew; ) {
+        grew = false;
+        for (const id of [...nodes]) {
+          for (const v of Object.values(graph[id]!.inputs)) {
+            const x = isRef(v) ? v[0] : null;
+            if (!x || !graph[x] || nodes.has(x) || beforeBase.has(x) || afterBase.has(x) || heads.includes(x)) continue;
+            if ((consumersOf.get(x) ?? []).every((c) => nodes.has(c))) {
+              nodes.add(x);
+              grew = true;
+            }
+          }
+        }
+      }
+      return { head, nodes: [...nodes] };
+    };
+    let passes = heads.map(passOf);
+    // an upscale that only feeds the sampling after it is that sampling's pass (a hires fix), not one of its own
+    for (const p of [...passes]) {
+      const only = consumersOf.get(p.head) ?? [];
+      const into = only.length === 1 ? passes.find((q) => q.head === only[0] && "steps" in graph[q.head]!.inputs) : undefined;
+      if (into && /Upscale/i.test(graph[p.head]!.class_type) && !("steps" in graph[p.head]!.inputs)) {
+        into.nodes.push(...p.nodes);
+        passes = passes.filter((q) => q !== p);
+      }
+    }
+    passes.sort((a, b) => ancestors(graph, a.head).size - ancestors(graph, b.head).size);
+    const inPass = new Set(passes.flatMap((p) => p.nodes));
+
+    add("Model", pick((p) => p.id === "model" || /^loras(_\d+)?$/.test(p.id) || (!inPass.has(at(p.id) ?? "") && /Loader|Checkpoint|UNET|Lora/i.test(cls(p.id)) && !/^Load(Image|Video|Audio)|VHS_Load/i.test(cls(p.id)))));
+    add("Inputs", pick((p) => ["startImage", "endImage", "previousVideo", "nextVideo", "sound"].includes(p.id) || /^Load(Image|Video|Audio)|VHS_Load/i.test(cls(p.id))));
+    add("Output", pick((p) => p.id === "size" || p.id === "seconds" || (!inPass.has(at(p.id) ?? "") && /Save|Combine|Empty.*Latent/i.test(cls(p.id)))));
+    add("Sampling", pick((p) => p.id === "seed" || (!inPass.has(at(p.id) ?? "") && (at(p.id) === base || /Sampler|Scheduler|Sigmas|Guider|CFG|ModelSampling/i.test(cls(p.id))))));
+    for (const p of passes) {
+      const label = nameFromNodes(graph, p.nodes, base);
+      const sw = switchFor(p.nodes, label, "", undefined);
+      const got = take(p.nodes);
+      if (!got.length && !sw) continue;
+      add(label, sw ? [sw.group(got)] : got);
+      why.push(`"${label}": ${sw ? sw.said : "a pass that cannot be skipped: a section"}.`);
     }
   }
-  if (!ordered.length) why.push("This workflow has no frames to go by: nothing to suggest. Arrange it by hand.");
+
+  // two frames of the same name: one section, when neither is a switch; otherwise told apart by a number
+  const merged: Section[] = [];
+  for (const s of sections) {
+    const twin = merged.find((m) => m.label.toLowerCase() === s.label.toLowerCase());
+    const plain = (x: Section) => x.items.every((it) => typeof it === "string");
+    if (twin && plain(twin) && plain(s)) twin.items.push(...s.items);
+    else {
+      let label = s.label;
+      for (let n = 2; merged.some((m) => m.label.toLowerCase() === label.toLowerCase()); n++) label = `${s.label} ${n}`;
+      merged.push({ ...s, label });
+    }
+  }
+  // a long section: split by node, a few nodes' settings together, each part named by its first node
+  const split: Section[] = [];
+  for (const s of merged) {
+    const loose = s.items.filter((it): it is string => typeof it === "string");
+    if (loose.length <= LONG) {
+      split.push(s);
+      continue;
+    }
+    const runs: string[][] = [];
+    for (const id of loose) {
+      const last = runs.at(-1);
+      if (last && nodeOf.get(last[0]!) === nodeOf.get(id)) last.push(id);
+      else runs.push([id]);
+    }
+    const chunks: string[][] = [];
+    for (const run of runs) {
+      const last = chunks.at(-1);
+      if (last && last.length + run.length <= 8) last.push(...run);
+      else chunks.push([...run]);
+    }
+    chunks.forEach((chunk, n) => {
+      const groups = n === 0 ? s.items.filter((it) => typeof it !== "string") : [];
+      let label = `${s.label} · ${titleOf(graph, nodeOf.get(chunk[0]!))}`;
+      for (let k = 2; split.some((x) => x.label === label); k++) label = `${s.label} · ${titleOf(graph, nodeOf.get(chunk[0]!))} ${k}`;
+      split.push(n === 0 ? { ...s, items: [...chunk, ...groups] } : { id: uniqueId("sec", `${s.label} ${n + 1}`), label, items: chunk });
+    });
+    why.push(`"${s.label}": ${loose.length} settings, split by node into ${chunks.length} sections.`);
+  }
+
   const left = placeables.filter((p) => !placedIds.has(p.id)).length;
-  if (ordered.length && left) why.push(`${left} setting${left === 1 ? "" : "s"} in no frame stay under Advanced.`);
-  return { sections, toggles, why };
+  if (split.length && left) why.push(`${plural(left)} placed nowhere ${left === 1 ? "stays" : "stay"} under Advanced.`);
+  if (!split.length) why.push("Nothing to arrange: arrange it by hand.");
+  return { sections: split, toggles: toggles.filter((t) => split.some((s) => s.items.some((it) => typeof it !== "string" && it.toggle === t.id))), why };
 }

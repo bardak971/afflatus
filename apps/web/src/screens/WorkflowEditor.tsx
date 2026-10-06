@@ -136,7 +136,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 
   const set = (patch: Partial<Bindings>) => setB((old) => ({ ...old, ...patch }));
   /** Take a part out of the mapping (it is optional there: undefined is not a value it accepts). */
-  const unset = (key: "prompt" | "negative" | "startImage" | "endImage") =>
+  const unset = (key: "prompt" | "negative" | "startImage" | "endImage" | "previousVideo" | "nextVideo" | "sound") =>
     setB((old) => {
       const { [key]: _gone, ...rest } = old;
       return rest as Bindings;
@@ -152,6 +152,26 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     const image = found.images.find((i) => i.node === node);
     if (image) set({ [key]: image.binding });
     else unset(key);
+  };
+  /** The loader whose file is the form's Model picker: its file input, and ComfyUI's folder for it. */
+  const modelFileOf = (node: string) => {
+    const n = graph[node];
+    const entry = n && Object.entries(n.inputs).find(([k, v]) => typeof v === "string" && /\.(safetensors|sft|gguf|ckpt|pt|pth|bin)$/i.test(v) && folderOfFileInput(n.class_type, k));
+    return entry && n ? { target: { node, input: entry[0] }, folder: folderOfFileInput(n.class_type, entry[0])! } : undefined;
+  };
+  const pickModel = (node: string) => {
+    const m = modelFileOf(node);
+    if (m) set({ model: m });
+  };
+  const pickVideo = (key: "previousVideo" | "nextVideo") => (node: string) => {
+    const v = found.videos.find((i) => i.node === node);
+    if (v) set({ [key]: v.binding });
+    else unset(key);
+  };
+  const pickSound = (node: string) => {
+    const v = found.sounds.find((i) => i.node === node);
+    if (v) set({ sound: v.binding });
+    else unset("sound");
   };
   const toggleLoras = (node: string) => {
     const on = b.loras.some((p) => p.node === node) ? b.loras.filter((p) => p.node !== node) : [...b.loras, { node, output: 0, label: "" }];
@@ -198,7 +218,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const changeSwitch = (id: string, patch: Partial<Toggle>) => set({ toggles: b.toggles.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
 
   // what is already the prompt, a picture or the seed is not offered as a control too
-  const taken = new Set([keyOf(b.prompt), keyOf(b.negative), ...b.seeds.map(keyOf), keyOf(b.startImage?.target), keyOf(b.endImage?.target)]);
+  const taken = new Set([keyOf(b.prompt), keyOf(b.negative), ...b.seeds.map(keyOf), keyOf(b.model?.target), keyOf(b.startImage?.target), keyOf(b.endImage?.target), keyOf(b.previousVideo?.target), keyOf(b.nextVideo?.target), keyOf(b.sound?.target)]);
   const groups = useMemo(() => {
     const map = new Map<string, Inspection["candidates"]>();
     for (const c of found.candidates) {
@@ -238,6 +258,10 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     if (id === "seconds") return b.length?.target.node;
     if (id === "startImage") return b.startImage?.target.node;
     if (id === "endImage") return b.endImage?.target.node;
+    if (id === "model") return b.model?.target.node;
+    if (id === "previousVideo") return b.previousVideo?.target.node;
+    if (id === "nextVideo") return b.nextVideo?.target.node;
+    if (id === "sound") return b.sound?.target.node;
     const lora = /^loras(?:_(\d+))?$/.exec(id);
     if (lora) return b.loras[lora[1] ? Number(lora[1]) - 1 : 0]?.node;
     return (b.pictures ?? []).find((p) => p.id === id)?.target.node;
@@ -299,7 +323,8 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const unreplacedChoices = (found.missingChoices ?? []).filter((c) => String(graph[c.node]?.inputs[c.input] ?? c.value) === c.value);
   const toCheck = (found.missingNodes.length ? 1 : 0) + unreplacedFiles.length + unreplacedChoices.length + looseNotes.length;
   const has = [
-    b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
+    b.model && "model file", b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
+    b.previousVideo && "previous clip", b.nextVideo && "next clip", b.sound && "sound",
     b.size && "resolution", video && b.length && "duration", b.seeds.length && "seed", b.loras.length && (b.loras.length > 1 ? `${b.loras.length} LoRA lists` : "LoRAs"),
     b.toggles.length && `${b.toggles.length} switch${b.toggles.length === 1 ? "" : "es"}`, b.controls.length && `${b.controls.length} widget${b.controls.length === 1 ? "" : "s"}`,
     `${b.result.kind === "image" ? "image" : b.result.kind === "video" ? (b.result.sound ? "video with audio" : "video") : "audio"} output`,
@@ -329,6 +354,15 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
           <Step n={1} title="What Afflatus read" hint="The parts of the workflow the form is built on. Correct a wrong pick; a dash means the workflow has none." />
 
+          {(() => {
+            const loaders = found.loraPoints.filter((p) => !p.power && modelFileOf(p.node));
+            if (!loaders.length) return <Found ok={false} role="Model file" what="No model loader found: the form has no Model picker" />;
+            return (
+              <Found ok={Boolean(b.model)} role="Model file" what={b.model ? `${fileLabel(String(graph[b.model.target.node]?.inputs[b.model.target.input] ?? ""))} · the form's Model picker, with your saved settings and LoRAs` : "Pick the loader whose file the form's Model picker sets:"}>
+                {loaders.length > 1 && <Select size="sm" label="Loader of the model file" value={b.model?.target.node ?? ""} onChange={pickModel} options={loaders.map((p) => ({ value: p.node, label: p.label || p.title, note: `#${p.node}` }))} />}
+              </Found>
+            );
+          })()}
           <Found ok={Boolean(b.prompt)} role="Prompt" matters what={b.prompt ? undefined : "No text input found. Pick the node the prompt goes to:"}>
             {textOptions.length > 0 && (
               <Select size="sm" label="Node the prompt goes to" value={keyOf(b.prompt)} onChange={pickText("prompt")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
@@ -389,6 +423,24 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             );
           })()}
 
+          {/* a video the workflow reads whole (to carry on from, to arrive at), and a sound */}
+          {found.videos.length > 0 && (["previousVideo", "nextVideo"] as const).map((key) => {
+            const bound = b[key];
+            const role = key === "previousVideo" ? "Previous clip" : "Next clip";
+            if (key === "nextVideo" && !bound && !found.videos.some((v) => v.role === "next")) return null;
+            return (
+              <Found key={key} ok={Boolean(bound)} role={role} what={bound ? (bound.required ? "required · the whole video goes to its loader" : "optional · the whole video goes to its loader") : "None picked"} note={key === "previousVideo" ? "In a timeline, a clip made with it carries on from the clip before: the whole of that clip is handed to this loader, and the workflow takes the frames it wants." : undefined}>
+                <Select size="sm" label={role} value={bound?.target.node ?? ""} onChange={pickVideo(key)} options={[{ value: "", label: "None" }, ...found.videos.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
+              </Found>
+            );
+          })}
+          {video && !found.videos.length && <Found ok={false} role="Previous clip" what="No video loader: the form takes no clip to carry on from" note="In a timeline, a clip made with it starts afresh, or from the last frame of the clip before when it takes a first frame." />}
+          {found.sounds.length > 0 && (
+            <Found ok={Boolean(b.sound)} role="Sound" what={b.sound ? (b.sound.required ? "required" : "optional") : "None picked"}>
+              <Select size="sm" label="Sound" value={b.sound?.target.node ?? ""} onChange={pickSound} options={[{ value: "", label: "None" }, ...found.sounds.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
+            </Found>
+          )}
+
           <Found ok={Boolean(b.size)} role="Resolution" what={b.size ? `width and height of node #${b.size.width.node}` : "The file sets its own. To change it from the form, tick its width and height in step 2."} />
           {video && <Found ok={Boolean(b.length)} role="Duration" what={b.length ? `in seconds, at ${b.length.fps} fps` : "The file sets its own frame count. To change it from the form, tick its length widget in step 2."} />}
           <Found ok={b.seeds.length > 0} role="Seed" matters what={b.seeds.length ? (b.seeds.length > 1 ? `${b.seeds.length} nodes, all given the same seed` : `node #${b.seeds[0]!.node}`) : "None found: every render would come out the same. Tick a seed widget in step 2."} />
@@ -434,7 +486,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
           </Found>
 
           {/* what stands between the workflow and a first render: packs, files, choices this ComfyUI lacks */}
-          {(found.missingNodes.length > 0 || found.missingFiles.length > 0 || (found.missingChoices ?? []).length > 0 || (found.relocated ?? []).length > 0 || found.missingWhenOn.length > 0 || looseNotes.length > 0) && (
+          {(found.missingNodes.length > 0 || (found.replaced ?? []).length > 0 || (found.missingUnneeded ?? []).length > 0 || found.missingFiles.length > 0 || (found.missingChoices ?? []).length > 0 || (found.relocated ?? []).length > 0 || found.missingWhenOn.length > 0 || looseNotes.length > 0) && (
             <div className="mt-3 flex flex-col gap-1.5 text-xs">
               <SectionTitle>Before it can run</SectionTitle>
               {found.missingNodes.length > 0 && <MissingPacks missing={found.missingNodes} packs={found.packs} graph={graph} wiring={start.wiring} onInspected={setFound} />}
@@ -516,6 +568,16 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                   </div>
                 </details>
               )}
+              {(found.replaced ?? []).length > 0 && (
+                <span className="text-ink-2">
+                  {found.replaced.map((x) => `${x.from}${found.packs[x.from] ? ` (${found.packs[x.from]})` : ""} #${x.node}`).join(", ")} {found.replaced.length === 1 ? "is" : "are"} not in this ComfyUI: ComfyUI's own {found.replaced.map((x) => x.to).filter((v, i, a) => a.indexOf(v) === i).join(" and ")} stands in{found.replaced.some((x) => /^Save/.test(x.to)) ? ". Afflatus saves and names what it keeps itself" : ", with the same value"}.
+                </span>
+              )}
+              {(found.missingUnneeded ?? []).length > 0 && (
+                <span className="text-ink-2">
+                  Not needed for the result, left out at render: {found.missingUnneeded.map((n) => (found.packs[n] ? `${n} (${found.packs[n]})` : n)).join(", ")}. A preview or a sound when done, mostly; the pack is not asked for.
+                </span>
+              )}
               {found.missingWhenOn.length > 0 && (
                 <span className="text-ink-2">
                   Bypassed parts use node types your ComfyUI does not have: {found.missingWhenOn.map((n) => (found.packs[n] ? `${n} (pack ${found.packs[n]})` : n)).join(", ")}. Those switches will not work until they are installed.
@@ -539,7 +601,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             <>
               <div className="flex items-baseline gap-2 pt-1">
                 <SectionTitle>Switches</SectionTitle>
-                <span className="text-xs text-ink-2">parts of the workflow that can be turned off · {b.toggles.length} of {found.toggles.length} in the form</span>
+                <span className="text-xs text-ink-2">parts of the workflow that can be turned off · {b.toggles.filter((t) => !t.made).length} of {found.toggles.length} in the form</span>
               </div>
               {!switches.length && <div className="text-ink-2">No switch matches.</div>}
               {switches.map((t) => {

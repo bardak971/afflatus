@@ -68,6 +68,8 @@ export interface ModelInput extends Base {
    * other kinds: those are listed first, apart from the rest. Nothing is hidden: a fine-tune can be named anything.
    */
   match?: string[];
+  /** The file to start on, when there is no slot: an imported workflow's own. Left out, it means this file. */
+  default?: string;
 }
 export interface LorasInput extends Base {
   type: "loras";
@@ -153,6 +155,11 @@ export interface ClipInput extends Base {
   framesFrom?: string;
   fps: number;
   optional?: boolean;
+  /**
+   * The recipe takes the whole video, as a file, not a few frames of it: an imported workflow whose own
+   * loader node reads the video (`frames` and `fps` are then not used, nor the moment in `ClipValue`).
+   */
+  whole?: boolean;
 }
 
 /** What a reference picture shows. */
@@ -219,7 +226,7 @@ function schemaOf(spec: InputSpec): z.ZodType {
     }
     case "model":
       // with a slot behind it, leaving it out means the slot's file
-      return spec.slot ? z.string().min(1).optional() : z.string().min(1);
+      return spec.slot ? z.string().min(1).optional() : spec.default ? z.string().min(1).default(spec.default) : z.string().min(1);
     case "loras":
       return z
         .array(z.object({ file: z.string().min(1), weight: z.number().min(-4).max(4) }))

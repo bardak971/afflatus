@@ -20,8 +20,10 @@ function connects(a: string, b: string): boolean {
 /** Which input of a bypassed node stands in for one of its outputs, for a reader that wants `type`. */
 function bypassIndex(slots: Wiring["slots"][string], output: number, type: string): number {
   const ins = slots.in;
-  if (type === "*" || type === "") return ins.length > output ? output : 0;
   const outType = slots.out[output] ?? "*";
+  // a reader that takes anything (a switch, a reroute) is handed what the output carries: that type decides
+  if (type === "*" || type === "") type = outType;
+  if (type === "*" || type === "") return ins.length > output ? output : 0;
   const opposite = ins[output];
   if (opposite && connects(opposite[1], outType) && connects(opposite[1], type)) return output;
   const exact = ins.findIndex(([, t]) => t === type);
@@ -194,6 +196,113 @@ export function remove({ graph, broken }: Pruned, id: string): void {
  * would only make the check before a render fail. A broken node the result does depend on stays: the
  * check then says what is missing.
  */
+/**
+ * Output nodes whose file name is built by a chain of nodes (a date, the seed, the size, joined into a
+ * string): the name becomes `name` (Afflatus names what it keeps anyway), and the nodes that served
+ * only that chain go, so that their packs are not asked for. What also feeds something else stays.
+ * Gives the ids taken out.
+ */
+export function cutFileNameChains(graph: Graph, name: string): string[] {
+  const wired = Object.keys(graph).filter((id) => isRef(graph[id]!.inputs.filename_prefix));
+  if (!wired.length) return [];
+  // the nodes nothing reads (the outputs, the chains' own ends aside): what they need, once the names are plain, is what stays
+  const read = new Set<string>();
+  for (const node of Object.values(graph)) for (const v of Object.values(node.inputs)) if (isRef(v)) read.add(v[0]);
+  const sinks = Object.keys(graph).filter((id) => !read.has(id));
+  for (const id of wired) graph[id]!.inputs.filename_prefix = name;
+  const kept = new Set<string>(sinks);
+  for (const id of sinks) for (const a of ancestors(graph, id)) kept.add(a);
+  const gone = Object.keys(graph).filter((id) => !kept.has(id));
+  for (const id of gone) delete graph[id];
+  return gone;
+}
+
+/**
+ * Save nodes of a kind this ComfyUI lacks (a pack's "Image Saver" that writes metadata, mostly): Afflatus saves and
+ * names what it keeps itself, so ComfyUI's own saver stands in, fed the same picture or video. The extra inputs such
+ * a node took (the steps, the model's name, for its metadata) are dropped. Gives what was replaced. `slots` (an
+ * editor file's socket types) says which input carries the picture; without it, the input's name does.
+ */
+export function standInSavers(graph: Graph, has: (classType: string) => boolean, slots?: Wiring["slots"]): Array<{ node: string; from: string; to: string }> {
+  const read = new Set<string>();
+  for (const node of Object.values(graph)) for (const v of Object.values(node.inputs)) if (isRef(v)) read.add(v[0]);
+  const out: Array<{ node: string; from: string; to: string }> = [];
+  for (const [id, n] of Object.entries(graph)) {
+    if (has(n.class_type) || read.has(id) || !/save|saver|output|export|writer/i.test(n.class_type)) continue;
+    const types = new Map((slots?.[id]?.in ?? []).map(([name, type]) => [name, type] as const));
+    const linked = Object.entries(n.inputs).filter((e): e is [string, Ref] => isRef(e[1]));
+    const carrying = (type: RegExp, names: RegExp) => linked.find(([k]) => (types.has(k) ? type.test(types.get(k)!) : names.test(k)));
+    const video = carrying(/^VIDEO$/, /^video$/);
+    const image = carrying(/^IMAGE$/, /^images?$/);
+    if (video && has("SaveVideo")) {
+      graph[id] = { class_type: "SaveVideo", inputs: { video: video[1], filename_prefix: "afflatus", format: "auto", codec: "auto" } };
+      out.push({ node: id, from: n.class_type, to: "SaveVideo" });
+    } else if (image && !/video|combine|animat/i.test(n.class_type) && has("SaveImage")) {
+      graph[id] = { class_type: "SaveImage", inputs: { images: image[1], filename_prefix: "afflatus" } };
+      out.push({ node: id, from: n.class_type, to: "SaveImage" });
+    }
+  }
+  return out;
+}
+
+/**
+ * Value nodes of a pack this ComfyUI lacks (a slider, an integer, a text box from a small utility pack): one
+ * typed-in value, nothing wired in, one output. ComfyUI's own primitive of that kind stands in, with the value,
+ * so the pack is not asked for. Gives what was replaced.
+ */
+export function standInPrimitives(graph: Graph, has: (classType: string) => boolean, slots?: Wiring["slots"], isChoice: (classType: string, input: string) => boolean = () => false): Array<{ node: string; from: string; to: string }> {
+  const out: Array<{ node: string; from: string; to: string }> = [];
+  for (const [id, n] of Object.entries(graph)) {
+    if (has(n.class_type)) continue;
+    const entries = Object.entries(n.inputs);
+    if (entries.length !== 1 || isRef(entries[0]![1])) continue;
+    const outs = slots?.[id]?.out;
+    // a selector with a second output (its name as text) still holds one value
+    if (outs && outs.length !== 1 && !(outs[0] === "COMBO" && outs.length === 2)) continue;
+    // a value for a list of choices (a sampler's name): a primitive's link would not be taken there, so the value itself goes in
+    const readers = Object.entries(graph).flatMap(([rid, r]) => Object.entries(r.inputs).filter(([, v]) => isRef(v) && v[0] === id).map(([input]) => ({ node: rid, input })));
+    if (readers.length && (outs?.[0] === "COMBO" || readers.some((r) => isChoice(graph[r.node]!.class_type, r.input)))) {
+      for (const r of readers) graph[r.node]!.inputs[r.input] = entries[0]![1];
+      delete graph[id];
+      out.push({ node: id, from: n.class_type, to: "its value" });
+      continue;
+    }
+    const numeric = outs && /^(INT|FLOAT)$/.test(outs[0] ?? "") && typeof entries[0]![1] === "string" && /^-?\d+(\.\d+)?$/.test(entries[0]![1] as string);
+    const value = numeric ? Number(entries[0]![1]) : entries[0]![1];
+    const to = typeof value === "boolean" ? "PrimitiveBoolean"
+      : typeof value === "number" ? (Number.isInteger(value) && !/float/i.test(n.class_type + (outs?.[0] ?? "")) ? "PrimitiveInt" : "PrimitiveFloat")
+        : typeof value === "string" ? (value.includes("\n") || value.length > 60 ? "PrimitiveStringMultiline" : "PrimitiveString") : null;
+    if (!to || !has(to)) continue;
+    graph[id] = { class_type: to, inputs: { value }, ...((n as { _meta?: unknown })._meta ? { _meta: (n as { _meta?: unknown })._meta } : {}) } as Graph[string];
+    out.push({ node: id, from: n.class_type, to });
+  }
+  return out;
+}
+
+/**
+ * Model loaders of a kind this ComfyUI lacks that only add to ComfyUI's own (a checkpoint loader that also gives
+ * its file's name, for metadata): ComfyUI's own loader stands in, with the file. Readers of the extra outputs lose
+ * their link (what they fed was metadata). Gives what was replaced.
+ */
+export function standInLoaders(graph: Graph, has: (classType: string) => boolean, slots?: Wiring["slots"]): Array<{ node: string; from: string; to: string }> {
+  const out: Array<{ node: string; from: string; to: string }> = [];
+  const FILE = /\.(safetensors|sft|gguf|ckpt|pt|pth|bin)$/i;
+  for (const [id, n] of Object.entries(graph)) {
+    if (has(n.class_type)) continue;
+    const outs = slots?.[id]?.out ?? [];
+    const starts = (types: string[]) => types.every((t, i) => outs[i] === t);
+    const file = (input: string) => (typeof n.inputs[input] === "string" && FILE.test(n.inputs[input] as string) ? (n.inputs[input] as string) : null);
+    if (starts(["MODEL", "CLIP", "VAE"]) && file("ckpt_name") && has("CheckpointLoaderSimple")) {
+      graph[id] = { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: file("ckpt_name") } };
+      out.push({ node: id, from: n.class_type, to: "CheckpointLoaderSimple" });
+    } else if (outs.length === 1 && outs[0] === "MODEL" && file("unet_name") && has("UNETLoader")) {
+      graph[id] = { class_type: "UNETLoader", inputs: { unet_name: file("unet_name"), weight_dtype: "default" } };
+      out.push({ node: id, from: n.class_type, to: "UNETLoader" });
+    }
+  }
+  return out;
+}
+
 export function trim({ graph, broken }: Pruned, keep: string, has: (classType: string) => boolean = () => true): void {
   const needed = ancestors(graph, keep);
   for (let changed = true; changed; ) {

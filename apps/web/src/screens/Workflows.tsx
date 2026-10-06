@@ -18,13 +18,60 @@ import { WorkflowEditor, type Editing } from "./WorkflowEditor";
  * Read a file the user chose: a workflow as ComfyUI saves it, one saved with "Export (API)", or one
  * shared from another Afflatus (the same workflow with its mapping already made).
  */
-async function readFile(file: File): Promise<Editing> {
-  let json: unknown;
-  try {
-    json = JSON.parse(await file.text());
-  } catch {
-    throw new ApiError("This file could not be parsed. A workflow is a .json file.");
+/** The text chunks of a PNG (tEXt, and iTXt when not compressed): ComfyUI writes the workflow into one named "workflow". */
+function pngText(bytes: Uint8Array): Record<string, string> {
+  const out: Record<string, string> = {};
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const latin = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+  let p = 8;
+  while (p + 8 <= bytes.length) {
+    const len = view.getUint32(p);
+    const type = latin(p + 4, p + 8);
+    const data = bytes.subarray(p + 8, p + 8 + len);
+    if (type === "tEXt" || type === "iTXt") {
+      const zero = data.indexOf(0);
+      if (zero > 0) {
+        const key = latin(p + 8, p + 8 + zero);
+        let q = zero + 1;
+        let fine = true;
+        if (type === "iTXt") {
+          fine = data[q] === 0;
+          q += 2;
+          q = data.indexOf(0, q) + 1;
+          q = data.indexOf(0, q) + 1;
+        }
+        if (fine) out[key] = new TextDecoder().decode(data.subarray(q));
+      }
+    }
+    if (type === "IEND") break;
+    p += 12 + len;
   }
+  return out;
+}
+
+/** The workflow in a file: a .json, or a picture or video ComfyUI saved with its workflow inside. */
+async function workflowIn(file: File): Promise<unknown> {
+  if (file.type === "image/png" || /\.png$/i.test(file.name)) {
+    const text = pngText(new Uint8Array(await file.arrayBuffer()));
+    const raw = text.workflow ?? text.prompt;
+    if (!raw) throw new ApiError("This picture carries no workflow. ComfyUI writes one into the pictures it saves; a picture from elsewhere has none.");
+    return JSON.parse(raw);
+  }
+  if (file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v|mkv)$/i.test(file.name)) {
+    const r = await fetch("/api/workflows/extract", { method: "POST", body: file, headers: { "content-type": file.type || "application/octet-stream" } });
+    const body = (await r.json().catch(() => ({}))) as { workflow?: unknown; message?: string };
+    if (!r.ok) throw new ApiError(body.message ?? "This video could not be read.");
+    return body.workflow;
+  }
+  try {
+    return JSON.parse(await file.text());
+  } catch {
+    throw new ApiError("This file could not be parsed. A workflow is a .json file, or a picture or video ComfyUI saved with its workflow inside.");
+  }
+}
+
+async function readFile(file: File): Promise<Editing> {
+  const json: unknown = await workflowIn(file);
   const shared = json && typeof json === "object" && "graph" in json && "bindings" in json ? (json as { graph: unknown; wiring?: unknown; bindings: unknown; title?: unknown; model?: unknown }) : null;
   // the server answers with the workflow in the form Afflatus keeps, whatever form the file was in
   const inspection = await api.inspectWorkflow(shared ? { graph: shared.graph, wiring: shared.wiring } : json);
@@ -47,7 +94,7 @@ async function readFile(file: File): Promise<Editing> {
   return {
     id: null,
     source: file.name,
-    title: typeof shared?.title === "string" ? shared.title : file.name.replace(/\.json$/i, "").replace(/\s*\(API\)$/i, ""),
+    title: typeof shared?.title === "string" ? shared.title : file.name.replace(/\.(json|png|mp4|webm|mov|m4v|mkv)$/i, "").replace(/\s*\(API\)$/i, ""),
     // a guess from the loaders and files, for the Model field to start with; the person can change it
     model: typeof shared?.model === "string" ? shared.model : guessModel(inspection.graph as Parameters<typeof guessModel>[0]),
     graph: inspection.graph,
@@ -172,7 +219,7 @@ export function Workflows() {
         <input
           ref={input}
           type="file"
-          accept=".json,application/json"
+          accept=".json,application/json,image/png,video/mp4,video/webm,.mov,.m4v,.mkv"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];

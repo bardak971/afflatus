@@ -29,7 +29,9 @@ describe("inspect: the default text-to-picture workflow", () => {
     expect(by("cfg")).toMatchObject({ kind: "number", default: 8, suggested: true });
     expect(by("sampler_name")).toMatchObject({ kind: "choice", default: "euler", suggested: false, choices: { node: "KSampler", input: "sampler_name" } });
     // the model file can be exposed too, as a picker
-    expect(found.candidates.find((c) => c.target.input === "ckpt_name")).toMatchObject({ kind: "choice", file: true });
+    // the checkpoint is the form's Model picker, not a widget
+    expect(found.candidates.find((c) => c.target.input === "ckpt_name")).toBeUndefined();
+    expect(found.suggested!.model).toEqual({ target: { node: "4", input: "ckpt_name" }, folder: "checkpoints" });
     // what is already bound is not offered twice
     expect(found.candidates.some((c) => ["seed", "width", "height", "text"].includes(c.target.input))).toBe(false);
   });
@@ -112,7 +114,7 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
 
   it("offers the author's own controls under the names the author gave them, ticked", () => {
     const labels = s.controls.map((c) => c.label).sort();
-    expect(labels).toEqual(["FPS", "Resolution", "Sampling · cfg", "Sampling · steps total", "Seconds", "Sigma Shift High · shift", "Sigma Shift Low · shift"]);
+    expect(labels).toEqual(["FPS", "Model · Wan22_I2V_High", "Resolution", "Sampling · cfg", "Sampling · steps total", "Seconds", "Sigma Shift High · shift", "Sigma Shift Low · shift"]);
     // "Seconds" is the author's own control: up front, with a range a person would use
     expect(s.controls.find((c) => c.label === "Seconds")).toMatchObject({ kind: "number", default: 5, min: 1, max: 30, front: true, target: { node: "1668", input: "value" } });
     expect(s.controls.find((c) => c.label === "FPS")).toMatchObject({ min: 1, max: 60, front: true });
@@ -139,13 +141,13 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
     const build = (over: Record<string, unknown> = {}) => recipe.build(parseInput(recipe, over), dryContext({ seed: 5, uploads: { startImage: "a.png [temp]", endImage: "b.png [temp]" } }));
 
     it("proposes no shelves: the prompt and the pictures stay out, everything else waits under Advanced until the importer places it", () => {
-      expect(recipe.inputs.filter((i) => !i.advanced).map((i) => i.label)).toEqual(["Prompt", "Negative prompt", "Start image", "End image"]);
+      expect(recipe.inputs.filter((i) => !i.advanced).map((i) => i.label)).toEqual(["Model", "Prompt", "Negative prompt", "Start image", "End image"]);
       expect(recipe.inputs.filter((i) => i.advanced).every((i) => i.section === "rare")).toBe(true);
     });
 
     it("has a form with the author's controls and two LoRA lists", () => {
       expect(recipe.inputs.map((i) => i.label)).toEqual([
-        "Prompt", "Negative prompt", "Start image", "End image", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High",
+        "Model", "Prompt", "Negative prompt", "Start image", "End image", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High", "Model · Wan22_I2V_High",
         "Seconds", "FPS", "Sampling · steps total", "Sampling · cfg", "Sigma Shift High · shift", "Sigma Shift Low · shift", "Resolution", "Seed",
       ]);
     });
@@ -240,9 +242,13 @@ describe("inspect: a model file kept in another sub-folder", () => {
 describe("inspect: what is missing on this ComfyUI", () => {
   it("lists node types it does not have and files it does not list", () => {
     const withFiles: NodeCatalog = { ...catalog, CheckpointLoaderSimple: { ...catalog.CheckpointLoaderSimple!, input: { required: { ckpt_name: [["other.safetensors"]] } } } };
+    // a node of a kind this ComfyUI lacks that the result does not need is left out, not asked for; one on the way to the result blocks
     const graph: Graph = { ...sdxl, "20": { class_type: "SomeCustomNode", inputs: {} } };
     const found = inspect(graph, withFiles);
-    expect(found.missingNodes).toEqual(["SomeCustomNode"]);
+    expect(found.missingNodes).toEqual([]);
+    expect(found.missingUnneeded).toEqual(["SomeCustomNode"]);
+    const onTheWay: Graph = { ...sdxl, "8": { ...sdxl["8"]!, class_type: "SomeDecoder" } };
+    expect(inspect(onTheWay, withFiles).missingNodes).toEqual(["SomeDecoder"]);
     expect(found.missingFiles).toEqual([{ node: "4", input: "ckpt_name", classType: "CheckpointLoaderSimple", file: "sd_xl_base_1.0.safetensors", label: "ckpt name", options: ["other.safetensors"] }]);
   });
 
@@ -261,7 +267,7 @@ describe("a recipe made from a workflow", () => {
   it("has a form made from the mapping", () => {
     expect(recipe).toMatchObject({ id: "workflow.wan-2-2-picture-to-video", family: "workflow-wan-2-2", output: "video" });
     expect(recipe.inputs.map((i) => i.id)).toEqual([
-      "prompt", "negative", "startImage", "endImage", "loras", "size", "seconds", "ctl_48_shift", "ctl_57_steps", "ctl_57_cfg", "seed",
+      "model", "prompt", "negative", "startImage", "endImage", "loras", "size", "seconds", "ctl_48_shift", "ctl_57_steps", "ctl_57_cfg", "seed",
     ]);
     expect(recipe.inputs.find((i) => i.id === "seconds")).toMatchObject({ type: "number", default: 5, unit: " s" });
     expect(recipe.traits).toMatchObject({ startFrame: true, endFrame: true, continues: "frame", sound: false, fps: 16, frameGrid: { step: 4, offset: 1 } });

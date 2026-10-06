@@ -101,6 +101,8 @@ export interface Chapter {
   id: string;
   label: string;
   toggle?: string;
+  /** What it is for, in the author's words: shown behind a ? beside the title. */
+  help?: string;
 }
 
 export interface Recipe<In = Record<string, unknown>> {

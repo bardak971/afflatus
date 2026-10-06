@@ -28,7 +28,7 @@ export function defaultOf(spec: InputSpec, options: string[] | undefined): unkno
   switch (spec.type) {
     // an example is shown, not filled in
     case "prompt": return spec.example ? "" : spec.default ?? "";
-    case "model": return options?.[0] ?? "";
+    case "model": return spec.default ?? options?.[0] ?? "";
     case "loras": return spec.default ?? [];
     case "size": {
       const s = spec.shapes.find((x) => x.id === spec.default) ?? spec.shapes[0]!;
