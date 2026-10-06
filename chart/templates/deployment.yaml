@@ -70,12 +70,20 @@ spec:
             httpGet:
               path: /api/health
               port: http
+              # the kubelet calls the pod by its IP, a name the server refuses (hostCheck.ts): it says localhost
+              httpHeaders:
+                - name: Host
+                  value: localhost
             initialDelaySeconds: 15
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
+              # the kubelet calls the pod by its IP, a name the server refuses (hostCheck.ts): it says localhost
+              httpHeaders:
+                - name: Host
+                  value: localhost
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
