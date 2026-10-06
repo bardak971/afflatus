@@ -224,7 +224,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
 
   const graph: Graph = {};
   const labels: Record<string, string> = {};
-  const wiring: Wiring = { modes: {}, slots: {}, fallback: {}, labels, panel: [], toggles: [], shared: {}, packs: {}, downloads: {}, links: [] };
+  const wiring: Wiring = { modes: {}, slots: {}, fallback: {}, labels, panel: [], toggles: [], shared: {}, packs: {}, downloads: {}, links: [], frames: [] };
   /** What a node says about where it and its files come from, and the links written in notes. */
   const sources = (node: ENode) => {
     const pack = node.properties?.cnr_id;
@@ -396,5 +396,9 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   // the editor applies its switches when it queues: what they say wins over how the nodes were saved
   wiring.modes = modesFor(wiring, wiring.toggles, {});
 
+  // the frames, by title, with the nodes each holds in the order they were met
+  const frames = new Map<string, string[]>();
+  for (const [id, title] of Object.entries(groups)) frames.set(title, [...(frames.get(title) ?? []), id]);
+  wiring.frames = [...frames].map(([title, nodes]) => ({ title, nodes }));
   return { graph, wiring, groups, notes };
 }

@@ -27,6 +27,8 @@ interface Base {
    * reads it from the input's name.
    */
   section?: "out" | "speed" | "file" | "rare";
+  /** A chapter of the recipe's own (an imported workflow's sections): shown there, in the recipe's order, instead of by kind. */
+  chapter?: string;
 }
 
 export interface PromptInput extends Base {

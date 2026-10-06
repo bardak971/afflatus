@@ -96,6 +96,13 @@ export interface Variant<In> {
   has?(node: string): boolean;
 }
 
+/** A chapter of a form arranged by the recipe: its title, and the toggle input at its head when it has one (off, the chapter folds). */
+export interface Chapter {
+  id: string;
+  label: string;
+  toggle?: string;
+}
+
 export interface Recipe<In = Record<string, unknown>> {
   /** "<family>.<what it does>", stable: stored with every generation. */
   id: string;
@@ -106,6 +113,8 @@ export interface Recipe<In = Record<string, unknown>> {
   summary: string;
   output: "image" | "video" | "audio";
   inputs: InputSpec[];
+  /** Chapters of the form the recipe arranges itself (an imported workflow's sections), in order; the inputs name theirs with `chapter`. */
+  chapters?: Chapter[];
   traits?: VideoTraits;
   /**
    * Files this recipe names itself (an imported workflow's models): each must be among the choices
@@ -166,6 +175,7 @@ export function describeRecipe(r: Recipe<any>) {
   return {
     id: r.id, family: r.family, version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [],
+    ...(r.chapters?.length ? { chapters: r.chapters } : {}),
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };

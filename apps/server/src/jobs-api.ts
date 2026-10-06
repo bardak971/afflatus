@@ -105,6 +105,12 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     return { ok: true };
   });
 
+  app.get<{ Params: { id: string; n: string } }>("/api/jobs/:id/stage/:n", async (req, reply) => {
+    const p = await s.queue.stage(req.params.id, Number(req.params.n));
+    if (!p) throw notFound("that stage");
+    return reply.header("Content-Type", p.mime).header("Cache-Control", "no-store").send(Buffer.from(p.bytes));
+  });
+
   app.get<{ Params: { id: string } }>("/api/jobs/:id/preview", async (req, reply) => {
     const p = await s.queue.preview(req.params.id);
     if (!p) throw notFound("a preview");

@@ -1,13 +1,16 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Minus } from "lucide-react";
-import { folderOfFileInput, fuzzyFilter, fuzzyScore, isShown } from "@afflatus/core";
-import { recipeFromWorkflow, type Bindings, type Control, type Inspection, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
+import { describeRecipe, folderOfFileInput, fuzzyFilter, fuzzyScore } from "@afflatus/core";
+import { ancestors, recipeFromWorkflow, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
 import { api } from "../api";
 import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
 import { GetFile } from "../GetFile";
 import { MissingPacks } from "./MissingPacks";
+import { Form } from "../RecipeForm";
+import { FormSections } from "./FormSections";
+import { SwitchDialog } from "./SwitchDialog";
 import { Select } from "../Select";
 import { Button, cx, ErrorNote, Help, SectionTitle, Note } from "../ui";
 
@@ -77,7 +80,11 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const client = useQueryClient();
   const [title, setTitle] = useState(start.title);
   const [model, setModel] = useState(start.model);
-  const [b, setB] = useState<Bindings>(start.bindings);
+  // a switch made here lives in a section: one no section holds any more (its section was removed, or saved by an older form) is dropped
+  const [b, setB] = useState<Bindings>(() => {
+    const held = new Set((start.bindings.sections ?? []).flatMap((sec) => sec.items.flatMap((it) => (typeof it === "string" ? [] : [it.toggle]))));
+    return { ...start.bindings, toggles: start.bindings.toggles.filter((t) => !t.made || held.has(t.id)) };
+  });
   const [filter, setFilter] = useState("");
   // the workflow itself changes in one case: a file it names is replaced by one this ComfyUI has
   const [graph, setGraph] = useState(start.graph);
@@ -114,14 +121,40 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   };
   const toggleControl = (c: Inspection["candidates"][number]) => {
     const { classType: _c, title: _t, suggested: _s, off: _o, ...control } = c;
-    set({ controls: b.controls.some((x) => x.id === c.id) ? b.controls.filter((x) => x.id !== c.id) : [...b.controls, control] });
+    const on = b.controls.some((x) => x.id === c.id);
+    set({
+      controls: on ? b.controls.filter((x) => x.id !== c.id) : [...b.controls, control],
+      ...(on ? { sections: (b.sections ?? []).map((s) => ({ ...s, items: s.items.flatMap((it): Section["items"] => (typeof it === "string" ? (it === c.id ? [] : [it]) : [{ ...it, items: it.items.filter((id) => id !== c.id) }])) })) } : {}),
+    });
   };
   const change = (id: string, patch: Partial<Control>) => set({ controls: b.controls.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   // switches keep the order they have in the workflow
   const toggleSwitch = (t: Toggle) => {
     const on = b.toggles.some((x) => x.id === t.id) ? b.toggles.filter((x) => x.id !== t.id) : [...b.toggles, t];
-    set({ toggles: found.toggles.flatMap((f) => on.filter((x) => x.id === f.id)) });
+    // the file's switches in the file's order, the ones made here after them
+    set({
+      toggles: [...found.toggles.flatMap((f) => on.filter((x) => x.id === f.id)), ...on.filter((x) => x.made)],
+      sections: (b.sections ?? []).map((s) => ({ ...s, items: s.items.flatMap((it): Section["items"] => (typeof it === "string" ? (it === t.id && !on.some((x) => x.id === t.id) ? [] : [it]) : it.toggle === t.id && !on.some((x) => x.id === t.id) ? [] : [it])) })),
+    });
   };
+  // the form's sections, and the switches in them (made here: their nodes are the person's choice)
+  const [switchFor, setSwitchFor] = useState<{ section: Section; toggle?: string } | null>(null);
+  const saveSwitch = (section: Section, t: Toggle) => {
+    const known = b.toggles.some((x) => x.id === t.id);
+    const toggles = known ? b.toggles.map((x) => (x.id === t.id ? t : x)) : [...b.toggles, t];
+    // a new switch goes at the end of its section, empty: its settings are dragged under it
+    const sections = known ? b.sections : (b.sections ?? []).map((s) => (s.id === section.id ? { ...s, items: [...s.items, { toggle: t.id, items: [] }] } : s));
+    set({ toggles, sections });
+    setSwitchFor(null);
+  };
+  /** The switch leaves its section (its settings go back to the tray); one made here is forgotten altogether. */
+  const dropSwitch = (section: Section, toggle: string) => {
+    set({
+      toggles: b.toggles.filter((x) => x.id !== toggle || !x.made),
+      sections: (b.sections ?? []).map((s) => (s.id === section.id ? { ...s, items: s.items.filter((it) => typeof it === "string" || it.toggle !== toggle) } : s)),
+    });
+  };
+  const nodeList = useMemo(() => Object.entries(graph).map(([id, n]) => ({ id, title: (n as { _meta?: { title?: string } })._meta?.title ?? n.class_type, classType: n.class_type })), [graph]);
   const changeSwitch = (id: string, patch: Partial<Toggle>) => set({ toggles: b.toggles.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
 
   // what is already the prompt, a picture or the seed is not offered as a control too
@@ -148,6 +181,11 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     }
   }, [b, title, model, start, graph]);
 
+  // everything the form will hold can be placed in a section, the main prompt apart (it leads the form, with its helpers)
+  const KIND_WORD: Record<string, string> = { prompt: "text", number: "number", toggle: "switch", choice: "choice", seed: "seed", size: "size", loras: "LoRAs", image: "picture", clip: "clip", references: "pictures", audio: "sound", model: "model file" };
+  const placeable = (preview?.inputs ?? [])
+    .filter((i) => !(i.type === "prompt" && i.id === "prompt") && !b.toggles.some((t) => t.made && t.id === i.id))
+    .map((i) => ({ id: i.id, label: i.label, kind: KIND_WORD[i.type] ?? i.type }));
   const save = useMutation({
     mutationFn: () => {
       const body = { title: title.trim(), model: model.trim(), source: start.source, graph, wiring: start.wiring, editor: start.editor, bindings: b };
@@ -159,13 +197,23 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     },
   });
 
-  // the preview behaves like the real form: a setting of a part that is switched off is hidden
-  const shown = useMemo(() => {
-    const all = Object.fromEntries((preview?.inputs ?? []).map((i) => [i.id, values[i.id] ?? defaultOf(i, undefined)]));
-    return (preview?.inputs ?? []).filter((i) => isShown(i, all)).map((i) => ({ spec: i, value: all[i.id] }));
-  }, [preview, values]);
 
   const result = found.outputs.find((o) => o.node === b.result.node);
+  // output nodes on branches the result does not need: ComfyUI runs them anyway, for a picture nobody keeps
+  const deadEnds = useMemo(() => {
+    const keep = ancestors(graph, b.result.node);
+    return found.outputs
+      .filter((o) => o.node !== b.result.node)
+      .map((o) => {
+        const nodes = [...ancestors(graph, o.node)].filter((id) => !keep.has(id) && id !== o.node);
+        const steps = nodes.reduce((n, id) => n + (typeof graph[id]?.inputs.steps === "number" ? (graph[id]!.inputs.steps as number) : 0), 0);
+        return { ...o, nodes, steps };
+      })
+      .filter((d) => d.nodes.length > 0);
+  }, [graph, b.result.node, found.outputs]);
+  const skipped = new Set((b.skip ?? []).map((s) => s.node));
+  const setSkip = (d: { node: string; nodes: string[] }, leaveOut: boolean) =>
+    set({ skip: leaveOut ? [...(b.skip ?? []).filter((s) => s.node !== d.node), { node: d.node, nodes: d.nodes }] : (b.skip ?? []).filter((s) => s.node !== d.node) });
   const video = b.result.kind === "video";
   const canSave = title.trim() && model.trim() && !save.isPending;
 
@@ -284,6 +332,18 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
               />
             )}
             {found.outputs.length > 1 && <span className="text-xs text-ink-2">This workflow has {found.outputs.length} output nodes. Only this one goes to your library.</span>}
+            {deadEnds.length > 0 && (
+              <div className="flex flex-col gap-1.5 rounded-lg border border-line px-3 py-2 text-xs text-ink-2">
+                <span>Shown on the way, on branches this output does not need. ComfyUI runs them all the same; what they show appears under the live preview while it renders. Leave one out to save its work:</span>
+                {deadEnds.map((d) => (
+                  <label key={d.node} className="flex cursor-pointer items-center gap-2">
+                    <input type="checkbox" checked={skipped.has(d.node)} onChange={(e) => setSkip(d, e.target.checked)} className="accent-accent" />
+                    <span className="min-w-0 grow truncate"><span className="font-semibold text-ink">{d.title}</span> #{d.node} · {d.nodes.length} node{d.nodes.length === 1 ? "" : "s"} of its own{d.steps ? `, ${d.steps} steps of sampling` : ""}</span>
+                    <span className="shrink-0">{skipped.has(d.node) ? "left out" : "kept"}</span>
+                  </label>
+                ))}
+              </div>
+            )}
             {!result && <ErrorNote>The output node is no longer in the workflow.</ErrorNote>}
           </Found>
         </section>
@@ -311,9 +371,6 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                     {ticked ? (
                       <>
                         <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => changeSwitch(t.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />
-                        <button type="button" aria-pressed={Boolean(ticked.front)} onClick={() => changeSwitch(t.id, { front: !ticked.front })} className="h-7 shrink-0 rounded-md border border-line px-2 text-xs text-ink-2 hover:text-ink">
-                          {ticked.front ? "Shown up front" : "Under Advanced"}
-                        </button>
                       </>
                     ) : (
                       <span className="min-w-0 grow truncate font-semibold">{t.label}</span>
@@ -364,9 +421,6 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                     {ticked ? (
                       <>
                         <input aria-label="Name of the control" value={ticked.label} onChange={(e) => change(c.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />
-                        <button type="button" aria-pressed={Boolean(ticked.front)} onClick={() => change(c.id, { front: !ticked.front })} className="h-7 shrink-0 rounded-md border border-line px-2 text-xs text-ink-2 hover:text-ink">
-                          {ticked.front ? "Shown up front" : "Under Advanced"}
-                        </button>
                       </>
                     ) : (
                       <span className="min-w-0 grow truncate font-semibold">{c.label}</span>
@@ -381,7 +435,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         </section>
 
         <section className="flex min-h-0 flex-col gap-3.5 overflow-y-auto bg-panel p-5">
-          <SectionTitle>Form preview</SectionTitle>
+          <SectionTitle>Form</SectionTitle>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="wf-title" className="text-xs font-semibold">Name</label>
             <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Portrait, two passes" className={text} />
@@ -391,6 +445,35 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             <input id="wf-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, FLUX.1, Wan 2.2…" className={text} />
             <span className={cx("text-xs", model.trim() ? "text-ink-2" : "text-accent")}>{model.trim() ? "Workflows with the same model name are grouped together." : "Which model it is for, as the families call them (SDXL, Wan 2.2): its LoRAs and saved settings go with that model's. Needed to save."}</span>
           </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline gap-2">
+              <SectionTitle>Sections</SectionTitle>
+              <span className="text-xs text-ink-2">chapters of the form, in your order; a section can carry a switch</span>
+            </div>
+            <FormSections
+              sections={b.sections ?? []}
+              onChange={(sections) => set({ sections })}
+              items={placeable}
+              toggles={b.toggles}
+              onMakeSwitch={(section, toggle) => setSwitchFor({ section, toggle })}
+              onDropSwitch={dropSwitch}
+              onSwitchDefault={(id, on) => changeSwitch(id, { default: on })}
+              cuts={(t) => t.effects.some((e) => e.nodes.includes(b.result.node))}
+            />
+          </div>
+          {switchFor && (
+            <SwitchDialog
+              section={switchFor.section}
+              existing={switchFor.toggle ? b.toggles.find((t) => t.id === switchFor.toggle) : undefined}
+              frames={start.wiring?.frames ?? []}
+              nodes={nodeList}
+              resultNode={b.result.node}
+              onClose={() => setSwitchFor(null)}
+              onSave={(t) => saveSwitch(switchFor.section, t)}
+              onRemove={() => { if (switchFor.toggle) dropSwitch(switchFor.section, switchFor.toggle); setSwitchFor(null); }}
+            />
+          )}
 
           <div className="flex flex-col gap-1.5 text-xs">
             {found.missingNodes.length ? (
@@ -484,10 +567,17 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             {found.notes.map((n) => <ErrorNote key={n}>{n}</ErrorNote>)}
           </div>
 
-          <div className="flex flex-col gap-3.5 rounded-xl border border-line bg-ground p-3.5">
-            {shown.map(({ spec, value }) => (
-              <Field key={spec.id} spec={spec} value={value} options={found.candidates.find((c) => c.id === spec.id)?.offers} onChange={(v) => setValues((old) => ({ ...old, [spec.id]: v }))} />
-            ))}
+          {/* the form itself, as Create will draw it: the same chapters, strip and folds as the built-ins */}
+          <div className="flex flex-col gap-2 rounded-xl border border-line bg-ground p-3.5">
+            {preview && preview.inputs.length > 0 && (
+              <Form
+                recipe={describeRecipe(preview)}
+                status={undefined}
+                stored={values}
+                onChange={(id, v) => setValues((old) => ({ ...old, [id]: v }))}
+                onClear={(ids) => setValues((old) => Object.fromEntries(Object.entries(old).filter(([k]) => !ids.includes(k))))}
+              />
+            )}
             {preview && !preview.inputs.length && <span className="text-ink-2">No inputs: it would always generate the same output.</span>}
             {!preview && <ErrorNote>This mapping cannot be previewed. Check the mapping on the left.</ErrorNote>}
           </div>

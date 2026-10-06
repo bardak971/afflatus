@@ -3,7 +3,7 @@ import { Square, X } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets, useQueue } from "../../data";
 import { about, phaseLabel } from "../../format";
-import { LivePreview } from "../../LivePreview";
+import { LivePreview, StageStrip } from "../../LivePreview";
 import { useStop } from "../../ModelLoad";
 import { Bar, Button, cx, Empty, ErrorNote } from "../../ui";
 import { Viewer } from "../../Viewer";
@@ -44,6 +44,7 @@ export function DraftResults({ draft, folder }: { draft: string; folder: string 
         {live && running && (
           <div className="flex min-h-0 grow flex-col items-center justify-center gap-3 pb-4">
             <LivePreview job={running} sound className="h-[calc(100%-70px)] min-h-0 w-auto max-w-full rounded-lg object-contain" />
+            <StageStrip job={running} className="flex max-w-full gap-2 overflow-x-auto" />
             <div className="flex w-72 flex-col items-center gap-1.5 text-center">
               <span className="font-semibold">{phaseLabel(running.phase)}{running.steps ? ` · step ${running.step} of ${running.steps}` : ""}{running.eta ? ` · ${about(running.eta)}` : ""}</span>
               <div className="w-full"><Bar value={running.progress * 100} /></div>

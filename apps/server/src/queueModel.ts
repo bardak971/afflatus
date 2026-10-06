@@ -17,6 +17,8 @@ export interface Running {
   abort: AbortController;
   promptId?: string;
   gpu: boolean;
+  /** The nodes' titles in the graph that was sent, for naming what a preview node shows on the way. */
+  titles?: Record<string, string>;
 }
 
 /** What is stored once ComfyUI accepted the graph: enough to wait for it again after a restart. */
@@ -29,6 +31,8 @@ export interface Resume {
   passes?: BuiltGraph["passes"];
   /** The client id ComfyUI knows this prompt by: its progress is only sent to that client. */
   clientId?: string;
+  /** The nodes' titles in the graph sent, for naming what its preview nodes show on the way. */
+  titles?: Record<string, string>;
   loads: string[];
   startedAt: number;
   /** The inputs as they were sent, when some were filled in at the last moment (a timeline clip's neighbours). */

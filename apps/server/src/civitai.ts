@@ -19,6 +19,8 @@ export const KINDS: Record<string, string[]> = {
   checkpoints: ["Checkpoint"], diffusion_models: ["Checkpoint"], unet: ["Checkpoint"],
   loras: ["LORA", "LoCon", "DoRA"], vae: ["VAE"], text_encoders: ["TextEncoder"], clip: ["TextEncoder"],
   upscale_models: ["Upscaler"], controlnet: ["Controlnet"], embeddings: ["TextualInversion"],
+  // the Impact pack's detectors are Civitai's "Detection" models; its SAM files have no type of their own there
+  ultralytics: ["Detection"], sams: ["Other"],
 };
 
 export type ApiFile = { name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string };

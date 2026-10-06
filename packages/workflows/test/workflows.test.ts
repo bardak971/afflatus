@@ -138,8 +138,9 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
     const recipe = recipeFromWorkflow(def);
     const build = (over: Record<string, unknown> = {}) => recipe.build(parseInput(recipe, over), dryContext({ seed: 5, uploads: { startImage: "a.png [temp]", endImage: "b.png [temp]" } }));
 
-    it("puts the author's own controls up front and the rest under All settings", () => {
-      expect(recipe.inputs.filter((i) => i.advanced).map((i) => i.label)).toEqual(["Sampling · steps total", "Sampling · cfg", "Sigma Shift High · shift", "Sigma Shift Low · shift"]);
+    it("proposes no shelves: the prompt and the pictures stay out, everything else waits under Advanced until the importer places it", () => {
+      expect(recipe.inputs.filter((i) => !i.advanced).map((i) => i.label)).toEqual(["Prompt", "Negative prompt", "Start image", "End image"]);
+      expect(recipe.inputs.filter((i) => i.advanced).every((i) => i.section === "rare")).toBe(true);
     });
 
     it("has a form with the author's controls and two LoRA lists", () => {

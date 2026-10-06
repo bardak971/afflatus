@@ -6,7 +6,7 @@ import { useQueue } from "../data";
 import { about, aboutMs, phaseLabel, when } from "../format";
 import { allowNotifications, useNotify, useSystem } from "../store";
 import { Bar, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
-import { LivePreview } from "../LivePreview";
+import { LivePreview, StageStrip } from "../LivePreview";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
@@ -146,6 +146,7 @@ export function Queue() {
                   <div data-stage className="flex h-[260px] items-center justify-center overflow-hidden rounded-lg bg-raised text-[11px] text-ink-2">
                     {q.running.previewSeq > 0 ? <LivePreview job={q.running} sound className="h-full w-auto max-w-full object-contain" /> : q.running.kind === "export" ? "no preview" : "no preview yet"}
                   </div>
+                  <StageStrip job={q.running} />
                   <div className="flex min-w-0 flex-col gap-1.5">
                     <div className="truncate text-[15px] font-semibold">{q.running.label}</div>
                     <Bar value={q.running.progress * 100} />

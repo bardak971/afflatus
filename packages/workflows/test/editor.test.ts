@@ -53,6 +53,8 @@ describe("reading the file ComfyUI's editor saves", () => {
     expect(wiring.panel).toEqual([{ node: "3:10", input: "steps" }, { node: "3:10", input: "cfg" }]);
     expect(wiring.labels["3:20.scale_by"]).toBe("↳ How much larger");
     expect(read.groups["3:20"]).toBe("Upscale");
+    // the frames are kept by title, for making switches out of them
+    expect(wiring.frames.find((f) => f.title === "Upscale")?.nodes).toContain("3:20");
   });
 
   it("keeps what the file says about where its things come from", () => {
@@ -125,7 +127,7 @@ describe("reading the file ComfyUI's editor saves", () => {
     });
 
     it("has a switch on the form, and builds with or without the part it controls", () => {
-      expect(recipe.inputs.find((i) => i.id === "sw_3_enabled")).toMatchObject({ type: "toggle", label: "🆙 Upscale 2x", default: false, advanced: false });
+      expect(recipe.inputs.find((i) => i.id === "sw_3_enabled")).toMatchObject({ type: "toggle", label: "🆙 Upscale 2x", default: false, advanced: true });
       const off = build({ prompt: "a dog" });
       expect(checkGraph(off, catalog)).toEqual([]);
       expect(off.graph["3:20"]).toBeUndefined();
@@ -142,7 +144,7 @@ describe("reading the file ComfyUI's editor saves", () => {
       const withScale = recipeFromWorkflow({ ...def, bindings: { ...s, controls: [...s.controls, control] } });
       const ids = withScale.inputs.map((i) => i.id);
       expect(ids.indexOf(control.id)).toBe(ids.indexOf("sw_3_enabled") + 1);
-      expect(withScale.inputs.find((i) => i.id === control.id)).toMatchObject({ showWhen: "sw_3_enabled", advanced: false });
+      expect(withScale.inputs.find((i) => i.id === control.id)).toMatchObject({ showWhen: "sw_3_enabled", advanced: true });
       const built = withScale.build(parseInput(withScale, { sw_3_enabled: true, [control.id]: 1.5 }), dryContext());
       expect(built.graph["3:20"]!.inputs.scale_by).toBe(1.5);
     });
@@ -193,7 +195,7 @@ describe("a workflow that chooses between two ways by a yes/no value", () => {
     expect(splitCaptions("WAN22: True = I2V | False = FLF2V")).toEqual({ label: "WAN22", captions: { on: "I2V", off: "FLF2V" } });
     expect(splitCaptions("Seconds")).toEqual({ label: "Seconds" });
     const mode = recipe.inputs.find((i) => i.type === "toggle")!;
-    expect(mode).toMatchObject({ label: "Mode", default: true, captions: { on: "First", off: "Last" }, advanced: false });
+    expect(mode).toMatchObject({ label: "Mode", default: true, captions: { on: "First", off: "Last" }, advanced: true });
   });
 
   it("sends only the side that is chosen, so the other needs neither its picture nor its files", () => {

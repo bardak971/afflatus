@@ -5,3 +5,4 @@ export * from "./editor";
 export * from "./wiring";
 export * from "./toEditor";
 export * from "./model";
+export * from "./paint";

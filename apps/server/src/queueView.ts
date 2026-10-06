@@ -54,6 +54,8 @@ export async function status(core: QueueCore) {
       ...(promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : run.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const), step: 0, steps: 0 }),
       previewSeq: promptId ? monitor.preview(promptId).seq : 0,
       previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
+      // what the workflow showed on the way (its Preview nodes), oldest first; the title comes from the graph it was built with
+      stages: (promptId ? monitor.stages(promptId) : []).map((st, n) => ({ n, node: st.node, title: core.running?.titles?.[st.node] ?? null, count: st.files.length })),
     };
   }
   return {
@@ -66,6 +68,17 @@ export async function status(core: QueueCore) {
     waiting: rows.filter((r) => r.status === "queued").map(brief),
     recent: recent.map(brief),
   };
+}
+
+/** One picture a node of the running job showed on the way (stage `n`, its first file), fetched from ComfyUI. */
+export async function stage(core: QueueCore, jobId: string, n: number) {
+  if (core.running?.id !== jobId || !core.running.promptId) return null;
+  const comfy = await core.comfy();
+  const file = comfy.monitor.stages(core.running.promptId)[n]?.files[0];
+  if (!file) return null;
+  const ext = file.filename.split(".").pop()?.toLowerCase() ?? "";
+  const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : ext === "mp4" ? "video/mp4" : ext === "webm" ? "video/webm" : "image/jpeg";
+  return { bytes: await comfy.client.view(file), mime };
 }
 
 /** The running job's latest live preview. */

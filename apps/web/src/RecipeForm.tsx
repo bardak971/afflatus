@@ -27,7 +27,7 @@ const useParts = create<{ open: Record<string, boolean>; set(id: string, open: b
  * checked; open, its fields are under that line. A part that needs something from the user (a picture
  * that is not chosen yet) is open whatever was remembered.
  */
-function Part({ id, title, summary, warn, needs, children }: {
+function Part({ id, title, summary, warn, needs, head, children }: {
   id: string;
   title: string;
   /** What it holds, in a few words. */
@@ -35,6 +35,8 @@ function Part({ id, title, summary, warn, needs, children }: {
   /** A word about something in it that is heavy or wrong, shown while it is folded too. */
   warn?: string;
   needs?: boolean;
+  /** A control in the header, beside the fold (a chapter's own switch). */
+  head?: ReactNode;
   children: ReactNode;
 }) {
   const kept = useParts((s) => s.open[id] ?? false);
@@ -42,14 +44,17 @@ function Part({ id, title, summary, warn, needs, children }: {
   const open = kept || Boolean(needs);
   return (
     <section data-part={id} className={cx("scroll-mt-12 rounded-[10px] border", open ? "border-line-strong" : "border-line bg-raised")}>
-      <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left">
-        <span className="flex min-w-0 grow flex-col gap-0.5">
-          <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
-          <span className={cx("truncate", open ? "text-xs text-ink-2" : "font-semibold")}>{summary}</span>
-          {warn && <span className="truncate text-xs text-warn-ink">{warn}</span>}
-        </span>
-        <ChevronDown size={15} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
-      </button>
+      <div className={cx("flex items-center", Boolean(head) && "pr-3")}>
+        <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="flex min-w-0 grow items-center gap-2.5 px-3 py-2 text-left">
+          <span className="flex min-w-0 grow flex-col gap-0.5">
+            <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
+            <span className={cx("truncate", open ? "text-xs text-ink-2" : "font-semibold")}>{summary}</span>
+            {warn && <span className="truncate text-xs text-warn-ink">{warn}</span>}
+          </span>
+          <ChevronDown size={15} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
+        </button>
+        {head}
+      </div>
       {open && <div className="flex flex-col gap-3.5 px-3 pt-1 pb-3">{children}</div>}
     </section>
   );
@@ -252,6 +257,12 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   // what decides which settings show: the values, plus what the screen will fill in itself
   const seen = given ? { ...values, ...given } : values;
   const shown = recipe.inputs.filter((i) => isShown(i, seen) && !tucked.has(i.id));
+  // the chapters the recipe arranges itself (an imported workflow's sections): their inputs show there and nowhere else
+  const chapters = (recipe.chapters ?? []).map((ch) => ({ ...ch, items: shown.filter((i) => i.chapter === ch.id) })).filter((ch) => ch.items.length || ch.id === "advanced" || ch.id === "prompt");
+  // the recipe may say where Advanced and the prompt go among its chapters; without a word, Advanced is last and the prompt first
+  const advancedMoved = chapters.some((ch) => ch.id === "advanced");
+  const promptMoved = chapters.some((ch) => ch.id === "prompt");
+  const rest = shown.filter((i) => !i.chapter);
   // where a LoRA's trigger words go, and the one text that is always open
   const mainText = mainTextOf(recipe);
   // what is heavy for the card: asked again only when a setting changes, not while text is typed
@@ -321,19 +332,20 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   // (a form with no prompt of its own keeps it with its other settings)
   const underPrompt = (i: InputSpec) => i.type === "prompt" && i.id === "negative" && Boolean(mainText);
   const length = secondsInput(recipe.inputs);
-  const isOut = (i: InputSpec) => i.section === "out" || i.type === "size" || i.type === "seed" || (i.type === "number" && (i.id === length?.id || i.unit?.trim() === "p"));
+  // a recipe can file a size or a seed under Advanced on purpose (an imported workflow leaves the shelves to its importer)
+  const isOut = (i: InputSpec) => i.section !== "rare" && (i.section === "out" || i.type === "size" || i.type === "seed" || (i.type === "number" && (i.id === length?.id || i.unit?.trim() === "p")));
   const isMedia = (i: InputSpec) => i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio";
-  const front = shown.filter((i) => !i.advanced || underPrompt(i) || isMedia(i));
+  const front = rest.filter((i) => !i.advanced || underPrompt(i) || isMedia(i));
   const texts = sought(front.filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt" && i.id !== mainText?.id));
   // the inputs: the frames the clip is built on, and what it is shown
-  const frames = sought(shown.filter((i) => i.type === "image" || i.type === "clip"));
-  const refs = sought(shown.filter((i) => i.type === "references" || i.type === "audio"));
+  const frames = sought(rest.filter((i) => i.type === "image" || i.type === "clip"));
+  const refs = sought(rest.filter((i) => i.type === "references" || i.type === "audio"));
   const loras = sought(front.filter((i) => i.type === "loras"));
   const out = sought(front.filter(isOut));
   // the model's file and the operation's own settings (how much an img2img may redraw, which upscaler)
   const knobs = sought(front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i))));
   // the settings, by what they are about
-  const tuning = sought(shown.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && !isOut(i)));
+  const tuning = sought(rest.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && !isOut(i)));
   const sampling = tuning.filter((i) => groupOf(i) === "speed");
   const upscaling = tuning.filter((i) => groupOf(i) === "upscale");
   const encoding = tuning.filter((i) => groupOf(i) === "file");
@@ -464,12 +476,25 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
 
   const parts = [
     ...((made && !q) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
-    ...(promptHit ? [{ id: "prompt", label: "Prompt" }] : []),
+    ...(promptHit && !promptMoved ? [{ id: "prompt", label: "Prompt" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
+    ...chapters.filter((ch) => (ch.id === "advanced" ? rare.length > 0 : ch.id === "prompt" ? promptHit : !q || sought(ch.items).length)).map((ch) => ({ id: ch.id, label: ch.label })),
     ...(sampling.length ? [{ id: "sampling", label: "Sampling" }] : []),
     ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
-    ...(rare.length ? [{ id: "advanced", label: "Advanced" }] : []),
+    ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
+  const promptBlock = mainText && promptHit && (
+    <div data-part="prompt" className="flex scroll-mt-12 flex-col gap-1.5">
+      {!q && helpers}
+      {isShown(mainText, seen) && (!q || hit(mainText)) && render(mainText)}
+      {texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}
+    </div>
+  );
+  const advancedPart = rare.length > 0 && (
+    <Part id="advanced" title="Advanced" summary={<>{count(rare.length, "setting")}{changedMark(rare)}</>} warn={warnOf(rare)} needs={Boolean(q)}>
+      {rare.map(setting)}
+    </Part>
+  );
 
   return (
     <>
@@ -482,13 +507,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
           {loras.map(render)}
         </Part>
       )}
-      {mainText && promptHit && (
-        <div data-part="prompt" className="flex scroll-mt-12 flex-col gap-1.5">
-          {!q && helpers}
-          {isShown(mainText, seen) && (!q || hit(mainText)) && render(mainText)}
-          {texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}
-        </div>
-      )}
+      {!promptMoved && promptBlock}
       {(hasFrames || hasRefs) && (
         <Part id="inputs" title="Inputs" summary={inputsSaid} warn={warnOf([...frames, ...refs])} needs={missing || framesTake || refsTake || Boolean(q)}>
           {hasFrames && hasRefs && !q && (
@@ -509,6 +528,19 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
           {(shownTab === "references" || q) && refs.map(render)}
         </Part>
       )}
+      {chapters.map((ch) => {
+        if (ch.id === "advanced") return <div key="advanced" className="contents">{advancedPart}</div>;
+        if (ch.id === "prompt") return <div key="prompt" className="contents">{promptBlock}</div>;
+        const items = sought(ch.items);
+        if (q && !items.length) return null;
+        // what the chapter's switches say, for the folded line: "Hires fix on"
+        const switches = items.filter((i) => i.type === "toggle").map((i) => `${i.label} ${values[i.id] ? "on" : "off"}`);
+        return (
+          <Part key={ch.id} id={ch.id} title={ch.label} needs={Boolean(q)} warn={warnOf(items)} summary={<>{switches.length ? switches.join(" · ") : count(items.length, "setting")}{changedMark(items)}</>}>
+            {items.map(setting)}
+          </Part>
+        );
+      })}
       {sampling.length > 0 && (
         <Part id="sampling" title="Sampling" summary={<>{samplingSaid}{changedMark(sampling)}</>} warn={warnOf(sampling)} needs={Boolean(q)}>
           {perModel.length > 0 && file && !q && (
@@ -547,11 +579,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
           )}
         </Part>
       )}
-      {rare.length > 0 && (
-        <Part id="advanced" title="Advanced" summary={<>{count(rare.length, "setting")}{changedMark(rare)}</>} warn={warnOf(rare)} needs={Boolean(q)}>
-          {rare.map(setting)}
-        </Part>
-      )}
+      {!advancedMoved && advancedPart}
       {hidden.length > 0 && (
         <section className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2">
           <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Not shown now</span>

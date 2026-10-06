@@ -256,3 +256,22 @@ describe("systemLoadFrom", () => {
     expect(load.cpu).toBeUndefined();
   });
 });
+
+describe("Monitor: what a prompt shows on the way", () => {
+  it("keeps each node's pictures as it puts them out, oldest first, one entry per node", async () => {
+    monitor.track(tracking);
+    fake.send("execution_start", { prompt_id: "p1" });
+    fake.send("executed", { prompt_id: "p1", node: "9", display_node: "9", output: { images: [{ filename: "pass1_00001_.png", subfolder: "", type: "temp" }] } });
+    await until(() => monitor.stages("p1").length === 1);
+    // a node with nothing to show (a text output) adds nothing; a video node's gifs count as its pictures
+    fake.send("executed", { prompt_id: "p1", node: "12", output: { text: ["hello"] } });
+    fake.send("executed", { prompt_id: "p1", node: "14", output: { gifs: [{ filename: "clip.mp4", subfolder: "video", type: "output" }] } });
+    await until(() => monitor.stages("p1").length === 2);
+    expect(monitor.stages("p1")).toEqual([
+      { node: "9", files: [{ filename: "pass1_00001_.png", subfolder: "", type: "temp" }] },
+      { node: "14", files: [{ filename: "clip.mp4", subfolder: "video", type: "output" }] },
+    ]);
+    // a prompt nothing was heard about has none
+    expect(monitor.stages("nowhere")).toEqual([]);
+  });
+});

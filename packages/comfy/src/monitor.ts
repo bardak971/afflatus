@@ -1,5 +1,5 @@
 import type { Phase } from "@afflatus/core";
-import type { ComfyClient } from "./client";
+import type { ComfyClient, OutputFile } from "./client";
 import { systemLoadFrom, type SystemLoad } from "./system";
 
 /** What the monitor needs to know about a prompt to turn ComfyUI's messages into progress. */
@@ -44,6 +44,12 @@ export interface Progress {
   steps: number;
 }
 
+/** The pictures one node of the prompt put out (a Preview Image on the way, the saver at the end). */
+export interface Stage {
+  node: string;
+  files: OutputFile[];
+}
+
 export interface Preview {
   /** Goes up by one with every frame, so a viewer knows when to refetch. */
   seq: number;
@@ -63,6 +69,8 @@ interface Tracked extends Tracking {
   samplingAt: number | null;
   stepsAtStart: number;
   preview: Preview;
+  /** What the prompt showed on the way: each preview or save node's pictures, in the order they came. */
+  stages: Stage[];
   /** The phase time is being counted for, and since when. */
   clock: { phase: string; at: number };
   spent: Record<string, number>;
@@ -148,7 +156,7 @@ export class Monitor {
     if (this.tracked.has(t.promptId)) return;
     this.tracked.set(t.promptId, {
       ...t, totalSteps: Math.max(1, t.totalSteps), done: 0, node: null, value: 0, max: 0, phase: "waiting",
-      executing: null, samplingAt: null, stepsAtStart: 0, preview: { seq: 0 },
+      executing: null, samplingAt: null, stepsAtStart: 0, preview: { seq: 0 }, stages: [],
       clock: { phase: "waiting", at: Date.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null,
     });
     if (t.clientId && t.clientId !== this.client.clientId) this.listenAs(t.clientId, t.promptId);
@@ -248,6 +256,11 @@ export class Monitor {
     return this.tracked.get(promptId)?.preview ?? { seq: 0 };
   }
 
+  /** What a prompt showed on the way, node by node, so far. */
+  stages(promptId: string): Stage[] {
+    return this.tracked.get(promptId)?.stages ?? [];
+  }
+
   /** @param about the prompt a message is about when it does not say (a socket borrowed for one prompt) */
   private onMessage(raw: unknown, about?: string): void {
     if (typeof raw !== "string") {
@@ -295,6 +308,14 @@ export class Monitor {
     } else if (msg.type === "execution_start") {
       r.phase = "loading";
       this.current = r;
+    } else if (msg.type === "executed" && typeof d.node === "string") {
+      // a node that puts pictures out: a preview on the way, or a save. Kept in order, for the strip under the live preview
+      const out = (d.output ?? {}) as { images?: unknown; gifs?: unknown };
+      const files = [...(Array.isArray(out.images) ? out.images : []), ...(Array.isArray(out.gifs) ? out.gifs : [])]
+        .filter((f): f is OutputFile => Boolean(f) && typeof (f as OutputFile).filename === "string")
+        .map((f) => ({ filename: f.filename, subfolder: f.subfolder ?? "", type: f.type ?? "output" }));
+      if (!files.length) return;
+      r.stages = [...r.stages.filter((s) => s.node !== d.node), { node: d.node, files }];
     } else if (msg.type === "executing" && typeof d.node === "string") {
       this.catchUp(r, d.node);
       r.executing = d.node;

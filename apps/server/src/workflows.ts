@@ -4,7 +4,7 @@ import { modelIndex } from "./comfy";
 import { httpError } from "./errors";
 import { ComfyUnreachable } from "@afflatus/comfy";
 import { isRef, type Graph } from "@afflatus/core";
-import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type FileSource, type WorkflowDef } from "@afflatus/workflows";
+import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, paintSwitches, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type FileSource, type WorkflowDef } from "@afflatus/workflows";
 import type { Services } from "./services";
 import { openInComfy } from "./comfyOpen";
 import { installPacks, packStatus } from "./packs";
@@ -62,6 +62,20 @@ function checkBindings(graph: Graph, b: Bindings): void {
   for (const c of b.controls) if (isRef(graph[c.target.node]!.inputs[c.target.input])) throw httpError(`the control "${c.label}" points at an input that is linked, not typed in`);
   const ids = [...b.controls.map((c) => c.id), ...b.toggles.map((t) => t.id)];
   if (new Set(ids).size !== ids.length) throw httpError("two controls have the same id");
+  const known = new Set(ids);
+  for (const sk of b.skip ?? []) {
+    if (!graph[sk.node]) throw httpError(`a preview left out points at node ${sk.node}, which is not in the workflow`);
+    if (sk.node === b.result.node) throw httpError("the output itself cannot be left out");
+  }
+  const sectionIds = (b.sections ?? []).map((s) => s.id);
+  if (new Set(sectionIds).size !== sectionIds.length) throw httpError("two sections have the same id");
+  // the mapping's own inputs can be placed too (size, seed, the negative prompt…): their ids are the form's, not checked here
+  for (const s of b.sections ?? []) {
+    for (const item of s.items) {
+      if (typeof item === "string") continue;
+      if (!b.toggles.some((t) => t.id === item.toggle)) throw httpError(`the section "${s.label}" has a switch that is not in the mapping`);
+    }
+  }
 }
 
 const brief = (d: WorkflowDef) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length });
@@ -172,7 +186,8 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
       const titles = Object.fromEntries(Object.entries(def.graph).flatMap(([id, n]) => (typeof n._meta === "object" && n._meta && typeof (n._meta as { title?: unknown }).title === "string" ? [[id, (n._meta as { title: string }).title]] : [])));
       file = toEditor(def.graph as Graph, await comfy.catalog(), { titles });
     }
-    return openInComfy(s, def.id.replace(/^workflow\./, ""), def.title, file);
+    // the nodes each switch made here covers are coloured: the reach of a switch, seen where such things are checked
+    return openInComfy(s, def.id.replace(/^workflow\./, ""), def.title, paintSwitches(file, def.bindings.toggles));
   });
 
   /** What was made with it stays in the library; drafts on it stay too, and say the workflow is gone. */

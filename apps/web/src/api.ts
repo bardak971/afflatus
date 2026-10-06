@@ -280,3 +280,5 @@ export const thumbUrl = (id: string) => `/api/assets/${id}/thumb`;
 export const stripUrl = (id: string) => `/api/assets/${id}/strip`;
 export const STRIP_FRAMES = 12;
 export const previewUrl = (jobId: string, seq: number) => `/api/jobs/${jobId}/preview?s=${seq}`;
+/** One picture the running job showed on the way: stage n of its strip. */
+export const stageUrl = (jobId: string, n: number) => `/api/jobs/${jobId}/stage/${n}`;

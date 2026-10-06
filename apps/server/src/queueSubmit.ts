@@ -184,6 +184,8 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   return {
     promptId, seed, outputs: built.outputs, totalSteps: built.totalSteps, phases: built.phases, passes: built.passes,
     clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now(), timing,
+    // the nodes' titles, for naming what a preview node shows on the way
+    titles: Object.fromEntries(Object.entries(built.graph).flatMap(([id, n]) => { const t = (n as { _meta?: { title?: unknown } })._meta?.title; return typeof t === "string" ? [[id, t]] : []; })),
     ...(plan ? { input, links: plan.links, sources: plan.sources } : {}),
     ...(built.overlap ? { overlap: built.overlap } : {}),
   };

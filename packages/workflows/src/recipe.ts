@@ -1,6 +1,7 @@
 import {
   isRef, type BuiltGraph, type Family, type Graph, type InputSpec, type LoraValue, type Phase, type Recipe, type SizeValue, type VideoTraits,
 } from "@afflatus/core";
+import type { Chapter } from "@afflatus/core";
 import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
 import { ancestors, modesFor, prune, remove, settle, trim } from "./wiring";
 
@@ -245,6 +246,52 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   }
   if (b.seeds.length) inputs.push({ id: "seed", type: "seed", label: "Seed" });
 
+  // the importer's own chapters: each section's settings in its order, folded away by the switch at its head
+  // "advanced" and "prompt" among the sections are not sections: they mark where the folded Advanced chapter
+  // (last, without the mark) and the prompt block (first, without it) go
+  const MARKS: Record<string, string> = { advanced: "Advanced", prompt: "Prompt" };
+  const sections = (b.sections ?? []).filter((s) => s.items.length || s.id in MARKS);
+  const chapters: Chapter[] = [];
+  if (sections.length) {
+    const byId = new Map(inputs.map((i) => [i.id, i]));
+    const inputOf = (id: string) => byId.get(net.get(id)?.id ?? id) ?? byId.get(id);
+    const ordered: InputSpec[] = [];
+    const placed = new Set<string>();
+    /** Put an input in a chapter, under a switch when given: shown while the switch is on, unless something else already decides it. */
+    const place = (id: string, chapter: string, under?: string) => {
+      const i = inputOf(id);
+      if (!i || placed.has(i.id)) return;
+      Object.assign(i, { chapter, advanced: false, ...(under && !i.showWhen ? { showWhen: under } : {}) });
+      ordered.push(i);
+      placed.add(i.id);
+    };
+    for (const s of sections) {
+      if (s.id in MARKS) {
+        chapters.push({ id: s.id, label: MARKS[s.id]! });
+        continue;
+      }
+      const before = ordered.length;
+      for (const item of s.items) {
+        if (typeof item === "string") place(item, s.id);
+        else {
+          const head = byId.get(item.toggle);
+          // a switch whose toggle is gone takes its settings with it: they keep their usual place
+          if (!head) continue;
+          place(head.id, s.id);
+          for (const id of item.items) place(id, s.id, head.id);
+        }
+      }
+      if (ordered.length > before) chapters.push({ id: s.id, label: s.label });
+    }
+    inputs.splice(0, inputs.length, ...ordered, ...inputs.filter((i) => !placed.has(i.id)));
+  }
+  // no shelves of the form's own for an imported workflow: what the importer did not place goes under Advanced, folded.
+  // The prompt stays at the top (the form's spine), its negative under it, and the pictures where they are dropped
+  for (const i of inputs) {
+    if (i.chapter || i.id === "prompt" || i.id === "negative" || i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio") continue;
+    Object.assign(i, { advanced: true, section: "rare" });
+  }
+
   const traits: VideoTraits | undefined = video
     ? {
         startFrame: Boolean(b.startImage),
@@ -293,6 +340,8 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     const pruned = prune(whole, def.wiring, modesFor(def.wiring, b.toggles, input));
     settle(pruned);
     const { graph } = pruned;
+    // previews left out at import, with the branches that only served them: ComfyUI runs every output node it is sent
+    for (const sk of b.skip ?? []) for (const id of [sk.node, ...sk.nodes]) if (id !== b.result.node) delete graph[id];
     for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const)] as const) {
       if (!image) continue;
       const uploaded = ctx.uploads[id];
@@ -383,6 +432,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     summary: def.source ? `From ${def.source}.` : "From your own workflow.",
     output: b.result.kind,
     inputs,
+    ...(chapters.length ? { chapters } : {}),
     traits,
     // the model files it needs as it was saved: the parts that are switched off are not counted
     files: usedNodes({}).flatMap((n) =>

@@ -642,6 +642,8 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
         pictures,
         loras: chosen.map((p) => ({ node: p.node, output: p.output, label: chosen.length > 1 ? p.label : "", ...(p.power ? { power: true } : {}) })),
         toggles,
+        sections: [],
+        skip: [],
         result: { node: result.node, kind: result.kind, sound: result.sound },
         controls: ticked,
         stages,

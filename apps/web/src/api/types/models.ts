@@ -1,5 +1,5 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
-import type { InputSpec, VideoTraits } from "@afflatus/core";
+import type { Chapter, InputSpec, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 
 export interface RecipeInfo {
@@ -10,6 +10,8 @@ export interface RecipeInfo {
   summary: string;
   output: "image" | "video" | "audio";
   inputs: InputSpec[];
+  /** Chapters the recipe arranges itself (an imported workflow's sections), in order. */
+  chapters?: Chapter[];
   /** Of a video recipe: what it can do on a timeline. */
   traits: VideoTraits | null;
   /** The model files it names itself (an imported workflow's). */

@@ -56,13 +56,15 @@ export interface RunningJob extends Job {
   previewSeq: number;
   /** What the preview is: a picture, or (video/…) a short clip of what is forming. */
   previewMime?: string | null;
+  /** What the workflow showed on the way (its Preview nodes), oldest first: a strip under the live preview. */
+  stages?: Array<{ n: number; node: string; title: string | null; count: number }>;
 }
 /**
  * What a "progress" live event carries: the running job's id and the figures that moved. The job in
  * the queue on screen is changed in place with them (live.ts), so a render that reports every step
  * costs no request. The id is the job's, not ComfyUI's prompt id.
  */
-export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "previewMime">;
+export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime">;
 export interface QueueStatus {
   paused: boolean;
   /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */

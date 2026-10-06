@@ -59,8 +59,15 @@ async function readFile(file: File): Promise<Editing> {
 /** A saved workflow, opened again to change its mapping. */
 async function reopen(id: string): Promise<Editing> {
   const def = await api.workflow(id);
-  const inspection = await api.inspectWorkflow({ graph: def.graph, wiring: def.wiring });
-  return { id: def.id, source: def.source, title: def.title, model: def.model, graph: def.graph, wiring: def.wiring, editor: def.editor, inspection, bindings: def.bindings };
+  // what the reader learns from the file itself (the author's frames, the links in its notes) is read again: a
+  // workflow saved before the reader knew to keep them gains them; the saved graph and mapping stay as they are
+  let wiring = def.wiring;
+  if (def.editor && def.wiring) {
+    const fresh = await api.inspectWorkflow(def.editor).catch(() => null);
+    if (fresh?.wiring) wiring = { ...def.wiring, frames: fresh.wiring.frames, links: fresh.wiring.links };
+  }
+  const inspection = await api.inspectWorkflow({ graph: def.graph, wiring });
+  return { id: def.id, source: def.source, title: def.title, model: def.model, graph: def.graph, wiring, editor: def.editor, inspection, bindings: def.bindings };
 }
 
 /** The workflow with its mapping, as a file someone else can import into their Afflatus. */

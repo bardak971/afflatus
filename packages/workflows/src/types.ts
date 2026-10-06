@@ -70,8 +70,32 @@ export const toggle = z.object({
   front: z.boolean().optional(),
   /** What the nodes it switches do, from their descriptions in ComfyUI. */
   help: z.string().optional(),
+  /** Made in Afflatus at import (a section's switch), not read from the file: its nodes can be changed. */
+  made: z.boolean().optional(),
 });
 export type Toggle = z.infer<typeof toggle>;
+
+/** A switch inside a section, with the settings shown while it is on (as Hires fix holds the upscale settings). */
+export const switchGroup = z.object({
+  /** The toggle's id, in `toggles`. */
+  toggle: z.string(),
+  /** Ids of the inputs under it, in the order shown. */
+  items: z.array(z.string()).default([]),
+});
+export type SwitchGroup = z.infer<typeof switchGroup>;
+
+/**
+ * A chapter of the form, arranged by the person importing: its settings in the order they are shown,
+ * among them switches, each with the settings that show while it is on (off, those fold away and the
+ * switch's nodes are bypassed). Settings in no section keep their usual place (up front or under Advanced).
+ */
+export const section = z.object({
+  id: z.string(),
+  label: z.string(),
+  /** Ids of inputs (controls, the file's switches, the mapping's own inputs), or switch groups, in the order shown. */
+  items: z.array(z.union([z.string(), switchGroup])).default([]),
+});
+export type Section = z.infer<typeof section>;
 
 /**
  * What the editor's file knows and an exported workflow has lost: which nodes are switched off, enough
@@ -100,6 +124,8 @@ export const wiring = z.object({
   downloads: z.record(z.string(), z.string()).default({}),
   /** and the links its author wrote in its notes. */
   links: z.array(z.object({ label: z.string(), url: z.string() })).default([]),
+  /** The frames the author drew around nodes (the editor's groups): their titles and the nodes inside, for making switches. */
+  frames: z.array(z.object({ title: z.string(), nodes: z.array(z.string()) })).default([]),
 });
 export type Wiring = z.infer<typeof wiring>;
 
@@ -137,6 +163,13 @@ export const bindings = z.object({
     power: z.boolean().optional(),
   })).default([]),
   toggles: z.array(toggle).default([]),
+  sections: z.array(section).default([]),
+  /**
+   * Output nodes left out of what is sent (a preview or a comparer on a branch the result does not need),
+   * each with the nodes that only serve it: ComfyUI runs every output node, so a preview on a dead end
+   * costs the work of its branch. Kept by default, as ComfyUI would; the person leaves them out.
+   */
+  skip: z.array(z.object({ node: z.string(), nodes: z.array(z.string()) })).default([]),
   /** The node whose files are the result. */
   result: z.object({ node: z.string(), kind: z.enum(["image", "video", "audio"]), sound: z.boolean().default(false) }),
   controls: z.array(control).default([]),
