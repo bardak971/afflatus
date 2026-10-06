@@ -27,6 +27,17 @@ describe("the model a workflow seems to be for", () => {
     expect(guessModel(ckpt("someFineTune.safetensors", 512))).toBe("SD 1.5");
   });
 
+  it("reads the diffusion model's file before any node type, and a LoRA loader's type says nothing", () => {
+    // an H3 workflow of the DaSiWa pack: its LoRA loader is named after LTX, its text encoder after Qwen; the UNET says H3
+    expect(guessModel({
+      "1": { class_type: "DaSiWa_LTX2LoraLoader", inputs: { loras: "[]" } },
+      "2": { class_type: "UNETLoader", inputs: { unet_name: "MiniMaxH3/minimax_h3_fl2va_pruned_int8_convrot.safetensors", weight_dtype: "default" } },
+      "3": { class_type: "CLIPLoader", inputs: { clip_name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", type: "minimax" } },
+    })).toBe("MiniMax H3");
+    expect(guessModel({ "1": { class_type: "DaSiWa_LTX2LoraLoader", inputs: { loras: "[]" } } })).toBe("");
+    expect(guessModel({ "1": { class_type: "MiniMaxH3Director", inputs: { mode: "I2VA" } } })).toBe("MiniMax H3");
+  });
+
   it("is not fooled by a prompt, and says nothing when nothing says", () => {
     expect(guessModel({ "1": { class_type: "CLIPTextEncode", inputs: { text: "a wan smile, flux of pixels" } } })).toBe("");
     expect(guessModel({ "1": { class_type: "LoadImage", inputs: { image: "pixel.png" } } })).toBe("");

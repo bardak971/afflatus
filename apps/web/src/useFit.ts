@@ -6,10 +6,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
  * undone when the bar has grown wider than it was when the step was taken (and taken again at once if that
  * was not enough). The bar is `flex-nowrap overflow-hidden`, so what it holds never wraps.
  */
-export function useFit(ref: RefObject<HTMLElement | null>, steps: number): number {
+export function useFit(ref: RefObject<HTMLElement | null>, steps: number, resetKey = ""): number {
   const [level, setLevel] = useState(0);
   // the width the bar had when each step was taken
   const at = useRef<number[]>([]);
+  // what the bar holds changed: fold again from nothing (the layout effect takes the steps needed)
+  useEffect(() => {
+    setLevel(0);
+    at.current = [];
+  }, [resetKey]);
   const over = (el: HTMLElement) => el.scrollWidth > el.clientWidth + 1;
   // after every draw: still too wide, one more step
   useLayoutEffect(() => {
@@ -42,5 +47,5 @@ export function useFit(ref: RefObject<HTMLElement | null>, steps: number): numbe
       changed.disconnect();
     };
   }, [ref, steps]);
-  return level;
+  return Math.min(level, steps);
 }

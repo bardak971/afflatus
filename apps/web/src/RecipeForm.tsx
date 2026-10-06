@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Search, X } from "lucide-react";
+import { ContextMenu, useMenu } from "./ContextMenu";
+import { useFit } from "./useFit";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { fuzzyScore, isShown, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue, frameOf, megapixels } from "@afflatus/core";
@@ -123,6 +125,17 @@ function Strip({ parts, open, query, setQuery, found }: {
   const pinned = useRef(false);
   // the listeners are bound again when the parts change, not on every keystroke (the array is new each render)
   const partIds = parts.map((p) => p.id).join("|");
+  // one line, always: the parts that do not fit go under a "+N" at the end (a form of many sections, a narrow column)
+  const fold = useFit(self, Math.max(0, parts.length - 1), partIds);
+  const shown = parts.slice(0, parts.length - fold);
+  const hidden = parts.slice(parts.length - fold);
+  const more = useMenu<true>();
+  const goTo = (id: string) => {
+    open(id);
+    pinned.current = true;
+    setCurrent(id);
+    requestAnimationFrame(() => document.querySelector(`[data-part="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   useEffect(() => {
     // the nearest thing that scrolls: the form's parts scroll inside it
     let root = self.current?.parentElement ?? null;
@@ -181,21 +194,34 @@ function Strip({ parts, open, query, setQuery, found }: {
           {query.trim() && <span className="shrink-0 text-ink-3">{found}</span>}
           <button type="button" aria-label="Stop searching" onClick={stop} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={13} /></button>
         </label>
-      ) : parts.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          onClick={() => {
-            open(p.id);
-            pinned.current = true;
-            setCurrent(p.id);
-            requestAnimationFrame(() => document.querySelector(`[data-part="${p.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-          }}
-          className={cx("min-w-0 shrink rounded-full px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
-        >
-          {p.label}
-        </button>
-      ))}
+      ) : (
+        <>
+          {shown.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => goTo(p.id)}
+              className={cx("shrink-0 rounded-full px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+            >
+              {p.label}
+            </button>
+          ))}
+          {hidden.length > 0 && (
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-label={`${hidden.length} more part${hidden.length === 1 ? "" : "s"}`}
+              title={hidden.map((p) => p.label).join(", ")}
+              onClick={(e) => more.open(e, true)}
+              className={cx("flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", hidden.some((p) => p.id === current) ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+            >
+              {hidden.find((p) => p.id === current)?.label ?? `+${hidden.length}`}
+              <ChevronDown size={11} />
+            </button>
+          )}
+          {more.menu && <ContextMenu at={more.menu.at} label="More parts of the form" items={hidden.map((p) => ({ label: p.label, note: p.id === current ? "in view" : undefined, run: () => goTo(p.id) }))} onClose={more.close} />}
+        </>
+      )}
       <span className="grow" />
       {!searching && (
         <button

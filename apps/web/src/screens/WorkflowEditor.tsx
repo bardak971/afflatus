@@ -1,9 +1,10 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Minus } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Minus } from "lucide-react";
 import { describeRecipe, folderOfFileInput, fuzzyFilter, fuzzyScore } from "@afflatus/core";
 import { ancestors, recipeFromWorkflow, suggestSections, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
 import { api } from "../api";
+import { useRecipes } from "../data";
 import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
 import { GetFile } from "../GetFile";
@@ -40,18 +41,56 @@ const searchLinks = (file: string) => [
 ];
 const text = "h-10 w-full rounded-lg border border-line bg-raised px-3";
 
-/** One thing Afflatus looked for: a mark that says whether it has it, its name, and how to change it. */
-function Found({ ok, role, note, children }: { ok: boolean; role: string; note?: string; children?: ReactNode }) {
+/**
+ * One thing Afflatus looked for: a mark that says whether it has it (found; not found but fine; not found and
+ * the form is poorer for it), its name, what was found or what to do about it, and the way to change it.
+ */
+function Found({ ok, role, note, matters, what, children }: {
+  ok: boolean;
+  role: string;
+  /** What was found (ok), or what to do (not ok): shown as a line, not behind a "?". */
+  what?: string;
+  /** Background, behind a "?". */
+  note?: string;
+  /** Not found and it shows: the form will lack it. */
+  matters?: boolean;
+  children?: ReactNode;
+}) {
+  const tone = ok ? "good" : matters ? "warn" : "plain";
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-panel px-3 py-2.5">
+    <div className={cx("flex flex-col gap-1.5 rounded-lg border px-3 py-2.5", tone === "warn" ? "border-warn/40 bg-panel" : "border-line bg-panel")}>
       <div className="flex items-center gap-2.5">
-        <span className={cx("flex h-5 w-5 shrink-0 items-center justify-center rounded-full", ok ? "bg-good/20 text-good" : "bg-hover text-ink-2")}>
-          {ok ? <Check size={12} strokeWidth={3} /> : <Minus size={12} strokeWidth={3} />}
+        <span className={cx("flex h-5 w-5 shrink-0 items-center justify-center rounded-full", tone === "good" ? "bg-good/20 text-good" : tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-hover text-ink-2")}>
+          {tone === "good" ? <Check size={12} strokeWidth={3} /> : tone === "warn" ? <AlertTriangle size={11} strokeWidth={2.6} /> : <Minus size={12} strokeWidth={3} />}
         </span>
         <span className="font-semibold">{role}</span>
+        {what && <span className={cx("min-w-0 truncate text-xs", tone === "warn" ? "text-warn-ink" : "text-ink-2")} title={what}>{what}</span>}
         <Note text={note} />
       </div>
       {children}
+    </div>
+  );
+}
+
+/** A short line of the verdict strip. */
+function Chip({ tone, children }: { tone: "good" | "plain" | "warn"; children: ReactNode }) {
+  return (
+    <span className={cx("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold", tone === "good" ? "border-good/40 text-good" : tone === "warn" ? "border-warn/50 bg-warn-wash text-warn-ink" : "border-line text-ink-2")}>
+      {tone === "good" ? <Check size={11} strokeWidth={3} /> : tone === "warn" ? <AlertTriangle size={11} strokeWidth={2.6} /> : <Minus size={11} strokeWidth={3} />}
+      {children}
+    </span>
+  );
+}
+
+/** A step of the screen: its number, name and what to do in it. */
+function Step({ n, title, hint }: { n: number; title: string; hint: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 pb-1">
+      <div className="flex items-center gap-2">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[11px] font-bold text-ground">{n}</span>
+        <span className="text-sm font-semibold">{title}</span>
+      </div>
+      <span className="text-xs text-ink-2">{hint}</span>
     </div>
   );
 }
@@ -242,29 +281,60 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     set({ skip: leaveOut ? [...(b.skip ?? []).filter((s) => s.node !== d.node), { node: d.node, nodes: d.nodes }] : (b.skip ?? []).filter((s) => s.node !== d.node) });
   const video = b.result.kind === "video";
   const canSave = title.trim() && model.trim() && !save.isPending;
+  const familyNames = (useRecipes().data?.families ?? []).map((f) => f.name);
+
+  // the notes that are about one switch sit under it; the rest are said with the other checks
+  const noteFor = (label: string) => found.notes.filter((n) => n.includes(`"${label}"`));
+  const attachedNotes = new Set(found.toggles.flatMap((t) => noteFor(t.label)));
+  const looseNotes = found.notes.filter((n) => !attachedNotes.has(n));
+  // two switches of one name: each says which node it goes through
+  const labelCount = found.toggles.reduce((m, t) => m.set(t.label, (m.get(t.label) ?? 0) + 1), new Map<string, number>());
+  const viaOf = (t: Toggle) => { const id = t.effects[0]?.nodes[0]; return id ? nodeList.find((n) => n.id === id)?.title : undefined; };
+  // the widgets of a node, folded until wanted (a node with a ticked widget, or a search, is open)
+  const [openNodes, setOpenNodes] = useState<Set<string>>(new Set());
+  const flipNode = (node: string) => setOpenNodes((old) => { const n = new Set(old); if (n.has(node)) n.delete(node); else n.add(node); return n; });
+
+  // the verdict: what was found, what was not, and what to see to before it runs
+  const unreplacedFiles = found.missingFiles.filter((f) => String(graph[f.node]?.inputs[f.input] ?? f.file) === f.file);
+  const unreplacedChoices = (found.missingChoices ?? []).filter((c) => String(graph[c.node]?.inputs[c.input] ?? c.value) === c.value);
+  const toCheck = (found.missingNodes.length ? 1 : 0) + unreplacedFiles.length + unreplacedChoices.length + looseNotes.length;
+  const has = [
+    b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
+    b.size && "resolution", video && b.length && "duration", b.seeds.length && "seed", b.loras.length && (b.loras.length > 1 ? `${b.loras.length} LoRA lists` : "LoRAs"),
+    b.toggles.length && `${b.toggles.length} switch${b.toggles.length === 1 ? "" : "es"}`, b.controls.length && `${b.controls.length} widget${b.controls.length === 1 ? "" : "s"}`,
+    `${b.result.kind === "image" ? "image" : b.result.kind === "video" ? (b.result.sound ? "video with audio" : "video") : "audio"} output`,
+  ].filter((x): x is string => Boolean(x));
+  const lacks = [!b.prompt && "prompt", video && !b.startImage && "first frame", !b.seeds.length && "seed", !b.size && "resolution", video && !b.length && "duration"].filter((x): x is string => Boolean(x));
 
   return (
     <div className="flex min-h-0 grow flex-col">
-      <header className="flex h-20 shrink-0 items-center gap-4 border-b border-line px-8">
+      <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line px-8">
         <div className="flex min-w-0 flex-col">
           <h1 className="text-xl font-semibold">{start.id ? "Edit workflow" : "Import ComfyUI workflow"}</h1>
-          <div className="truncate text-ink-2">{start.source || start.title} · {found.nodeCount} nodes · Afflatus read it and mapped the parts below. Correct anything that is wrong.</div>
+          <div className="truncate text-xs text-ink-2">{start.source || start.title} · {found.nodeCount} nodes</div>
         </div>
         <span className="grow" />
         <Button onClick={() => onDone(false)}>Cancel</Button>
         <Button tone="primary" disabled={!canSave} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : start.id ? "Save changes" : "Save workflow"}</Button>
       </header>
+      {/* the verdict: one line that says where things stand */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-8 py-2">
+        <Chip tone="good">Found: {has.join(", ")}</Chip>
+        {lacks.length > 0 && <Chip tone="plain">Not found: {lacks.join(", ")}</Chip>}
+        {toCheck > 0 ? <Chip tone="warn">{toCheck} thing{toCheck === 1 ? "" : "s"} to see to before it runs</Chip> : <Chip tone="good">Everything it needs is in your ComfyUI</Chip>}
+        {!model.trim() && <Chip tone="warn">Needs a model name to save</Chip>}
+      </div>
 
-      <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_minmax(0,1fr)_400px]">
+      <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_minmax(0,1fr)_460px]">
         <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
-          <SectionTitle>Mapping</SectionTitle>
+          <Step n={1} title="What Afflatus read" hint="The parts of the workflow the form is built on. Correct a wrong pick; a dash means the workflow has none." />
 
-          <Found ok={Boolean(b.prompt)} role="Prompt" note={b.prompt ? undefined : "No text input (CLIP Text Encode or similar) was found."}>
+          <Found ok={Boolean(b.prompt)} role="Prompt" matters what={b.prompt ? undefined : "No text input found. Pick the node the prompt goes to:"}>
             {textOptions.length > 0 && (
               <Select size="sm" label="Node the prompt goes to" value={keyOf(b.prompt)} onChange={pickText("prompt")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
             )}
           </Found>
-          <Found ok={Boolean(b.negative)} role="Negative prompt" note={b.negative ? undefined : "optional"}>
+          <Found ok={Boolean(b.negative)} role="Negative prompt" what={b.negative ? undefined : "None in the file. Fine as it is, or pick a node:"}>
             {textOptions.length > 0 && (
               <Select size="sm" label="Node the negative prompt goes to" value={keyOf(b.negative)} onChange={pickText("negative")} options={[{ value: "", label: "None" }, ...textOptions.map((o) => ({ value: o.key, label: o.label }))]} />
             )}
@@ -273,9 +343,13 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
           {(["startImage", "endImage"] as const).map((key) => {
             const bound = b[key];
             const role = key === "startImage" ? (video ? "First frame" : "Image") : "Last frame";
-            if (!found.images.length) return key === "startImage" ? <Found key={key} ok={false} role={role} note="This workflow has no Load Image node." /> : null;
+            if (!found.images.length) {
+              return key === "startImage"
+                ? <Found key={key} ok={false} role={role} matters={video} what={video ? "No Load Image node: the form has no first frame" : "No Load Image node: the form takes no image"} note={video ? "In a timeline, a clip made with it cannot extend the previous clip from its last frame. Some packs take the picture in their own node instead of a Load Image; Afflatus does not read those." : undefined} />
+                : null;
+            }
             return (
-              <Found key={key} ok={Boolean(bound)} role={role} note={bound ? (bound.required ? "required" : "optional") : undefined}>
+              <Found key={key} ok={Boolean(bound)} role={role} what={bound ? (bound.required ? "required" : "optional") : "None picked"}>
                 <Select size="sm" label={role} value={bound?.target.node ?? ""} onChange={pickImage(key)} options={[{ value: "", label: "None" }, ...found.images.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
               </Found>
             );
@@ -289,7 +363,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             const idOf = (node: string) => `pic_${node}`.replace(/[^a-zA-Z0-9_]/g, "_");
             const have = b.pictures ?? [];
             return (
-              <Found ok={have.length > 0} role="Other Load Image nodes" note={`${have.length} of ${rest.length} in the form`}>
+              <Found ok={have.length > 0} role="Other pictures" what={`${have.length} of ${rest.length} in the form`}>
                 {rest.map((i, n) => {
                   const on = have.find((p) => p.target.node === i.node);
                   return (
@@ -315,25 +389,11 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             );
           })()}
 
-          <Found
-            ok={Boolean(b.size)}
-            role="Resolution"
-            note={b.size ? `width and height of node #${b.size.width.node}` : "The workflow sets its own resolution. Its width and height are in the list on the right."}
-          />
-          {video && (
-            <Found
-              ok={Boolean(b.length)}
-              role="Duration"
-              note={b.length ? `in seconds, at ${b.length.fps} fps` : "The workflow sets its own frame count. Look for its length setting in the list on the right."}
-            />
-          )}
-          <Found
-            ok={b.seeds.length > 0}
-            role="Seed"
-            note={b.seeds.length ? (b.seeds.length > 1 ? `${b.seeds.length} nodes, all given the same seed` : `node #${b.seeds[0]!.node}`) : "None found: every render would come out the same."}
-          />
+          <Found ok={Boolean(b.size)} role="Resolution" what={b.size ? `width and height of node #${b.size.width.node}` : "The file sets its own. To change it from the form, tick its width and height in step 2."} />
+          {video && <Found ok={Boolean(b.length)} role="Duration" what={b.length ? `in seconds, at ${b.length.fps} fps` : "The file sets its own frame count. To change it from the form, tick its length widget in step 2."} />}
+          <Found ok={b.seeds.length > 0} role="Seed" matters what={b.seeds.length ? (b.seeds.length > 1 ? `${b.seeds.length} nodes, all given the same seed` : `node #${b.seeds[0]!.node}`) : "None found: every render would come out the same. Tick a seed widget in step 2."} />
 
-          <Found ok={b.loras.length > 0} role="LoRA loaders" note={found.loraPoints.length ? (b.loras.length > 1 ? "one list for each" : undefined) : "No model loader was found."}>
+          <Found ok={b.loras.length > 0} role="LoRAs" what={found.loraPoints.length ? (b.loras.length > 1 ? "one list for each loader" : b.loras.length ? "one list in the form" : "none in the form") : "No model loader found"}>
             {found.loraPoints.map((p) => (
               <label key={p.node} className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={b.loras.some((x) => x.node === p.node)} onChange={() => toggleLoras(p.node)} className="accent-accent" />
@@ -344,7 +404,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             ))}
           </Found>
 
-          <Found ok role="Output" note={`${b.result.kind === "image" ? "an image" : b.result.kind === "video" ? (b.result.sound ? "a video with audio" : "a video without audio") : "audio"}`}>
+          <Found ok role="Output" what={b.result.kind === "image" ? "an image" : b.result.kind === "video" ? (b.result.sound ? "a video with audio" : "a video without audio") : "audio"}>
             {found.outputs.length > 1 && (
               <Select
                 size="sm"
@@ -372,9 +432,102 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             )}
             {!result && <ErrorNote>The output node is no longer in the workflow.</ErrorNote>}
           </Found>
+
+          {/* what stands between the workflow and a first render: packs, files, choices this ComfyUI lacks */}
+          {(found.missingNodes.length > 0 || found.missingFiles.length > 0 || (found.missingChoices ?? []).length > 0 || (found.relocated ?? []).length > 0 || found.missingWhenOn.length > 0 || looseNotes.length > 0) && (
+            <div className="mt-3 flex flex-col gap-1.5 text-xs">
+              <SectionTitle>Before it can run</SectionTitle>
+              {found.missingNodes.length > 0 && <MissingPacks missing={found.missingNodes} packs={found.packs} graph={graph} wiring={start.wiring} onInspected={setFound} />}
+              {found.missingFiles.map((f) => {
+                const now = String(graph[f.node]?.inputs[f.input] ?? f.file);
+                const replaced = now !== f.file;
+                return (
+                  <div key={keyOf(f)} className={cx("flex flex-col gap-1.5 rounded-lg px-3 py-2", replaced ? "border border-line text-ink-2" : "bg-warn-wash text-warn-ink")}>
+                    <span>
+                      {replaced ? "Replaced: " : "Your ComfyUI does not have "}
+                      <span className="font-semibold break-all">{fileLabel(f.file)}</span> ({f.label}).
+                      {!replaced && " Use another file, or download this one:"}
+                    </span>
+                    <Select
+                      size="sm"
+                      label={`File to use instead of ${fileLabel(f.file)}`}
+                      placeholder="Replace with…"
+                      value={replaced ? now : ""}
+                      onChange={(file) => replaceFile(f, file || f.file)}
+                      options={[...(replaced ? [{ value: "", label: "Back to the file the workflow names" }] : []), ...f.options.map((o) => ({ value: o, label: fileLabel(o), note: o.split(/[\\/]/).slice(0, -1).join("/") || undefined }))]}
+                    />
+                    {!replaced && (
+                      <span>
+                        {f.url
+                          ? <a className={link} href={f.url} target="_blank" rel="noreferrer">Download it (the URL is in the workflow)</a>
+                          : f.source
+                            ? (
+                              <>
+                                {f.source.how === "notes" ? "The author's notes point to " : f.source.how === "creator" ? "The same author has it on Civitai: " : "A standard file, in ComfyUI-Manager's list: "}
+                                {f.source.page ? <a className={link} href={f.source.page} target="_blank" rel="noreferrer">{f.source.title}</a> : <span className="font-semibold">{f.source.title}</span>}
+                                {f.source.exact ? ", the file itself" : <>, whose file is <span className="font-semibold break-all">{f.source.file}</span>, not this one: take it only if it is the same model</>}
+                              </>
+                            )
+                            : <>Search for it on {searchLinks(f.file).map((l, i) => <span key={l.url}>{i > 0 && " or "}<a className={link} href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)}</>}
+                        . {where(f)}
+                        <GetFile file={f.file} folder={folderOfFileInput(f.classType, f.input)} url={f.url ?? f.source?.url} civitai={f.source?.civitai} pick={f.source?.civitai ? f.source.file : undefined} hints={hintsFor(f.node)} auto={!f.url && !f.source} />
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              {(found.missingChoices ?? []).map((c) => {
+                const now = String(graph[c.node]?.inputs[c.input] ?? c.value);
+                const replaced = now !== c.value;
+                const what = c.input.replace(/_/g, " ");
+                return (
+                  <div key={keyOf(c)} className={cx("flex flex-col gap-1.5 rounded-lg px-3 py-2", replaced ? "border border-line text-ink-2" : "bg-warn-wash text-warn-ink")}>
+                    <span>
+                      {replaced ? <>Replaced: <span className="font-semibold">{c.value}</span> by <span className="font-semibold">{now}</span> as {what} ({c.title}).</> : (
+                        <>Your ComfyUI does not offer <span className="font-semibold">{c.value}</span> as {what} ({c.title} #{c.node}). It comes from a node pack this ComfyUI does not have, and the prompt would be rejected. Use another:</>
+                      )}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!replaced && c.nearest && <Button size="sm" tone="primary" onClick={() => replaceFile(c, c.nearest!)}>Use {c.nearest}, the closest match</Button>}
+                      <div className="min-w-48 grow">
+                        <Select
+                          size="sm"
+                          label={`What to use as ${what} instead of ${c.value}`}
+                          placeholder="Pick another…"
+                          value={replaced ? now : ""}
+                          onChange={(v) => replaceFile(c, v || c.value)}
+                          options={c.options.map((o) => ({ value: o, label: o }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {(found.relocated ?? []).map((r) => (
+                <div key={keyOf(r)} className="rounded-lg border border-line px-3 py-2 text-ink-2">
+                  <span className="font-semibold break-all text-ink">{fileLabel(r.file)}</span> is in your ComfyUI in another folder ({r.found.split(/[\\/]/).slice(0, -1).join("/") || "the top one"}): it is used from there.
+                </div>
+              ))}
+              {found.missingFiles.length > 0 && found.links.length > 0 && (
+                <details className="rounded-lg border border-line px-3 py-2 text-ink-2">
+                  <summary className="cursor-pointer">Links the workflow's author left in its notes ({found.links.length})</summary>
+                  <div className="flex flex-col gap-1 pt-2">
+                    {found.links.map((l) => <a key={l.url} className={cx(link, "font-normal break-words")} href={l.url} target="_blank" rel="noreferrer">{l.label}</a>)}
+                  </div>
+                </details>
+              )}
+              {found.missingWhenOn.length > 0 && (
+                <span className="text-ink-2">
+                  Bypassed parts use node types your ComfyUI does not have: {found.missingWhenOn.map((n) => (found.packs[n] ? `${n} (pack ${found.packs[n]})` : n)).join(", ")}. Those switches will not work until they are installed.
+                </span>
+              )}
+              {looseNotes.map((n) => <div key={n} className="rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">{n}</div>)}
+            </div>
+          )}
         </section>
 
         <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
+          <Step n={2} title="What the form shows" hint="Tick a switch or a widget to get a control for it. Everything else stays as it is in the file." />
           <input data-search
             aria-label="Search switches and widgets"
             placeholder={`Search ${found.toggles.length ? `${found.toggles.length} switches and ` : ""}${found.candidates.length} widgets`}
@@ -384,24 +537,29 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
           />
           {found.toggles.length > 0 && (
             <>
-              <SectionTitle>Switches (bypass groups)</SectionTitle>
-              <div className="text-ink-2">Parts of this workflow that can be bypassed. Each ticked one becomes a switch in the form. {b.toggles.length} of {found.toggles.length} ticked.</div>
+              <div className="flex items-baseline gap-2 pt-1">
+                <SectionTitle>Switches</SectionTitle>
+                <span className="text-xs text-ink-2">parts of the workflow that can be turned off · {b.toggles.length} of {found.toggles.length} in the form</span>
+              </div>
               {!switches.length && <div className="text-ink-2">No switch matches.</div>}
               {switches.map((t) => {
                 const ticked = b.toggles.find((x) => x.id === t.id);
                 const nodes = t.effects.reduce((n, e) => n + e.nodes.length, 0);
+                const via = (labelCount.get(t.label) ?? 0) > 1 ? viaOf(t) : undefined;
+                const warnings = noteFor(t.label);
                 return (
-                  <div key={t.id} className={cx("flex items-center gap-2.5 rounded-lg border px-3 py-2", ticked ? "border-accent/50 bg-accent-wash" : "border-line bg-panel")}>
-                    <input type="checkbox" aria-label={`Add the switch ${t.label}`} checked={Boolean(ticked)} onChange={() => toggleSwitch(t)} className="accent-accent" />
-                    {t.help && <Help text={t.help} />}
-                    {ticked ? (
-                      <>
+                  <div key={t.id} className={cx("flex flex-col gap-1 rounded-lg border px-3 py-2", ticked ? "border-accent/50 bg-accent-wash" : "border-line bg-panel")}>
+                    <div className="flex items-center gap-2.5">
+                      <input type="checkbox" aria-label={`Add the switch ${t.label}`} checked={Boolean(ticked)} onChange={() => toggleSwitch(t)} className="accent-accent" />
+                      {t.help && <Help text={t.help} />}
+                      {ticked ? (
                         <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => changeSwitch(t.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />
-                      </>
-                    ) : (
-                      <span className="min-w-0 grow truncate font-semibold">{t.label}</span>
-                    )}
-                    <span className="shrink-0 text-xs text-ink-2">{t.default ? "active" : "bypassed"} in the file · {nodes} node{nodes === 1 ? "" : "s"}</span>
+                      ) : (
+                        <span className="min-w-0 grow truncate font-semibold">{t.label}</span>
+                      )}
+                      <span className="shrink-0 text-xs text-ink-2">{via && <span title="Two switches of this name: this one goes through this node">via {via} · </span>}{t.default ? "on" : "off"} in the file · {nodes} node{nodes === 1 ? "" : "s"}</span>
+                    </div>
+                    {warnings.map((w) => <span key={w} className="flex items-start gap-1.5 text-xs text-warn-ink"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{w}</span>)}
                   </div>
                 );
               })}
@@ -420,7 +578,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
                   <span className="min-w-0 grow font-semibold">{hires ? "Hires fix" : "Run"}</span>
                   <span className="shrink-0 text-xs text-ink-2">{hires ? "a switch · on in the file" : `a choice of ${found.stages.length}`}</span>
                 </div>
-                <div className="text-ink-2">
+                <div className="text-xs text-ink-2">
                   {hires
                     ? "This workflow is a base pass, then an upscale and a second sampling pass over the larger latent. Ticked, the form gets a Hires fix switch: off runs the base pass only, and the upscale and second-pass widgets are hidden."
                     : `This workflow has a Preview node at ${found.stages.length} points on the way. Ticked, the form gets a "Run" choice (${found.stages.map((st) => st.label).join(" / ")}): what comes after the chosen point is not run.`}
@@ -429,48 +587,59 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
               </>
             );
           })()}
-          <SectionTitle>Widgets exposed in the form</SectionTitle>
-          <div className="text-ink-2">Tick a widget to get a control for it. {b.controls.length} ticked. Everything else stays as it is in the file. A "?" is what the node's author says about it; it follows the widget into the form.</div>
-          {groups.map(([node, items]) => (
-            <div key={node} className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 pt-1.5 text-xs text-ink-2">
-                <span>{items[0]!.title} <span className="text-ink-3">#{node}</span></span>
-                {found.about?.[items[0]!.classType] && <Help text={found.about[items[0]!.classType]!} />}
-              </div>
-              {items.map((c) => {
-                const ticked = b.controls.find((x) => x.id === c.id);
-                const used = taken.has(keyOf(c.target));
-                return (
-                  <div key={c.id} className={cx("flex items-center gap-2.5 rounded-lg border px-3 py-2", ticked ? "border-accent/50 bg-accent-wash" : "border-line bg-panel", used && "opacity-50")}>
-                    <input type="checkbox" aria-label={`Add a control for ${c.label}`} checked={Boolean(ticked)} disabled={used} onChange={() => toggleControl(c)} className="accent-accent" />
-                    {c.help && <Help text={c.help} />}
-                    {ticked ? (
-                      <>
+          <div className="flex items-baseline gap-2">
+            <SectionTitle>Widgets</SectionTitle>
+            <span className="text-xs text-ink-2">by node · {b.controls.length} in the form · a "?" is the node author's own note</span>
+          </div>
+          {groups.map(([node, items]) => {
+            const tickedHere = items.filter((c) => b.controls.some((x) => x.id === c.id)).length;
+            const open = Boolean(filter) || openNodes.has(node) || tickedHere > 0;
+            return (
+              <div key={node} className="flex flex-col gap-1">
+                <button type="button" aria-expanded={open} onClick={() => flipNode(node)} className="flex items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-hover">
+                  {open ? <ChevronDown size={13} className="shrink-0 text-ink-3" /> : <ChevronRight size={13} className="shrink-0 text-ink-3" />}
+                  <span className="min-w-0 truncate font-semibold">{items[0]!.title}</span>
+                  <span className="shrink-0 text-ink-3">#{node}</span>
+                  {found.about?.[items[0]!.classType] && <Help text={found.about[items[0]!.classType]!} />}
+                  <span className="grow" />
+                  <span className="shrink-0 text-ink-2">{tickedHere ? `${tickedHere} of ${items.length}` : `${items.length} widget${items.length === 1 ? "" : "s"}`}</span>
+                </button>
+                {open && items.map((c) => {
+                  const ticked = b.controls.find((x) => x.id === c.id);
+                  const used = taken.has(keyOf(c.target));
+                  return (
+                    <div key={c.id} className={cx("ml-4 flex items-center gap-2.5 rounded-lg border px-3 py-2", ticked ? "border-accent/50 bg-accent-wash" : "border-line bg-panel", used && "opacity-50")}>
+                      <input type="checkbox" aria-label={`Add a control for ${c.label}`} checked={Boolean(ticked)} disabled={used} onChange={() => toggleControl(c)} className="accent-accent" />
+                      {c.help && <Help text={c.help} />}
+                      {ticked ? (
                         <input aria-label="Name of the control" value={ticked.label} onChange={(e) => change(c.id, { label: e.target.value })} className="h-7 min-w-0 grow rounded-md border border-line bg-raised px-2 font-semibold" />
-                      </>
-                    ) : (
-                      <span className="min-w-0 grow truncate font-semibold">{c.label}</span>
-                    )}
-                    {!ticked && <span className="shrink-0 text-xs text-ink-2">{used ? "already mapped on the left" : `${rangeOf(c)}${c.off ? " · in a bypassed part" : ""}`}</span>}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+                      ) : (
+                        <span className="min-w-0 grow truncate font-semibold">{c.label}</span>
+                      )}
+                      {!ticked && <span className="shrink-0 text-xs text-ink-2">{used ? "already in step 1" : `${rangeOf(c)}${c.off ? " · in a part that is off" : ""}`}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
           {!groups.length && <div className="text-ink-2">{filter ? "No widget matches." : "This workflow has no other widget that can be exposed."}</div>}
         </section>
 
         <section className="flex min-h-0 flex-col gap-3.5 overflow-y-auto bg-panel p-5">
-          <SectionTitle>Form</SectionTitle>
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="wf-title" className="text-xs font-semibold">Name</label>
-            <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Portrait, two passes" className={text} />
+          <Step n={3} title="The form" hint="Name it, say which model it is for, and arrange its sections. Below, the form as Create will show it." />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="wf-title" className="text-xs font-semibold">Name</label>
+              <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Portrait, two passes" className={text} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="wf-model" className="text-xs font-semibold">Model</label>
+              <input id="wf-model" list="wf-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, Wan 2.2, MiniMax H3…" className={cx(text, !model.trim() && "border-warn/60")} />
+              <datalist id="wf-models">{familyNames.map((n) => <option key={n} value={n} />)}</datalist>
+            </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="wf-model" className="text-xs font-semibold">Model</label>
-            <input id="wf-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, FLUX.1, Wan 2.2…" className={text} />
-            <span className={cx("text-xs", model.trim() ? "text-ink-2" : "text-accent")}>{model.trim() ? "Workflows with the same model name are grouped together." : "Which model it is for, as the families call them (SDXL, Wan 2.2): its LoRAs and saved settings go with that model's. Needed to save."}</span>
-          </div>
+          <span className="-mt-2 text-xs text-ink-2">{model.trim() ? "Workflows of one model share its LoRAs and saved settings." : "Which model it runs, as the families call them: its LoRAs and saved settings go with that model's. Needed to save."}</span>
 
           <div className="flex flex-col gap-2">
             <div className="flex items-baseline gap-2">
@@ -509,99 +678,11 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             />
           )}
 
-          <div className="flex flex-col gap-1.5 text-xs">
-            {found.missingNodes.length ? (
-              <MissingPacks missing={found.missingNodes} packs={found.packs} graph={graph} wiring={start.wiring} onInspected={setFound} />
-            ) : (
-              <span className="text-good">Every node type it uses is installed in your ComfyUI.</span>
-            )}
-            {found.missingFiles.map((f) => {
-              const now = String(graph[f.node]?.inputs[f.input] ?? f.file);
-              const replaced = now !== f.file;
-              return (
-                <div key={keyOf(f)} className={cx("flex flex-col gap-1.5 rounded-lg px-3 py-2", replaced ? "border border-line text-ink-2" : "bg-warn-wash text-warn-ink")}>
-                  <span>
-                    {replaced ? "Replaced: " : "Your ComfyUI does not have "}
-                    <span className="font-semibold break-all">{fileLabel(f.file)}</span> ({f.label}).
-                    {!replaced && " Use another file, or download this one:"}
-                  </span>
-                  <Select
-                    size="sm"
-                    label={`File to use instead of ${fileLabel(f.file)}`}
-                    placeholder="Replace with…"
-                    value={replaced ? now : ""}
-                    onChange={(file) => replaceFile(f, file || f.file)}
-                    options={[...(replaced ? [{ value: "", label: "Back to the file the workflow names" }] : []), ...f.options.map((o) => ({ value: o, label: fileLabel(o), note: o.split(/[\\/]/).slice(0, -1).join("/") || undefined }))]}
-                  />
-                  {!replaced && (
-                    <span>
-                      {f.url
-                        ? <a className={link} href={f.url} target="_blank" rel="noreferrer">Download it (the URL is in the workflow)</a>
-                        : f.source
-                          ? (
-                            <>
-                              {f.source.how === "notes" ? "The author's notes point to " : f.source.how === "creator" ? "The same author has it on Civitai: " : "A standard file, in ComfyUI-Manager's list: "}
-                              {f.source.page ? <a className={link} href={f.source.page} target="_blank" rel="noreferrer">{f.source.title}</a> : <span className="font-semibold">{f.source.title}</span>}
-                              {f.source.exact ? ", the file itself" : <>, whose file is <span className="font-semibold break-all">{f.source.file}</span>, not this one: take it only if it is the same model</>}
-                            </>
-                          )
-                          : <>Search for it on {searchLinks(f.file).map((l, i) => <span key={l.url}>{i > 0 && " or "}<a className={link} href={l.url} target="_blank" rel="noreferrer">{l.label}</a></span>)}</>}
-                      . {where(f)}
-                      <GetFile file={f.file} folder={folderOfFileInput(f.classType, f.input)} url={f.url ?? f.source?.url} civitai={f.source?.civitai} pick={f.source?.civitai ? f.source.file : undefined} hints={hintsFor(f.node)} auto={!f.url && !f.source} />
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-            {(found.missingChoices ?? []).map((c) => {
-              const now = String(graph[c.node]?.inputs[c.input] ?? c.value);
-              const replaced = now !== c.value;
-              const what = c.input.replace(/_/g, " ");
-              return (
-                <div key={keyOf(c)} className={cx("flex flex-col gap-1.5 rounded-lg px-3 py-2", replaced ? "border border-line text-ink-2" : "bg-warn-wash text-warn-ink")}>
-                  <span>
-                    {replaced ? <>Replaced: <span className="font-semibold">{c.value}</span> by <span className="font-semibold">{now}</span> as {what} ({c.title}).</> : (
-                      <>Your ComfyUI does not offer <span className="font-semibold">{c.value}</span> as {what} ({c.title} #{c.node}). It comes from a node pack this ComfyUI does not have, and the prompt would be rejected. Use another:</>
-                    )}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {!replaced && c.nearest && <Button size="sm" tone="primary" onClick={() => replaceFile(c, c.nearest!)}>Use {c.nearest}, the closest match</Button>}
-                    <div className="min-w-48 grow">
-                      <Select
-                        size="sm"
-                        label={`What to use as ${what} instead of ${c.value}`}
-                        placeholder="Pick another…"
-                        value={replaced ? now : ""}
-                        onChange={(v) => replaceFile(c, v || c.value)}
-                        options={c.options.map((o) => ({ value: o, label: o }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            {(found.relocated ?? []).map((r) => (
-              <div key={keyOf(r)} className="rounded-lg border border-line px-3 py-2 text-ink-2">
-                <span className="font-semibold break-all text-ink">{fileLabel(r.file)}</span> is in your ComfyUI in another folder ({r.found.split(/[\\/]/).slice(0, -1).join("/") || "the top one"}): it is used from there.
-              </div>
-            ))}
-            {found.missingFiles.length > 0 && found.links.length > 0 && (
-              <details className="rounded-lg border border-line px-3 py-2 text-ink-2">
-                <summary className="cursor-pointer">Links the workflow's author left in its notes ({found.links.length})</summary>
-                <div className="flex flex-col gap-1 pt-2">
-                  {found.links.map((l) => <a key={l.url} className={cx(link, "font-normal break-words")} href={l.url} target="_blank" rel="noreferrer">{l.label}</a>)}
-                </div>
-              </details>
-            )}
-            {found.missingWhenOn.length > 0 && (
-              <span className="text-ink-2">
-                Bypassed parts use node types your ComfyUI does not have: {found.missingWhenOn.map((n) => (found.packs[n] ? `${n} (pack ${found.packs[n]})` : n)).join(", ")}. Those switches will not work until they are installed.
-              </span>
-            )}
-            {found.notes.map((n) => <ErrorNote key={n}>{n}</ErrorNote>)}
-          </div>
-
           {/* the form itself, as Create will draw it: the same chapters, strip and folds as the built-ins */}
+          <div className="flex items-baseline gap-2">
+            <SectionTitle>Preview</SectionTitle>
+            <span className="text-xs text-ink-2">the form as Create shows it</span>
+          </div>
           <div className="flex flex-col gap-2 rounded-xl border border-line bg-ground p-3.5">
             {preview && preview.inputs.length > 0 && (
               <Form
@@ -613,7 +694,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
               />
             )}
             {preview && !preview.inputs.length && <span className="text-ink-2">No inputs: it would always generate the same output.</span>}
-            {!preview && <ErrorNote>This mapping cannot be previewed. Check the mapping on the left.</ErrorNote>}
+            {!preview && <ErrorNote>This mapping cannot be previewed. Check step 1.</ErrorNote>}
           </div>
 
           {preview?.traits && (
