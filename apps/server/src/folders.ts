@@ -136,7 +136,33 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     const moved = await s.db.updateTable("assets").set({ folder_id: body.folderId }).where("id", "in", body.ids).executeTakeFirst();
     // what someone took the trouble to file is not thrown away after a day
     if (body.folderId) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", body.ids).where("kept_at", "is", null).execute();
+    const followed = await timelinesFollow(s, body.ids);
     s.queue.events.emit("library");
-    return { moved: Number(moved.numUpdatedRows) };
+    if (followed) s.queue.events.emit("timeline");
+    return { moved: Number(moved.numUpdatedRows), timelines: followed };
   });
+}
+
+/**
+ * A timeline is listed in the folder its renders land in. When a move puts every take of a timeline into one
+ * folder, the timeline follows it there (its next renders land there too), unless its folder was chosen by
+ * hand. A timeline whose takes are spread over several folders stays where it is. Returns how many moved.
+ */
+async function timelinesFollow(s: Services, moved: string[]): Promise<number> {
+  if (!moved.length) return 0;
+  const touched = await s.db
+    .selectFrom("takes").innerJoin("clips", "clips.id", "takes.clip_id").innerJoin("timelines", "timelines.id", "clips.timeline_id")
+    .select(["timelines.id as id", "timelines.folder_id as folder"])
+    .where("takes.asset_id", "in", moved).where("timelines.folder_chosen", "=", 0).distinct().execute();
+  let count = 0;
+  for (const t of touched) {
+    const folders = await s.db
+      .selectFrom("takes").innerJoin("clips", "clips.id", "takes.clip_id").innerJoin("assets", "assets.id", "takes.asset_id")
+      .select("assets.folder_id as folder").where("clips.timeline_id", "=", t.id).where("assets.deleted_at", "is", null).distinct().execute();
+    const only = folders.length === 1 ? folders[0]!.folder : undefined;
+    if (!only || only === t.folder) continue;
+    await s.db.updateTable("timelines").set({ folder_id: only }).where("id", "=", t.id).execute();
+    count++;
+  }
+  return count;
 }

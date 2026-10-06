@@ -8,9 +8,11 @@ import { api, type Asset, type Folder } from "../api";
 import { useFolders, useStorage } from "../data";
 import { projectForNew, useProject } from "../project";
 import { clock, size } from "../format";
-import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
+import { DRAG_HAS_SOUND, DRAG_TIMELINE, DRAG_TYPE, dragKind } from "../dragging";
 import { useFolderImport } from "../folderImport";
 import { cx, ErrorNote, TwoStep } from "../ui";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { askText } from "../Confirm";
 
 /** The pieces of the library that several screens use: a tile, what dragging one carries, and the folders. The screen itself is Studio. */
 
@@ -127,9 +129,9 @@ export function ClipMark({ of, className }: { of: NonNullable<Asset["clipOf"]>; 
   const what = `${of.timelineName}: clip ${of.clip}${of.takes > 1 ? `, take ${of.take} of ${of.takes}` : ""}${of.playing ? " (the one playing)" : of.takes > 1 ? " (not the one playing)" : ""}${of.upscaledBy ? `, upscaled${of.upscaledBy !== 1 ? ` ×${of.upscaledBy}` : ""}` : ""}`;
   return (
     <span title={what} aria-label={what} className={cx("flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-[10px] font-semibold", of.playing || of.takes === 1 ? "text-accent" : "text-ink-2", className)}>
-      <Film size={9} />
-      {of.clip}
-      {of.takes > 1 && <span className="font-normal text-ink-2">·{of.take}</span>}
+      <Film size={11} />
+      Clip {of.clip}
+      {of.takes > 1 && <span className="font-normal text-ink-2">· take {of.take}/{of.takes}</span>}
     </span>
   );
 }
@@ -191,6 +193,11 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       return refresh();
     },
   });
+  // timelines dropped on a folder: listed there, and their renders land there
+  const moveTimelines = useMutation({
+    mutationFn: (v: { ids: string[]; folder: string | null }) => Promise.all(v.ids.map((id) => api.editTimeline(id, { folder: v.folder }))),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["timelines"] }),
+  });
   const move = useMutation({ mutationFn: (v: { asset: string; folder: string | null }) => api.moveAssets(v.asset.split(",").filter(Boolean), v.folder), onSuccess: refresh });
   const link = useMutation({ mutationFn: (path: string) => api.linkFolder(path), onSuccess: async (made) => {
       // the list of folders first: a folder that is not in it yet is no place to go to
@@ -199,6 +206,17 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     },
   });
   const look = useMutation({ mutationFn: api.scanFolder, onSuccess: refresh });
+  // right-click on a folder: what its hover buttons do, and a folder inside it
+  const folderMenu = useMenu<Folder>();
+  const folderItems = (f: Folder): MenuItem[] => [
+    { label: "Open", icon: <FolderIcon size={14} />, run: () => onPlace({ type: "folder", id: f.id }) },
+    ...(!f.path ? [{ label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => void askText({ title: `A folder inside ${f.name}`, value: "", placeholder: "Name", yes: "Make it" }).then((name) => name?.trim() && create.mutate({ name: name.trim(), parent: f.id })) }] : []),
+    ...(!f.path || f.root ? [{ label: "Rename", icon: <Pencil size={14} />, run: () => { setEditing(f.id); setText(f.name); } }] : []),
+    ...(f.path ? [{ label: "Rescan", icon: <RefreshCw size={14} />, note: "what changed on your disk", disabled: look.isPending, run: () => look.mutate(f.id) }] : []),
+    ...(!f.path || f.root ? ["—" as const, f.path
+      ? { label: "Unlink", icon: <Unlink size={14} />, danger: true, note: "nothing on your disk is touched", run: () => setDeleting(f.id) }
+      : { label: "Delete", icon: <Trash2 size={14} />, danger: true, note: "its items move to the parent folder", run: () => setDeleting(f.id) }] : []),
+  ];
   /** Files from the computer dropped on a folder: imported straight into it (pictures, videos and sounds; the rest is left to the drop tray). */
   const bring = useMutation({
     mutationFn: async (v: { files: File[]; folder: string | null }) => {
@@ -215,7 +233,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   /** A row that items can be dropped on: an item of the library, or files from the computer. */
   const drop = (key: string, folder: string | null) => ({
     onDragOver: (e: DragEvent) => {
-      if (!e.dataTransfer.types.includes(DRAG_TYPE) && !e.dataTransfer.types.includes("Files")) return;
+      if (!e.dataTransfer.types.includes(DRAG_TYPE) && !e.dataTransfer.types.includes(DRAG_TIMELINE) && !e.dataTransfer.types.includes("Files")) return;
       e.preventDefault();
       setOver(key);
     },
@@ -224,7 +242,9 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       e.preventDefault();
       setOver(null);
       const asset = e.dataTransfer.getData(DRAG_TYPE);
-      if (asset) move.mutate({ asset, folder });
+      const timelines = e.dataTransfer.getData(DRAG_TIMELINE);
+      if (timelines) moveTimelines.mutate({ ids: timelines.split(",").filter(Boolean), folder });
+      else if (asset) move.mutate({ asset, folder });
       else if (e.dataTransfer.files.length) bring.mutate({ files: [...e.dataTransfer.files], folder });
     },
   });
@@ -254,7 +274,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
         ) : (
           <div key={f.id} style={{ paddingLeft: f.depth * 16 }}>
             {/* the row, and on hover what can be done to the folder, without going into it: rename in place, delete or unlink, rescan a folder of the disk */}
-            <div className="group relative" {...drop(f.id, f.id)}>
+            <div className="group relative" {...drop(f.id, f.id)} onContextMenu={(e) => folderMenu.open(e, f)}>
               <button type="button" onClick={() => onPlace({ type: "folder", id: f.id })} className={row(selected === f.id, f.id)}>
                 <span className="flex min-w-0 items-center gap-2">
                   {/* a folder inside another one sits under it, with an arrow that says so */}
@@ -295,7 +315,8 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
           </div>
         ),
       )}
-      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", "unfiled")} {...drop("unfiled", null)}>No folder</button>
+      {folderMenu.menu && <ContextMenu at={folderMenu.menu.at} label={`Folder ${folderMenu.menu.subject.name}`} items={folderItems(folderMenu.menu.subject)} onClose={folderMenu.close} />}
+      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", "unfiled")} {...drop("unfiled", null)} title="What is in no folder and no project. Drop here to take items out of their folder">Inbox</button>
 
       {adding ? (
         <form className="flex flex-col gap-1" onSubmit={submit((name) => (adding === "link" ? link.mutate(name) : create.mutate({ name, parent: adding === "inside" ? selected : null })))}>

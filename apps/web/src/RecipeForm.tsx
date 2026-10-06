@@ -27,7 +27,7 @@ const useParts = create<{ open: Record<string, boolean>; set(id: string, open: b
  * checked; open, its fields are under that line. A part that needs something from the user (a picture
  * that is not chosen yet) is open whatever was remembered.
  */
-function Part({ id, title, summary, warn, needs, head, children }: {
+function Part({ id, title, summary, warn, needs, head, children, startOpen }: {
   id: string;
   title: string;
   /** What it holds, in a few words. */
@@ -35,11 +35,13 @@ function Part({ id, title, summary, warn, needs, head, children }: {
   /** A word about something in it that is heavy or wrong, shown while it is folded too. */
   warn?: string;
   needs?: boolean;
+  /** Open until the person folds it (the Takes of a timeline clip): what is looked at first. */
+  startOpen?: boolean;
   /** A control in the header, beside the fold (a chapter's own switch). */
   head?: ReactNode;
   children: ReactNode;
 }) {
-  const kept = useParts((s) => s.open[id] ?? false);
+  const kept = useParts((s) => s.open[id] ?? Boolean(startOpen));
   const set = useParts((s) => s.set);
   const open = kept || Boolean(needs);
   return (
@@ -225,7 +227,7 @@ const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  * other setting. Each part is one line until it is opened. A screen adds its own controls to a part
  * through `made`, `look` and `helpers`.
  */
-export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers }: {
+export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -243,6 +245,10 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   lookSummary?: string;
   /** What sits above the prompt: the designer, the snippets. */
   helpers?: ReactNode;
+  /** A chapter of the screen's own before every other (a timeline clip's Takes): first in the strip too. */
+  lead?: { id: string; title: string; summary: ReactNode; node: ReactNode };
+  /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
+  frameExtra?: { node: ReactNode; summary: string };
 }) {
   const client = useQueryClient();
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
@@ -382,7 +388,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   ].filter(Boolean);
   const kind = recipe.output === "video" ? "vid" : recipe.output === "image" ? "img" : "audio";
   const framesSaid = framesChosen.length ? framesChosen.map((i) => i.label.toLowerCase()).join(", ") : missing ? "nothing chosen yet" : frames.length ? `txt2${kind}` : "";
-  const inputsSaid = [framesSaid, ...refsSaid].filter(Boolean).join(" · ") || "none";
+  const inputsSaid = [frameExtra?.summary, framesSaid, ...refsSaid].filter(Boolean).join(" · ") || "none";
   const outSaid = out.map((i) => {
     const v = values[i.id];
     if (i.type === "size") {
@@ -463,7 +469,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const onRefs = useParts((st) => st.open["inputs:references"] ?? false);
   const setPart = useParts((st) => st.set);
   // while searching, what a screen adds (the model picker, the cast, the designer) steps aside: it is not a setting
-  const hasFrames = frames.length > 0;
+  const hasFrames = frames.length > 0 || Boolean(frameExtra);
   const hasRefs = refs.length > 0 || (Boolean(look) && !q);
   const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0);
   const found = knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
@@ -475,6 +481,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const shownTab = framesTake ? "frames" : refsTake ? "references" : tab;
 
   const parts = [
+    ...(lead && !q ? [{ id: lead.id, label: lead.title }] : []),
     ...((made && !q) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
     ...(promptHit && !promptMoved ? [{ id: "prompt", label: "Prompt" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
@@ -500,6 +507,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     <>
       <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
+      {lead && !q && <Part id={lead.id} title={lead.title} summary={lead.summary} startOpen>{lead.node}</Part>}
       {((made && !q) || knobs.length > 0 || loras.length > 0) && (
         <Part id="model" title="Model" summary={modelSaid || recipe.title} warn={warnOf([...knobs, ...loras])} needs={Boolean(q)}>
           {!q && made}
@@ -523,6 +531,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
               />
             </div>
           )}
+          {shownTab === "frames" && !q && frameExtra?.node}
           {(shownTab === "frames" || q) && frames.map(render)}
           {shownTab === "references" && !q && look}
           {(shownTab === "references" || q) && refs.map(render)}

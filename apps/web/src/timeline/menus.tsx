@@ -60,7 +60,6 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true, run: () => {} }] : []),
     "—" as const,
     { label: "Set range to this clip", key: "I  O", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => act.setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
-    ...(c.take ? [splitHere(c, act)] : []),
     { label: "Duplicate clip", icon: <Copy size={14} />, disabled: act.pending.duplicate, note: "a copy right after it, with its takes", run: () => act.duplicate(c.id) },
     // a clip that plays round: its last frame pinned to its first (the model has to take a last frame)
     ...(c.kind === "video" && recipe && pinInputs(recipe).end ? (() => {
@@ -76,14 +75,15 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
         run: () => act.loop(c),
       }];
     })() : []),
-    ...(c.lengthMs > 0 ? [
+    ...(c.lengthMs > 0 ? [{ label: "At the playhead", icon: <Camera size={14} />, note: act.onClip(c) ? undefined : "put the playhead on this clip", items: [
+      ...(c.take ? [splitHere(c, act)] : []),
       { label: "Extend from this frame", icon: <Link2 size={14} />, disabled: !act.onClip(c) || act.pending.add, note: act.onClip(c) ? "cuts it here; a new clip carries on" : "put the playhead on this clip", run: () => { const here = act.onClip(c); if (here) act.continueFrom(c, here.localMs); } },
       { label: "Save frame", icon: <Camera size={14} />, disabled: !act.onClip(c) || act.pending.frame, note: act.onClip(c) ? "the frame at the playhead, to your library" : "put the playhead on this clip", run: () => { const here = act.onClip(c); if (!here) return; if (c.take) act.frame(c.take.asset.id, Math.round(here.assetMs)); else if (c.still) act.open(c.still); } },
-    ] : []),
-    ...(c.kind === "video" && c.take ? [
-      { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: act.pending.range, note: "the whole clip at half speed, as a new take; sound slowed too", run: () => act.slow(2, c.atMs, c.atMs + c.lengthMs) },
-      { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: act.pending.range, note: "a quarter speed", run: () => act.slow(4, c.atMs, c.atMs + c.lengthMs) },
-    ] : []),
+    ] }] : []),
+    ...(c.kind === "video" && c.take ? [{ label: "Slow motion", icon: <Gauge size={14} />, note: "as a new take", items: [
+      { label: "×2", icon: <Gauge size={14} />, disabled: act.pending.range, note: "the whole clip at half speed, as a new take; sound slowed too", run: () => act.slow(2, c.atMs, c.atMs + c.lengthMs) },
+      { label: "×4", icon: <Gauge size={14} />, disabled: act.pending.range, note: "a quarter speed", run: () => act.slow(4, c.atMs, c.atMs + c.lengthMs) },
+    ] }] : []),
     ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer, with Trim", run: () => act.open(video) }] : []),
     // a still has no sound of its own to mute
     ...(c.kind === "video" ? ["—" as const, c.sound === "muted"

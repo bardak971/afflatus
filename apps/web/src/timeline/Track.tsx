@@ -184,6 +184,16 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     const room = (scroller.current?.clientWidth ?? 800) - NEW_CLIP - PAD * 3 - 40;
     if (totalMs > 0) onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (totalMs / 1000))));
   };
+  // arriving on a timeline, the whole of it is in view; zooming after that is the person's
+  const fittedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (totalMs <= 0 || fittedFor.current === timeline.id) return;
+    fittedFor.current = timeline.id;
+    const id = requestAnimationFrame(fitAll);
+    return () => cancelAnimationFrame(id);
+    // once per timeline, when its length is known
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeline.id, totalMs]);
 
   return (
     <div data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">

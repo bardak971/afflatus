@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { CheckSquare, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
+import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ask } from "../../Confirm";
 import { fuzzyFilter } from "@afflatus/core";
 import { api, type Entity } from "../../api";
 import { Select } from "../../Select";
@@ -48,8 +50,17 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
     if (wait.current) clearTimeout(wait.current);
   }, []);
   const leaveOnEnter = (e: KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && e.currentTarget.blur();
+  // right-click on the row (not in its fields, which keep the browser's own menu for the text)
+  const menu = useMenu<true>();
+  const items: MenuItem[] = [
+    { label: ticked ? "Untick" : "Tick", icon: <CheckSquare size={14} />, note: "to move or delete several", run: () => onTick(!ticked) },
+    { label: "Copy its text", icon: <Copy size={14} />, run: () => void navigator.clipboard?.writeText(text) },
+    "—",
+    { label: "Delete", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Delete the snippet ${snippet.name}?`, text: "It goes from every draft that uses it.", yes: "Delete" }).then((yes) => yes && remove.mutate()) },
+  ];
   return (
-    <div className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
+    <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} items={items} onClose={menu.close} />}
       <label className="flex h-8 w-7 items-center justify-center">
         <input type="checkbox" aria-label={`Tick ${snippet.name}`} checked={ticked} onChange={(e) => onTick(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
       </label>

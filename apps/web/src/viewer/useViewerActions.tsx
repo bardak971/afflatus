@@ -1,6 +1,6 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, Clapperboard, Download, Scissors, Shuffle, Star, Trash2, Wand2 } from "lucide-react";
+import { Camera, Clapperboard, Download, Music, Scissors, Shuffle, Star, Trash2, Wand2 } from "lucide-react";
 import { secondsInput } from "@afflatus/core";
 import type { Range } from "../Trim";
 import { useQueueVariation } from "../actions";
@@ -249,6 +249,7 @@ export function useViewerActions({ asset, first, trailed, items, detail, into, i
     { label: "Save this frame as an image", key: "G", icon: <Camera size={14} />, run: () => saveFrame.mutate() },
     ...(!a.inBin ? [{ label: trim ? "Close Trim" : "Trim: pick a range", key: "T", icon: <Scissors size={14} />, run: () => setTrim(!trim) }] : []),
     ...(carrier ? [{ label: "Extend: a new clip that carries on", key: "C", icon: <Clapperboard size={14} />, run: () => carryOn.mutate() }] : []),
+    ...(a.hasSound && !a.inBin ? [{ label: "Extract audio", icon: <Music size={14} />, note: "its sound as a file of its own", run: () => takeSound.mutate() }] : []),
     "—" as const,
     { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin() },
   ];
@@ -263,11 +264,15 @@ export function useViewerActions({ asset, first, trailed, items, detail, into, i
     ...(!g ? [{ label: "Details", key: "P", run: () => setInfo(true) }] : []),
     "—" as const,
     ...(opener && !a.inBin ? [{ label: `Make a video of it (${openerName})`, key: "M", icon: <Clapperboard size={14} />, run: () => animate.mutate() }] : []),
-    ...(a.inBin ? [] : ["u", "f", "b"].flatMap((k) => (toolFor(k) ? [{ label: `${OPS[k]!.label}: queued now`, key: k.toUpperCase(), run: () => quick(k) }] : []))),
-    ...(a.inBin ? [] : ["i", "e", "r"].flatMap((k) => {
-      const tool = toolFor(k);
-      return tool ? [{ label: `${tool.title}: open its form`, key: k.toUpperCase(), run: () => openTool.mutate(tool.id) }] : [];
-    })),
+    ...(() => {
+      if (a.inBin) return [];
+      const now = ["u", "f", "b"].flatMap((k): MenuItem[] => (toolFor(k) ? [{ label: OPS[k]!.label, key: k.toUpperCase(), run: () => quick(k) }] : []));
+      const forms = ["i", "e", "r"].flatMap((k): MenuItem[] => { const tool = toolFor(k); return tool ? [{ label: tool.title, key: k.toUpperCase(), run: () => openTool.mutate(tool.id) }] : []; });
+      return [
+        ...(now.length ? [{ label: "Queue now", icon: <Wand2 size={14} />, note: "with its own parameters", items: now }] : []),
+        ...(forms.length ? [{ label: "Open in a form", icon: <Wand2 size={14} />, note: "a new draft", items: forms }] : []),
+      ];
+    })(),
     "—" as const,
     { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin() },
   ];

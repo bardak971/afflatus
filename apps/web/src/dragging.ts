@@ -8,6 +8,8 @@ import { create } from "zustand";
  */
 
 export const DRAG_TYPE = "application/x-afflatus-asset";
+/** Timelines dragged from the Studio's Timelines view (their ids, comma-separated): onto a folder, to list them there. */
+export const DRAG_TIMELINE = "application/x-afflatus-timeline";
 /** Also set, by what is dragged: a drop target can only see these names while something hovers over it, not the item. */
 export const DRAG_PICTURE = "application/x-afflatus-picture";
 export const DRAG_VIDEO = "application/x-afflatus-video";
@@ -22,7 +24,11 @@ export const useDragged = create<{ types: string[] }>(() => ({ types: [] }));
 if (typeof window !== "undefined") {
   const ours = (t: string) => t.startsWith("application/x-afflatus-");
   // in the bubbling phase: by then the item that is dragged has said what it carries
-  window.addEventListener("dragstart", (e) => useDragged.setState({ types: [...(e.dataTransfer?.types ?? [])].filter(ours) }));
+  window.addEventListener("dragstart", (e) => {
+    const types = [...(e.dataTransfer?.types ?? [])].filter(ours);
+    // after the drag has started: a page that changes in the dragstart itself sometimes makes Chrome cancel the drag
+    setTimeout(() => useDragged.setState({ types }), 0);
+  });
   const done = () => useDragged.getState().types.length && useDragged.setState({ types: [] });
   window.addEventListener("dragend", done);
   // an item that is redrawn while it is dragged never says it ended: the drop says so

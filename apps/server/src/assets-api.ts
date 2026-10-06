@@ -122,7 +122,16 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
   async function placedViews(rows: Tables["assets"][]) {
     const videos = rows.filter((r) => r.kind === "video").map((r) => r.id);
     const placed = videos.length ? await s.timelines.clipOf(videos) : new Map();
-    return rows.map((r) => ({ ...assetView(r), clipOf: placed.get(r.id) ?? null }));
+    // what made it in Create: the draft of its generation, by name (for grouping the grid by draft)
+    const gens = rows.map((r) => r.generation_id).filter((g): g is string => Boolean(g));
+    const drafts = new Map<string, { id: string; name: string }>();
+    if (gens.length) {
+      const found = await s.db.selectFrom("generations").leftJoin("drafts", "drafts.id", "generations.draft_id")
+        .select(["generations.id as gen", "generations.draft_id as draft", "drafts.name as name", "drafts.title as title"])
+        .where("generations.id", "in", gens).where("generations.draft_id", "is not", null).execute();
+      for (const g of found) if (g.draft) drafts.set(g.gen, { id: g.draft, name: g.name || g.title || "A draft" });
+    }
+    return rows.map((r) => ({ ...assetView(r), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null }));
   }
 
   /** The model families things in the library were made with, for the "Any model" filter. */

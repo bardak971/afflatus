@@ -190,15 +190,17 @@ export function PanelEdge({ side }: { side: "left" | "right" }) {
 }
 
 /** A row of choices where one is on. */
-export function Segmented<T extends string>({ value, options, onChange, label }: {
+export function Segmented<T extends string>({ value, options, onChange, label, oneLine }: {
   value: T;
   options: Array<{ value: T; label: string }>;
   onChange(value: T): void;
   label: string;
+  /** Kept on one line, whatever the room (a bar of switches in a header); otherwise the chips wrap. */
+  oneLine?: boolean;
 }) {
   return (
     // the chips wrap onto another line rather than run past the edge of a narrow panel (seven shapes do)
-    <div role="radiogroup" aria-label={label} className="flex max-w-full flex-wrap gap-1 rounded-[9px] bg-raised p-[3px]">
+    <div role="radiogroup" aria-label={label} className={cx("flex gap-1 rounded-[9px] bg-raised p-[3px]", oneLine ? "shrink-0 flex-nowrap" : "max-w-full flex-wrap")}>
       {options.map((o) => (
         <button
           key={o.value}

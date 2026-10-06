@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, X } from "lucide-react";
+import { Eye, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
+import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
 import { useAsset, useJobs, useRecipes } from "../../data";
@@ -155,8 +156,18 @@ function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): v
   ].filter(Boolean);
   const dim = head.status === "cancelled";
   const title = head.prompt || head.label;
+  // right-click: what the card's buttons do, and opening what it made
+  const menu = useMenu<true>();
+  const items: MenuItem[] = [
+    ...(first ? [{ label: made.length > 1 ? "Open the first result" : "Open the result", icon: <Eye size={14} />, run: () => onOpen(first.id) }] : []),
+    ...(head.draftId ? [{ label: "Open its draft in Studio", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
+    ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
+    "—",
+    { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => jobs.forEach((j) => dismiss.mutate(j.id)) },
+  ];
   return (
-    <div className={cx("group flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md", dim && "opacity-60 hover:opacity-100")} title={title}>
+    <div className={cx("group flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md", dim && "opacity-60 hover:opacity-100")} title={title} onContextMenu={(e) => menu.open(e, true)}>
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${head.label}`} items={items} onClose={menu.close} />}
       <div data-stage className={cx("relative grid aspect-square gap-px bg-raised", shown.length > 1 ? "grid-cols-2" : "grid-cols-1", shown.length > 2 ? "grid-rows-2" : "grid-rows-1")}>
         {shown.length === 0 ? (
           <span className="flex h-full flex-col items-center justify-center gap-1.5 text-ink-2">

@@ -121,7 +121,7 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
           label="Where the renders and exports of this timeline land"
           value={folder && folder.id !== project?.folderId ? folder.id : ""}
           onChange={(id) => onFolder(id || null)}
-          options={[{ value: "", label: project ? `${project.name} (its root)` : "The Inbox, no folder" }, ...choices.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
+          options={[{ value: "", label: project ? `${project.name} (its root)` : "The Inbox" }, ...choices.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
         />
         <span className="text-xs text-ink-3">{fromClips ? "Taken from the first picture or clip you put here. Pick another to decide yourself." : "Every take and export of this timeline goes there."}</span>
         {elsewhere.length > 0 && (

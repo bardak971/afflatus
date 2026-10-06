@@ -79,7 +79,7 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
         </div>
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
-        {pictures && <Button size="sm" className={cx(wipe !== null && "border-accent text-accent")} title="The two pictures over each other, the second cut at a line you move" onClick={() => setWipe((w) => (w === null ? 50 : null))}>Wipe</Button>}
+        {pictures && <Button size="sm" tone={wipe !== null ? "primary" : "plain"} aria-pressed={wipe !== null} title="The two pictures over each other, the second cut at a line you move" onClick={() => setWipe((w) => (w === null ? 50 : null))}>Wipe</Button>}
         {pictures && wipe !== null && <input type="range" min={0} max={100} value={wipe} aria-label="Where the second picture takes over" onChange={(e) => setWipe(Number(e.target.value))} className="w-64 accent-[var(--color-accent)]" />}
         <Button size="sm" title="The pinned one becomes the one you move through, and the other way round" onClick={onSwap}>Swap</Button>
         <span className="text-xs text-ink-3">← → change the right one</span>

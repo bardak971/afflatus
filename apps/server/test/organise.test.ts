@@ -87,7 +87,7 @@ describe("folders", () => {
   it("filter the library, and filing something keeps it", async () => {
     const f = await create("Kept things");
     const [a, b] = [await addAsset(), await addAsset()];
-    expect((await post(t.app, "/api/assets/move", { ids: [a], folderId: f })).json()).toEqual({ moved: 1 });
+    expect((await post(t.app, "/api/assets/move", { ids: [a], folderId: f })).json()).toEqual({ moved: 1, timelines: 0 });
 
     const inFolder = (await get(t.app, `/api/assets?folder=${f}`)).json().items;
     expect(inFolder.map((x: { id: string }) => x.id)).toEqual([a]);

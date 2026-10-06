@@ -10,18 +10,41 @@ import { useBanners } from "./store";
 
 /** What the viewer, a tile's menu and the workflows list do alike with an item: the one body each, the words their own. */
 
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+/** The site of a host name, roughly (no public-suffix list): an address as it is, a name by its last two labels. */
+const siteOf = (host: string) => (/^[\d.]+$|^\[/.test(host) ? host : host.split(".").slice(-2).join("."));
+/**
+ * The address a ComfyUI page is opened at. ComfyUI answers 403 to a page opened from another site (its guard
+ * against requests forged by other websites), and to the browser localhost and 127.0.0.1 are two sites: with
+ * both on this machine, the address takes the page's own host name. `crossSite`: still another site (ComfyUI on
+ * another machine), so it will likely refuse unless it runs with --enable-cors-header.
+ */
+export function comfyHref(url: string): { href: string; crossSite: boolean } {
+  try {
+    const u = new URL(url);
+    const page = window.location.hostname;
+    if (LOOPBACK.has(u.hostname) && LOOPBACK.has(page)) u.hostname = page;
+    return { href: u.toString(), crossSite: siteOf(u.hostname) !== siteOf(page) };
+  } catch {
+    return { href: url, crossSite: false };
+  }
+}
+
 /**
  * Something opened in ComfyUI's editor: a result's graph built again, a workflow written into its
  * folder. The tab is opened before the request, or the browser would block it as a pop-up; it is
  * closed again when the request fails.
  */
 export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { onSuccess?(r: Opened, v: T): void; onError?(err: Error, v: T): void } = {}) {
+  const say = useBanners((b) => b.push);
   return useMutation({
     mutationFn: async (v: T) => {
       const tab = window.open("", "_blank");
       try {
         const r = await request(v);
-        if (tab) tab.location.href = r.url;
+        const to = comfyHref(r.url);
+        if (tab) tab.location.href = to.href;
+        if (to.crossSite) say({ id: `comfy-site:${Date.now()}`, tone: "bad", title: "ComfyUI may refuse that tab (403)", text: "ComfyUI only opens pages asked for by its own site, and Afflatus is on another one. Start ComfyUI with --enable-cors-header to allow it, or open ComfyUI from the address bar.", href: "/settings", go: "Open settings" });
         return r;
       } catch (err) {
         tab?.close();
@@ -40,7 +63,15 @@ export const useLastTimeline = create<{ by: Record<string, { id: string; name: s
 );
 const projectKey = () => projectForNew() ?? "none";
 /** The timeline last added to in the project the rail looks at, or null. */
-export const useLast = () => useLastTimeline((s) => s.by[projectKey()] ?? null);
+export const useLast = () => {
+  const kept = useLastTimeline((s) => s.by[projectKey()] ?? null);
+  const timelines = useTimelines();
+  if (!kept) return null;
+  // a timeline deleted since is no place to add to; one renamed since is named as it is now
+  const live = timelines.data?.items.find((t) => t.id === kept.id);
+  if (timelines.data && !live) return null;
+  return live ? { id: live.id, name: live.name } : kept;
+};
 const remember = (target: { id: string; name: string }) => useLastTimeline.getState().set(projectKey(), target);
 
 export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
@@ -79,6 +110,24 @@ export function useStartTimeline(opts: { onSuccess?(target: { id: string; name: 
       void client.invalidateQueries({ queryKey: ["timelines"] });
       opts.onSuccess?.(target);
     },
+  });
+}
+
+/** One item to the end of a given timeline (a menu's recent timelines); remembered as the last one, said in a banner. */
+export function useAddTo() {
+  const client = useQueryClient();
+  const say = useBanners((b) => b.push);
+  return useMutation({
+    mutationFn: async (v: { asset: Asset; timeline: { id: string; name: string } }) => {
+      await api.addClip(v.timeline.id, { asset: v.asset.id });
+      return v;
+    },
+    onSuccess: ({ asset, timeline }) => {
+      remember({ id: timeline.id, name: timeline.name });
+      void client.invalidateQueries({ queryKey: ["timelines"] });
+      say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${timeline.name}`, text: asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${timeline.id}`, go: "Open the timeline" });
+    },
+    onError: (err) => say({ id: `add:${Date.now()}`, tone: "bad", title: "Could not add it", text: err.message, href: "/", go: "Open the library" }),
   });
 }
 

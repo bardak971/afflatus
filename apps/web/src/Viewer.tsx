@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Clapperboard, Columns2, Link2, Scissors, Star, Trash2 } from "lucide-react";
+import { Camera, Clapperboard, Columns2, Film, Link2, Scissors, Star, Trash2 } from "lucide-react";
 import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
 import { Kbd, plainKey } from "./Keys";
 import { PngInfo } from "./PngInfo";
 import { Button, cx } from "./ui";
-import { ContextMenu, useMenu } from "./ContextMenu";
+import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { OPS } from "./viewer/shared";
 import { useViewerActions } from "./viewer/useViewerActions";
-import { useAddToLast, useLast, useStartTimeline } from "./actions";
+import { useItemExtras, useTimelineSubmenu } from "./TileMenu";
 import { useLocation } from "wouter";
 import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
@@ -64,12 +64,13 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     const k = e.key.toLowerCase();
     // a video that has the focus keeps its own arrow keys
     const inPlayer = (e.target as HTMLElement | null)?.tagName === "VIDEO";
-    if (e.key === "ArrowLeft" && !inPlayer) move(-1);
-    else if (e.key === "ArrowRight" && !inPlayer) move(1);
+    // while trimming, the arrows step the frame (Trim.tsx), not to the next item
+    if (e.key === "ArrowLeft" && !inPlayer && !trim) move(-1);
+    else if (e.key === "ArrowRight" && !inPlayer && !trim) move(1);
     else if (k === "x" && canCompare) toggleCompare();
     else if (a.inBin) return;
-    else if (k === "n" && a.kind !== "audio") start.mutate(a);
-    else if (k === "a" && a.kind !== "audio" && last) addToLast.mutate(a);
+    else if (k === "n" && a.kind !== "audio") timelineMenu.startFrom(a);
+    else if (k === "a" && a.kind !== "audio" && timelineMenu.addToLast) timelineMenu.addToLast(a);
     else if (k === "s") keep.mutate(!a.kept);
     else if (e.key === "Delete") void toBin();
     else if (k === "d") download();
@@ -91,11 +92,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // one key to a timeline: a new one from this item, or the end of the one last added to
-  const [, go] = useLocation();
-  const start = useStartTimeline({ onSuccess: (t) => { onClose(); go(`/timelines/${t.id}`); } });
-  const addToLast = useAddToLast();
-  const last = useLast();
+  // the timelines: the same submenu as a tile's (recent ones straight, another one, a new one); a new one closes the viewer
+  const timelineMenu = useTimelineSubmenu({ onStarted: onClose });
+  const tileExtras = useItemExtras();
   const canCompare = Boolean(items && items.length > 1 && onOpen && a.kind !== "audio");
   const toggleCompare = () => {
     if (pinned) return setPinned(null);
@@ -104,10 +103,21 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   };
   const comparing = pinned !== null && pinned.id !== asset.id;
   const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={() => { const was = pinned!; setPinned(asset); onOpen?.(was); }} onClose={() => setPinned(null)} /> : null;
+  // the viewer's menu holds at least what a tile's does: the open form first; compare, the timelines, ComfyUI,
+  // another project and a name slipped in before the bin
+  const withViewerExtras = (list: MenuItem[]): MenuItem[] => {
+    const extras: MenuItem[] = [
+      ...(canCompare ? [{ label: comparing ? "Stop comparing" : "Compare", key: "X", icon: <Columns2 size={14} />, run: toggleCompare }] : []),
+      ...timelineMenu.items(a),
+      ...tileExtras.more(a, Boolean(g)),
+    ];
+    const bin = list.length - 2;
+    return [...tileExtras.first(a), ...list.slice(0, bin), "—", ...extras, ...list.slice(bin)];
+  };
   const menuElement = videoMenu.menu
-    ? <ContextMenu at={videoMenu.menu.at} label="Actions on this video" items={videoItems()} onClose={videoMenu.close} />
+    ? <ContextMenu at={videoMenu.menu.at} label="Actions on this video" items={withViewerExtras(videoItems())} onClose={videoMenu.close} />
     : imageMenu.menu
-      ? <ContextMenu at={imageMenu.menu.at} label="Actions on this picture" items={imageItems()} onClose={imageMenu.close} />
+      ? <ContextMenu at={imageMenu.menu.at} label="Actions on this picture" items={withViewerExtras(imageItems())} onClose={imageMenu.close} />
       : null;
   const media = (overlay: boolean) => (
     <ViewerMedia
@@ -128,10 +138,11 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     return (
       <div className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
         {menuElement}
+        {timelineMenu.element}
         {compare ?? media(false)}
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
-          {canCompare && <Button size="sm" className={cx(comparing && "border-accent text-accent")} title="Compare: pin this one and move to another with the arrow keys; videos play in step, two pictures also with a wipe" onClick={toggleCompare}><Columns2 size={13} /> Compare <Kbd>X</Kbd></Button>}
-          <Button size="sm" onClick={() => keep.mutate(!a.kept)} className={cx(a.kept && "border-accent text-accent")} title={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
+          {canCompare && <Button size="sm" tone={comparing ? "primary" : "plain"} aria-pressed={comparing} title="Compare: pin this one and move to another with the arrow keys; videos play in step, two pictures also with a wipe" onClick={toggleCompare}><Columns2 size={13} /> Compare <Kbd>X</Kbd></Button>}
+          <Button size="sm" onClick={() => keep.mutate(!a.kept)} tone={a.kept ? "primary" : "plain"} aria-pressed={a.kept} title={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
             <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
           </Button>
           {g && recipe && (
@@ -146,7 +157,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
           {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
           {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
           {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
-          {a.kind === "video" && !a.inBin && <Button size="sm" className={cx(trim && "border-accent text-accent")} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." onClick={() => setTrim(!trim)}><Scissors size={13} /> Trim <Kbd>T</Kbd></Button>}
+          {a.kind === "video" && !a.inBin && <Button size="sm" tone={trim ? "primary" : "plain"} aria-pressed={trim} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." onClick={() => setTrim(!trim)}><Scissors size={13} /> Trim <Kbd>T</Kbd></Button>}
           {onDetails && <Button size="sm" onClick={onDetails} title="Generation parameters, folder, lineage and every action">Details</Button>}
           <Button size="sm" onClick={() => void toBin()} title="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
         </div>
@@ -157,6 +168,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   return (
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
       {menuElement}
+        {timelineMenu.element}
       {compare ?? media(true)}
       <ViewerSidebar acts={acts} detail={detail} trail={trail} onTrail={setTrail} items={items} trim={trim} onTrim={setTrim} onInfo={setInfo} onClose={onClose} comparing={comparing} onCompare={canCompare ? toggleCompare : undefined} />
       {info && <PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} />}

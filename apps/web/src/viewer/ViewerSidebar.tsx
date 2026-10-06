@@ -241,7 +241,7 @@ function FolderPicker({ asset }: { asset: Asset }) {
         label="Folder"
         value={asset.folderId ?? ""}
         onChange={(id) => move.mutate(id || null)}
-        options={[{ value: "", label: "No folder" }, ...all.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
+        options={[{ value: "", label: "Inbox", note: "no folder" }, ...all.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
         footer={(close) => (
           <form
             className="flex items-center gap-1.5"

@@ -21,6 +21,7 @@ import { appendTo } from "../../promptText";
 import { Select } from "../../Select";
 import { usePanelWidth } from "../../store";
 import { Button, cx, ErrorNote, ScrollColumn, Segmented, PanelEdge } from "../../ui";
+import { useFormTarget } from "../../formTarget";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
@@ -42,6 +43,16 @@ export function CreatePanel({ folder, onClose }: { folder: { id: string; name: s
   const draft = d.draft;
   // a draft can be on a recipe that is gone (a workflow that was removed): fall back to the first one
   const recipe = all.find((r) => r.id === draft?.recipe) ?? first;
+  // the open form, for the library's menus: "Use in this draft" (formTarget.ts)
+  const publish = useFormTarget((st) => st.publish);
+  const formValues = recipe && draft ? draft.forms[recipe.id] : undefined;
+  useEffect(() => {
+    if (!recipe || !draft) { publish(null); return; }
+    publish({ recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value) });
+    // the form is gone with the panel
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe, draft?.id, formValues]);
+  useEffect(() => () => publish(null), [publish]);
   const count = draft?.count ?? 1;
 
   const comfyOnline = setup.data?.comfy.online ?? false;
@@ -162,7 +173,7 @@ export function CreatePanel({ folder, onClose }: { folder: { id: string; name: s
 
   const made = group && recipe && (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2">
         {kinds.length > 1 && (
           <Segmented
             label="Output type"
@@ -175,7 +186,7 @@ export function CreatePanel({ folder, onClose }: { folder: { id: string; name: s
           id="create-model"
           label="Model"
           searchHint="Search your models and workflows"
-          className="min-w-0 grow"
+          className="w-full"
           value={group.key}
           onChange={pickModel}
           options={groups.map((g) => ({
@@ -217,7 +228,8 @@ export function CreatePanel({ folder, onClose }: { folder: { id: string; name: s
           options={group.recipes.map((r) => ({ value: r.id, label: r.title, detail: r.summary, note: why(r) ? "not ready" : undefined, group: r.id.startsWith("workflow.") ? "Your workflows" : "Built in" }))}
         />
       )}
-      <span className={cx("text-xs", why(recipe) ? "text-warn-ink" : "text-ink-2")}>{why(recipe) ?? (group.recipes.length > 1 ? recipe.summary : `${recipe.title}. ${recipe.summary}`)}</span>
+      {/* only what stops it: the description lives in the picker's list and on the operations' hover */}
+      {why(recipe) && <span className="text-xs text-warn-ink">{why(recipe)}</span>}
       <Select
         dashed
         size="sm"

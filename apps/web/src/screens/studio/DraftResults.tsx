@@ -16,13 +16,26 @@ import { LiveTile } from "./LiveTile";
  * it, and the earlier ones as a strip to go back to. While the draft renders, what is forming is shown
  * large instead, until one of the results is picked.
  */
-export function DraftResults({ draft, folder }: { draft: string; folder: string | undefined }) {
-  const assets = useAssets({ draft });
+export function DraftResults({ draft, folder, list, title, empty }: {
+  /** The draft whose outputs these are: its renders show live. Without it, `list` is what is shown. */
+  draft?: string;
+  folder: string | undefined;
+  /** The scope's own list (Recent, Kept, the folder), for the stage in any scope. */
+  list?: { items: Asset[]; hasNextPage: boolean; more(): void; loading: boolean; ready: boolean };
+  title?: string;
+  /** What an empty `list` says, when it is empty because of the grouping rather than the place. */
+  empty?: { title: string; body: string };
+}) {
+  const own = useAssets({ draft: draft ?? "__none__" });
   const queue = useQueue();
-  const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
+  const items = list ? list.items : own.data?.pages.flatMap((p) => p.items) ?? [];
+  const assets = list
+    ? { isSuccess: list.ready, hasNextPage: list.hasNextPage, fetchNextPage: list.more, isFetchingNextPage: list.loading }
+    : own;
   const tileMenu = useTileMenu({ onOpen: (a) => setPicked(a.id), into: { draft, folder } });
-  const running = queue.data?.running?.draftId === draft ? queue.data.running : null;
-  const inLine = (queue.data?.waiting ?? []).filter((j) => j.draftId === draft);
+  // a draft's stage shows its own renders forming; another scope's, whatever renders now
+  const running = draft ? (queue.data?.running?.draftId === draft ? queue.data.running : null) : queue.data?.running?.kind === "render" ? queue.data.running : null;
+  const inLine = (queue.data?.waiting ?? []).filter((j) => (draft ? j.draftId === draft : true));
   const waiting = inLine.length;
   const stop = useStop();
   // what is shown large: the one that was picked, else what is forming, else the newest
@@ -36,6 +49,8 @@ export function DraftResults({ draft, folder }: { draft: string; folder: string 
   const shown = chosen ?? (live ? undefined : items[0]);
 
   if (assets.isSuccess && !items.length && !running && !waiting) {
+    if (!draft && empty) return <Empty title={empty.title}>{empty.body}</Empty>;
+    if (!draft) return <Empty title="Nothing here yet">Nothing in this view. Another scope or folder may have what you are looking for.</Empty>;
     return <Empty title="No output from this draft yet">Write a prompt in the form and press Generate. This draft's outputs show here, the newest one large. "Whole folder" shows everything in the folder.</Empty>;
   }
   return (
@@ -76,7 +91,7 @@ export function DraftResults({ draft, folder }: { draft: string; folder: string 
         )}
       </div>
       <div className="flex w-[140px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-4">
-        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">This draft · {items.length}</span>
+        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{draft ? "This draft" : title ?? "Here"} · {items.length}</span>
         {running && <LiveTile job={running} on={Boolean(live)} onClick={() => setPicked("live")} />}
         {waiting > 0 && (
           <span className="flex items-center justify-between gap-1 rounded-lg border border-dashed border-line-strong py-1 pr-1 pl-2 text-xs text-ink-2">

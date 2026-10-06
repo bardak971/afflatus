@@ -78,7 +78,9 @@ export async function stage(core: QueueCore, jobId: string, n: number) {
   if (!file) return null;
   const ext = file.filename.split(".").pop()?.toLowerCase() ?? "";
   const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : ext === "mp4" ? "video/mp4" : ext === "webm" ? "video/webm" : "image/jpeg";
-  return { bytes: await comfy.client.view(file), mime };
+  // a preview is a temporary file: ComfyUI may have cleared it already, which is no error of ours
+  const bytes = await comfy.client.view(file).catch(() => null);
+  return bytes ? { bytes, mime } : null;
 }
 
 /** The running job's latest live preview. */

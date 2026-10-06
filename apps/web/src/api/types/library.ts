@@ -24,6 +24,8 @@ export interface Asset {
   path: string | null;
   /** Of a video that is a take of a timeline clip: which (only in listings). */
   clipOf?: ClipOf | null;
+  /** Made in Create: the draft it came from (only in listings). */
+  draftOf?: { id: string; name: string } | null;
 }
 /** A library video's place on a timeline. */
 export interface ClipOf {

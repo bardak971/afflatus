@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileUp } from "lucide-react";
+import { Download, ExternalLink, FileUp, Pencil, Play, Trash2 } from "lucide-react";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { ask } from "../Confirm";
 import { bindings as bindingsSchema, guessModel, type Bindings } from "@afflatus/workflows";
 import { useOpenInComfy } from "../actions";
 import { api, ApiError, type WorkflowBrief } from "../api";
@@ -118,6 +120,17 @@ export function Workflows() {
     },
     onSuccess: openNew,
   });
+  // right-click on a workflow: what its buttons do
+  const cardMenu = useMenu<WorkflowBrief>();
+  const cardItems = (w: WorkflowBrief): MenuItem[] => [
+    { label: "Try it", icon: <Play size={14} />, note: "the form, on a new draft", disabled: tryIt.isPending, run: () => tryIt.mutate(w.id) },
+    { label: "Edit", icon: <Pencil size={14} />, note: "its mapping and form", disabled: edit.isPending, run: () => edit.mutate(w.id) },
+    "—",
+    { label: "Export", icon: <Download size={14} />, note: "a file another Afflatus imports", run: () => shareIt.mutate(w) },
+    { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: openInComfy.isPending || !comfyOnline, note: comfyOnline ? undefined : "ComfyUI is not running", run: () => openInComfy.mutate(w) },
+    "—",
+    { label: "Remove", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => void ask({ title: `Remove ${w.title}?`, text: "What you generated with it stays in your library.", yes: "Remove" }).then((yes) => yes && remove.mutate(w.id)) },
+  ];
   const remove = useMutation({
     mutationFn: api.deleteWorkflow,
     onSuccess: () => Promise.all(["recipes", "setup", "workflows"].map((key) => client.invalidateQueries({ queryKey: [key] }))),
@@ -174,13 +187,14 @@ export function Workflows() {
           {error && <ErrorNote>{error.message}</ErrorNote>}
 
           <SectionTitle>Your workflows · {list.data?.items.length ?? 0}</SectionTitle>
+          {cardMenu.menu && <ContextMenu at={cardMenu.menu.at} label={`Actions on ${cardMenu.menu.subject.title}`} items={cardItems(cardMenu.menu.subject)} onClose={cardMenu.close} />}
           {list.data?.items.map((w) => {
             const recipe = recipes.data?.recipes.find((r) => r.id === w.id);
             const problem = why(w.id);
             const pictures = recipe?.inputs.filter((i) => i.type === "image").length ?? 0;
             const controls = recipe?.inputs.filter((i) => i.advanced).length ?? 0;
             return (
-              <div key={w.id} className="flex flex-col gap-2 rounded-xl border border-line bg-panel px-4 py-3">
+              <div key={w.id} className="flex flex-col gap-2 rounded-xl border border-line bg-panel px-4 py-3" onContextMenu={(e) => cardMenu.open(e, w)}>
                 <div className="flex items-center gap-3">
                   <span className={cx("shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold", w.output === "video" ? "bg-accent-wash text-accent" : "bg-raised text-picture")}>{KIND[w.output]}</span>
                   <div className="flex min-w-0 grow flex-col">

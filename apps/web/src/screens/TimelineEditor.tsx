@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Camera, Download, Link2, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2 } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, Camera, Download, Film, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2 } from "lucide-react";
 import { api, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
@@ -18,7 +18,8 @@ import { Track } from "../timeline/Track";
 import { Button, cx, ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
-import { ContextMenu, useMenu } from "../ContextMenu";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import type { InputSpec, ReferenceValue } from "@afflatus/core";
 import { useBanners } from "../store";
 import { CastDialog } from "../timeline/CastDialog";
 import { ExportDialog, type ExportAsk, type ExportOptions } from "../timeline/ExportDialog";
@@ -340,6 +341,70 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   }
   if (!t || !shown) return <div className="grow p-8 text-ink-2">Loading timeline…</div>;
 
+  /**
+   * Where a library item can go from the timeline's media library, first in its right-click menu: into the
+   * selected clip's places (the last clip when none is selected, and said so), and onto the timeline. Each
+   * mirrors a drop: the same place, the same effect.
+   */
+  const placeItems = (a: Asset): MenuItem[] => {
+    if (a.inBin) return [];
+    const target = current ?? clips.at(-1) ?? null;
+    const n = target ? clips.findIndex((c) => c.id === target.id) + 1 : 0;
+    const recipe = target?.recipe ? recipes.data?.recipes.find((r) => r.id === target.recipe) : undefined;
+    const values = target ? inputsOf(target) : {};
+    const put = (input: string, value: unknown) => {
+      if (!target) return;
+      editInputs(target, { ...inputsOf(target), [input]: value });
+      setSelected(target.id);
+      setMusicOpen(false);
+    };
+    const groups: MenuItem[][] = [];
+    if (target && recipe) {
+      if (a.kind === "image") {
+        const pins = pinInputs(recipe);
+        const pin = (where: "start" | "mid" | "end", label: string): MenuItem[] => {
+          const input = pins[where];
+          return input ? [{ label, icon: <ImageIcon size={14} />, note: values[input] ? "replaces the one there" : undefined, run: () => put(input, a.id) }] : [];
+        };
+        groups.push([...pin("start", "First frame"), ...pin("mid", "Keyframe"), ...pin("end", "Last frame")]);
+      }
+      const refs = recipe.inputs.filter((i): i is Extract<InputSpec, { type: "references" }> => i.type === "references" && (a.kind === "video" ? i.media === "video" : a.kind === "image" && i.media !== "video"));
+      groups.push(refs.map((r): MenuItem => {
+        const list = (values[r.id] as ReferenceValue[] | undefined) ?? [];
+        const has = list.some((x) => x.asset === a.id);
+        return {
+          label: a.kind === "video" ? "Reference video" : "Reference image", icon: <Images size={14} />,
+          note: has ? "already there" : `${list.length} of ${r.max}`, disabled: has || list.length >= r.max,
+          run: () => put(r.id, [...list, { asset: a.id, role: r.roles[0]! }]),
+        };
+      }));
+      const voice = recipe.inputs.find((i) => i.type === "audio" && i.role === "voice");
+      if (voice && (a.kind === "audio" || (a.kind === "video" && a.hasSound))) {
+        groups.push([{ label: "Voice sample", icon: <Mic size={14} />, note: a.kind === "video" ? "its sound" : values[voice.id] ? "replaces the one there" : undefined, run: () => put(voice.id, a.id) }]);
+      }
+    }
+    if (target && a.kind === "audio") groups.push([{ label: "Clip audio", icon: <Volume2 size={14} />, note: "replaces its sound", run: () => patch.mutate({ clip: target.id, patch: { soundAsset: a.id } }) }]);
+    const slots = groups.filter((g) => g.length).flatMap((g, i) => (i ? ["—" as const, ...g] : g));
+    const out: MenuItem[] = [];
+    if (slots.length) out.push({ label: `Use in clip ${n}`, note: current ? undefined : "the last clip", icon: <Film size={14} />, items: slots });
+    if (a.kind === "audio") {
+      out.push({ label: "Music under the whole video", icon: <Music size={14} />, note: t.music ? "replaces the music" : undefined, run: () => { edit.mutate({ music: { asset: a.id } }); setMusicOpen(true); } });
+    } else {
+      const at = current ? clips.findIndex((c) => c.id === current.id) : -1;
+      out.push({
+        label: "Place on the timeline", icon: <ListEnd size={14} />, items: [
+          { label: "At the end", note: a.kind === "image" ? "as a still" : undefined, icon: <ListEnd size={14} />, run: () => add.mutate({ asset: a.id }) },
+          ...(current ? [
+            { label: `Before clip ${at + 1}`, icon: <ArrowLeftToLine size={14} />, run: () => add.mutate({ asset: a.id, after: at > 0 ? clips[at - 1]!.id : null }) },
+            { label: `After clip ${at + 1}`, icon: <ArrowRightToLine size={14} />, run: () => add.mutate({ asset: a.id, after: current.id }) },
+          ] : []),
+        ],
+      });
+    }
+    return out.length ? [...out, "—"] : [];
+  };
+
+
   const why = current ? ready(current).why ?? null : null;
   const shape: Shape | "own" | "first" = !t.width || !t.height ? "first" : (Object.keys(SHAPES) as Shape[]).find((k) => SHAPES[k].width === t.width && SHAPES[k].height === t.height) ?? "own";
   const misfits = clips.filter((c) => otherShape(c, t) && !c.fill).length;
@@ -426,6 +491,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           timeline={shown}
           selected={Boolean(current)}
           onOpen={setOpened}
+          placeItems={placeItems}
           onAdd={(a) => {
             if (a.kind !== "audio") return add.mutate({ asset: a.id });
             if (current) patch.mutate({ clip: current.id, patch: { soundAsset: a.id } });

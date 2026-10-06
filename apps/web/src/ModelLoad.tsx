@@ -59,10 +59,10 @@ export function StripPlace() {
   return (
     <span
       className="flex min-w-0 items-center gap-1.5 text-ink-2"
-      title={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox, in no folder. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in this folder. Kept outputs become files in ${place.path}` : "Outputs land in this folder: the one that is open, or the project's root."}
+      title={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in this folder. Kept outputs become files in ${place.path}` : "Outputs land in this folder: the one that is open, or the project's root."}
     >
       <Folder size={13} className="shrink-0" />
-      {place === "unfiled" ? <span>Output: <span className="font-semibold text-ink">Inbox</span>, no folder</span> : <span className="max-w-64 truncate">Output: <span className="font-semibold text-ink">{place.name}</span></span>}
+      {place === "unfiled" ? <span>Output: <span className="font-semibold text-ink">Inbox</span></span> : <span className="max-w-64 truncate">Output: <span className="font-semibold text-ink">{place.name}</span></span>}
     </span>
   );
 }

@@ -58,7 +58,7 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
  * a second strip of the part zoomed into (down to one tile per frame), a picture of the exact frame
  * under the mouse, and what can be done with the range. The `<video>` is the viewer's own; this takes
  * it over (its native controls are off while trimming). Keys: I / O set in and out at the playhead,
- * , and . step one frame (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
+ * , and . step one frame, ← and → too (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
  */
 export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onFrame, onBetween, onExtendHere, onRange, scenes, onEveryScene, onClose }: {
   asset: Asset;
@@ -174,12 +174,17 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const v = player.current;
       const { at, range, zoom } = now.current;
-      const step = (e.shiftKey ? 10 : 1) * frameMs;
+      // , and . are one frame on every layout: on AZERTY "." is itself Shift + ";", so Shift cannot mean ten there.
+      // Ten frames is Shift with the arrows, as in the timeline
+      const step = frameMs;
+      const arrows = (e.shiftKey ? 10 : 1) * frameMs;
       switch (e.key) {
         case "i": case "I": e.preventDefault(); setRange((r) => ({ startMs: Math.min(at, r.endMs - frameMs), endMs: r.endMs })); break;
         case "o": case "O": e.preventDefault(); setRange((r) => ({ startMs: r.startMs, endMs: Math.max(at, r.startMs + frameMs) })); break;
         case ",": case "<": e.preventDefault(); v?.pause(); seek(at - step); break;
         case ".": case ">": e.preventDefault(); v?.pause(); seek(at + step); break;
+        case "ArrowLeft": e.preventDefault(); v?.pause(); seek(at - arrows); break;
+        case "ArrowRight": e.preventDefault(); v?.pause(); seek(at + arrows); break;
         case "l": case "L": e.preventDefault(); now.current.toggleLoop(); break;
         case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : range); break;
         case " ": e.preventDefault(); if (v) { if (v.paused) void v.play(); else v.pause(); } break;
@@ -345,13 +350,13 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       )}
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button size="sm" onClick={() => { const v = player.current; if (!v) return; if (v.paused) void v.play(); else v.pause(); }} title="Play / pause (Space)">{playing ? <Pause size={13} /> : <Play size={13} />}</Button>
+        <Button size="sm" tone={playing ? "primary" : "plain"} aria-pressed={playing} onClick={() => { const v = player.current; if (!v) return; if (v.paused) void v.play(); else v.pause(); }} title="Play / pause (Space)">{playing ? <Pause size={13} /> : <Play size={13} />}</Button>
         <Button size="sm" onClick={() => moveIn(at)} title="Set in at the playhead">In <Kbd>I</Kbd></Button>
         <Button size="sm" onClick={() => moveOut(at)} title="Set out at the playhead">Out <Kbd>O</Kbd></Button>
         <Button size="sm" onClick={() => { player.current?.pause(); seek(at - frameMs); }} title="One frame back (Shift: ten)"><Kbd>,</Kbd></Button>
         <Button size="sm" onClick={() => { player.current?.pause(); seek(at + frameMs); }} title="One frame forward (Shift: ten)"><Kbd>.</Kbd></Button>
-        <Button size="sm" className={cx(looping && "border-accent text-accent")} onClick={toggleLoop} title={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
-        <Button size="sm" className={cx(zoom && "border-accent text-accent")} onClick={() => zoomTo(zoom ? null : range)} title={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} {zoom ? "Whole" : "Zoom to range"} <Kbd>Z</Kbd></Button>
+        <Button size="sm" tone={looping ? "primary" : "plain"} aria-pressed={looping} onClick={toggleLoop} title={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
+        <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : range)} title={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} {zoom ? "Whole" : "Zoom to range"} <Kbd>Z</Kbd></Button>
         <span className="grow" />
         <div className="w-52">
           <Select size="sm" className="h-8" label="Quality of the cut" value={crf} onChange={choose} options={CRFS} />

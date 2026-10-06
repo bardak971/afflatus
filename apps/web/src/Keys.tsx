@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 
 /** A key, as it is drawn next to what it does. */
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded border border-line-strong px-1 font-mono text-[10px] leading-4 font-normal text-ink-2">{children}</kbd>;
+  return <kbd className="rounded border border-current px-1 font-sans text-[10px] leading-4 font-semibold opacity-60">{children}</kbd>;
 }
 
 /** The key was pressed in a box being typed in. */
@@ -50,7 +50,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
   {
     where: "Trim (on a video)",
     note: "Pick an in and an out; the actions work on what is between them.",
-    keys: [["I  O", "Set in / out at the playhead"], [",  .", "One frame back / forward (Shift: ten)"], ["L", "Loop the range"], ["Z", "Zoom into the range (the mouse wheel on a strip zooms too)"], ["Space", "Play / pause"], ["Home  End", "Start / end"], ["Esc", "Leave Trim"]],
+    keys: [["I  O", "Set in / out at the playhead"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["L", "Loop the range"], ["Z", "Zoom into the range (the mouse wheel on a strip zooms too)"], ["Space", "Play / pause"], ["Home  End", "Start / end"], ["Esc", "Leave Trim"]],
   },
   {
     where: "Grid, in Studio",
@@ -60,12 +60,26 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
       ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "The menu of the item under the pointer"],
     ],
   },
+  {
+    where: "Timelines, in Studio",
+    keys: [["Click", "Open the timeline"], ["Ctrl + Click", "Select it (Shift + Click: the range)"], ["F2", "Rename the selected timeline"], ["Del", "Delete the selected timelines (the videos stay)"], ["Esc", "Clear selection"], ["Drag", "Onto a folder on the left: the timeline is listed there, its renders land there"], ["Right-click", "Open, rename, put in a folder, move to a project, delete"]],
+  },
+  { where: "Folders, in Studio", keys: [["Drag", "Items or timelines onto a folder to move them there"], ["Right-click", "Open, a folder inside, rename, rescan (a folder of the disk), delete or unlink"]] },
   { where: "Form, in Studio", keys: [["N", "Open the form, or fold it away to its rail"], ["Ctrl + Enter", "Generate"]] },
   {
     where: "Prompt",
     keys: [["Ctrl + ↑  ↓", "The weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
   },
-  { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it, stopping at Out"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead; they snap to cuts, the playhead and quiet moments"], ["Shift + drag", "On the ruler: In and Out in one go"], ["Shift + Click", "On a clip: the range reaches to it"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z", "Redo"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "The menu of the clip under the pointer, or of the range"]] },
+  { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it, stopping at Out"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead; they snap to cuts, the playhead and quiet moments"], ["Shift + drag", "On the ruler: In and Out in one go"], ["Shift + Click", "On a clip: the range reaches to it"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z  Ctrl + Y", "Redo"], ["Ctrl + Click", "On a clip: pick it too; Del removes the picked clips"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "The menu of the clip under the pointer, of the range, of a clip's audio or of the music"]] },
+  {
+    where: "Media library, in a timeline",
+    note: "The library opened over the stage from the Media tab.",
+    keys: [["Click", "Open the item in the viewer"], ["Drag", "Onto the track to place it; onto a clip's first frame, keyframe, last frame, references or voice sample in its form; a sound onto a clip's audio or the music"], ["Right-click", "Use in the selected clip (the last one when none is), place on the timeline, and the item's own actions"], ["Esc", "Fold the library away"]],
+  },
+  { where: "Queue", keys: [["Drag", "A waiting job up or down to change the order"], ["Right-click", "A waiting job: move it or remove it; the running one: stop it; a finished one: open, requeue, remove"]] },
+  { where: "Prompt kit", keys: [["Right-click", "A person, place, style or preset: open, apply the preset in Studio, save it as a file, delete; a snippet: tick, copy its text, delete"]] },
+  { where: "Workflows", keys: [["Right-click", "A workflow: try it, edit, export, open in ComfyUI, remove"]] },
+  { where: "Menus", keys: [["↑  ↓", "Walk the menu"], ["Enter", "Run the item, or open its submenu"], ["→", "Open the submenu"], ["←", "Back to the menu above"], ["Esc", "Close"]] },
   { where: "Everywhere", keys: [["/  :", "The search nearest the mouse (a form's settings, the library, the Prompt kit, the workflow editor); pressed again inside one, the next"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
 
@@ -155,6 +169,12 @@ export function KeysHelp() {
     if (where.startsWith("Trim")) return has('[data-bar="whole"]');
     if (where === "Timeline") return has("[data-designer-floor]");
     if (where.startsWith("Grid")) return (location.pathname === "/" || location.pathname === "/create") && !viewer;
+    if (where.startsWith("Media library")) return has("input[data-search=media]");
+    if (where.startsWith("Timelines")) return location.pathname.startsWith("/timelines") && !has("[data-designer-floor]") && !viewer;
+    if (where.startsWith("Folders")) return (location.pathname === "/" || location.pathname.startsWith("/timelines") || location.pathname === "/create") && !has("[data-designer-floor]") && !viewer;
+    if (where === "Queue") return location.pathname.startsWith("/queue");
+    if (where === "Workflows") return location.pathname.startsWith("/workflows");
+    if (where === "Prompt kit") return location.pathname.startsWith("/kit");
     if (where.startsWith("Form")) return has("input[data-search=form], button[data-search-opener]");
     if (where === "Prompt") return has("textarea");
     return true;

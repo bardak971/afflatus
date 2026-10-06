@@ -284,6 +284,11 @@ export class Timelines {
         id: t.id, name: t.name, width: t.width, height: t.height, updatedAt: t.updated_at, clips: all.length, projectId: t.project_id, folderId: t.folder_id, folderChosen: Boolean(t.folder_chosen),
         durationMs: all.reduce((sum, p) => sum + lengthOf(p), 0),
         cover: first?.active?.asset.id ?? first?.still?.id ?? null,
+        // a frame per clip (its playing take, or its picture), for the card's film strip
+        strip: all.slice(0, 12).map((p) => p.active?.asset.id ?? p.still?.id ?? null),
+        // clips with nothing to play yet, and joins that no longer follow on
+        toRender: all.filter((p) => p.clip.kind !== "still" && !p.active).length,
+        staleJoins: all.filter((_, i) => this.joinState(all, i) === "stale").length,
       };
     });
     return { items };

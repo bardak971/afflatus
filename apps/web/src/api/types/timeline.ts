@@ -119,6 +119,12 @@ export interface TimelineBrief {
   clips: number;
   durationMs: number;
   cover: string | null;
+  /** A frame per clip, in order (up to 12): the playing take, or the clip's picture; null for a clip with neither. */
+  strip?: Array<string | null>;
+  /** Clips with nothing to play yet. */
+  toRender?: number;
+  /** Joins that no longer follow on (a clip changed since the next was made from it). */
+  staleJoins?: number;
 }
 export interface ClipPatch {
   recipe?: string;
