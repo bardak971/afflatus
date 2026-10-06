@@ -35,7 +35,7 @@ const carries = (e: DragEvent) => e.dataTransfer.types.includes(KIND);
 const isGroup = (item: Section["items"][number]): item is SwitchGroup => typeof item !== "string";
 const sameSpot = (a: Over, b: Spot) => a !== null && "section" in a && a.section === b.section && a.group === b.group && a.index === b.index;
 
-export function FormSections({ sections, onChange, items, toggles, onMakeSwitch, onDropSwitch, onSwitchDefault, cuts }: {
+export function FormSections({ sections, onChange, items, toggles, onMakeSwitch, onDropSwitch, onSwitchDefault, cuts, onSuggest, canSuggest }: {
   sections: Section[];
   onChange(sections: Section[]): void;
   /** Everything that can be placed: the form's inputs, by id. */
@@ -48,6 +48,10 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
   onSwitchDefault(id: string, on: boolean): void;
   /** Whether a switch, off, takes the output node with it. */
   cuts(toggle: Toggle): boolean;
+  /** A first arrangement from the author's frames, in place of what is there. */
+  onSuggest(): void;
+  /** False when the workflow has no frames to go by. */
+  canSuggest: boolean;
 }) {
   const [over, setOver] = useState<Over>(null);
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -293,6 +297,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       {!sections.some((s) => s.id === ADVANCED) && real.length > 0 && advancedCard}
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={add}><Plus size={14} /> Section</Button>
+        <Button size="sm" onClick={onSuggest} disabled={!canSuggest} title={canSuggest ? "Sections from the frames the author drew, in their order; a switch for each pass the output can do without. A proposal: edit it as you like." : "This workflow has no frames to go by."}>Suggest from the author's frames</Button>
         <span className="text-xs text-ink-2">{real.length ? "Drag a setting into a section, or under a switch; drag the Prompt and Advanced cards to move those." : "The form is the prompt, your sections in order, and Advanced with everything else."}</span>
       </div>
     </div>

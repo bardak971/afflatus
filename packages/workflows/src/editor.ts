@@ -1,4 +1,4 @@
-import { takesAnyInput, type Graph, type GraphNode, type NodeCatalog, type NodeInfo, type Ref } from "@afflatus/core";
+import { isRef, takesAnyInput, type Graph, type GraphNode, type NodeCatalog, type NodeInfo, type Ref  } from "@afflatus/core";
 import { isWidget, optsOf, typeOf } from "./catalog";
 import { splitCaptions, type Mode, type Target, type Toggle, type Wiring } from "./types";
 import { modesFor } from "./wiring";
@@ -224,7 +224,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
 
   const graph: Graph = {};
   const labels: Record<string, string> = {};
-  const wiring: Wiring = { modes: {}, slots: {}, fallback: {}, labels, panel: [], toggles: [], shared: {}, packs: {}, downloads: {}, links: [], frames: [] };
+  const wiring: Wiring = { modes: {}, slots: {}, fallback: {}, labels, panel: [], toggles: [], shared: {}, packs: {}, downloads: {}, links: [], optional: {}, frames: [] };
   /** What a node says about where it and its files come from, and the links written in notes. */
   const sources = (node: ENode) => {
     const pack = node.properties?.cnr_id;
@@ -263,8 +263,14 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
       const [x = 0, y = 0, w = 0, h = 0] = g.bounding ?? [];
       return g.title && pos[0]! >= x && pos[0]! <= x + w && pos[1]! >= y && pos[1]! <= y + h;
     });
-    return around.sort((a, b) => a.bounding![2]! * a.bounding![3]! - b.bounding![2]! * b.bounding![3]!)[0]?.title;
+    const innermost = around.sort((a, b) => a.bounding![2]! * a.bounding![3]! - b.bounding![2]! * b.bounding![3]!)[0];
+    if (innermost?.title && innermost.bounding && !boxes.has(innermost.title)) boxes.set(innermost.title, innermost.bounding.slice(0, 4) as [number, number, number, number]);
+    return innermost?.title;
   };
+  /** The frame a node is in: its own, else the one around the group node it sits inside (and so on up). */
+  const frameOf = (scope: Scope, node: ENode): string | undefined => groupOf(scope, node) ?? (scope.host ? frameOf(scope.host.scope, scope.host.node) : undefined);
+  const boxes = new Map<string, [number, number, number, number]>();
+
 
   const visit = (scope: Scope) => {
     for (const node of scope.nodes.values()) {
@@ -309,9 +315,12 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
       }
       graph[id] = { class_type: node.type, inputs, _meta: { title: node.title ?? info?.display_name ?? node.type } } as GraphNode;
       wiring.slots[id] = { in: (node.inputs ?? []).map((s) => [s.name, typeName(s.type)]), out: (node.outputs ?? []).map((o) => typeName(o.type)) };
+      // a linked input the node's kind does not declare required is optional: declared so, or added on the fly (rgthree's Any Switch, its any_01…)
+      const loose = info ? Object.keys(inputs).filter((name) => isRef(inputs[name]) && !(name in (info.input.required ?? {}))) : [];
+      if (loose.length) wiring.optional[id] = loose;
       const off = scope.off ?? modeOf(node);
       if (off) wiring.modes[id] = off;
-      const group = groupOf(scope, node);
+      const group = frameOf(scope, node);
       if (group) groups[id] = group;
     }
   };
@@ -399,6 +408,6 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   // the frames, by title, with the nodes each holds in the order they were met
   const frames = new Map<string, string[]>();
   for (const [id, title] of Object.entries(groups)) frames.set(title, [...(frames.get(title) ?? []), id]);
-  wiring.frames = [...frames].map(([title, nodes]) => ({ title, nodes }));
+  wiring.frames = [...frames].map(([title, nodes]) => ({ title, nodes, ...(boxes.has(title) ? { box: boxes.get(title)! } : {}) }));
   return { graph, wiring, groups, notes };
 }

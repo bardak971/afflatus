@@ -48,8 +48,13 @@ export const control = z.object({
 });
 export type Control = z.infer<typeof control>;
 
-/** How a node is switched off: bypassed (what goes in comes straight out) or muted (nothing comes out). */
-export const mode = z.enum(["bypass", "mute"]);
+/**
+ * How a node is switched off: bypassed (what goes in comes straight out, as ComfyUI does it), muted
+ * (nothing comes out), or skipped: Afflatus's own, for a switch made here over a whole part. The part is
+ * stepped over as one: a reader of one of its nodes takes the part's one incoming link of its type, so a
+ * pass that goes picture → latent → picture can be switched off where ComfyUI's bypass could not.
+ */
+export const mode = z.enum(["bypass", "mute", "skip"]);
 export type Mode = z.infer<typeof mode>;
 
 /**
@@ -125,7 +130,9 @@ export const wiring = z.object({
   /** and the links its author wrote in its notes. */
   links: z.array(z.object({ label: z.string(), url: z.string() })).default([]),
   /** The frames the author drew around nodes (the editor's groups): their titles and the nodes inside, for making switches. */
-  frames: z.array(z.object({ title: z.string(), nodes: z.array(z.string()) })).default([]),
+  /** The inputs of each node that its kind declares optional: a link to one that leads nowhere is dropped, not broken. */
+  optional: z.record(z.string(), z.array(z.string())).default({}),
+  frames: z.array(z.object({ title: z.string(), nodes: z.array(z.string()), /** Where the author drew it: x, y, width, height; for reading frames in their order. */ box: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional() })).default([]),
 });
 export type Wiring = z.infer<typeof wiring>;
 

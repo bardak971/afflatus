@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Minus } from "lucide-react";
 import { describeRecipe, folderOfFileInput, fuzzyFilter, fuzzyScore } from "@afflatus/core";
-import { ancestors, recipeFromWorkflow, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
+import { ancestors, recipeFromWorkflow, suggestSections, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
 import { api } from "../api";
 import { defaultOf, Field } from "../fields";
 import { fileLabel } from "../format";
@@ -13,6 +13,7 @@ import { FormSections } from "./FormSections";
 import { SwitchDialog } from "./SwitchDialog";
 import { Select } from "../Select";
 import { Button, cx, ErrorNote, Help, SectionTitle, Note } from "../ui";
+import { ask } from "../Confirm";
 
 /** A workflow being imported or changed: the file, what was found in it, and the mapping so far. */
 export interface Editing {
@@ -186,6 +187,31 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const placeable = (preview?.inputs ?? [])
     .filter((i) => !(i.type === "prompt" && i.id === "prompt") && !b.toggles.some((t) => t.made && t.id === i.id))
     .map((i) => ({ id: i.id, label: i.label, kind: KIND_WORD[i.type] ?? i.type }));
+  /** The node each input of the form belongs to, for placing it in the frame that holds the node. */
+  const nodeOf = (id: string): string | undefined => {
+    const c = b.controls.find((x) => x.id === id || `${x.id}_net` === id);
+    if (c) return c.target.node;
+    const t = b.toggles.find((x) => x.id === id);
+    if (t) return t.effects[0]?.nodes[0];
+    if (id === "size") return b.size?.width.node;
+    if (id === "seed") return b.seeds[0]?.node;
+    if (id === "negative") return b.negative?.node;
+    if (id === "seconds") return b.length?.target.node;
+    if (id === "startImage") return b.startImage?.target.node;
+    if (id === "endImage") return b.endImage?.target.node;
+    const lora = /^loras(?:_(\d+))?$/.exec(id);
+    if (lora) return b.loras[lora[1] ? Number(lora[1]) - 1 : 0]?.node;
+    return (b.pictures ?? []).find((p) => p.id === id)?.target.node;
+  };
+  const [suggestedWhy, setSuggestedWhy] = useState<string[] | null>(null);
+  const frames = start.wiring?.frames ?? [];
+  const suggest = async () => {
+    const has = (b.sections ?? []).some((s) => s.items.length);
+    if (has && !(await ask({ title: "Replace the sections?", text: "The sections you made are replaced by a proposal from the author's frames. Switches made here go with them.", yes: "Replace" }))) return;
+    const made = suggestSections(graph, start.wiring, b.result.node, placeable.map((p) => ({ id: p.id, node: nodeOf(p.id) })), frames, b.toggles);
+    set({ sections: made.sections, toggles: [...b.toggles.filter((t) => !t.made), ...made.toggles] });
+    setSuggestedWhy(made.why);
+  };
   const save = useMutation({
     mutationFn: () => {
       const body = { title: title.trim(), model: model.trim(), source: start.source, graph, wiring: start.wiring, editor: start.editor, bindings: b };
@@ -460,7 +486,15 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
               onDropSwitch={dropSwitch}
               onSwitchDefault={(id, on) => changeSwitch(id, { default: on })}
               cuts={(t) => t.effects.some((e) => e.nodes.includes(b.result.node))}
+              onSuggest={() => void suggest()}
+              canSuggest={frames.length > 0}
             />
+            {suggestedWhy && (
+              <div className="flex flex-col gap-1 rounded-lg border border-line px-3 py-2 text-xs text-ink-2">
+                <span className="font-semibold text-ink">What the proposal did, frame by frame. Edit as you like.</span>
+                {suggestedWhy.map((w) => <span key={w}>{w}</span>)}
+              </div>
+            )}
           </div>
           {switchFor && (
             <SwitchDialog

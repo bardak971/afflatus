@@ -49,7 +49,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
       id: existing?.id ?? `sw_made_${Date.now().toString(36)}`,
       label: label.trim() || "Switch",
       default: on,
-      effects: [{ nodes: [...chosen], activeWhen: true, mode: "bypass" }],
+      effects: [{ nodes: [...chosen], activeWhen: true, mode: "skip" }],
       writes: [],
       front: true,
       made: true,
@@ -59,7 +59,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
     <Dialog label={`Switch for ${section.label}`} onClose={onClose} className="flex w-[560px] max-w-[calc(100vw-32px)] flex-col gap-4 rounded-xl border border-line bg-panel p-5 shadow-xl">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-bold">{existing ? `The switch “${existing.label}”` : `A switch in “${section.label}”`}</h2>
-        <span className="text-xs text-ink-2">On, it shows the settings you drag under it. Off, those fold away and the nodes below are bypassed, as in ComfyUI: what fed them flows through.</span>
+        <span className="text-xs text-ink-2">On, it shows the settings you drag under it. Off, those fold away and the nodes below are stepped over as one: what fed the part flows through to what read it.</span>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-end gap-3">
         <label className="flex flex-col gap-1 text-xs font-semibold text-ink-2">

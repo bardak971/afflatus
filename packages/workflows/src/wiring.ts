@@ -29,6 +29,16 @@ function bypassIndex(slots: Wiring["slots"][string], output: number, type: strin
 }
 
 /** The on/off state of every node, given how the switches are set. */
+/** The parts switched off as a whole ("skip"), each its nodes: a reader of one takes the part's one incoming link of its type. */
+export function skipsFor(toggles: Toggle[], values: Record<string, unknown>): string[][] {
+  const sets: string[][] = [];
+  for (const t of toggles) {
+    const on = typeof values[t.id] === "boolean" ? (values[t.id] as boolean) : t.default;
+    for (const e of t.effects) if (e.mode === "skip" && on !== e.activeWhen) sets.push(e.nodes);
+  }
+  return sets;
+}
+
 export function modesFor(wiring: Wiring | undefined, toggles: Toggle[], values: Record<string, unknown>): Record<string, Mode> {
   const modes: Record<string, Mode> = { ...wiring?.modes };
   for (const t of toggles) {
@@ -54,8 +64,24 @@ export interface Pruned {
  * comes from. A link that leads nowhere falls back to the value typed into that input, or is dropped
  * (the node is then listed as broken). Without wiring (an exported workflow) it is a plain copy.
  */
-export function prune(graph: Graph, wiring: Wiring | undefined, modes: Record<string, Mode>): Pruned {
+export function prune(graph: Graph, wiring: Wiring | undefined, modes: Record<string, Mode>, skips: string[][] = []): Pruned {
   const typeOf = (node: string, input: string) => wiring?.slots[node]?.in.find(([n]) => n === input)?.[1] ?? "*";
+  /** The links into a skipped part from outside it that carry `type`, each once. */
+  const entries = (set: string[], type: string): Ref[] => {
+    const inside = new Set(set);
+    const seen = new Set<string>();
+    const out: Ref[] = [];
+    for (const id of set) {
+      for (const [name, value] of Object.entries(graph[id]?.inputs ?? {})) {
+        if (!isRef(value) || inside.has(value[0]) || !connects(typeOf(id, name), type)) continue;
+        const key = `${value[0]}:${value[1]}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(value);
+      }
+    }
+    return out;
+  };
 
   const source = (ref: Ref, type: string, seen: Set<string>): Ref | undefined => {
     const [id, slot] = ref;
@@ -63,12 +89,19 @@ export function prune(graph: Graph, wiring: Wiring | undefined, modes: Record<st
     if (!graph[id] || seen.has(key)) return undefined;
     seen.add(key);
     if (modes[id] === "mute") return undefined;
-    if (modes[id] !== "bypass") return ref;
+    if (modes[id] !== "bypass" && modes[id] !== "skip") return ref;
     const slots = wiring?.slots[id];
     const through = slots?.in[bypassIndex(slots, slot, type)];
     const value = through && graph[id]!.inputs[through[0]];
     // from here on the type asked for is that input's own
-    return through && isRef(value) ? source(value, through[1], seen) : undefined;
+    if (through && isRef(value)) return source(value, through[1], seen);
+    if (modes[id] === "skip") {
+      // the node alone cannot hand the type on: the part it is in may, by its one incoming link of that type
+      const set = skips.find((s) => s.includes(id));
+      const from = set ? entries(set, type) : [];
+      if (from.length === 1) return source(from[0]!, type, seen);
+    }
+    return undefined;
   };
 
   const out: Graph = {};
@@ -85,6 +118,8 @@ export function prune(graph: Graph, wiring: Wiring | undefined, modes: Record<st
       const typed = wiring?.fallback[id];
       if (from) inputs[name] = from;
       else if (typed && name in typed) inputs[name] = typed[name];
+      // an optional input whose link leads nowhere is simply not given (rgthree's Any Switch then takes its other input)
+      else if (wiring?.optional?.[id]?.includes(name)) continue;
       else broken.add(id);
     }
     out[id] = { ...node, inputs };

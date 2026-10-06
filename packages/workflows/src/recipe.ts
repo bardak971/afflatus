@@ -3,7 +3,7 @@ import {
 } from "@afflatus/core";
 import type { Chapter } from "@afflatus/core";
 import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
-import { ancestors, modesFor, prune, remove, settle, trim } from "./wiring";
+import { ancestors, modesFor, prune, remove, settle, skipsFor, trim } from "./wiring";
 
 /** The family a workflow recipe belongs to: the model name the user gave it. */
 export function familyOf(def: WorkflowDef): Family {
@@ -337,7 +337,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
       };
     }
     for (const t of b.toggles) for (const at of t.writes) write(whole, at, typeof input[t.id] === "boolean" ? input[t.id] : t.default);
-    const pruned = prune(whole, def.wiring, modesFor(def.wiring, b.toggles, input));
+    const pruned = prune(whole, def.wiring, modesFor(def.wiring, b.toggles, input), skipsFor(b.toggles, input));
     settle(pruned);
     const { graph } = pruned;
     // previews left out at import, with the branches that only served them: ComfyUI runs every output node it is sent
