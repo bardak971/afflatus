@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { RANDOM_SEED } from "@afflatus/core";
+import { RANDOM_SEED, hiddenRunUp } from "@afflatus/core";
 import { compose, lookSchema, withMood } from "./entities";
 import { assetView } from "./media";
 import { rifeModelIn, UserError } from "./queue";
@@ -227,12 +227,12 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   /**
    * Finish: every clip's selected take brought to its final quality by an upscale route, as a new take
    * marked as the finished version of the draft (which stays in the list). SeedVR2, RTX and a pixel
-   * model run on the take's video in a job each; H3's latent re-sample renders the clip again with the
-   * same seed and form, plus the latent upscale pass. Clips finished already are skipped unless `redo`.
+   * model run on the take's video in a job each; H3's latent re-sample re-samples the draft's own kept
+   * latent larger, its join decoded as one piece with the clip before's. Clips finished already are skipped unless `redo`.
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/finish", async (req) => {
     const b = z.strictObject({
-      route: z.enum(["seedvr", "latent", "rtx", "model"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(),
+      route: z.enum(["seedvr", "latent", "rtx", "model"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
       latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
     }).parse(req.body);
     const view = await t.view(req.params.id);
@@ -252,13 +252,28 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       if (b.route === "latent" && clip.recipe === "h3.video") {
         const gen = await t.generationOf(draft.asset.id);
         if (!gen) { skipped.push({ clip: i + 1, why: "not rendered here: no seed to repeat" }); continue; }
+        // rendered again, it makes the draft again only from the same start: a continuation still after the video it carried on
+        // from (or that video's finish), a clip that was not one not made into one, nothing it landed on. Otherwise it would be a new video
+        const prior = i > 0 ? view.clips[i - 1] : undefined;
+        const priorAssets = prior?.take ? [prior.take.asset.id, prior.takes.find((x) => x.id === prior.take!.finishedFrom)?.asset.id] : [];
+        const carried = (gen.inputs.previous as { asset?: string } | undefined)?.asset;
+        const why = carried && (clip.joined !== "continue" || !priorAssets.includes(carried))
+          ? "it carried on from a video that is no longer the clip before it (rejoined, moved or restored): rendered again it would be a new video. Finish it with SeedVR2, RTX or a model"
+          : !carried && clip.joined === "continue" && prior
+            ? "it was not made as a continuation of the clip before: rendered again as one it would be a new video. Finish it with SeedVR2, RTX or a model"
+            : gen.inputs.next
+              ? "it was made to land on the clip after: rendered again it would not land the same. Finish it with SeedVR2, RTX or a model"
+              : null;
+        if (why) { skipped.push({ clip: i + 1, why }); continue; }
+        const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", draft.asset.id).executeTakeFirst();
+        if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
         jobs.push(await s.queue.enqueue(gen.recipe, { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.25, upscaleSteps: b.latentSteps ?? 2 }, {
           label, clip: { id: clip.id, fit: false }, look: clip.look ?? view.look, folder, finishedFrom: from,
         }));
         continue;
       }
       const route = b.route === "latent" ? "seedvr" : b.route;
-      jobs.push(await s.queue.enqueueCut({ asset: draft.asset.id, startMs: 0, endMs: draft.asset.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, clip: clip.id, finishedFrom: from }, label));
+      jobs.push(await s.queue.enqueueCut({ asset: draft.asset.id, startMs: 0, endMs: draft.asset.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, seedvrFrames: b.seedvrFrames, hiddenMs: hiddenRunUp(draft.headMs), clip: clip.id, finishedFrom: from }, label));
     }
     s.queue.events.emit("timeline");
     return { jobs, skipped };

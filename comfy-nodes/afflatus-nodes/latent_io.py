@@ -244,6 +244,123 @@ class AfflatusH3LatentHeadGuide(io.ComfyNode):
         return io.NodeOutput(node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes}))
 
 
+class AfflatusH3LatentLanding(io.ComfyNode):
+    """Anchor tokens from anywhere in the clip after at the end of a window: a clip lands inside another, on time.
+
+    H3 packs its video latent in chunks of 17 frames, five tokens each: one token for one frame, then four of four
+    frames (comfy/ldm/minimax FRAME_PER_TOKEN). A guide is laid out as a sequence of its own, so its first token is
+    taken for a one-frame one. Sliced at a frame of the 17k + 5 grid (the Head Guide's skip), it starts on a
+    four-frame token: every token got the wrong time span and a landing 56 frames in came out 6 frames late
+    (Afflatus, measured 2026-10-07). Sliced where a chunk begins (frame 17j), the guide's spans are its own.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusH3LatentLanding",
+            display_name="Afflatus: H3 Latent Landing",
+            category="Afflatus",
+            description="Adds frames of the clip after (video and audio, from its own latent), starting where one of its 17-frame chunks begins, as a native H3 guide at the last frames of the window being sampled: the clip lands on the clip after at that moment, exactly.",
+            inputs=[
+                io.Conditioning.Input("positive", tooltip="Positive conditioning for the window (after the tail guide, when there is one)."),
+                io.Latent.Input("next_av_latent", tooltip="The clip after's own latent (a sampled window, normalized)."),
+                io.Latent.Input("target_av_latent", tooltip="The window that will be sampled."),
+                io.Int.Input("guide_frames", default=22, min=5, max=3600, step=17, tooltip="How many of its frames are pinned at the end: 5, 22 or 39 (17k + 5)."),
+                io.Int.Input("land_at", default=0, min=0, max=100000, step=17, tooltip="The frame of the clip after to land on, where a chunk begins: 0, 17, 34… (17j)."),
+            ],
+            outputs=[io.Conditioning.Output(display_name="positive")],
+            is_experimental=True,
+        )
+
+    @classmethod
+    def execute(cls, positive, next_av_latent, target_av_latent, guide_frames: int = 22, land_at: int = 0) -> io.NodeOutput:
+        _require_native_arbitrary_guides()
+        next_video, next_audio = _extract_h3_av_streams(next_av_latent, name="next_av_latent")
+        target_video, _target_audio, target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
+        if guide_frames % 17 != 5:
+            raise ValueError("guide_frames must be 5, 22, 39… (17k + 5)")
+        if land_at % 17 != 0:
+            raise ValueError("land_at must be where a chunk begins: 0, 17, 34… (17j)")
+        start_t = (land_at // 17) * 5
+        guide_t = video_latent_t(guide_frames)
+        if start_t + guide_t > int(next_video.shape[2]):
+            raise ValueError(f"the clip after's latent has {int(next_video.shape[2])} video tokens: not enough to land {guide_frames} frames at frame {land_at}")
+        start_a = audio_t_at_frame_boundary(land_at)
+        guide_a = audio_t_at_frame_boundary(land_at + guide_frames) - start_a
+        have_a = int(next_audio.shape[-1])
+        if start_a >= have_a:
+            raise ValueError("the clip after's audio latent is shorter than the moment to land on")
+        guide_a = min(guide_a, have_a - start_a)
+        at = target_frames - guide_frames
+        if at < 0:
+            raise ValueError(f"a {guide_frames}-frame guide does not fit in a {target_frames}-frame window")
+        if next_video.dtype != target_video.dtype:
+            next_video = next_video.to(target_video.dtype)
+            next_audio = next_audio.to(target_video.dtype)
+        keyframes = _existing_keyframes(positive)
+        for k in keyframes:
+            end = float(k["resolved_frame_index"]) + int(k["latent"].shape[2]) * 17 / 5
+            if end > at:
+                raise ValueError("another guide reaches into the window's last frames: the landing needs them")
+        keyframes.append(
+            {
+                "resolved_frame_index": at,
+                "latent": next_video[:, :, start_t : start_t + guide_t].clone(),
+                "audio_latent": next_audio[..., start_a : start_a + guide_a].clone(),
+            }
+        )
+        keyframes.sort(key=lambda keyframe: float(keyframe["resolved_frame_index"]))
+        return io.NodeOutput(node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes}))
+
+
+class AfflatusH3SeamLatent(io.ComfyNode):
+    """A continuation's frames to decode as one piece with the clip before: that clip's last tokens, then the new ones.
+
+    A clip decoded on its own starts its decoder cold at its own first frame, and its hidden overlap is the model's
+    copy of the clip before, never quite the same: decoded separately, the two sides of a join always differ a
+    little. H3's video decoder works in 17-frame chunks with no memory past one chunk: a stretch decoded from a
+    chunk boundary matches the whole timeline decoded at once from its sixth frame on (measured 2026-10-08, PSNR
+    identical). So the window's overlap tokens are replaced by the clip before's own last tokens (as many, from a
+    chunk boundary), and the new tokens follow: decoded, the frames from the join on are exactly those of the whole
+    chain decoded in one piece, and the overlap shows the clip before's real frames. Same frame count as the window.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusH3SeamLatent",
+            display_name="Afflatus: H3 Seam Latent",
+            category="Afflatus",
+            description="For decoding a continuation as one piece with the clip before: the window's hidden overlap replaced by the clip before's own last tokens (video and audio), the new tokens after them. Decoded, the join matches the whole chain decoded at once.",
+            inputs=[
+                io.Latent.Input("previous_av_latent", tooltip="The clip before's latent, as the window was made from it (cut to its hand-over frame when it was)."),
+                io.Latent.Input("sampled_window", tooltip="The continuation window after sampling (overlap, then the new frames)."),
+                io.Int.Input("overlap_frames", default=22, min=5, max=3600, step=17, tooltip="The window's hidden overlap in frames: 5, 22, 39… (17k + 5)."),
+            ],
+            outputs=[io.Latent.Output(display_name="latent")],
+        )
+
+    @classmethod
+    def execute(cls, previous_av_latent, sampled_window, overlap_frames: int = 22) -> io.NodeOutput:
+        prev_video, prev_audio = _extract_h3_av_streams(previous_av_latent, name="previous_av_latent")
+        win_video, win_audio = _extract_h3_av_streams(sampled_window, name="sampled_window")
+        overlap_t = video_latent_t(overlap_frames)
+        prev_t = int(prev_video.shape[2])
+        prev_frames = frame_count_from_video_latent_t(prev_t)
+        if prev_t < overlap_t:
+            raise ValueError(f"the clip before has {prev_frames} frames, fewer than the {overlap_frames} the window overlaps")
+        if int(win_video.shape[2]) <= overlap_t:
+            raise ValueError("the window holds no new frames after its overlap")
+        if prev_video.shape[:2] != win_video.shape[:2] or prev_video.shape[3:] != win_video.shape[3:]:
+            raise ValueError("the clip before's latent and the window are not the same size")
+        # both counts are 5k + 2: the clip before's last overlap_t tokens start on a chunk boundary
+        lead = prev_video[:, :, prev_t - overlap_t:].to(win_video.dtype)
+        video = torch.cat([lead, win_video[:, :, overlap_t:]], dim=2)
+        lead_audio = prev_audio[..., audio_t_at_frame_boundary(prev_frames - overlap_frames):].to(win_audio.dtype)
+        audio = torch.cat([lead_audio, win_audio[..., audio_t_at_frame_boundary(overlap_frames):]], dim=-1)
+        return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))})
+
+
 class AfflatusH3TailGuide(io.ComfyNode):
     """The clip before's tail as the frame-zero guide: its decoded frames re-encoded for the picture, its own latent for the sound.
 

@@ -120,6 +120,8 @@ export interface ChoiceInput extends Base {
   options: string[] | { node: string; input: string };
   /** Options put in front of the ones read from ComfyUI (e.g. "latent" before the upscale model files). */
   extra?: string[];
+  /** Values an older form saved, read as the option that replaced them (never shown): { Latent: "Auto" }. */
+  renamed?: Record<string, string>;
   default: string;
   /**
    * For options read from ComfyUI, when the default is not among them: regex sources tried in order,
@@ -244,7 +246,7 @@ function schemaOf(spec: InputSpec): z.ZodType {
     case "choice":
       // options read from ComfyUI are checked against the node catalog, not here
       return Array.isArray(spec.options)
-        ? z.enum([...(spec.extra ?? []), ...spec.options] as [string, ...string[]]).default(spec.default)
+        ? z.preprocess((v) => (typeof v === "string" && spec.renamed?.[v] ? spec.renamed[v] : v), z.enum([...(spec.extra ?? []), ...spec.options] as [string, ...string[]]).default(spec.default))
         : z.string().min(1).default(spec.default);
     case "seed":
       return z.number().int().min(RANDOM_SEED).max(2 ** 32 - 1).default(RANDOM_SEED);

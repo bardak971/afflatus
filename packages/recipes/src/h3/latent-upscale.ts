@@ -11,20 +11,25 @@ export const H3_LATENT_UPSCALE_NODES = ["MMH3UltimateUpscale", "MMH3SpatialSplit
 export const H3_LATENT_ENLARGE_NODES = ["MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams"];
 const NO_PACK = `The "Latent: re-sampled" upscale runs on the MiniMax H3 upscale nodes of the Comfyui-MMH3-UltimateUpscale pack (bbaudio-2025), which this ComfyUI does not have. Install the pack, or pick another upscale route.`;
 
+/** The frame the latent re-sample makes, on the latent's 32-pixel grid. */
+export function latentUpscaleSize(input: Pick<H3Video, "upscaleBy">, width: number, height: number): { width: number; height: number } {
+  const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
+  return { width: r32(width * input.upscaleBy), height: r32(height * input.upscaleBy) };
+}
+
 /**
  * The upscale pass: the finished latent enlarged, then re-sampled lightly, one stretch of frames and one
  * tile at a time (the node offloads the model between the two, so both fit where one does). The sound
  * is carried through untouched. The same model, sampler and conditioning as the clip. Without the latent
- * route picked, the sampled latent as it is.
+ * route picked, the latent as it is. `latent`: the sampled latent (a continuation's with the clip before's own tokens in its overlap).
  */
-export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3Video, pass: { model: Ref; positive: Ref; sampled: string; turbo: boolean; width: number; height: number }): Ref {
+export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3Video, pass: { model: Ref; positive: Ref; latent: Ref; turbo: boolean; width: number; height: number }): Ref {
   const { slots } = ctx;
-  const { model, positive, sampled, turbo, width, height } = pass;
-  if (input.upscale !== UPSCALE.latent) return [sampled, 0];
+  const { model, positive, latent, turbo, width, height } = pass;
+  if (input.upscale !== UPSCALE.latent) return latent;
   // the queue refuses up front on nodes(); this is for a build that reaches here with the pack gone
   if (H3_LATENT_UPSCALE_NODES.some((n) => !ctx.has(n))) throw new Error(NO_PACK);
-  const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
-  const big = { width: r32(width * input.upscaleBy), height: r32(height * input.upscaleBy) };
+  const big = latentUpscaleSize(input, width, height);
   const withModel = input.upscaleWith !== "Plain resize" && Boolean(slots.latentUpscaler) && ctx.has("MMH3LatentUpscaleWithModelParams");
   if (input.upscaleWith === "H3's latent upscaler" && !withModel) throw new Error("H3's latent upscaler was not found: put minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, or set the upscale pass to a plain resize.");
   if (!withModel && !ctx.has("MMH3LatentUpscaleParams")) throw new Error(NO_PACK);
@@ -40,7 +45,7 @@ export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3V
   const stretches = g.out("MMH3TemporalSplitParams", { chunk_length: input.upscaleChunk, temporal_overlap: 17, anchor_strength: 0.999 });
   g.phase("refining");
   return g.out("MMH3UltimateUpscale", {
-    model, conditioning: positive, latent: [sampled, 0], noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
+    model, conditioning: positive, latent, noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
     sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
     sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps: input.upscaleSteps, denoise: input.upscaleDenoise }),
     cfg: 1, latent_upscale_param: enlarge, temporal_split_param: stretches, spatial_split_param: tiles,

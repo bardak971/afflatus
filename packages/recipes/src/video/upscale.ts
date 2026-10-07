@@ -23,6 +23,27 @@ export const RTX_NVIDIA = "RTXVideoSuperResolution";
 export const RTX_NODE = "DaSiWa_RTX_UpscalerRefiner";
 export const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
 /** SeedVR2 in ComfyUI's own nodes (0.37): a one-step video restoration model, sampled in temporal chunks. */
+/**
+ * Frames SeedVR2 restores together (4n + 1). Its own "auto" asked the free memory and, at 1.7 Mpx a frame (a 576 × 736 clip
+ * doubled), with 10 GB free, chose ONE: every frame a pass of its own (the model set up again each time, a 5 s clip still
+ * not done after 13 minutes) and no frame seeing its neighbours, which is what keeps a video steady. Measured 2026-10-08 on
+ * a 12 GB card, 3B int8, a 141-frame clip doubled to 1152 × 1472: 9 frames 257 s, 13 frames 318 s, 21 frames ran out of video
+ * memory (the card spilled into system memory at a third of its power). The tiled decode takes 16 frames at a time (64 ran out of
+ * memory); the encode keeps 64 (at 16 the same clip took 18 minutes).
+ */
+export const SEEDVR_CHUNK = 9;
+/** The frame size SEEDVR_CHUNK was measured at (576 × 736 doubled), in megapixels: larger frames take proportionally fewer. */
+const SEEDVR_CHUNK_AT_MPX = 1.7;
+/**
+ * How many frames SeedVR2 restores together: as many as asked (rounded to 4n + 1), else SEEDVR_CHUNK scaled down for larger
+ * frames (memory goes with frames × pixels; at 3× or 4×, nine frames would spill out of video memory and crawl) and up to it
+ * for smaller ones. Measured on one card (12 GB): the setting is there for any other.
+ */
+export function seedvrChunk(megapixels: number, asked = 0): number {
+  const fourN1 = (n: number) => Math.max(1, Math.floor((n - 1) / 4) * 4 + 1);
+  if (asked > 0) return fourN1(Math.round(asked));
+  return fourN1(Math.min(SEEDVR_CHUNK, (SEEDVR_CHUNK * SEEDVR_CHUNK_AT_MPX) / Math.max(0.1, megapixels)));
+}
 export const SEEDVR_NODES = ["ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEncodeTiled", "SeedVR2Conditioning", "KSampler", "SeedVR2TemporalChunk", "SeedVR2TemporalMerge", "VAEDecodeTiled", "SeedVR2PostProcessing", "UNETLoader", "VAELoader"];
 /** What every video family (and the image tools) declare to hold SeedVR2's two files. */
 export const SEEDVR_SLOTS = [
@@ -44,6 +65,8 @@ export interface UpscaleValues {
   upscaleBy: number;
   upscaleModel: string;
   upscaleColour?: string;
+  /** SeedVR2: frames restored together; 0 = by the frame's size (see seedvrChunk). */
+  seedvrFrames?: number;
 }
 
 /** The inputs of the choice, for a form: the route, the factor, and the model file for the pixel route. */
@@ -57,6 +80,10 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
     {
       id: "upscaleColour", type: "choice", label: "SeedVR2 colour match", options: SEEDVR_COLOURS, default: "lab", section: "out", showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
       note: "the restored frames matched in colour to the originals: lab (the most faithful), wavelet (keeps the new fine detail), adain (a global tint), none",
+    },
+    {
+      id: "seedvrFrames", type: "number", label: "SeedVR2 frames together", min: 0, max: 49, step: 4, default: 0, section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
+      note: "how many frames SeedVR2 restores in one pass (1, 5, 9, 13…). 0: by the frame's size, 9 at about 1.7 megapixels and fewer for larger frames. More frames see more of their neighbours (steadier) but need more video memory; past what the card holds it spills into system memory and slows to a crawl, and fewer is then faster",
     },
     {
       id: "upscaleBy", type: "number", label: "Upscale factor", min: 1.25, max: 3, step: 0.25, default: 2, unit: " ×", section: "out",
@@ -99,7 +126,7 @@ export function pixelUpscale(g: GraphBuilder, images: Ref, input: UpscaleValues,
     const sized = g.out("ImageScale", { image: grown, upscale_method: "lanczos", width: big.width, height: big.height, crop: "disabled" });
     return { images: chunked ? g.out("RebatchImages", { images: sized, batch_size: 4096 }) : sized, loads: [`upscale_models/${input.upscaleModel}`] };
   }
-  if (input.upscale === UPSCALE.seedvr) return seedvrUpscale(g, images, input, ctx);
+  if (input.upscale === UPSCALE.seedvr) return seedvrUpscale(g, images, input, ctx, big);
   // NVIDIA's own node first (a choice that brings its own inputs: "resize_type.scale"), else the other pack's
   if (ctx.has(RTX_NVIDIA)) {
     return { images: g.out(RTX_NVIDIA, { images, resize_type: "scale by multiplier", "resize_type.scale": Math.min(4, input.upscaleBy), quality: "ULTRA" }), loads: [] };
@@ -120,21 +147,24 @@ export function pixelUpscale(g: GraphBuilder, images: Ref, input: UpscaleValues,
  * merged, decoded in tiles, then aligned and colour-matched to the enlarged originals. The model restores
  * as it goes: compression, noise and softness come out too. Images go through the same road (one frame).
  */
-export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: number; upscaleColour?: string }, ctx: BuildContext): { images: Ref; loads: string[] } {
+export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: number; upscaleColour?: string; seedvrFrames?: number }, ctx: BuildContext, size?: { width: number; height: number }): { images: Ref; loads: string[] } {
   const { slots } = ctx;
   if (!slots.seedvr || !slots.seedvrVae) throw new Error("SeedVR2 needs its two files: a SeedVR2 model in ComfyUI's models/diffusion_models folder and its VAE in models/vae (both are one click in Settings → Models). Or pick another upscale route.");
+  // (the picture tool calls this directly: its preparation and encode are the upscale, not a model load)
+  g.phase("upscaling");
   const resized = g.out("ResizeImageMaskNode", { input: images, resize_type: "scale by multiplier", "resize_type.multiplier": input.upscaleBy, scale_method: "lanczos" });
   const padded = g.out("SeedVR2Preprocess", { resized_images: resized });
   const vae = g.out("VAELoader", { vae_name: slots.seedvrVae });
   const model = loadUnet(g, ctx, slots.seedvr);
   const latent = g.out("VAEEncodeTiled", { pixels: padded, vae, tile_size: 512, overlap: 128, temporal_size: 64, temporal_overlap: 8 });
-  // chunks as large as the free memory takes, no overlap (the template's setting); the merge is a plain join then
-  const chunks = g.add("SeedVR2TemporalChunk", { latent, temporal_overlap: 0, chunking_mode: "auto" });
+  // a fixed number of frames together (see SEEDVR_CHUNK), no overlap (the template's); the merge is a plain join then
+  const frames = seedvrChunk(size ? (size.width * size.height) / 1e6 : SEEDVR_CHUNK_AT_MPX, input.seedvrFrames ?? 0);
+  const chunks = g.add("SeedVR2TemporalChunk", { latent, temporal_overlap: 0, chunking_mode: "manual", "chunking_mode.frames_per_chunk": frames });
   const cond = g.add("SeedVR2Conditioning", { model, vae_conditioning: [chunks, 0] });
   g.phase("restoring");
   const sampled = g.out("KSampler", { model, positive: [cond, 0], negative: [cond, 1], latent_image: [chunks, 0], seed: ctx.seed, steps: 1, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 });
   const merged = g.out("SeedVR2TemporalMerge", { latents: sampled, temporal_overlap: [chunks, 1] });
-  const decoded = g.out("VAEDecodeTiled", { samples: merged, vae, tile_size: 512, overlap: 128, temporal_size: 64, temporal_overlap: 8 });
+  const decoded = g.out("VAEDecodeTiled", { samples: merged, vae, tile_size: 512, overlap: 128, temporal_size: 16, temporal_overlap: 4 });
   const out = g.out("SeedVR2PostProcessing", { images: decoded, original_resized_images: resized, color_correction_method: input.upscaleColour ?? "lab" });
   return { images: out, loads: [`diffusion_models/${slots.seedvr}`, `vae/${slots.seedvrVae}`] };
 }

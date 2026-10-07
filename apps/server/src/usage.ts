@@ -48,12 +48,13 @@ export function registerUsage(app: FastifyInstance, s: Services): void {
 
   /** Everything in the bin is erased now, files and all. This cannot be undone. */
   app.post("/api/storage/empty-bin", async () => {
-    const old = await s.db.selectFrom("assets").select(["id", "file_key", "thumb_key", "raw_key", "latent_key"]).where("deleted_at", "is not", null).execute();
+    const old = await s.db.selectFrom("assets").select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key"]).where("deleted_at", "is not", null).execute();
     for (const a of old) {
       await s.storage.delete(a.file_key).catch(() => {});
       if (a.thumb_key) await s.storage.delete(a.thumb_key).catch(() => {});
       if (a.raw_key) await s.storage.delete(a.raw_key).catch(() => {});
       if (a.latent_key) await s.storage.delete(a.latent_key).catch(() => {});
+      if (a.fine_latent_key) await s.storage.delete(a.fine_latent_key).catch(() => {});
       await s.db.deleteFrom("assets").where("id", "=", a.id).execute();
     }
     s.queue.events.emit("library");

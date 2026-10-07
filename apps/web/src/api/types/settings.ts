@@ -30,6 +30,7 @@ export interface FinishSettings {
   upscaleModel: string;
   latentDenoise: number;
   latentSteps: number;
+  seedvrFrames?: number;
 }
 export interface Settings {
   comfyUrl: string;

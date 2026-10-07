@@ -64,7 +64,7 @@ function Tile({ label, value, note, warn }: { label: string; value: string; note
     <div className="flex min-w-0 flex-col gap-1 rounded-[10px] border border-line bg-panel px-3.5 py-3">
       <span className="truncate text-xs text-ink-2">{label}</span>
       <span className={cx("truncate font-mono text-[19px] leading-tight", warn && "text-warn-ink")}>{value}</span>
-      {note && <span className="truncate text-xs text-ink-3">{note}</span>}
+      {note && <span className="text-xs leading-snug text-ink-3">{note}</span>}
     </div>
   );
 }
@@ -181,7 +181,7 @@ export function RenderTimes() {
       {d.since && (
         <>
           <div className="grid grid-cols-4 gap-2.5 xl:grid-cols-6">
-            <Tile label="Renders" value={String(t.done)} note={`${t.images} image${t.images === 1 ? "" : "s"} · ${t.videos} video${t.videos === 1 ? "" : "s"}`} />
+            <Tile label="Renders" value={String(t.done)} note={`${t.images} image${t.images === 1 ? "" : "s"} · ${t.videos} video${t.videos === 1 ? "" : "s"}${t.tools ? ` · ${t.tools} finish${t.tools === 1 ? "" : "es"} or slow motion${t.tools === 1 ? "" : "s"}` : ""}`} />
             <Tile label="Video generated" value={long(t.videoMs)} note="total duration of all clips" />
             <Tile label="Failed · cancelled" value={`${t.failed} · ${t.cancelled}`} note={`${long(t.lostMs)} of GPU time lost`} warn={t.failed > 0} />
             <Tile label="GPU time" value={long(t.gpuMs)} note={`longest render: ${long(t.longestMs)}`} />
@@ -192,6 +192,7 @@ export function RenderTimes() {
             <Tile label="Estimate error" value={t.off === null ? "—" : `± ${pct(t.off)}`} note="how far off the estimates usually are" />
             <Tile label="Most used" value={d.models[0]?.name.split(" · ")[0] ?? "—"} note={d.models[0] ? `${pct(d.models[0].gpuMs / Math.max(1, t.gpuMs))} of the GPU time` : undefined} />
             <Tile label="Peak VRAM" value={t.vramPeak === null ? "—" : `${Math.round(t.vramPeak)} %`} note={t.vramUsual === null ? "not reported" : `median ${Math.round(t.vramUsual)} %`} />
+            <Tile label="Ran out of VRAM" value={`${t.spills ?? 0} job${t.spills === 1 ? "" : "s"}`} note={t.spills ? `${long(t.spillLostMs ?? 0)} more than expected: their bars are in the warning colour` : "memory full and twice the usual time: none"} warn={(t.spills ?? 0) > 0} />
             <Tile label="Peak GPU temp" value={t.heatPeak === null ? "—" : `${Math.round(t.heatPeak)}°`} note={t.heatUsual === null ? "not reported" : `median ${Math.round(t.heatUsual)}°`} warn={(t.heatPeak ?? 0) >= 80} />
           </div>
 
@@ -237,6 +238,7 @@ export function RenderTimes() {
                   { name: "Temperature, °C", values: d.gpu.heat, color: "var(--color-warn)" },
                 ]}
               />
+              {d.upscale && (d.upscale.video.length > 0 || d.upscale.pictures.length > 0) && <UpscaleChart chart={chart} upscale={d.upscale} tones={tones} />}
             </div>
           )}
 
@@ -443,7 +445,7 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className={cx("absolute rounded-sm", r.status !== "done" && "opacity-60 outline outline-1 outline-warn")}
-                style={{ left: `${left}%`, width: `${width}%`, top: 2 + lane * ROW, height: ROW - 4, background: r.status === "done" ? color : "var(--color-warn)", minWidth: 2 }}
+                style={{ left: `${left}%`, width: `${width}%`, top: 2 + lane * ROW, height: ROW - 4, background: r.status === "done" && !r.spilled ? color : "var(--color-warn)", minWidth: 2 }}
               />
             );
           })}
@@ -459,6 +461,7 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
                 <span className="font-semibold">{h.name}</span>
                 <span className="truncate text-ink-2">{[h.model, h.width && h.height ? `${h.width} × ${h.height}` : "", h.seconds ? `${h.seconds} s` : "", `${h.steps} steps`].filter(Boolean).join(" · ")}</span>
                 <span className="font-mono">{h.status === "done" ? took(h.totalMs) : `${h.status} after ${took(h.totalMs)}`}{h.cold ? " · cold start" : ""}</span>
+                {h.spilled && <span className="text-warn-ink">Ran out of video memory, it seems: {h.expectedMs ? `expected ${took(h.expectedMs)}` : "far slower than usual"}, with the memory full</span>}
                 <span className="text-ink-3">{timeLabel(Date.parse(h.at) - h.totalMs, true)} → {timeLabel(Date.parse(h.at), true)}</span>
                 <span className="text-ink-3">{[`load ${took(h.phases.loading)}`, `sampling ${took(h.phases.sampling)}`, h.phases.refining > 500 ? `refine ${took(h.phases.refining)}` : "", `finish ${took(h.phases.finishing)}`].filter(Boolean).join(" · ")}</span>
               </div>
@@ -467,6 +470,36 @@ function Lanes({ items, from, to, models, names, timeLabel, onZoom, onOpen }: {
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * How fast the upscales go, from the record: videos in minutes of work per second of video (a finish's route, a slow motion),
+ * pictures in seconds per megapixel made (a picture tool, the hires pass of picture renders). Per second and per megapixel
+ * because a 10 s clip or a 4K picture is not slower work, only more of it. Runs that ran out of video memory are left out.
+ */
+function UpscaleChart({ chart, upscale, tones }: { chart: Record<string, unknown>; upscale: NonNullable<TimesSummary["upscale"]>; tones: string[] }) {
+  const [tab, setTab] = useState<"video" | "pictures">(upscale.video.length ? "video" : "pictures");
+  const lines = tab === "video" ? upscale.video : upscale.pictures;
+  return (
+    <div className="relative">
+      <TimeChart
+        {...(chart as Parameters<typeof TimeChart>[0])}
+        title="Upscale speed"
+        note={tab === "video" ? "minutes of work per second of video, median per stretch" : "seconds per megapixel made, median per stretch"}
+        format={(v) => (tab === "video" ? `${v.toFixed(v < 10 ? 1 : 0)} min/s` : `${v.toFixed(v < 10 ? 1 : 0)} s/MP`)}
+        series={lines.map((l, i) => ({ name: l.name, values: l.points, color: tones[i % tones.length] }))}
+      >
+        <div className="flex gap-1">
+          {(["video", "pictures"] as const).map((k) => (
+            <button key={k} type="button" aria-pressed={tab === k} disabled={!(k === "video" ? upscale.video : upscale.pictures).length} onClick={() => setTab(k)}
+              className={cx("rounded-md px-2 py-0.5 text-xs disabled:opacity-40", tab === k ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}>
+              {k === "video" ? "Video" : "Pictures"}
+            </button>
+          ))}
+        </div>
+      </TimeChart>
+    </div>
   );
 }
 

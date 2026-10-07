@@ -42,6 +42,22 @@ export async function renderedOf(db: Db, asset: Tables["assets"]): Promise<Table
   return current;
 }
 
+/**
+ * The draft a finished take was made from, however it was finished: what a finish's own re-render (H3's latent re-sample)
+ * is guided by, as the draft was, so that it makes the draft's motion again. The asset itself when it is no finish.
+ */
+export async function draftOf(db: Db, asset: Tables["assets"]): Promise<Tables["assets"]> {
+  let current = asset;
+  for (let i = 0; i < 4; i++) {
+    const take = await db.selectFrom("takes").select("finished_from").where("asset_id", "=", current.id).where("finished_from", "is not", null).executeTakeFirst();
+    if (!take?.finished_from) break;
+    const draft = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").selectAll("assets").where("takes.id", "=", take.finished_from).executeTakeFirst();
+    if (!draft) break;
+    current = draft as unknown as Tables["assets"];
+  }
+  return current;
+}
+
 /** Download the results, file them in the library, and record how they were made. */
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
@@ -65,10 +81,13 @@ export async function store(
   let raw: OutputFile | null = null;
   // the clip's own latent (MiniMax H3 with the Afflatus node pack): for the clips that continue it
   let latent: OutputFile | null = null;
+  // a latent re-sample's own result (a finish): for the finish of the clip after
+  let fine: OutputFile | null = null;
   for (const out of resume.outputs) {
     const o = outputs[out.node] as { gifs?: OutputFile[]; images?: OutputFile[]; latents?: OutputFile[] } | undefined;
     if (out.role === "raw") raw = [...(o?.gifs ?? []), ...(o?.images ?? [])].find((f) => mimeOfFile(f.filename).startsWith("video/")) ?? null;
     if (out.role === "latent") latent = o?.latents?.[0] ?? null;
+    if (out.role === "fine") fine = o?.latents?.[0] ?? null;
   }
 
   const generationId = newId();
@@ -149,9 +168,15 @@ export async function store(
       }
       latent = null;
     }
+    let fineKey: string | null = null;
+    if (kind === "video" && fine) {
+      fineKey = `assets/${id.slice(0, 2)}/${id}.fine.safetensors`;
+      await storage.put(fineKey, await comfy.client.view(fine));
+      fine = null;
+    }
     if (measure) resolved.measure = measure;
     rows.push(newAssetRow({
-      id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames,
+      id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames, fine_latent_key: fineKey,
       width: size?.width ?? null, height: size?.height ?? null,
       duration_ms: video?.facts?.durationMs ?? null, fps: video?.facts?.fps ?? null, has_sound: video?.facts?.hasSound ? 1 : 0,
       folder_id: folder, generation_id: generationId, source_id: null, source_range: null, linked_path: null, kept_at: null, countdown_from: null, created_at: at,

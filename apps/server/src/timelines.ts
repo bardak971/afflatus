@@ -12,7 +12,7 @@ import type { Storage } from "./storage";
 import { TimelineExport } from "./timelineExport";
 import { TimelineMedia } from "./timelineMedia";
 import { TimelineRange, type RangeContext } from "./timelineRange";
-import { clockOf, FROM_PREVIOUS, leadFor, leadOf, LEAD_MS, lengthOf, lengthOnGrid, near, plays, STILL_MS, stillRef, visible, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
+import { clockOf, FROM_PREVIOUS, landingOnGrid, leadFor, leadOf, seamless, LEAD_MS, lengthOf, lengthOnGrid, near, plays, STILL_MS, stillRef, visible, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -67,6 +67,10 @@ export interface CutOptions {
   by?: number;
   colour?: string;
   upscaleModel?: string;
+  /** "finish" with SeedVR2: frames restored together, 0 = by the frame's size. */
+  seedvrFrames?: number;
+  /** "finish": the start of the video that is never seen (a continuation's hidden run-up, hiddenRunUp): enlarged plainly, not restored. */
+  hiddenMs?: number;
   finishedFrom?: string;
 }
 
@@ -250,12 +254,19 @@ export class Timelines {
       for (let i = 0; i < placed.length - 1; i++) {
         const next = placed[i + 1]!;
         const mine = placed[i]!.active;
-        if (mine && next.active && mine.take.next_take_id === next.active.take.id && mine.take.tail_ms >= 2 * LEAD_MS) {
+        // only while both ends are where the landing put them: trimmed off its guided tail, or the clip after moved, it is a plain cut
+        if (mine && next.active && mine.take.next_take_id === next.active.take.id && mine.take.tail_ms >= 2 * LEAD_MS && mine.take.trim_end_ms === 0 && near(mine.take.next_at_ms, plays(next.active).start)) {
           mine.give = -LEAD_MS;
           next.active.landed = LEAD_MS;
           continue;
         }
-        const give = next.clip.kind === "video" && next.clip.joined === "continue" && next.active ? next.active.take.lead_ms ?? 0 : 0;
+        // a seamless take plays as a plain cut only after the take it was decoded with, still ending where it did (a finished
+        // take stands for its draft); after another take, or that one trimmed, its join is faded like any other
+        if (mine && next.active && next.clip.joined === "continue" && next.active.take.join_kind === "seamless") {
+          const same = (id: string | null, t: TakeRow) => id !== null && (id === t.id || id === t.finished_from);
+          next.active.seamed = same(next.active.take.prev_take_id, mine.take) && near(next.active.take.prev_at_ms, plays(mine).end) && next.active.take.trim_start_ms === 0;
+        }
+        const give = next.clip.kind === "video" && next.clip.joined === "continue" && next.active ? leadOf(next.active) : 0;
         if (give > 0) for (const t of placed[i]!.takes) t.give = give;
       }
     }
@@ -320,6 +331,8 @@ export class Timelines {
       trimStartMs: x.take.trim_start_ms, trimEndMs: x.take.trim_end_ms, startMs: visible(x).start, endMs: visible(x).end, createdAt: x.take.created_at,
       /** Its take-over point: it starts to play this many ms before its shared frames end, and the clip before stops as much earlier (0: at its first own frame). */
       leadMs: leadOf(x),
+      // decoded as one piece with the clip before it, which is still the take it was made from: the join is a plain cut
+      seamless: seamless(x),
       ...(x.landed !== undefined ? { landedMs: x.landed } : {}),
       finishedFrom: x.take.finished_from,
       /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
@@ -815,7 +828,9 @@ export class Timelines {
       .insertInto("takes")
       .values({
         id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? overlap.headMs, tail_ms: from?.tail_ms ?? overlap.tailMs, trim_start_ms: from?.trim_start_ms ?? 0, trim_end_ms: from?.trim_end_ms ?? 0,
-        join_kind: from ? from.join_kind : joinKindOf(overlap),
+        // a finish made from frames joins as its draft did; one rendered again (H3's latent re-sample) as its own render says:
+        // seamless only when its join was decoded as one piece with the clip before's re-sampled latent
+        join_kind: from && overlap.headMs <= 0 ? from.join_kind : joinKindOf(overlap),
         lead_ms: from ? from.lead_ms : leadFor(joinKindOf(overlap), overlap.headMs),
         prev_take_id: links.prev?.take ?? from?.prev_take_id ?? null, prev_at_ms: links.prev?.at ?? from?.prev_at_ms ?? null, next_take_id: links.next?.take ?? from?.next_take_id ?? null, next_at_ms: links.next?.at ?? from?.next_at_ms ?? null,
         finished_from: from ? from.id : null, created_at: now(),
@@ -837,7 +852,7 @@ export class Timelines {
    * from the one before is given that clip's video and the moment it stops playing (after a still: the
    * picture, to open on); a take made to fit is given the next clip's video and the moment it starts playing.
    */
-  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean): Promise<ClipPlan> {
+  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean, finishedFrom: string | null = null): Promise<ClipPlan> {
     const clip = await this.clipRow(clipId);
     const t = await this.row(clip.timeline_id);
     const all = await this.placed(clip.timeline_id);
@@ -855,9 +870,15 @@ export class Timelines {
       plan.links.prev = { take: stillRef(prior.still.id), at: 0 };
     } else if (clip.joined === "continue" && before) {
       let at = plays(before).end;
+      // a finish's re-render carries on from the same video and moment as its draft (its own render's input), while the clip
+      // before is that video or its finish (the finish route skips a clip that is not, see timelines-api)
+      const carried = finishedFrom && prevSpec ? (raw[prevSpec.id] as { asset?: string; at?: number } | undefined) : undefined;
+      const beforeDraft = before.take.finished_from ? (await this.db.selectFrom("takes").select("asset_id").where("id", "=", before.take.finished_from).executeTakeFirst())?.asset_id : undefined;
+      const sameBefore = Boolean(carried?.asset && typeof carried.at === "number" && (carried.asset === before.asset.id || carried.asset === beforeDraft));
+      if (sameBefore) at = carried!.at!;
       if (prevSpec) {
         // the clip before ends frozen: hand over where it still moved, unless the form says not to
-        if (raw.handover !== false) {
+        if (raw.handover !== false && !sameBefore) {
           const lively = await this.handoverAt(before).catch(() => null);
           // on the model's frame grid: the frames handed over are whole frames of it, and the clip before stops on one
           if (lively !== null && lively < at - 40) {
@@ -883,7 +904,7 @@ export class Timelines {
     }
     const after = i < all.length - 1 ? all[i + 1]! : null;
     if (fit && nextSpec && after?.active && after.clip.joined === "continue") {
-      const at = plays(after.active).start;
+      const at = landingOnGrid(after.active);
       plan.input[nextSpec.id] = { asset: after.active.asset.id, at };
       plan.links.next = { take: after.active.take.id, at };
     }
@@ -908,6 +929,14 @@ export class Timelines {
     if (await this.db.selectFrom("takes").select("id").where("clip_id", "=", clipId).where("asset_id", "=", asset.id).executeTakeFirst()) return;
     if (finishedFrom) await this.remember(clip.timeline_id, "the finished take");
     await this.addTake(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom);
+    // the take lands on the clip after a little further in than it played (on a chunk of its latent): that clip now starts there
+    if (links.next && !finishedFrom) {
+      const next = await this.db.selectFrom("takes").select(["id", "head_ms", "trim_start_ms"]).where("id", "=", links.next.take).executeTakeFirst();
+      if (next && links.next.at > next.head_ms + next.trim_start_ms + 20) {
+        await this.remember(clip.timeline_id, "the landing on the clip after");
+        await this.db.updateTable("takes").set({ trim_start_ms: Math.round(links.next.at - next.head_ms) }).where("id", "=", next.id).execute();
+      }
+    }
     // the take carried on from before the clip before's frozen tail: that clip now stops where the take picks up
     if (links.prev && !finishedFrom) {
       const prev = await this.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms", "assets.latent_frames as latent_frames"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
@@ -1042,7 +1071,7 @@ export class Timelines {
   /** What plays between In and Out goes. */
   removeRange(timelineId: string, inMs: number, outMs: number): Promise<void> { return this.range.removeRange(timelineId, inMs, outMs); }
   /** What plays between In and Out is replaced by a new clip to render, pinned to the frames around it. */
-  regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext }> { return this.range.regenerateRange(timelineId, inMs, outMs); }
+  regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; widenedMs?: number; longerMs?: number }> { return this.range.regenerateRange(timelineId, inMs, outMs); }
   /** A clip added after Out that brings the picture back to the frame at In. */
   loopRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; arrive: string }> { return this.range.loopRange(timelineId, inMs, outMs); }
   /** The range of a video as one small file to hand to ComfyUI. */

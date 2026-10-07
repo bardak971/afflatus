@@ -1,5 +1,6 @@
+import { hiddenRunUp } from "@afflatus/core";
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api, type Clip, type FinishSettings } from "../api";
 import { useSettings } from "../data";
@@ -10,12 +11,12 @@ import { Button, ErrorNote, NumberBox, Segmented, Toggle } from "../ui";
 
 const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: string }> = [
   { value: "seedvr", label: "SeedVR2 (restores + enlarges)", detail: "any clip; the whole clip in view, so no flicker; compression and softness repaired too. Minutes per clip" },
-  { value: "latent", label: "H3 latent re-sample", detail: "H3 clips: rendered again with the same seed, then re-sampled larger with the prompt in hand: detail the model would have drawn. Other clips take SeedVR2" },
+  { value: "latent", label: "H3 latent re-sample", detail: "H3 clips: the draft's own latent re-sampled larger with the prompt in hand: the same motion, detail the model would have drawn, seamless joins kept. Other clips take SeedVR2" },
   { value: "rtx", label: "RTX Video Super Resolution", detail: "NVIDIA's driver: near real time, steady, modest detail. Windows and an RTX card" },
   { value: "model", label: "Pixel upscale model", detail: "an ESRGAN-type model, frame by frame: fast, sharp, may shimmer" },
 ];
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
-const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.25, latentSteps: 2 };
+const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.25, latentSteps: 2, seedvrFrames: 0 };
 
 /**
  * Finish all clips: every clip's selected take brought to its final quality by an upscale route, as a
@@ -48,6 +49,12 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
   const todo = redo ? videos : videos.filter((c) => !c.take?.finishedFrom);
   const stills = clips.filter((c) => c.kind === "still").length;
   const h3 = videos.filter((c) => c.recipe === "h3.video").length;
+  // what it should take, from this route's own past finishes: its pace × what each clip makes (its size × the factor, its frames)
+  const tool = v.route === "rtx" ? "tool.finish.rtx" : v.route === "model" ? "tool.finish.model" : v.route === "seedvr" ? "tool.finish.seedvr" : null;
+  const pace = useQuery({ queryKey: ["renderPace", tool], queryFn: () => api.renderPace(tool!), enabled: Boolean(tool) });
+  // the frames it restores: past a continuation's hidden run-up (hiddenRunUp), which is enlarged plainly
+  const workOf = (c: Clip) => { const a = c.take!.asset; return (a.width ?? 0) * v.factor * (a.height ?? 0) * v.factor * Math.max(1, (Math.max(0, (a.durationMs ?? 0) - hiddenRunUp(c.take!.headMs)) / 1000) * (a.fps ?? 24)); };
+  const estimateMs = pace.data?.msPerWork ? todo.reduce((n, c) => n + workOf(c) * pace.data!.msPerWork!, 0) : null;
   return (
     <Dialog label="Finish all clips" onClose={onClose} className="flex w-full max-w-lg flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5">
         <span className="flex items-center gap-2 text-base font-semibold"><Sparkles size={16} className="text-accent" /> Finish all clips</span>
@@ -55,14 +62,18 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
         {v.route === "latent" && h3 < videos.length && <span className="text-xs text-ink-2">{videos.length - h3} of the {videos.length} clips are not H3 renders: they take SeedVR2.</span>}
         <div className="flex items-center justify-between gap-3">
-          <span className="flex flex-col"><span className="text-xs font-semibold">Upscale by</span><span className="text-xs text-ink-2">2 is what the routes are tuned for; 1 restores without enlarging (SeedVR2)</span></span>
+          <span className="flex flex-col"><span className="text-xs font-semibold">Upscale by</span><span className="text-xs text-ink-2">{v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"}</span></span>
           <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
         </div>
-        {(v.route === "seedvr" || v.route === "latent") && (
+        {(v.route === "seedvr" || (v.route === "latent" && h3 < videos.length)) && (
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold">SeedVR2 colour match</span>
             <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
             <span className="text-xs text-ink-2">the restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint</span>
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <span className="flex flex-col"><span className="text-xs font-semibold">SeedVR2 frames together</span><span className="text-xs text-ink-2">0: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl</span></span>
+              <NumberBox label="SeedVR2 frames together" value={v.seedvrFrames ?? 0} min={0} max={49} step={4} onCommit={(seedvrFrames) => setV({ ...v, seedvrFrames: Math.round(seedvrFrames) })} />
+            </div>
           </div>
         )}
         {v.route === "latent" && (
@@ -83,6 +94,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         {finished.length > 0 && <Toggle on={redo} onChange={setRedo} label={`Redo the ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already`} note="off: they are skipped" />}
         <span className="text-xs text-ink-2">
           {todo.length} clip{todo.length === 1 ? "" : "s"} to finish{stills ? `; ${stills} still${stills > 1 ? "s" : ""} left as ${stills > 1 ? "they are" : "it is"}` : ""}. The finished takes arrive as the jobs land; export "At the finished size" afterwards.
+          {estimateMs ? ` About ${Math.max(1, Math.round(estimateMs / 60_000))} min in all, from your past finishes with this route.` : tool && pace.isSuccess ? " No time estimate yet: this route has not run here (the first finish teaches it)." : ""}
         </span>
         {go.isError && <ErrorNote>{go.error.message}</ErrorNote>}
         {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}

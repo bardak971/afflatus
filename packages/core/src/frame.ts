@@ -24,6 +24,15 @@ export function frameOf(shape: { width: number; height: number }, short: number,
   return { width: W, height: H };
 }
 
+/**
+ * The run-up of a continuation a finish need not restore: the frames it shares with the clip before, hidden under that
+ * clip's end, less a margin. They are never seen (a trim only moves the start later; a seamless join shows one frame early,
+ * the export half a frame), yet they are 0.9 s of a 5.9 s H3 continuation. The finish enlarges them plainly (lanczos), so
+ * that the file keeps its length and every join keeps its timing. The same sum on the server and in the Finish estimate.
+ */
+export const FINISH_MARGIN_MS = 125;
+export const hiddenRunUp = (headMs: number): number => (headMs > FINISH_MARGIN_MS ? headMs - FINISH_MARGIN_MS : 0);
+
 /** Megapixels of a frame, said short: "0.59 MP", "2.1 MP". */
 export const megapixels = (width: number, height: number): string => {
   const mp = (width * height) / 1e6;

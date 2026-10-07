@@ -7,13 +7,15 @@ import { LivePreview } from "../LivePreview";
 import { cx } from "../ui";
 
 /** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
-const PREROLL_MS = 600;
+const PREROLL_MS = 800;
 /** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
 const CUT_EARLY_MS = 24;
 
 export interface PlayerHandle {
   /** Go to a moment of what plays. */
   seek(ms: number): void;
+  /** The picture full screen, or back. */
+  fullscreen(): void;
   /** The clip on screen and the moment of it that is shown (`assetMs`: in its video's own time). */
   where(): { clip: Clip; localMs: number; assetMs: number } | null;
 }
@@ -36,10 +38,16 @@ export const Player = forwardRef<PlayerHandle, {
   preview: Take | null;
   /** The clip that is rendering, when what is forming is to be watched here, and which clip it is. */
   live?: { job: RunningJob; clip: number } | null;
+  /** How loud it plays here, 0 to 1, over the timeline's own mix (the clips' and the music's volumes stay as set). */
+  master?: number;
+  /** The previewed take was clicked: it becomes the one that plays. */
+  onPickPreview?(take: Take): void;
   onStop?(job: string): void;
   /** The timeline, for the colour matching at the joins (the export's, shown here too). */
   timeline?: string;
-}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline }, ref) {
+}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline, master = 1, onPickPreview }, ref) {
+  const masterRef = useRef(master);
+  masterRef.current = master;
   const seq = useMemo(() => clips.filter((c) => c.lengthMs > 0 && (c.take || c.still)), [clips]);
   // each clip's colour nudge toward the clip before at their join, as the export applies it: shown here as a colour matrix on the video
   const matches = useQuery({
@@ -62,6 +70,8 @@ export const Player = forwardRef<PlayerHandle, {
   const at = Math.min(cur, Math.max(0, seq.length - 1));
   const now = seq[at];
   const next = seq[at + 1];
+  /** The clip before stays on the page, hidden: a loop back to it (or a step back) finds its video ready, not loading. */
+  const prior = at > 0 ? seq[at - 1] : undefined;
   const keyOf = (c: Clip) => c.take?.id ?? `still:${c.id}`;
   const startOf = (c: Clip) => c.take?.startMs ?? 0;
   /** How long the next clip fades in over the end of this one: a clip that extends the one before, over the frames they share (as the export does). */
@@ -72,32 +82,39 @@ export const Player = forwardRef<PlayerHandle, {
       const x = Math.min(170, c.take.landedMs, c.lengthMs - 40, from.lengthMs - 40);
       return x >= 80 ? x : 0;
     }
-    if (c.joined !== "continue") return 0;
-    // at a take-over point inside the shared frames both sides show the same moments, but each re-rendered them: the
-    // fade runs over those moments, before the take-over point, as the export does (a pixel join has no take-over point)
-    const shared = c.take.headMs - c.take.trimStartMs - c.take.leadMs;
-    const x = Math.min(170, shared, c.lengthMs - 40, from.lengthMs - 40);
+    return 0;
+  };
+  /**
+   * A continuation dissolves in over the clip before, which holds its last frame, over 170 ms as the export does (DISSOLVE_MS:
+   * longer doubled a moving subject).
+   */
+  const dissolveOf = (c: Clip | undefined, from: Clip | undefined) => {
+    // decoded as one piece with the clip before: a plain cut is the whole chain decoded at once
+    if (!c?.take || !from?.take || c.take.landedMs || c.joined !== "continue" || c.take.seamless) return 0;
+    if (c.take.headMs - c.take.trimStartMs < 80) return 0;
+    const x = Math.min(170, c.lengthMs - 40);
     return x >= 80 ? x : 0;
   };
+  /** The clip before, held on its last frame under the one dissolving in. */
+  const [frozen, setFrozen] = useState<Clip | null>(null);
+  const thaw = useRef(0);
   /** The next clip is fading in, over this many ms. */
   const [fading, setFading] = useState(0);
   const fadeOn = useRef(false);
+  /**
+   * How late a video runs after it is told to play from a moment: it is started that much ahead. Learned at every join
+   * (60 to 85 ms measured). Kept in step by its speed instead, it was in step at the take-over but its frames then came
+   * unevenly (one display refresh, then five) for most of a second after it, at every join (2026-10-08).
+   */
+  const startLag = useRef(70);
+  /** When the clip after was started, and whether it was checked once since. */
+  const started = useRef({ at: 0, checked: false });
+  /** The clip after has shown its first frame (it is on screen already): the take-over is now. */
+  const handReady = useRef(false);
+  /** The clip after is watched on its own frames for the take-over. */
+  const armed = useRef(false);
   /** The fade of the clip after has begun (from then on it is not moved: a jump would show). */
   const fadedIn = useRef(false);
-  /**
-   * The sound hands over later than the picture at a take-over point: the clip before keeps sounding, hidden,
-   * for the lead while the clip on screen stays muted; then they swap. The model leaves a hole in its sound
-   * where its own frames begin, and the clip before's real sound covers it.
-   */
-  const handing = useRef<{ id: string; until: number } | null>(null);
-  const [held, setHeld] = useState<Clip | null>(null);
-  const endHand = useCallback(() => {
-    const h = handing.current;
-    if (!h) return;
-    handing.current = null;
-    els.current.get(h.id)?.pause();
-    setHeld(null);
-  }, []);
 
   /** The music follows the playhead: at the same moment, as loud as its fades say. */
   const tuneMusic = useCallback(
@@ -108,7 +125,7 @@ export const Player = forwardRef<PlayerHandle, {
       const heard = Math.min(total, length);
       const fadeIn = music.fadeInMs ? Math.min(1, global / music.fadeInMs) : 1;
       const fadeOut = music.fadeOutMs ? Math.min(1, Math.max(0, heard - global) / music.fadeOutMs) : 1;
-      el.volume = Math.max(0, Math.min(1, (music.volume / 100) * fadeIn * fadeOut));
+      el.volume = Math.max(0, Math.min(1, (music.volume / 100) * fadeIn * fadeOut * masterRef.current));
       if (global >= length - 30) return void el.pause();
       if (force || Math.abs(el.currentTime * 1000 - global) > 280) el.currentTime = global / 1000;
     },
@@ -122,11 +139,18 @@ export const Player = forwardRef<PlayerHandle, {
       pos.current = { key: keyOf(c), local, at: performance.now() };
       fadeOn.current = false;
       fadedIn.current = false;
-      endHand();
+      handReady.current = false;
+      armed.current = false;
+      // a seek ends a dissolve; the hand-over to the clip after starts one (see step)
+      if (!onward) {
+        window.clearTimeout(thaw.current);
+        setFrozen(null);
+      }
       setFading(0);
       setCur(index);
       const el = c.take ? els.current.get(c.take.id) : undefined;
-      if (el) el.playbackRate = 1;
+      // (set only when it differs: even an unchanged speed set on a playing video can stall its picture)
+      if (el && el.playbackRate !== 1) el.playbackRate = 1;
       // a seek on a video already there (it was started early, see step) would stall it for a frame
       // (handing over to the clip after as it plays: it runs where it should within a few frames; only a stray one is moved)
       if (el && Math.abs(el.currentTime * 1000 - (startOf(c) + local)) > (onward ? 120 : 40)) el.currentTime = (startOf(c) + local) / 1000;
@@ -135,7 +159,7 @@ export const Player = forwardRef<PlayerHandle, {
       tuneMusic(c.atMs + local, !onward);
       onTime(c.atMs + local);
     },
-    [seq, onTime, tuneMusic, endHand],
+    [seq, onTime, tuneMusic],
   );
 
   useImperativeHandle(
@@ -147,6 +171,11 @@ export const Player = forwardRef<PlayerHandle, {
         const c = seq[i];
         if (c) place(i, Math.max(0, Math.min(c.lengthMs, ms - c.atMs)));
       },
+      fullscreen() {
+        // the picture alone: the stage with what plays on it
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+        else void box.current?.requestFullscreen().catch(() => {});
+      },
       where() {
         const c = seq[at];
         if (!c) return null;
@@ -157,34 +186,46 @@ export const Player = forwardRef<PlayerHandle, {
     [seq, at, place],
   );
 
+  // the clip on screen redrawn as the one that plays: the opacity set by hand at the take-over is the page's again
+  useEffect(() => {
+    for (const v of els.current.values()) if (v.style.opacity) v.style.opacity = "";
+  }, [at]);
+
   // what is heard of the clip on screen
   const nowKey = now ? keyOf(now) : "";
   useEffect(() => {
     if (!now?.take) return;
     const el = els.current.get(now.take.id);
     if (!el) return;
-    // muted while the clip before still sounds under it (see handing)
-    el.muted = now.sound !== "own" || Boolean(handing.current);
-    el.volume = Math.max(0, Math.min(1, now.volume / 100));
-  }, [now?.take, now?.sound, now?.volume, nowKey, held]);
+    el.muted = now.sound !== "own";
+    el.volume = Math.max(0, Math.min(1, (now.volume / 100) * master));
+  }, [now?.take, now?.sound, now?.volume, nowKey, master]);
   useEffect(() => {
-    if (clipSound.current) clipSound.current.volume = Math.max(0, Math.min(1, (now?.volume ?? 100) / 100));
-  }, [now?.volume, nowKey]);
+    if (clipSound.current) clipSound.current.volume = Math.max(0, Math.min(1, ((now?.volume ?? 100) / 100) * master));
+    // the music too, at once (it is retuned as it plays)
+    if (musicEl.current && music && !playing) musicEl.current.volume = Math.max(0, Math.min(1, (music.volume / 100) * master));
+  }, [now?.volume, nowKey, master]);
 
   useEffect(() => {
-    if (!playing) endHand();
-    for (const [id, el] of els.current) if ((id !== now?.take?.id && id !== handing.current?.id) || !playing) el.pause();
+    for (const [id, el] of els.current) if (id !== now?.take?.id || !playing) el.pause();
     if (!playing) {
       clipSound.current?.pause();
       musicEl.current?.pause();
       return;
     }
     pos.current.at = performance.now();
-    if (now?.take) void els.current.get(now.take.id)?.play().catch(() => onPlaying(false));
+    if (now?.take) {
+      const el = els.current.get(now.take.id);
+      // a video just put on the page plays only once it knows where to start (its metadata sets the moment): started
+      // before, it played from its first frame and the range's loop looked as if it went back to the clip's start
+      const go = () => void el?.play().catch(() => onPlaying(false));
+      if (el && el.readyState < 1) el.addEventListener("loadedmetadata", go, { once: true });
+      else go();
+    }
     void clipSound.current?.play().catch(() => {});
     if (music && now && now.atMs + pos.current.local < (music.asset.durationMs || total) - 30) void musicEl.current?.play().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, nowKey, onPlaying, Boolean(music), endHand]);
+  }, [playing, nowKey, onPlaying, Boolean(music)]);
 
   // looked at on every frame while it plays; the video's own clock also calls it, because a browser
   // stops drawing frames for a tab that is not in front while the video goes on playing
@@ -206,18 +247,28 @@ export const Player = forwardRef<PlayerHandle, {
       const followEl = following?.take ? els.current.get(following.take.id) : undefined;
       // how far it is behind the moment this one shows (they show the same moments around the change)
       const behind = followEl && !followEl.paused && fadeOn.current ? startOf(following!) + (local - c.lengthMs) - followEl.currentTime * 1000 : 0;
-      const due = local >= c.lengthMs - CUT_EARLY_MS && (behind <= 12 || local >= c.lengthMs + 100);
+      // watched on its own frames (see arm): it takes over when it shows its first one, or late at the latest; else as before
+      const watched = armed.current;
+      const due = handReady.current || (watched ? local >= c.lengthMs + 100 : local >= c.lengthMs - CUT_EARLY_MS && (behind <= 12 || local >= c.lengthMs + 100));
       if (due || el?.ended) {
         if (seq[at + 1]) {
-          const lead = seq[at + 1]!.take?.leadMs ?? 0;
-          // the picture takes over now; the sound of this clip runs on for the lead, hidden, before the next is heard
-          const hand = lead > 0 && c.take && c.sound === "own" && el && !el.ended ? { id: c.take.id, until: t + lead } : null;
+          // a continuation dissolves in: this clip stops on its last frame and stays under it meanwhile
+          const following = seq[at + 1]!;
+          const dissolve = dissolveOf(following, c);
+          if (dissolve && el) {
+            el.pause();
+            window.clearTimeout(thaw.current);
+            setFrozen(c);
+            thaw.current = window.setTimeout(() => setFrozen(null), dissolve + 60);
+            const nextVideo = following.take ? els.current.get(following.take.id) : undefined;
+            nextVideo?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dissolve, easing: "linear" });
+          }
+          // shown at once, before the page redraws: waiting for the redraw held this clip's last frame a frame or two longer (the
+          // clip after then appeared ahead, a frame skipped). The page's own state takes over at its next redraw (see below)
+          const nextShown = following.take ? els.current.get(following.take.id) : undefined;
+          if (!dissolve && nextShown) nextShown.style.opacity = "1";
           // it takes over where this one got to: the playhead runs on without a step
           place(at + 1, Math.max(0, local - c.lengthMs), true);
-          if (hand) {
-            handing.current = hand;
-            setHeld(c);
-          }
         } else {
           pos.current = { key: keyOf(c), local: c.lengthMs, at: t };
           onTime(c.atMs + c.lengthMs);
@@ -234,37 +285,64 @@ export const Player = forwardRef<PlayerHandle, {
       const remaining = c.lengthMs - local;
       const nextEl = after?.take ? els.current.get(after.take.id) : undefined;
       const expected = after ? startOf(after) - remaining : 0;
+      const lag = startLag.current;
+      /**
+       * The take-over on the clip after's own clock: the moment it puts its first frame on screen it is shown (in that very
+       * frame), and the step below hands over. Decided on this clip's clock instead, the change waited for the next redraw
+       * and this clip's last frame stayed up two refreshes too long, at every join (2026-10-08). Not for a fade or a dissolve.
+       */
+      const arm = (v: HTMLVideoElement, first: number) => {
+        if (blend || dissolveOf(after, c) || !("requestVideoFrameCallback" in v)) return;
+        armed.current = true;
+        const watch = (_now: number, meta: { mediaTime: number }) => {
+          if (!fadeOn.current || handReady.current) return;
+          if (meta.mediaTime * 1000 >= first - 4) {
+            v.style.opacity = "1";
+            // heard from the same frame (it ran silent by its volume)
+            if (after) v.volume = Math.max(0, Math.min(1, (after.volume / 100) * masterRef.current));
+            handReady.current = true;
+          } else v.requestVideoFrameCallback(watch);
+        };
+        v.requestVideoFrameCallback(watch);
+      };
       if (nextEl && !fadeOn.current && remaining <= PREROLL_MS) {
         fadeOn.current = true;
-        nextEl.muted = true;
-        // a clip that starts at its very first frame waits there, paused on it, until it is due
-        nextEl.currentTime = Math.max(0, expected) / 1000;
-        if (expected >= 0) void nextEl.play().catch(() => {});
+        // silent by its volume, not muted: unmuted at the take-over, a playing video starts its sound and its picture stalled
+        // there for two or three frames (its first frame stayed up ~45 ms, measured 2026-10-08); a volume change costs nothing
+        nextEl.muted = after?.sound !== "own";
+        nextEl.volume = 0;
+        if (nextEl.playbackRate !== 1) nextEl.playbackRate = 1;
+        // all but invisible, not invisible: a video at opacity 0 is not kept drawn, and shown it put its first frame up a display
+        // refresh late at every join; at 0.4 % it is drawn and costs nothing to show (only this one: every hidden video drawn
+        // made the frames come unevenly elsewhere). A fade or a dissolve brings it in itself
+        if (!blend && !dissolveOf(after, c)) nextEl.style.opacity = "0.004";
+        // started ahead by the delay it will lose; a clip that starts at its very first frame waits there, paused on it
+        nextEl.currentTime = Math.max(0, expected + lag) / 1000;
+        if (expected + lag >= 0) {
+          void nextEl.play().catch(() => {});
+          started.current = { at: t, checked: false };
+          if (after) arm(nextEl, startOf(after));
+        }
       }
       if (nextEl && fadeOn.current) {
-        // one that waited on its first frame starts when it is due
-        if (nextEl.paused && expected >= 0 && remaining > 30) void nextEl.play().catch(() => {});
-        else if (!nextEl.paused && expected >= 0) {
-          // kept in step while it runs (a video starts with some delay): by its speed, not by seeks, which stall a playing
-          // video and left it 70 to 85 ms behind at every take-over (measured), the playhead held until it caught up
+        // one that waited on its first frame starts when it is due, as early as it will be late
+        if (nextEl.paused && expected + lag >= 0 && remaining > 30) {
+          void nextEl.play().catch(() => {});
+          started.current = { at: t, checked: false };
+          if (after) arm(nextEl, startOf(after));
+        } else if (!nextEl.paused && !started.current.checked && t - started.current.at > 200 && expected >= 0) {
+          // once, out of sight, when it has settled: how far off it runs teaches the next join, and a stray start is set right
+          // with one seek here (never near the take-over, never by its speed)
+          started.current.checked = true;
           const off = expected - nextEl.currentTime * 1000;
-          if (Math.abs(off) > 250 && remaining > 120) nextEl.currentTime = expected / 1000;
-          else {
-            // in a few steps, set only when the step changes: a speed changed every frame stalls the decoder
-            const rate = off > 40 ? 1.25 : off > 12 ? 1.1 : off < -40 ? 0.8 : off < -12 ? 0.9 : 1;
-            if (nextEl.playbackRate !== rate) nextEl.playbackRate = rate;
-          }
+          startLag.current = Math.max(0, Math.min(200, lag + off * 0.7 + 4));
+          if (Math.abs(off) > 20 && remaining > 300) nextEl.currentTime = (expected + startLag.current) / 1000;
         }
       }
       // over its last frames, a clip that fades in over this one shows, over the moments they share
       if (nextEl && blend && !fadedIn.current && remaining <= blend) {
         fadedIn.current = true;
         setFading(Math.max(40, remaining));
-      }
-      // the sound hands over: the clip before falls silent, this one is heard
-      if (handing.current && t >= handing.current.until) {
-        endHand();
-        if (el) el.muted = c.sound !== "own";
       }
       // the playhead runs on: a clip that took over a few ms behind its start shows its first frames meanwhile
       if (local > -400) {
@@ -321,7 +399,7 @@ export const Player = forwardRef<PlayerHandle, {
           {nudges.size > 0 && (
             <svg className="absolute h-0 w-0" aria-hidden="true">
               <defs>
-                {[now, next].flatMap((c) => {
+                {[...new Set([now, next, frozen])].flatMap((c) => {
                   const m = c && nudges.get(c.id);
                   if (!m) return [];
                   const { r, g, b } = rgbOf(m);
@@ -334,7 +412,7 @@ export const Player = forwardRef<PlayerHandle, {
               </defs>
             </svg>
           )}
-          {[held && held !== now && held !== next ? held : undefined, now, next].map((c) =>
+          {[frozen && frozen !== now && frozen !== next ? frozen : prior !== now && prior !== next ? prior : undefined, now, next].map((c) =>
             !c ? null : c.take ? (
               <video
                 key={c.take.id}
@@ -349,14 +427,14 @@ export const Player = forwardRef<PlayerHandle, {
                   e.currentTarget.currentTime = (c.take!.startMs + (pos.current.key === c.take!.id ? pos.current.local : 0)) / 1000;
                   if (c === now) {
                     e.currentTarget.muted = c.sound !== "own";
-                    e.currentTarget.volume = Math.max(0, Math.min(1, c.volume / 100));
+                    e.currentTarget.volume = Math.max(0, Math.min(1, (c.volume / 100) * masterRef.current));
                   }
                 }}
                 onTimeUpdate={() => c === now && step.current()}
                 onEnded={() => c === now && step.current()}
                 onClick={() => onPlaying(!playing)}
                 style={{ ...(c !== now && fading ? { transition: `opacity ${fading}ms linear` } : {}), ...(nudges.has(c.id) ? { filter: `url(#nudge-${c.id})` } : {}) }}
-                className={cx("absolute inset-0 h-full w-full", c.fill ? "object-cover" : "object-contain", c === now ? "opacity-100" : fading ? "pointer-events-none opacity-100" : "pointer-events-none opacity-0")}
+                className={cx("absolute inset-0 h-full w-full", c.fill ? "object-cover" : "object-contain", c === now ? "opacity-100" : fading || c === frozen ? "pointer-events-none opacity-100" : "pointer-events-none opacity-0")}
               />
             ) : (
               <img
@@ -378,7 +456,8 @@ export const Player = forwardRef<PlayerHandle, {
                 loop
                 playsInline
                 onLoadedMetadata={(e) => (e.currentTarget.currentTime = preview.startMs / 1000)}
-                className="absolute inset-0 h-full w-full bg-black object-contain"
+                onClick={() => onPickPreview?.(preview)}
+                className="absolute inset-0 h-full w-full cursor-pointer bg-black object-contain"
               />
               <span className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">Previewing this take. Click it to make it the one that plays.</span>
             </>

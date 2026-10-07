@@ -19,6 +19,9 @@ export interface Running {
   gpu: boolean;
   /** The nodes' titles in the graph that was sent, for naming what a preview node shows on the way. */
   titles?: Record<string, string>;
+  /** What it was expected to take, and when it started on the GPU: a run at twice that with the memory full is spilling. */
+  expectedMs?: number | null;
+  startedAt?: number;
 }
 
 /** What is stored once ComfyUI accepted the graph: enough to wait for it again after a restart. */

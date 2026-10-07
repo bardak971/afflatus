@@ -45,7 +45,7 @@ export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./ltx/video";
 export type { LtxVideo } from "./ltx/video";
 export type { WanVideo } from "./wan/video";
 export { h3Canvas, h3Frames, H3_FPS } from "./h3/family";
-export { pixelUpscale, UPSCALE } from "./video/upscale";
+export { pixelUpscale, seedvrChunk, UPSCALE } from "./video/upscale";
 export { saveVideo } from "./shared/out";
 export { h3Prompt, h3ReferencePrompt, isH3Layout } from "./h3/prompt";
 export { introduce, kleinSize } from "./klein/common";

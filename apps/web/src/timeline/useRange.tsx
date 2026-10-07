@@ -78,12 +78,18 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
     } else if (totalRef.current && time >= totalRef.current - 30) player.current?.seek(0);
     setPlaying((p) => !p);
   }, [playing, clock]);
-  /** Loop on or off; turning it on while stopped starts the range. */
+  /** Loop on or off; turning it on goes to In at once and plays the range round (playing or not, wherever the playhead was). */
   const toggleLoop = useCallback(() => {
     const r = rangeRef.current;
-    setLoopRange((on) => !on);
-    if (!loopRef.current && !playing && r && r.outMs - r.inMs >= 40) toggle();
-  }, [playing, toggle]);
+    const on = !loopRef.current;
+    loopRef.current = on;
+    setLoopRange(on);
+    if (on && r && r.outMs - r.inMs >= 40) {
+      playingRange.current = true;
+      player.current?.seek(r.inMs);
+      if (!playing) setPlaying(true);
+    }
+  }, [playing]);
   const toggleLoopNow = useRef(toggleLoop);
   toggleLoopNow.current = toggleLoop;
   /** Play from In; at Out it stops, or goes back to In when Loop is on. */
@@ -119,7 +125,10 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
           : start === "none" ? "it ends on the frame at Out; nothing plays before In"
           : end === "none" ? "it opens on the frame at In; nothing rendered plays after Out, so only that frame is pinned"
           : "it is pinned to the frames at In and Out: the frames will match, the motion may not";
-        on.note(`The new clip is selected: ${how}. Change what happens in it, then render it. Undo takes the range back.`);
+        // a range shorter than the model can make took in what followed it, so that nothing after moves
+        const wider = "widenedMs" in r && r.widenedMs ? ` The range was shorter than the model can make, so it now takes in ${(r.widenedMs / 1000).toFixed(1)} s more of the clips around it: the rest of the timeline stays where it was.` : "";
+        const longer = "longerMs" in r && r.longerMs ? ` The clips around it are too short to take more from: the new clip comes out ${(r.longerMs / 1000).toFixed(1)} s longer than the range, and what follows moves by as much.` : "";
+        on.note(`The new clip is selected: ${how}.${wider}${longer} Change what happens in it, then render it. Undo takes the range back.`);
         // with a clip after to arrive at, the designer writes the stretch; without a language model nothing happens
         if (end !== "none") on.writeBetween({ clip: r.clip, force: false });
       } else if (action === "loop" && "clip" in r && "context" in r) {

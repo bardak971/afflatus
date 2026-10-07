@@ -292,7 +292,8 @@ export const wanVideo = defineRecipe<WanVideo>({
     let images = g.out("VAEDecode", { samples: [second, 0], vae });
     // SeedVR2 goes before the frame interpolation (its cost grows with the frame count; RIFE's is small); the
     // other pixel routes after it, on the final frames
-    const early = input.upscale === UPSCALE.seedvr;
+    // (and an upscale model: frame by frame, its cost grows with the frames, and it would enlarge RIFE's made-up frames too)
+    const early = input.upscale === UPSCALE.seedvr || input.upscale === UPSCALE.model;
     const pixel = early ? pixelUpscale(g, images, input, { width, height }, ctx) : null;
     if (pixel) images = pixel.images;
     const smooth = input.smooth && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
@@ -301,7 +302,9 @@ export const wanVideo = defineRecipe<WanVideo>({
       images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
     }
     const late = pixel ?? pixelUpscale(g, images, input, { width, height }, ctx);
-    images = late.images;
+    // the route ran before the interpolation already: its frames were interpolated above (taken again here, the interpolation was
+    // lost and the file, saved at twice the rate, played twice as fast)
+    if (!pixel) images = late.images;
     g.phase("encoding");
     const out = saveVideo(g, ctx, { images, fps: smooth ? input.fps * 2 : input.fps, crf: input.crf });
 

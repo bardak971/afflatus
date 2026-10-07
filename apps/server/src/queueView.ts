@@ -5,6 +5,13 @@ import type { JobRow, QueueCore, Resume } from "./queueModel";
 
 /** What the queue screen shows: the line as it stands with the running job's progress, the history of finished jobs, and a live preview. */
 
+async function spillingNow(core: QueueCore): Promise<boolean> {
+  const r = core.running;
+  if (!r?.gpu || !r.expectedMs || !r.startedAt || Date.now() - r.startedAt < 2 * r.expectedMs) return false;
+  const load = await (await core.comfy()).load().catch(() => null);
+  return Boolean(load?.gpus.some((g) => g.vramPercent >= 95));
+}
+
 export async function status(core: QueueCore) {
   const rows = await core.db
     .selectFrom("jobs")
@@ -51,11 +58,14 @@ export async function status(core: QueueCore) {
     const monitor = (await core.comfy()).monitor;
     running = {
       ...brief(run),
-      ...(promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : run.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const), step: 0, steps: 0 }),
+      // a tool on ComfyUI (a finish, a slow motion): which step runs, not a step count (its one-step passes would read 99 % at once)
+      ...(promptId && run.recipe_id === CUT_JOB ? { ...monitor.progress(promptId), progress: 0, eta: 0, step: 0, steps: 0 } : promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : run.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const), step: 0, steps: 0 }),
       previewSeq: promptId ? monitor.preview(promptId).seq : 0,
       previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
       // what the workflow showed on the way (its Preview nodes), oldest first; the title comes from the graph it was built with
       stages: (promptId ? monitor.stages(promptId) : []).map((st, n) => ({ n, node: st.node, title: core.running?.titles?.[st.node] ?? null, count: st.files.length })),
+      // spilling out of video memory: the memory full and twice what was expected already gone (see renders.spilled)
+      spilling: await spillingNow(core),
     };
   }
   return {

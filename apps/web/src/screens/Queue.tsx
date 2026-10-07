@@ -155,6 +155,7 @@ export function Queue() {
                         {phaseLabel(q.running.phase)}
                         {q.running.steps ? ` · step ${q.running.step} of ${q.running.steps}` : q.running.kind === "export" ? " · no GPU needed" : ""}
                         {q.running.eta ? ` · ${about(q.running.eta)}` : ""}
+                        {q.running.spilling && <span className="font-semibold text-warn-ink" title="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together."> · spilling out of VRAM, much slower than usual</span>}
                       </span>
                       <Button size="sm" onClick={() => cancel.mutate(q.running!.id)}>Stop</Button>
                     </div>

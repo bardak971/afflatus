@@ -425,7 +425,9 @@ export function Field({ spec, value, values, options, family, model, onChange, o
     case "choice": {
       // when ComfyUI offers nothing for it (not asked yet, or it lists no file), what is set is still shown
       const all = Array.isArray(spec.options) ? [...(spec.extra ?? []), ...spec.options] : options?.length ? options : [spec.default];
-      const current = String(value ?? pickChoice(spec, options));
+      const raw = String(value ?? pickChoice(spec, options));
+      // a value an older form saved shows as the option that replaced it
+      const current = spec.renamed?.[raw] ?? raw;
       // a few short choices sit side by side; file names and long lists go in a list
       const few = all.length <= 4 && all.every((o) => fileLabel(o).length <= 14);
       return (

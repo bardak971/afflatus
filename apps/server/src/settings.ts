@@ -36,6 +36,8 @@ export const finishSchema = z.object({
   upscaleModel: z.string().max(200).default(""),
   latentDenoise: z.number().min(0.05).max(0.6).default(0.25),
   latentSteps: z.number().int().min(1).max(6).default(2),
+  /** SeedVR2: frames restored together, 0 = by the frame's size. */
+  seedvrFrames: z.number().int().min(0).max(49).default(0),
 });
 export type FinishSettings = z.infer<typeof finishSchema>;
 

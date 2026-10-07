@@ -37,7 +37,7 @@ export function ClipTip({ clip, index, clips, at }: {
     const took = take.renderMs ? ` · rendered in ${spell(take.renderMs)}` : clip.recipe ? "" : " · imported";
     lines.push({ text: `${seconds(clip.lengthMs)}${took}` });
     if (index > 0) {
-      const kind = take.joinKind === "latent" ? "Latent join" : take.joinKind === "hybrid" ? "Frames + latent join" : take.joinKind === "pixels" ? "Pixel join" : clip.joined === "continue" ? `Extends clip ${index}` : "Cut";
+      const kind = take.joinKind === "seamless" ? "Seamless latent join" : take.joinKind === "latent" ? "Latent join" : take.joinKind === "hybrid" ? "Frames + latent join" : take.joinKind === "pixels" ? "Pixel join" : clip.joined === "continue" ? `Extends clip ${index}` : "Cut";
       const figure = clip.joined === "continue" && jump !== null ? ` · ×${jump.toFixed(1)}` : "";
       // a join made in the latent: how wide its run-up came out against the latent it was guided by (1.00 = the same)
       const width = take.measure?.drift ? ` · run-up ×${take.measure.drift.width.toFixed(2)}` : "";

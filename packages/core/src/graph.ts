@@ -23,7 +23,7 @@ export interface GraphOutput {
    * never shown, and handed to the model when another clip carries on from this one; latent = the clip's
    * own latent (MiniMax H3, with the Afflatus node pack), kept beside it for the clips that continue it.
    */
-  role: "result" | "poster" | "tail" | "raw" | "latent";
+  role: "result" | "poster" | "tail" | "raw" | "latent" | "fine";
 }
 
 export interface BuiltGraph {
@@ -48,20 +48,23 @@ export interface BuiltGraph {
     tailMs: number;
     /** The start continues the clip before's own latent (the Afflatus node pack): its run-up and its sound are the latent's. */
     latent?: boolean;
-    /** With `latent`: the picture guide is the clip before's re-encoded frames, not its exact latent (a chain of exact latents drifts). */
+    /** With `latent`: the picture guide is the clip before's re-encoded frames, not its exact latent (takes made before 2026-10-08). */
     frames?: boolean;
+    /** With `latent`: decoded as one piece with the clip before (its own last tokens before the new ones): the join is a plain cut. */
+    seam?: boolean;
   };
 }
 
 /**
- * How a clip joins the clip before: "latent" continues its exact latent, "hybrid" its re-encoded frames for the
- * picture and its latent for the sound and the run-up (what Auto does), "pixels" pinned frames and re-encoded
- * sound (ComfyUI alone); null when it starts on its own.
+ * How a clip joins the clip before: "seamless" continues its exact latent and was decoded as one piece with it
+ * (the join is a plain cut, as the whole chain decoded at once), "latent" its exact latent decoded alone,
+ * "hybrid" its re-encoded frames for the picture (takes made before 2026-10-08: it softened a full-step chain
+ * ~35 % a clip), "pixels" pinned frames and re-encoded sound (ComfyUI alone); null when it starts on its own.
  */
-export type JoinKind = "latent" | "hybrid" | "pixels";
+export type JoinKind = "seamless" | "latent" | "hybrid" | "pixels";
 export function joinKindOf(overlap: BuiltGraph["overlap"] | undefined): JoinKind | null {
   if (!overlap || overlap.headMs <= 0) return null;
-  return overlap.latent ? (overlap.frames ? "hybrid" : "latent") : "pixels";
+  return overlap.latent ? (overlap.frames ? "hybrid" : overlap.seam ? "seamless" : "latent") : "pixels";
 }
 
 /** Nodes are numbered in insertion order and tagged with the phase that was current when they were added. */
@@ -74,6 +77,11 @@ export class GraphBuilder {
   phase(p: Phase): this {
     this.current = p;
     return this;
+  }
+
+  /** The phase new nodes are tagged with now (to put it back after a helper that sets its own). */
+  get at(): Phase {
+    return this.current;
   }
 
   add(classType: string, inputs: Record<string, unknown>): string {

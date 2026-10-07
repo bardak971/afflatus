@@ -49,6 +49,11 @@ export interface Tables {
     /** Of a MiniMax H3 video made with the Afflatus node pack: its latent (video and audio), for the clips that continue it; and how many frames it holds. */
     latent_key: string | null;
     latent_frames: number | null;
+    /**
+     * Of a clip finished by H3's latent re-sample: its re-sampled (enlarged) latent, for the finish of the clip after, which
+     * decodes its join as one piece with it (seamless at the finished size). Not for new renders: those take latent_key.
+     */
+    fine_latent_key: string | null;
     /** null = not kept: goes to the bin after a day. */
     kept_at: string | null;
     /**
@@ -253,7 +258,7 @@ export interface Tables {
     /** The take this one is the finished (upscaled) version of: the draft stays in the list. */
     finished_from: string | null;
     /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
-    join_kind: "latent" | "hybrid" | "pixels" | null;
+    join_kind: "seamless" | "latent" | "hybrid" | "pixels" | null;
     /**
      * The take-over point: this many ms before its shared frames end, the take starts to play and the clip
      * before stops. Inside the shared frames both show the same moments, so the hand-over is invisible; at the
@@ -677,6 +682,24 @@ migrations["0013_model_pages"] = {
   async down(db) {
     await db.schema.dropTable("model_pages").execute();
   },
+};
+
+migrations["0036_fine_latent"] = {
+  async up(db) {
+    await db.schema.alterTable("assets").addColumn("fine_latent_key", "text").execute();
+  },
+  async down(db) {
+    await db.schema.alterTable("assets").dropColumn("fine_latent_key").execute();
+  },
+};
+
+migrations["0035_finished_grid"] = {
+  async up(db) {
+    // a finished take has its draft's frames, enlarged: its length on the model's frame grid is the draft's (lengthOnGrid).
+    // Without it an interpolated finish played one frame short of its draft and a seamless join skipped that frame
+    await sql`update assets set latent_frames = (select d.latent_frames from takes f join takes dt on dt.id = f.finished_from join assets d on d.id = dt.asset_id where f.asset_id = assets.id and d.latent_frames is not null and abs(coalesce(d.duration_ms, 0) - coalesce(assets.duration_ms, 0)) <= 42 limit 1) where latent_frames is null and id in (select asset_id from takes where finished_from is not null)`.execute(db);
+  },
+  async down() {},
 };
 
 migrations["0034_render_work"] = {

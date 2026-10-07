@@ -33,7 +33,7 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
       .status()
       .then((st) => {
         const r = st.running;
-        send("progress", r ? { id: r.id, progress: r.progress, eta: r.eta, phase: r.phase, step: r.step, steps: r.steps, previewSeq: r.previewSeq, stages: r.stages, previewMime: r.previewMime ?? null } : undefined);
+        send("progress", r ? { id: r.id, progress: r.progress, eta: r.eta, phase: r.phase, step: r.step, steps: r.steps, previewSeq: r.previewSeq, stages: r.stages, previewMime: r.previewMime ?? null, spilling: r.spilling } : undefined);
       })
       .catch(() => send("progress"));
   });

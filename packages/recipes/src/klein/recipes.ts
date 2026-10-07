@@ -328,7 +328,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
       g.phase("refining");
       // each tile is shown its own piece of the picture as the reference it keeps
       image = redrawInTiles(g, ctx, sized, k.vae, size, input, (latent, tiles, tile) => {
-        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { steps: 20, strength: 0.25 });
+        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { steps: 20, strength: 0.25, phase: "refining" });
         pass = done.pass;
         return done.sampled;
       });

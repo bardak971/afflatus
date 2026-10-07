@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleNodes } from "../video/upscale";
 import { unetNodes } from "../shared/unet";
@@ -6,13 +6,13 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { conditionFor } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { h3Inputs, type H3Video } from "./inputs";
-import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_TAIL_GUIDE, H3_TRIM, resolveJoin } from "./join";
-import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass } from "./latent-upscale";
+import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
+import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass, latentUpscaleSize } from "./latent-upscale";
 import { AUTO_SAMPLER, loadH3Model, modelOf, uses } from "./model";
 
 // the recipe's parts live beside it; every name this file used to export is still had from here
 export type { H3Video } from "./inputs";
-export { H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_JOIN_FRAMES, H3_LANDINGS, H3_TAIL_GUIDE } from "./join";
+export { H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_JOIN_FRAMES, H3_LANDING, H3_LANDINGS, H3_SEAM, H3_TAIL_GUIDE } from "./join";
 export { H3_REFERENCES, H3_REFERENCE_VIDEOS } from "./condition";
 export { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES } from "./latent-upscale";
 export { H3_SAVE_LATENT } from "./finish";
@@ -51,14 +51,14 @@ export const h3Video = defineRecipe<H3Video>({
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...H3_CONTINUATION_NODES, H3_TAIL_GUIDE, H3_HEAD_GUIDE, H3_TRIM, ...H3_SAVE_LATENT,
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
     "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     // one of the two enlargers is used, by whether the latent upscaler's file is there: neither can be required by nodes()
     ...H3_LATENT_ENLARGE_NODES,
   ],
 
   build(input, ctx) {
-    const { slots } = ctx;
+    const { slots, media } = ctx;
     const how = uses(input);
     const picked = modelOf(input, slots);
     if (how.reference && !picked.hybrid && !slots.refUnet) {
@@ -71,29 +71,58 @@ export const h3Video = defineRecipe<H3Video>({
     const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
     const vae = g.out("VAELoader", { vae_name: slots.videoVae });
     const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae);
-    const { positive, latent } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae });
+    const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae });
 
-    g.phase("sampling");
-    const sampled = g.add("SamplerCustomAdvanced", {
-      noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
-      guider: g.out("BasicGuider", { model, conditioning: positive }),
-      sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
-      sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: 1 }),
-      latent_image: latent,
-    });
-    const finished = latentUpscalePass(g, ctx, input, { model, positive, sampled, turbo, width, height });
-    const made = finish(g, ctx, input, { finished, sampled, vae, audioVae, width, height });
+    // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
+    // with its seed, H3 does not make the same frames (measured 2026-10-08: 20 to 30 dB from the draft, the motion drifting)
+    const own = input.upscale === UPSCALE.latent ? ctx.uploads["self.latent"] : undefined;
+    g.phase(own ? "loading" : "sampling");
+    const sampled = own
+      ? g.add("AfflatusLoadH3Latent", { latent: own })
+      : g.add("SamplerCustomAdvanced", {
+          noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
+          guider: g.out("BasicGuider", { model, conditioning: positive }),
+          sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
+          sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: 1 }),
+          latent_image: latent,
+        });
+    // continued in the latent: decoded as one piece with the clip before (its own last tokens, then the new ones), so that
+    // the join is the whole chain's decoded at once and plays as a plain cut. The latent saved for the clips after stays the sampled window
+    const resample = input.upscale === UPSCALE.latent;
+    const seamed: Ref | null = previous && ctx.has(H3_SEAM) ? g.out(H3_SEAM, { previous_av_latent: previous, sampled_window: [sampled, 0], overlap_frames: join.head }) : null;
+    let finished: Ref = seamed ?? [sampled, 0];
+    let seam = Boolean(seamed) && !resample;
+    let fine: Ref | null = null;
+    if (resample) {
+      // the latent re-sample (a finish): from the window with the clip before's own tokens in its overlap, so that the re-sample
+      // starts there from what the clip before's did. Its result is kept (fine) for the clip after's finish, and the join is
+      // decoded as one piece with the clip before's re-sampled latent when that one was finished the same way, at this size
+      // guided by the prompt alone: a picture pinned at a frame was made for the sampled frame, and re-sampled larger it left the
+      // clip's first frames hazy and soft (2026-10-08)
+      fine = latentUpscalePass(g, ctx, input, { model, positive: plain, latent: finished, turbo, width, height });
+      finished = fine;
+      const big = latentUpscaleSize(input, width, height);
+      const before = media.previous?.fine;
+      const prevFine = seamed && before && before.width === big.width && before.height === big.height ? ctx.uploads["previous.fine"] : undefined;
+      if (prevFine) {
+        const loaded = g.out("AfflatusLoadH3Latent", { latent: prevFine });
+        const cut = media.previous?.latentCut;
+        finished = g.out(H3_SEAM, { previous_av_latent: cut ? g.out(H3_TRIM, { samples: loaded, frames: cut }) : loaded, sampled_window: fine, overlap_frames: join.head });
+        seam = true;
+      }
+    }
+    const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, width, height });
 
-    const { head, tail, latentJoin, hybrid } = join;
+    const { head, tail, latentJoin } = join;
     const ms = (n: number) => Math.round((n / H3_FPS) * 1000);
     return {
       graph: g.graph,
       phases: g.phases,
       outputs: made.outputs,
-      totalSteps: steps,
-      passes: [{ node: sampled, steps }],
+      totalSteps: own ? input.upscaleSteps : steps,
+      passes: own ? [] : [{ node: sampled, steps }],
       loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...made.loads],
-      ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}), ...(hybrid ? { frames: true } : {}) } } : {}),
+      ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}), ...(seam ? { seam: true } : {}) } } : {}),
     };
   },
 

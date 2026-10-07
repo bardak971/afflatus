@@ -49,6 +49,10 @@ export function redrawInTiles(g: GraphBuilder, ctx: BuildContext, picture: Ref, 
   const overlap = Math.min(input.tileOverlap, Math.floor(tile / 4));
   const pieces = g.out("SplitImageToTileList", { image: picture, tile_width: tile, tile_height: tile, overlap });
   const latents = g.out("VAEEncode", { pixels: pieces, vae });
-  const redrawn = g.out("VAEDecode", { samples: sample(latents, pieces, tile), vae });
+  // the sampler a family brings may set its own phase (Klein's says "sampling"): the decode and the merge are the tile pass's
+  const was = g.at;
+  const sampled = sample(latents, pieces, tile);
+  g.phase(was);
+  const redrawn = g.out("VAEDecode", { samples: sampled, vae });
   return g.out("ImageMergeTileList", { image_list: redrawn, final_width: size.width, final_height: size.height, overlap });
 }

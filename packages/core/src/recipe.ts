@@ -66,6 +66,8 @@ export interface MediaFacts {
   latentAt?: number;
   /** Of a clip continued from before its end (it was handed over before a frozen tail): its latent is cut to this many first frames. */
   latentCut?: number;
+  /** Of the clip before, in a latent re-sample finish: the size of its own re-sampled latent, when it was finished that way (uploaded as "<input>.fine"). */
+  fine?: { width: number; height: number };
   /** Of a mask: the part that was painted, with room around it, in pixels of the picture it is painted over. */
   box?: { x: number; y: number; width: number; height: number };
 }

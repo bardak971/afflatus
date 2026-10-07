@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftToLine, ArrowRightToLine, Camera, Download, Film, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2 } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, Camera, Download, Film, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Pause, Play, Redo2, Maximize, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
 import { api, type Asset, type Clip, type ClipPatch, type DesignerSession, type RecipeInfo, type Take, type TimelinePatch } from "../api";
 import { useEntities, useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
@@ -91,6 +91,14 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   );
   const comfyOnline = setup.data?.comfy.online ?? false;
   const current = clips.find((c) => c.id === selected) ?? null;
+  // a take shown over the player while hovered goes away as soon as it is no longer one to look at: removed, or the one that
+  // plays now (its thumbnail left from under the mouse, which then never said it left), another clip selected, or Play
+  const previewing = preview?.id;
+  useEffect(() => {
+    if (!previewing) return;
+    const still = current?.takes.some((x) => x.id === previewing) && current.take?.id !== previewing;
+    if (!still || playing) setPreview(null);
+  }, [previewing, current, playing]);
   // what is forming is watched large when the clip that renders is the one selected, or when the timeline has nothing to show yet
   const renderingAt = queue.data?.running ? clips.findIndex((c) => c.id === queue.data!.running!.clipId) : -1;
   const liveShown = renderingAt >= 0 && (clips[renderingAt]!.id === selected || !clips.some((c) => c.take || c.still)) ? { job: queue.data!.running!, clip: renderingAt + 1 } : null;
@@ -276,6 +284,23 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const takes = (c: Clip) => estimateFor(estimates.data, recipes.data?.recipes.find((r) => r.id === c.recipe), ready(c).input ?? inputsOf(c))?.ms ?? null;
   const allMs = missing.reduce((sum, c) => sum + (takes(c) ?? 0), 0);
 
+  /** How loud the player plays here (0 to 1) and whether it is muted: this browser's, over the timeline's own mix. */
+  const [volume, setVolume] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem("afflatus.player.volume"));
+      return Number.isFinite(v) && localStorage.getItem("afflatus.player.volume") !== null ? Math.max(0, Math.min(1, v)) : 1;
+    } catch {
+      return 1;
+    }
+  });
+  const [muted, setMuted] = useState(false);
+  useEffect(() => {
+    try {
+      localStorage.setItem("afflatus.player.volume", String(volume));
+    } catch {
+      /* a private window: not kept */
+    }
+  }, [volume]);
   /** Where the playhead was put by hand on the track (it can stand on a clip that is not rendered yet); null while it follows what plays. */
   const [cursor, setCursor] = useState<number | null>(null);
   const cursorRef = useRef(cursor);
@@ -500,7 +525,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         />
 
         <main className="flex min-w-0 grow flex-col">
-            <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} />
+            <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} master={muted ? 0 : volume} onPickPreview={(take) => { if (current) patch.mutate({ clip: current.id, patch: { take: take.id } }); setPreview(null); }} />
         </main>
         </div>
           {range && <RangeBar range={range} emptyRange={emptyRange} clips={clips} snapQuiet={snapQuiet} onSnapQuiet={toggleSnapQuiet} items={rangeItems()} />}
@@ -515,6 +540,14 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             )}
             <Readout clock={clock} slots={slots} cursor={cursor} total={total} />
             <span className="grow" />
+            {/* how loud it plays here (the clips' and the music's own volumes stay as set) */}
+            <div className="group flex items-center gap-1">
+              <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} title={muted || volume === 0 ? "Unmute" : "Mute"} onClick={() => { if (volume === 0) { setVolume(1); setMuted(false); } else setMuted((m) => !m); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+                {muted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+              </button>
+              <input type="range" min={0} max={1} step={0.01} value={muted ? 0 : volume} aria-label="Volume" title={`Volume ${Math.round((muted ? 0 : volume) * 100)} %`} onChange={(e) => { setVolume(Number(e.target.value)); setMuted(false); }} className="w-20 cursor-pointer accent-accent" />
+            </div>
+            <button type="button" aria-label="Full screen" title="Full screen (Esc leaves it; Space plays and pauses)" disabled={!t.durationMs} onClick={() => player.current?.fullscreen()} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Maximize size={15} /></button>
             <button type="button" aria-label="Extend from this frame" title="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || add.isPending} onClick={() => void continueHere()} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>
             <button
               type="button"

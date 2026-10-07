@@ -77,6 +77,8 @@ export const api = {
   retryJob: (id: string, input?: Record<string, unknown>) => call<{ id: string }>("POST", `/jobs/${id}/retry`, input ? { input } : {}),
   dismissJob: (id: string) => call<{ ok: true }>("DELETE", `/jobs/${id}`),
   estimates: () => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates"),
+  /** A tool's usual pace from its own record: milliseconds per pixel × frame it makes (null until it has run). */
+  renderPace: (tool: string) => call<{ msPerWork: number | null }>("GET", `/renders/pace?tool=${encodeURIComponent(tool)}`),
   renderTimes: (range: TimesPeriod | TimesWindow) => call<TimesSummary>("GET", typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`),
   renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }) =>
     call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`),
@@ -250,7 +252,7 @@ export const api = {
    * library through the export queue.
    */
   timelineRange: (id: string, opts: { inMs: number; outMs: number; action: "split" | "remove" | "regenerate" | "loop" | "copy" | "slow"; scale?: number; factor?: 2 | 4 }) =>
-    call<{ ok: true } | { clip: string; context: RangeContext; arrive?: string } | { job: string } | { clips: string[]; jobs: string[]; engine: "rife" | "ffmpeg" }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
+    call<{ ok: true } | { clip: string; context: RangeContext; arrive?: string; widenedMs?: number; longerMs?: number } | { job: string } | { clips: string[]; jobs: string[]; engine: "rife" | "ffmpeg" }>("POST", `/timelines/${id}/range`, { ...opts, inMs: Math.round(opts.inMs), outMs: Math.round(opts.outMs) }),
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
   /** The designer writes a clip put between two others: what takes the action from the one to the other. `was` is what the form held when it was asked. */
   writeBetween: (clip: string, arrive?: string) => call<{ changes: Record<string, string>; note: string; was: Record<string, string> }>("POST", `/clips/${clip}/between`, arrive ? { arrive } : undefined),

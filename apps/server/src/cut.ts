@@ -289,14 +289,6 @@ export interface ExportPart {
   endMs: number;
   /** Whether the video has a sound of its own. */
   hasSound: boolean;
-  /**
-   * The picture took over early, inside the frames shared with the part before (a take-over point): the part's
-   * own sound starts this much after its picture, at the hand-over proper, past the hole the model leaves in
-   * its sound there. The part before's own sound covers those first ms (its `soundGiveMs`).
-   */
-  soundLeadMs?: number;
-  /** The part after takes over early: this part's own sound runs on this much past its picture, under the part after's first frames. */
-  soundGiveMs?: number;
   /** What is heard: the video's own sound, nothing, or a sound file (cut or padded to the part's length). */
   sound: "own" | "muted" | "file";
   soundFile?: { bytes: Uint8Array; ext: string };
@@ -313,13 +305,32 @@ export interface ExportPart {
   blendMs?: number;
   /** Where in its video the colour match reads this part: the frames that show the same moments as the part before's end, when it has them (a continuation's shared frames). Left out: its first frames after the fade. */
   matchAtMs?: number;
-  /** "hold": the part before holds its last frame for as long, this one fades in after it (nothing of either is lost). "overlap": this part starts `blendMs` early, over the same moments as the part before's end, and the two are faded with both moving. */
-  blendMode?: "hold" | "overlap";
+  /** Not colour-matched to the part before (it went through another enlargement: its colour differs for that, not for the light). */
+  noMatch?: boolean;
+  /** Decoded as one piece with the part before: not matched, given the part before's own nudge (no step where there is none). */
+  sameLook?: boolean;
+  /**
+   * "hold": the part before holds its last frame for as long, this one fades in after it (nothing of either is lost).
+   * "overlap": this part starts `blendMs` early, over the same moments as the part before's end, and the two are faded
+   * with both moving. "freeze": the picture as "hold", the sound straight on, no crossfade (a continuation made in the
+   * latent carries the sound of the clip before: a fade would only dip it).
+   */
+  blendMode?: "hold" | "overlap" | "freeze";
 }
 
 /** How long a blended join crossfades, at most. */
 /** How long a continuation fades in over the clip before, which holds its last frame meanwhile: four frames at 24 a second. */
 export const BLEND_MS = 170;
+/**
+ * How long a continuation made in the latent fades in over the clip before, which holds its last frame meanwhile. The clip
+ * before plays to its very last frame and the continuation from its first own one: its guided frames are a loose copy of
+ * the clip before's (the model redraws them, 3.9 against 0.8 of motion a frame in a calm shot) and its frames next to its
+ * guide step (×2.5 the motion, exact latent or hybrid alike). Simulated on three joins, measured 2026-10-08: the old fade
+ * over the shared frames before a take-over point peaked at ×2.9 the motion; this one from the clip before's end at ×1.6
+ * over 170 ms, ×1.2 over 420 ms. 420 ms doubled a moving subject for a fifth of a second (a kite against the sky, the held
+ * frame under the moving one, seen in a non-turbo export): 170 ms keeps that ghost to a couple of frames.
+ */
+export const DISSOLVE_MS = 170;
 
 /** How a video's own part looks, measured on its real frames when it was stored (see lookOf). */
 export interface Measure {
@@ -480,7 +491,9 @@ export async function joinVideos(
         ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
         : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
       let tune = "";
-      if (opts.match && p.kind === "video" && prevPart?.kind === "video" && prevFile) {
+      if (opts.match && p.sameLook && prevPart?.kind === "video") {
+        if (carry.y || carry.u || carry.v) tune = `,lutyuv=y='clip(val+(${carry.y}),0,255)':u='clip(val+(${carry.u}),0,255)':v='clip(val+(${carry.v}),0,255)'`;
+      } else if (opts.match && p.kind === "video" && !p.noMatch && prevPart?.kind === "video" && prevFile) {
         const look = MATCH.lookSec;
         const a = await meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look);
         const b = await meansOf(file, (p.matchAtMs ?? p.startMs + (p.blendMs ?? 0)) / 1000, look);
@@ -497,31 +510,23 @@ export async function joinVideos(
       const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - 40) : 0;
       const pad = padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "";
       const padded = sec(p.endMs - p.startMs + padMs);
+      // the sound is not held with the picture when the part after carries it on (see "freeze")
+      const heard = next?.blendMode === "freeze" ? sec(p.endMs - p.startMs) : padded;
       chains.push(
         p.kind === "still"
           ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS${pad}[v${i}]`
-          : `[${main}:v]trim=start=${sec(p.startMs)}:end=${sec(p.endMs)},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p${tune}${pad}[v${i}]`,
+          // half a frame early, both ends: the frame on screen at startMs is taken. Cut exactly there, a frame that began a
+          // fraction of a millisecond before (a seamless take's in-between frame, 895.8 ms against a 896 ms start) was dropped
+          : `[${main}:v]trim=start=${sec(Math.max(0, p.startMs - 500 / fps))}:end=${sec(Math.max(0, p.endMs - 500 / fps))},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p${tune}${pad}[v${i}]`,
       );
       const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
       if (p.sound === "own" && p.kind === "video" && p.hasSound) {
-        const lead = p.soundLeadMs ?? 0;
-        const prev = i > 0 ? parts[i - 1] : undefined;
-        if (lead > 0 && prev && prevMain !== null) {
-          // the picture took over early: the first `lead` ms of sound are the part before's own, running on past
-          // its picture; then this part's own sound from the hand-over proper. What runs past this part's picture
-          // in turn is cut here and carried by the part after
-          const prevEnd = prev.endMs + (prev.soundGiveMs ?? 0);
-          if (prev.kind === "video" && prev.sound === "own" && prev.hasSound) {
-            chains.push(`[${prevMain}:a]atrim=start=${sec(Math.max(0, prevEnd - lead))}:end=${sec(prevEnd)},asetpts=PTS-STARTPTS,${stereo}[apre${i}]`);
-          } else chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${sec(lead)}[apre${i}]`);
-          chains.push(`[${main}:a]atrim=start=${sec(p.startMs + lead)},asetpts=PTS-STARTPTS,${stereo}[aown${i}]`);
-          chains.push(`[apre${i}][aown${i}]concat=n=2:v=0:a=1,${loud},apad,atrim=duration=${padded}[a${i}]`);
-        } else chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs + (p.soundGiveMs ?? 0))},asetpts=PTS-STARTPTS,${stereo},${loud},apad,atrim=duration=${padded}[a${i}]`);
+        chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${stereo},${loud},apad,atrim=duration=${heard}[a${i}]`);
       } else if (p.sound === "file" && p.soundFile) {
         const file = await addInput(`sound${i}.${p.soundFile.ext}`, p.soundFile.bytes);
-        chains.push(`[${file}:a]${stereo},${loud},apad,atrim=duration=${padded},asetpts=PTS-STARTPTS[a${i}]`);
+        chains.push(`[${file}:a]${stereo},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS[a${i}]`);
       } else {
-        chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${padded}[a${i}]`);
+        chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${heard}[a${i}]`);
       }
     }
     const music = opts.music;
@@ -546,10 +551,14 @@ export async function joinVideos(
           chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
           len = len - x + lenOf(parts[j]!);
         } else {
-          // the part before was held for x: the fade runs over that hold, from where the part before really ends
-          chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len)}[vx${j}]`);
-          chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
-          len = len + lenOf(parts[j]!);
+          // the part before was held for x: the fade runs over that hold, from where the part before really ends. A freeze
+          // starts on that last frame itself (begun a frame later, the still showed for 3 frames; the part after starts a
+          // frame early to make up for it, see timelineExport)
+          const early = parts[j]!.blendMode === "freeze" ? 1000 / fps : 0;
+          chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - early)}[vx${j}]`);
+          // the sound crossfades over the hold, or (freeze) runs straight on: it was not held
+          chains.push(parts[j]!.blendMode === "freeze" ? `[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]` : `[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
+          len = len - early + lenOf(parts[j]!);
         }
         v = `vx${j}`;
         a = `ax${j}`;
@@ -727,11 +736,19 @@ const meanDiff = (a: Uint8Array, b: Uint8Array) => {
 };
 
 /**
- * How much the picture jumps across a join: the difference between the last frame of one side and the
- * first frame of the other, against the difference between neighbouring frames just after the join
- * (×1 = the join moves like the clip itself, ×3 = a visible catch). null when a frame cannot be read.
+ * How much the picture jumps across a join: the largest step from frame to frame as the join plays, against the
+ * difference between neighbouring frames just after it (×1 = the join moves like the clip itself, ×3 = a visible
+ * catch). A hard cut is one step, the last frame of one side to the first of the other. With a fade (the export's
+ * and the player's) the steps are those of the fade, worked out from the frames 24 a second: "hold", the clip before
+ * held on its last frame while this one fades in from its start; "overlap", both moving over the moments before
+ * `b.atMs` (b starts `ms` early). Measured as a cut, every faded join read ×5 to ×9 (2026-10-08). null when a frame
+ * cannot be read.
  */
-export async function joinJump(a: { bytes: Uint8Array; ext: string; atMs: number }, b: { bytes: Uint8Array; ext: string; atMs: number; fps: number }): Promise<number | null> {
+export async function joinJump(
+  a: { bytes: Uint8Array; ext: string; atMs: number },
+  b: { bytes: Uint8Array; ext: string; atMs: number; fps: number },
+  fade?: { ms: number; mode: "hold" | "overlap" } | null,
+): Promise<number | null> {
   return inTemp(async (dir) => {
     const fa = join(dir, `a.${a.ext}`);
     const fb = join(dir, `b.${b.ext}`);
@@ -749,7 +766,32 @@ export async function joinJump(a: { bytes: Uint8Array; ext: string; atMs: number
       if (x && y) own.push(meanDiff(x, y));
     }
     const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
-    return Math.round(Math.min(20, meanDiff(last, first) / typical) * 10) / 10;
+    if (!fade || fade.ms < 80) return Math.round(Math.min(20, meanDiff(last, first) / typical) * 10) / 10;
+    // the fade, a model frame at a time: each frame a mix of the two sides, the second weighing more and more
+    const model = 1000 / 24;
+    const n = Math.max(2, Math.round(fade.ms / model));
+    const mix = (x: Uint8Array, y: Uint8Array, w: number) => { const out = new Uint8Array(x.length); for (let i = 0; i < x.length; i++) out[i] = Math.round((1 - w) * x[i]! + w * y[i]!); return out; };
+    const seq: Uint8Array[] = [];
+    if (fade.mode === "hold") {
+      seq.push(last);
+      for (let k = 0; k < n; k++) {
+        const y = await grayAt(fb, b.atMs + k * model);
+        if (y) seq.push(mix(last, y, (k + 1) / (n + 1)));
+      }
+      const after = await grayAt(fb, b.atMs + n * model);
+      if (after) seq.push(after);
+    } else {
+      for (let k = -1; k < n; k++) {
+        const x = await grayAt(fa, a.atMs - fade.ms + k * model);
+        const y = await grayAt(fb, b.atMs - fade.ms + k * model);
+        if (x && y) seq.push(k < 0 ? x : mix(x, y, (k + 1) / (n + 1)));
+      }
+      seq.push(first);
+    }
+    let worst = 0;
+    for (let k = 1; k < seq.length; k++) worst = Math.max(worst, meanDiff(seq[k - 1]!, seq[k]!));
+    // read 24 a second: against the clip's own step at that rate
+    return Math.round(Math.min(20, worst / Math.max(0.6, typical * (model / step))) * 10) / 10;
   });
 }
 

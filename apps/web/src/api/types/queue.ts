@@ -20,7 +20,7 @@ export interface Job {
   /** The draft it was sent from, when it was sent from one. */
   draftId: string | null;
   /** Of a clip render, once its graph is built: how it joins the clip before (in the latent, or on pinned frames); null when it starts on its own. */
-  join: "latent" | "hybrid" | "pixels" | null;
+  join: "seamless" | "latent" | "hybrid" | "pixels" | null;
   /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. "cut": a range of a video kept as new videos. */
   kind: "render" | "export" | "load" | "cut";
   /** Of a waiting job: about how long it will take, from past renders. */
@@ -58,13 +58,15 @@ export interface RunningJob extends Job {
   previewMime?: string | null;
   /** What the workflow showed on the way (its Preview nodes), oldest first: a strip under the live preview. */
   stages?: Array<{ n: number; node: string; title: string | null; count: number }>;
+  /** Out of video memory, it seems: the memory full and twice what was expected already gone. Much slower than usual. */
+  spilling?: boolean;
 }
 /**
  * What a "progress" live event carries: the running job's id and the figures that moved. The job in
  * the queue on screen is changed in place with them (live.ts), so a render that reports every step
  * costs no request. The id is the job's, not ComfyUI's prompt id.
  */
-export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime">;
+export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime" | "spilling">;
 export interface QueueStatus {
   paused: boolean;
   /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
@@ -109,7 +111,11 @@ export interface TimesSummary {
     loadMs: number; loads: number; loadUsualMs: number | null;
     waitedUsualMs: number | null; waitedSlowMs: number | null; off: number | null;
     vramPeak: number | null; vramUsual: number | null; heatPeak: number | null; heatUsual: number | null;
+    /** Finishes and slow motions among the renders; runs that ran out of video memory, and the time that cost. */
+    tools?: number; spills?: number; spillLostMs?: number;
   };
+  /** The upscales' pace per stretch: a video route in minutes per second of video, a picture tool or a hires pass in seconds per megapixel. */
+  upscale?: { video: Array<{ key: string; name: string; points: Line }>; pictures: Array<{ key: string; name: string; points: Line }> };
   finished: { images: number[]; videos: number[]; bad: number[] };
   phases: { loading: number[]; sampling: number[]; refining: number[]; finishing: number[] };
   wait: { usual: Line; slow: Line };
@@ -156,4 +162,6 @@ export interface RenderItem {
   status: "done" | "failed" | "cancelled";
   /** What it made, while that is still in the library. */
   assetId: string | null;
+  /** It ran out of video memory, as far as the figures tell (memory full, twice what was expected). */
+  spilled?: boolean;
 }

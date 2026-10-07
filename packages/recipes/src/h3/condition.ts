@@ -1,7 +1,8 @@
+import { UPSCALE } from "../video/upscale";
 import type { BuildContext, GraphBuilder, MediaFacts, Ref } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import type { H3Video } from "./inputs";
-import { H3_HEAD_GUIDE, H3_TAIL_GUIDE, H3_TRIM, type H3Join } from "./join";
+import { H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, type H3Join } from "./join";
 import type { H3Uses } from "./model";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
@@ -15,10 +16,10 @@ export const H3_REFERENCE_VIDEOS = 3;
  * then the neighbouring clips and the keyframe pinned at their frames) and the latent to fill (the clip's
  * own, or the window that continues the clip before).
  */
-export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: { width: number; height: number; vae: Ref; audioVae: Ref }): { positive: Ref; latent: Ref } {
+export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: { width: number; height: number; vae: Ref; audioVae: Ref }): { positive: Ref; latent: Ref; previous: Ref | null; plain: Ref } {
   const { uploads, media } = ctx;
   const { width, height, vae, audioVae } = frame;
-  const { head, tail, frames, seconds, ownSeconds, hybrid, latentJoin, latentLanding, nextAt, prevLatent, nextLatent } = join;
+  const { head, tail, frames, seconds, ownSeconds, latentJoin, latentLanding, nextAt, landingAt, prevLatent, nextLatent } = join;
   const clip = g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "minimax", device: "default" });
   // continued in the latent: the previous latent, and the window to sample (its hidden overlap, then the new frames)
   const loaded = latentJoin ? g.out("AfflatusLoadH3Latent", { latent: prevLatent }) : null;
@@ -29,6 +30,8 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
   const length: number | Ref = window ? [window, 1] : frames;
   let start: string;
   let positive: Ref;
+  // the prompt alone, without the pictures pinned at frames (made for the sampled frame): what the latent re-sample is guided by
+  let plain: Ref | null = null;
   if (how.reference) {
     // a voice with a picture to open on and nothing else: that picture is who speaks, not a frame
     const voiceOnly = input.references.length === 0 && input.refVideos.length === 0;
@@ -56,12 +59,14 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
     if (opening) positive = g.out("MiniMaxH3AddGuide", { positive, vae, audio_vae: audioVae, latent: [start, 1], image: g.out("LoadImage", { image: uploads.start }), frame_idx: 0 });
   } else {
     const mode: H3Mode = how.start ? (how.end ? "both" : "start") : how.end ? "land" : "free";
+    const prompt = h3Prompt(mode, seconds, input, input.previous ? { overlap: head / H3_FPS, seconds: ownSeconds, lands: Boolean(input.next) } : undefined);
     start = g.add("MiniMaxH3ImageToVideo", {
-      clip, vae, prompt: h3Prompt(mode, seconds, input), width, height, length,
+      clip, vae, prompt, width, height, length,
       ...(how.start ? { first_frame: g.out("LoadImage", { image: uploads.start }) } : {}),
       ...(how.end ? { last_frame: g.out("LoadImage", { image: uploads.end }) } : {}),
     });
     positive = [start, 0];
+    if ((how.start || how.end) && input.upscale === UPSCALE.latent) plain = [g.add("MiniMaxH3ImageToVideo", { clip, vae, prompt, width, height, length }), 0];
   }
   const latent: Ref = window ? [window, 0] : [start, 1];
   // a join: the neighbour's frames and their sound are pinned in place, at the very start or the very end
@@ -74,16 +79,19 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
   };
   if (window && prev) {
     const tail = { positive, previous_av_latent: prev, target_av_latent: latent, overlap_video_tokens: [window, 2] as Ref, overlap_audio_tokens: [window, 3] as Ref };
-    positive = hybrid
-      ? g.out(H3_TAIL_GUIDE, { ...tail, frames: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: uploads.previous }) }), 0], vae })
-      : g.out("MiniMaxH3LatentTailGuide", tail);
+    positive = g.out("MiniMaxH3LatentTailGuide", tail);
   } else if (input.previous) pin(uploads.previous, media.previous, 0);
-  if (latentLanding) positive = g.out(H3_HEAD_GUIDE, { positive, next_av_latent: g.out("AfflatusLoadH3Latent", { latent: nextLatent }), target_av_latent: latent, guide_frames: tail, skip_frames: nextAt });
+  if (latentLanding) {
+    const next_av_latent = g.out("AfflatusLoadH3Latent", { latent: nextLatent });
+    positive = landingAt
+      ? g.out(H3_LANDING, { positive, next_av_latent, target_av_latent: latent, guide_frames: tail, land_at: nextAt })
+      : g.out(H3_HEAD_GUIDE, { positive, next_av_latent, target_av_latent: latent, guide_frames: tail, skip_frames: 0 });
+  }
   else if (input.next) pin(uploads.next, media.next, -tail);
   // a picture the clip passes through: one frame pinned at its moment, counted after the frames shared with the clip before
   if (input.mid) {
     const at = Math.max(1, Math.min(frames - tail - 2, head + Math.round(Math.min(input.midAt, ownSeconds - 0.25) * H3_FPS)));
     positive = g.out("MiniMaxH3AddGuide", { positive, vae, audio_vae: audioVae, latent, image: g.out("LoadImage", { image: uploads.mid }), frame_idx: at });
   }
-  return { positive, latent };
+  return { positive, latent, previous: window ? prev : null, plain: plain ?? (how.reference ? positive : [start, 0]) };
 }

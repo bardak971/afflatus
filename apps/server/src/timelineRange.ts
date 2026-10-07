@@ -5,7 +5,7 @@ import { httpError } from "./errors";
 import { extOf } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
-import { clockOf, laidOut, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
+import { clockOf, laidOut, landingOnGrid, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
 
 /**
  * Cuts, on the timeline's clock and in a video's own time: a clip split or duplicated, a range of the
@@ -81,7 +81,7 @@ export class TimelineRange {
       id, owner_id: OWNER, kind: "video", origin: "cut", name, file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
       width: seen.facts?.width ?? original.width, height: seen.facts?.height ?? original.height,
       duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? original.fps, has_sound: seen.facts?.hasSound ? 1 : 0,
-      folder_id: original.folder_id, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null,
+      folder_id: original.folder_id, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null, fine_latent_key: null,
       kept_at: at, countdown_from: null, deleted_at: null, linked_path: null, created_at: at,
     };
   }
@@ -285,24 +285,26 @@ export class TimelineRange {
    * first that does. It starts from that clip's words and settings. In = Out on a cut: a clip between
    * the two, nothing removed. The clip is not rendered here: it is selected, and its form is yours first.
    */
-  async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext }> {
+  async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; widenedMs?: number; longerMs?: number }> {
     const { registry } = this.core;
     const w = await this.window(timelineId, inMs, outMs);
     const { laid, total } = w;
     let a = w.a;
-    const b = w.b;
+    let b = w.b;
     // the clip before kept its latent (an H3 render): In goes back to a frame of its latent's grid (17k + 5), so the
     // new clip continues it in the latent, cut there, rather than from its frames (at most 16 frames earlier)
-    const under = a > 0 ? this.before(laid, a) : undefined;
-    if (under?.p.active?.asset.latent_frames && under.p.clip.kind === "video") {
-      const assetMs = visible(under.p.active).start + (a - under.atMs);
+    const onGrid = (x: number) => {
+      const under = x > 0 ? this.before(laid, x) : undefined;
+      if (!under?.p.active?.asset.latent_frames || under.p.clip.kind !== "video") return x;
+      const assetMs = visible(under.p.active).start + (x - under.atMs);
       const frame = Math.round((assetMs * 24) / 1000);
       const grid = Math.floor((frame - 5) / 17) * 17 + 5;
       const back = ((frame - grid) * 1000) / 24;
-      if (grid >= 22 && back > 0 && a - back > under.atMs + 40) a = Math.round(a - back);
-    }
-    const before = a > 0 ? this.before(laid, a) : undefined;
-    const after = b < total ? this.at(laid, b) : undefined;
+      return grid >= 22 && back > 0 && x - back > under.atMs + 40 ? Math.round(x - back) : x;
+    };
+    a = onGrid(a);
+    let before = a > 0 ? this.before(laid, a) : undefined;
+    let after = b < total ? this.at(laid, b) : undefined;
     if (!before && !after) throw httpError("The range covers everything: there is no frame to pin the new clip to. Add a clip instead.");
     const takes = (r: Recipe<any>, role: "start" | "end") => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === role);
     const carries = (r: Recipe<any>, role: "previous" | "next") => r.output === "video" && r.inputs.some((i) => i.type === "clip" && i.role === role);
@@ -319,6 +321,45 @@ export class TimelineRange {
     const recipe = fits(own) ? own : registry.recipes().find(fits);
     if (!recipe) {
       throw httpError(before && after ? "None of your video models takes a first and a last frame: nothing can be rendered between the clips." : before ? "None of your video models takes a first frame (i2v)." : "None of your video models takes a last frame.");
+    }
+    // the range brought to a length the model makes: at least its least (H3: 4 s). Rendered as asked, a 2 s range came
+    // out 4 s and everything after it moved later by the difference. The extra is taken from the clip under Out, then
+    // from the one under In, keeping a second of each to join to (a guide is up to 22 frames); the clip then
+    // replaces what it plays and the rest of the timeline stays put (within the model's own frame grid: H3 makes
+    // 17k + 5 frames, up to half a second more or a sixth less than asked)
+    let widenedMs = 0;
+    const length = secondsInput(recipe.inputs);
+    if (length && b - a >= 40) {
+      const ROOM = 1000;
+      const want = (x: number) => Math.min(length.max * 1000, Math.max(length.min * 1000, x));
+      const deficit = want(b - a) - (b - a);
+      if (deficit > 20) {
+        // within the clips the range already reaches into: a clip it did not touch is not replaced
+        const later = after ? Math.max(0, Math.min(deficit, after.atMs + after.lengthMs - b - ROOM)) : 0;
+        const earlier = before ? Math.max(0, Math.min(deficit - later, a - before.atMs - ROOM)) : 0;
+        const na = earlier > 0 ? onGrid(Math.round(a - earlier)) : a;
+        // back on the grid In can come further back than asked: Out then gives back what it does not need
+        const nb = Math.max(b, Math.min(b + later, na + want(b - na)));
+        const keep = { before, after };
+        before = na > 0 ? this.before(laid, na) : undefined;
+        after = nb < total ? this.at(laid, nb) : undefined;
+        if (fits(recipe) && (nb > b || na < a)) {
+          widenedMs = nb - na - (b - a);
+          a = na;
+          b = nb;
+        } else ({ before, after } = keep);
+      }
+    }
+    // landing on a clip after whose latent was kept: Out goes forward to where one of its latent's 17-frame chunks begins (at
+    // most 16 frames), so that the new clip lands on it in the latent, on time (H3_LANDING); the render lands there anyway
+    const onto = after?.p.clip.kind === "video" && carries(recipe, "next") ? after.p.active : null;
+    if (onto && after) {
+      const from = plays(onto).start + (b - after.atMs);
+      const there = landingOnGrid({ take: { ...onto.take, trim_start_ms: from - onto.take.head_ms }, asset: onto.asset });
+      if (there > from && b + (there - from) < after.atMs + after.lengthMs - 100) {
+        widenedMs += there - from;
+        b += there - from;
+      }
     }
     const context: RangeContext = { start: before ? startBy(recipe)! : "none", end: after ? endBy(recipe)! : "none" };
     const first = context.start === "frame" ? await this.pictureAt(before!, a - before!.atMs, "end") : null;
@@ -337,7 +378,9 @@ export class TimelineRange {
       first, last, seconds: b - a >= 40 ? (b - a) / 1000 : undefined,
     });
     await this.core.touch(timelineId);
-    return { clip: id, context };
+    // still shorter than the model makes (the clips around it too short to take from): what follows moves by that much
+    const longerMs = length && b - a >= 40 ? Math.max(0, Math.round(length.min * 1000 - (b - a))) : 0;
+    return { clip: id, context, ...(widenedMs ? { widenedMs } : {}), ...(longerMs > 40 ? { longerMs } : {}) };
   }
 
   /**
@@ -362,7 +405,8 @@ export class TimelineRange {
     if (how.first) inputs[recipe.inputs.find((i) => i.type === "image" && i.role === "start")!.id] = how.first.id;
     if (how.last) inputs[recipe.inputs.find((i) => i.type === "image" && i.role === "end")!.id] = how.last.id;
     const seconds = secondsInput(recipe.inputs);
-    if (seconds && how.seconds !== undefined) inputs[seconds.id] = Number(Math.max(seconds.min, Math.min(seconds.max, Math.round(how.seconds / seconds.step) * seconds.step)).toFixed(3));
+    // the length of the range itself, not rounded to the form's step: rounded, the clip came out up to a quarter second off and moved what follows
+    if (seconds && how.seconds !== undefined) inputs[seconds.id] = Number(Math.max(seconds.min, Math.min(seconds.max, how.seconds)).toFixed(3));
     const id = newId();
     const at = now();
     const order = all.map((p) => p.clip.id);

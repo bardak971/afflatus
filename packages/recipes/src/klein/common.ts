@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, LoraValue, ReferenceValue, Ref } from "@afflatus/core";
+import type { BuildContext, GraphBuilder, InputSpec, LoraValue, Phase, ReferenceValue, Ref } from "@afflatus/core";
 import { detailModel, detailSampler, sharpenRange, usesDaemon, type DetailSettings } from "../shared/detail";
 import { roundTo } from "../shared/round";
 import { loadUnet, unetNodes } from "../shared/unet";
@@ -97,7 +97,7 @@ export function kleinSample(
 /** The same sampling, left as a latent (for a pass in tiles, decoded with the others). With the detail boost when one is given. */
 export function kleinSampleLatent(
   g: GraphBuilder, k: Klein, cond: { positive: Ref; negative: Ref }, latent: Ref, size: { width: number; height: number }, seed: number,
-  opts: { steps?: number; strength?: number; detail?: { input: DetailSettings; ctx: BuildContext } } = {},
+  opts: { steps?: number; strength?: number; detail?: { input: DetailSettings; ctx: BuildContext }; phase?: Phase } = {},
 ) {
   const steps = opts.steps ?? k.input.steps;
   const strength = opts.strength ?? 1;
@@ -109,7 +109,8 @@ export function kleinSampleLatent(
   let sampler = g.out("KSamplerSelect", { sampler_name: k.input.sampler });
   if (opts.detail) sampler = detailSampler(g, sampler, opts.detail.input, opts.detail.ctx);
   const noise = g.out("RandomNoise", { noise_seed: seed });
-  g.phase("sampling");
+  // a pass over tiles of a finished picture is a refine pass, as the other families' say
+  g.phase(opts.phase ?? "sampling");
   if (range) {
     // the sharpen only between its steps: the sigmas cut at both ends, the plain model before and after
     const plain = g.out("CFGGuider", { model: k.model, positive: cond.positive, negative: cond.negative, cfg: k.input.cfg });

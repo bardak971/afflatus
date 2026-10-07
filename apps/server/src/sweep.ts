@@ -24,13 +24,13 @@ export async function sweep(db: Db, storage: Storage, at = Date.now()): Promise<
 
   const old = await db
     .selectFrom("assets")
-    .select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "duration_ms"])
+    .select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key", "duration_ms"])
     .where("deleted_at", "<", new Date(at - BIN_MS).toISOString())
     .execute();
   // a painted part that nothing was made with is of no use to anyone after a week
   const masks = await db
     .selectFrom("assets")
-    .select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "duration_ms"])
+    .select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key", "duration_ms"])
     .where("origin", "=", "mask")
     .where("created_at", "<", new Date(at - BIN_MS).toISOString())
     .where("id", "not in", db.selectFrom("generation_inputs").select("asset_id"))
@@ -40,6 +40,7 @@ export async function sweep(db: Db, storage: Storage, at = Date.now()): Promise<
     if (a.thumb_key) await storage.delete(a.thumb_key).catch(() => {});
     if (a.raw_key) await storage.delete(a.raw_key).catch(() => {});
     if (a.latent_key) await storage.delete(a.latent_key).catch(() => {});
+    if (a.fine_latent_key) await storage.delete(a.fine_latent_key).catch(() => {});
     // what the timeline worked out of it (its film strip, its motion, its scene cuts) goes with it
     for (const key of derivedKeys(a)) await storage.delete(key).catch(() => {});
     await db.deleteFrom("assets").where("id", "=", a.id).execute();

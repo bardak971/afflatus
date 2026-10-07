@@ -465,7 +465,7 @@ export class Queue {
     if (Number(claimed.numUpdatedRows) === 0) return;
 
     const abort = new AbortController();
-    this.running = { id: row.id, abort, promptId: resume?.promptId, gpu: true };
+    this.running = { id: row.id, abort, promptId: resume?.promptId, gpu: true, expectedMs: resume?.timing?.expectedMs ?? null, startedAt: resume?.startedAt ?? Date.now() };
     if (this.unloadTimer) clearTimeout(this.unloadTimer);
     this.unloadTimer = null;
     this.holds = true;

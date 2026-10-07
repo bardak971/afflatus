@@ -305,7 +305,7 @@ describe.skipIf(!three)("a timeline", () => {
     return graph;
   }
 
-  it("a clip continued in the latent takes over four frames before its shared frames end: the clip before gives them, the lengths add up, the join is a clean cut", async () => {
+  it("a clip continued in the latent starts at its first own frame, the clip before plays to its end, and the export dissolves it in", async () => {
     const tl = await call("POST", "/api/timelines", { name: "Parrot" });
     const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
     await render(tl.id, [{ id: a }]);
@@ -314,30 +314,22 @@ describe.skipIf(!three)("a timeline", () => {
     const b = (await call("POST", `/api/timelines/${tl.id}/clips`, {})).clip as string;
     await render(tl.id, [{ id: b }]);
     const second = await finishWithLatent(three!, 2, 141);
-    // the second continued the first's latent: the hybrid guide on its frames, its latent for the sound
-    expect(Object.values(second).some((n) => n.class_type === "AfflatusH3TailGuide")).toBe(true);
+    // the second continued the first's exact latent, decoded as one piece with it (the seam)
+    expect(Object.values(second).some((n) => n.class_type === "MiniMaxH3LatentTailGuide")).toBe(true);
+    expect(Object.values(second).some((n) => n.class_type === "AfflatusH3SeamLatent")).toBe(true);
     const v = await view(tl.id);
     const [one, two] = v.clips;
-    expect(two.take.joinKind).toBe("hybrid");
-    expect(two.take.leadMs).toBe(167);
+    expect(two.take.joinKind).toBe("seamless");
     expect(two.take.headMs).toBe(917);
-    // it starts to play four frames before its shared frames end...
-    expect(two.take.startMs).toBe(917 - 167);
-    // ...and the clip before stops as much earlier, so no moment is shown twice and nothing is lost
+    // no take-over point: it plays from its first own frame (a cut four frames earlier still stepped, see leadOf)
+    expect(two.take.leadMs).toBe(0);
+    expect(two.take.startMs).toBe(917);
+    // ...and the clip before plays all of its own part
     const own = one.take.asset.durationMs - one.take.tailMs - one.take.trimEndMs - (one.take.headMs + one.take.trimStartMs);
-    expect(one.lengthMs).toBe(own - 167);
-    expect(one.take.endMs).toBe(one.take.startMs + own - 167);
+    expect(Math.abs(one.lengthMs - own)).toBeLessThanOrEqual(21);
     expect(two.atMs).toBe(one.lengthMs);
     expect(v.durationMs).toBe(one.lengthMs + two.lengthMs);
-    // the first clip has no take-over point of its own; a take put on another timeline keeps its own
-    expect(one.take.leadMs).toBe(0);
-    const other = await call("POST", "/api/timelines", {});
-    const placed = (await call("POST", `/api/timelines/${other.id}/clips`, { asset: two.take.asset.id })).timeline.clips[0];
-    expect(placed.take).toMatchObject({ joinKind: "hybrid", leadMs: 167, headMs: 917 });
-    // on its own timeline it is a cut: it shows from its first own frame, nothing before it to hand over
-    expect(placed.take.startMs).toBe(917 - 167);
-    // exported: the picture hands over at the take-over point, the sound at the hand-over proper (the clip
-    // before's sound under the first frames); the whole is as long as the timeline says
+    // exported: the clip before held on its last frame while this one dissolves in, the sound straight on; as long as the timeline says
     const out = await exported(tl.id);
     expect(out).toMatchObject({ kind: "video", hasSound: true });
     expect(Math.abs(out.durationMs - v.durationMs)).toBeLessThan(120);
@@ -785,8 +777,11 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
   it("regenerates a range: a new clip pinned to the frame before In and the frame at Out, in place of what played", async () => {
     const { tl, a, b } = await twoRendered();
     // between two H3 clips: the new clip takes their video as context, extending the one before and ending where the one after begins
-    const { clip, context } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "regenerate" });
+    const { clip, context, widenedMs } = await call("POST", `/api/timelines/${tl}/range`, { inMs: 2000, outMs: 4000, action: "regenerate" });
     expect(context).toEqual({ start: "clip", end: "clip" });
+    // two seconds is shorter than H3 makes (4 s): the range takes in a second after Out and one before In, so that the
+    // clip replaces exactly what it plays and nothing after it moves
+    expect(widenedMs).toBe(2000);
     const v = await view(tl);
     expect(v.clips.map((c: { id: string }) => c.id)).toEqual([a, clip, b]);
     const made = v.clips[1];
@@ -795,13 +790,12 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(made.joined).toBe("continue");
     expect(v.clips[2].joined).toBe("continue");
     expect(made.inputs.description).toBe("She walks to the window.");
-    // the two seconds of the range, brought up to the least the model takes (H3 is trained on 4 to 15 s)
     expect(made.inputs.seconds).toBe(4);
     expect(made.inputs.start).toBeUndefined();
     expect(made.inputs.end).toBeUndefined();
-    // what played between went: the first clip stops at 2 s, the second starts a second in
-    expect(v.clips[0].lengthMs).toBeCloseTo(2000, -2);
-    expect(v.clips[2].take.startMs).toBeCloseTo(1000, -2);
+    // what played between went: the first clip stops at 1 s, the second starts two seconds in, a second of each left to join to
+    expect(v.clips[0].lengthMs).toBeCloseTo(1000, -2);
+    expect(v.clips[2].take.startMs).toBeCloseTo(2000, -2);
     expect(v.undo).toBe("the regenerated range");
     await call("POST", `/api/timelines/${tl}/undo`);
     expect((await view(tl)).clips).toHaveLength(2);
@@ -857,7 +851,7 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
   });
 
   it("finishes the clips: a job each on the take's video, the result a take marked as the finished version of the draft", async () => {
-    const { tl, a } = await twoRendered();
+    const { tl, a, b } = await twoRendered();
     const r = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 2, upscaleModel: "RealESRGAN_x4plus.pth" });
     expect(r.jobs).toHaveLength(2);
     expect(r.skipped).toEqual([]);
@@ -905,7 +899,12 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(sv.jobs).toHaveLength(1);
     await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", sv.jobs[0]).executeTakeFirstOrThrow()).status === "failed");
     expect((await t.db.selectFrom("jobs").select("error").where("id", "=", sv.jobs[0]).executeTakeFirstOrThrow()).error).toMatch(/SeedVR2 needs its two files/);
-    // H3's latent route: the clip rendered again with the same seed and the latent pass, the mark carried through the render
+    // H3's latent route re-samples the draft's own kept latent: without one, the clip is skipped with what to do instead
+    const none = await call("POST", `/api/timelines/${tl}/finish`, { route: "latent", factor: 2, redo: true, clips: [a] });
+    expect(none.jobs).toEqual([]);
+    expect(none.skipped[0].why).toMatch(/latent was not kept/);
+    // with one: a job of the clip's own recipe, its seed and form, the latent pass, the mark carried through the render
+    await t.db.updateTable("assets").set({ latent_key: "assets/zz/kept.latent.safetensors" }).where("id", "=", w.clips[0].takes[0].asset.id).execute();
     const lat = await call("POST", `/api/timelines/${tl}/finish`, { route: "latent", factor: 2, redo: true, clips: [a] });
     expect(lat.jobs).toHaveLength(1);
     const job = await t.db.selectFrom("jobs").selectAll().where("id", "=", lat.jobs[0]).executeTakeFirstOrThrow();
@@ -917,6 +916,12 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(input.seed).not.toBe(-1);
     // the render is not run here: taken out of the queue
     await call("POST", `/api/jobs/${lat.jobs[0]}/cancel`);
+    // rendered again it makes its draft again only from the same start: the second clip was made as a cut, so once joined
+    // to the first it is skipped (it would be rendered as a continuation, a new video), with what to do instead
+    await call("PATCH", `/api/clips/${b}`, { joined: "continue" });
+    const joined = await call("POST", `/api/timelines/${tl}/finish`, { route: "latent", factor: 2, redo: true, clips: [b] });
+    expect(joined.jobs).toEqual([]);
+    expect(joined.skipped[0].why).toMatch(/not made as a continuation.*SeedVR2, RTX or a model/);
     await until(async () => (await t.db.selectFrom("jobs").select("status").where("status", "in", ["queued", "running"]).execute()).length === 0, 10_000);
   }, 90_000);
 

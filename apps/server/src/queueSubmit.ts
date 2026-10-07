@@ -7,7 +7,7 @@ import { usualParts } from "./renders";
 import { maskBox, readPicture } from "./thumbs";
 import { readVideo } from "./video";
 import type { JobRow, QueueCore, Resume } from "./queueModel";
-import { renderedOf } from "./queueStore";
+import { draftOf, renderedOf } from "./queueStore";
 
 /** A job on its way to ComfyUI: its form settled, its files uploaded, its graph built and checked, the prompt queued. */
 
@@ -41,7 +41,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const { db, storage } = core;
   const catalog = await comfy.catalog();
   // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
-  const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit)) : null;
+  const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from) : null;
   const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
   const chosen = settled(recipe, input, catalog);
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
@@ -81,8 +81,9 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
       const { asset: assetId, at } = value as ClipValue;
       const shown = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
       if (!shown || shown.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
-      // a finished (upscaled) take is a copy of a render: the render's own latent and frames are what a join takes
-      const asset = await renderedOf(db, shown);
+      // a finished (upscaled) take is a copy of a render: the render's own latent and frames are what a join takes. A finish by
+      // H3's latent re-sample is conditioned on the drafts, as the draft it re-samples was
+      const asset = row.finished_from ? await draftOf(db, shown) : await renderedOf(db, shown);
       // the model's own frames when they were kept (before an upscale or interpolation changed them): a
       // continuation guided by frames of its own kind joins without the step a changed frame leaves
       const rawBytes = asset.raw_key ? await storage.get(asset.raw_key).catch(() => null) : null;
@@ -108,11 +109,18 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
         const whole = spec.role === "previous" && (at === undefined || at >= (facts.durationMs ?? 0) - 40);
         // handed over before its end, on a frame of the latent's grid: continued from there, its latent cut to it (Afflatus's pack 0.5.0)
         const cutAt = spec.role === "previous" && !whole && atFrames % 17 === 5 && atFrames >= Math.max(...counts) && atFrames <= asset.latent_frames && "AfflatusTrimH3Latent" in catalog ? atFrames : 0;
-        const fits = spec.role === "previous" ? whole || cutAt > 0 : (atFrames === 0 || atFrames % 17 === 5) && atFrames + Math.min(...counts) <= asset.latent_frames;
+        // the clip after: landed on where one of its 17-frame chunks begins (its tokens keep their time spans there, see H3_LANDING)
+        const fits = spec.role === "previous" ? whole || cutAt > 0 : atFrames % 17 === 0 && atFrames + Math.min(...counts) <= asset.latent_frames;
         const saved = fits ? await storage.get(asset.latent_key).catch(() => null) : null;
         if (saved) {
           uploads[`${spec.id}.latent`] = await comfy.client.upload(saved, "safetensors");
           media[spec.id] = { ...media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
+          // a finish after a clip finished by the same latent re-sample: that clip's re-sampled latent, for decoding the join as one piece with it
+          const fine = row.finished_from && spec.role === "previous" && shown.fine_latent_key && shown.width && shown.height ? await storage.get(shown.fine_latent_key).catch(() => null) : null;
+          if (fine) {
+            uploads[`${spec.id}.fine`] = await comfy.client.upload(fine, "safetensors");
+            media[spec.id] = { ...media[spec.id]!, fine: { width: shown.width!, height: shown.height! } };
+          }
         }
       }
     } else if (spec.type === "references" && Array.isArray(value)) {
@@ -147,6 +155,14 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
         uploads[spec.id] = part ? await comfy.client.upload(part, "wav") : await comfy.client.upload(whole, extOf(asset.mime));
       } else uploads[spec.id] = await comfy.client.upload(whole, extOf(asset.mime));
     }
+  }
+
+  // a finish by the latent re-sample: the draft's own sampled latent, re-sampled as it is (rendered again, the frames would differ)
+  if (row.finished_from && input.upscale === "Latent: re-sampled") {
+    const draft = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["assets.latent_key as latent_key"]).where("takes.id", "=", row.finished_from).executeTakeFirst();
+    const saved = draft?.latent_key ? await storage.get(draft.latent_key).catch(() => null) : null;
+    if (!saved) throw new Error("This draft's latent was not kept, so H3 cannot re-sample it: finish it with SeedVR2, RTX or a model.");
+    uploads["self.latent"] = await comfy.client.upload(saved, "safetensors");
   }
 
   for (const spec of recipe.inputs) {

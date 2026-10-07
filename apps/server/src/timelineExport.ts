@@ -1,9 +1,9 @@
-import { BLEND_MS, CutError, MATCH, type ExportMusic, type ExportPart, joinVideos } from "./cut";
+import { BLEND_MS, CutError, DISSOLVE_MS, MATCH, type ExportMusic, type ExportPart, joinVideos } from "./cut";
 import { newId, now } from "./db";
 import { assetView, extOf, newAssetRow } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
-import { clockOf, laidOut, leadOf, visible, type TimelineCore } from "./timelineModel";
+import { clockOf, laidOut, leadOf, sameMaking, seamless, visible, type AssetRow, type TimelineCore } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
 
@@ -34,8 +34,13 @@ export class TimelineExport {
     }
     const fps = Math.round(Math.max(...all.map((p) => p.active?.asset.fps ?? 24), 1));
     const parts: ExportPart[] = [];
+    /** The video of the part before (none after a still). */
+    let prevAsset: AssetRow | null = null;
     for (const [i, l] of shown.entries()) {
       const p = l.p;
+      const mine = p.clip.kind === "video" ? p.active?.asset ?? null : null;
+      const beforeAsset = prevAsset;
+      prevAsset = mine;
       const soundFile = p.clip.sound === "file" && p.sound ? { bytes: await storage.get(p.sound.file_key), ext: extOf(p.sound.mime) } : undefined;
       const heard = { sound: p.clip.sound, soundFile, volume: p.clip.volume / 100, fill: Boolean(p.clip.fill) };
       // within the window: the part of the clip that falls in it
@@ -55,24 +60,35 @@ export class TimelineExport {
         // before's last frames show the same moments, so the fade runs over them with both sides moving. A
         // pixel join restarts beside pinned frames: the clip before holds its last frame while this one fades in
         const latent = x.take.join_kind === "latent" || x.take.join_kind === "hybrid";
+        // decoded as one piece with the clip before: a plain cut is the whole chain decoded at once, nothing to fade or match
+        const seam = from === 0 && p.clip.joined === "continue" && seamless(x) && before?.kind === "video";
         // at a take-over point inside the shared frames both sides show the same moments, yet each clip re-rendered
         // (and enlarged) them on its own: a cut there still steps (about 38 dB between the two, measured 2026-10-07).
         // The fade runs over the same moments, before the take-over point, with both moving: no ghost, no step
         const lead = leadOf(x);
         // landed on by the clip before: the two show the same moments around the take-over point (that clip's guided tail), faded over them
         const landed = x.landed !== undefined;
-        const blend = opts.blend !== false && before && before.kind === "video" && from === 0 && (landed || ((!lead || latent) && shared - lead >= 80))
-          ? Math.min(BLEND_MS, to - 40, ...(landed ? [x.landed!, before.endMs - before.startMs - 40] : latent ? [shared - lead, before.endMs - before.startMs - 40] : []))
+        // a continuation made in the latent: the clip before plays to its end, held there while this one dissolves in (DISSOLVE_MS)
+        const dissolve = latent && !landed;
+        const blend = !seam && opts.blend !== false && before && before.kind === "video" && from === 0 && (landed || shared - lead >= 80)
+          ? Math.min(dissolve ? DISSOLVE_MS : BLEND_MS, to - 40, ...(landed ? [x.landed!, before.endMs - before.startMs - 40] : []))
           : 0;
+        // dissolved in over the clip before held on its last frame: the hold starts where that clip's file really ends. A
+        // render interpolated ×2 is up to a model frame shorter than its length on the grid, and the fade began that much
+        // after its last frame, a still of 3 frames then a step (measured 2026-10-08); this part takes up the difference
+        const short = blend >= 80 && !landed && before?.kind === "video" && beforeAsset?.duration_ms ? Math.max(0, Math.round(before.endMs - beforeAsset.duration_ms)) : 0;
+        if (short > 0 && before) before.endMs -= short;
         parts.push({
           kind: "video", bytes: await storage.get(x.asset.file_key), ext: extOf(x.asset.mime),
-          startMs: visible(x).start + from - (blend >= 80 && (latent || landed) ? blend : 0), endMs: visible(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
+          startMs: visible(x).start + from - (blend >= 80 && landed ? blend : 0) - short - (blend >= 80 && dissolve ? 1000 / fps : 0), endMs: visible(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
           // the sound hands over at the frame the model's own begins, not where the picture took over early (see ExportPart)
-          ...(from === 0 && lead ? { soundLeadMs: lead } : {}),
-          ...(to === l.lengthMs && x.give && x.give > 0 ? { soundGiveMs: x.give } : {}),
-          ...(blend >= 80 ? { blendMs: blend, blendMode: latent || landed ? ("overlap" as const) : ("hold" as const) } : {}),
+          ...(blend >= 80 ? { blendMs: blend, blendMode: landed ? ("overlap" as const) : dissolve ? ("freeze" as const) : ("hold" as const) } : {}),
           // a continuation compares its shared frames with the same moments of the clip before, not the moments after them
-          ...(from === 0 && shared - lead >= MATCH.lookSec * 1000 ? { matchAtMs: visible(x).start - MATCH.lookSec * 1000 } : {}),
+          // the colour match reads what is seen: its first frames, against the last of the clip before (its shared frames are
+          // a loose copy whose light differs, and since the dissolve they are not shown: read there, it darkened clips that
+          // already came out darker, −2 to −7 steps where they wanted +1 to +4, measured 2026-10-08)
+          ...(from === 0 ? { matchAtMs: visible(x).start } : {}),
+          ...(seam ? { sameLook: true } : beforeAsset && !sameMaking(beforeAsset, x.asset) ? { noMatch: true } : {}),
         });
       }
     }

@@ -94,8 +94,8 @@ export const h3Inputs: InputSpec[] = [
     note: "pinned at the start as the run-up: 5 is a position, 22 brings its motion and voice too, 39 a long run-in. When the join jumps, try another count",
   },
   {
-    id: "joinFrom", type: "choice", label: "Continue from", options: ["Auto", "Latent", "Frames"], default: "Auto", showWhen: "previous", advanced: true, section: "rare",
-    note: "what of the clip before guides this one. Auto: its last frames re-encoded for the picture, its own latent for the sound and the run-up (the Afflatus node pack; without it, frames). Latent: its exact latent for both, the closest join, but a chain of them gets softer and darker clip after clip. Frames: re-encoded frames and sound, ComfyUI alone",
+    id: "joinFrom", type: "choice", label: "Continue from", options: ["Auto", "Frames"], renamed: { Latent: "Auto", Hybrid: "Auto" }, default: "Auto", showWhen: "previous", advanced: true, section: "rare",
+    note: "what of the clip before guides this one. Auto: its exact latent (picture, motion and sound as the model made them), decoded as one piece with it so that the join is a plain cut, like the whole chain decoded at once (needs the Afflatus node pack and the clip before's saved latent; without them, frames). Frames: its last frames and sound re-encoded and pinned, as ComfyUI alone does it; a chain of these softens clip after clip",
   },
   {
     id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "landing", fps: H3_FPS, advanced: true,

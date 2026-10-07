@@ -13,10 +13,10 @@ export const assetView = (a: Tables["assets"]) => ({
 });
 
 type AssetInsert = Insertable<Tables["assets"]>;
-type Defaulted = "owner_id" | "kept_at" | "deleted_at" | "created_at";
+type Defaulted = "owner_id" | "kept_at" | "deleted_at" | "created_at" | "fine_latent_key";
 /** A row for the assets table with what every new item shares filled in: the owner, not kept, not in the bin, made now. Any of those can be given. */
 export function newAssetRow(fields: Omit<AssetInsert, Defaulted> & Partial<Pick<AssetInsert, Defaulted>>): AssetInsert {
-  return { owner_id: OWNER, kept_at: null, deleted_at: null, created_at: now(), ...fields };
+  return { owner_id: OWNER, kept_at: null, deleted_at: null, created_at: now(), fine_latent_key: null, ...fields };
 }
 
 /**

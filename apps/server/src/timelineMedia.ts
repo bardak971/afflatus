@@ -5,7 +5,7 @@ import { notFound } from "./errors";
 import { extOf, newAssetRow, pngSize } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
-import { lengthOf, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
+import { joinFade, lengthOf, sameMaking, seamless, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
 
 /**
  * What the timelines read out of their videos: a frame as a picture, the film strip, the motion and
@@ -135,11 +135,13 @@ export class TimelineMedia {
     let before: Taken | null = null;
     for (const p of all) {
       const x = p.clip.kind === "video" ? p.active : null;
-      if (x && before) {
+      // decoded as one piece with the clip before: the same nudge as that clip, no step where the chain has none
+      if (x && before && p.clip.joined === "continue" && seamless(x)) {
+        /* carry stays */
+      } else if (x && before && sameMaking(before.asset, x.asset)) {
         const a = await mean(before, Math.max(0, visible(before).end - MATCH.lookSec * 1000));
-        // a continuation's shared frames show the moments the clip before ends on: compared there, a colour step is a real one
-        const sharedBefore = x.take.head_ms - x.take.trim_start_ms - (x.take.lead_ms ?? 0);
-        const b = await mean(x, sharedBefore >= MATCH.lookSec * 1000 ? visible(x).start - MATCH.lookSec * 1000 : visible(x).start);
+        // what is seen: its first frames (its shared frames are a loose copy whose light differs, and they are not shown; see the export)
+        const b = await mean(x, visible(x).start);
         carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
       } else carry = { y: 0, u: 0, v: 0 };
       out.push({ clip: p.clip.id, ...carry });
@@ -163,7 +165,7 @@ export class TimelineMedia {
       if (p.clip.kind === "still") return p.still ? { asset: p.still, atMs: 0, key: `still:${p.still.id}` } : null;
       if (!p.active) return null;
       const { start, end } = visible(p.active);
-      return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}` };
+      return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}`, fade: side === "start" ? joinFade(p.active, p.clip.joined === "continue") : null };
     };
     const prev = edge(all[i - 1], "end");
     const next = edge(all[i + 1], "start");
@@ -184,8 +186,9 @@ export class TimelineMedia {
       if (!score) {
         const fps = t.asset.fps ?? 24;
         score = {
-          in: prev ? await joinJump({ bytes: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }) : null,
-          out: next ? await joinJump({ bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { bytes: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }) : null,
+          // as the join plays: with the fade the export and the player put there
+          in: prev ? await joinJump({ bytes: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }, joinFade(t, me.clip.joined === "continue")) : null,
+          out: next ? await joinJump({ bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { bytes: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }, next.fade) : null,
         };
         this.joinScores.set(key, score);
         capped(this.joinScores);

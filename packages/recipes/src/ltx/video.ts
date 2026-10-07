@@ -341,7 +341,8 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     // short pass settles them; else RIFE on the decoded pictures
     const canTemporal = Boolean(slots.temporal) && ctx.has("LTXVLatentUpsampler") && ctx.has("LatentUpscaleModelLoader");
     if (input.smooth && input.smoothWith === SMOOTH_LTX && !canTemporal) throw new Error("LTX's temporal upscaler was not found: put ltx-2.3-temporal-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder (one click in Settings → Models), or interpolate with RIFE.");
-    const temporal = input.smooth && input.smoothWith !== SMOOTH_RIFE && canTemporal;
+    // Auto with SeedVR2: RIFE after it, not the latent doubling before it (SeedVR2 would restore twice the frames); asked for, as asked
+    const temporal = input.smooth && input.smoothWith !== SMOOTH_RIFE && canTemporal && !(input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr);
     if (temporal) {
       g.phase("interpolating");
       const doubled = g.out("LTXVLatentUpsampler", { samples: video, upscale_model: g.out("LatentUpscaleModelLoader", { model_name: slots.temporal }), vae });
@@ -361,7 +362,8 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     const heard = g.out("LTXVAudioVAEDecode", { samples: audio, audio_vae: audioVae });
     // SeedVR2 goes before the frame interpolation (its cost grows with the frame count; RIFE's is small); the
     // other pixel routes after it, on the final frames
-    const early = input.upscale === UPSCALE.seedvr;
+    // (and an upscale model: frame by frame, its cost grows with the frames, and it would enlarge RIFE's made-up frames too)
+    const early = input.upscale === UPSCALE.seedvr || input.upscale === UPSCALE.model;
     const pixel = early ? pixelUpscale(g, images, input, { width, height }, ctx) : null;
     if (pixel) images = pixel.images;
     const rife = input.smooth && !temporal && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
@@ -371,7 +373,9 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     }
     const smooth = temporal || rife;
     const late = pixel ?? pixelUpscale(g, images, input, { width, height }, ctx);
-    images = late.images;
+    // the route ran before the interpolation already: its frames were interpolated above (taken again here, the interpolation was
+    // lost and the file, saved at twice the rate, played twice as fast)
+    if (!pixel) images = late.images;
     g.phase("encoding");
     const out = saveVideo(g, ctx, { images, audio: heard, fps: smooth ? LTX_FPS * 2 : LTX_FPS, crf: input.crf });
 

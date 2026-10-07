@@ -16,9 +16,11 @@ export interface Take {
   /** The take this one is the finished (upscaled) version of. */
   finishedFrom: string | null;
   /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
-  joinKind: "latent" | "hybrid" | "pixels" | null;
+  joinKind: "seamless" | "latent" | "hybrid" | "pixels" | null;
   /** The clip before lands on it: it starts this many ms after its own frames would (the take-over point is inside that clip's guided tail). */
   landedMs?: number;
+  /** Decoded as one piece with the clip before, still the take it was made from: the join plays as a plain cut. */
+  seamless?: boolean;
   /** Its take-over point: it starts to play this many ms before its shared frames end and the clip before stops as much earlier, a clean cut inside frames that show the same moment. 0: at its first own frame. */
   leadMs: number;
   /** How long its render took, when it was rendered here; null otherwise. */

@@ -23,9 +23,24 @@ export interface H3Fields {
 /** Whether a text is already in H3's layout: it is then sent as written. */
 export const isH3Layout = (text: string) => /integrated_multimodal_description:|subject_definitions:/i.test(text);
 
-export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields): string {
+/**
+ * Said before the description of a clip that carries on from another: what its opening frames are and what to keep
+ * across the join. The idea is DaSiWa's continuity runtime's (the words are ours); measured 2026-10-08 on a full-step
+ * chain it kept a little more detail (+9 %) on top of the exact latent. Not shown in the form: it is the same for every
+ * continuation, and a text already in H3's layout is sent as written.
+ */
+export function continuationPreamble(c: { overlap: number; seconds: number; lands: boolean }): string {
+  const s = (n: number) => n.toFixed(2);
+  return [
+    `This clip carries on the previous shot without a break. Its first ${s(c.overlap)} seconds replay the end of that shot as hidden context: match it there exactly, the same people, place, light, motion, camera and sound, and carry its pace and camera movement on without freezing them.`,
+    `The ${s(c.seconds)} seconds after them are new${c.lands ? ", and they end exactly where the next shot begins" : ""}. Do not restart the action, repeat what was already said, cut, fade, add titles, loop, or change anyone's identity.`,
+  ].join(" ");
+}
+
+export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields, continuing?: { overlap: number; seconds: number; lands: boolean }): string {
   if (isH3Layout(f.description)) return f.description.trim();
-  const description = /^\s*\[shot 1\]/i.test(f.description) ? f.description.trim() : `[Shot 1] ${f.description.trim()}`;
+  const said = continuing ? `${continuationPreamble(continuing)}\nNext: ${f.description.trim()}` : f.description.trim();
+  const description = /^\s*\[shot 1\]/i.test(said) ? said : `[Shot 1] ${said}`;
   const soundscape = f.soundscape?.trim() || "N/A";
   const music = f.music?.trim() || "N/A";
   const mark = (h3Frames(seconds) / H3_FPS).toFixed(2);

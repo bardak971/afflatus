@@ -161,6 +161,48 @@ export async function record(
     .execute();
 }
 
+/**
+ * One row for a tool that ran on ComfyUI (a finish, a slow motion): like a render's, so that it has its lane, its share of
+ * the GPU time by phase and its pace. `work` is what it made, pixels × frames; `expectedMs` what its own record said.
+ */
+export async function recordTool(
+  db: Db, row: { id: string; created_at: string; startedAt: number }, what: { recipe: string; model: string; timeKey: string },
+  measured: Measured | null, status: "done" | "failed" | "cancelled", totalMs: number, made: { assetId: string | null; width: number | null; height: number | null; durationMs: number | null },
+  work: number | null, expectedMs: number | null,
+): Promise<void> {
+  const spent = measured?.phases ?? {};
+  const of = (...phases: string[]) => Math.round(phases.reduce((n, p) => n + (spent[p] ?? 0), 0));
+  const load = of("waiting", "loading");
+  const refine = of("upscaling", "refining", "restoring", "detailing", "processing");
+  const finish = measured ? Math.max(0, Math.round(totalMs) - load - refine) : 0;
+  await db
+    .insertInto("render_stats")
+    .values({
+      id: row.id, owner_id: OWNER, recipe_id: what.recipe, family: "tools", model: what.model, model_file: "", time_key: what.timeKey,
+      kind: "video", width: made.width, height: made.height, duration_ms: made.durationMs, steps: 0, status, whole: measured ? 1 : 0, cold: 0,
+      waited_ms: Math.max(0, row.startedAt - new Date(row.created_at).getTime()),
+      total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
+      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, created_at: now(),
+    })
+    .onConflict((oc) => oc.column("id").doNothing())
+    .execute();
+}
+
+/** A tool's usual pace from its own record: milliseconds per unit of work (pixels × frames), the middle of its last finished runs. */
+export async function toolPace(db: Db, recipe: string): Promise<number | null> {
+  const rows = await db.selectFrom("render_stats").select(["total_ms", "work", "vram_peak", "expected_ms"]).where("recipe_id", "=", recipe).where("status", "=", "done").where("whole", "=", 1).orderBy("created_at", "desc").limit(30).execute();
+  // a run that spilled out of video memory is not the usual pace
+  return median(rows.filter((r) => r.work && !(r.expected_ms && r.total_ms >= 2 * r.expected_ms)).map((r) => r.total_ms / r.work!));
+}
+
+/**
+ * Ran out of video memory, as far as the figures can tell: the memory was full (ComfyUI fills it with any large model, so that
+ * alone says nothing) and it took at least twice what was expected of it. The card then works out of system memory at a
+ * fraction of its pace (a 6-minute SeedVR2 clip past 20 minutes, 2026-10-08). A failure is not counted; a stop is.
+ */
+export const spilled = (r: Pick<RenderRow, "status" | "vram_peak" | "expected_ms" | "total_ms">) =>
+  r.status !== "failed" && r.vram_peak !== null && r.vram_peak >= 95 && r.expected_ms !== null && r.expected_ms > 0 && r.total_ms >= 2 * r.expected_ms;
+
 // ---------------------------------------------------------------- folding the old rows into days
 
 /** The day as a whole, among the rows of `render_days`. */
@@ -258,7 +300,12 @@ export function stepFor(spanMs: number): number {
   return spanMs <= 3 * H ? 5 * 60_000 : spanMs <= 12 * H ? 15 * 60_000 : spanMs <= 48 * H ? H : spanMs <= 7 * DAY + H ? 6 * H : DAY;
 }
 
+/** The tools that run on ComfyUI without a recipe of their own (a finish, a slow motion): their record's name. */
+export const TOOL_NAMES: Record<string, string> = {
+  "tool.finish.seedvr": "Finish · SeedVR2", "tool.finish.rtx": "Finish · RTX", "tool.finish.model": "Finish · upscale model", "tool.slow": "Slow motion · RIFE",
+};
 const nameOf = (registry: Registry, recipeId: string) => {
+  if (TOOL_NAMES[recipeId]) return TOOL_NAMES[recipeId]!;
   const recipe = registry.recipe(recipeId);
   if (!recipe) return recipeId;
   const family = registry.family(recipe.family)?.name;
@@ -351,8 +398,28 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
     };
   });
 
+  // ran out of video memory: how many, and the time it cost over what was expected
+  const spills = rows.filter(spilled);
+  // the upscales' pace per stretch: a video route in minutes of work per second of video, a picture tool or a hires pass in
+  // seconds per megapixel made (what a picture's own size does to it taken out)
+  const paceSeries = (pick: (r: RenderRow) => number | null) => times.map((_t, i) => median(real(stretch[i]!.rows.filter((r) => r.status === "done" && !spilled(r)).map(pick))));
+  const videoRoutes = [...new Set(rows.filter((r) => r.recipe_id.startsWith("tool.") && r.duration_ms).map((r) => r.recipe_id))];
+  const pictureTools = [...new Set(rows.filter((r) => r.kind === "image" && /\.sharper$|^tools\.|upscale/i.test(r.recipe_id) && r.width && r.height).map((r) => r.recipe_id))];
+  const mp = (r: RenderRow) => (r.width && r.height ? (r.width * r.height) / 1e6 : 0);
+  const upscale = {
+    video: videoRoutes.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((r) => (r.recipe_id === key && r.duration_ms ? r.total_ms / 60_000 / (r.duration_ms / 1000) : null)) })),
+    pictures: [
+      ...pictureTools.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((r) => (r.recipe_id === key && mp(r) ? r.total_ms / 1000 / mp(r) : null)) })),
+      // the hires pass of picture renders: its own time (the passes after the first sampling) over the megapixels made
+      ...(rows.some((r) => r.kind === "image" && /hires=true/.test(r.time_key) && r.refine_ms)
+        ? [{ key: "hires", name: "Hires fix (in picture renders)", points: paceSeries((r) => (r.kind === "image" && /hires=true/.test(r.time_key) && r.refine_ms && mp(r) ? r.refine_ms / 1000 / mp(r) : null)) }]
+        : []),
+    ],
+  };
+
   return {
     period: typeof period === "string" ? period : "window", from: start, to: end, step, times, keepDays, since, buckets,
+    upscale,
     /** The stretch of time the figures cover: the period, or since the first render when that is later. */
     spanMs: Math.max(step, Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)),
     tiles: {
@@ -361,6 +428,9 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
       loadMs: whole.loadMs, loads: whole.cold, loadUsualMs: whole.loadUsualMs,
       waitedUsualMs: whole.waitedUsualMs, waitedSlowMs: whole.waitedSlowMs, off: whole.off,
       vramPeak: whole.vramPeak, vramUsual: whole.vramUsual, heatPeak: whole.heatPeak, heatUsual: whole.heatUsual,
+      // the tools among the renders (finishes, slow motions), and the runs that ran out of video memory
+      tools: rows.filter((r) => r.recipe_id.startsWith("tool.")).length,
+      spills: spills.length, spillLostMs: sum(spills.map((r) => Math.max(0, r.total_ms - (r.expected_ms ?? 0)))),
     },
     finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map(count0) },
     phases: {
@@ -401,6 +471,7 @@ export async function list(db: Db, registry: Registry, opts: { recipe?: string; 
       seconds: r.duration_ms ? Math.round(r.duration_ms / 100) / 10 : null, steps: r.steps, stepMs: r.step_ms,
       phases: { loading: r.load_ms, sampling: r.sample_ms, refining: r.refine_ms, finishing: r.finish_ms },
       totalMs: r.total_ms, expectedMs: r.expected_ms, cold: Boolean(r.cold), whole: Boolean(r.whole), waitedMs: r.waited_ms, vram: r.vram_peak, heat: r.heat_peak, status: r.status,
+      spilled: spilled(r),
       assetId: r.asset_id && alive.has(r.asset_id) ? r.asset_id : null,
     })),
   };

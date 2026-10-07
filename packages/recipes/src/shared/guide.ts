@@ -62,11 +62,15 @@ export function applyGuide(g: GraphBuilder, ctx: BuildContext, cond: { positive:
   if (!model) throw new Error(GUIDE_NO_MODEL);
   const loaded = g.out("LoadImage", { image: ctx.uploads.guide ?? input.guide });
   let picture = g.out("ImageScale", { image: loaded, upscale_method: "lanczos", width: size.width, height: size.height, crop: "center" });
+  // the guide map worked out from the picture: the status says Processing, not Loading model, while it runs
+  const was = g.at;
+  g.phase("processing");
   if (input.guideFollows === FOLLOW_EDGES) picture = g.out("Canny", { image: picture, low_threshold: input.guideLow, high_threshold: Math.max(input.guideHigh, input.guideLow) });
   else if (AUX_PREPROCESSOR[input.guideFollows]) {
     if (!ctx.has(AUX_NODE)) throw new Error(AUX_NEEDED(input.guideFollows));
     picture = g.out(AUX_NODE, { image: picture, preprocessor: AUX_PREPROCESSOR[input.guideFollows], resolution: Math.min(2048, Math.round(Math.min(size.width, size.height) / 64) * 64) });
   }
+  g.phase(was);
   const net = g.out("SetUnionControlNetType", { control_net: g.out("ControlNetLoader", { control_net_name: model }), type: UNION_TYPE[input.guideFollows] ?? "auto" });
   const applied = g.add("ControlNetApplyAdvanced", {
     positive: cond.positive, negative: cond.negative, control_net: net, image: picture, vae,

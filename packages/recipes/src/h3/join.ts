@@ -17,14 +17,23 @@ export const H3_CONTINUATION_NODES = ["AfflatusLoadH3Latent", "MiniMaxH3GuidedCo
 /** Afflatus's node (pack 0.5.0) that cuts a latent to its first frames: a clip handed over before its end is continued from there. */
 export const H3_TRIM = "AfflatusTrimH3Latent";
 /**
- * The tail guide Auto uses: the clip before's last frames re-encoded for the picture, its exact latent for the
- * sound and the run-up. Measured on chains (2026-10-05): a window guided by the exact sampled latent copies the
- * tail 2–4 % wider in every channel at every hop, nothing re-anchors it to real pixels, and the chain gets softer
- * and darker clip after clip; frames encoded by the VAE have no such direction. The sound does not drift.
+ * The pack's hybrid tail guide (re-encoded frames for the picture, the latent for the sound): Auto until 2026-10-08,
+ * now unused. Measured against DaSiWa's continuity that day on the full-step model: a chain guided by re-encoded
+ * frames lost ~35 % of its fine detail at every clip (it copies a softened picture), while the exact latent kept all
+ * of it over three clips, with no darkening. Kept in the pack for graphs that name it.
  */
 export const H3_TAIL_GUIDE = "AfflatusH3TailGuide";
+/** The pack's node (0.7.0) that puts the clip before's own last tokens in front of a window's new ones, to decode them as one piece. */
+export const H3_SEAM = "AfflatusH3SeamLatent";
 /** The clip after's first tokens anchored at the window's end: a clip put between two others lands exactly on the next (the same pack). */
 export const H3_HEAD_GUIDE = "AfflatusH3LatentHeadGuide";
+/**
+ * The same from anywhere in the clip after, where one of its 17-frame chunks begins (pack 0.6.0). H3 packs its latent
+ * in chunks of five tokens, one frame then four of four, and lays a guide out as a sequence of its own: sliced at a
+ * chunk's start its tokens keep their time spans, sliced elsewhere (the Head Guide's 17k + 5) they did not, and a
+ * landing 56 frames in came out 6 frames late (measured 2026-10-07).
+ */
+export const H3_LANDING = "AfflatusH3LatentLanding";
 /** How many frames of the next clip a join can land on: a position only (5), the motion too (22), a long run-in (39). Guide clips are 17k + 5 frames. */
 export const H3_LANDINGS = ["5", "22", "39"] as const;
 
@@ -48,12 +57,12 @@ export interface H3Join {
   ownSeconds: number;
   /** Whether the clip is continued from the clip before's own latent rather than from its frames. */
   latentJoin: boolean;
-  /** Whether the run-up and the sound come from that latent but the picture guide from the clip's re-encoded frames. */
-  hybrid: boolean;
   /** Whether the clip lands on the clip after's own latent. */
   latentLanding: boolean;
   /** The frame of the clip after's latent where its playing part starts. */
   nextAt: number;
+  /** Landed on with the aligned landing (anywhere a chunk begins) rather than the head guide (its first frame only). */
+  landingAt: boolean;
   /** The clip before's saved latent, when it was uploaded. */
   prevLatent: string | undefined;
   /** The clip after's saved latent, when it was uploaded. */
@@ -75,18 +84,17 @@ export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
   const prevFrames = media.previous?.latentFrames ?? 0;
   const cut = media.previous?.latentCut;
   const canLatent = Boolean(prevLatent && prevFrames >= head && H3_CONTINUATION_NODES.every((n) => ctx.has(n)) && (!cut || ctx.has(H3_TRIM)));
-  // Auto: the run-up and the sound from the latent, the picture guide from the clip's re-encoded frames (a chain
-  // stays anchored to real pixels). The exact latent only when asked. An older pack without that guide, or
-  // none: the frames, as ComfyUI alone does it, rather than a chain that drifts
-  const hybrid = canLatent && input.joinFrom === "Auto" && ctx.has(H3_TAIL_GUIDE);
-  const latentJoin = hybrid || (canLatent && input.joinFrom === "Latent");
+  // Auto (and "Latent", an older saved value): the exact latent whenever there is one; "Frames" asks for the frames
+  const latentJoin = canLatent && input.joinFrom !== "Frames";
   // the clip after's own latent: the clip lands on its first tokens (after that clip's own overlap, when it has one)
   const nextLatent = input.next ? uploads["next.latent"] : undefined;
   const nextAt = media.next?.latentAt ?? 0;
-  // only onto the clip after's very first frames: tokens sliced from inside a latent cover 3.4 frames each but are placed as a
-  // sequence's opening ones, and a landing 56 frames in came out 6 frames late (measured 2026-10-07). Further in: its frames
-  const latentLanding = Boolean(nextLatent && (media.next?.latentFrames ?? 0) >= nextAt + tail && nextAt === 0 && ctx.has(H3_HEAD_GUIDE));
-  return { head, tail, frames, seconds, ownSeconds, latentJoin, hybrid, latentLanding, nextAt, prevLatent, nextLatent };
+  // where one of its chunks begins (frame 17j), with the aligned landing; its very first frame with the head guide of an older
+  // pack. Anywhere else the tokens would be placed off their time (see H3_LANDING): its frames
+  const room = nextLatent !== undefined && (media.next?.latentFrames ?? 0) >= nextAt + tail;
+  const landingAt = room && nextAt % 17 === 0 && ctx.has(H3_LANDING);
+  const latentLanding = landingAt || (room && nextAt === 0 && ctx.has(H3_HEAD_GUIDE));
+  return { head, tail, frames, seconds, ownSeconds, latentJoin, latentLanding, nextAt, landingAt, prevLatent, nextLatent };
 }
 
 /** The frame: a timeline's canvas, else the clip it joins, else the picture it opens or ends on, else the shape picked. */

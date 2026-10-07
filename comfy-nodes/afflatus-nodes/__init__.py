@@ -1,13 +1,15 @@
 """Afflatus nodes for ComfyUI.
 
-Nine nodes, all for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels:
+Eleven nodes, all for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels:
 
 - Afflatus: Save H3 Latent / Load H3 Latent — a MiniMax H3 video+audio latent as one safetensors file
   (ComfyUI's own SaveLatent cannot store the nested pair); Normalize H3 Latent — a sampled window's audio
   rounded to its own frame boundary, so it can be continued from; Trim H3 Latent — its first frames, for a clip handed over before its end; H3 Tail Guide — the clip before's tail as
   the guide, its decoded frames re-encoded for the picture (a chain of exact latents drifts softer and darker)
   and its exact latent for the sound; H3 Latent Head Guide — the clip after's first tokens anchored at the
-  end of the window, for a clip that must land on another.
+  end of the window, for a clip that must land on another; H3 Latent Landing — the same from where any of its
+  17-frame chunks begins, for a clip that lands inside another; H3 Seam Latent — a continuation's new tokens after
+  the clip before's own last ones, so that decoded, the join is the whole chain's decoded at once.
 - MiniMax H3 Guided Continuation Window, Latent Tail Guide, Append Continuation — the native latent-tail
   continuation by ttulttul (MIT, see LICENSE-continuation), vendored unchanged.
 
@@ -24,9 +26,9 @@ from .continuation_nodes import (
     MiniMaxH3GuidedContinuationWindow,
     MiniMaxH3LatentTailGuide,
 )
-from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent
+from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent
 
-VERSION = "0.5.0"
+VERSION = "0.7.0"
 
 
 class AfflatusExtension(ComfyExtension):
@@ -38,6 +40,8 @@ class AfflatusExtension(ComfyExtension):
             AfflatusTrimH3Latent,
             AfflatusH3TailGuide,
             AfflatusH3LatentHeadGuide,
+            AfflatusH3LatentLanding,
+            AfflatusH3SeamLatent,
             MiniMaxH3GuidedContinuationWindow,
             MiniMaxH3LatentTailGuide,
             MiniMaxH3AppendContinuation,
