@@ -47,6 +47,9 @@ const listQuery = z.object({
 /** How many items a search looks through at most: the most recent ones. */
 const SEARCHED = 4000;
 
+/** What is kept but not shown in the library: a painted mask, a picture uploaded for the Prompt kit. */
+const NOT_IN_LIBRARY = ["mask", "kit"] as const;
+
 export function registerAssets(app: FastifyInstance, s: Services): void {
   /** The model files and the LoRAs a generation was made with. A generation never changes, so the answer is kept, for the most recent ones. */
   const MADE_WITH_KEPT = 20_000;
@@ -75,7 +78,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
 
   app.get("/api/assets", async (req) => {
     const q = listQuery.parse(req.query);
-    let query = s.db.selectFrom("assets").selectAll().where("deleted_at", q.bin ? "is not" : "is", null).where("origin", "!=", "mask");
+    let query = s.db.selectFrom("assets").selectAll().where("deleted_at", q.bin ? "is not" : "is", null).where("origin", "not in", NOT_IN_LIBRARY);
     if (q.kind) query = query.where("kind", "=", q.kind);
     if (q.folder === "none") query = query.where("folder_id", "is", null);
     else if (q.folder) query = query.where("folder_id", "=", q.folder);
@@ -149,7 +152,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const rows = await s.db
       .selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id")
       .select(["generations.id", "generations.recipe_id", "generations.inputs", "generations.resolved"])
-      .where("assets.deleted_at", "is", null).where("assets.origin", "!=", "mask")
+      .where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
       .execute();
     const models = new Map<string, number>();
     const loras = new Map<string, number>();
@@ -209,8 +212,11 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const picture = bytes && (await readPicture(bytes));
     const media = picture ? null : await probeMediaFile(up.path);
     if (!picture && !media) throw unreadable();
-    // the part of a picture painted over to redo it: kept, but it is not something to look at in the library
+    // the part of a picture painted over to redo it: kept, but it is not something to look at in the library. A picture
+    // uploaded for a person or a place of the Prompt kit: kept with them, not in the library either
     const mask = req.query.as === "mask";
+    const kit = req.query.as === "kit";
+    if (kit && !picture) throw httpError("a picture of the Prompt kit has to be an image");
     if (mask && !picture) throw httpError("the mask has to be an image");
     const id = newId();
     const mime = picture?.mime ?? media!.mime;
@@ -223,12 +229,12 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     if (thumb) await s.storage.put(thumbKey(id), thumb);
     const at = now();
     // into the folder named (a whole folder brought in from the computer: the folder made for each file; a drop: the folder open), else the project's root
-    const named = req.query.folder && !mask ? (await s.db.selectFrom("folders").select("id").where("id", "=", req.query.folder).executeTakeFirst())?.id ?? null : null;
-    const into = named ?? (!mask && req.query.project ? await rootFolderOf(s.db, req.query.project) : null);
+    const named = req.query.folder && !mask && !kit ? (await s.db.selectFrom("folders").select("id").where("id", "=", req.query.folder).executeTakeFirst())?.id ?? null : null;
+    const into = named ?? (!mask && !kit && req.query.project ? await rootFolderOf(s.db, req.query.project) : null);
     await s.db
       .insertInto("assets")
       .values(newAssetRow({
-        id, kind: picture ? "image" : media!.kind, origin: mask ? "mask" : "uploaded", name: String(req.query.name ?? "").slice(0, 200), file_key: key,
+        id, kind: picture ? "image" : media!.kind, origin: mask ? "mask" : kit ? "kit" : "uploaded", name: String(req.query.name ?? "").slice(0, 200), file_key: key,
         thumb_key: thumb ? thumbKey(id) : null, mime, bytes: up.bytes, width: picture?.width ?? facts?.width ?? null, height: picture?.height ?? facts?.height ?? null,
         duration_ms: media?.durationMs ?? null, fps: facts?.fps ?? null, has_sound: media?.kind === "audio" || facts?.hasSound ? 1 : 0,
         folder_id: into, generation_id: null, kept_at: at, linked_path: null, created_at: at,
@@ -236,7 +242,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
       .execute();
     // into a linked folder: it is a file of that directory at once
     if (into) await fileInLinked(id);
-    if (!mask) s.queue.events.emit("library");
+    if (!mask && !kit) s.queue.events.emit("library");
     return assetView(await asset(id));
   });
 

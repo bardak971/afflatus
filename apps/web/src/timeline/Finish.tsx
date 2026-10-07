@@ -16,7 +16,7 @@ const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: str
   { value: "model", label: "Pixel upscale model", detail: "an ESRGAN-type model, frame by frame: fast, sharp, may shimmer" },
 ];
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
-const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.25, latentSteps: 2, seedvrFrames: 0 };
+const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.2, latentSteps: 2, seedvrFrames: 0 };
 
 /**
  * Finish all clips: every clip's selected take brought to its final quality by an upscale route, as a
@@ -79,7 +79,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         {v.route === "latent" && (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="flex flex-col"><span className="text-xs font-semibold">Re-sample denoise</span><span className="text-xs text-ink-2">0.2 keeps the clip as it is, 0.3 to 0.4 draws real detail into it</span></span>
+              <span className="flex flex-col"><span className="text-xs font-semibold">Re-sample denoise</span><span className="text-xs text-ink-2">0.2 adds detail and keeps the clip; 0.25 and up invent small things (a bird, a moon); past 0.4 faces change</span></span>
               <NumberBox label="Re-sample denoise" value={v.latentDenoise} min={0.05} max={0.6} step={0.05} onCommit={(latentDenoise) => setV({ ...v, latentDenoise })} />
             </div>
             <div className="flex items-center justify-between gap-3">

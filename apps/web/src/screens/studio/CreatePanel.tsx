@@ -15,6 +15,7 @@ import { formDefaults, matchFiles } from "../../form";
 import { takePreset } from "../../handoff";
 import { aboutMs, notReady, recipeLabel, when } from "../../format";
 import { LookBar, lookWords } from "../../LookBar";
+import { CastPictures } from "../../castPictures";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { carryAcross, carryOver, modelGroups } from "../../picker";
 import { appendTo } from "../../promptText";
@@ -325,6 +326,7 @@ export function CreatePanel({ folder, onClose }: { folder: { id: string; name: s
           {d.saving === "failed" && <button type="button" onClick={d.retry} className="font-semibold underline underline-offset-2">Retry</button>}
         </span>
         {recipe && draft && (
+          <CastPictures recipe={recipe} input={whole} look={draft.look}>
           <Form
             key={`${draft.id}:${recipe.id}`}
             recipe={recipe}
@@ -349,6 +351,7 @@ export function CreatePanel({ folder, onClose }: { folder: { id: string; name: s
               />
             }
           />
+          </CastPictures>
         )}
       </ScrollColumn>
 

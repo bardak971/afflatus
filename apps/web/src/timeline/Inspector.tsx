@@ -12,6 +12,7 @@ import { FormModel } from "../ModelLoad";
 import { about, aboutMs, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
+import { CastPictures } from "../castPictures";
 import { Select } from "../Select";
 import { AutoText, Bar, Button, cx, ErrorNote, Help, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
 import { usePanelWidth } from "../store";
@@ -414,6 +415,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               const landing = recipe.inputs.find((i) => i.id === "landing" && i.type === "choice");
               const landingOptions = landing && landing.type === "choice" && Array.isArray(landing.options) ? landing.options : [];
               const formElement = (
+                  <CastPictures recipe={form} input={whole ?? stored} look={clip.look ?? timeline.look}>
                   <Form
                     key={`${clip.id}:${form.id}`}
                     recipe={form}
@@ -440,6 +442,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                       />
                     }
                   />
+                  </CastPictures>
               );
               if (!joins) return <div className="flex flex-col gap-2.5">{formElement}</div>;
               return (

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../../api";
-import { useRecipes, useSetup } from "../../data";
+import { useAsset, useRecipes, useSetup } from "../../data";
+import { Viewer } from "../../Viewer";
 import { useLoraWordsOf } from "../../fields";
 import { fileLabel } from "../../format";
 import { Picker, PictureField, SoundField } from "../../PictureField";
@@ -13,11 +14,16 @@ import { field, takes } from "./shared";
 /** The pictures of a person or a place: a row to add to and take from. */
 function Pictures({ value, onChange, what }: { value: string[]; onChange(value: string[]): void; what: string }) {
   const [picking, setPicking] = useState(false);
+  // a click shows the picture large
+  const [open, setOpen] = useState<string | null>(null);
+  const shown = useAsset(open);
   return (
     <div className="flex flex-wrap gap-2">
-      {value.map((id) => (
+      {value.map((id, i) => (
         <div key={id} className="relative">
-          <img src={thumbUrl(id)} alt="" className="h-28 w-24 rounded-lg border border-line object-cover" />
+          <button type="button" aria-label={`Show image ${i + 1} of ${what} large`} onClick={() => setOpen(id)} className="block cursor-zoom-in rounded-lg">
+            <img src={thumbUrl(id)} alt="" className="h-28 w-24 rounded-lg border border-line object-cover hover:border-accent" />
+          </button>
           <button type="button" aria-label="Remove this image" onClick={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/85 text-ink-2 hover:text-ink"><X size={11} /></button>
         </div>
       ))}
@@ -27,7 +33,9 @@ function Pictures({ value, onChange, what }: { value: string[]; onChange(value: 
           <span className="text-xs">Add image</span>
         </button>
       )}
-      {picking && <Picker title={`A reference image of ${what}`} onClose={() => setPicking(false)} onPick={(id) => { if (!value.includes(id)) onChange([...value, id]); setPicking(false); }} />}
+      {/* a file from the computer is kept with the person or place, not put in the library; one picked from the library stays there too */}
+      {picking && <Picker kit title={`A reference image of ${what}`} onClose={() => setPicking(false)} onPick={(id) => { if (!value.includes(id)) onChange([...value, id]); setPicking(false); }} />}
+      {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -134,7 +142,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
             </div>
             <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="Tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={field} />
             <AutoText rows={1} aria-label="The outfit in natural language" value={o.sentence} placeholder="Natural language: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={field} />
-            <PictureField label="Reference image of the clothes" optional value={o.picture} onChange={(picture) => setOutfit(o.id, { picture: picture ?? null })} />
+            <PictureField kit label="Reference image of the clothes" optional value={o.picture} onChange={(picture) => setOutfit(o.id, { picture: picture ?? null })} />
           </div>
         ))}
         <span><Button size="sm" onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: crypto.randomUUID(), name: "", tags: "", sentence: "", picture: null }] })}><Plus size={13} /> New outfit</Button></span>

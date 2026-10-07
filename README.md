@@ -28,13 +28,13 @@ Step by step, per way of running it: [Windows, Linux and macOS](docs/install-des
 
 **Studio** is the library and the place things are made. Folders and projects, a search over prompts and names, filters by kind, model and LoRA, and the Create shelf on the left: a form per model family with its defaults taken from ComfyUI's own templates and the models' authors, and the operations each family has (text to picture, picture to picture, inpainting, outpainting, upscaling, a face detailer, references of a person, variations). Several results at once with the seed kept, moved up or down, or random. Every file keeps the settings it was made with; a right-click on any tile gives everything that can be done with it, and the viewer opens it large with a compare mode for two takes side by side.
 
-**Timelines** are videos made of clips that follow each other. A clip is a form of its own with several takes; the next clip can carry on from the one before, so the motion and the voices continue across the cut (for MiniMax H3 the join is made in the model's own latent, through the node pack, and the editor measures how clean each join came out). Pictures are held as stills or open a clip; a sound goes under a clip or under the whole video; a trim with scene detection; an export as one video with its colour matched across the cuts. The Media tab in the editor opens your whole library over the stage to drag from. A picture, a video or a selection in the Studio becomes a timeline in one click.
+**Timelines** are videos made of clips that follow each other. A clip is a form of its own with several takes; the next clip can carry on from the one before, so the motion and the voices continue across the cut. For MiniMax H3 the join is made in the model's own latent and decoded as one piece with the clip before, so it plays as a plain cut, as if the whole chain had been rendered at once; the editor measures how clean each join came out. **Finish** brings every clip to its final size in one go: SeedVR2 (restores and enlarges), RTX Video Super Resolution, an upscale model, or for H3 clips a re-sample of the draft's own latent that keeps the motion and the seamless joins. Pictures are held as stills or open a clip; a sound goes under a clip or under the whole video; a trim with scene detection; an export as one video with its colour matched across the cuts. The Media tab in the editor opens your whole library over the stage to drag from. A picture, a video or a selection in the Studio becomes a timeline in one click.
 
 **Prompt kit** holds what you write once and use everywhere: people with their reference pictures, places, styles, snippets, and presets. A preset is an operation with its settings and the files it needs; the ones that ship with Afflatus say what is missing and fetch it through ComfyUI-Manager when you allow it.
 
 **Workflows** are your own ComfyUI graphs, imported from the file the editor saves and used like any other form, with the inputs you mark as the form's fields.
 
-**Queue** shows what is rendering with a live preview, what waits, what finished and what failed and why, with the model loads and the times per step kept as statistics; from those, each form says how long its render will take before you press the button.
+**Queue** shows what is rendering with a live preview, what waits, what finished and what failed and why, with the model loads and the times per step kept as statistics; from those, each form says how long its render will take before you press the button. Render times break the GPU's time down by model and phase, chart the upscales' speed (per second of video, per megapixel), and flag the jobs that ran out of video memory, live while one does.
 
 **Settings** look after the machine: which models are ready, downloads, newer versions of your models on Civitai, the language model, the prompting guides the designer follows per family, appearance, storage and backups, and the start-up checks for the tools Afflatus needs.
 
@@ -45,8 +45,8 @@ Step by step, per way of running it: [Windows, Linux and macOS](docs/install-des
 | SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL and the rest | text to picture, redraw, paint over, outpaint, upscale, face detailer |
 | FLUX.2 Klein | the 4B base and its fine-tunes | picture, edit by instruction, variation, paint over, outpaint, upscale, face detailer |
 | Krea 2 | | picture, redraw, paint over, upscale, face detailer |
-| FLUX.1 | dev and Kontext | picture, edit, redraw, paint over, outpaint, upscale, face detailer |
-| Qwen Image | 2512, and Qwen Image Edit | picture, edit, redraw, paint over, outpaint, upscale, face detailer |
+| FLUX.1 | dev and Kontext (built from the model cards; not yet run against the models) | picture, edit, redraw, paint over, outpaint, upscale, face detailer |
+| Qwen Image | 2512, and Qwen Image Edit (built from the model cards; not yet run against the models) | picture, edit, redraw, paint over, outpaint, upscale, face detailer |
 | Qwen Image 2.1 | | picture, edit |
 | MiniMax H3 | video with sound: text, a first frame, first and last frames, references, a clip that carries on | the timeline's native model |
 | Wan 2.2 | | video |
@@ -57,11 +57,27 @@ The default files of each family come from ComfyUI's own repackaged releases on 
 
 ### Node packs it uses
 
-Everything above runs on ComfyUI's own nodes, plus:
+Everything runs on ComfyUI's own nodes first. Some forms and options need a custom node pack on top. Each is used only where it is needed: a form or a route that lacks its pack says which one, how to install it (ComfyUI-Manager, or the repository to clone into `custom_nodes`), and that ComfyUI has to be restarted after, both on the form before you press Generate and in the queue if a render needs it.
 
-- **Afflatus's node pack**, written into ComfyUI by Settings or unpacked by hand: MiniMax H3 clips that continue from the clip before's own latent, and the reading of model files through ComfyUI. MIT, in [comfy-nodes](comfy-nodes).
-- **ComfyUI-Manager**, for downloads, as above, and for the node packs an imported workflow needs: the import lists what your ComfyUI lacks, pack by pack, with one button that has Manager install them and another that restarts ComfyUI once they are in.
-- Optional, each used only when present and said so in Settings when missing: the **Impact pack** for the face detailer, a **RIFE** model in `models/frame_interpolation` for 48 fps videos, **SeedVR2** for the restoring upscale, the **MiniMax H3 pack by DaSiWa** for the step cache, the re-sampled latent upscale and RTX Video Super Resolution (NVIDIA's own node does for the last), and **KJNodes** for the live preview of a video while it renders.
+| Pack | What it unlocks |
+|---|---|
+| **afflatus-nodes**, Afflatus's own (MIT, in [comfy-nodes](comfy-nodes)) | MiniMax H3 clips that carry on from the clip before's own latent: seamless joins on the timeline, landings on the clip after, and the H3 latent re-sample finish. Settings → ComfyUI writes it into ComfyUI when both are on one machine; otherwise unpack the copy that page offers |
+| [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) | Downloads of missing models, and installing the packs an imported workflow needs (one button per pack, another to restart ComfyUI) |
+| [Comfyui-MMH3-UltimateUpscale](https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale) | H3's latent re-sample: the "Latent: re-sampled" upscale and the H3 finish route |
+| [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) | H3's step cache; the RTX upscaler and refiner node |
+| [Nvidia_RTX_Nodes_ComfyUI](https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI) | The RTX Video Super Resolution upscale and finish route (NVIDIA cards) |
+| [ComfyUI-Impact-Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and [Impact-Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack) | The face detailer |
+| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | The live preview of a video while it renders; SageAttention and torch compile speed-ups |
+| [ComfyUI-Detail-Daemon](https://github.com/Jonseed/ComfyUI-Detail-Daemon) | The detail boost option |
+| [comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux) | The ControlNet guide's pose and depth preprocessors |
+| [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) | Video saving on older ComfyUI versions (newer ones save videos themselves) |
+| [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) | GGUF model files |
+
+Models rather than packs: a **RIFE** model in `models/frame_interpolation` for 48 fps videos and slow motion, and **SeedVR2**'s two files for the restoring upscale and finish.
+
+### Model licences
+
+The models are other people's work under their own licences, and you accept those when you download them, not Afflatus. The shipped presets name and link models; they bundle nothing, and each shows its licence and asks you to accept it once before the first download. Read them: several are community licences with a revenue ceiling for commercial use and an acceptable-use policy, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States** (its "Excluded Territories"). It also asks that machine-made content shown in public be disclosed as such.
 
 ## Running it
 
@@ -77,7 +93,9 @@ The image is `ghcr.io/bardak971/afflatus`, tagged like the release and `latest`,
 
 When Afflatus runs on another machine than ComfyUI (a server with ComfyUI on your PC), ComfyUI must listen on the network (`--listen`), and Afflatus needs `PUBLIC_URL` set to the address ComfyUI can reach it at, so that ComfyUI-Manager can fetch downloads through it.
 
-Nothing leaves your computer unless you turn on a download or a lookup. There is no account and no password: Afflatus listens on localhost unless told otherwise, and is meant to be reached on your own machine or network, behind whatever you already use to reach the rest of it.
+Nothing leaves your computer unless you turn on a download or a lookup.
+
+> **There is no login.** Whoever can reach Afflatus's port can use it: your library, your settings and your GPU. It listens on localhost unless told otherwise. On a network, keep it to one you trust, and never publish it to the internet as it is: put a reverse proxy with its own authentication in front (the Docker and Kubernetes guides say how). It does refuse requests for host names that are not its own, so a web page in your browser cannot drive it.
 
 ### From the sources
 
@@ -113,7 +131,7 @@ corepack pnpm check:graphs   # builds every recipe variant and checks it against
 
 Three scripts talk to a ComfyUI, all read-only: `comfy:scan <url>` (what is ready), `comfy:load <url>` (the machine's load), `catalog:save <url>` (refresh the reference node list, with model file names removed).
 
-A release is a tag: `git tag v0.2.0 && git push --tags` runs the tests, builds the image and the three bundles, and publishes a GitHub release with them ([.github/workflows/release.yml](.github/workflows/release.yml)). The staging and packing scripts are in [scripts/release](scripts/release). How the parts fit, the conventions and the checks are in [docs/develop.md](docs/develop.md); the design notes are in [docs](docs) too: the architecture, the prompting research behind the designer's guides, and the plans of the larger parts.
+A release is a tag: `git tag v0.2.0 && git push --tags` runs the tests, builds the image and the three bundles, and publishes a GitHub release with them ([.github/workflows/release.yml](.github/workflows/release.yml)). The same workflow run by hand from the Actions tab is a dry run: it builds everything, keeps the bundles as the run's artifacts to try, and publishes nothing. The staging and packing scripts are in [scripts/release](scripts/release). How the parts fit, the conventions and the checks are in [docs/develop.md](docs/develop.md); the design notes are in [docs](docs) too: the architecture, the prompting research behind the designer's guides, and the plans of the larger parts.
 
 ## License
 

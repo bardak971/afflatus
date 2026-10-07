@@ -94,6 +94,10 @@ describe("people, places and styles", () => {
     expect(made.input.subject).toBe("She has brown hair and green eyes. She wears a white summer dress.");
     expect(made.input.description).toBe("A terrace above a bay. She waves at a boat. Shot on film, warm light.");
     expect(made.added).toMatchObject({ references: 4, voice: "Her" });
+    // and whose each one is, for the form to show them in the reference field
+    expect(made.added.refs).toEqual([
+      { asset: c.front, role: "person", from: "Her" }, { asset: c.side, role: "person", from: "Her" }, { asset: c.dress, role: "clothing", from: "Her" }, { asset: c.terrace, role: "place", from: "The terrace" },
+    ]);
 
     await post(t.app, "/api/jobs", { recipe: "h3.video", input: { description: "She waves at a boat." }, look });
     await until(() => fake.prompts.size === 1);
@@ -146,6 +150,25 @@ describe("people, places and styles", () => {
     const d = (await post(t.app, "/api/drafts", { recipe: "h3.video", look: { cast: [{ id: c.her, outfit: "dress" }], style: c.style } })).json();
     expect(d.look).toEqual({ cast: [{ id: c.her, outfit: "dress" }], style: c.style, snippets: [] });
     expect((await put(`/api/drafts/${d.id}`, { look: null })).look).toBeNull();
+  });
+});
+
+describe("pictures uploaded for the Prompt kit", () => {
+  it("are kept with the person, not shown in the library, and go to the bin once no one names them", async () => {
+    const kit = (await t.app.inject({ method: "POST", url: "/api/assets?name=face.png&as=kit", headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(64, 96, [200, 120, 40], [40, 60, 160])) })).json().id as string;
+    const mine = await picture("mine.png");
+    const listed = async () => ((await get(t.app, "/api/assets?kind=image")).json().items as Array<{ id: string }>).map((x) => x.id);
+    expect(await listed()).toEqual([mine]);
+    const her = (await post(t.app, "/api/entities", { kind: "person", name: "Her" })).json();
+    await put(`/api/entities/${her.id}`, { def: { pictures: [kit, mine] } });
+    // the person's pictures work as references all the same
+    const made = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "a" }, look: { cast: [{ id: her.id }] } })).json();
+    expect(made.added.refs.map((r: { asset: string }) => r.asset)).toEqual([kit, mine]);
+    // taken off her: the uploaded one goes to the bin, the library's own stays where it is
+    await put(`/api/entities/${her.id}`, { def: { pictures: [mine] } });
+    const gone = await t.db.selectFrom("assets").select(["id", "deleted_at"]).where("id", "in", [kit, mine]).execute();
+    expect(gone.find((x) => x.id === kit)?.deleted_at).not.toBeNull();
+    expect(gone.find((x) => x.id === mine)?.deleted_at).toBeNull();
   });
 });
 

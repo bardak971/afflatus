@@ -9,6 +9,14 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # a dry run from the Actions tab: the tests, the image built (not pushed) and the three bundles (as the run's
+  # artifacts, to download and try), and no release
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version written into the bundles"
+        default: "v0.0.0-dry"
+        required: false
 
 # nothing writes by default: the jobs that publish ask for what they publish
 permissions:
@@ -16,6 +24,8 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/afflatus
+  VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+  PUBLISH: ${{ github.event_name == 'push' }}
 
 jobs:
   test:
@@ -42,6 +52,7 @@ jobs:
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -59,10 +70,10 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: AFFLATUS_VERSION=${{ github.ref_name }}
+          build-args: AFFLATUS_VERSION=${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # no provenance artifact: the release takes the bundles only
@@ -85,8 +96,8 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: node scripts/release/stage.mjs
-        env: { AFFLATUS_VERSION: "${{ github.ref_name }}" }
-      - run: node scripts/release/bundle.mjs --platform ${{ matrix.platform }} --version ${{ github.ref_name }}
+        env: { AFFLATUS_VERSION: "${{ env.VERSION }}" }
+      - run: node scripts/release/bundle.mjs --platform ${{ matrix.platform }} --version ${{ env.VERSION }}
         # the GitHub API that lists the ffmpeg release's files is rate-limited without a token
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -97,6 +108,7 @@ jobs:
 
   release:
     needs: [image, bundles]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # creates the GitHub release and uploads the bundles to it
     permissions:

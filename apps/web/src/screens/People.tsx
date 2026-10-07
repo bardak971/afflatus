@@ -225,7 +225,7 @@ export function People() {
                       <Button size="sm" onClick={() => savePresetFile(editing)} title="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
                     </>
                   )}
-                  <TwoStep title={`Delete ${editing.name}`} icon={<Trash2 size={15} />} note={editing.kind === "person" || editing.kind === "place" ? "Its reference images stay in your library." : "It cannot be brought back."} yes="Delete" cancel="Keep" onYes={() => remove.mutate(editing.id)} className="h-9 w-9 rounded-lg" />
+                  <TwoStep title={`Delete ${editing.name}`} icon={<Trash2 size={15} />} note={editing.kind === "person" || editing.kind === "place" ? "Images picked from your library stay there; images uploaded here go to the bin with it." : "It cannot be brought back."} yes="Delete" cancel="Keep" onYes={() => remove.mutate(editing.id)} className="h-9 w-9 rounded-lg" />
                   <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
                 </div>
                 {editing.kind === "person" && <PersonEditor def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}

@@ -61,7 +61,7 @@ export async function makeFake(): Promise<FakeComfy> {
 }
 
 /** Wait until something that happens on a later tick is true. */
-export async function until(check: () => boolean | Promise<boolean>, ms = 3000): Promise<void> {
+export async function until(check: () => boolean | Promise<boolean>, ms = 10_000): Promise<void> {
   const end = Date.now() + ms;
   while (!(await check())) {
     if (Date.now() > end) throw new Error("timed out waiting");

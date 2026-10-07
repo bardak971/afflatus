@@ -8,6 +8,8 @@ import { api, fileUrl, thumbUrl, type Asset } from "./api";
 import { Dialog } from "./Dialog";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
+import { Viewer } from "./Viewer";
+import type { CastPicture } from "./castPictures";
 import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
@@ -16,10 +18,10 @@ import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
 import { LoadMore } from "./LoadMore";
 
 /** Send a picture from this computer to the library, then hand it over. */
-function useUpload(onDone: (asset: Asset) => void) {
+function useUpload(onDone: (asset: Asset) => void, kit = false) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => api.upload(file, { project: projectForNew() }),
+    mutationFn: (file: File) => (kit ? api.upload(file, { kit: true }) : api.upload(file, { project: projectForNew() })),
     onSuccess: (asset) => {
       void client.invalidateQueries({ queryKey: ["assets"] });
       onDone(asset);
@@ -31,7 +33,7 @@ const WORD = { image: "image", video: "video", audio: "audio file" } as const;
 const ACCEPT = { image: "image/png,image/jpeg,image/webp", video: "video/mp4,video/webm", audio: "audio/*" } as const;
 
 /** Every picture (or every video, or every sound) in the library, to pick one from; or bring one in from the computer. */
-export function Picker({ title, kind = "image", onPick, onClose }: { title: string; kind?: "image" | "video" | "audio"; onPick(id: string): void; onClose(): void }) {
+export function Picker({ title, kind = "image", kit, onPick, onClose }: { title: string; kind?: "image" | "video" | "audio"; /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */ kit?: boolean; onPick(id: string): void; onClose(): void }) {
   // found by prompt and name; within the project the switcher looks at, or everything
   const [typed, setTyped] = useState("");
   const q = useSettled(typed.trim());
@@ -43,7 +45,7 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
   const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined }, kind === "audio");
   const sounding = kind === "audio" ? (videos.data?.pages.flatMap((p) => p.items) ?? []).filter((a) => a.hasSound) : [];
   const file = useRef<HTMLInputElement>(null);
-  const upload = useUpload((a) => onPick(a.id));
+  const upload = useUpload((a) => onPick(a.id), kit);
 
   return (
     <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-2xl border border-line-strong bg-panel">
@@ -135,14 +137,19 @@ export function Picker({ title, kind = "image", onPick, onClose }: { title: stri
  * A slot for one picture. It holds the library item's id: a picture from the computer goes to the
  * library first, so that what was used can always be found again.
  */
-export function PictureField({ label, optional, value, onChange }: {
+export function PictureField({ label, optional, kit, value, onChange }: {
   label: string;
   optional: boolean;
+  /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */
+  kit?: boolean;
   value: string | null;
   onChange(value: string | undefined): void;
 }) {
   const [picking, setPicking] = useState(false);
-  const upload = useUpload((a) => onChange(a.id));
+  const upload = useUpload((a) => onChange(a.id), kit);
+  // a click on the picture shows it large
+  const [open, setOpen] = useState(false);
+  const shown = useAsset(open ? value : null);
   // a picture of the library, or a picture file from the computer (a picture slot takes pictures only)
   const drop = useDropZone([DRAG_PICTURE], onChange, (file) => file.type.startsWith("image/") && upload.mutate(file));
 
@@ -154,7 +161,9 @@ export function PictureField({ label, optional, value, onChange }: {
       </div>
       {value ? (
         <div {...drop.props} className={cx("flex items-center gap-3 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
-          <img src={thumbUrl(value)} alt={label} className="h-[72px] w-[72px] shrink-0 rounded-md object-cover" />
+          <button type="button" aria-label={`Show ${label.toLowerCase()} large`} onClick={() => setOpen(true)} className="shrink-0 cursor-zoom-in rounded-md">
+            <img src={thumbUrl(value)} alt={label} className="h-[72px] w-[72px] rounded-md object-cover" />
+          </button>
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
             {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
@@ -175,6 +184,7 @@ export function PictureField({ label, optional, value, onChange }: {
       {picking && (
         <Picker
           title={label}
+          kit={kit}
           onClose={() => setPicking(false)}
           onPick={(id) => {
             onChange(id);
@@ -182,6 +192,7 @@ export function PictureField({ label, optional, value, onChange }: {
           }}
         />
       )}
+      {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(false)} />}
     </div>
   );
 }
@@ -272,7 +283,7 @@ export const ROLE_WORDS: Record<ReferenceRole, { label: string; note: string }> 
  * Several pictures the result follows without them being frames of it. Each says what it shows: a
  * person (two or three angles hold a face better than one), a place, clothes, an object, a look.
  */
-export function ReferencesField({ label, note, max, roles, video, value, onChange }: {
+export function ReferencesField({ label, note, max, roles, video, value, onChange, cast = [] }: {
   label: string;
   note?: string;
   max: number;
@@ -281,8 +292,12 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
   video?: boolean;
   value: ReferenceValue[];
   onChange(value: ReferenceValue[]): void;
+  /** The cast's pictures, added when the form is sent (after these, in the room left): shown, kept by the person. */
+  cast?: CastPicture[];
 }) {
   const explain = useExplain((st) => st.on);
+  const [open, setOpen] = useState<string | null>(null);
+  const shown = useAsset(open);
   const [picking, setPicking] = useState(false);
   const add = (asset: string) => !value.some((v) => v.asset === asset) && value.length < max && onChange([...value, { asset, role: roles[0]! }]);
   // a file from the computer goes into the library and is added here
@@ -292,11 +307,13 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
-        <span className="text-xs text-ink-2">{value.length} of {max}</span>
+        <span className="text-xs text-ink-2">{value.length + cast.length} of {max}</span>
       </div>
       {value.map((ref, i) => (
         <div key={ref.asset} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
-          <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
+          <button type="button" aria-label={`Show reference ${i + 1} large`} onClick={() => setOpen(ref.asset)} className="shrink-0 cursor-zoom-in rounded-md">
+            <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 rounded-md object-cover" />
+          </button>
           <div className="min-w-0 grow">
             {roles.length === 1 && <span className="text-ink-2">{video ? `Video ${i + 1}` : `Image ${i + 1}`}: {ROLE_WORDS[ref.role].label.toLowerCase()}</span>}
             {roles.length > 1 && <Select
@@ -310,6 +327,15 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
           <button type="button" aria-label={`Remove reference ${video ? "video" : "image"} ${i + 1}`} onClick={() => onChange(value.filter((_v, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
         </div>
       ))}
+      {cast.map((c) => (
+        <div key={`cast:${c.asset}`} className="flex items-center gap-2.5 rounded-lg border border-dashed border-line-strong p-1.5" title={`Added from the cast when the form is sent. Take ${c.from} out of the cast to leave it out; your own images come first.`}>
+          <button type="button" aria-label={`Show ${c.from}'s reference large`} onClick={() => setOpen(c.asset)} className="shrink-0 cursor-zoom-in rounded-md">
+            <img src={thumbUrl(c.asset)} alt="" className="h-12 w-12 rounded-md object-cover opacity-90" />
+          </button>
+          <span className="min-w-0 grow text-ink-2"><span className="font-semibold text-ink">{c.from}</span> · {ROLE_WORDS[c.role].label.toLowerCase()}<span className="block text-xs text-ink-3">from the cast</span></span>
+        </div>
+      ))}
+      {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(null)} />}
       {value.length < max && (
         <button
           type="button"

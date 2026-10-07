@@ -1,4 +1,5 @@
 import type { RecipeStatus } from "./api";
+import { missingNodesSaid } from "@afflatus/core";
 
 /** "42 s", "3 min 05 s". */
 export function took(ms: number): string {
@@ -73,7 +74,7 @@ export function problemSaid(problem: string): string {
 export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean): string | null {
   if (!comfyOnline) return "ComfyUI is not answering.";
   if (!status || status.ready) return null;
-  if (status.missingNodes.length) return `ComfyUI is missing nodes: ${status.missingNodes.join(", ")}.`;
+  if (status.missingNodes.length) return missingNodesSaid(status.missingNodes);
   if (status.missingSlots.length) return "A model file it needs was not found.";
   if (status.emptyInputs.length) return "There is no model to pick on your ComfyUI.";
   if (status.missingFiles.length) return `ComfyUI does not have ${status.missingFiles.join(", ")}.`;

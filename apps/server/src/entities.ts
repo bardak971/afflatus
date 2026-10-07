@@ -1,4 +1,4 @@
-import type { InputSpec, LoraValue, Recipe, ReferenceValue } from "@afflatus/core";
+import type { InputSpec, LoraValue, Recipe, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -86,7 +86,21 @@ const view = (e: Tables["entities"]) => ({ id: e.id, kind: e.kind, name: e.name,
 /** What was added to a form for its cast and its style, to show before it is sent. */
 export interface Composed {
   input: Record<string, unknown>;
-  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; voice: string | null; skipped: string[] };
+  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: ReferenceRole; from: string }>; voice: string | null; skipped: string[] };
+}
+
+/** The pictures (and outfit pictures) an entity's definition names. */
+const picturesOf = (def: string): string[] => {
+  const d = JSON.parse(def) as { pictures?: string[]; outfits?: Array<{ picture?: string | null }> };
+  return [...(d.pictures ?? []), ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
+};
+
+/** Pictures uploaded for the Prompt kit that no person or place names any more: to the bin (the library never shows them). */
+async function binUnwantedKit(db: Db, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const wanted = new Set((await db.selectFrom("entities").select("def").where("kind", "in", ["person", "place"]).execute()).flatMap((e) => picturesOf(e.def)));
+  const gone = ids.filter((id) => !wanted.has(id));
+  if (gone.length) await db.updateTable("assets").set({ deleted_at: now() }).where("id", "in", gone).where("origin", "=", "kit").where("deleted_at", "is", null).execute();
 }
 
 /** How many pictures of one person, and of one place, are handed to a model that takes reference pictures. */
@@ -112,7 +126,7 @@ export function withMood(recipe: Recipe<any>, input: Record<string, unknown>, mo
  */
 export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, unknown>, look: Look | null | undefined): Promise<Composed> {
   const input = { ...raw };
-  const added: Composed["added"] = { words: [], loras: [], references: 0, voice: null, skipped: [] };
+  const added: Composed["added"] = { words: [], loras: [], references: 0, refs: [], voice: null, skipped: [] };
   if (emptyLook(look)) return { input, added };
   const ids = [...look!.cast.map((c) => c.id), ...(look!.style ? [look!.style] : []), ...(look!.snippets ?? [])];
   const rows = ids.length ? await db.selectFrom("entities").selectAll().where("id", "in", ids).execute() : [];
@@ -130,7 +144,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const places: string[] = [];
   const looks: string[] = [];
   const bits: string[] = [];
-  const refs: ReferenceValue[] = [];
+  const refs: Array<ReferenceValue & { from: string }> = [];
   const loras: Array<LoraValue & { from: string }> = [];
   let voice: { asset: string; from: string } | null = null;
 
@@ -147,8 +161,8 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
         added.words.push({ from: row.name, text: words });
       }
       if (m?.lora) loras.push({ file: m.lora, weight: m.weight, from: row.name });
-      for (const asset of p.pictures.slice(0, PICTURES.person)) refs.push({ asset, role: "person" });
-      if (worn?.picture) refs.push({ asset: worn.picture, role: "clothing" });
+      for (const asset of p.pictures.slice(0, PICTURES.person)) refs.push({ asset, role: "person", from: row.name });
+      if (worn?.picture) refs.push({ asset: worn.picture, role: "clothing", from: row.name });
       if (p.voice && !voice) voice = { asset: p.voice, from: row.name };
     } else if (row.kind === "place") {
       const p = defs.place.parse(JSON.parse(row.def)) as PlaceDef;
@@ -157,7 +171,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
         places.push(words);
         added.words.push({ from: row.name, text: words.trim() });
       }
-      for (const asset of p.pictures.slice(0, PICTURES.place)) refs.push({ asset, role: "place" });
+      for (const asset of p.pictures.slice(0, PICTURES.place)) refs.push({ asset, role: "place", from: row.name });
     }
   }
   // the ticked snippets, in the order they were ticked
@@ -186,8 +200,9 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
     const have = Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as ReferenceValue[]) : [];
     const alive = new Set((await db.selectFrom("assets").select("id").where("id", "in", refs.map((r) => r.asset)).where("deleted_at", "is", null).where("kind", "=", "image").execute()).map((a) => a.id));
     const more = refs.filter((r) => alive.has(r.asset) && refSpec.roles.includes(r.role) && !have.some((h) => h.asset === r.asset));
-    const all = [...have, ...more].slice(0, refSpec.max);
+    const all = [...have, ...more.map(({ asset, role }) => ({ asset, role }))].slice(0, refSpec.max);
     added.references = all.length - have.length;
+    added.refs = more.slice(0, added.references);
     if (more.length > added.references) added.skipped.push(`${more.length - added.references} reference picture${more.length - added.references > 1 ? "s" : ""} did not fit: this model takes ${refSpec.max}`);
     input[refSpec.id] = all;
     withRefs = all.length > 0;
@@ -260,6 +275,8 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     if (!row) throw missing();
     const next = { name: b.name ?? row.name, def: b.def === undefined ? row.def : JSON.stringify(defs[row.kind].parse(b.def)), updated_at: now() };
     await s.db.updateTable("entities").set(next).where("id", "=", row.id).execute();
+    // a picture uploaded for them and taken off again, wanted by no one else: to the bin
+    if (b.def !== undefined) await binUnwantedKit(s.db, picturesOf(row.def).filter((id) => !picturesOf(next.def).includes(id)));
     // their pictures and voices are wanted: they never go to the bin on their own
     if (b.def !== undefined && (row.kind === "person" || row.kind === "place")) {
       const d = JSON.parse(next.def) as { pictures: string[]; voice?: string | null; outfits?: Array<{ picture: string | null }> };
@@ -272,8 +289,11 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
 
   app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
     if (req.params.id.startsWith(SHIPPED)) throw builtIn();
+    const row = await s.db.selectFrom("entities").select("def").where("id", "=", req.params.id).executeTakeFirst();
     const r = await s.db.deleteFrom("entities").where("id", "=", req.params.id).executeTakeFirst();
     if (!Number(r.numDeletedRows)) throw missing();
+    // the pictures uploaded for them (not those picked from the library), wanted by no one else: to the bin
+    if (row) await binUnwantedKit(s.db, picturesOf(row.def));
     changed();
     return { ok: true };
   });

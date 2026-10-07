@@ -13,6 +13,7 @@ import { Select, type Option } from "./Select";
 import { AutoText, cx, NumberBox, Segmented, Toggle, Help, Note } from "./ui";
 import { ModelLink } from "./ModelLink";
 import { useExplain } from "./store";
+import { useCastPictures } from "./castPictures";
 import { useSeedMode, type SeedMode } from "./seedMode";
 
 /**
@@ -365,6 +366,8 @@ export function Field({ spec, value, values, options, family, model, onChange, o
 }) {
   const id = useId();
   const explain = useExplain((st) => st.on);
+  // the pictures the form's cast adds to this reference input when it is sent
+  const cast = useCastPictures(spec.id);
   switch (spec.type) {
     case "prompt":
       return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} />;
@@ -453,7 +456,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
       return <PictureField label={spec.label} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange} />;
 
     case "references":
-      return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} video={spec.media === "video"} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} />;
+      return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} video={spec.media === "video"} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} cast={cast} />;
 
     case "audio":
       return (

@@ -267,7 +267,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
         if (why) { skipped.push({ clip: i + 1, why }); continue; }
         const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", draft.asset.id).executeTakeFirst();
         if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
-        jobs.push(await s.queue.enqueue(gen.recipe, { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.25, upscaleSteps: b.latentSteps ?? 2 }, {
+        jobs.push(await s.queue.enqueue(gen.recipe, { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.2, upscaleSteps: b.latentSteps ?? 2 }, {
           label, clip: { id: clip.id, fit: false }, look: clip.look ?? view.look, folder, finishedFrom: from,
         }));
         continue;

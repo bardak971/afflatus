@@ -1,4 +1,4 @@
-import { baseModels, mainModel, modelOf, timeKey, checkGraph, choicesOf, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { baseModels, mainModel, missingNodesSaid, modelOf, timeKey, checkGraph, choicesOf, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { forecast, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, referenceClip, soundPart } from "./cut";
@@ -45,7 +45,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
   const chosen = settled(recipe, input, catalog);
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
-  if (missing.length) throw new Error(`ComfyUI is missing custom nodes this needs: ${missing.join(", ")}`);
+  if (missing.length) throw new Error(missingNodesSaid(missing));
   const slotFiles = await slots(core, comfy, recipe);
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
