@@ -153,6 +153,35 @@ class AfflatusNormalizeH3Latent(io.ComfyNode):
         return io.NodeOutput({"samples": NestedTensor((video, audio))}, frames)
 
 
+class AfflatusTrimH3Latent(io.ComfyNode):
+    """The first frames of an H3 video+audio latent: a clip handed over before its end is continued from there."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusTrimH3Latent",
+            display_name="Afflatus: Trim H3 Latent",
+            category="Afflatus",
+            description="Keeps the first frames of a MiniMax H3 video+audio latent (a count on the 17k + 5 grid): the video tokens that hold them and the audio up to their last frame. A clip that ends frozen is continued from where it still moved.",
+            inputs=[
+                io.Latent.Input("samples", tooltip="A MiniMax H3 latent (video and audio)."),
+                io.Int.Input("frames", default=5, min=5, max=100000, tooltip="How many frames to keep, on the 17k + 5 grid (5, 22, 39, …)."),
+            ],
+            outputs=[io.Latent.Output(display_name="latent"), io.Int.Output(display_name="frames")],
+        )
+
+    @classmethod
+    def execute(cls, samples, frames: int = 5) -> io.NodeOutput:
+        video, audio = _extract_h3_av_streams(samples, name="samples")
+        have = frame_count_from_video_latent_t(int(video.shape[2]))
+        if frames > have:
+            raise ValueError(f"the latent holds {have} frames, fewer than the {frames} to keep")
+        tokens = video_latent_t(frames)
+        video = video[:, :, :tokens]
+        audio = audio[..., : audio_t_at_frame_boundary(frames)]
+        return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))}, frames)
+
+
 class AfflatusH3LatentHeadGuide(io.ComfyNode):
     """Anchor the first tokens of the clip after at the end of a continuation window: the clip arrives at it."""
 

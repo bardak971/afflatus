@@ -232,7 +232,9 @@ describe.skipIf(!three)("a timeline", () => {
     expect(guide[0]!.inputs.frame_idx).toBe(-22);
     const v = await view(id);
     expect(v.clips[0].takes).toHaveLength(2);
-    expect(v.clips[0]).toMatchObject({ lengthMs: 3000 - 917, take: { tailMs: 917 } });
+    // it lands on the clip after: it plays on four frames into its tail (guided by that clip's frames), and the clip after starts as much later
+    expect(v.clips[0]).toMatchObject({ lengthMs: 3000 - 917 + 167, take: { tailMs: 917 } });
+    expect(v.clips[1].take.landedMs).toBe(167);
     expect(v.clips[1].join).toBe("fresh");
   });
 

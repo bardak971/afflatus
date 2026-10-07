@@ -137,7 +137,9 @@ export class TimelineMedia {
       const x = p.clip.kind === "video" ? p.active : null;
       if (x && before) {
         const a = await mean(before, Math.max(0, visible(before).end - MATCH.lookSec * 1000));
-        const b = await mean(x, visible(x).start);
+        // a continuation's shared frames show the moments the clip before ends on: compared there, a colour step is a real one
+        const sharedBefore = x.take.head_ms - x.take.trim_start_ms - (x.take.lead_ms ?? 0);
+        const b = await mean(x, sharedBefore >= MATCH.lookSec * 1000 ? visible(x).start - MATCH.lookSec * 1000 : visible(x).start);
         carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
       } else carry = { y: 0, u: 0, v: 0 };
       out.push({ clip: p.clip.id, ...carry });

@@ -163,6 +163,15 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const misfit = otherShape(clip, timeline) && shown?.width && shown.height && timeline.width && timeline.height
     ? `This ${still ? "still" : "clip"} is ${shapes[shapeOf(shown.width, shown.height)]}, the video is ${shapes[shapeOf(timeline.width, timeline.height)]}.`
     : null;
+  // a neighbour joined to it at another size (enlarged in its render, or finished, when this one is not): the join shows a change of sharpness
+  const sizeStep = (() => {
+    const px = (a: { width: number | null; height: number | null } | undefined) => (a?.width && a.height ? a.width * a.height : 0);
+    const mine = px(take?.asset);
+    if (!mine) return null;
+    const odd = [clip.joined === "continue" ? before : undefined, after?.joined === "continue" ? after : undefined]
+      .find((n) => n?.take && px(n.take.asset) && Math.max(px(n.take.asset), mine) / Math.min(px(n.take.asset), mine) >= 1.5);
+    return odd?.take ? { other: odd.take.asset, before: odd === before } : null;
+  })();
   const hasOwn = Boolean(take?.asset.hasSound);
   // how smoothly each take meets the clips around: worked out once there is a choice to make
   const joins = useQuery({
@@ -343,6 +352,12 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
             <span>{misfit} {clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."}</span>
             <Toggle on={clip.fill} onChange={(fill) => onPatch({ fill })} label="Fill frame (crop)" />
+          </div>
+        )}
+
+        {sizeStep && take && (
+          <div className="rounded-lg border border-line p-3 text-xs text-ink-2">
+            This clip is {take.asset.width} × {take.asset.height}, the clip {sizeStep.before ? "before" : "after"} {sizeStep.other.width} × {sizeStep.other.height}: one was enlarged and the other not, so the join shows a change of sharpness. Finish all clips (the Finish button above the timeline) to bring every clip to one size the same way, or render both alike.
           </div>
         )}
 

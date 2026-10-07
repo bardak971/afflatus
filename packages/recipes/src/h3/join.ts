@@ -14,6 +14,8 @@ export const H3_JOIN_FRAMES = [22, 5];
  * then the new frames), a tail guide at frame zero, the window sampled and decoded as the clip.
  */
 export const H3_CONTINUATION_NODES = ["AfflatusLoadH3Latent", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide"];
+/** Afflatus's node (pack 0.5.0) that cuts a latent to its first frames: a clip handed over before its end is continued from there. */
+export const H3_TRIM = "AfflatusTrimH3Latent";
 /**
  * The tail guide Auto uses: the clip before's last frames re-encoded for the picture, its exact latent for the
  * sound and the run-up. Measured on chains (2026-10-05): a window guided by the exact sampled latent copies the
@@ -71,7 +73,8 @@ export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
   // continued from it (the motion, the look and the voice carry on as they are) instead of from its frames
   const prevLatent = input.previous ? uploads["previous.latent"] : undefined;
   const prevFrames = media.previous?.latentFrames ?? 0;
-  const canLatent = Boolean(prevLatent && prevFrames >= head && H3_CONTINUATION_NODES.every((n) => ctx.has(n)));
+  const cut = media.previous?.latentCut;
+  const canLatent = Boolean(prevLatent && prevFrames >= head && H3_CONTINUATION_NODES.every((n) => ctx.has(n)) && (!cut || ctx.has(H3_TRIM)));
   // Auto: the run-up and the sound from the latent, the picture guide from the clip's re-encoded frames (a chain
   // stays anchored to real pixels). The exact latent only when asked. An older pack without that guide, or
   // none: the frames, as ComfyUI alone does it, rather than a chain that drifts
@@ -80,7 +83,9 @@ export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
   // the clip after's own latent: the clip lands on its first tokens (after that clip's own overlap, when it has one)
   const nextLatent = input.next ? uploads["next.latent"] : undefined;
   const nextAt = media.next?.latentAt ?? 0;
-  const latentLanding = Boolean(nextLatent && (media.next?.latentFrames ?? 0) >= nextAt + tail && (nextAt === 0 || nextAt % 17 === 5) && ctx.has(H3_HEAD_GUIDE));
+  // only onto the clip after's very first frames: tokens sliced from inside a latent cover 3.4 frames each but are placed as a
+  // sequence's opening ones, and a landing 56 frames in came out 6 frames late (measured 2026-10-07). Further in: its frames
+  const latentLanding = Boolean(nextLatent && (media.next?.latentFrames ?? 0) >= nextAt + tail && nextAt === 0 && ctx.has(H3_HEAD_GUIDE));
   return { head, tail, frames, seconds, ownSeconds, latentJoin, hybrid, latentLanding, nextAt, prevLatent, nextLatent };
 }
 
@@ -91,8 +96,12 @@ export function frameFor(input: H3Video, ctx: BuildContext, how: H3Uses, latentJ
   // (continued in the latent: the size is the latent's, which is the clip before's own). A canvas or a neighbour
   // is taken at its own size, within what a form may ask for, never the model's trained canvas: a 768 × 1376 clip
   // before, allowed by the form, must not be continued at 768 × 1344 with its guide squashed to fit (seen 2026-10-05)
+  // A canvas gives the shape, not the size: a timeline whose first clip was enlarged ×2 in its render has a canvas
+  // four times the model's pixels, and a clip rendered at it never got past its guides on a 12 GB card (seen
+  // 2026-10-07, 1152 × 1472 × 141 frames). The size is the neighbour's own (its raw frames), else the form's
+  const short = like ? Math.min(like.width, like.height) : input.short;
   return ctx.canvas && !latentJoin
-    ? h3Canvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height), H3_FORM_PIXELS)
+    ? h3Canvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height, short), H3_FORM_PIXELS)
     : like && (input.previous || input.next)
       ? h3Canvas(like.width, like.height, Math.min(like.width, like.height), H3_FORM_PIXELS)
       : like

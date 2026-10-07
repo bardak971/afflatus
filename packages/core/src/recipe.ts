@@ -64,6 +64,8 @@ export interface MediaFacts {
   latentFrames?: number;
   /** Of a clip landed on: the frame of its latent where its playing part starts (its own overlap with the clip it extended comes before). */
   latentAt?: number;
+  /** Of a clip continued from before its end (it was handed over before a frozen tail): its latent is cut to this many first frames. */
+  latentCut?: number;
   /** Of a mask: the part that was painted, with room around it, in pixels of the picture it is painted over. */
   box?: { x: number; y: number; width: number; height: number };
 }

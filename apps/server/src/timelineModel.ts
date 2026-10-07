@@ -36,7 +36,10 @@ export const STILL_MS = { least: 500, most: 60_000 };
 export interface Taken {
   take: TakeRow;
   asset: AssetRow;
+  /** What it gives up at its end to the clip after; negative when it lands on that clip and plays on into the frames they share. */
   give?: number;
+  /** The clip before lands on it (its tail was guided by this take's frames): it starts this many ms after where it plays, its own take-over point set aside. */
+  landed?: number;
 }
 
 export interface Placed {
@@ -66,6 +69,8 @@ export interface Laid {
  * there), a cut four or five frames earlier, still inside the shared frames, ×0.8: invisible.
  */
 export const LEAD_MS = 167;
+/** A take's own take-over point at its start: none when the clip before lands on it (that join's point is the landing's). */
+export const leadOf = (t: Taken) => (t.landed !== undefined ? 0 : t.take.lead_ms ?? 0);
 /** The take-over point a new take gets: four frames early on a latent or hybrid join with room for it, else none. */
 export const leadFor = (kind: JoinKind | null, headMs: number) => (kind && kind !== "pixels" && headMs >= 2 * LEAD_MS ? LEAD_MS : 0);
 
@@ -76,13 +81,26 @@ export const leadFor = (kind: JoinKind | null, headMs: number) => (kind && kind 
  */
 export const plays = (t: { take: TakeRow; asset: AssetRow }) => {
   const start = t.take.head_ms + t.take.trim_start_ms;
-  const end = Math.max(start, (t.asset.duration_ms ?? 0) - t.take.tail_ms - t.take.trim_end_ms);
+  const end = Math.max(start, lengthOnGrid(t.asset) - t.take.tail_ms - t.take.trim_end_ms);
   return { start, end };
+};
+/** H3's frames a second, the grid its latent's frames are on. */
+const MODEL_FPS = 24;
+/**
+ * How long a take's video is on the model's own frame grid. A render interpolated ×2 has 2N − 1 frames at twice
+ * the rate, one of them short of N frames' time: anchored on the file's length, a continuation's shared frames
+ * were placed half a model frame early and every join skipped a frame (measured 2026-10-07). With the model's
+ * frame count kept (its latent), the length is that count's; otherwise, and for a file that is not that render, the file's.
+ */
+export const lengthOnGrid = (asset: AssetRow) => {
+  const file = asset.duration_ms ?? 0;
+  const grid = asset.latent_frames ? Math.round((asset.latent_frames * 1000) / MODEL_FPS) : 0;
+  return grid && Math.abs(grid - file) <= 1000 / MODEL_FPS ? grid : file;
 };
 /** The part of a take that is seen: `plays`, moved by the take-over points, its own at the start and the clip after's at the end. */
 export const visible = (t: Taken) => {
   const p = plays(t);
-  const start = Math.max(0, p.start - (t.take.lead_ms ?? 0));
+  const start = t.landed !== undefined ? p.start + t.landed : Math.max(0, p.start - (t.take.lead_ms ?? 0));
   const end = Math.max(start, p.end - (t.give ?? 0));
   return { start, end };
 };

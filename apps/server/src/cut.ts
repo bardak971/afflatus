@@ -311,6 +311,8 @@ export interface ExportPart {
    */
   /** This part fades in over this many milliseconds. */
   blendMs?: number;
+  /** Where in its video the colour match reads this part: the frames that show the same moments as the part before's end, when it has them (a continuation's shared frames). Left out: its first frames after the fade. */
+  matchAtMs?: number;
   /** "hold": the part before holds its last frame for as long, this one fades in after it (nothing of either is lost). "overlap": this part starts `blendMs` early, over the same moments as the part before's end, and the two are faded with both moving. */
   blendMode?: "hold" | "overlap";
 }
@@ -481,7 +483,7 @@ export async function joinVideos(
       if (opts.match && p.kind === "video" && prevPart?.kind === "video" && prevFile) {
         const look = MATCH.lookSec;
         const a = await meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look);
-        const b = await meansOf(file, (p.startMs + (p.blendMs ?? 0)) / 1000, look);
+        const b = await meansOf(file, (p.matchAtMs ?? p.startMs + (p.blendMs ?? 0)) / 1000, look);
         if (a && b) {
           carry = colourNudge(a, b, carry);
           if (carry.y || carry.u || carry.v) tune = `,lutyuv=y='clip(val+(${carry.y}),0,255)':u='clip(val+(${carry.u}),0,255)':v='clip(val+(${carry.v}),0,255)'`;

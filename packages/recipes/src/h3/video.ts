@@ -6,7 +6,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { conditionFor } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { h3Inputs, type H3Video } from "./inputs";
-import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_TAIL_GUIDE, resolveJoin } from "./join";
+import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_TAIL_GUIDE, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass } from "./latent-upscale";
 import { AUTO_SAMPLER, loadH3Model, modelOf, uses } from "./model";
 
@@ -51,7 +51,7 @@ export const h3Video = defineRecipe<H3Video>({
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...H3_CONTINUATION_NODES, H3_TAIL_GUIDE, H3_HEAD_GUIDE, ...H3_SAVE_LATENT,
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...H3_CONTINUATION_NODES, H3_TAIL_GUIDE, H3_HEAD_GUIDE, H3_TRIM, ...H3_SAVE_LATENT,
     "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     // one of the two enlargers is used, by whether the latent upscaler's file is there: neither can be required by nodes()
     ...H3_LATENT_ENLARGE_NODES,

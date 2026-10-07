@@ -1109,13 +1109,18 @@ describe("H3's upscale pass", () => {
   it("lands on the clip after in the latent too: a bridge gets the tail guide at frame zero and the head guide at the window's end", () => {
     const joined = { width: 576, height: 1024, frames: 22, fps: 24, hasSound: true, latentFrames: 124 };
     const uploads = { previous: "a.mp4", "previous.latent": "a.safetensors [temp]", next: "b.mp4", "next.latent": "b.safetensors [temp]" };
-    // the clip after plays from frame 22 of its own latent (its overlap with the clip it extended)
-    const b = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, next: { asset: "c2" }, seconds: 5 }), dryContext({ slots, uploads, media: { previous: joined, next: { ...joined, latentAt: 22 } } }));
+    // the clip after plays from its first frame
+    const b = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, next: { asset: "c2" }, seconds: 5 }), dryContext({ slots, uploads, media: { previous: joined, next: { ...joined, latentAt: 0 } } }));
     const win = node(b, "MiniMaxH3GuidedContinuationWindow")[0]!;
     const winId = Object.entries(b.graph).find(([, n]) => n === win)![0];
     expect(node(b, "AfflatusH3TailGuide")).toHaveLength(1);
     const headGuide = node(b, "AfflatusH3LatentHeadGuide")[0]!;
-    expect(headGuide.inputs).toMatchObject({ guide_frames: 22, skip_frames: 22, target_av_latent: [winId, 0] });
+    expect(headGuide.inputs).toMatchObject({ guide_frames: 22, skip_frames: 0, target_av_latent: [winId, 0] });
+    // one that plays from further in (frame 22 of its latent, its overlap with the clip it extended) is landed on by its frames:
+    // tokens sliced from inside a latent are placed as a sequence's opening ones, and land late
+    const further = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, next: { asset: "c2" }, seconds: 5 }), dryContext({ slots, uploads, media: { previous: joined, next: { ...joined, latentAt: 22 } } }));
+    expect(node(further, "AfflatusH3LatentHeadGuide")).toHaveLength(0);
+    expect(node(further, "MiniMaxH3AddGuide")).toHaveLength(1);
     expect(node(b, "AfflatusLoadH3Latent").map((n) => n.inputs.latent).sort()).toEqual(["a.safetensors [temp]", "b.safetensors [temp]"]);
     expect(node(b, "MiniMaxH3AddGuide")).toHaveLength(0);
     // the window holds the overlap, the clip's own frames and the frames it lands on: the last 22 are the clip after's

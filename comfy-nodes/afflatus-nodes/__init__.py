@@ -1,10 +1,10 @@
 """Afflatus nodes for ComfyUI.
 
-Eight nodes, all for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels:
+Nine nodes, all for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels:
 
 - Afflatus: Save H3 Latent / Load H3 Latent — a MiniMax H3 video+audio latent as one safetensors file
   (ComfyUI's own SaveLatent cannot store the nested pair); Normalize H3 Latent — a sampled window's audio
-  rounded to its own frame boundary, so it can be continued from; H3 Tail Guide — the clip before's tail as
+  rounded to its own frame boundary, so it can be continued from; Trim H3 Latent — its first frames, for a clip handed over before its end; H3 Tail Guide — the clip before's tail as
   the guide, its decoded frames re-encoded for the picture (a chain of exact latents drifts softer and darker)
   and its exact latent for the sound; H3 Latent Head Guide — the clip after's first tokens anchored at the
   end of the window, for a clip that must land on another.
@@ -24,9 +24,9 @@ from .continuation_nodes import (
     MiniMaxH3GuidedContinuationWindow,
     MiniMaxH3LatentTailGuide,
 )
-from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent
+from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 
 class AfflatusExtension(ComfyExtension):
@@ -35,6 +35,7 @@ class AfflatusExtension(ComfyExtension):
             AfflatusSaveH3Latent,
             AfflatusLoadH3Latent,
             AfflatusNormalizeH3Latent,
+            AfflatusTrimH3Latent,
             AfflatusH3TailGuide,
             AfflatusH3LatentHeadGuide,
             MiniMaxH3GuidedContinuationWindow,

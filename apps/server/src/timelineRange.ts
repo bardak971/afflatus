@@ -5,7 +5,7 @@ import { httpError } from "./errors";
 import { extOf } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
-import { clockOf, laidOut, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
+import { clockOf, laidOut, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
 
 /**
  * Cuts, on the timeline's clock and in a video's own time: a clip split or duplicated, a range of the
@@ -175,7 +175,7 @@ export class TimelineRange {
       .execute();
     await db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();
     // the first half stops at the moment
-    await db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round((asset.duration_ms ?? 0) - take.tail_ms - atMs)) }).where("id", "=", take.id).execute();
+    await db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round(lengthOnGrid(asset) - take.tail_ms - atMs)) }).where("id", "=", take.id).execute();
     return id;
   }
 
@@ -201,7 +201,7 @@ export class TimelineRange {
     const { db } = this.core;
     if (p.clip.kind === "still") return void (await db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(keepMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
     const x = p.active!;
-    const total = x.asset.duration_ms ?? 0;
+    const total = lengthOnGrid(x.asset);
     await db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round(total - x.take.tail_ms - (visible(x).start + keepMs))) }).where("id", "=", x.take.id).execute();
   }
 
@@ -287,7 +287,20 @@ export class TimelineRange {
    */
   async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext }> {
     const { registry } = this.core;
-    const { laid, total, a, b } = await this.window(timelineId, inMs, outMs);
+    const w = await this.window(timelineId, inMs, outMs);
+    const { laid, total } = w;
+    let a = w.a;
+    const b = w.b;
+    // the clip before kept its latent (an H3 render): In goes back to a frame of its latent's grid (17k + 5), so the
+    // new clip continues it in the latent, cut there, rather than from its frames (at most 16 frames earlier)
+    const under = a > 0 ? this.before(laid, a) : undefined;
+    if (under?.p.active?.asset.latent_frames && under.p.clip.kind === "video") {
+      const assetMs = visible(under.p.active).start + (a - under.atMs);
+      const frame = Math.round((assetMs * 24) / 1000);
+      const grid = Math.floor((frame - 5) / 17) * 17 + 5;
+      const back = ((frame - grid) * 1000) / 24;
+      if (grid >= 22 && back > 0 && a - back > under.atMs + 40) a = Math.round(a - back);
+    }
     const before = a > 0 ? this.before(laid, a) : undefined;
     const after = b < total ? this.at(laid, b) : undefined;
     if (!before && !after) throw httpError("The range covers everything: there is no frame to pin the new clip to. Add a clip instead.");

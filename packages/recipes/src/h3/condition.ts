@@ -1,7 +1,7 @@
 import type { BuildContext, GraphBuilder, MediaFacts, Ref } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import type { H3Video } from "./inputs";
-import { H3_HEAD_GUIDE, H3_TAIL_GUIDE, type H3Join } from "./join";
+import { H3_HEAD_GUIDE, H3_TAIL_GUIDE, H3_TRIM, type H3Join } from "./join";
 import type { H3Uses } from "./model";
 import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
 
@@ -21,7 +21,10 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
   const { head, tail, frames, seconds, ownSeconds, hybrid, latentJoin, latentLanding, nextAt, prevLatent, nextLatent } = join;
   const clip = g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "minimax", device: "default" });
   // continued in the latent: the previous latent, and the window to sample (its hidden overlap, then the new frames)
-  const prev = latentJoin ? g.out("AfflatusLoadH3Latent", { latent: prevLatent }) : null;
+  const loaded = latentJoin ? g.out("AfflatusLoadH3Latent", { latent: prevLatent }) : null;
+  // handed over before its end (a frozen tail): the clip before is continued from the frame it stops on
+  const cut = media.previous?.latentCut;
+  const prev = loaded && cut ? g.out(H3_TRIM, { samples: loaded, frames: cut }) : loaded;
   const window = latentJoin ? g.add("MiniMaxH3GuidedContinuationWindow", { previous_av_latent: prev, overlap_frames: head, extension_frames: frames - head }) : null;
   const length: number | Ref = window ? [window, 1] : frames;
   let start: string;

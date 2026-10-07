@@ -1,9 +1,9 @@
-import { BLEND_MS, CutError, type ExportMusic, type ExportPart, joinVideos } from "./cut";
+import { BLEND_MS, CutError, MATCH, type ExportMusic, type ExportPart, joinVideos } from "./cut";
 import { newId, now } from "./db";
 import { assetView, extOf, newAssetRow } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
-import { clockOf, laidOut, visible, type TimelineCore } from "./timelineModel";
+import { clockOf, laidOut, leadOf, visible, type TimelineCore } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
 
@@ -55,17 +55,24 @@ export class TimelineExport {
         // before's last frames show the same moments, so the fade runs over them with both sides moving. A
         // pixel join restarts beside pinned frames: the clip before holds its last frame while this one fades in
         const latent = x.take.join_kind === "latent" || x.take.join_kind === "hybrid";
-        // a take-over point inside the shared frames is a clean cut (both sides show the same moment): no fade
-        const blend = opts.blend !== false && !x.take.lead_ms && before && before.kind === "video" && from === 0 && shared >= 80
-          ? Math.min(BLEND_MS, to - 40, ...(latent ? [shared, before.endMs - before.startMs - 40] : []))
+        // at a take-over point inside the shared frames both sides show the same moments, yet each clip re-rendered
+        // (and enlarged) them on its own: a cut there still steps (about 38 dB between the two, measured 2026-10-07).
+        // The fade runs over the same moments, before the take-over point, with both moving: no ghost, no step
+        const lead = leadOf(x);
+        // landed on by the clip before: the two show the same moments around the take-over point (that clip's guided tail), faded over them
+        const landed = x.landed !== undefined;
+        const blend = opts.blend !== false && before && before.kind === "video" && from === 0 && (landed || ((!lead || latent) && shared - lead >= 80))
+          ? Math.min(BLEND_MS, to - 40, ...(landed ? [x.landed!, before.endMs - before.startMs - 40] : latent ? [shared - lead, before.endMs - before.startMs - 40] : []))
           : 0;
         parts.push({
           kind: "video", bytes: await storage.get(x.asset.file_key), ext: extOf(x.asset.mime),
-          startMs: visible(x).start + from - (blend >= 80 && latent ? blend : 0), endMs: visible(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
+          startMs: visible(x).start + from - (blend >= 80 && (latent || landed) ? blend : 0), endMs: visible(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
           // the sound hands over at the frame the model's own begins, not where the picture took over early (see ExportPart)
-          ...(from === 0 && x.take.lead_ms ? { soundLeadMs: x.take.lead_ms } : {}),
-          ...(to === l.lengthMs && x.give ? { soundGiveMs: x.give } : {}),
-          ...(blend >= 80 ? { blendMs: blend, blendMode: latent ? ("overlap" as const) : ("hold" as const) } : {}),
+          ...(from === 0 && lead ? { soundLeadMs: lead } : {}),
+          ...(to === l.lengthMs && x.give && x.give > 0 ? { soundGiveMs: x.give } : {}),
+          ...(blend >= 80 ? { blendMs: blend, blendMode: latent || landed ? ("overlap" as const) : ("hold" as const) } : {}),
+          // a continuation compares its shared frames with the same moments of the clip before, not the moments after them
+          ...(from === 0 && shared - lead >= MATCH.lookSec * 1000 ? { matchAtMs: visible(x).start - MATCH.lookSec * 1000 } : {}),
         });
       }
     }

@@ -7,7 +7,7 @@ import { LivePreview } from "../LivePreview";
 import { cx } from "../ui";
 
 /** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
-const PREROLL_MS = 400;
+const PREROLL_MS = 600;
 /** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
 const CUT_EARLY_MS = 24;
 
@@ -66,16 +66,24 @@ export const Player = forwardRef<PlayerHandle, {
   const startOf = (c: Clip) => c.take?.startMs ?? 0;
   /** How long the next clip fades in over the end of this one: a clip that extends the one before, over the frames they share (as the export does). */
   const blendOf = (c: Clip | undefined, from: Clip | undefined) => {
-    if (!c?.take || !from || c.joined !== "continue") return 0;
-    // a take-over point inside the shared frames is a clean cut: both sides show the same moment, a fade would only ghost it
-    if (c.take.leadMs > 0) return 0;
-    const shared = c.take.headMs - c.take.trimStartMs;
-    const x = Math.min(400, shared, c.lengthMs - 40, from.lengthMs - 40);
+    if (!c?.take || !from) return 0;
+    // landed on by the clip before: both show the same moments around the take-over point, inside that clip's guided tail
+    if (c.take.landedMs) {
+      const x = Math.min(170, c.take.landedMs, c.lengthMs - 40, from.lengthMs - 40);
+      return x >= 80 ? x : 0;
+    }
+    if (c.joined !== "continue") return 0;
+    // at a take-over point inside the shared frames both sides show the same moments, but each re-rendered them: the
+    // fade runs over those moments, before the take-over point, as the export does (a pixel join has no take-over point)
+    const shared = c.take.headMs - c.take.trimStartMs - c.take.leadMs;
+    const x = Math.min(170, shared, c.lengthMs - 40, from.lengthMs - 40);
     return x >= 80 ? x : 0;
   };
   /** The next clip is fading in, over this many ms. */
   const [fading, setFading] = useState(0);
   const fadeOn = useRef(false);
+  /** The fade of the clip after has begun (from then on it is not moved: a jump would show). */
+  const fadedIn = useRef(false);
   /**
    * The sound hands over later than the picture at a take-over point: the clip before keeps sounding, hidden,
    * for the lead while the clip on screen stays muted; then they swap. The model leaves a hole in its sound
@@ -108,19 +116,23 @@ export const Player = forwardRef<PlayerHandle, {
   );
 
   const place = useCallback(
-    (index: number, local: number) => {
+    (index: number, local: number, onward = false) => {
       const c = seq[index];
       if (!c) return;
       pos.current = { key: keyOf(c), local, at: performance.now() };
       fadeOn.current = false;
+      fadedIn.current = false;
       endHand();
       setFading(0);
       setCur(index);
       const el = c.take ? els.current.get(c.take.id) : undefined;
+      if (el) el.playbackRate = 1;
       // a seek on a video already there (it was started early, see step) would stall it for a frame
-      if (el && Math.abs(el.currentTime * 1000 - (startOf(c) + local)) > 40) el.currentTime = (startOf(c) + local) / 1000;
+      // (handing over to the clip after as it plays: it runs where it should within a few frames; only a stray one is moved)
+      if (el && Math.abs(el.currentTime * 1000 - (startOf(c) + local)) > (onward ? 120 : 40)) el.currentTime = (startOf(c) + local) / 1000;
       if (clipSound.current) clipSound.current.currentTime = local / 1000;
-      tuneMusic(c.atMs + local, true);
+      // the music goes on as it plays when the clips hand over; a jump is only for a seek
+      tuneMusic(c.atMs + local, !onward);
       onTime(c.atMs + local);
     },
     [seq, onTime, tuneMusic, endHand],
@@ -187,13 +199,21 @@ export const Player = forwardRef<PlayerHandle, {
       if (c.take && !el) return true;
       const t = performance.now();
       const local = el ? el.currentTime * 1000 - startOf(c) : pos.current.local + (t - pos.current.at);
-      // a frame early rather than late: late, the clip before shows the moment the clip after opens on, and it is seen twice
-      if (local >= c.lengthMs - CUT_EARLY_MS || el?.ended) {
+      // a frame early rather than late: late, the clip before shows the moment the clip after opens on, and it is seen twice.
+      // When the clip after runs (it was started early), the change waits until it is at its start: a video a frame or two
+      // behind would show a moment again; this one has real frames past its end (the ones they share) to show meanwhile
+      const following = seq[at + 1];
+      const followEl = following?.take ? els.current.get(following.take.id) : undefined;
+      // how far it is behind the moment this one shows (they show the same moments around the change)
+      const behind = followEl && !followEl.paused && fadeOn.current ? startOf(following!) + (local - c.lengthMs) - followEl.currentTime * 1000 : 0;
+      const due = local >= c.lengthMs - CUT_EARLY_MS && (behind <= 12 || local >= c.lengthMs + 100);
+      if (due || el?.ended) {
         if (seq[at + 1]) {
           const lead = seq[at + 1]!.take?.leadMs ?? 0;
           // the picture takes over now; the sound of this clip runs on for the lead, hidden, before the next is heard
           const hand = lead > 0 && c.take && c.sound === "own" && el && !el.ended ? { id: c.take.id, until: t + lead } : null;
-          place(at + 1, 0);
+          // it takes over where this one got to: the playhead runs on without a step
+          place(at + 1, Math.max(0, local - c.lengthMs), true);
           if (hand) {
             handing.current = hand;
             setHeld(c);
@@ -207,44 +227,53 @@ export const Player = forwardRef<PlayerHandle, {
       }
       // the clip after starts running a little early, hidden and muted, so that it has frames decoded and is in
       // step at the moment it takes over (a video started cold at the cut shows black for a frame, then rushes).
-      // A clip that fades in over the end of this one runs for the fade, playing the frames they share
+      // It runs exactly where it must be to arrive at its start when this clip ends: started ahead of that, the
+      // take-over had to seek it back, which stalled the picture and held the playhead at every join
       const after = seq[at + 1];
       const blend = blendOf(after, c);
-      const early = Math.max(blend, PREROLL_MS);
-      if (after?.take && !fadeOn.current && local >= c.lengthMs - early) {
+      const remaining = c.lengthMs - local;
+      const nextEl = after?.take ? els.current.get(after.take.id) : undefined;
+      const expected = after ? startOf(after) - remaining : 0;
+      if (nextEl && !fadeOn.current && remaining <= PREROLL_MS) {
         fadeOn.current = true;
-        const nextEl = els.current.get(after.take.id);
-        const remaining = c.lengthMs - local;
-        // where it must be now to arrive at its start when this clip ends; a clip that starts at its very first frame waits there
-        const from = blend ? startOf(after) - blend : startOf(after) - remaining;
-        if (nextEl) {
-          if (from >= 0) {
-            nextEl.currentTime = from / 1000;
-            nextEl.muted = true;
-            void nextEl.play().catch(() => {});
+        nextEl.muted = true;
+        // a clip that starts at its very first frame waits there, paused on it, until it is due
+        nextEl.currentTime = Math.max(0, expected) / 1000;
+        if (expected >= 0) void nextEl.play().catch(() => {});
+      }
+      if (nextEl && fadeOn.current) {
+        // one that waited on its first frame starts when it is due
+        if (nextEl.paused && expected >= 0 && remaining > 30) void nextEl.play().catch(() => {});
+        else if (!nextEl.paused && expected >= 0) {
+          // kept in step while it runs (a video starts with some delay): by its speed, not by seeks, which stall a playing
+          // video and left it 70 to 85 ms behind at every take-over (measured), the playhead held until it caught up
+          const off = expected - nextEl.currentTime * 1000;
+          if (Math.abs(off) > 250 && remaining > 120) nextEl.currentTime = expected / 1000;
+          else {
+            // in a few steps, set only when the step changes: a speed changed every frame stalls the decoder
+            const rate = off > 40 ? 1.25 : off > 12 ? 1.1 : off < -40 ? 0.8 : off < -12 ? 0.9 : 1;
+            if (nextEl.playbackRate !== rate) nextEl.playbackRate = rate;
           }
         }
-        if (blend) setFading(blend);
       }
-      // while it runs hidden, it is kept in step: a video starts with some delay, and a frame behind at the
-      // take-over shows the same moment twice. Corrected out of sight, never in the last frames before the cut
-      if (after?.take && fadeOn.current && !blend && local < c.lengthMs - 60) {
-        const nextEl = els.current.get(after.take.id);
-        const expected = startOf(after) - (c.lengthMs - local);
-        if (nextEl && expected >= 0 && !nextEl.paused && Math.abs(nextEl.currentTime * 1000 - expected) > 20) nextEl.currentTime = expected / 1000;
+      // over its last frames, a clip that fades in over this one shows, over the moments they share
+      if (nextEl && blend && !fadedIn.current && remaining <= blend) {
+        fadedIn.current = true;
+        setFading(Math.max(40, remaining));
       }
       // the sound hands over: the clip before falls silent, this one is heard
       if (handing.current && t >= handing.current.until) {
         endHand();
         if (el) el.muted = c.sound !== "own";
       }
-      if (local >= 0) {
-        pos.current = { key: keyOf(c), local, at: t };
-        tuneMusic(c.atMs + local);
+      // the playhead runs on: a clip that took over a few ms behind its start shows its first frames meanwhile
+      if (local > -400) {
+        pos.current = { key: keyOf(c), local: Math.max(0, local), at: t };
+        tuneMusic(c.atMs + Math.max(0, local));
         // the screen around the video does not need every frame's time
         if (t - said.current > 66) {
           said.current = t;
-          onTime(c.atMs + local);
+          onTime(c.atMs + Math.max(0, local));
         }
       }
       return true;

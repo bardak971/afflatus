@@ -12,7 +12,7 @@ import type { Storage } from "./storage";
 import { TimelineExport } from "./timelineExport";
 import { TimelineMedia } from "./timelineMedia";
 import { TimelineRange, type RangeContext } from "./timelineRange";
-import { clockOf, FROM_PREVIOUS, leadFor, lengthOf, near, plays, STILL_MS, stillRef, visible, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
+import { clockOf, FROM_PREVIOUS, leadFor, leadOf, LEAD_MS, lengthOf, lengthOnGrid, near, plays, STILL_MS, stillRef, visible, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -242,10 +242,19 @@ export class Timelines {
         pictures: pinned(clip).flatMap((p) => (byId.has(p.id) ? [{ input: p.input, role: p.role, asset: byId.get(p.id)! }] : [])),
       });
     }
-    // a clip followed by a continuation with a take-over point gives it those last frames: they show the same moments
+    // a clip followed by a continuation with a take-over point gives it those last frames: they show the same moments.
+    // A clip that lands on the clip after (its tail was guided by that take's frames) does the opposite: it plays on
+    // into its guided tail, four frames, and the clip after starts as much later. Cut where it is guided, the landing
+    // does not step; cut before, in the frames the model drew freely, it did (×5 the motion, measured 2026-10-07)
     for (const placed of out.values()) {
       for (let i = 0; i < placed.length - 1; i++) {
         const next = placed[i + 1]!;
+        const mine = placed[i]!.active;
+        if (mine && next.active && mine.take.next_take_id === next.active.take.id && mine.take.tail_ms >= 2 * LEAD_MS) {
+          mine.give = -LEAD_MS;
+          next.active.landed = LEAD_MS;
+          continue;
+        }
         const give = next.clip.kind === "video" && next.clip.joined === "continue" && next.active ? next.active.take.lead_ms ?? 0 : 0;
         if (give > 0) for (const t of placed[i]!.takes) t.give = give;
       }
@@ -306,11 +315,12 @@ export class Timelines {
     const tookMs = new Map(records.map((g) => [g.id, g.gen_ms]));
     // how each render's own part looks (mean luma, sharpness), measured on its frames when it was stored
     const looks = new Map(records.map((g) => [g.id, (JSON.parse(g.resolved) as { measure?: Measure }).measure ?? null]));
-    const takeView = (x: { take: TakeRow; asset: AssetRow }) => ({
+    const takeView = (x: Taken) => ({
       id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
       trimStartMs: x.take.trim_start_ms, trimEndMs: x.take.trim_end_ms, startMs: visible(x).start, endMs: visible(x).end, createdAt: x.take.created_at,
       /** Its take-over point: it starts to play this many ms before its shared frames end, and the clip before stops as much earlier (0: at its first own frame). */
-      leadMs: x.take.lead_ms ?? 0,
+      leadMs: leadOf(x),
+      ...(x.landed !== undefined ? { landedMs: x.landed } : {}),
       finishedFrom: x.take.finished_from,
       /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
       joinKind: x.take.join_kind ?? null,
@@ -849,7 +859,15 @@ export class Timelines {
         // the clip before ends frozen: hand over where it still moved, unless the form says not to
         if (raw.handover !== false) {
           const lively = await this.handoverAt(before).catch(() => null);
-          if (lively !== null && lively < at - 40) at = lively;
+          // on the model's frame grid: the frames handed over are whole frames of it, and the clip before stops on one
+          if (lively !== null && lively < at - 40) {
+            const frame = Math.round((lively * 24) / 1000);
+            // a clip whose latent was kept hands over on its latent's grid (17k + 5 frames, at or before the frozen tail):
+            // the join is then made in the latent, cut there, rather than from frames
+            const grid = before.asset.latent_frames ? Math.floor((frame - 5) / 17) * 17 + 5 : frame;
+            const usable = grid >= 22 ? grid : frame;
+            at = Math.round(usable * (1000 / 24));
+          }
         }
         plan.input[prevSpec.id] = { asset: before.asset.id, at };
         plan.links.prev = { take: before.take.id, at };
@@ -892,12 +910,13 @@ export class Timelines {
     await this.addTake(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom);
     // the take carried on from before the clip before's frozen tail: that clip now stops where the take picks up
     if (links.prev && !finishedFrom) {
-      const prev = await this.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
+      const prev = await this.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms", "assets.latent_frames as latent_frames"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
       if (prev?.duration_ms) {
-        const end = prev.duration_ms - prev.tail_ms - prev.trim_end_ms;
+        const length = lengthOnGrid(prev as unknown as AssetRow);
+        const end = length - prev.tail_ms - prev.trim_end_ms;
         if (links.prev.at < end - 40) {
           await this.remember(clip.timeline_id, "the hand-over before the frozen tail");
-          await this.db.updateTable("takes").set({ trim_end_ms: prev.duration_ms - prev.tail_ms - links.prev.at }).where("id", "=", prev.id).execute();
+          await this.db.updateTable("takes").set({ trim_end_ms: Math.round(length - prev.tail_ms - links.prev.at) }).where("id", "=", prev.id).execute();
         }
       }
     }

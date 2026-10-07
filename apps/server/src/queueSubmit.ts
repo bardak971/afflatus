@@ -105,11 +105,14 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
       // it; the clip after is landed on where its playing part starts, a moment on the latent's frame grid
       if (asset.latent_key && asset.latent_frames) {
         const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
-        const fits = spec.role === "previous" ? at === undefined || at >= (facts.durationMs ?? 0) - 40 : (atFrames === 0 || atFrames % 17 === 5) && atFrames + Math.min(...counts) <= asset.latent_frames;
+        const whole = spec.role === "previous" && (at === undefined || at >= (facts.durationMs ?? 0) - 40);
+        // handed over before its end, on a frame of the latent's grid: continued from there, its latent cut to it (Afflatus's pack 0.5.0)
+        const cutAt = spec.role === "previous" && !whole && atFrames % 17 === 5 && atFrames >= Math.max(...counts) && atFrames <= asset.latent_frames && "AfflatusTrimH3Latent" in catalog ? atFrames : 0;
+        const fits = spec.role === "previous" ? whole || cutAt > 0 : (atFrames === 0 || atFrames % 17 === 5) && atFrames + Math.min(...counts) <= asset.latent_frames;
         const saved = fits ? await storage.get(asset.latent_key).catch(() => null) : null;
         if (saved) {
           uploads[`${spec.id}.latent`] = await comfy.client.upload(saved, "safetensors");
-          media[spec.id] = { ...media[spec.id]!, latentFrames: asset.latent_frames, ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
+          media[spec.id] = { ...media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
         }
       }
     } else if (spec.type === "references" && Array.isArray(value)) {
