@@ -141,6 +141,8 @@ export interface ImageInput extends Base {
   at?: string;
   /** Of a "mask": the id of the picture input it is painted over. White = the part to redo, the same size as that picture. */
   of?: string;
+  /** Uploaded to ComfyUI's input folder, not its temp folder: for a node that reads only from there. */
+  folder?: "input";
 }
 
 /**
@@ -150,7 +152,8 @@ export interface ImageInput extends Base {
  */
 export interface ClipInput extends Base {
   type: "clip";
-  role: "previous" | "next";
+  /** "source": a video the recipe works on (an upscale, a video-to-video), taken whole: no moment, no join. */
+  role: "previous" | "next" | "source";
   /** How many frames the recipe takes, best first: it is handed the first count the video is long enough for. */
   frames: number[];
   /** An input (a choice of numbers) that says how many frames are wanted first; `frames` below it are the fallbacks for a short clip. */
@@ -159,7 +162,8 @@ export interface ClipInput extends Base {
   optional?: boolean;
   /**
    * The recipe takes the whole video, as a file, not a few frames of it: an imported workflow whose own
-   * loader node reads the video (`frames` and `fps` are then not used, nor the moment in `ClipValue`).
+   * loader node reads the video (`frames` and `fps` are then not used). A moment in `ClipValue` cuts it:
+   * "previous" is handed the video up to it, "next" the video from it.
    */
   whole?: boolean;
 }
@@ -271,6 +275,11 @@ export function schemaFor(specs: InputSpec[]) {
 /** The value a choice starts with, given what ComfyUI offers for it: its default when that is there, else the best match. */
 export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): string {
   if (Array.isArray(spec.options) || !offered?.length || offered.includes(spec.default)) return spec.default;
+  // the same file kept in another folder ("MiniMaxH3/x.safetensors" saved, "x.safetensors" here): that one, before
+  // any other (the first of the list would be some other model's file: an LTX audio VAE for H3's)
+  const name = (path: string) => path.split(/[\\/]/).pop()!.toLowerCase();
+  const same = offered.find((o) => name(o) === name(spec.default));
+  if (same) return same;
   for (const source of spec.prefer ?? []) {
     const hit = offered.find((o) => new RegExp(source, "i").test(o));
     if (hit) return hit;

@@ -203,3 +203,34 @@ describe("the frozen tail of a clip", () => {
     expect(frozenTailAt([1, 1, 0, 0, 0], 10, 0, 500)).toBeNull();
   });
 });
+
+describe.skipIf(!clip)("a video an imported workflow's own loader reads", () => {
+  // a workflow that carries a clip on (its loader named so): the loader's frames straight into the saver
+  const v2v = {
+    "1": { class_type: "VHS_LoadVideo", inputs: { video: "author.mp4", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 }, _meta: { title: "Clip before" } },
+    "2": { class_type: "VHS_VideoCombine", inputs: { images: ["1", 0], frame_rate: 16, loop_count: 0, filename_prefix: "v2v", format: "video/h264-mp4", pingpong: false, save_output: true } },
+  };
+  const handed = async (value: { asset: string; at?: number }) => {
+    const found = (await post(t.app, "/api/workflows/inspect", v2v)).json();
+    const { id } = (await post(t.app, "/api/workflows", { title: "V2V", model: "Wan 2.2", source: "v2v.json", graph: found.graph, bindings: found.suggested })).json();
+    fake.prompts.clear();
+    await post(t.app, "/api/jobs", { recipe: id, input: { previousVideo: value } });
+    await until(() => fake.prompts.size === 1);
+    const [promptId, graph] = [...fake.prompts.entries()][0]!;
+    const name = String(graph["1"]!.inputs.video).replace(/ \[temp\]$/, "");
+    // done, so that the next job is sent
+    fake.pending = [];
+    fake.history[promptId] = { status: { completed: true }, outputs: {} };
+    await until(async () => (await get(t.app, "/api/jobs")).json().items.every((j: { status: string }) => ["done", "failed"].includes(j.status)));
+    return (await readVideo(fake.uploaded[name]!, "mp4")).facts!;
+  };
+
+  it("is handed whole, or up to the moment chosen (Extend from here)", async () => {
+    const source = (await t.app.inject({ method: "POST", url: "/api/assets?name=source.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip!) })).json();
+    expect((await handed({ asset: source.id })).durationMs).toBeGreaterThan(1900);
+    const cut = await handed({ asset: source.id, at: 1000 });
+    expect(cut.durationMs).toBeGreaterThan(900);
+    expect(cut.durationMs).toBeLessThan(1150);
+    expect(cut.hasSound).toBe(true);
+  });
+});

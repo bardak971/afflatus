@@ -172,6 +172,8 @@ export const bindings = z.object({
   model: z.object({ target, folder: z.string() }).optional(),
   startImage: image.optional(),
   endImage: image.optional(),
+  /** A DaSiWa Director that takes the first and last frames in its own canvas: the form's Start and End image go there. */
+  director: z.object({ node: z.string() }).optional(),
   /**
    * Every other picture the workflow loads (reference pictures, a second picture to edit with): each
    * is a slot of its own in the form, under the name its loader was given.
@@ -180,8 +182,14 @@ export const bindings = z.object({
   /** A video loader the workflow reads the clip before from (its last frames carry on), and one it arrives at. */
   previousVideo: media.optional(),
   nextVideo: media.optional(),
+  /** A video the workflow works on, taken whole (an upscale, a video-to-video, a control video): no join, no moment. */
+  sourceVideo: media.optional(),
+  /** Every other video it works on: a slot each, as `pictures`. */
+  otherVideos: z.array(media.extend({ id: z.string(), label: z.string() })).default([]),
   /** A sound loader: a sound of the library, or a video's sound. */
   sound: media.optional(),
+  /** Every other sound the workflow loads (a voice and a music, several speakers): a slot each, as `pictures`. */
+  otherSounds: z.array(media.extend({ id: z.string(), label: z.string() })).default([]),
   /** Outputs of model loaders after which the user's LoRAs are chained. */
   loras: z.array(z.object({
     node: z.string(),

@@ -114,8 +114,9 @@ describe("what the suggester takes from the frames", () => {
       { title: "Hires", nodes: ["10", "11"], box: [0, 0, 10, 10], parent: 0 },
       { title: "4K", nodes: ["20", "21"], box: [20, 0, 10, 10], parent: 0 },
     ]), "9", placeables);
-    expect(s.sections).toHaveLength(1);
-    expect(s.sections[0]!.label).toBe("Passes");
+    // the frame first; what no frame holds (the model, the size, the sampling) by what its nodes do, after it
+    expect(s.sections.map((x) => x.label)).toEqual(["Passes", "Model", "Output", "Sampling"]);
+    expect(s.why.join(" ")).toMatch(/outside the author's frames/);
     expect(s.sections[0]!.help).toBe("Turn on what you need.");
     expect(s.sections[0]!.items).toEqual([{ toggle: s.toggles[0]!.id, items: ["ctl_10_scale_by", "ctl_11_denoise"] }, { toggle: s.toggles[1]!.id, items: ["ctl_21_resolution"] }]);
   });

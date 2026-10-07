@@ -1,7 +1,7 @@
 import { baseModels, mainModel, missingNodesSaid, modelOf, timeKey, checkGraph, choicesOf, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { forecast, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
-import { cutFrames, referenceClip, soundPart } from "./cut";
+import { cutFrames, rangeKeep, referenceClip, soundPart } from "./cut";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
 import { maskBox, readPicture } from "./thumbs";
@@ -51,6 +51,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
   const uploads: Record<string, string> = {};
   const media: Record<string, MediaFacts> = {};
+  let cleanedInput = false;
   for (const spec of recipe.inputs) {
     const value = input[spec.id];
     if (spec.type === "image") {
@@ -58,7 +59,12 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
       const asset = await db.selectFrom("assets").select(["file_key", "mime", "width", "height"]).where("id", "=", value).executeTakeFirst();
       if (!asset) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
       const bytes = await storage.get(asset.file_key);
-      uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime));
+      // ComfyUI clears its temp folder, not its input folder: the pictures put there a day ago or more go first (best effort)
+      if (spec.folder === "input" && !cleanedInput) {
+        cleanedInput = true;
+        void comfy.client.cleanInput(24);
+      }
+      uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime), spec.folder === "input" ? { into: "input" } : {});
       const size = asset.width && asset.height ? { width: asset.width, height: asset.height } : await readPicture(bytes);
       media[spec.id] = { width: size?.width ?? 0, height: size?.height ?? 0 };
       if (spec.role === "mask") {
@@ -68,13 +74,20 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
         if (painted?.box) media[spec.id] = { width: painted.width, height: painted.height, box: painted.box };
       }
     } else if (spec.type === "clip" && value && spec.whole) {
-      // an imported workflow's own loader reads the video: the whole file goes up as it is
-      const { asset: assetId } = value as ClipValue;
+      // an imported workflow's own loader reads the video: the file goes up as it is, or, when a moment was
+      // chosen (carry on from there, arrive there), the part up to that moment or from it
+      const { asset: assetId, at } = value as ClipValue;
       const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
-      if (!asset || asset.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
+      if (!asset || asset.kind !== "video") throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
       const bytes = await storage.get(asset.file_key);
-      uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime));
-      const facts = asset.width && asset.height ? { width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) } : (await readVideo(bytes, extOf(asset.mime)).catch(() => null))?.facts;
+      const facts = asset.width && asset.height && asset.duration_ms ? { width: asset.width, height: asset.height, durationMs: asset.duration_ms, hasSound: Boolean(asset.has_sound) } : (await readVideo(bytes, extOf(asset.mime)).catch(() => null))?.facts;
+      const length = facts?.durationMs ?? 0;
+      // a source video is worked on whole: only a clip carried on from or arrived at has a moment
+      const cut = spec.role !== "source" && at !== undefined && length > 0 && (spec.role === "previous" ? at < length - 40 : at > 40);
+      const keep: [number, number] = spec.role === "previous" ? [0, at ?? length] : [at ?? 0, length];
+      uploads[spec.id] = cut
+        ? await comfy.client.upload(await rangeKeep(bytes, extOf(asset.mime), { durationMs: length, hasSound: facts?.hasSound ?? false }, [keep]), "mp4")
+        : await comfy.client.upload(bytes, extOf(asset.mime));
       media[spec.id] = { width: facts?.width ?? 0, height: facts?.height ?? 0, hasSound: facts?.hasSound ?? false };
     } else if (spec.type === "clip" && value) {
       // of the clip it joins onto, the recipe gets a few frames with their sound, cut at the chosen moment

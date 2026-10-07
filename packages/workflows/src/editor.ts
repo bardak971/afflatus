@@ -1,5 +1,5 @@
 import { isRef, takesAnyInput, type Graph, type GraphNode, type NodeCatalog, type NodeInfo, type Ref  } from "@afflatus/core";
-import { isWidget, optsOf, typeOf } from "./catalog";
+import { dynamicFields, dynamicOptions, isWidget, optsOf, typeOf } from "./catalog";
 import { splitCaptions, type Mode, type Target, type Toggle, type Wiring } from "./types";
 import { modesFor } from "./wiring";
 
@@ -50,9 +50,12 @@ export function isEditorFormat(json: unknown): boolean {
 
 const SWITCH = "DaSiWa_NodeStatusSwitch";
 const POWER_LORAS = "Power Lora Loader (rgthree)";
+const POWER_PRIMITIVE = "Power Primitive (rgthree)";
 const NOTES = new Set(["Note", "MarkdownNote"]);
 /** Nodes that exist only in the editor and stand for a link or a value. */
-const VIRTUAL = new Set(["Reroute", "Reroute (rgthree)", "PrimitiveNode", "GetNode", "SetNode", "easy getNode", "easy setNode"]);
+/** Nodes that only pass on what comes into their one input. */
+const REROUTES = new Set(["Reroute", "Reroute (rgthree)"]);
+const VIRTUAL = new Set([...REROUTES, "PrimitiveNode", "GetNode", "SetNode", "easy getNode", "easy setNode"]);
 /** A switch that picks one of two inputs by a yes/no typed on it (Crystools): read as a link to the one picked. */
 const CRYSTOOLS_SWITCH = /^Switch .*\[Crystools\]$/;
 /** What the editor stores after a number that can change between runs. */
@@ -75,6 +78,9 @@ const fits = (type: string, value: unknown) =>
  * The typed-in values of a node, by input name. The file stores them as a bare list in the order the
  * editor shows them, so the names come from the node itself (newer files list them) or from the catalog.
  */
+/** What the editor puts in a field it has no saved value for: its default, or a dynamic choice's first option. */
+const defaultOf = (spec: unknown): unknown => optsOf(spec).default ?? dynamicOptions(spec)[0]?.key;
+
 function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string) => void): Record<string, unknown> {
   const saved = node.widgets_values;
   const all: Record<string, unknown> = { ...info?.input.required, ...info?.input.optional };
@@ -89,6 +95,10 @@ function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string
     for (const v of Array.isArray(saved) ? saved : []) if (v && typeof v === "object" && "lora" in v) out[`lora_${++n}`] = v;
     return out;
   }
+  if (node.type === POWER_PRIMITIVE && Array.isArray(saved)) {
+    // rgthree's primitive saves its type and its value, and reads them by those names
+    return { type: saved[0], value: saved[1] };
+  }
   if (saved && typeof saved === "object" && !Array.isArray(saved)) {
     // saved by name (VideoHelperSuite). Plain values only: previews and the like are the editor's own
     return Object.fromEntries(Object.entries(saved).filter(([name, v]) => known(name) && v !== null && typeof v !== "object"));
@@ -96,7 +106,8 @@ function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string
   if (!Array.isArray(saved)) return {};
 
   const fromFile = (node.inputs ?? []).flatMap((s) => (s.widget?.name ? [s.widget.name] : []));
-  const fromCatalog = Object.entries(all).filter(([, spec]) => isWidget(spec)).map(([name]) => name);
+  // a field the file shows as one keeps its place, even when this ComfyUI's kind only takes it by a link
+  const fromCatalog = Object.entries(all).filter(([name, spec]) => isWidget(spec) || fromFile.includes(name)).map(([name]) => name);
   // the editor adds a "what to do after a run" field after a seed, and after any number that asks for one
   const changes = (name: string) => Boolean(optsOf(all[name]).control_after_generate) || (/^(noise_)?seed$/.test(name) && typeOf(all[name]) === "INT");
   // newer files list every field; older ones (and trimmed ones) only the linked fields
@@ -108,11 +119,22 @@ function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string
   const out: Record<string, unknown> = {};
   const gone: string[] = [];
   let i = 0;
+  /** The fields a dynamic choice brings take the values after it, then theirs (unless the file names them itself). */
+  const nested = (name: string, spec: unknown, picked: unknown) => {
+    if (names.some((n) => n.startsWith(`${name}.`))) return;
+    for (const [sub, subSpec] of dynamicFields(spec, picked)) {
+      const key = `${name}.${sub}`;
+      const value = i < saved.length ? saved[i++] : defaultOf(subSpec);
+      if (value !== null && value !== undefined) out[key] = value;
+      nested(key, subSpec, out[key]);
+    }
+  };
   for (const name of names) {
     if (i >= saved.length) break;
     const value = saved[i++];
     if (known(name)) {
       if (value !== null && value !== undefined) out[name] = value;
+      nested(name, all[name], value);
     } else if (name !== "upload") gone.push(name);
     const next = saved[i];
     if (typeof next === "string" && AFTER_RUN.has(next) && (info ? changes(name) : typeof value === "number")) i++;
@@ -122,8 +144,11 @@ function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string
   }
   // a field the node gained after the workflow was saved starts at its default, as in the editor
   for (const name of fromCatalog) {
-    const preset = optsOf(all[name]).default;
-    if (!(name in out) && preset !== undefined && preset !== null) out[name] = preset;
+    const preset = defaultOf(all[name]);
+    if (!(name in out) && preset !== undefined && preset !== null) {
+      out[name] = preset;
+      nested(name, all[name], preset);
+    }
   }
   // fields the catalog does not know are the editor's own (an upload button, a player) unless the node also
   // has fields the file does not know: then the node itself is not the one the workflow was saved with
@@ -176,6 +201,13 @@ function frontValues(scope: Scope): Map<string, unknown> {
     for (const f of fields) out.set(f, (saved as Record<string, unknown>)[f]);
     return out;
   }
+  // a newer editor lists what the front shows in `proxyWidgets`, one entry per value saved: ["-1", input] is a
+  // field of the group's own, [node, widget] a widget of a node inside shown on the front (it keeps its own value)
+  const proxy = host.properties?.proxyWidgets;
+  if (Array.isArray(proxy) && proxy.length === saved.length && proxy.every((e) => Array.isArray(e) && e.length >= 2)) {
+    proxy.forEach((e, i) => { if (String((e as unknown[])[0]) === "-1") out.set(String((e as unknown[])[1]), saved[i]); });
+    return out;
+  }
   // after a number the editor may store what to do with it after a run ("randomize"): not a field
   let k = 0;
   for (const f of fields) {
@@ -188,7 +220,8 @@ function frontValues(scope: Scope): Map<string, unknown> {
 }
 
 export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings {
-  const root = json as EGraph & { definitions?: { subgraphs?: ESubgraph[] } };
+  // a copy: reading writes the Anything Everywhere links into the sockets, and the file may be read again
+  const root = structuredClone(json) as EGraph & { definitions?: { subgraphs?: ESubgraph[] } };
   const defs = new Map((root.definitions?.subgraphs ?? []).map((d) => [d.id, d]));
   const notes: string[] = [];
   const note = (text: string) => void (notes.includes(text) || notes.push(text));
@@ -273,7 +306,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
       const link = listed ?? [...within.links.values()].find((l) => String(l.target_id) === edge && l.target_slot === slot && within.nodes.has(String(l.origin_id)));
       return fromLink(within, link?.id, seen);
     }
-    if (node.type === "Reroute" || node.type === "SetNode" || node.type === "easy setNode") return fromLink(scope, node.inputs?.[0]?.link, seen);
+    if (REROUTES.has(node.type) || node.type === "SetNode" || node.type === "easy setNode") return fromLink(scope, node.inputs?.[0]?.link, seen);
     const first = Array.isArray(node.widgets_values) ? node.widgets_values[0] : undefined;
     if (node.type === "PrimitiveNode") return { literal: first };
     if (node.type === "GetNode" || node.type === "easy getNode") {
@@ -443,7 +476,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
   /** The node a link comes from, through reroutes, within one level. */
   const sourceNode = (scope: Scope, linkId: number | null | undefined): ENode | undefined => {
     let node = scope.nodes.get(String(scope.links.get(linkId ?? -1)?.origin_id));
-    for (let hops = 0; node?.type === "Reroute" && hops < 50; hops++) node = scope.nodes.get(String(scope.links.get(node.inputs?.[0]?.link ?? -1)?.origin_id));
+    for (let hops = 0; node && REROUTES.has(node.type) && hops < 50; hops++) node = scope.nodes.get(String(scope.links.get(node.inputs?.[0]?.link ?? -1)?.origin_id));
     return node;
   };
   interface Root { key: string; value: boolean; label: string; write?: Target }

@@ -2,7 +2,8 @@ import { choicesOf, folderOfFileInput, isRef, sameFile, type Graph, type NodeCat
 import { optsOf, specOf, typeOf } from "./catalog";
 import { scaleAfterModel } from "./recipe";
 import { splitCaptions, type Bindings, type Control, type ImageBinding, type MediaBinding, type Mode, type Target, type Toggle, type Wiring } from "./types";
-import { ancestors, prune, settle, cutFileNameChains, standInLoaders, standInPrimitives, standInSavers } from "./wiring";
+import { isDirector } from "./director";
+import { ancestors, prune, settle, cutFileNameChains, standInLoaders, standInPrimitives, standInSavers, unbundleContexts } from "./wiring";
 import { chapterName, frameNodes, PASS_WORK } from "./suggest";
 
 /**
@@ -65,7 +66,7 @@ export interface Inspection {
   /** Every picture the workflow loads, with what it seems to be for and how it would be bound. */
   images: Array<{ node: string; title: string; role: "start" | "end" | "mask" | null; binding: ImageBinding }>;
   /** Every video the workflow loads (a clip to carry on from, or to arrive at), and every sound. */
-  videos: Array<{ node: string; title: string; role: "previous" | "next"; binding: MediaBinding }>;
+  videos: Array<{ node: string; title: string; role: "source" | "previous" | "next"; binding: MediaBinding }>;
   sounds: Array<{ node: string; title: string; binding: MediaBinding }>;
   /** Places LoRAs can go: after a model loader, or a node that is itself a list of LoRAs. */
   loraPoints: Array<{ node: string; output: number; title: string; label: string; power?: boolean }>;
@@ -120,6 +121,14 @@ function consumers(graph: Graph): Map<string, Target[]> {
 
 const VALUE_TYPES = new Set(["INT", "FLOAT", "STRING", "BOOLEAN", "*"]);
 
+/** Nodes that hand a text on unchanged (as things are usually set): the input each output gives, by output. */
+const PASSES_TEXT: Record<string, string[]> = {
+  "SDXL Prompt Handling (JPS)": ["pos_g", "pos_l"],
+};
+
+/** rgthree's nodes that live in the editor only (no pack to install makes them run): never a part to switch on later. */
+const EDITOR_ONLY = /^(Node Collector|Mute \/ Bypass (Repeater|Relay)|Fast (Muter|Bypasser|Groups (Muter|Bypasser)|Actions Button)|Bookmark|Label) \(rgthree\)$/;
+
 /** A node that only holds one typed-in value for others to read: one input, typed in, and one plain value out. */
 const isPrimitive = (graph: Graph, catalog: NodeCatalog, id: string) => {
   const inputs = Object.values(graph[id]?.inputs ?? {});
@@ -131,11 +140,18 @@ const isPrimitive = (graph: Graph, catalog: NodeCatalog, id: string) => {
  * The place a value is really typed in. A literal input is itself; an input linked to a primitive
  * node (a number or text node people use to share one value) is that node's own value input.
  */
-function literal(graph: Graph, catalog: NodeCatalog, node: string, input: string): Target | null {
+function literal(graph: Graph, catalog: NodeCatalog, node: string, input: string, depth = 4): Target | null {
   const value = graph[node]?.inputs[input];
   if (value === undefined) return null;
   if (!isRef(value)) return { node, input };
-  return isPrimitive(graph, catalog, value[0]) ? { node: value[0], input: Object.keys(graph[value[0]]!.inputs)[0]! } : null;
+  if (isPrimitive(graph, catalog, value[0])) return { node: value[0], input: Object.keys(graph[value[0]]!.inputs)[0]! };
+  // a text handed on by a node that only passes it (JPS's prompt handling): the text it was given
+  const from = graph[value[0]];
+  const through = PASSES_TEXT[from?.class_type ?? ""]?.[value[1]];
+  if (depth > 0 && through && from && through in from.inputs) return literal(graph, catalog, value[0], through, depth - 1);
+  // a size handed back out by the node it was given to (a resize that gives its width and height on): that input's value
+  const out = String(catalog[from?.class_type ?? ""]?.output_name?.[value[1]] ?? "").toLowerCase();
+  return depth > 0 && /^(width|height)$/.test(out) && from && out in from.inputs ? literal(graph, catalog, value[0], out, depth - 1) : null;
 }
 
 /**
@@ -294,7 +310,10 @@ function findTexts(r: Reading): { texts: Inspection["texts"]; prompt: Inspection
       const at = literal(graph, catalog, id, input);
       if (!at || seen(at)) continue;
       const wired = usedAs(graph, uses, [id, info.output.indexOf("CONDITIONING")], [[/^negative/i, "negative"], [/^(positive|conditioning|cond$)/i, "positive"]]);
-      texts.push({ target: at, title: names.givenName(at.node) ?? names.titleOf(id), text: String(graph[at.node]!.inputs[at.input] ?? ""), role: (wired as "positive" | "negative" | null) ?? "unknown" });
+      // the wiring says nothing (the text goes through other nodes first): the name its author gave the text node
+      const given = names.givenName(at.node) ?? "";
+      const named = /negative|avoid/i.test(given) ? "negative" : /positive|prompt/i.test(given) ? "positive" : null;
+      texts.push({ target: at, title: given || names.titleOf(id), text: String(graph[at.node]!.inputs[at.input] ?? ""), role: (wired as "positive" | "negative" | null) ?? named ?? "unknown" });
     }
   }
   for (const id of ids) {
@@ -439,7 +458,9 @@ function findImages(r: Reading, reach: Set<string>): { images: Inspection["image
     const name = names.givenName(id) ?? "";
     if (/last|end|final/i.test(name)) return "end";
     if (/first|start|open/i.test(name)) return "start";
-    return usedAs(graph, uses, [id, 0], [[/end|last/i, "end"], [/start|first/i, "start"], [/mask/i, "mask"]]);
+    // a mask picture is fed straight in (or through an image-to-mask): further down, a "mask" input is some other part's
+    if ((uses.get(`${id}:0`) ?? []).some((u) => /mask/i.test(u.input) || /ToMask/i.test(graph[u.node]!.class_type))) return "mask";
+    return usedAs(graph, uses, [id, 0], [[/end|last/i, "end"], [/start|first/i, "start"]]);
   };
   const binding = (id: string): ImageBinding => {
     const direct = uses.get(`${id}:0`) ?? [];
@@ -456,8 +477,13 @@ function findImages(r: Reading, reach: Set<string>): { images: Inspection["image
   return { images, loaded, start: startId ? binding(startId) : undefined, end: endId ? binding(endId) : undefined, pictures };
 }
 
+/** The form's input id of a sound loader that is not the main one. */
+export const soundId = (node: string) => `snd_${node}`.replace(/[^a-zA-Z0-9_]/g, "_");
+/** The form's input id of a video loader that is not the main source. */
+export const videoId = (node: string) => `vid_${node}`.replace(/[^a-zA-Z0-9_]/g, "_");
+
 // ---- videos and sounds it loads: the clip before (its last frames carry on), the clip after, a sound
-function findMedia(r: Reading, reach: Set<string>): { videos: Inspection["videos"]; sounds: Inspection["sounds"]; previous: MediaBinding | undefined; next: MediaBinding | undefined; sound: MediaBinding | undefined; keys: string[] } {
+function findMedia(r: Reading, reach: Set<string>): { videos: Inspection["videos"]; sounds: Inspection["sounds"]; previous: MediaBinding | undefined; next: MediaBinding | undefined; source: MediaBinding | undefined; otherVideos: Bindings["otherVideos"]; sound: MediaBinding | undefined; otherSounds: Bindings["otherSounds"]; keys: string[] } {
   const { graph, ids, catalog, uses, names } = r;
   const loaders = ids.flatMap((id) => {
     const l = MEDIA_LOADERS[graph[id]!.class_type];
@@ -469,16 +495,27 @@ function findMedia(r: Reading, reach: Set<string>): { videos: Inspection["videos
     const optional = direct.length > 0 && direct.every((u) => u.input in (catalog[graph[u.node]!.class_type]?.input.optional ?? {}));
     return { target: { node: id, input }, detach: optional ? direct : [], required: !optional && reach.has(id) };
   };
-  // the clip after, by the name the loader was given; otherwise a video is the one to carry on from
-  const roleOf = (id: string): "previous" | "next" => (/next|last|end|after|arriv|target/i.test(names.givenName(id) ?? "") ? "next" : "previous");
+  // by the name the loader was given: the clip after, the clip before; otherwise a video to work on (an upscale, a
+  // video-to-video, a control video: what nearly every workflow loads a video for). A hint: the import screen changes it
+  const roleOf = (id: string): Inspection["videos"][number]["role"] => {
+    const given = names.givenName(id) ?? "";
+    if (/next|after|arriv|target/i.test(given)) return "next";
+    return /previous|prev|before|continu|extend|carry|last frames?/i.test(given) ? "previous" : "source";
+  };
   const videos: Inspection["videos"] = loaders.filter((l) => l.kind === "video").map((l) => ({ node: l.id, title: names.titleOf(l.id), role: roleOf(l.id), binding: binding(l.id, l.input) }));
   const sounds: Inspection["sounds"] = loaders.filter((l) => l.kind === "audio").map((l) => ({ node: l.id, title: names.titleOf(l.id), binding: binding(l.id, l.input) }));
   // of several of a role, the one the result is made from as things are saved
   const pick = <T extends { node: string; binding: MediaBinding }>(list: T[]) => list.find((v) => reach.has(v.node)) ?? list[0];
   const previous = pick(videos.filter((v) => v.role === "previous"))?.binding;
   const next = pick(videos.filter((v) => v.role === "next"))?.binding;
+  const sources = videos.filter((v) => v.role === "source");
+  const source = pick(sources);
+  const otherVideos = sources.filter((v) => v !== source).map((v, i) => ({ ...v.binding, id: videoId(v.node), label: names.givenName(v.node) ?? `Video ${i + 2}` }));
   const sound = pick(sounds)?.binding;
-  return { videos, sounds, previous, next, sound, keys: loaders.map((l) => `${l.id}.${l.input}`) };
+  // the other sounds it loads (the music beside a voice, a second speaker): a slot each, as the other pictures,
+  // so that none keeps the author's file, which this ComfyUI would not have
+  const otherSounds = sounds.filter((s) => s.binding !== sound).map((s, i) => ({ ...s.binding, id: soundId(s.node), label: names.givenName(s.node) ?? `Sound ${i + 2}` }));
+  return { videos, sounds, previous, next, source: source?.binding, otherVideos, sound, otherSounds, keys: loaders.map((l) => `${l.id}.${l.input}`) };
 }
 
 // ---- where LoRAs can go
@@ -729,6 +766,8 @@ function findMissingChoices(r: Reading): Inspection["missingChoices"] {
 export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, notes: string[] = []): Inspection {
   // a saver of a pack this ComfyUI lacks: ComfyUI's own stands in, in the workflow itself (what is saved is this graph)
   const has = (c: string) => c in catalog;
+  // values taken out of rgthree's bundles are read where they were put in (the same at run time)
+  unbundleContexts(source, editor?.modes);
   const replaced = [
     ...standInSavers(source, has, editor?.slots),
     ...standInLoaders(source, has, editor?.slots),
@@ -744,7 +783,7 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     const early = namesOf(source, catalog, editor);
     for (const [id, n] of Object.entries(source)) {
       // (a list of LoRAs is not a patch to pass by: Afflatus's own list takes its place)
-      if (catalog[n.class_type] || n.class_type === POWER_LORAS || editor.modes[id] || editor.toggles.some((t) => t.effects.some((e) => e.nodes.includes(id)))) continue;
+      if (catalog[n.class_type] || n.class_type === POWER_LORAS || EDITOR_ONLY.test(n.class_type) || editor.modes[id] || editor.toggles.some((t) => t.effects.some((e) => e.nodes.includes(id)))) continue;
       const slots = editor.slots[id];
       if (!slots?.out.length) continue;
       // every output that is read has exactly one linked input of its type to hand on (a model, a model and a clip);
@@ -819,15 +858,17 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     });
   }
   // what this ComfyUI lacks: among the nodes the result is made from it blocks a render; elsewhere it is left out
-  const missingIn = (which: string[]) => [...new Set(which.filter((id) => !catalog[graph[id]!.class_type]).map((id) => graph[id]!.class_type))];
+  // (rgthree's editor-only helpers are missing from every ComfyUI: no pack to ask for, the build leaves them out)
+  const missingIn = (which: string[]) => [...new Set(which.filter((id) => !catalog[graph[id]!.class_type] && !EDITOR_ONLY.test(graph[id]!.class_type)).map((id) => graph[id]!.class_type))];
   const needed = result ? ids.filter((id) => id === result.node || reach.has(id)) : ids;
   const missingNodes = missingIn(needed);
   const missingUnneeded = missingIn(ids.filter((id) => !needed.includes(id))).filter((c) => !missingNodes.includes(c));
-  const missingWhenOn = [...new Set(Object.keys(source).filter((id) => !graph[id] && !catalog[source[id]!.class_type]).map((id) => source[id]!.class_type))].filter((c) => !missingNodes.includes(c) && !missingUnneeded.includes(c));
+  const missingWhenOn = [...new Set(Object.keys(source).filter((id) => !graph[id] && !catalog[source[id]!.class_type] && !EDITOR_ONLY.test(source[id]!.class_type)).map((id) => source[id]!.class_type))].filter((c) => !missingNodes.includes(c) && !missingUnneeded.includes(c));
   const { texts, prompt, negative } = findTexts(r);
   const { seeds, size, length, resolution, duration } = findSizeAndLength(r, reach);
   const { images, loaded, start, end, pictures } = findImages(r, reach);
-  const { videos, sounds, previous, next, sound, keys: mediaKeys } = findMedia(r, reach);
+  const directorId = ids.find((id) => isDirector(graph, id));
+  const { videos, sounds, previous, next, source: sourceVideo, otherVideos, sound, otherSounds, keys: mediaKeys } = findMedia(r, reach);
   const { loraPoints, chosen } = findLoraPoints(r);
   // the model file: the loader the LoRAs chain after, the first in use, as the form's Model picker
   const passes = samplerPasses(r);
@@ -858,11 +899,16 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
         ...(length && result.kind === "video" ? { length } : {}),
         ...(model ? { model } : {}),
         ...(start ? { startImage: start } : {}),
+        // no Load Image, but a Director that takes its frames itself: the form's pictures go into it
+        ...(!start && !end && directorId ? { director: { node: directorId } } : {}),
         ...(end ? { endImage: end } : {}),
         pictures,
         ...(previous ? { previousVideo: previous } : {}),
         ...(next ? { nextVideo: next } : {}),
+        ...(sourceVideo ? { sourceVideo } : {}),
+        otherVideos,
         ...(sound ? { sound } : {}),
+        otherSounds,
         loras: chosen.map((p) => ({ node: p.node, output: p.output, label: chosen.length > 1 ? p.label : "", ...(p.power ? { power: true } : {}) })),
         toggles,
         sections: [],

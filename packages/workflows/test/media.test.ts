@@ -15,7 +15,7 @@ const graph: Graph = {
   "3": { class_type: "VAELoader", inputs: { vae_name: "wan_2.1_vae.safetensors" } },
   "6": { class_type: "CLIPTextEncode", inputs: { text: "she turns", clip: ["2", 0] } },
   "7": { class_type: "CLIPTextEncode", inputs: { text: "blurry", clip: ["2", 0] } },
-  "10": { class_type: "VHS_LoadVideoFFmpeg", inputs: { video: "placeholder.mp4", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, start_time: 0 }, ...titled("Source video") },
+  "10": { class_type: "VHS_LoadVideoFFmpeg", inputs: { video: "placeholder.mp4", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, start_time: 0 }, ...titled("Clip before") },
   "11": { class_type: "VHS_LoadVideoFFmpegPath", inputs: { video: "", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, start_time: 0 }, ...titled("Next video") },
   "12": { class_type: "LoadAudio", inputs: { audio: "voice.wav" } },
   "20": { class_type: "ImageFromBatch", inputs: { image: ["10", 0], batch_index: 0, length: 1 } },
@@ -31,7 +31,7 @@ describe("videos and sounds a workflow loads", () => {
   const def: WorkflowDef = { id: "w", title: "t", model: "Wan 2.2", source: "t.json", graph: graph as WorkflowDef["graph"], bindings: s };
 
   it("finds the loaders, tells the clip after by its name, and binds the first of each", () => {
-    expect(found.videos.map((v) => [v.title, v.role])).toEqual([["Source video", "previous"], ["Next video", "next"]]);
+    expect(found.videos.map((v) => [v.title, v.role])).toEqual([["Clip before", "previous"], ["Next video", "next"]]);
     expect(found.sounds.map((v) => v.node)).toEqual(["12"]);
     // the clip before feeds a node that cannot do without it; the clip after and the sound go into optional inputs
     expect(s.previousVideo).toMatchObject({ target: { node: "10", input: "video" }, required: true });
@@ -73,5 +73,71 @@ describe("videos and sounds a workflow loads", () => {
     const recipe = recipeFromWorkflow(def);
     const v = recipe.variants![0]!;
     expect(() => recipe.build(parseInput(recipe, v.input), dryContext({ uploads: v.uploads }))).not.toThrow();
+  });
+});
+
+describe("several sounds a workflow loads (a voice and a music)", () => {
+  // a sound-to-video workflow: the voice drives the lips, the music is mixed under it; both are needed
+  const two: Graph = {
+    ...graph,
+    "12": { class_type: "LoadAudio", inputs: { audio: "voice.wav" }, ...titled("Load voice only") },
+    "13": { class_type: "LoadAudio", inputs: { audio: "music.wav" }, ...titled("Music") },
+    "14": { class_type: "LoadAudio", inputs: { audio: "spare.wav" } },
+    "30": { class_type: "AudioConcat", inputs: { audio1: ["12", 0], audio2: ["13", 0], direction: "after" } },
+    "63": { class_type: "VHS_VideoCombine", inputs: { images: ["8", 0], audio: ["30", 0], frame_rate: 16, loop_count: 0, filename_prefix: "wan", format: "video/h264-mp4", pingpong: false, save_output: true } },
+  };
+  const found = inspect(two, catalog);
+  const s = found.suggested!;
+  const def: WorkflowDef = { id: "w", title: "t", model: "Wan 2.2", source: "t.json", graph: two as WorkflowDef["graph"], bindings: s };
+
+  it("binds the first as the sound and gives each other one a slot of its own, under its loader's name", () => {
+    expect(s.sound).toMatchObject({ target: { node: "12" }, required: true });
+    expect(s.otherSounds.map((o) => [o.id, o.label, o.required])).toEqual([["snd_13", "Music", true], ["snd_14", "Sound 3", false]]);
+    const recipe = recipeFromWorkflow(def);
+    expect(recipe.inputs.find((i) => i.id === "snd_13")).toMatchObject({ type: "audio", role: "sound", label: "Music", optional: false });
+  });
+
+  it("writes each uploaded sound into its own loader, never leaving the author's file in one", () => {
+    const recipe = recipeFromWorkflow(def);
+    const built = recipe.build(
+      parseInput(recipe, { previousVideo: { asset: "a" }, sound: "c", snd_13: "d" }),
+      dryContext({ uploads: { previousVideo: "afflatus_1.mp4 [temp]", sound: "afflatus_3.wav [temp]", snd_13: "afflatus_4.wav [temp]" } }),
+    );
+    expect(built.graph["12"]!.inputs.audio).toBe("afflatus_3.wav [temp]");
+    expect(built.graph["13"]!.inputs.audio).toBe("afflatus_4.wav [temp]");
+    expect(built.graph["14"]).toBeUndefined();
+    expect(Object.values(built.graph).some((n) => Object.values(n.inputs).some((v) => v === "music.wav" || v === "voice.wav"))).toBe(false);
+  });
+
+  it("builds its dry-run variant", () => {
+    const recipe = recipeFromWorkflow(def);
+    const v = recipe.variants![0]!;
+    expect(() => recipe.build(parseInput(recipe, v.input), dryContext({ uploads: v.uploads }))).not.toThrow();
+  });
+});
+
+describe("a video the workflow works on", () => {
+  // an upscale of a video: a loader whose name says nothing of joining, its frames straight into the saver
+  const upscale: Graph = {
+    "1": { class_type: "VHS_LoadVideo", inputs: { video: "author.mp4", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 } },
+    "2": { class_type: "VHS_LoadVideo", inputs: { video: "depth.mp4", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 }, ...titled("Depth video") },
+    "3": { class_type: "ImageBlend", inputs: { image1: ["1", 0], image2: ["2", 0], blend_factor: 0.5, blend_mode: "normal" } },
+    "4": { class_type: "VHS_VideoCombine", inputs: { images: ["3", 0], frame_rate: 16, loop_count: 0, filename_prefix: "up", format: "video/h264-mp4", pingpong: false, save_output: true } },
+  };
+  const found = inspect(upscale, catalog);
+  const s = found.suggested!;
+  const def: WorkflowDef = { id: "w", title: "t", model: "Wan 2.2", source: "t.json", graph: upscale as WorkflowDef["graph"], bindings: s };
+
+  it("is a source video by default, each one a slot; nothing is carried on in a timeline", () => {
+    expect(found.videos.map((v) => v.role)).toEqual(["source", "source"]);
+    expect(s.sourceVideo).toMatchObject({ target: { node: "1" }, required: true });
+    expect(s.otherVideos.map((v) => [v.id, v.label])).toEqual([["vid_2", "Depth video"]]);
+    expect(s.previousVideo).toBeUndefined();
+    const recipe = recipeFromWorkflow(def);
+    expect(recipe.inputs.find((i) => i.id === "sourceVideo")).toMatchObject({ type: "clip", role: "source", whole: true, optional: false });
+    expect(recipe.inputs.find((i) => i.id === "vid_2")).toMatchObject({ type: "clip", role: "source", label: "Depth video" });
+    expect(recipe.traits?.continues).not.toBe("clip");
+    const built = recipe.build(parseInput(recipe, { sourceVideo: { asset: "a" }, vid_2: { asset: "b" } }), dryContext({ uploads: { sourceVideo: "a.mp4 [temp]", vid_2: "b.mp4 [temp]" } }));
+    expect([built.graph["1"]!.inputs.video, built.graph["2"]!.inputs.video]).toEqual(["a.mp4 [temp]", "b.mp4 [temp]"]);
   });
 });

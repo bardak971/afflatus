@@ -55,7 +55,8 @@ describe("the importer's sections", () => {
   const recipe = recipeFromWorkflow(def);
 
   it("become chapters of the form, in their order, with the switch at the head of the one that has it", () => {
-    expect(recipe.chapters).toEqual([{ id: "sec_1", label: "Sampling" }, { id: "sec_2", label: "Output" }]);
+    // each chapter's "?" says what its nodes do, worked out from the graph
+    expect(recipe.chapters).toEqual([{ id: "sec_1", label: "Sampling", help: "What it does: samples." }, { id: "sec_2", label: "Output", help: "What it does: upscales, samples." }]);
     const ids = recipe.inputs.map((i) => i.id);
     // the section's own order, not the mapping's; the switch leads its section
     // the mapping's own inputs (the seed here) can be placed too
@@ -102,7 +103,7 @@ describe("the importer's sections", () => {
       ...def,
       bindings: { ...def.bindings, toggles: [], sections: [{ id: "sec_x", label: "Gone", items: [{ toggle: "sw_nowhere", items: ["ctl_3_steps"] }] }, { id: "sec_y", label: "Half", items: ["ctl_3_cfg", "ctl_none"] }] },
     }));
-    expect(odd.chapters).toEqual([{ id: "sec_x", label: "Gone" }, { id: "sec_y", label: "Half" }]);
+    expect(odd.chapters!.map((c) => [c.id, c.label])).toEqual([["sec_x", "Gone"], ["sec_y", "Half"]]);
     expect(odd.inputs.find((i) => i.id === "ctl_3_steps")!.chapter).toBeUndefined();
     expect(odd.inputs.find((i) => i.id === "ctl_3_cfg")!.chapter).toBe("sec_y");
   });

@@ -200,15 +200,31 @@ export class ComfyClient {
     await this.post("/free", { unload_models: true, free_memory: true });
   }
 
-  /** Put a file in ComfyUI's temp folder; returns the name loader nodes take ("<name> [temp]"). */
-  async upload(bytes: Uint8Array, ext: string): Promise<string> {
+  /**
+   * Put a file in ComfyUI's temp folder; returns the name loader nodes take ("<name> [temp]"). With `into: "input"`
+   * it goes to the input folder's "afflatus" subfolder instead, for a node that reads only from there (the DaSiWa
+   * Director's pictures); the name is then "afflatus/<name>".
+   */
+  async upload(bytes: Uint8Array, ext: string, opts: { into?: "input" } = {}): Promise<string> {
     const form = new FormData();
     const type = MIME[ext] ?? "application/octet-stream";
     form.append("image", new Blob([new Uint8Array(bytes).buffer], { type }), `afflatus_${randomUUID()}.${ext}`);
-    form.append("type", "temp");
+    form.append("type", opts.into === "input" ? "input" : "temp");
+    if (opts.into === "input") form.append("subfolder", "afflatus");
     form.append("overwrite", "true");
     const r = (await (await this.request("/upload/image", { method: "POST", body: form }, 60_000)).json()) as { name: string; subfolder?: string };
-    return `${r.subfolder ? `${r.subfolder}/` : ""}${r.name} [temp]`;
+    const name = `${r.subfolder ? `${r.subfolder}/` : ""}${r.name}`;
+    return opts.into === "input" ? name : `${name} [temp]`;
+  }
+
+  /**
+   * Remove the files Afflatus put in ComfyUI's input folder (`upload` with `into: "input"`) older than this many
+   * hours, through the Afflatus node pack (0.8.0). How many went; null when the pack is older or not loaded.
+   */
+  async cleanInput(olderThanHours = 24): Promise<number | null> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/clean-input`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ older_than_hours: olderThanHours }), signal: AbortSignal.timeout(META_TIMEOUT) }).catch(() => null);
+    if (!res?.ok) return null;
+    return Number(((await res.json().catch(() => ({}))) as { removed?: unknown }).removed ?? 0);
   }
 
   /**

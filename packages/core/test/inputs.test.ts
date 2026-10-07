@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isShown, RANDOM_SEED, schemaFor, type InputSpec } from "../src";
+import { isShown, pickChoice, RANDOM_SEED, schemaFor, type InputSpec } from "../src";
 
 const specs: InputSpec[] = [
   { id: "prompt", type: "prompt", label: "Tags", style: "tags" },
@@ -60,5 +60,14 @@ describe("isShown", () => {
     const spec: InputSpec = { id: "x", type: "toggle", label: "X", default: false, showWhen: { input: "mode", in: ["b"] } };
     expect(isShown(spec, { mode: "a" })).toBe(false);
     expect(isShown(spec, { mode: "b" })).toBe(true);
+  });
+});
+
+describe("a saved file choice this ComfyUI lists under another folder", () => {
+  // an imported workflow saved "MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors"; this ComfyUI keeps it at the top of its folder
+  const spec = { id: "vae", type: "choice", label: "VAE", options: { node: "VAELoader", input: "vae_name" }, default: "MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors" } as const;
+  it("is that file, not the first of the list", () => {
+    expect(pickChoice(spec as never, ["LTX23_audio_vae_bf16.safetensors", "minimax_h3_audio_vae_fp32.safetensors"])).toBe("minimax_h3_audio_vae_fp32.safetensors");
+    expect(pickChoice(spec as never, ["LTX23_audio_vae_bf16.safetensors", "Other\\minimax_h3_audio_vae_fp32.safetensors"])).toBe("Other\\minimax_h3_audio_vae_fp32.safetensors");
   });
 });

@@ -9,7 +9,7 @@ export function corpusFacts(found: Inspection) {
     negative: Boolean(s?.negative),
     model: Boolean(s?.model),
     startImage: Boolean(s?.startImage),
-    video: Boolean(s?.previousVideo),
+    video: Boolean(s?.previousVideo || s?.sourceVideo || s?.nextVideo),
     size: Boolean(s?.size),
     length: Boolean(s?.length),
     seeds: s?.seeds.length ?? 0,

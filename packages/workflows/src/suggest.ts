@@ -1,5 +1,5 @@
-import { isRef, type Graph } from "@afflatus/core";
-import { slug, type Section, type SwitchGroup, type Toggle, type Wiring } from "./types";
+import { isRef, type Graph, type InputSpec } from "@afflatus/core";
+import { slug, type Bindings, type Section, type SwitchGroup, type Toggle, type Wiring } from "./types";
 import { ancestors, prune } from "./wiring";
 
 /**
@@ -15,6 +15,34 @@ import { ancestors, prune } from "./wiring";
 export interface Placeable {
   id: string;
   node?: string;
+}
+
+/**
+ * What of a form can be placed in its sections, each with the node it belongs to (for placing it in the frame that
+ * holds the node): every input but the prompt and its negative (they lead the form) and the switches the sections made themselves.
+ */
+export function placeablesFor(b: Bindings, inputs: InputSpec[]): Placeable[] {
+  // the prompt and its negative lead the form whatever the sections say
+  return inputs
+    .filter((i) => !(i.type === "prompt" && (i.id === "prompt" || i.id === "negative")) && !b.toggles.some((t) => t.made && t.id === i.id))
+    .map((i) => ({ id: i.id, node: inputNode(b, i.id) }));
+}
+
+/** The node an input of an imported workflow's form belongs to. */
+export function inputNode(b: Bindings, id: string): string | undefined {
+  const c = b.controls.find((x) => x.id === id || `${x.id}_net` === id);
+  if (c) return c.target.node;
+  const t = b.toggles.find((x) => x.id === id);
+  if (t) return t.effects[0]?.nodes[0];
+  const fixed: Record<string, string | undefined> = {
+    size: b.size?.width.node, seed: b.seeds[0]?.node, negative: b.negative?.node, seconds: b.length?.target.node,
+    startImage: b.startImage?.target.node, endImage: b.endImage?.target.node, model: b.model?.target.node,
+    previousVideo: b.previousVideo?.target.node, nextVideo: b.nextVideo?.target.node, sourceVideo: b.sourceVideo?.target.node, sound: b.sound?.target.node,
+  };
+  if (id in fixed) return fixed[id];
+  const lora = /^loras(?:_(\d+))?$/.exec(id);
+  if (lora) return b.loras[lora[1] ? Number(lora[1]) - 1 : 0]?.node;
+  return [...(b.pictures ?? []), ...(b.otherSounds ?? []), ...(b.otherVideos ?? [])].find((p) => p.id === id)?.target.node;
 }
 
 export interface Suggestion {
@@ -122,7 +150,7 @@ function nameFromNodes(graph: Graph, nodes: string[], base: string | null): stri
   return "Settings";
 }
 
-const titleOf = (graph: Graph, id: string | undefined) => ((id && ((graph[id] as { _meta?: { title?: string } } | undefined)?._meta?.title ?? graph[id]?.class_type)) || "").replace(DECOR, " ").replace(/\s+/g, " ").trim();
+export const titleOf = (graph: Graph, id: string | undefined) => ((id && ((graph[id] as { _meta?: { title?: string } } | undefined)?._meta?.title ?? graph[id]?.class_type)) || "").replace(DECOR, " ").replace(/\s+/g, " ").trim();
 
 export function suggestSections(graph: Graph, wiring: Wiring | undefined, result: string, placeables: Placeable[], frames: Wiring["frames"] = wiring?.frames ?? [], existing: Toggle[] = []): Suggestion {
   const sections: Section[] = [];
@@ -232,10 +260,34 @@ export function suggestSections(graph: Graph, wiring: Wiring | undefined, result
   if (!sections.length) {
     why.push(frames.length ? "None of this workflow's frames holds part of the form: arranged by what its nodes do." : "This workflow has no frames: arranged by what its nodes do.");
     byRole();
+  } else {
+    // what the author's frames leave out (a loader, a sampler, the choice of how far it runs): by what its nodes do
+    const before = placedIds.size;
+    byRole(false);
+    if (placedIds.size > before) why.push(`${plural(placedIds.size - before)} outside the author's frames: placed by what ${placedIds.size - before === 1 ? "its node does" : "their nodes do"}.`);
   }
 
-  /** Without frames: Model, Inputs, Output, Sampling, then a section per pass of work (a switch when it can be skipped). */
-  function byRole() {
+  // a value left over (a number node, some arithmetic) sits with what it feeds, wherever that was placed
+  const consumers = new Map<string, string[]>();
+  for (const [id, n] of Object.entries(graph)) for (const v of Object.values(n.inputs)) if (isRef(v)) consumers.set(v[0], [...(consumers.get(v[0]) ?? []), id]);
+  // (a value node: one that takes no link, or a number node or some arithmetic by its kind)
+  const valueNode = (id: string) => !Object.values(graph[id]?.inputs ?? {}).some(isRef) || /Primitive|Math|Number|Constant|Int|Float|Steps|Value/i.test(graph[id]?.class_type ?? "");
+  for (let round = 0; round < 3; round++) {
+    for (const p of placeables) {
+      if (placedIds.has(p.id) || !p.node || !valueNode(p.node)) continue;
+      const fed = new Set(consumers.get(p.node) ?? []);
+      const home = sections.find((sec) => sec.items.some((it) => (typeof it === "string" ? [it] : it.items).some((id) => fed.has(nodeOf.get(id) ?? ""))));
+      if (!home) continue;
+      home.items.push(p.id);
+      placedIds.add(p.id);
+    }
+  }
+
+  /**
+   * Without frames: Model, Inputs, Output, Sampling, then a section per pass of work (a switch when it can be skipped).
+   * After the frames (`passes` false): the first four only, for what the frames left out.
+   */
+  function byRole(withPasses = true) {
     const at = (id: string) => nodeOf.get(id);
     const cls = (id: string) => graph[at(id) ?? ""]?.class_type ?? "";
     const rest = () => placeables.filter((p) => !placedIds.has(p.id));
@@ -245,7 +297,11 @@ export function suggestSections(graph: Graph, wiring: Wiring | undefined, result
       return items;
     };
     const add = (label: string, items: Section["items"]) => {
-      if (items.length) sections.push({ id: uniqueId("sec", label), label, items });
+      if (!items.length) return;
+      // after the frames, a section of that name the author made takes them
+      const twin = withPasses ? undefined : sections.find((x) => x.label.toLowerCase() === label.toLowerCase());
+      if (twin) twin.items.push(...items);
+      else sections.push({ id: uniqueId("sec", label), label, items });
     };
     // the passes: each sampling after the base one and each node of work, with the nodes only it is made from
     const consumersOf = new Map<string, string[]>();
@@ -288,10 +344,13 @@ export function suggestSections(graph: Graph, wiring: Wiring | undefined, result
     passes.sort((a, b) => ancestors(graph, a.head).size - ancestors(graph, b.head).size);
     const inPass = new Set(passes.flatMap((p) => p.nodes));
 
-    add("Model", pick((p) => p.id === "model" || /^loras(_\d+)?$/.test(p.id) || (!inPass.has(at(p.id) ?? "") && /Loader|Checkpoint|UNET|Lora/i.test(cls(p.id)) && !/^Load(Image|Video|Audio)|VHS_Load/i.test(cls(p.id)))));
-    add("Inputs", pick((p) => ["startImage", "endImage", "previousVideo", "nextVideo", "sound"].includes(p.id) || /^Load(Image|Video|Audio)|VHS_Load/i.test(cls(p.id))));
-    add("Output", pick((p) => p.id === "size" || p.id === "seconds" || (!inPass.has(at(p.id) ?? "") && /Save|Combine|Empty.*Latent/i.test(cls(p.id)))));
-    add("Sampling", pick((p) => p.id === "seed" || (!inPass.has(at(p.id) ?? "") && (at(p.id) === base || /Sampler|Scheduler|Sigmas|Guider|CFG|ModelSampling/i.test(cls(p.id))))));
+    const media = (p: Placeable) => ["startImage", "endImage", "previousVideo", "nextVideo", "sourceVideo", "sound"].includes(p.id) || /^(pic|snd|vid)_/.test(p.id) || /^Load(Image|Video|Audio)|VHS_Load/i.test(cls(p.id));
+    add("Model", pick((p) => p.id === "model" || /^loras(_\d+)?$/.test(p.id) || (!inPass.has(at(p.id) ?? "") && /Loader|Checkpoint|UNET|Lora|GGUF/i.test(cls(p.id)) && !media(p))));
+    add("Inputs", pick(media));
+    add("Output", pick((p) => p.id === "size" || p.id === "seconds" || (!inPass.has(at(p.id) ?? "") && /Save|Combine|Empty.*Latent|EmptyEmbeds/i.test(cls(p.id)))));
+    // the choice of how far it runs (or the hires fix switch) leads the sampling
+    add("Sampling", pick((p) => p.id === "stage" || p.id === "seed" || (!inPass.has(at(p.id) ?? "") && (at(p.id) === base || /Sampler|Scheduler|Sigmas|Guider|CFG|ModelSampling|Noise|Guidance|Shift/i.test(cls(p.id))))));
+    if (!withPasses) return;
     for (const p of passes) {
       const label = nameFromNodes(graph, p.nodes, base);
       const sw = switchFor(p.nodes, label, "", undefined);

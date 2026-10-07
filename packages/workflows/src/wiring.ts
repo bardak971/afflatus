@@ -254,9 +254,11 @@ export function standInPrimitives(graph: Graph, has: (classType: string) => bool
   const out: Array<{ node: string; from: string; to: string }> = [];
   for (const [id, n] of Object.entries(graph)) {
     if (has(n.class_type)) continue;
-    const entries = Object.entries(n.inputs);
+    // a value that says its own type (rgthree's Power Primitive: type "INT", value 81) is one value of that type
+    const typed = Object.keys(n.inputs).sort().join() === "type,value" && typeof n.inputs.type === "string" ? (n.inputs.type as string).replace(/\s*\(.*\)$/, "").toUpperCase() : null;
+    const entries = typed ? [["value", n.inputs.value] as [string, unknown]] : Object.entries(n.inputs);
     if (entries.length !== 1 || isRef(entries[0]![1])) continue;
-    const outs = slots?.[id]?.out;
+    const outs = typed ? [typed === "NUMBER" ? "FLOAT" : typed] : slots?.[id]?.out;
     // a selector with a second output (its name as text) still holds one value
     if (outs && outs.length !== 1 && !(outs[0] === "COMBO" && outs.length === 2)) continue;
     // a value for a list of choices (a sampler's name): a primitive's link would not be taken there, so the value itself goes in
@@ -277,6 +279,46 @@ export function standInPrimitives(graph: Graph, has: (classType: string) => bool
     out.push({ node: id, from: n.class_type, to });
   }
   return out;
+}
+
+/** rgthree's contexts: what each output hands on, by the input of the same name (output 0 is the context itself). */
+const SMALL_CONTEXT = ["base_ctx", "model", "clip", "vae", "positive", "negative", "latent", "images", "seed"];
+const CONTEXTS: Record<string, string[]> = {
+  "Context (rgthree)": SMALL_CONTEXT,
+  "Context Big (rgthree)": [...SMALL_CONTEXT, "steps", "step_refiner", "cfg", "ckpt_name", "sampler", "scheduler", "clip_width", "clip_height", "text_pos_g", "text_pos_l", "text_neg_g", "text_neg_l", "mask", "control_net"],
+};
+
+/**
+ * A link that takes one value out of an rgthree context (a bundle of model, size, prompts… handed from part to
+ * part) is led to where that value was put in: the context's own input of that name, or else the same value of
+ * the context it was built on. What runs is the same; what the workflow is made of can then be read through
+ * the bundles (the size, the prompt, the picture). Contexts that are off, and switches and merges of contexts
+ * (which one they hand on is decided while running), are not looked through. Gives how many links were led.
+ */
+export function unbundleContexts(graph: Graph, modes: Record<string, Mode> = {}): number {
+  const fieldOf = (ref: Ref, seen = new Set<string>()): Ref | undefined => {
+    const [id, slot] = ref;
+    const node = graph[id];
+    const fields = node && !modes[id] ? CONTEXTS[node.class_type] : undefined;
+    if (!fields || slot === 0 || slot >= fields.length || seen.has(id)) return undefined;
+    seen.add(id);
+    const own = node!.inputs[fields[slot]!];
+    if (isRef(own)) return fieldOf(own, seen) ?? own;
+    const base = node!.inputs.base_ctx;
+    return isRef(base) && base[1] === 0 ? fieldOf([base[0], slot], seen) : undefined;
+  };
+  let led = 0;
+  for (const node of Object.values(graph)) {
+    for (const [name, value] of Object.entries(node.inputs)) {
+      if (!isRef(value)) continue;
+      const from = fieldOf(value);
+      if (from) {
+        node.inputs[name] = from;
+        led++;
+      }
+    }
+  }
+  return led;
 }
 
 /**

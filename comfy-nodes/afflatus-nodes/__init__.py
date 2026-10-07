@@ -28,7 +28,7 @@ from .continuation_nodes import (
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 
 class AfflatusExtension(ComfyExtension):
@@ -52,12 +52,15 @@ async def comfy_entrypoint() -> AfflatusExtension:
     return AfflatusExtension()
 
 
-# Two small routes on ComfyUI's own web server, for an Afflatus that runs on another machine (its container,
-# say) and cannot read ComfyUI's model files from the disk:
+# Three small routes on ComfyUI's own web server, for an Afflatus that runs on another machine (its container,
+# say) and cannot reach ComfyUI's disk:
 #   GET /afflatus/header?folder=loras&filename=x.safetensors  → the file's safetensors header (its metadata,
 #       and each tensor's dtype and shape: what tells which model the file is for). 404 when there is no such file.
 #   GET /afflatus/version  → this pack's version.
-# Read-only, the first bytes of a file only, nothing loaded. ComfyUI's own /view_metadata gives the metadata alone.
+#   POST /afflatus/clean-input {"older_than_hours": 24}  → removes the pictures Afflatus uploaded to input/afflatus/
+#       (for nodes that read only from the input folder, the DaSiWa Director) that are older than that. Only files
+#       named afflatus_* in that one folder; ComfyUI clears its temp folder itself, not its input folder.
+# The first two are read-only, the first bytes of a file only, nothing loaded. ComfyUI's own /view_metadata gives the metadata alone.
 try:
     import json
     import struct
@@ -100,6 +103,32 @@ try:
     @PromptServer.instance.routes.get("/afflatus/version")
     async def _afflatus_version(request):
         return web.json_response({"pack": "afflatus-nodes", "version": VERSION})
+
+    @PromptServer.instance.routes.post("/afflatus/clean-input")
+    async def _afflatus_clean_input(request):
+        import os
+        import time
+
+        try:
+            hours = float((await request.json()).get("older_than_hours", 24))
+        except Exception:
+            hours = 24.0
+        # never younger than an hour: a picture a queued job is about to read is not taken from under it
+        cutoff = time.time() - max(1.0, hours) * 3600
+        folder = os.path.join(folder_paths.get_input_directory(), "afflatus")
+        removed = 0
+        if os.path.isdir(folder):
+            for name in os.listdir(folder):
+                path = os.path.join(folder, name)
+                if not name.startswith("afflatus_") or not os.path.isfile(path):
+                    continue
+                try:
+                    if os.path.getmtime(path) < cutoff:
+                        os.remove(path)
+                        removed += 1
+                except OSError:
+                    pass
+        return web.json_response({"removed": removed})
 except Exception:
     # outside ComfyUI's server (a bare import, a test): the nodes still load, the routes are simply not there
     pass

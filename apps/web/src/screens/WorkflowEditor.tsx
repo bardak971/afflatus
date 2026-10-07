@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Minus } from "lucide-react";
 import { describeRecipe, folderOfFileInput, fuzzyFilter, fuzzyScore } from "@afflatus/core";
-import { ancestors, recipeFromWorkflow, suggestSections, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
+import { ancestors, placeablesFor, recipeFromWorkflow, soundId, suggestSections, videoId, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
 import { api } from "../api";
 import { useRecipes } from "../data";
 import { defaultOf, Field } from "../fields";
@@ -163,14 +163,41 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     const m = modelFileOf(node);
     if (m) set({ model: m });
   };
-  const pickVideo = (key: "previousVideo" | "nextVideo") => (node: string) => {
+  /** What a video loader is in the form: the video worked on, the clip carried on from, the clip arrived at, or nothing. */
+  type VideoRole = "source" | "previous" | "next" | "off";
+  const videoRoleOf = (node: string): VideoRole =>
+    b.previousVideo?.target.node === node ? "previous" : b.nextVideo?.target.node === node ? "next"
+      : b.sourceVideo?.target.node === node || (b.otherVideos ?? []).some((v) => v.target.node === node) ? "source" : "off";
+  const setVideoRole = (node: string, role: VideoRole) => {
     const v = found.videos.find((i) => i.node === node);
-    if (v) set({ [key]: v.binding });
-    else unset(key);
+    if (!v) return;
+    setB((old) => {
+      // out of every role first: one loader, one role (and one loader per clip role)
+      const { previousVideo, nextVideo, sourceVideo, ...rest } = old;
+      const keep = <T extends { target: { node: string } } | undefined>(x: T) => (x?.target.node === node ? undefined : x);
+      const others = (old.otherVideos ?? []).filter((o) => o.target.node !== node);
+      let main = keep(sourceVideo);
+      // the main source left: the first other one takes its place
+      if (!main && others.length && sourceVideo?.target.node === node) {
+        const [first, ...more] = others;
+        main = { target: first!.target, detach: first!.detach, required: first!.required };
+        others.splice(0, others.length, ...more);
+      }
+      const next: Bindings = { ...rest, otherVideos: others } as Bindings;
+      const prev = role === "previous" ? v.binding : keep(previousVideo);
+      const after = role === "next" ? v.binding : keep(nextVideo);
+      if (prev) next.previousVideo = prev;
+      if (after) next.nextVideo = after;
+      if (role === "source" && !main) main = v.binding;
+      else if (role === "source") next.otherVideos = [...others, { ...v.binding, id: videoId(node), label: v.title && !/^Load ?Video/i.test(v.title) ? v.title : `Video ${others.length + 2}` }];
+      if (main) next.sourceVideo = main;
+      return next;
+    });
   };
   const pickSound = (node: string) => {
     const v = found.sounds.find((i) => i.node === node);
-    if (v) set({ sound: v.binding });
+    // the main sound is not also one of the others
+    if (v) set({ sound: v.binding, otherSounds: (b.otherSounds ?? []).filter((s) => s.target.node !== node) });
     else unset("sound");
   };
   const toggleLoras = (node: string) => {
@@ -246,32 +273,12 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const placeable = (preview?.inputs ?? [])
     .filter((i) => !(i.type === "prompt" && i.id === "prompt") && !b.toggles.some((t) => t.made && t.id === i.id))
     .map((i) => ({ id: i.id, label: i.label, kind: KIND_WORD[i.type] ?? i.type }));
-  /** The node each input of the form belongs to, for placing it in the frame that holds the node. */
-  const nodeOf = (id: string): string | undefined => {
-    const c = b.controls.find((x) => x.id === id || `${x.id}_net` === id);
-    if (c) return c.target.node;
-    const t = b.toggles.find((x) => x.id === id);
-    if (t) return t.effects[0]?.nodes[0];
-    if (id === "size") return b.size?.width.node;
-    if (id === "seed") return b.seeds[0]?.node;
-    if (id === "negative") return b.negative?.node;
-    if (id === "seconds") return b.length?.target.node;
-    if (id === "startImage") return b.startImage?.target.node;
-    if (id === "endImage") return b.endImage?.target.node;
-    if (id === "model") return b.model?.target.node;
-    if (id === "previousVideo") return b.previousVideo?.target.node;
-    if (id === "nextVideo") return b.nextVideo?.target.node;
-    if (id === "sound") return b.sound?.target.node;
-    const lora = /^loras(?:_(\d+))?$/.exec(id);
-    if (lora) return b.loras[lora[1] ? Number(lora[1]) - 1 : 0]?.node;
-    return (b.pictures ?? []).find((p) => p.id === id)?.target.node;
-  };
   const [suggestedWhy, setSuggestedWhy] = useState<string[] | null>(null);
   const frames = start.wiring?.frames ?? [];
   const suggest = async () => {
     const has = (b.sections ?? []).some((s) => s.items.length);
     if (has && !(await ask({ title: "Replace the sections?", text: "The sections you made are replaced by a proposal from the author's frames. Switches made here go with them.", yes: "Replace" }))) return;
-    const made = suggestSections(graph, start.wiring, b.result.node, placeable.map((p) => ({ id: p.id, node: nodeOf(p.id) })), frames, b.toggles);
+    const made = suggestSections(graph, start.wiring, b.result.node, placeablesFor(b, preview?.inputs ?? []), frames, b.toggles);
     set({ sections: made.sections, toggles: [...b.toggles.filter((t) => !t.made), ...made.toggles] });
     setSuggestedWhy(made.why);
   };
@@ -324,7 +331,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const toCheck = (found.missingNodes.length ? 1 : 0) + unreplacedFiles.length + unreplacedChoices.length + looseNotes.length;
   const has = [
     b.model && "model file", b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
-    b.previousVideo && "previous clip", b.nextVideo && "next clip", b.sound && "sound",
+    b.sourceVideo && "source video", b.previousVideo && "previous clip", b.nextVideo && "next clip", b.sound && "sound",
     b.size && "resolution", video && b.length && "duration", b.seeds.length && "seed", b.loras.length && (b.loras.length > 1 ? `${b.loras.length} LoRA lists` : "LoRAs"),
     b.toggles.length && `${b.toggles.length} switch${b.toggles.length === 1 ? "" : "es"}`, b.controls.length && `${b.controls.length} widget${b.controls.length === 1 ? "" : "s"}`,
     `${b.result.kind === "image" ? "image" : b.result.kind === "video" ? (b.result.sound ? "video with audio" : "video") : "audio"} output`,
@@ -377,6 +384,10 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
           {(["startImage", "endImage"] as const).map((key) => {
             const bound = b[key];
             const role = key === "startImage" ? (video ? "First frame" : "Image") : "Last frame";
+            if (!found.images.length && b.director) {
+              // the DaSiWa Director takes its frames in its own canvas: the form's pictures go into its slots
+              return <Found key={key} ok role={role} what={`into the DaSiWa Director's slot ${key === "startImage" ? "0" : "1"} (#${b.director.node}) · optional`} note={key === "startImage" ? "The Director takes its pictures in its own canvas, not from a Load Image: the form's pictures are written there when it renders. A picture given to T2VA makes it I2VA (FL2VA with both)." : undefined} />;
+            }
             if (!found.images.length) {
               return key === "startImage"
                 ? <Found key={key} ok={false} role={role} matters={video} what={video ? "No Load Image node: the form has no first frame" : "No Load Image node: the form takes no image"} note={video ? "In a timeline, a clip made with it cannot extend the previous clip from its last frame. Some packs take the picture in their own node instead of a Load Image; Afflatus does not read those." : undefined} />
@@ -423,23 +434,70 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
             );
           })()}
 
-          {/* a video the workflow reads whole (to carry on from, to arrive at), and a sound */}
-          {found.videos.length > 0 && (["previousVideo", "nextVideo"] as const).map((key) => {
-            const bound = b[key];
-            const role = key === "previousVideo" ? "Previous clip" : "Next clip";
-            if (key === "nextVideo" && !bound && !found.videos.some((v) => v.role === "next")) return null;
-            return (
-              <Found key={key} ok={Boolean(bound)} role={role} what={bound ? (bound.required ? "required · the whole video goes to its loader" : "optional · the whole video goes to its loader") : "None picked"} note={key === "previousVideo" ? "In a timeline, a clip made with it carries on from the clip before: the whole of that clip is handed to this loader, and the workflow takes the frames it wants." : undefined}>
-                <Select size="sm" label={role} value={bound?.target.node ?? ""} onChange={pickVideo(key)} options={[{ value: "", label: "None" }, ...found.videos.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
-              </Found>
-            );
-          })}
+          {/* each video the workflow loads, whole: a video it works on, the clip it carries on from, the clip it arrives at */}
+          {found.videos.length > 0 && (
+            <Found
+              ok={found.videos.some((v) => videoRoleOf(v.node) !== "off")}
+              role="Videos"
+              what={`${found.videos.filter((v) => videoRoleOf(v.node) !== "off").length} of ${found.videos.length} in the form`}
+              note="Source video: what the workflow works on (an upscale, a video-to-video, a control video), the whole file. Previous clip: in a timeline, the clip before is handed to it and the workflow carries it on. Next clip: the clip it arrives at. Read from the loader's name; change it here."
+            >
+              {found.videos.map((v) => {
+                const role = videoRoleOf(v.node);
+                const bound = role === "previous" ? b.previousVideo : role === "next" ? b.nextVideo : role === "source" ? (b.sourceVideo?.target.node === v.node ? b.sourceVideo : b.otherVideos?.find((o) => o.target.node === v.node)) : undefined;
+                return (
+                  <div key={v.node} className="flex items-center gap-2">
+                    <span className="min-w-0 grow truncate text-ink-2">{v.title}</span>
+                    <span className="shrink-0 text-xs text-ink-3">#{v.node}{bound ? (bound.required ? " · required" : " · optional") : ""}</span>
+                    <Select
+                      size="sm"
+                      label={`Role of ${v.title}`}
+                      value={role}
+                      onChange={(r) => setVideoRole(v.node, r as VideoRole)}
+                      options={[{ value: "source", label: "Source video" }, { value: "previous", label: "Previous clip" }, { value: "next", label: "Next clip" }, { value: "off", label: "Not in the form" }]}
+                    />
+                  </div>
+                );
+              })}
+            </Found>
+          )}
           {video && !found.videos.length && <Found ok={false} role="Previous clip" what="No video loader: the form takes no clip to carry on from" note="In a timeline, a clip made with it starts afresh, or from the last frame of the clip before when it takes a first frame." />}
           {found.sounds.length > 0 && (
             <Found ok={Boolean(b.sound)} role="Sound" what={b.sound ? (b.sound.required ? "required" : "optional") : "None picked"}>
               <Select size="sm" label="Sound" value={b.sound?.target.node ?? ""} onChange={pickSound} options={[{ value: "", label: "None" }, ...found.sounds.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
             </Found>
           )}
+          {(() => {
+            // every other sound it loads (the music beside a voice, a second speaker): a slot each, unless it is ticked off
+            const rest = found.sounds.filter((i) => i.node !== b.sound?.target.node);
+            if (!rest.length) return null;
+            const have = b.otherSounds ?? [];
+            return (
+              <Found ok={have.length === rest.length} role="Other sounds" what={`${have.length} of ${rest.length} in the form`} note={have.length < rest.length ? "A sound loader left out keeps the file the workflow was saved with: ComfyUI needs that file in its input folder." : undefined}>
+                {rest.map((i, n) => {
+                  const on = have.find((p) => p.target.node === i.node);
+                  return (
+                    <label key={i.node} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(on)}
+                        onChange={() => set({ otherSounds: on ? have.filter((p) => p !== on) : [...have, { ...i.binding, id: soundId(i.node), label: i.title && !/^Load ?Audio/i.test(i.title) ? i.title : `Sound ${n + 2}` }] })}
+                      />
+                      {on ? (
+                        <input
+                          aria-label={`Label of the sound input for ${i.title}`}
+                          value={on.label}
+                          onChange={(e) => set({ otherSounds: have.map((p) => (p === on ? { ...p, label: e.target.value } : p)) })}
+                          className={cx(text, "h-8 min-w-0 grow")}
+                        />
+                      ) : <span className="text-ink-2">{i.title}</span>}
+                      <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · required" : " · optional") : ""}</span>
+                    </label>
+                  );
+                })}
+              </Found>
+            );
+          })()}
 
           <Found ok={Boolean(b.size)} role="Resolution" what={b.size ? `width and height of node #${b.size.width.node}` : "The file sets its own. To change it from the form, tick its width and height in step 2."} />
           {video && <Found ok={Boolean(b.length)} role="Duration" what={b.length ? `in seconds, at ${b.length.fps} fps` : "The file sets its own frame count. To change it from the form, tick its length widget in step 2."} />}

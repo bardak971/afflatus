@@ -208,7 +208,7 @@ const moment = (ms: number) => clock(ms, { decimals: 1 });
 export function ClipField({ label, note, role, optional, value, onChange }: {
   label: string;
   note?: string;
-  role: "previous" | "next";
+  role: "previous" | "next" | "source";
   optional: boolean;
   value: ClipValue | null;
   onChange(value: ClipValue | undefined): void;
@@ -232,13 +232,20 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
         <div {...drop.props} className={cx("flex flex-col gap-2 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
           <video ref={video} key={value.asset} src={fileUrl(value.asset)} poster={thumbUrl(value.asset)} controls preload="metadata" className="max-h-56 w-full rounded-md bg-ground" />
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="grow text-xs text-ink-2">
-              {role === "previous" ? "Continues from " : "Flows into "}
-              <span className="font-semibold text-ink">{value.at === undefined ? edge : moment(value.at)}</span>
-              {length ? ` of ${clock(length)}` : ""}
-            </span>
-            <Button size="sm" onClick={() => onChange({ asset: value.asset, at: Math.round((video.current?.currentTime ?? 0) * 1000) })}>Use the frame shown</Button>
-            {value.at !== undefined && <Button size="sm" onClick={() => onChange({ asset: value.asset })}>Use {edge}</Button>}
+            {/* a source video is worked on whole: no moment to pick */}
+            {role === "source" ? (
+              <span className="grow text-xs text-ink-2">The whole video{length ? `, ${clock(length)}` : ""}</span>
+            ) : (
+              <>
+                <span className="grow text-xs text-ink-2">
+                  {role === "previous" ? "Continues from " : "Flows into "}
+                  <span className="font-semibold text-ink">{value.at === undefined ? edge : moment(value.at)}</span>
+                  {length ? ` of ${clock(length)}` : ""}
+                </span>
+                <Button size="sm" onClick={() => onChange({ asset: value.asset, at: Math.round((video.current?.currentTime ?? 0) * 1000) })}>Use the frame shown</Button>
+                {value.at !== undefined && <Button size="sm" onClick={() => onChange({ asset: value.asset })}>Use {edge}</Button>}
+              </>
+            )}
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
             {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
           </div>

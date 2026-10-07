@@ -30,7 +30,8 @@ export function formPlaces(target: Target | null, a: Asset): MenuItem[] {
     if (i.type === "image" && a.kind === "image") {
       out.push({ label: i.label || ROLE_WORDS[i.role] || "Image", note: filled(i.id) ? "replaces the one there" : undefined, run: () => set(i.id, a.id) });
     } else if (i.type === "clip" && a.kind === "video") {
-      out.push({ label: i.label || (i.role === "previous" ? "Previous clip" : "Next clip"), note: filled(i.id) ? "replaces the one there" : i.role === "previous" ? "carries on from its end" : "arrives at its start", run: () => set(i.id, { asset: a.id }) });
+      const word: [string, string] = { previous: ["Previous clip", "carries on from its end"] as [string, string], next: ["Next clip", "arrives at its start"] as [string, string], source: ["Source video", "the whole video"] as [string, string] }[i.role];
+      out.push({ label: i.label || word[0], note: filled(i.id) ? "replaces the one there" : word[1], run: () => set(i.id, { asset: a.id }) });
     } else if (i.type === "references" && ((i.media === "video" && a.kind === "video") || (i.media !== "video" && a.kind === "image"))) {
       const list = (values[i.id] as ReferenceValue[] | undefined) ?? [];
       const has = list.some((x) => x.asset === a.id);

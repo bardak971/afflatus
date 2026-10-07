@@ -11,5 +11,16 @@ export const optsOf = (spec: unknown): Record<string, unknown> => (Array.isArray
 /** An input the editor shows as a field to type in or pick from, rather than only a socket. */
 export function isWidget(spec: unknown): boolean {
   const o = optsOf(spec);
-  return ["INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"].includes(typeOf(spec)) && !o.forceInput && !o.rawLink;
+  return ["INT", "FLOAT", "STRING", "BOOLEAN", "COMBO", DYNAMIC].includes(typeOf(spec)) && !o.forceInput && !o.rawLink;
 }
+
+/** A choice that brings fields of its own (SaveVideo's format → its codec → its encoding): "format.codec" and so on. */
+export const DYNAMIC = "COMFY_DYNAMICCOMBO_V3";
+type Option = { key: string; inputs?: { required?: Record<string, unknown>; optional?: Record<string, unknown> } };
+/** The options of a dynamic choice, each with the fields it brings. */
+export const dynamicOptions = (spec: unknown): Option[] => (typeOf(spec) === DYNAMIC ? ((optsOf(spec).options as Option[] | undefined) ?? []) : []);
+/** The fields the picked option of a dynamic choice brings, in the editor's order. */
+export const dynamicFields = (spec: unknown, picked: unknown): Array<[string, unknown]> => {
+  const o = dynamicOptions(spec).find((x) => x.key === picked);
+  return Object.entries({ ...o?.inputs?.required, ...o?.inputs?.optional }).filter(([, sub]) => isWidget(sub));
+};

@@ -25,6 +25,10 @@ export interface FakeComfy {
   /** When set, POST /prompt answers 400 with this body. */
   rejectWith: unknown | null;
   uploads: string[];
+  /** The bytes of each uploaded file, by the name it was uploaded under. */
+  uploaded: Record<string, Uint8Array>;
+  /** The bodies of the node pack's input-folder cleanups asked for (POST /afflatus/clean-input). */
+  cleaned: unknown[];
   /** What model files say about themselves, by "<folder>/<file>". A file not listed has no header. */
   metadata: Record<string, Record<string, unknown>>;
   /** Whole headers (metadata and tensors) by "<folder>/<file>", served by the node pack's route when the pack is pretended to be there (`headers` set at all). */
@@ -121,7 +125,7 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">>
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: Omit<FakeComfy, "url" | "close" | "send" | "sendBinary"> = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], metadata: {}, headers: null, sockets: [], installed: [], packs: [], reboots: 0, userdata: {},
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploaded: {}, cleaned: [], metadata: {}, headers: null, sockets: [], installed: [], packs: [], reboots: 0, userdata: {},
     catalog: init.catalog ?? {},
     models: init.models ?? {},
   };
@@ -288,7 +292,19 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
       if (path === "/upload/image") {
         const name = /filename="([^"]+)"/.exec(raw.toString("latin1"))?.[1] ?? "upload.bin";
         fake.uploads.push(name);
-        return json(200, { name, subfolder: "", type: "temp" });
+        // the file part of the form: from after its headers to the next boundary
+        const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(String(req.headers["content-type"] ?? ""));
+        const head = raw.indexOf(`filename="${name}"`);
+        const from = head < 0 ? -1 : raw.indexOf("\r\n\r\n", head) + 4;
+        const to = boundary && from > 3 ? raw.indexOf(`\r\n--${boundary[1] ?? boundary[2]}`, from) : -1;
+        if (to > from) fake.uploaded[name] = new Uint8Array(raw.subarray(from, to));
+        // the folder asked for (temp, or input with a subfolder), as ComfyUI answers it
+        const field = (key: string) => new RegExp(`name="${key}"\\r\\n\\r\\n([^\\r]*)`).exec(raw.toString("latin1"))?.[1] ?? "";
+        return json(200, { name, subfolder: field("subfolder"), type: field("type") || "temp" });
+      }
+      if (path === "/afflatus/clean-input") {
+        fake.cleaned.push(JSON.parse(raw.toString("utf8") || "{}"));
+        return json(200, { removed: 0 });
       }
     }
     json(404, { error: `fake ComfyUI has no ${req.method} ${path}` });

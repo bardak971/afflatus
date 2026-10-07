@@ -7,3 +7,5 @@ export * from "./toEditor";
 export * from "./model";
 export * from "./paint";
 export * from "./suggest";
+export * from "./explain";
+export * from "./director";

@@ -5,6 +5,9 @@ import type { Chapter } from "@afflatus/core";
 import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
 import { ancestors, cutFileNameChains, modesFor, prune, remove, settle, skipsFor, trim } from "./wiring";
 import { MEDIA_LOADERS } from "./inspect";
+import { offLine, sectionSummary } from "./explain";
+import { fillDirector } from "./director";
+import { inputNode } from "./suggest";
 
 /** The family a workflow recipe belongs to: the model name the user gave it. */
 export function familyOf(def: WorkflowDef): Family {
@@ -151,11 +154,20 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   // of a picture workflow, the picture it works from is its source: such a workflow is then offered wherever a picture can be changed
   if (b.startImage) inputs.push({ id: "startImage", type: "image", role: video ? "start" : "source", label: video ? "Start image" : "Image", optional: !b.startImage.required });
   if (b.endImage) inputs.push({ id: "endImage", type: "image", role: "end", label: "End image", optional: !b.endImage.required });
+  // the DaSiWa Director's own picture slots: uploaded where it reads them (ComfyUI's input folder)
+  const director = b.director && !b.startImage && g[b.director.node] ? b.director : undefined;
+  if (director) {
+    inputs.push({ id: "startImage", type: "image", role: "start", label: "Start image", optional: true, folder: "input", note: "the Director's first frame. Given to T2VA, it is made I2VA (FL2VA with an end image too)" });
+    inputs.push({ id: "endImage", type: "image", role: "end", label: "End image", optional: true, folder: "input", note: "the Director's last frame (L2VA, or FL2VA with a start image)" });
+  }
   for (const p of b.pictures ?? []) if (g[p.target.node]) inputs.push({ id: p.id, type: "image", role: "source", label: p.label, optional: !p.required });
   // a video the workflow's own loader reads: the whole file goes up, the workflow takes the frames it wants of it
   if (b.previousVideo && g[b.previousVideo.target.node]) inputs.push({ id: "previousVideo", type: "clip", role: "previous", label: "Previous clip", note: "the video it carries on from: the workflow reads its last frames", frames: [], fps: b.length?.fps ?? 24, whole: true, optional: !b.previousVideo.required });
   if (b.nextVideo && g[b.nextVideo.target.node]) inputs.push({ id: "nextVideo", type: "clip", role: "next", label: "Next clip", note: "the video it arrives at", frames: [], fps: b.length?.fps ?? 24, whole: true, optional: !b.nextVideo.required });
+  if (b.sourceVideo && g[b.sourceVideo.target.node]) inputs.push({ id: "sourceVideo", type: "clip", role: "source", label: "Source video", note: "the video it works on: the whole file goes to its loader", frames: [], fps: b.length?.fps ?? 24, whole: true, optional: !b.sourceVideo.required });
+  for (const v of b.otherVideos ?? []) if (g[v.target.node]) inputs.push({ id: v.id, type: "clip", role: "source", label: v.label, frames: [], fps: b.length?.fps ?? 24, whole: true, optional: !v.required });
   if (b.sound && g[b.sound.target.node]) inputs.push({ id: "sound", type: "audio", role: "sound", label: "Sound", note: "a sound of the library, or a video's sound", optional: !b.sound.required });
+  for (const s of b.otherSounds ?? []) if (g[s.target.node]) inputs.push({ id: s.id, type: "audio", role: "sound", label: s.label, optional: !s.required });
   // one list for the model, or one per loader when the workflow has several that were told apart (a high and a low model)
   const separate = b.loras.length > 1 && b.loras.every((p) => p.label);
   const loraInput = (i: number) => (separate && i > 0 ? `loras_${i + 1}` : "loras");
@@ -245,7 +257,9 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   };
   for (const c of b.controls) if (!under(c.target.node)) inputs.push(controlInput(c, fromStage(c.target.node)));
   for (const t of b.toggles) {
-    inputs.push({ id: t.id, type: "toggle", label: t.label, default: t.default, advanced: !t.front, ...(t.captions ? { captions: t.captions } : {}), ...(t.help ? { note: t.help } : {}) });
+    // what the author said of it, then what it does off, worked out from the graph
+    const note = [t.help, offLine(g, def.wiring, t)].filter(Boolean).join("\n\n");
+    inputs.push({ id: t.id, type: "toggle", label: t.label, default: t.default, advanced: !t.front, ...(t.captions ? { captions: t.captions } : {}), ...(note ? { note } : {}) });
     for (const c of b.controls) {
       const u = under(c.target.node);
       if (u?.toggle === t) inputs.push({ ...controlInput(c, u.when), advanced: !t.front });
@@ -287,8 +301,11 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
           for (const id of item.items) place(id, s.id, head.id);
         }
       }
-      // an empty section is a chapter too: the form leaves it out, the import screen's preview shows where it goes
-      chapters.push({ id: s.id, label: s.label, ...(s.help ? { help: s.help } : {}) });
+      // an empty section is a chapter too: the form leaves it out, the import screen's preview shows where it goes.
+      // Its "?": what the author wrote, then what its nodes do
+      const nodes = s.items.flatMap((item) => (typeof item === "string" ? [inputNode(b, item)] : [...(b.toggles.find((t) => t.id === item.toggle)?.effects.flatMap((e) => e.nodes) ?? []), ...item.items.map((id) => inputNode(b, id))]));
+      const help = [s.help, sectionSummary(g, nodes.filter((n): n is string => Boolean(n)))].filter(Boolean).join("\n\n");
+      chapters.push({ id: s.id, label: s.label, ...(help ? { help } : {}) });
     }
     inputs.splice(0, inputs.length, ...ordered, ...inputs.filter((i) => !placed.has(i.id)));
   }
@@ -301,11 +318,11 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
 
   const traits: VideoTraits | undefined = video
     ? {
-        startFrame: Boolean(b.startImage),
-        endFrame: Boolean(b.endImage),
+        startFrame: Boolean(b.startImage || director),
+        endFrame: Boolean(b.endImage || director),
         midFrames: false,
         // a workflow that reads the clip before carries its motion on; one that opens on a picture picks up from its last frame
-        continues: b.previousVideo ? "clip" : b.startImage ? "frame" : false,
+        continues: b.previousVideo ? "clip" : b.startImage || director ? "frame" : false,
         endAnchor: false,
         sound: b.result.sound,
         fps: b.length?.fps ?? 16,
@@ -352,7 +369,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     for (const sk of b.skip ?? []) for (const id of [sk.node, ...sk.nodes]) if (id !== b.result.node) delete graph[id];
     // a file name built by a chain of nodes: a plain name instead, and the chain goes (its packs are not needed)
     cutFileNameChains(graph, slug(def.title) || "afflatus");
-    for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const), ["previousVideo", b.previousVideo], ["nextVideo", b.nextVideo], ["sound", b.sound]] as const) {
+    for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const), ["previousVideo", b.previousVideo], ["nextVideo", b.nextVideo], ["sourceVideo", b.sourceVideo], ...(b.otherVideos ?? []).map((v) => [v.id, v] as const), ["sound", b.sound], ...(b.otherSounds ?? []).map((s) => [s.id, s] as const)] as const) {
       if (!image) continue;
       const uploaded = ctx.uploads[id];
       // a loader that takes a path, not a name of the input folder: the uploaded file is in ComfyUI's temp folder
@@ -361,6 +378,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
       // no picture, video or sound: take the loader out, with every link that read it
       else remove(pruned, image.target.node);
     }
+    if (director && graph[director.node]) fillDirector(graph, director.node, { start: ctx.uploads.startImage, end: ctx.uploads.endImage });
     // where it stops: the result, or an earlier point the form asked for. What comes after that point is taken out.
     const stop = !staged ? b.result.node : hiresFix ? (input.stage === false ? stages[0]!.node : b.result.node) : stages.find((s) => s.label === input.stage)?.node ?? b.result.node;
     if (stop !== b.result.node && graph[stop]) {
@@ -428,12 +446,14 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   }
 
   const everyPicture: Record<string, string> = {
-    ...(b.startImage ? { startImage: "start.png" } : {}), ...(b.endImage ? { endImage: "end.png" } : {}),
+    ...(b.startImage || director ? { startImage: "start.png" } : {}), ...(b.endImage || director ? { endImage: "end.png" } : {}),
     ...Object.fromEntries((b.pictures ?? []).map((p) => [p.id, `${p.id}.png`])),
     ...(b.previousVideo ? { previousVideo: "previous.mp4" } : {}), ...(b.nextVideo ? { nextVideo: "next.mp4" } : {}), ...(b.sound ? { sound: "sound.wav" } : {}),
+    ...Object.fromEntries((b.otherSounds ?? []).map((s) => [s.id, `${s.id}.wav`])),
+    ...(b.sourceVideo ? { sourceVideo: "source.mp4" } : {}), ...Object.fromEntries((b.otherVideos ?? []).map((v) => [v.id, `${v.id}.mp4`])),
   };
   /** A value of the right shape for each of them, for the dry run. */
-  const dryValue = (id: string): unknown => (id.endsWith("Video") ? { asset: "a-video" } : "a-picture");
+  const dryValue = (id: string): unknown => (id.endsWith("Video") || id.startsWith("vid_") ? { asset: "a-video" } : "a-picture");
   /** What the result is made from, for a given form. */
   const usedNodes = (input: Record<string, unknown>) => {
     const built = build(input, { seed: 1, uploads: everyPicture });
