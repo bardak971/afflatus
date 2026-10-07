@@ -750,6 +750,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
               <Form
                 recipe={describeRecipe(preview)}
                 status={undefined}
+                keepEmpty
                 stored={values}
                 onChange={(id, v) => setValues((old) => ({ ...old, [id]: v }))}
                 onClear={(ids) => setValues((old) => Object.fromEntries(Object.entries(old).filter(([k]) => !ids.includes(k))))}

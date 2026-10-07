@@ -153,6 +153,12 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     setZoom({ startMs: a, endMs: b });
   }, [duration, frameMs]);
 
+  /** The range with room on both sides: zoomed to, its two handles show inside the strip, not on its edges. */
+  const roomy = (r: Range): Range => {
+    const pad = Math.max((r.endMs - r.startMs) * 0.08, 4 * frameMs);
+    return { startMs: r.startMs - pad, endMs: r.endMs + pad };
+  };
+
   /** Loop on: from the range's start when the playhead is outside it, and playing. Loop off: the video goes on. */
   const toggleLoop = () => {
     const v = player.current;
@@ -186,7 +192,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         case "ArrowLeft": e.preventDefault(); v?.pause(); seek(at - arrows); break;
         case "ArrowRight": e.preventDefault(); v?.pause(); seek(at + arrows); break;
         case "l": case "L": e.preventDefault(); now.current.toggleLoop(); break;
-        case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : range); break;
+        case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : roomy(range)); break;
         case " ": e.preventDefault(); if (v) { if (v.paused) void v.play(); else v.pause(); } break;
         case "Home": e.preventDefault(); seek(0); break;
         case "End": e.preventDefault(); seek(duration); break;
@@ -356,7 +362,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         <Button size="sm" onClick={() => { player.current?.pause(); seek(at - frameMs); }} title="One frame back (Shift: ten)"><Kbd>,</Kbd></Button>
         <Button size="sm" onClick={() => { player.current?.pause(); seek(at + frameMs); }} title="One frame forward (Shift: ten)"><Kbd>.</Kbd></Button>
         <Button size="sm" tone={looping ? "primary" : "plain"} aria-pressed={looping} onClick={toggleLoop} title={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
-        <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : range)} title={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} {zoom ? "Whole" : "Zoom to range"} <Kbd>Z</Kbd></Button>
+        <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : roomy(range))} title={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} {zoom ? "Whole" : "Zoom to range"} <Kbd>Z</Kbd></Button>
         <span className="grow" />
         <div className="w-52">
           <Select size="sm" className="h-8" label="Quality of the cut" value={crf} onChange={choose} options={CRFS} />

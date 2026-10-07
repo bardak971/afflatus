@@ -256,7 +256,7 @@ const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  * other setting. Each part is one line until it is opened. A screen adds its own controls to a part
  * through `made`, `look` and `helpers`.
  */
-export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra }: {
+export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, keepEmpty }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -278,6 +278,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   lead?: { id: string; title: string; summary: ReactNode; node: ReactNode };
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
   frameExtra?: { node: ReactNode; summary: string };
+  /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
+  keepEmpty?: boolean;
 }) {
   const client = useQueryClient();
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
@@ -293,7 +295,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const seen = given ? { ...values, ...given } : values;
   const shown = recipe.inputs.filter((i) => isShown(i, seen) && !tucked.has(i.id));
   // the chapters the recipe arranges itself (an imported workflow's sections): their inputs show there and nowhere else
-  const chapters = (recipe.chapters ?? []).map((ch) => ({ ...ch, items: shown.filter((i) => i.chapter === ch.id) })).filter((ch) => ch.items.length || ch.id === "advanced" || ch.id === "prompt");
+  const chapters = (recipe.chapters ?? []).map((ch) => ({ ...ch, items: shown.filter((i) => i.chapter === ch.id) })).filter((ch) => ch.items.length || keepEmpty || ch.id === "advanced" || ch.id === "prompt");
   // the recipe may say where Advanced and the prompt go among its chapters; without a word, Advanced is last and the prompt first
   const advancedMoved = chapters.some((ch) => ch.id === "advanced");
   const promptMoved = chapters.some((ch) => ch.id === "prompt");
@@ -373,12 +375,16 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const front = rest.filter((i) => !i.advanced || underPrompt(i) || isMedia(i));
   const texts = sought(front.filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt" && i.id !== mainText?.id));
   // the inputs: the frames the clip is built on, and what it is shown
-  const frames = sought(rest.filter((i) => i.type === "image" || i.type === "clip"));
+  // a setting up front that only shows with a picture (how a guide picture is followed) sits under that picture
+  const mediaIds = new Set(rest.filter(isMedia).map((i) => i.id));
+  const withMedia = (i: InputSpec) => !i.advanced && typeof i.showWhen === "string" && mediaIds.has(i.showWhen);
+  const pictures = rest.filter((i) => i.type === "image" || i.type === "clip");
+  const frames = sought(pictures.flatMap((i) => [i, ...rest.filter((o) => withMedia(o) && o.showWhen === i.id)]));
   const refs = sought(rest.filter((i) => i.type === "references" || i.type === "audio"));
   const loras = sought(front.filter((i) => i.type === "loras"));
   const out = sought(front.filter(isOut));
   // the model's file and the operation's own settings (how much an img2img may redraw, which upscaler)
-  const knobs = sought(front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i))));
+  const knobs = sought(front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i) && !withMedia(i))));
   // the settings, by what they are about
   const tuning = sought(rest.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && !isOut(i)));
   const sampling = tuning.filter((i) => groupOf(i) === "speed");
@@ -405,8 +411,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   };
   const loraCount = loras.reduce((n, i) => n + ((values[i.id] as LoraValue[] | undefined)?.length ?? 0), 0);
   const modelSaid = [madeSummary, ...knobs.map(said), loraCount ? count(loraCount, "LoRA") : ""].filter(Boolean).join(" · ");
-  const framesChosen = frames.filter((i) => values[i.id]);
-  const missing = frames.some((i) => !i.optional && !values[i.id]);
+  const framesChosen = sought(pictures).filter((i) => values[i.id]);
+  const missing = sought(pictures).some((i) => !i.optional && !values[i.id]);
   const refsSaid = [
     lookSummary,
     ...refs.map((i) => {
@@ -574,8 +580,9 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         // what the chapter's switches say, for the folded line: "Hires fix on"
         const switches = items.filter((i) => i.type === "toggle").map((i) => `${i.label} ${values[i.id] ? "on" : "off"}`);
         return (
-          <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} warn={warnOf(items)} summary={<>{switches.length ? switches.join(" · ") : count(items.length, "setting")}{changedMark(items)}</>}>
+          <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} warn={warnOf(items)} summary={<>{!ch.items.length ? "empty: drag settings into it" : switches.length ? switches.join(" · ") : count(items.length, "setting")}{changedMark(items)}</>}>
             {items.map(setting)}
+            {!ch.items.length && <span className="text-xs text-ink-2">Nothing in this section yet. Drag settings into it under Sections; an empty section is left out of the form.</span>}
           </Part>
         );
       })}

@@ -277,7 +277,6 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
         chapters.push({ id: s.id, label: MARKS[s.id]! });
         continue;
       }
-      const before = ordered.length;
       for (const item of s.items) {
         if (typeof item === "string") place(item, s.id);
         else {
@@ -288,7 +287,8 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
           for (const id of item.items) place(id, s.id, head.id);
         }
       }
-      if (ordered.length > before) chapters.push({ id: s.id, label: s.label, ...(s.help ? { help: s.help } : {}) });
+      // an empty section is a chapter too: the form leaves it out, the import screen's preview shows where it goes
+      chapters.push({ id: s.id, label: s.label, ...(s.help ? { help: s.help } : {}) });
     }
     inputs.splice(0, inputs.length, ...ordered, ...inputs.filter((i) => !placed.has(i.id)));
   }

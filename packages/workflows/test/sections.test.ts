@@ -97,12 +97,12 @@ describe("the importer's sections", () => {
     expect(recipe.chapters!.map((c) => c.id)).toEqual(["sec_1", "sec_2"]);
   });
 
-  it("leaves out a section whose switch is not in the mapping, and an item that is not a control", () => {
+  it("leaves out a switch that is not in the mapping and an item that is not a control; a section left empty stays a chapter (the form leaves it out)", () => {
     const odd = recipeFromWorkflow(workflowDef.parse({
       ...def,
       bindings: { ...def.bindings, toggles: [], sections: [{ id: "sec_x", label: "Gone", items: [{ toggle: "sw_nowhere", items: ["ctl_3_steps"] }] }, { id: "sec_y", label: "Half", items: ["ctl_3_cfg", "ctl_none"] }] },
     }));
-    expect(odd.chapters).toEqual([{ id: "sec_y", label: "Half" }]);
+    expect(odd.chapters).toEqual([{ id: "sec_x", label: "Gone" }, { id: "sec_y", label: "Half" }]);
     expect(odd.inputs.find((i) => i.id === "ctl_3_steps")!.chapter).toBeUndefined();
     expect(odd.inputs.find((i) => i.id === "ctl_3_cfg")!.chapter).toBe("sec_y");
   });

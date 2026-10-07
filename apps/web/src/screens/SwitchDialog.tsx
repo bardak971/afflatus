@@ -56,7 +56,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
     });
 
   return (
-    <Dialog label={`Switch for ${section.label}`} onClose={onClose} className="flex w-[560px] max-w-[calc(100vw-32px)] flex-col gap-4 rounded-xl border border-line bg-panel p-5 shadow-xl">
+    <Dialog label={`Switch for ${section.label}`} onClose={onClose} className="flex max-h-[calc(100vh-48px)] w-[560px] max-w-[calc(100vw-32px)] flex-col gap-4 rounded-xl border border-line bg-panel p-5 shadow-xl">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-bold">{existing ? `The switch “${existing.label}”` : `A switch in “${section.label}”`}</h2>
         <span className="text-xs text-ink-2">On, it shows the settings you drag under it. Off, those fold away and the nodes below are stepped over as one: what fed the part flows through to what read it.</span>
@@ -72,11 +72,12 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      {/* the frames and nodes scroll: a workflow can have dozens, and the buttons below stay in sight */}
+      <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-1">
         <span className="text-xs font-semibold text-ink-2">When it is off, bypass</span>
         {usable.length > 0 && <span className="text-xs text-ink-2">The frames the author drew around nodes, with what is inside them.</span>}
-        {usable.map((f) => (
-          <label key={f.title} className={cx("flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-1.5", frameOn(f) ? "border-accent/50 bg-accent-wash" : "border-line bg-ground")}>
+        {usable.map((f, i) => (
+          <label key={i} className={cx("flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-1.5", frameOn(f) ? "border-accent/50 bg-accent-wash" : "border-line bg-ground")}>
             <input type="checkbox" checked={frameOn(f)} onChange={(e) => setFrame(f, e.target.checked)} className="accent-accent" />
             <span className="flex min-w-0 flex-col">
               <span className="font-semibold">{f.title}</span>
@@ -98,6 +99,8 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
             ))}
           </div>
         )}
+      </div>
+      <div className="flex flex-col gap-1.5">
         <span className="text-xs text-ink-2">{chosen.size ? `${chosen.size} node${chosen.size === 1 ? "" : "s"} chosen.` : existing ? "No node chosen: saving removes the switch." : "Pick a frame or a node: a switch that bypasses nothing changes nothing."}</span>
       </div>
 
