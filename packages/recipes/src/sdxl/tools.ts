@@ -1,4 +1,5 @@
-import { defineRecipe, GraphBuilder } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type Ref } from "@afflatus/core";
+import { redrawInTiles, tileInputs, TILE_NODES, useTiles, type TileSettings } from "../shared/tiles";
 import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, round8, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
@@ -178,7 +179,7 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
 
 // ---------------------------------------------------------------- twice as large
 
-export interface SdxlSharper extends SdxlBase, UpscaleSettings {
+export interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings {
   source: string;
   prompt: string;
   upscaler: string;
@@ -186,7 +187,7 @@ export interface SdxlSharper extends SdxlBase, UpscaleSettings {
   strength: number;
 }
 
-/** Past this many pixels the result is only enlarged by the upscale model: an SDXL pass that big is slow and falls apart. */
+/** Past this many pixels an SDXL pass over the whole picture is slow and falls apart: the pass is made in tiles (or, asked to be whole, skipped). */
 const REFINE_MAX_PIXELS = 4.2e6;
 const REFINE_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "LoraLoader", "CLIPSetLastLayer", "VAEEncode", "KSampler", "VAEDecode"];
 
@@ -202,15 +203,16 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "tags", optional: true, default: "" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
-    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; skipped when the result is larger than about 4 megapixels", default: true, section: "out" },
+    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; past about 4 megapixels it is made in tiles", default: true, section: "out" },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true, section: "out" },
+    ...tileInputs("refine"),
     ...modelInputs,
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
   // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-  optionalNodes: REFINE_NODES,
+  optionalNodes: [...REFINE_NODES, ...TILE_NODES],
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -222,18 +224,28 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     // upscale models enlarge by their own factor (usually 4×): scaled to exactly twice the picture
     const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W, height: H, crop: "disabled" });
     const loads = [`upscale_models/${input.upscaler}`];
-    if (!input.refine || W * H > REFINE_MAX_PIXELS) {
+    const tiled = input.refine && useTiles(input, { width: W, height: H }, REFINE_MAX_PIXELS / 4) && TILE_NODES.every((n) => ctx.has(n));
+    if (!input.refine || (W * H > REFINE_MAX_PIXELS && !tiled)) {
       const out = g.add("PreviewImage", { images: sized });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
     }
     g.phase("loading");
     const m = loadSdxl(g, input, input.prompt);
-    const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
     const steps = Math.max(6, Math.round(Math.min(30, input.steps) * 0.5));
-    g.phase("refining");
-    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps, denoise: input.strength });
+    let sampled: Ref = ["", 0];
+    let picture: Ref;
+    if (tiled) {
+      g.phase("refining");
+      picture = redrawInTiles(g, ctx, sized, m.vae, { width: W, height: H }, input, (latent) => (sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps, denoise: input.strength })));
+    } else {
+      const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
+      g.phase("refining");
+      sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps, denoise: input.strength });
+      g.phase("decoding");
+      picture = g.out("VAEDecode", { samples: sampled, vae: m.vae });
+    }
     g.phase("decoding");
-    const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: sampled, vae: m.vae }) });
+    const out = g.add("PreviewImage", { images: picture });
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
       totalSteps: steps, passes: [{ node: sampled[0], steps }], loads: [...loads, `checkpoints/${input.checkpoint}`],
@@ -242,7 +254,8 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
   variants: [
     { name: "enlarged and gone over", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth" }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "only enlarged", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", refine: false }, uploads: { source: "s.png" }, media: { source: picture } },
-    { name: "too large to go over", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", clipSkip: 2 }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
+    { name: "too large to go over whole: in tiles", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", clipSkip: 2 }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
+    { name: "too large, asked whole: only enlarged", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tiles: "Whole picture" }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
   ],
 });
 

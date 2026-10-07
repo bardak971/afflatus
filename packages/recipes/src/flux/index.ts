@@ -43,6 +43,15 @@ export const flux = defineFamily({
       hint: "Without it there is no Edit. Put flux1-dev-kontext_*.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "flux1-dev-kontext_fp8_scaled.safetensors", url: "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors" },
     },
+    {
+      id: "redux", label: "Redux (look from a picture)", folder: "style_models", detect: ["redux"], optional: true,
+      hint: "Optional: with flux1-redux-dev.safetensors in ComfyUI's models/style_models folder, txt2img can take the look of a picture. It is on Black Forest Labs' FLUX.1-Redux-dev page on Hugging Face (accept its licence there first).",
+    },
+    {
+      id: "vision", label: "Vision model for Redux (SigCLIP)", folder: "clip_vision", detect: ["sigclip"], optional: true,
+      hint: "Optional, with Redux: sigclip_vision_patch14_384.safetensors in ComfyUI's models/clip_vision folder.",
+      get: { file: "sigclip_vision_patch14_384.safetensors", url: "https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors" },
+    },
   ],
   loraMatch: ["flux[ ._-]?1", "flux(?![ ._-]?2)"],
   guide: `FLUX.1 reads plain sentences, not tags: subject first, then action, setting, light, camera and style. 30 to 60 words is the sweet spot; past 75 the details get lost. It has no negative prompt and ignores weights.
@@ -66,6 +75,7 @@ An instruction: Change the mug to a white enamel one with a chipped rim, keeping
 
 const spec: FlowSpec = {
   family: "flux",
+  look: true,
   model: {
     id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["^(?!.*(kontext|fill|canny|depth|redux)).*flux.?1", "flux(?!.?2)"],
     note: "FLUX.1 dev, Krea dev, schnell, or a fine-tune",

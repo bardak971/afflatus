@@ -1,5 +1,8 @@
 import { defineFamily } from "@afflatus/core";
 
+/** The ControlNet a guide picture starts on: xinsir's union one, which follows edges, depth and pose alike. */
+export const SDXL_UNION = "controlnet-union-sdxl-1.0-promax.safetensors";
+
 /** SDXL and everything built on it: Illustrious, NoobAI, Pony. One checkpoint file holds model, CLIP and VAE. */
 export const sdxl = defineFamily({
   id: "sdxl",
@@ -13,6 +16,11 @@ export const sdxl = defineFamily({
       id: "checkpoint", label: "Checkpoint", folder: "checkpoints", detect: ["."],
       hint: "Put any SDXL checkpoint in ComfyUI's models/checkpoints folder: a fine-tune from Civitai (Illustrious, Pony, Juggernaut XL, RealVisXL…) is what most people use; the official base model, below, is a plain start. One file holds the model, CLIP and VAE.",
       get: { file: "sd_xl_base_1.0.safetensors", url: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors" },
+    },
+    {
+      id: "controlnet", label: "ControlNet Union (guide picture)", folder: "controlnet", detect: ["union"], optional: true,
+      get: { file: SDXL_UNION, url: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors" },
+      hint: "Optional: with a ControlNet in ComfyUI's models/controlnet folder, txt2img can follow the edges, depth or pose of a guide picture. xinsir's Union promax, below, does all three in one file.",
     },
   ],
   loraMatch: ["stable-diffusion-xl", "sdxl", "pony", "illustrious", "noob"],

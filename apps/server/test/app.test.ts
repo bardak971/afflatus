@@ -55,7 +55,8 @@ describe("GET /api/setup", () => {
       const body = (await get(t.app, "/api/setup")).json();
       expect(body.comfy).toMatchObject({ online: true, device: "fake gpu" });
       const recipe = body.recipes.find((r: { id: string }) => r.id === "sdxl.text-to-picture");
-      expect(recipe).toMatchObject({ ready: true, missingNodes: [], limitedBy: [] });
+      // Detail Daemon is not in the fake ComfyUI: the detail boost takes the built-in way, and Settings says so
+      expect(recipe).toMatchObject({ ready: true, missingNodes: [], limitedBy: ["LyingSigmaSampler"] });
       expect(recipe.options.checkpoint).toEqual([CHECKPOINT, "other.safetensors"]);
       expect(recipe.options.sampler).toContain("euler_ancestral");
       expect(recipe.options.hiresUpscaler[0]).toBe("latent");

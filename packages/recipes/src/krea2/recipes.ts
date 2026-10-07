@@ -3,16 +3,21 @@ import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
   type FaceSettings, type HiresPass, type MaskSettings, type UpscaleSettings,
 } from "../sdxl/common";
+import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { roundTo } from "../shared/round";
+import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, useTiles, type TileSettings } from "../shared/tiles";
 import { krea2Cond, krea2Inputs, krea2Model, krea2Sample, krea2Size, LOAD_NODES, loadKrea2, shifted, type Krea2Base } from "./common";
 
 const files = { unet: "krea2_turbo_fp8_scaled.safetensors", clip: "qwen3vl_4b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" };
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
 const photo = { width: 1536, height: 2048 };
+/** About the area Krea 2 draws at, and the size a hires pass enlarges to. */
+const KREA2_AREA = 1.1 * 1024 * 1024;
+const krea2Large = (input: { size: SizeValue; hiresScale: number }) => ({ width: roundTo(roundTo(input.size.width, 16) * input.hiresScale, 16), height: roundTo(roundTo(input.size.height, 16) * input.hiresScale, 16) });
 
 // ---------------------------------------------------------------- txt2img
 
-export interface Krea2Picture extends Krea2Base, HiresPass {
+export interface Krea2Picture extends Krea2Base, HiresPass, DetailSettings, TileSettings {
   prompt: string;
   references: ReferenceValue[];
   referenceStrength: number;
@@ -57,9 +62,10 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
         { id: "wide", label: "Landscape", width: 1152, height: 896 },
       ],
     },
+    ...DETAIL_INPUTS,
     ...krea2Inputs.slice(0, -1),
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-    { id: "hiresScale", type: "number", label: "Upscale by", min: 1.1, max: 2, step: 0.05, default: 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
     {
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
       options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
@@ -67,10 +73,15 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.5, showWhen: "hires", advanced: true, perModel: true },
     { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: 4, showWhen: "hires", advanced: true, perModel: true },
     ...HIRES_PASS_INPUTS,
+    ...tileInputs("hires"),
     krea2Inputs.at(-1)!,
   ],
+  optionalNodes: DETAIL_OPTIONAL,
   nodes: (input) => [
-    ...LOAD_NODES(input).filter((n) => n !== "CLIPTextEncode" || !input.references.length || input.negative.trim()), "EmptyLatentImage",
+    ...detailNodes(input),
+    ...fullPassNodes(input, input.steps), ...(input.hires ? ["KSampler"] : []),
+    ...tileNodes(input.hires && useTiles(input, krea2Large(input), KREA2_AREA)),
+    ...LOAD_NODES(input).filter((n) => n !== "KSampler" && (n !== "CLIPTextEncode" || !input.references.length || input.negative.trim())), "EmptyLatentImage",
     ...(input.references.length ? ["LoadImage", "TextEncodeQwenImageEditPlus", "FluxKontextMultiReferenceLatentMethod", "LoraLoaderModelOnly", ...(input.shift > 0 ? [] : ["ModelSamplingFlux"])] : []),
     ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode", ...(input.shift > 0 ? [] : ["ModelSamplingFlux"])] : []),
   ],
@@ -99,28 +110,38 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
 
     g.phase("sampling");
-    const first = krea2Sample(g, k, styled ? sized(model, W, H) : shifted(g, model, input), cond, empty);
+    const detail = { input, ctx };
+    const first = krea2Sample(g, k, styled ? sized(model, W, H) : shifted(g, model, input), cond, empty, { detail });
     let latent = first.latent;
     const passes = [first.pass];
     const loads = [...k.loads, ...(styled ? [`loras/${ctx.slots.styleRef}`] : [])];
 
+    let image: Ref | null = null;
     if (input.hires) {
-      const W2 = roundTo(W * input.hiresScale, 16);
-      const H2 = roundTo(H * input.hiresScale, 16);
+      const { width: W2, height: H2 } = krea2Large(input);
       g.phase("upscaling");
       // upscale models enlarge by their own factor (usually 4×): the result is scaled to the size asked for
       const pixels = g.out("VAEDecode", { samples: latent, vae: k.vae });
       const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
       const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W2, height: H2, crop: "disabled" });
       g.phase("refining");
-      const second = krea2Sample(g, k, sized(model, W2, H2), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) });
-      latent = second.latent;
-      passes.push(second.pass);
+      const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input), detail };
+      if (useTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
+        image = redrawInTiles(g, ctx, scaled, k.vae, { width: W2, height: H2 }, input, (l, _tiles, tile) => {
+          const second = krea2Sample(g, k, sized(model, tile, tile), cond, l, pass);
+          passes.push(second.pass);
+          return second.latent;
+        });
+      } else {
+        const second = krea2Sample(g, k, sized(model, W2, H2), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), pass);
+        latent = second.latent;
+        passes.push(second.pass);
+      }
       loads.push(`upscale_models/${input.hiresUpscaler}`);
     }
 
     g.phase("decoding");
-    const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: latent, vae: k.vae }) });
+    const out = g.add("PreviewImage", { images: image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }) });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads };
   },
   variants: [
@@ -131,6 +152,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       slots: files,
     },
     { name: "hires fix at the model's own shift", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth" }, slots: files },
+    { name: "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: true, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" }, slots: files, has: withoutDaemon },
     {
       name: "the style of two reference images",
       input: { prompt: "a", references: [{ asset: "a", role: "style" }, { asset: "b", role: "style" }] },
@@ -257,7 +279,7 @@ export const krea2PaintOver = defineRecipe<Krea2PaintOver>({
 
 // ---------------------------------------------------------------- upscale 2x
 
-export interface Krea2Sharper extends Krea2Base, UpscaleSettings {
+export interface Krea2Sharper extends Krea2Base, UpscaleSettings, TileSettings {
   source: string;
   prompt: string;
   upscaler: string;
@@ -282,13 +304,14 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "sentences", optional: true, default: "" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
-    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; skipped when the result is larger than about 3 megapixels", default: true, section: "out" },
+    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 3 megapixels it is made in tiles", default: true, section: "out" },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out" },
+    ...tileInputs("refine"),
     ...krea2Inputs,
   ],
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
   // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-  optionalNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "VAEEncode", "LoraLoaderModelOnly", "ConditioningZeroOut", "ModelSamplingAuraFlow", "ModelSamplingFlux"],
+  optionalNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "VAEEncode", "LoraLoaderModelOnly", "ConditioningZeroOut", "ModelSamplingAuraFlow", "ModelSamplingFlux", ...TILE_NODES],
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -300,25 +323,41 @@ export const krea2Sharper = defineRecipe<Krea2Sharper>({
     // upscale models enlarge by their own factor (usually 4x): scaled to exactly twice the picture
     const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W, height: H, crop: "disabled" });
     const loads = [`upscale_models/${input.upscaler}`];
-    if (!input.refine || W * H > REFINE_MAX_PIXELS) {
+    const tiled = input.refine && useTiles(input, { width: W, height: H }, REFINE_MAX_PIXELS / 4) && TILE_NODES.every((n) => ctx.has(n));
+    if (!input.refine || (W * H > REFINE_MAX_PIXELS && !tiled)) {
       const out = g.add("PreviewImage", { images: sized });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
     }
     g.phase("loading");
     const k = loadKrea2(g, input, ctx);
     const cond = krea2Cond(g, k, g.out("CLIPTextEncode", { text: input.prompt.trim() || SAME_PICTURE, clip: k.clip }));
-    // the shift that suits a picture this large, unless one was typed
-    const model = input.shift > 0 ? shifted(g, k.model, input) : g.out("ModelSamplingFlux", { model: k.model, max_shift: 1.15, base_shift: 0.5, width: W, height: H });
+    // the shift that suits a picture (or a tile) this large, unless one was typed
+    const modelAt = (width: number, height: number) => (input.shift > 0 ? shifted(g, k.model, input) : g.out("ModelSamplingFlux", { model: k.model, max_shift: 1.15, base_shift: 0.5, width, height }));
+    const light = { steps: Math.max(3, Math.round(Math.min(30, input.steps) * 0.5)), denoise: input.strength };
+    let pass = { node: "", steps: light.steps };
+    let picture: Ref;
     g.phase("refining");
-    const { latent, pass } = krea2Sample(g, k, model, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), { steps: Math.max(3, Math.round(Math.min(30, input.steps) * 0.5)), denoise: input.strength });
+    if (tiled) {
+      picture = redrawInTiles(g, ctx, sized, k.vae, { width: W, height: H }, input, (l, _tiles, tile) => {
+        const done = krea2Sample(g, k, modelAt(tile, tile), cond, l, light);
+        pass = done.pass;
+        return done.latent;
+      });
+    } else {
+      const done = krea2Sample(g, k, modelAt(W, H), cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), light);
+      pass = done.pass;
+      g.phase("decoding");
+      picture = g.out("VAEDecode", { samples: done.latent, vae: k.vae });
+    }
     g.phase("decoding");
-    const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: latent, vae: k.vae }) });
+    const out = g.add("PreviewImage", { images: picture });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
   },
   variants: [
     { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "only enlarged", input: { source: "p", upscaler: "u.pth", refine: false }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
-    { name: "too large to go over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+    { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+    { name: "too large, asked whole: only enlarged", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
     {
       name: "a fine-tune with its shift, a prompt and a LoRA",
       input: { source: "p", upscaler: "u.pth", prompt: "a", model: "someone_krea2.safetensors", shift: 4, negative: "blurry", loras: [{ file: "l.safetensors", weight: 0.8 }] },

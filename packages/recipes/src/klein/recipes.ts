@@ -1,11 +1,13 @@
-import { defineRecipe, GraphBuilder, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type UpscaleSettings,
 } from "../sdxl/common";
+import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { roundTo } from "../shared/round";
+import { redrawInTiles, tileInputs, TILE_NODES, useTiles, type TileSettings } from "../shared/tiles";
 import {
-  introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
+  introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
 } from "./common";
 
@@ -15,7 +17,7 @@ const ALL_ROLES = ["person", "place", "clothing", "object", "style"] as const;
 
 // ---------------------------------------------------------------- a new picture
 
-export interface KleinPicture extends KleinBase {
+export interface KleinPicture extends KleinBase, DetailSettings {
   prompt: string;
   references: ReferenceValue[];
   size: SizeValue;
@@ -44,9 +46,11 @@ export const kleinPicture = defineRecipe<KleinPicture>({
         { id: "wide", label: "Landscape", width: 1216, height: 832 },
       ],
     },
+    ...DETAIL_INPUTS,
     ...kleinInputs,
   ],
-  nodes: (input) => [...LOAD_NODES(input), ...SAMPLE_NODES, "EmptyFlux2LatentImage", "PreviewImage", ...(input.references.length ? REFERENCE_NODES : [])],
+  nodes: (input) => [...LOAD_NODES(input), ...SAMPLE_NODES, "EmptyFlux2LatentImage", "PreviewImage", ...(input.references.length ? REFERENCE_NODES : []), ...detailNodes(input, "custom"), ...(input.detail ? fullPassNodes(input, input.steps, "custom") : [])],
+  optionalNodes: DETAIL_OPTIONAL,
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = loadKlein(g, input, ctx);
@@ -54,12 +58,13 @@ export const kleinPicture = defineRecipe<KleinPicture>({
     const pictures = input.references.map((_, i) => g.out("LoadImage", { image: ctx.uploads[`references.${i}`] }));
     const cond = kleinCond(g, k, withIntro(introduce(input.references), input.prompt), pictures);
     const empty = g.out("EmptyFlux2LatentImage", { width: size.width, height: size.height, batch_size: 1 });
-    const { image, pass } = kleinSample(g, k, cond, empty, size, ctx.seed);
+    const { image, pass } = kleinSample(g, k, cond, empty, size, ctx.seed, { detail: { input, ctx } });
     const out = g.add("PreviewImage", { images: image });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: k.loads };
   },
   variants: [
     { name: "from words", input: { prompt: "a" }, slots: files },
+    { name: "detail boost", input: { prompt: "a", detail: true }, slots: files, has: withoutDaemon },
     {
       name: "a person in a place, with a LoRA",
       input: { prompt: "a", references: [{ asset: "a", role: "person" }, { asset: "b", role: "person" }, { asset: "c", role: "place" }], loras: [{ file: "l.safetensors", weight: 0.8 }], size: { width: 1216, height: 832 } },
@@ -272,7 +277,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
 
 // ---------------------------------------------------------------- twice as large
 
-export interface KleinSharper extends KleinBase, UpscaleSettings {
+export interface KleinSharper extends KleinBase, UpscaleSettings, TileSettings {
   source: string;
   upscaler: string;
   refine: boolean;
@@ -293,12 +298,13 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER], section: "out" },
     FACTOR_INPUT,
-    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; skipped when the result is larger than about 2.5 megapixels", default: true, section: "out" },
+    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 2.5 megapixels it is made in tiles", default: true, section: "out" },
+    ...tileInputs("refine"),
     ...kleinInputs,
   ],
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
   // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-  optionalNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly", ...SAMPLE_NODES, "ImageScaleToTotalPixels", "VAEEncode", "ReferenceLatent", "SplitSigmasDenoise"],
+  optionalNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly", ...SAMPLE_NODES, "ImageScaleToTotalPixels", "VAEEncode", "ReferenceLatent", "SplitSigmasDenoise", ...TILE_NODES],
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -308,22 +314,40 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
     const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
     const loads = [`upscale_models/${input.upscaler}`];
-    if (!input.refine || size.width * size.height > REFINE_MAX_PIXELS) {
+    const tiled = input.refine && useTiles(input, size, REFINE_MAX_PIXELS / 4) && TILE_NODES.every((n) => ctx.has(n));
+    if (!input.refine || (size.width * size.height > REFINE_MAX_PIXELS && !tiled)) {
       const out = g.add("PreviewImage", { images: sized });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
     }
     g.phase("loading");
     const k = loadKlein(g, input, ctx);
-    const cond = kleinCond(g, k, "a high quality photo with sharp natural detail, the same image", [source]);
-    g.phase("refining");
-    const { image, pass } = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), size, ctx.seed, { steps: 20, strength: 0.25 });
+    const SAME = "a high quality photo with sharp natural detail, the same image";
+    let image: Ref;
+    let pass = { node: "", steps: 0 };
+    if (tiled) {
+      g.phase("refining");
+      // each tile is shown its own piece of the picture as the reference it keeps
+      image = redrawInTiles(g, ctx, sized, k.vae, size, input, (latent, tiles, tile) => {
+        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { steps: 20, strength: 0.25 });
+        pass = done.pass;
+        return done.sampled;
+      });
+    } else {
+      const cond = kleinCond(g, k, SAME, [source]);
+      g.phase("refining");
+      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), size, ctx.seed, { steps: 20, strength: 0.25 });
+      image = done.image;
+      pass = done.pass;
+    }
+    g.phase("decoding");
     const out = g.add("PreviewImage", { images: image });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
   },
   variants: [
     { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "only enlarged", input: { source: "p", upscaler: "u.pth", refine: false }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
-    { name: "too large to go over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+    { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+    { name: "too large, asked whole: only enlarged", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
   ],
 });
 

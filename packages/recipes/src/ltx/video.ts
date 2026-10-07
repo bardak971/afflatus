@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
 import { pixelUpscale, UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, saveVideo, VHS } from "../shared/out";
 
@@ -61,6 +62,9 @@ export interface LtxVideo {
   upscaleModel: string;
   upscaleColour?: string;
   livePreview: boolean;
+  sage: SpeedSettings["sage"];
+  sageKernel: SpeedSettings["sageKernel"];
+  compile: SpeedSettings["compile"];
   loras: LoraValue[];
   seed: number;
 }
@@ -172,6 +176,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step, without its sound. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",
     },
+    ...SPEED_INPUTS,
     { id: "smooth", type: "toggle", label: "Frame interpolation (×2)", note: "from 25 to 50 frames a second: with LTX's own temporal upscaler in latent space when its file is there (motion-aware, then a short refine), else RIFE on the pixels", default: false, advanced: true },
     {
       id: "smoothWith", type: "choice", label: "Interpolate with", options: [SMOOTH_AUTO, SMOOTH_LTX, SMOOTH_RIFE], default: SMOOTH_AUTO, showWhen: "smooth", advanced: true,
@@ -186,7 +191,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     return [
       ...routeNodes,
       "CLIPTextEncode", "LTXVConditioning", "EmptyLTXVLatentVideo", "LTXVEmptyLatentAudio", "LTXVConcatAVLatent", "LTXVSeparateAVLatent",
-      "RandomNoise", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode",
+      "RandomNoise", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode", ...speedNodes(input),
       ...(input.model ? unetNodes(input.model).filter((n) => n !== "UNETLoader") : []),
       ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
       ...(input.start || input.end ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
@@ -235,6 +240,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       clip = g.out("LTXAVTextEncoderLoader", { text_encoder: slots.clip, ckpt_name: picked.checkpoint, device: "default" });
     }
     for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
+    model = faster(g, model, input, ctx);
     const byHand = input.schedule !== BY_STEPS;
     // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
     // there), sent as a short clip. ComfyUI's own preview is the first frame alone. No sound: the node
@@ -405,6 +411,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
         slots: { ...parts, ...extras }, uploads: { start: "a.png", end: "b.png" }, media: { start: picture, end: picture },
       },
       { name: "ends on a picture only", input: { prompt: "a", end: "p2", endStrength: 0.9 }, slots: one, uploads: { end: "b.png" }, media: { end: picture } },
+      { name: "SageAttention, an fp8 kernel", input: { prompt: "a", sage: true, sageKernel: "sageattn_qk_int8_pv_fp8_cuda" }, slots: { ...one, ...extras } },
       {
         // the full model: the distilled LoRA goes on it; a schedule of the user's own
         name: "the full model with the distilled LoRA, by steps with a shift, on a timeline's canvas",

@@ -1,8 +1,12 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
 import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, PREDICTION_INPUTS, PREDICTION_NODES, round8, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
-import { DEFAULT_NEGATIVE } from "./family";
+import { DEFAULT_NEGATIVE, SDXL_UNION } from "./family";
+import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
+import { applyGuide, guideInputs, guideNodes, type GuideSettings } from "../shared/guide";
+import { redrawInTiles, tileInputs, tileNodes, TILES_ON, useTiles, type TileSettings } from "../shared/tiles";
+import { SDXL_AREA } from "./common";
 
-export interface SdxlTextToPicture {
+export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings {
   prompt: string;
   /** Tags put in front of the prompt on every render with this model. */
   quality: string;
@@ -50,6 +54,8 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
         { id: "wide", label: "Landscape", width: 1216, height: 832 },
       ],
     },
+    ...DETAIL_INPUTS,
+    ...guideInputs(SDXL_UNION),
     // checkpoints differ in the quality tags they were trained with ("masterpiece, best quality", "score_9, …")
     { id: "quality", type: "prompt", label: "Quality tags", note: "put in front of the prompt on every render with this checkpoint", style: "tags", optional: true, default: "", advanced: true, perModel: true },
     { id: "steps", type: "number", label: "Steps", min: 1, max: 100, step: 1, default: 28, advanced: true, perModel: true },
@@ -59,7 +65,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = SDXL's own, which is already the second-last layer: what Civitai calls \"clip skip 2\" (Pony, Illustrious). Only raise it when a checkpoint's card asks for more than that", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
     ...PREDICTION_INPUTS,
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-    { id: "hiresScale", type: "number", label: "Upscale by", min: 1.1, max: 2, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
     {
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
       // an upscale model when there is one: the enlarged latent is noisy and asks for a denoise that redraws the picture
@@ -71,40 +77,68 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     },
     { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: 15, showWhen: "hires", advanced: true, perModel: true },
     ...HIRES_PASS_INPUTS,
+    ...tileInputs("hires"),
     { id: "seed", type: "seed", label: "Seed" },
   ],
   presets: SDXL_PRESETS,
+  optionalNodes: DETAIL_OPTIONAL,
 
   nodes(input) {
+    const W2 = round8(round8(input.size.width) * input.hiresScale);
+    const H2 = round8(round8(input.size.height) * input.hiresScale);
+    const tiled = input.hires && useTiles(input, { width: W2, height: H2 }, SDXL_AREA);
     return [
-      "CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "KSampler", "VAEDecode", "PreviewImage",
+      ...detailNodes(input),
+      ...guideNodes(input),
+      ...tileNodes(tiled),
+      "CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "VAEDecode", "PreviewImage",
+      ...fullPassNodes(input, input.steps), ...(input.hires ? ["KSampler"] : []),
       ...(input.loras.length ? ["LoraLoader"] : []),
       ...(input.clipSkip > 1 ? ["CLIPSetLastLayer"] : []),
       ...(isVPred(input) ? (input.rescale > 0 ? PREDICTION_NODES : ["ModelSamplingDiscrete"]) : []),
       ...(!input.hires
         ? []
         : input.hiresUpscaler === LATENT_UPSCALE
-          ? ["LatentUpscale"]
+          ? (tiled ? ["ImageScale"] : ["LatentUpscale"])
           : ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"]),
     ];
   },
 
   build(input, ctx) {
     const g = new GraphBuilder();
-    const { model, vae, positive, negative } = loadSdxl(g, input, input.prompt);
+    const loaded = loadSdxl(g, input, input.prompt);
+    const { model, vae } = loaded;
     const W = round8(input.size.width);
     const H = round8(input.size.height);
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
+    // a guide picture holds the shapes of the picture drawn whole; tiles are pieces, redrawn from the text alone
+    const guided = applyGuide(g, ctx, { positive: loaded.positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
 
     g.phase("sampling");
-    const sampler = { model, positive, negative, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
-    let latent = g.out("KSampler", { ...sampler, latent_image: empty, steps: input.steps, denoise: 1 });
+    const sampler = { model, ...guided, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
+    let latent = kSample(g, { ...sampler, latent_image: empty, steps: input.steps, denoise: 1 }, input, ctx);
     let totalSteps = input.steps;
     const passes = [{ node: latent[0], steps: input.steps }];
 
-    if (input.hires) {
-      const W2 = round8(W * input.hiresScale);
-      const H2 = round8(H * input.hiresScale);
+    const W2 = round8(W * input.hiresScale);
+    const H2 = round8(H * input.hiresScale);
+    let image: Ref | null = null;
+    if (input.hires && useTiles(input, { width: W2, height: H2 }, SDXL_AREA)) {
+      g.phase("upscaling");
+      const pixels = g.out("VAEDecode", { samples: latent, vae });
+      const big = input.hiresUpscaler === LATENT_UPSCALE ? pixels : g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
+      const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W2, height: H2, crop: "disabled" });
+      g.phase("refining");
+      const pass = { ...sampler, positive: loaded.positive, negative: loaded.negative, ...hiresPass(input), steps: input.hiresSteps, denoise: input.hiresDenoise };
+      let tileSampler = "";
+      image = redrawInTiles(g, ctx, sized, vae, { width: W2, height: H2 }, input, (l) => {
+        const out = kSample(g, { ...pass, latent_image: l }, input, ctx);
+        tileSampler = out[0];
+        return out;
+      });
+      totalSteps += input.hiresSteps;
+      passes.push({ node: tileSampler, steps: input.hiresSteps });
+    } else if (input.hires) {
       g.phase("upscaling");
       let enlarged: Ref;
       if (input.hiresUpscaler === LATENT_UPSCALE) {
@@ -118,13 +152,13 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
         enlarged = g.out("VAEEncode", { pixels: sized, vae });
       }
       g.phase("refining");
-      latent = g.out("KSampler", { ...sampler, ...hiresPass(input), latent_image: enlarged, steps: input.hiresSteps, denoise: input.hiresDenoise });
+      latent = kSample(g, { ...sampler, ...hiresPass(input), latent_image: enlarged, steps: input.hiresSteps, denoise: input.hiresDenoise }, input, ctx);
       totalSteps += input.hiresSteps;
       passes.push({ node: latent[0], steps: input.hiresSteps });
     }
 
     g.phase("decoding");
-    const image = g.out("VAEDecode", { samples: latent, vae });
+    image ??= g.out("VAEDecode", { samples: latent, vae });
     // PreviewImage writes to ComfyUI's temp folder, which ComfyUI clears itself: nothing piles up in output/
     const out = g.add("PreviewImage", { images: image });
     return {
@@ -149,6 +183,11 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     { name: "hi-res fix, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: LATENT_UPSCALE } },
     { name: "a v-prediction checkpoint, read from its name", input: { prompt: "a", checkpoint: "noobaiXL_vPred10.safetensors" } },
     { name: "said to be v-prediction, without the CFG rescale", input: { prompt: "a", checkpoint: "mystery.safetensors", prediction: "v-prediction (zsnr)", rescale: 0 } },
+    { name: "detail boost (built-in sharpen)", input: { prompt: "a", checkpoint: "x.safetensors", detail: true }, has: withoutDaemon },
+    { name: "a guide picture's edges", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideModel: "union.safetensors" }, uploads: { guide: "g.png" } },
+    { name: "a guide picture that is a depth map already", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideFollows: "Already a guide map", guideModel: "union.safetensors" }, uploads: { guide: "g.png" } },
+    { name: "hires fix 3× in tiles, upscale model", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } },
+    { name: "hires fix in tiles asked for, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: LATENT_UPSCALE, tiles: TILES_ON, detail: true }, has: withoutDaemon },
     {
       name: "hi-res fix, upscale model",
       input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: "u.pth", hiresScale: 2, sampler: "dpmpp_2m", scheduler: "karras" },

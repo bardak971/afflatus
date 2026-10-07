@@ -3,7 +3,9 @@ import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresPass, MASK_INPUTS, MASK_NODES, maskParts, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, UPSCALER_PREFER,
   type FaceSettings, type HiresPass, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
 } from "../sdxl/common";
+import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { roundTo } from "../shared/round";
+import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, useTiles, type TileSettings } from "../shared/tiles";
 import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
 
 /**
@@ -36,6 +38,12 @@ export interface FlowSpec {
   /** What a model file starts on the first time it is used, by its name. */
   presets?: Preset[];
   placeholder: string;
+  /**
+   * The look of a picture (FLUX.1 Redux): the picture is read by a vision model and what it sees is added to
+   * the prompt, so the new picture takes its style, colours and subject without copying it. Its two files
+   * are the family's slots `redux` and `vision`.
+   */
+  look?: boolean;
   /** For the graph checker: the family's files under their usual names, and what a fine-tune could be called. */
   files: Record<string, string>;
   fineTune: string;
@@ -57,8 +65,10 @@ export interface FlowBase {
   guidance?: number;
   seed: number;
 }
-export interface FlowPicture extends FlowBase, HiresPass {
+export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings {
   prompt: string;
+  look?: string;
+  lookStrength: number;
   size: SizeValue;
   hires: boolean;
   hiresScale: number;
@@ -69,12 +79,14 @@ export interface FlowPicture extends FlowBase, HiresPass {
 export interface FlowRedraw extends FlowBase { source: string; prompt: string; strength: number }
 export interface FlowPaintOver extends FlowBase, MaskSettings { source: string; mask: string; prompt: string; strength: number }
 export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: string; prompt: string }
-export interface FlowSharper extends FlowBase, UpscaleSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
+export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
 export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
 
 /** Past this many pixels an upscaled picture is only enlarged: a pass that large does not fit a common card. */
 const REFINE_MAX_PIXELS = 3.2e6;
 const SAME_PICTURE = "The same picture in high quality, with sharp, natural detail.";
+const LOOK_NODES = ["LoadImage", "CLIPVisionLoader", "CLIPVisionEncode", "StyleModelLoader", "StyleModelApply"];
+const LOOK_NEEDED = "The look of a picture needs FLUX.1 Redux and its vision model: flux1-redux-dev.safetensors in ComfyUI's models/style_models folder and sigclip_vision_patch14_384.safetensors in models/clip_vision (both are listed in Settings).";
 const A_FACE = "A detailed, natural face with sharp eyes and realistic skin.";
 const photo = { width: 1536, height: 2048 };
 
@@ -154,13 +166,14 @@ export function flowKit(spec: FlowSpec) {
     return { positive, negative };
   }
 
-  /** One pass of sampling. */
-  function sample(g: GraphBuilder, k: Loaded, input: FlowBase, model: Ref, c: { positive: Ref; negative: Ref }, latent: Ref, seed: number, opts: { steps?: number; denoise?: number; sampler_name?: string; scheduler?: string } = {}) {
+  /** One pass of sampling, with the detail boost when one is given with the context it is built in. */
+  function sample(g: GraphBuilder, k: Loaded, input: FlowBase, model: Ref, c: { positive: Ref; negative: Ref }, latent: Ref, seed: number, opts: { steps?: number; denoise?: number; sampler_name?: string; scheduler?: string } = {}, detail?: { input: DetailSettings; ctx: BuildContext }) {
     const steps = opts.steps ?? k.steps;
-    const sampled = g.out("KSampler", {
+    const args = {
       model, positive: c.positive, negative: c.negative, latent_image: latent, seed,
       steps, cfg: k.cfg, sampler_name: opts.sampler_name ?? input.sampler, scheduler: opts.scheduler ?? input.scheduler, denoise: opts.denoise ?? 1,
-    });
+    };
+    const sampled = detail ? kSample(g, args, detail.input, detail.ctx) : g.out("KSampler", args);
     return { latent: sampled, pass: { node: sampled[0], steps } };
   }
 
@@ -182,6 +195,9 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
   const { inputs, LOAD_NODES, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf } = kit;
   const files = spec.files;
   const tuned = { model: spec.fineTune, shift: 4, cfg: 3, steps: 25, negative: "blurry", loras: [{ file: "l.safetensors", weight: 0.8 }] };
+  /** The area the model draws at, and the size a hires pass enlarges to. */
+  const AREA = spec.megapixels * 1024 * 1024;
+  const largeOf = (input: FlowPicture) => ({ width: roundTo(roundTo(input.size.width, 16) * input.hiresScale, 16), height: roundTo(roundTo(input.size.height, 16) * input.hiresScale, 16) });
 
   // ---------------------------------------------------------------- txt2img
   const picture = defineRecipe<FlowPicture>({
@@ -195,9 +211,16 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       spec.model,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: spec.placeholder },
       { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
+      ...(spec.look
+        ? ([
+          { id: "look", type: "image", role: "guide", label: "Look from a picture", optional: true, note: "its style, colours and subject are added to the prompt (Redux): the new picture is like it, not a copy" },
+          { id: "lookStrength", type: "number", label: "Look strength", note: "1 follows the picture closely and the prompt little; 0.3 to 0.6 keeps the prompt in charge", min: 0.05, max: 1.5, step: 0.05, default: 0.5, showWhen: "look" },
+        ] satisfies InputSpec[])
+        : []),
+      ...DETAIL_INPUTS,
       ...inputs.slice(0, -1),
       { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-      { id: "hiresScale", type: "number", label: "Upscale by", min: 1.1, max: 2, step: 0.05, default: 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
+      { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
       {
         id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
         options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
@@ -205,41 +228,69 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.4, showWhen: "hires", advanced: true, perModel: true },
       { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: Math.max(4, Math.round(spec.sampling.steps / 2)), showWhen: "hires", advanced: true, perModel: true },
       ...HIRES_PASS_INPUTS,
+      ...tileInputs("hires"),
       inputs.at(-1)!,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [...loadNodes(input), "EmptySD3LatentImage", ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : [])],
-    optionalNodes: SOMETIMES,
+    nodes: (input) => [
+      ...loadNodes(input).filter((n) => n !== "KSampler"), "EmptySD3LatentImage", ...detailNodes(input),
+      ...fullPassNodes(input, input.fast ? input.turboSteps ?? input.steps : input.steps), ...(input.hires ? ["KSampler"] : []),
+      ...(spec.look && input.look ? LOOK_NODES : []),
+      ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
+      ...tileNodes(input.hires && useTiles(input, largeOf(input), AREA)),
+    ],
+    optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL],
     build(input, ctx) {
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
       const size = { width: roundTo(input.size.width, 16), height: roundTo(input.size.height, 16) };
-      const c = cond(g, k, input, input.prompt);
+      let c = cond(g, k, input, input.prompt);
+      if (spec.look && input.look) {
+        if (!ctx.slots.redux || !ctx.slots.vision) throw new Error(LOOK_NEEDED);
+        const seen = g.out("CLIPVisionEncode", { clip_vision: g.out("CLIPVisionLoader", { clip_name: ctx.slots.vision }), image: g.out("LoadImage", { image: ctx.uploads.look }), crop: "center" });
+        c = { ...c, positive: g.out("StyleModelApply", { conditioning: c.positive, style_model: g.out("StyleModelLoader", { style_model_name: ctx.slots.redux }), clip_vision_output: seen, strength: input.lookStrength, strength_type: "multiply" }) };
+      }
       const empty = g.out("EmptySD3LatentImage", { width: size.width, height: size.height, batch_size: 1 });
       g.phase("sampling");
-      const first = sample(g, k, input, shifted(g, k.model, input, size), c, empty, ctx.seed);
+      const detail = { input, ctx };
+      const first = sample(g, k, input, shifted(g, k.model, input, size), c, empty, ctx.seed, {}, detail);
       let latent = first.latent;
       const passes = [first.pass];
       const loads = [...k.loads];
+      let image: Ref | null = null;
       if (input.hires) {
-        const large = { width: roundTo(size.width * input.hiresScale, 16), height: roundTo(size.height * input.hiresScale, 16) };
+        const large = largeOf(input);
         g.phase("upscaling");
         // upscale models enlarge by their own factor (usually 4×): the result is scaled to the size asked for
         const pixels = g.out("VAEDecode", { samples: latent, vae: k.vae });
         const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
         const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
         g.phase("refining");
-        const second = sample(g, k, input, shifted(g, k.model, input, large), c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) });
-        latent = second.latent;
-        passes.push(second.pass);
+        const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
+        if (useTiles(input, large, AREA)) {
+          // each tile is a picture the model's size to it: the shift for that size
+          const tile = Math.min(input.tileSize, Math.max(large.width, large.height));
+          const tiled = shifted(g, k.model, input, { width: tile, height: tile });
+          image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (l) => {
+            const second = sample(g, k, input, tiled, c, l, ctx.seed, pass, detail);
+            passes.push(second.pass);
+            return second.latent;
+          });
+        } else {
+          const second = sample(g, k, input, shifted(g, k.model, input, large), c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
+          latent = second.latent;
+          passes.push(second.pass);
+        }
         loads.push(`upscale_models/${input.hiresUpscaler}`);
       }
       g.phase("decoding");
-      const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: latent, vae: k.vae }) });
+      const out = g.add("PreviewImage", { images: image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }) });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads };
     },
     variants: [
       { name: "from words, as ComfyUI's template", input: { prompt: "a" } as Partial<FlowPicture>, slots: files },
+      ...(spec.look ? [{ name: "the look of a picture (Redux)", input: { prompt: "a", look: "l1" } as Partial<FlowPicture>, slots: { ...files, redux: "flux1-redux-dev.safetensors", vision: "sigclip_vision_patch14_384.safetensors" }, uploads: { look: "l.png" } }] : []),
+      { name: "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: true, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: files, has: withoutDaemon },
       { name: "a GGUF model, in fp8 asked for (no effect on it)", input: { prompt: "a", model: `${spec.family}-Q4_K_M.gguf`, precision: "fp8_e4m3fn" } as Partial<FlowPicture>, slots: files },
       { name: "a fine-tune with a shift, a LoRA, a negative prompt and hires fix", input: { prompt: "a", ...tuned, hires: true, hiresUpscaler: "u.pth", size: { width: 1152, height: 1536 } } as Partial<FlowPicture>, slots: files },
       ...(spec.turbo
@@ -402,14 +453,15 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "sentences", optional: true, default: "" },
       { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER, section: "out" },
       FACTOR_INPUT,
-      { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; skipped when the result is larger than about 3 megapixels", default: true, section: "out" },
+      { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 3 megapixels it is made in tiles", default: true, section: "out" },
       { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out" },
+      ...tileInputs("refine"),
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
     // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-    optionalNodes: [...LOAD_NODES.filter((n) => n !== "PreviewImage"), GGUF_LOADER, "VAEEncode", ...SOMETIMES],
+    optionalNodes: [...LOAD_NODES.filter((n) => n !== "PreviewImage"), GGUF_LOADER, "VAEEncode", ...SOMETIMES, ...TILE_NODES],
     build(input, ctx) {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -420,7 +472,8 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       // upscale models enlarge by their own factor (usually 4x): scaled to exactly twice the picture
       const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
       const loads = [`upscale_models/${input.upscaler}`];
-      if (!input.refine || size.width * size.height > REFINE_MAX_PIXELS) {
+      const tiled = input.refine && useTiles(input, size, REFINE_MAX_PIXELS / 4) && TILE_NODES.every((n) => ctx.has(n));
+      if (!input.refine || (size.width * size.height > REFINE_MAX_PIXELS && !tiled)) {
         const out = g.add("PreviewImage", { images: sized });
         return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
       }
@@ -428,15 +481,32 @@ export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; red
       const k = load(g, input, ctx);
       const c = cond(g, k, input, input.prompt.trim() || SAME_PICTURE);
       g.phase("refining");
-      const { latent, pass } = sample(g, k, input, shifted(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, { steps: Math.max(3, Math.round(Math.min(30, k.steps) * 0.5)), denoise: input.strength });
+      const light = { steps: Math.max(3, Math.round(Math.min(30, k.steps) * 0.5)), denoise: input.strength };
+      let pass = { node: "", steps: light.steps };
+      let picture: Ref;
+      if (tiled) {
+        const tile = Math.min(input.tileSize, Math.max(size.width, size.height));
+        const model = shifted(g, k.model, input, { width: tile, height: tile });
+        picture = redrawInTiles(g, ctx, sized, k.vae, size, input, (l) => {
+          const done = sample(g, k, input, model, c, l, ctx.seed, light);
+          pass = done.pass;
+          return done.latent;
+        });
+      } else {
+        const done = sample(g, k, input, shifted(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, light);
+        pass = done.pass;
+        g.phase("decoding");
+        picture = g.out("VAEDecode", { samples: done.latent, vae: k.vae });
+      }
       g.phase("decoding");
-      const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: latent, vae: k.vae }) });
+      const out = g.add("PreviewImage", { images: picture });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
     },
     variants: [
       { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
       { name: "only enlarged", input: { source: "p", upscaler: "u.pth", refine: false } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
-      { name: "too large to go over", input: { source: "p", upscaler: "u.pth" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+      { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+      { name: "too large, asked whole: only enlarged", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "a fine-tune with its shift, a prompt and a LoRA", input: { source: "p", upscaler: "u.pth", prompt: "a", ...tuned } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     ],
   });

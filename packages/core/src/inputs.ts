@@ -132,8 +132,8 @@ export interface SeedInput extends Base {
 }
 export interface ImageInput extends Base {
   type: "image";
-  /** "mid": a picture the clip passes through, at the moment the number input named by `at` says. */
-  role: "source" | "start" | "end" | "mid" | "mask";
+  /** "mid": a picture the clip passes through, at the moment the number input named by `at` says. "guide": one the result follows the shapes of (a ControlNet's), not one it is made from. */
+  role: "source" | "start" | "end" | "mid" | "mask" | "guide";
   optional?: boolean;
   /** Of a "mid" picture: the id of the number input that holds its moment, in seconds from the start of the clip. */
   at?: string;

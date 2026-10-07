@@ -117,8 +117,11 @@ describe("the other things done to a picture", () => {
     expect(nodes(graph, "KSampler")[0]!.inputs).toMatchObject({ denoise: 0.28, steps: 14 });
 
     const large = await upload(await plain(1700, 1700));
-    const only = await graphOf("sdxl.sharper", { source: large.id, checkpoint: CHECKPOINT });
-    expect(nodes(only, "ImageScale")[0]!.inputs).toMatchObject({ width: 3400, height: 3400 });
+    // too large for a whole pass: made in tiles; asked to stay whole, only enlarged
+    const tiled = await graphOf("sdxl.sharper", { source: large.id, checkpoint: CHECKPOINT });
+    expect(nodes(tiled, "ImageScale")[0]!.inputs).toMatchObject({ width: 3400, height: 3400 });
+    expect(nodes(tiled, "ImageMergeTileList")[0]!.inputs).toMatchObject({ final_width: 3400, final_height: 3400 });
+    const only = await graphOf("sdxl.sharper", { source: large.id, checkpoint: CHECKPOINT, tiles: "Whole picture" });
     expect(nodes(only, "KSampler")).toHaveLength(0);
   });
 

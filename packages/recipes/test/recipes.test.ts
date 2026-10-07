@@ -434,19 +434,25 @@ describe("things done to a picture", () => {
     expect(padsFor(1600, 900, "Widescreen 16:9")).toMatchObject({ left: 0, right: 0, top: 0, bottom: 0 });
   });
 
-  it("go over an enlarged picture only when it is small enough", () => {
+  it("go over an enlarged picture whole when it is small enough, in tiles when it is not", () => {
     const sharper = recipeById("klein.sharper")!;
     const slots = { unet: "k.safetensors", clip: "q.safetensors", vae: "v.safetensors" };
-    const build = (width: number, height: number) =>
-      sharper.build(parseInput(sharper, { source: "p", upscaler: "u.pth" }), dryContext({ slots, uploads: { source: "s.png" }, media: { source: { width, height } } }));
+    const build = (width: number, height: number, over: Record<string, unknown> = {}) =>
+      sharper.build(parseInput(sharper, { source: "p", upscaler: "u.pth", ...over }), dryContext({ slots, uploads: { source: "s.png" }, media: { source: { width, height } } }));
     const small = build(640, 960);
     expect(Object.values(small.graph).some((n) => n.class_type === "SamplerCustomAdvanced")).toBe(true);
     // a quarter of the steps: only the end of them is run
     expect(small.totalSteps).toBe(5);
     expect(small.loads).toContain("diffusion_models/k.safetensors");
     const large = build(1536, 2048);
-    expect(Object.values(large.graph).some((n) => n.class_type === "SamplerCustomAdvanced")).toBe(false);
-    expect(large.loads).toEqual(["upscale_models/u.pth"]);
+    const classes = Object.values(large.graph).map((n) => n.class_type);
+    expect(classes).toEqual(expect.arrayContaining(["SplitImageToTileList", "SamplerCustomAdvanced", "ImageMergeTileList"]));
+    // each tile keeps its own piece as its reference
+    const reference = Object.values(large.graph).find((n) => n.class_type === "ImageScaleToTotalPixels")!;
+    expect(large.graph[(reference.inputs.image as [string, number])[0]]!.class_type).toBe("SplitImageToTileList");
+    const whole = build(1536, 2048, { tiles: "Whole picture" });
+    expect(Object.values(whole.graph).some((n) => n.class_type === "SamplerCustomAdvanced")).toBe(false);
+    expect(whole.loads).toEqual(["upscale_models/u.pth"]);
   });
 });
 

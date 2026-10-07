@@ -1,4 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, LoraValue, ReferenceValue, Ref } from "@afflatus/core";
+import { detailModel, detailSampler, sharpenRange, usesDaemon, type DetailSettings } from "../shared/detail";
 import { roundTo } from "../shared/round";
 import { loadUnet, unetNodes } from "../shared/unet";
 
@@ -85,20 +86,46 @@ export function kleinCond(g: GraphBuilder, k: Klein, text: string, pictures: Ref
  */
 export function kleinSample(
   g: GraphBuilder, k: Klein, cond: { positive: Ref; negative: Ref }, latent: Ref, size: { width: number; height: number }, seed: number,
-  opts: { steps?: number; strength?: number } = {},
+  opts: { steps?: number; strength?: number; detail?: { input: DetailSettings; ctx: BuildContext } } = {},
+) {
+  const { sampled, pass } = kleinSampleLatent(g, k, cond, latent, size, seed, opts);
+  g.phase("decoding");
+  const image = g.out("VAEDecode", { samples: sampled, vae: k.vae });
+  return { image, pass };
+}
+
+/** The same sampling, left as a latent (for a pass in tiles, decoded with the others). With the detail boost when one is given. */
+export function kleinSampleLatent(
+  g: GraphBuilder, k: Klein, cond: { positive: Ref; negative: Ref }, latent: Ref, size: { width: number; height: number }, seed: number,
+  opts: { steps?: number; strength?: number; detail?: { input: DetailSettings; ctx: BuildContext } } = {},
 ) {
   const steps = opts.steps ?? k.input.steps;
   const strength = opts.strength ?? 1;
   let sigmas = g.out("Flux2Scheduler", { steps, width: size.width, height: size.height });
   if (strength < 1) sigmas = g.out("SplitSigmasDenoise", { sigmas, denoise: strength }, 1);
-  const guider = g.out("CFGGuider", { model: k.model, positive: cond.positive, negative: cond.negative, cfg: k.input.cfg });
-  const sampler = g.out("KSamplerSelect", { sampler_name: k.input.sampler });
+  const range = opts.detail && !usesDaemon(opts.detail.input, opts.detail.ctx) ? sharpenRange(opts.detail.input, steps, strength) : null;
+  const model = opts.detail ? detailModel(g, k.model, opts.detail.input, opts.detail.ctx) : k.model;
+  const guider = g.out("CFGGuider", { model, positive: cond.positive, negative: cond.negative, cfg: k.input.cfg });
+  let sampler = g.out("KSamplerSelect", { sampler_name: k.input.sampler });
+  if (opts.detail) sampler = detailSampler(g, sampler, opts.detail.input, opts.detail.ctx);
   const noise = g.out("RandomNoise", { noise_seed: seed });
   g.phase("sampling");
+  if (range) {
+    // the sharpen only between its steps: the sigmas cut at both ends, the plain model before and after
+    const plain = g.out("CFGGuider", { model: k.model, positive: cond.positive, negative: cond.negative, cfg: k.input.cfg });
+    const first = g.add("SplitSigmas", { sigmas, step: range.from });
+    const rest = g.add("SplitSigmas", { sigmas: [first, 1], step: range.to - range.from });
+    const parts: Array<[Ref, Ref, number]> = [[plain, [first, 0], range.from], [guider, [rest, 0], range.to - range.from], [plain, [rest, 1], steps - range.to]];
+    let at = latent;
+    let last: Ref = latent;
+    parts.filter(([, , n]) => n > 0).forEach(([gd, sg], i) => {
+      last = g.out("SamplerCustomAdvanced", { noise: i === 0 ? noise : g.out("DisableNoise", {}), guider: gd, sampler, sigmas: sg, latent_image: at });
+      at = last;
+    });
+    return { sampled: last, pass: { node: last[0], steps } };
+  }
   const sampled = g.out("SamplerCustomAdvanced", { noise, guider, sampler, sigmas, latent_image: latent });
-  g.phase("decoding");
-  const image = g.out("VAEDecode", { samples: sampled, vae: k.vae });
-  return { image, pass: { node: sampled[0], steps: Math.max(1, Math.round(steps * strength)) } };
+  return { sampled, pass: { node: sampled[0], steps: Math.max(1, Math.round(steps * strength)) } };
 }
 
 const WHAT: Record<ReferenceValue["role"], (many: boolean) => string> = {

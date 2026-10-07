@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
 import { pixelUpscale, UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, saveVideo, VHS } from "../shared/out";
 
@@ -38,6 +39,9 @@ export interface WanVideo {
   upscaleModel: string;
   upscaleColour?: string;
   livePreview: boolean;
+  sage: SpeedSettings["sage"];
+  sageKernel: SpeedSettings["sageKernel"];
+  compile: SpeedSettings["compile"];
   fps: number;
   crf: number;
   loras: LoraValue[];
@@ -153,6 +157,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: WAN_NEGATIVE, advanced: true, perModel: true,
       note: "only acts with a CFG scale above 1, so not with Turbo. The starting text is Wan's own, in Chinese",
     },
+    ...SPEED_INPUTS,
     { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE: 32 a second in place of 16", default: true, advanced: true },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
@@ -175,7 +180,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     const any = (list: LoraValue[]) => list.some((l) => l.weight !== 0);
     return [
       ...routeNodes,
-      ...unetNodes(input.model), "CLIPLoader", "VAELoader", "CLIPTextEncode", "ModelSamplingSD3", "KSamplerAdvanced", "VAEDecode",
+      ...unetNodes(input.model), "CLIPLoader", "VAELoader", "CLIPTextEncode", "ModelSamplingSD3", "KSamplerAdvanced", "VAEDecode", ...speedNodes(input),
       how.words ? "EmptyHunyuanLatentVideo" : how.both ? "WanFirstLastFrameToVideo" : "WanImageToVideo",
       ...(how.words ? [] : ["LoadImage"]),
       ...((input.fast && !picked.distilled) || any(input.loras) || any(input.lorasLow) ? ["LoraLoaderModelOnly"] : []),
@@ -219,7 +224,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
     // there), sent as a short clip. ComfyUI's own preview is the first frame alone: the start image, still
     const finish = (model: Ref): Ref => {
-      model = g.out("ModelSamplingSD3", { model, shift });
+      model = g.out("ModelSamplingSD3", { model: faster(g, model, input, ctx), shift });
       return input.livePreview && ctx.has("ModelPreviewOverrideKJ")
         ? g.out("ModelPreviewOverrideKJ", { model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12, tiny_vae: slots.tinyVae ?? "none" })
         : model;
@@ -333,6 +338,7 @@ export const wanVideo = defineRecipe<WanVideo>({
         slots: all, uploads: { start: "a.png", end: "b.png" }, media: { start: picture, end: picture },
       },
       { name: "ends on a picture only", input: { prompt: "a", end: "p2", fast: false }, slots: all, uploads: { end: "b.png" }, media: { end: picture } },
+      { name: "SageAttention and torch.compile on both models", input: { prompt: "a", start: "p1", sage: true, compile: true }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "from words alone, Turbo", input: { prompt: "a", seconds: 3 }, slots: all },
       { name: "from words alone, full steps, wide", input: { prompt: "a", fast: false, steps: 30, split: 0.4, cfg: 4, shift: 12, shape: { width: 832, height: 480 }, negative: "blurry" }, slots: all },
       { name: "Turbo with the high-noise LoRA eased", input: { prompt: "a", start: "p1", fast: true, turboStrength: 0.7 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
