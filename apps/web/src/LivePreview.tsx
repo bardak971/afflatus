@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { previewUrl, stageUrl, type RunningJob } from "./api";
+import { VolumeControl } from "./mediaControls";
+import { cx } from "./ui";
 
 /**
  * Whether the sound of a live preview is on, and how loud: each step brings a new clip, and the choice
@@ -40,11 +42,11 @@ export function StageStrip({ job, className }: { job: Pick<RunningJob, "id" | "s
 export function LivePreview({ job, className, sound, volume }: {
   job: Pick<RunningJob, "id" | "previewSeq" | "previewMime">;
   className?: string;
-  /** With its sound and the player's controls, where there is room to watch it. */
+  /** With its sound and a volume over it, where there is room to watch it; a click pauses or plays it. */
   sound?: boolean;
   /**
    * Its loudness set by the screen it is shown on (0 to 1, 0 = muted), as the timeline's own volume slider: then
-   * the browser's controls are not shown, that screen's are the ones, and a click pauses or plays it.
+   * that screen's controls are the ones, and a click pauses or plays it.
    */
   volume?: number;
 }) {
@@ -53,7 +55,9 @@ export function LivePreview({ job, className, sound, volume }: {
   const src = previewUrl(job.id, job.previewSeq);
   const ruled = sound && volume !== undefined;
   if (job.previewMime?.startsWith("video/")) {
-    return (
+    // where there is room to watch it with its sound: the app's volume over it, in place of the browser's controls
+    const own = sound && !ruled;
+    const video = (
       <video
         // a new clip each step: the key starts the player again from its first frame
         key={job.previewSeq}
@@ -68,15 +72,19 @@ export function LivePreview({ job, className, sound, volume }: {
         loop
         muted={!sound || (ruled ? volume === 0 : heard.muted)}
         playsInline
-        controls={sound && !ruled}
         data-live={ruled ? "" : undefined}
-        onClick={ruled ? (e) => void (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause()) : undefined}
-        onVolumeChange={(e) => {
-          const el = e.currentTarget;
-          if (sound && !ruled && (el.muted !== heard.muted || el.volume !== heard.volume)) heard.set(el.muted, el.volume);
-        }}
-        className={className}
+        onClick={sound ? (e) => void (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause()) : undefined}
+        className={own ? "h-full w-auto max-w-full rounded-[inherit] object-contain" : className}
       />
+    );
+    if (!own) return video;
+    return (
+      <div className={cx("relative inline-flex justify-center", className)}>
+        {video}
+        <div className="absolute bottom-2 right-2 rounded-lg border border-line bg-panel px-1.5 py-0.5">
+          <VolumeControl volume={heard.volume} muted={heard.muted} onVolume={(v) => heard.set(v === 0, v)} onMuted={(m) => heard.set(m, heard.volume)} />
+        </div>
+      </div>
     );
   }
   return <img src={src} alt="" className={className} />;

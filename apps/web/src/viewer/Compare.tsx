@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { fileUrl, thumbUrl, type Asset } from "../api";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { fileUrl, type Asset } from "../api";
 import { Kbd } from "../Keys";
 import { Button } from "../ui";
 import { AudioPlayer } from "../AudioPlayer";
+import { VideoPlayer } from "../VideoPlayer";
 
 /** Keeps the second video in step with the first: play, pause, seeks and the rate follow it; a drift past a frame or two is corrected. */
 function useInStep(master: RefObject<HTMLVideoElement | null>, other: RefObject<HTMLVideoElement | null>, key: string) {
@@ -54,7 +56,8 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
     <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-1.5">
       <span className="max-w-full truncate text-xs text-ink-3">{label}{a.name ? ` · ${a.name}` : ""}</span>
       {a.kind === "video" ? (
-        <video key={a.id} ref={ref} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={ref === left} muted={ref === right} className="min-h-0 max-h-full max-w-full rounded-lg" />
+        // the pinned one has the controls and the sound; the other follows it, silent
+        <VideoPlayer asset={a.id} sound={a.hasSound} video={ref} controls={ref === left} barRoom muted={ref === right} className="h-full w-full justify-center" />
       ) : a.kind === "image" ? (
         <img key={a.id} src={fileUrl(a.id)} alt="" className="min-h-0 max-h-full max-w-full rounded-lg object-contain" />
       ) : (
@@ -83,7 +86,7 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
         {pictures && <Button size="sm" tone={wipe !== null ? "primary" : "plain"} aria-pressed={wipe !== null} data-tip="The two pictures over each other, the second cut at a line you move" onClick={() => setWipe((w) => (w === null ? 50 : null))}>Wipe</Button>}
         {pictures && wipe !== null && <input type="range" min={0} max={100} value={wipe} aria-label="Where the second picture takes over" onChange={(e) => setWipe(Number(e.target.value))} className="w-64 accent-[var(--color-accent)]" />}
         <Button size="sm" data-tip="The pinned one becomes the one you move through, and the other way round" onClick={onSwap}>Swap</Button>
-        <span className="text-xs text-ink-3">← → change the right one</span>
+        <span className="flex items-center gap-1 text-xs text-ink-3"><Kbd><ArrowLeft size={10} className="inline" /></Kbd><Kbd><ArrowRight size={10} className="inline" /></Kbd> change the right one</span>
         <Button size="sm" onClick={onClose}>Done <Kbd>X</Kbd></Button>
       </div>
     </div>

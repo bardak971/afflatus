@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
-import { api, fileUrl, thumbUrl, type Asset } from "./api";
+import { api, thumbUrl, type Asset } from "./api";
 import { Dialog } from "./Dialog";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
@@ -17,6 +17,7 @@ import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } fro
 import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
+import { VideoPlayer } from "./VideoPlayer";
 
 /** Send a picture from this computer to the library, then hand it over. */
 function useUpload(onDone: (asset: Asset) => void, kit = false) {
@@ -231,7 +232,7 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
       </div>
       {value ? (
         <div {...drop.props} className={cx("flex flex-col gap-2 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
-          <video ref={video} key={value.asset} src={fileUrl(value.asset)} poster={thumbUrl(value.asset)} controls preload="metadata" className="max-h-56 w-full rounded-md bg-ground" />
+          <VideoPlayer asset={value.asset} video={video} compact className="w-full" videoClassName="max-h-56 w-full rounded-md bg-ground" />
           <div className="flex flex-wrap items-center gap-1.5">
             {/* a source video is worked on whole: no moment to pick */}
             {role === "source" ? (

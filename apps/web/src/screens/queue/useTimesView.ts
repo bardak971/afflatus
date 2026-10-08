@@ -21,14 +21,16 @@ export const presetOf = (label: string) => PRESETS.find((x) => x.label === label
 export const toLocalInput = (ms: number) => {
   const d = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
 /** A typed window, when it is one: both ends read, the end after the start. */
 export function typedWindow(typed: { from: string; to: string } | null): { from: number; to: number } | null {
   if (!typed) return null;
-  const from = Date.parse(typed.from);
-  const to = Date.parse(typed.to);
+  // typed as the box shows it, "2026-10-01 09:00": read as local time
+  const read = (s: string) => (/^\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}$/.test(s.trim()) ? Date.parse(s.trim().replace(" ", "T")) : NaN);
+  const from = read(typed.from);
+  const to = read(typed.to);
   return Number.isFinite(from) && Number.isFinite(to) && to > from ? { from, to } : null;
 }
 

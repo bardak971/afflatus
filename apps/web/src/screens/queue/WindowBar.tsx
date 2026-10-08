@@ -1,8 +1,9 @@
+import { Kbd } from "../../Keys";
 import { Button, cx } from "../../ui";
 import { PRESETS, toLocalInput, typedWindow, type View } from "./useTimesView";
 
 /**
- * Which window of time is looked at: a preset, ending now; or two moments typed and applied; or twice
+ * Which window of time is looked at: a preset, ending now; or two moments typed (Enter looks at them); or twice
  * the window around its middle. A window dragged on a chart shows here as its two moments.
  */
 export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom }: {
@@ -25,10 +26,24 @@ export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom }: {
         ))}
       </div>
       <div className="flex items-center gap-1.5 text-xs">
-        <input type="datetime-local" aria-label="From" value={bounds.from} onChange={(e) => onTyped({ ...bounds, from: e.target.value })} className="h-8 rounded-lg border border-line bg-raised px-2 font-mono text-xs text-ink" />
-        <span className="text-ink-3">→</span>
-        <input type="datetime-local" aria-label="To" value={bounds.to} onChange={(e) => onTyped({ ...bounds, to: e.target.value })} className="h-8 rounded-lg border border-line bg-raised px-2 font-mono text-xs text-ink" />
-        <Button size="sm" tone={asked ? "primary" : "plain"} disabled={!asked} data-tip={typed && !asked ? "The end has to come after the start" : "Look at the window typed in the two boxes"} onClick={() => asked && onZoom(asked.from, asked.to)}>Apply</Button>
+        {(["from", "to"] as const).map((end, i) => (
+          <span key={end} className="contents">
+            {i === 1 && <span className="text-ink-3">→</span>}
+            <input
+              aria-label={end === "from" ? "From" : "To"}
+              value={bounds[end]}
+              spellCheck={false}
+              placeholder="YYYY-MM-DD HH:MM"
+              onChange={(e) => onTyped({ ...bounds, [end]: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && asked) onZoom(asked.from, asked.to);
+              }}
+              data-tip={typed && !asked ? "Two moments as YYYY-MM-DD HH:MM, the end after the start" : "A moment as YYYY-MM-DD HH:MM"}
+              className={cx("h-8 w-[136px] rounded-lg border bg-raised px-2 font-mono text-xs text-ink outline-none focus:border-accent", typed && !asked ? "border-warn" : "border-line")}
+            />
+          </span>
+        ))}
+        {typed && asked && <span className="flex items-center gap-1 text-ink-3"><Kbd>Enter</Kbd> to look</span>}
         <Button size="sm" data-tip="Twice the window, around the same middle" onClick={() => { const mid = (shown.from + shown.to) / 2; onZoom(mid - spanMs, Math.min(Date.now(), mid + spanMs)); }}>Wider</Button>
       </div>
     </>

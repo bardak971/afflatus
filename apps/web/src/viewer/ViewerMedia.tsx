@@ -1,9 +1,10 @@
 import { lazy, Suspense, type RefObject } from "react";
 import type { Range } from "../Trim";
-import { fileUrl, thumbUrl, type Asset } from "../api";
+import { fileUrl, type Asset } from "../api";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import type { ViewerActions } from "./useViewerActions";
 import { AudioPlayer } from "../AudioPlayer";
+import { VideoPlayer } from "../VideoPlayer";
 
 // Trim is a chunk of its own: fetched the first time a video is trimmed
 const Trim = lazy(() => import("../Trim").then((m) => ({ default: m.Trim })));
@@ -52,7 +53,15 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
         ))}
       {a.kind === "video" && (
         <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3" onClick={overlay ? onClose : undefined}>
-          <video key={a.id} ref={player} src={fileUrl(a.id)} poster={thumbUrl(a.id)} controls={!trim} draggable onDragStart={dragOf(a)} onContextMenu={onVideoMenu} className="min-h-0 max-h-full max-w-full rounded-lg" onClick={(e) => { if (overlay) e.stopPropagation(); if (trim) { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } }} />
+          <VideoPlayer
+            asset={a.id}
+            sound={a.hasSound}
+            video={player}
+            controls={!trim}
+            className="h-full max-h-full w-full justify-center"
+            videoProps={{ draggable: true, onDragStart: dragOf(a), onContextMenu: onVideoMenu }}
+            onVideoClick={overlay ? (e) => e.stopPropagation() : undefined}
+          />
           {trim && trimRange && <Suspense fallback={null}><RangeFrames asset={a} range={trimRange} /></Suspense>}
         </div>
       )}
