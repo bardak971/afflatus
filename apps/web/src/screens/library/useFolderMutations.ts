@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { projectForNew } from "../../project";
-import type { Place } from "../../store";
+import { useBanners, type Place } from "../../store";
 
 /**
  * What the folder panel changes. The server says each change with a "library" event, which reads the
@@ -11,6 +11,17 @@ export function useFolderMutations({ selected, onPlace }: { selected: string | n
   const client = useQueryClient();
   const create = useMutation({ mutationFn: (v: { name: string; parent: string | null }) => api.createFolder(v.name, v.parent, v.parent ? undefined : projectForNew()) });
   const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.editFolder(v.id, { name: v.name }) });
+  // a folder taken to another project: inside its root folder (with what is in it), or out of every project to the top
+  const say = useBanners((b) => b.push);
+  const toProject = useMutation({
+    mutationFn: (v: { id: string; name: string; project: { id: string; name: string; folderId: string | null } | null }) =>
+      api.editFolder(v.id, v.project?.folderId ? { parentId: v.project.folderId } : { parentId: null, project: v.project?.id ?? null }),
+    onSuccess: (_r, v) => {
+      void client.invalidateQueries({ queryKey: ["projects"] });
+      say({ id: `folder-moved:${v.id}:${Date.now()}`, tone: "good", title: `${v.name} moved to ${v.project ? v.project.name : "the Inbox"}`, text: "With the folders and items inside it.", href: "/", go: "Open it", act: () => onPlace({ type: "folder", id: v.id }) });
+    },
+    onError: (err, v) => say({ id: `folder-moved:${v.id}:${Date.now()}`, tone: "bad", title: `${v.name} could not be moved`, text: err.message, href: "/", go: "Open the library" }),
+  });
   const remove = useMutation({
     mutationFn: api.deleteFolder,
     onSuccess: (_r, id) => {
@@ -45,6 +56,6 @@ export function useFolderMutations({ selected, onPlace }: { selected: string | n
   });
   // the bin, emptied now instead of waiting a week: asked twice, it cannot be undone. Clips of timelines may have played what it held
   const empty = useMutation({ mutationFn: api.emptyBin, onSuccess: () => client.invalidateQueries({ queryKey: ["timelines"] }) });
-  const error = create.error ?? rename.error ?? remove.error ?? move.error ?? bring.error ?? link.error ?? look.error ?? empty.error ?? moveTimelines.error;
-  return { create, rename, remove, moveTimelines, move, link, look, bring, empty, error };
+  const error = create.error ?? rename.error ?? toProject.error ?? remove.error ?? move.error ?? bring.error ?? link.error ?? look.error ?? empty.error ?? moveTimelines.error;
+  return { create, rename, toProject, remove, moveTimelines, move, link, look, bring, empty, error };
 }

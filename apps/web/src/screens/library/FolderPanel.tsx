@@ -1,11 +1,11 @@
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import { CornerDownRight, Folder as FolderIcon, FolderPlus, FolderUp, HardDrive, Link2, Pencil, RefreshCw, Trash2, Unlink } from "lucide-react";
+import { CornerDownRight, Folder as FolderIcon, FolderKanban, FolderPlus, FolderUp, HardDrive, Link2, Pencil, RefreshCw, Trash2, Unlink } from "lucide-react";
 import type { Folder } from "../../api";
 import { askText } from "../../Confirm";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
-import { useFolders, useStorage } from "../../data";
+import { useFolders, useProjects, useStorage } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
 import { size } from "../../format";
 import { useFolderImport } from "../../folderImport";
@@ -169,10 +169,25 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   const bringIn = useFolderImport((s) => s.start);
   // right-click on a folder: what its hover buttons do, and a folder inside it
   const folderMenu = useMenu<Folder>();
+  const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
+  /** "Move to" another project: not for a project's own root folder (the project would be left without one), nor for a linked directory of the disk. */
+  const known = new Set((folders.data?.items ?? []).map((x) => x.id));
+  const moveItems = (f: Folder): MenuItem[] =>
+    projects.length && !f.path && !projects.some((p) => p.folderId === f.id)
+      ? [{ label: "Move to", icon: <FolderKanban size={14} />, note: "another project, with what is in it", items: [
+          ...projects.map((p): MenuItem => {
+            // a project whose root folder is gone: at the top, in the project
+            const root = p.folderId && known.has(p.folderId) ? p.folderId : null;
+            return { label: p.name, icon: <FolderKanban size={14} />, note: root ? "inside its root folder" : "at the top of it", disabled: f.projectId === p.id && (root ? f.parentId === root : f.parentId === null), run: () => m.toProject.mutate({ id: f.id, name: f.name, project: { id: p.id, name: p.name, folderId: root } }) };
+          }),
+          { label: "The Inbox", icon: <FolderKanban size={14} />, note: "out of every project", disabled: f.projectId === null && f.parentId === null, run: () => m.toProject.mutate({ id: f.id, name: f.name, project: null }) },
+        ] }]
+      : [];
   const folderItems = (f: Folder): MenuItem[] => [
     { label: "Open", icon: <FolderIcon size={14} />, run: () => onPlace({ type: "folder", id: f.id }) },
     ...(!f.path ? [{ label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => void askText({ title: `A folder inside ${f.name}`, value: "", placeholder: "Name", yes: "Make it" }).then((name) => name?.trim() && m.create.mutate({ name: name.trim(), parent: f.id })) }] : []),
     ...(!f.path || f.root ? [{ label: "Rename", icon: <Pencil size={14} />, run: () => setEditing({ id: f.id, text: f.name }) }] : []),
+    ...moveItems(f),
     ...(f.path ? [{ label: "Rescan", icon: <RefreshCw size={14} />, note: "what changed on your disk", disabled: m.look.isPending, run: () => m.look.mutate(f.id) }] : []),
     ...(!f.path || f.root ? ["—" as const, f.path
       ? { label: "Unlink", icon: <Unlink size={14} />, danger: true, note: "nothing on your disk is touched", run: () => setDeleting(f.id) }

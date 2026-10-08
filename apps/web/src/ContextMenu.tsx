@@ -139,6 +139,8 @@ function Panel({ at, flipX, items, label, onClose, onBack, keyed = true }: {
         role="menu"
         aria-label={label}
         data-context-menu
+        // a menu opened from inside a popover (the folder panel) is part of it: pressing an item does not close the popover first
+        data-floating=""
         className="fixed z-[90] flex min-w-[220px] max-w-[340px] flex-col rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60"
         style={{ left: pos.x, top: pos.y }}
         onContextMenu={(e) => e.preventDefault()}

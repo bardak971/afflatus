@@ -41,6 +41,8 @@ import m0039 from "./0039-wide-sizes";
 import m0040 from "./0040-asked";
 import m0041 from "./0041-generation-measure";
 import m0042 from "./0042-drop-take-lead";
+import m0043 from "./0043-lost-root-folders";
+import m0044 from "./0044-timelines-follow-folders";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -90,4 +92,6 @@ export const migrations: Record<string, Migration> = {
   "0040_asked": m0040,
   "0041_generation_measure": m0041,
   "0042_drop_take_lead": m0042,
+  "0043_lost_root_folders": m0043,
+  "0044_timelines_follow_folders": m0044,
 };
