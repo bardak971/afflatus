@@ -11,3 +11,9 @@ export const OPS: Record<string, { ends: string[]; label: string }> = {
   e: { ends: [".edit", ".redraw"], label: "Edit" },
   r: { ends: [".change-shape"], label: "Outpaint" },
 };
+
+/**
+ * What a new draft made from a result starts from. Handed its cast again (`withLook`): the person's own form, from before the
+ * server worked the cast into it, so that the cast's words are not carried in the prompt and given again beside it.
+ */
+export const ownInputs = (g: { inputs: Record<string, unknown>; asked?: Record<string, unknown> }, withLook: boolean): Record<string, unknown> => (withLook && g.asked ? g.asked : g.inputs);

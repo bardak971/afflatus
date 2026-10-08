@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SystemLoad } from "./api";
+import type { GroupBy } from "./screens/studio/grouping";
 
 /** The machine's load, pushed by the server about every two seconds. */
 export const useSystem = create<{ load: SystemLoad | null; set(load: SystemLoad | null): void }>((set) => ({
@@ -34,6 +35,8 @@ export interface Banner {
   href: string;
   /** What the link is called. */
   go: string;
+  /** What a click does in place of going to `href` (a reload). */
+  act?(): void;
 }
 export const useBanners = create<{ items: Banner[]; push(b: Banner): void; dismiss(id: string): void }>((set) => ({
   items: [],
@@ -71,3 +74,37 @@ export const PANEL = { least: 380, most: 720, usual: 440 };
 export const usePanelWidth = create<{ width: number; set(width: number): void }>()(
   persist((set) => ({ width: PANEL.usual, set: (width) => set({ width: Math.max(PANEL.least, Math.min(PANEL.most, Math.round(width))) }) }), { name: "afflatus.panel-width" }),
 );
+
+/** Where the library's grid is looking: everything, what is in no folder, one folder, or the bin. */
+export type Place = { type: "all" } | { type: "unfiled" } | { type: "folder"; id: string } | { type: "bin" };
+
+/**
+ * The Studio's view. Kept here, not in the screen's module, so that what reads it from elsewhere (a tile's
+ * menu, the drop tray, the timeline's media) does not import the screen, nor the screen them in a circle.
+ */
+/** How the screen was left: kept from one visit to the next, and while another screen is open. */
+export type Display = "Stage" | "S" | "M" | "L";
+/** What the grid shows while the form is open: this draft's outputs, the whole folder, the last two days. ("Kept" is in Filters now: a store left on it shows the folder, see useLibraryFilters.) */
+export type Scope = "draft" | "all" | "recent";
+export const useStudio = create<{
+  form: boolean;
+  /** The last grid size chosen: what a scope with no display of its own shows. */
+  size: "S" | "M" | "L";
+  /** The display each scope was left on (Stage: the newest large, the others in a strip). */
+  displays: Partial<Record<Scope, Display>>;
+  /** How the grid is cut into sections. */
+  groupBy: GroupBy;
+  /** The Timelines view: its order and the size of its cards. */
+  timelineSort: "recent" | "name" | "length";
+  timelineSize: "S" | "M" | "L";
+  scope: Scope;
+  place: Place;
+  set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; displays: Partial<Record<Scope, Display>>; groupBy: GroupBy; timelineSort: "recent" | "name" | "length"; timelineSize: "S" | "M" | "L"; scope: Scope; place: Place }>): void;
+}>()(persist((set) => ({ form: false, size: "M", displays: {}, groupBy: "none", timelineSort: "recent", timelineSize: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "afflatus.studio" }));
+/** What a scope shows: what it was left on, else the stage for "This draft" and the last grid size elsewhere. */
+export const displayOf = (v: { size: "S" | "M" | "L"; displays?: Partial<Record<Scope, Display>> }, scope: Scope): Display => v.displays?.[scope] ?? (scope === "draft" ? "Stage" : v.size);
+/** The folder open in the library, for what is brought in from outside (a drop, an upload): null when none is. */
+export const openFolderId = (): string | null => {
+  const p = useStudio.getState().place;
+  return p.type === "folder" ? p.id : null;
+};

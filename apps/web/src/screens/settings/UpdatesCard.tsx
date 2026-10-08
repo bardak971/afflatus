@@ -49,6 +49,7 @@ export function UpdatesCard() {
                 : r?.checkedAt
                   ? `Last check ${new Date(r.checkedAt).toLocaleString()}: ${r.items.length} file${r.items.length === 1 ? "" : "s"} matched, ${newer.length} with a newer version${r.unmatched ? `, ${r.unmatched} not on Civitai or not readable` : ""}${r.hashesLeft ? `, ${r.hashesLeft} still to hash` : ""}.`
                   : "Not checked yet."}
+              {r?.error && <span className="block text-warn-ink">The last check did not go through: {r.error}</span>}
             </span>
             {newer.length > 8 && (
               <Segmented label="Kind" value={kind} onChange={(v) => setKind(v as typeof kind)} options={[{ value: "all", label: `All ${newer.length}` }, ...KINDS.map((k) => ({ value: k.id, label: `${k.label} ${newer.filter((u) => u.folder === k.id).length}` })).filter((o) => !o.label.endsWith(" 0"))]} />

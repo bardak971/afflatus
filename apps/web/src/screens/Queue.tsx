@@ -1,33 +1,37 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpToLine, GripVertical, X } from "lucide-react";
-import { api, type SystemLoad } from "../api";
+import { api, type QueueStatus } from "../api";
 import { useQueue } from "../data";
-import { about, aboutMs, phaseLabel, when } from "../format";
-import { allowNotifications, useNotify, useSystem } from "../store";
-import { Bar, Button, cx, ErrorNote, SectionTitle, Segmented, Toggle } from "../ui";
-import { LivePreview, StageStrip } from "../LivePreview";
-import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { NotifyToggle, notifyNote } from "../NotifyToggle";
+import { Button, cx, ErrorNote, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { ComfyLog } from "./queue/Log";
+import { MachineMeters } from "./queue/MachineMeters";
+import { RunningCard } from "./queue/RunningCard";
+import { WaitingList } from "./queue/WaitingList";
 
-/** The numbers of the machine ComfyUI runs on. Shows what is known: a meter with no source is left out. */
-function meters(load: SystemLoad | null): Array<{ label: string; value: string; percent: number; hot: boolean }> {
-  if (!load) return [];
-  const out: Array<{ label: string; value: string; percent: number; hot: boolean }> = [];
-  const pct = (label: string, v: number | undefined) => v !== undefined && out.push({ label, value: `${Math.round(v)}%`, percent: v, hot: false });
-  pct("CPU", load.cpu);
-  pct("RAM", load.ram?.percent);
-  pct("Disk", load.disks[0]?.percent);
-  const gpu = load.gpus[0];
-  if (gpu) {
-    pct("GPU", gpu.load);
-    pct("VRAM", gpu.vramPercent);
-    // a GPU is built to run warm; past 80° it is worth a glance
-    if (gpu.temperature !== undefined) out.push({ label: "GPU temp", value: `${Math.round(gpu.temperature)}°`, percent: gpu.temperature, hot: gpu.temperature >= 80 });
-  }
-  return out;
+/** The header's buttons: unload the models, pause or resume. */
+function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: { mutate(): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(paused: boolean): void } }) {
+  return (
+    <>
+      {q?.online && (
+        <Button
+          className="h-10 px-4"
+          disabled={free.isPending || Boolean(q.running && q.running.kind === "render")}
+          title="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
+          onClick={() => free.mutate()}
+        >
+          {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : "Unload models (free VRAM)"}
+        </Button>
+      )}
+      {q && (
+        <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" title={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => pause.mutate(!q.paused)}>
+          {q.paused ? "Resume queue" : "Pause queue"}
+        </Button>
+      )}
+    </>
+  );
 }
 
 /**
@@ -37,61 +41,16 @@ function meters(load: SystemLoad | null): Array<{ label: string; value: string; 
  */
 export function Queue() {
   const queue = useQueue();
-  const load = useSystem((s) => s.load);
-  const notify = useNotify();
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: ["queue"] });
   const pause = useMutation({ mutationFn: (paused: boolean) => (paused ? api.pause() : api.resume()), onSuccess: refresh });
   const free = useMutation({ mutationFn: api.freeMemory });
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh });
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q) });
-  const runMenu = useMenu<true>();
-  /** The right-click menu of a waiting job: what its drag and its X do. */
-  const jobMenu = useMenu<{ id: string; label: string; index: number }>();
-  const jobItems = (j: { id: string; label: string; index: number }): MenuItem[] => {
-    const ids = (queue.data?.waiting ?? []).map((w) => w.id);
-    const moved = (to: number) => {
-      const next = ids.filter((x) => x !== j.id);
-      next.splice(Math.max(0, Math.min(next.length, to)), 0, j.id);
-      order.mutate(next);
-    };
-    return [
-      { label: "Move to the top", icon: <ArrowUpToLine size={14} />, disabled: j.index === 0, run: () => moved(0) },
-      { label: "Move up", icon: <ArrowUp size={14} />, disabled: j.index === 0, run: () => moved(j.index - 1) },
-      { label: "Move down", icon: <ArrowDown size={14} />, disabled: j.index >= ids.length - 1, run: () => moved(j.index + 1) },
-      "—",
-      { label: "Remove from the queue", icon: <X size={14} />, danger: true, run: () => cancel.mutate(j.id) },
-    ];
-  };
-  const [dragged, setDragged] = useState<string | null>(null);
-  const [over, setOver] = useState<number | null>(null);
   const [refused, setRefused] = useState(false);
   const [tab, setTab] = useState<"queue" | "times" | "log">("queue");
   const q = queue.data;
-  const m = meters(load);
   const error = queue.error ?? free.error ?? pause.error ?? cancel.error ?? order.error;
-
-  const drop = (index: number) => {
-    if (!q || !dragged) return;
-    const ids = q.waiting.map((w) => w.id).filter((id) => id !== dragged);
-    ids.splice(index > q.waiting.findIndex((w) => w.id === dragged) ? index - 1 : index, 0, dragged);
-    order.mutate(ids);
-    setDragged(null);
-    setOver(null);
-  };
-  const waitingMs = q?.waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) ?? 0;
-  const switches = (() => {
-    // how many times the model changes down the line: each one costs a load
-    let n = 0;
-    let last: string | null = null;
-    for (const w of q?.waiting ?? []) {
-      if (w.kind !== "render") continue;
-      const model = w.recipe;
-      if (last && model !== last) n++;
-      last = model;
-    }
-    return n;
-  })();
 
   return (
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
@@ -107,21 +66,7 @@ export function Queue() {
           </span>
           {q?.model && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>
-        {q?.online && (
-          <Button
-            className="h-10 px-4"
-            disabled={free.isPending || Boolean(q.running && q.running.kind === "render")}
-            title="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
-            onClick={() => free.mutate()}
-          >
-            {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : "Unload models (free VRAM)"}
-          </Button>
-        )}
-        {q && (
-          <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" title={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => pause.mutate(!q.paused)}>
-            {q.paused ? "Resume queue" : "Pause queue"}
-          </Button>
-        )}
+        <QueueControls q={q} free={free} pause={pause} />
       </header>
 
       {error && <ErrorNote>{error.message}</ErrorNote>}
@@ -137,116 +82,13 @@ export function Queue() {
                 Paused. The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: no GPU.
               </div>
             )}
-
-            <section className="flex flex-col gap-2">
-              <SectionTitle>{q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running"}</SectionTitle>
-              {q.running ? (
-                <div className="flex flex-col gap-3 rounded-xl border border-line-strong bg-panel p-3" onContextMenu={(e) => runMenu.open(e, true)}>
-                  {/* large enough to judge a render by, and to stop one that is not going where it should; a clip plays with its sound */}
-                  <div data-stage className="flex h-[260px] items-center justify-center overflow-hidden rounded-lg bg-raised text-[11px] text-ink-2">
-                    {q.running.previewSeq > 0 ? <LivePreview job={q.running} sound className="h-full w-auto max-w-full object-contain" /> : q.running.kind === "export" ? "no preview" : "no preview yet"}
-                  </div>
-                  <StageStrip job={q.running} />
-                  <div className="flex min-w-0 flex-col gap-1.5">
-                    <div className="truncate text-[15px] font-semibold">{q.running.label}</div>
-                    <Bar value={q.running.progress * 100} />
-                    <div className="flex items-center justify-between gap-2 text-xs text-ink-2">
-                      <span className="truncate">
-                        {phaseLabel(q.running.phase)}
-                        {q.running.steps ? ` · step ${q.running.step} of ${q.running.steps}` : q.running.kind === "export" ? " · no GPU needed" : ""}
-                        {q.running.eta ? ` · ${about(q.running.eta)}` : ""}
-                        {q.running.spilling && <span className="font-semibold text-warn-ink" title="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together."> · spilling out of VRAM, much slower than usual</span>}
-                      </span>
-                      <Button size="sm" onClick={() => cancel.mutate(q.running!.id)}>Stop</Button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-line px-3.5 py-3 text-sm text-ink-2">Nothing running.</div>
-              )}
-            </section>
-
-            <section className="flex flex-col gap-2" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
-              <div className="flex items-baseline justify-between gap-2">
-                <SectionTitle>Next · {q.waiting.length}</SectionTitle>
-                {q.waiting.length > 0 && (
-                  <span className="truncate text-xs text-ink-2">
-                    {waitingMs ? `${aboutMs(waitingMs)} in all` : ""}{switches ? ` · ${switches} model switch${switches > 1 ? "es" : ""}` : ""}
-                  </span>
-                )}
-              </div>
-              {q.waiting.map((w, i) => (
-                <div
-                  key={w.id}
-                  onContextMenu={(e) => jobMenu.open(e, { id: w.id, label: w.label, index: i })}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = "move";
-                    setDragged(w.id);
-                  }}
-                  onDragEnd={() => {
-                    setDragged(null);
-                    setOver(null);
-                  }}
-                  onDragOver={(e) => {
-                    if (!dragged) return;
-                    e.preventDefault();
-                    const r = e.currentTarget.getBoundingClientRect();
-                    setOver(e.clientY < r.top + r.height / 2 ? i : i + 1);
-                  }}
-                  className={cx(
-                    "flex items-center gap-2 rounded-[10px] border border-line bg-panel py-2 pr-1.5 pl-1.5",
-                    dragged === w.id && "opacity-50",
-                    dragged && over === i && "border-t-accent",
-                    dragged && over === i + 1 && i === q.waiting.length - 1 && "border-b-accent",
-                  )}
-                >
-                  <GripVertical size={15} className="shrink-0 cursor-grab text-ink-3" />
-                  <span className="min-w-0 grow">
-                    <span className="block truncate text-sm font-semibold">{w.label}</span>
-                    <span className="block text-xs text-ink-2">{w.kind === "export" || w.kind === "cut" ? `${w.kind} · no GPU needed` : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}</span>
-                  </span>
-                  {w.estimateMs ? <span className="shrink-0 text-xs text-ink-2">{aboutMs(w.estimateMs)}</span> : null}
-                  <button type="button" aria-label={`Remove ${w.label} from the queue`} onClick={() => cancel.mutate(w.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">
-                    <X size={15} />
-                  </button>
-                </div>
-              ))}
-              {!q.waiting.length && <div className="rounded-xl border border-line px-3.5 py-3 text-sm text-ink-2">Nothing queued.</div>}
-              {jobMenu.menu && <ContextMenu at={jobMenu.menu.at} label={`Actions on ${jobMenu.menu.subject.label}`} items={jobItems(jobMenu.menu.subject)} onClose={jobMenu.close} />}
-              {runMenu.menu && q.running && <ContextMenu at={runMenu.menu.at} label="Actions on the running render" items={[{ label: "Stop this render", icon: <X size={14} />, danger: true, run: () => cancel.mutate(q.running!.id) }]} onClose={runMenu.close} />}
-              {q.waiting.length > 1 && <span className="text-xs text-ink-3">Drag to reorder. Images go before videos unless you move them.</span>}
-            </section>
-
+            <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />
+            <WaitingList waiting={q.waiting} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} />
             <div className="flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
-              <Toggle
-                on={notify.whenEmpty}
-                label="Notify when the queue is empty"
-                onChange={async (on) => {
-                  if (on && !(await allowNotifications())) return setRefused(true);
-                  setRefused(false);
-                  notify.set({ whenEmpty: on });
-                }}
-              />
-              <span className="text-xs text-ink-2">{refused ? "Your browser does not allow notifications from this page. Allow them in its settings, next to the address." : "A notification from your browser. Nothing leaves your computer."}</span>
+              <NotifyToggle what="whenEmpty" onRefused={setRefused} />
+              <span className="text-xs text-ink-2">{notifyNote(refused)}</span>
             </div>
-
-            {m.length > 0 && (
-              <section className="flex flex-col gap-2">
-                <SectionTitle>Machine</SectionTitle>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {m.map((x) => (
-                    <div key={x.label} className="flex flex-col gap-1 rounded-[8px] border border-line bg-panel px-2 py-1.5">
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-[11px] text-ink-2">{x.label}</span>
-                        <span className={cx("font-mono text-xs", x.hot && "text-warn-ink")}>{x.value}</span>
-                      </div>
-                      <Bar value={x.percent} tone={x.hot ? "warn" : "picture"} />
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            <MachineMeters />
           </div>
 
           <History />

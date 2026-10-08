@@ -2,9 +2,11 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Plus, Sparkles, User, X } from "lucide-react";
-import { api, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
+import { LIMITS } from "@afflatus/core";
+import { api, lookAdds, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
 import { useEntities } from "./data";
 import { fileLabel } from "./format";
+import { useSettled } from "./hooks";
 import { Select } from "./Select";
 import { cx } from "./ui";
 
@@ -29,10 +31,12 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   const now = look ?? none;
   const castable = all.filter((e) => (e.kind === "person" || e.kind === "place") && !now.cast.some((c) => c.id === e.id)).sort((a, b) => a.kind.localeCompare(b.kind));
   const styles = all.filter((e) => e.kind === "style");
-  const active = now.cast.length > 0 || Boolean(now.style) || Boolean(now.snippets?.length);
+  const active = lookAdds(now);
+  // asked once the typing has settled, not once per keystroke
+  const settled = useSettled(input, 500);
   const sent = useQuery({
-    queryKey: ["compose", recipe?.id, input, now],
-    queryFn: () => api.compose(recipe!.id, input ?? {}, now),
+    queryKey: ["compose", recipe?.id, settled, now],
+    queryFn: () => api.compose(recipe!.id, settled ?? {}, now),
     enabled: showing && active && Boolean(recipe),
   });
   const main = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt");
@@ -74,7 +78,8 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
             </span>
           );
         })}
-        {castable.length > 0 && (
+        {/* as many as a look holds: the server refuses more, and every save of the draft would fail */}
+        {castable.length > 0 && now.cast.length < LIMITS.cast && (
           <div className="w-28">
             <Select
               dashed
@@ -102,6 +107,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
             />
           </div>
         )}
+        {now.cast.length >= LIMITS.cast && <span className="text-xs text-ink-3">{LIMITS.cast} is the most one image or clip takes.</span>}
         {!castable.length && !styles.length && !now.cast.length && <span className="text-xs text-ink-3">None yet. A person is written once (reference images, a voice sample, prompt text) and used with every model.</span>}
       </div>
       {active && recipe && (

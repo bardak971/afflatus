@@ -1,12 +1,13 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, ChevronDown, ChevronRight, Dices, Plus, Search, X } from "lucide-react";
-import { fuzzyFilter } from "@afflatus/core";
-import { api, type Entity, type Look } from "./api";
+import { fuzzyFilter, LIMITS } from "@afflatus/core";
+import type { Entity, Look } from "./api";
 import { useEntities } from "./data";
 import { Popover } from "./Popover";
-import { AutoText, Button, cx, ErrorNote } from "./ui";
+import { NewSnippet } from "./snippets/NewSnippet";
+import { rollSnippets } from "./snippets/roll";
+import { Button, cx } from "./ui";
 
 type Snippet = Extract<Entity, { kind: "snippet" }>;
 const none: Look = { cast: [], style: null, snippets: [] };
@@ -19,16 +20,6 @@ const readOpen = (): Record<string, boolean> => {
     return {};
   }
 };
-
-/** One snippet of each category, picked at random: a new combination to try. */
-function rollSnippets(snippets: Snippet[], random: () => number = Math.random): string[] {
-  const groups = new Map<string, Snippet[]>();
-  for (const s of snippets) {
-    if (!s.def.category) continue;
-    groups.set(s.def.category, [...(groups.get(s.def.category) ?? []), s]);
-  }
-  return [...groups.values()].map((pool) => pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))]!.id);
-}
 
 /**
  * Snippets: bits of text kept under a name, in categories of your own (pose, light, camera…). A
@@ -47,16 +38,17 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
   onInsert(text: string): void;
 }) {
   const entities = useEntities();
-  const client = useQueryClient();
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [adding, setAdding] = useState<{ name: string; category: string; text: string } | null>(null);
+  const [adding, setAdding] = useState(false);
   const [openCats, setOpenCats] = useState(readOpen);
   const all = useMemo(() => (entities.data?.items ?? []).filter((e): e is Snippet => e.kind === "snippet"), [entities.data]);
   const now = look ?? none;
   const ticked = now.snippets ?? [];
-  const set = (ids: string[]) => onLook({ ...now, snippets: ids });
+  // as many as a look holds: the server refuses more, and every save of the draft would fail
+  const set = (ids: string[]) => onLook({ ...now, snippets: ids.slice(0, LIMITS.snippets) });
+  const full = ticked.length >= LIMITS.snippets;
   const toggle = (id: string) => set(ticked.includes(id) ? ticked.filter((x) => x !== id) : [...ticked, id]);
 
   // the ones written for this kind of prompt (or for any); the others are listed last, apart
@@ -80,16 +72,6 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
     }
   };
 
-  const save = useMutation({
-    mutationFn: (v: { name: string; category: string; text: string }) => api.createEntity("snippet", v.name.trim(), { text: v.text.trim(), category: v.category.trim(), style }),
-    onSuccess: (made) => {
-      setAdding(null);
-      setQuery("");
-      if (made.kind === "snippet" && made.def.category) flip(made.def.category, true);
-      return client.invalidateQueries({ queryKey: ["entities"] });
-    },
-  });
-
   const chip = (s: Snippet) => {
     const on = ticked.includes(s.id);
     return (
@@ -97,9 +79,10 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
         key={s.id}
         type="button"
         aria-pressed={on}
-        title={s.def.text}
+        disabled={!on && full}
+        title={!on && full ? `${LIMITS.snippets} snippets are ticked: the most one image or clip takes` : s.def.text}
         onClick={() => toggle(s.id)}
-        className={cx("max-w-full truncate rounded-full border px-2.5 py-1 text-xs", on ? "border-accent bg-accent-wash font-semibold text-ink" : "border-line-strong text-ink-2 hover:text-ink")}
+        className={cx("max-w-full truncate rounded-full border px-2.5 py-1 text-xs", on ? "border-accent bg-accent-wash font-semibold text-ink" : "border-line-strong text-ink-2 enabled:hover:text-ink disabled:opacity-45")}
       >
         {s.name}
       </button>
@@ -151,36 +134,9 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
             <Button size="sm" disabled={!rollable} title={rollable ? "Tick one snippet of each category at random, in place of the ones ticked now" : "Give your snippets categories: a roll ticks one of each"} onClick={() => set(rollSnippets(mine))}>
               <Dices size={13} /> Roll
             </Button>
-            <Button size="sm" tone={adding ? "quiet" : "plain"} onClick={() => setAdding(adding ? null : { name: "", category: "", text: text.trim() })}><Plus size={13} /> New</Button>
+            <Button size="sm" tone={adding ? "quiet" : "plain"} onClick={() => setAdding(!adding)}><Plus size={13} /> New</Button>
           </div>
-          {adding && (
-            <form
-              className="flex shrink-0 flex-col gap-1.5 border-b border-line bg-raised p-2.5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (adding.name.trim() && adding.text.trim()) save.mutate(adding);
-              }}
-            >
-              <div className="flex gap-1.5">
-                <input autoFocus aria-label="Name of the new snippet" placeholder="Name" maxLength={120} value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md border border-line bg-ground px-2 placeholder:text-ink-3" />
-                <input aria-label="Category of the new snippet" placeholder="Category (pose, light…)" maxLength={40} value={adding.category} onChange={(e) => setAdding({ ...adding, category: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="h-8 w-40 shrink-0 rounded-md border border-line bg-ground px-2 placeholder:text-ink-3" />
-              </div>
-              {categories.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {categories.map((c) => (
-                    <button key={c} type="button" onClick={() => setAdding({ ...adding, category: c })} className={cx("rounded-full px-2 py-0.5 text-[11px]", adding.category.trim().toLowerCase() === c.toLowerCase() ? "bg-line-strong text-ink-strong" : "bg-hover text-ink-2 hover:text-ink")}>{c}</button>
-                  ))}
-                </div>
-              )}
-              <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} is a wildcard: one is picked each time" : "A sentence or two. {a|b} is a wildcard: one is picked each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="rounded-md border border-line bg-ground px-2 py-1.5 text-[13px] placeholder:text-ink-3" />
-              {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-              <div className="flex items-center justify-end gap-1.5">
-                <span className="mr-auto text-xs text-ink-3">{text.trim() ? "Starts with the prompt in the form." : ""}</span>
-                <Button size="sm" tone="quiet" onClick={() => setAdding(null)}>Cancel</Button>
-                <Button size="sm" tone="primary" type="submit" disabled={!adding.name.trim() || !adding.text.trim() || save.isPending}>Save</Button>
-              </div>
-            </form>
-          )}
+          {adding && <NewSnippet style={style} categories={categories} first={text} onDone={(made) => { setQuery(""); if (made.kind === "snippet" && made.def.category) flip(made.def.category, true); setAdding(false); }} onCancel={() => setAdding(false)} />}
           <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto p-2">
             {all.length === 0 && !adding && <span className="p-2 text-ink-2">No snippets yet. Keep a bit of prompt text under a name with "New": a pose, a light, a camera move. Tick it and it is appended to your prompt each time.</span>}
             {found && (found.length ? <div className="flex flex-wrap gap-1.5 p-1">{found.map(chip)}</div> : <span className="p-2 text-ink-2">Nothing matches.</span>)}

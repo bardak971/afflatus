@@ -1,0 +1,33 @@
+import type { TimeParts } from "../../api";
+import { took } from "../../format";
+import { cx } from "../../ui";
+
+/** The parts of a render's time, each with its colour: as a class (the bars) and as a colour (the charts). */
+export const PHASES: Array<{ id: keyof TimeParts; label: string; tone: string; color: string }> = [
+  { id: "loading", label: "Model load", tone: "bg-ink-3", color: "var(--color-ink-3)" },
+  { id: "sampling", label: "Sampling", tone: "bg-accent", color: "var(--color-accent)" },
+  { id: "refining", label: "Refine and upscale passes (hires fix, upscale, SeedVR2, detailer)", tone: "bg-picture", color: "var(--color-picture)" },
+  { id: "finishing", label: "VAE decode, interpolation, encoding", tone: "bg-good", color: "var(--color-good)" },
+];
+
+export const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
+
+/** One render's time, or a sum of them, as a bar split by phase. */
+export function PhaseBar({ phases, scale = 1, className }: { phases: TimeParts; scale?: number; className?: string }) {
+  const total = Math.max(1, sum(PHASES.map((p) => phases[p.id])));
+  return (
+    <div className={cx("flex h-2.5 overflow-hidden rounded-full bg-line", className)} style={{ width: `${Math.max(4, Math.min(1, scale) * 100)}%` }}>
+      {PHASES.map((p) => phases[p.id] > 0 && <div key={p.id} className={p.tone} title={`${p.label}: ${took(phases[p.id])}`} style={{ width: `${(phases[p.id] / total) * 100}%` }} />)}
+    </div>
+  );
+}
+
+export function Legend() {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
+      {PHASES.map((p) => (
+        <span key={p.id} className="flex items-center gap-1.5"><span className={cx("h-2.5 w-2.5 rounded-sm", p.tone)} />{p.label}</span>
+      ))}
+    </div>
+  );
+}

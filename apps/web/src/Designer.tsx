@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Eye, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, Undo2, WandSparkles, X } from "lucide-react";
+import { Send, Sparkles, WandSparkles, X } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
 import { useSettings } from "./data";
-import { changedShare, wordDiff } from "./diff";
-import { Select } from "./Select";
+import { Reply } from "./designer/Reply";
+import { SessionBar } from "./designer/SessionBar";
+import { SystemView } from "./designer/SystemView";
+import { keep, recall } from "./designer/typed";
 import { AutoText, Button, cx, ErrorNote } from "./ui";
 
 /** One thing said in the conversation. What the designer said keeps what it proposed, to use or not. */
@@ -29,28 +31,6 @@ const asText = (r: DesignerReply) =>
  * proposes is shown with what changed marked, and goes in the form only when "Use it" is pressed.
  * A reply that claims a change and carries no text, or only a fragment, is said to be so.
  */
-/** What was typed but not sent, per conversation: kept while the designer is closed and opened again, and across a reload. */
-const typed = new Map<string, string>();
-const recall = (key: string | undefined) => {
-  if (!key) return "";
-  if (typed.has(key)) return typed.get(key)!;
-  try {
-    return sessionStorage.getItem(`afflatus:designer:${key}`) ?? "";
-  } catch {
-    return "";
-  }
-};
-const keep = (key: string | undefined, text: string) => {
-  if (!key) return;
-  typed.set(key, text);
-  try {
-    if (text) sessionStorage.setItem(`afflatus:designer:${key}`, text);
-    else sessionStorage.removeItem(`afflatus:designer:${key}`);
-  } catch {
-    /* no storage: kept for the session only */
-  }
-};
-
 export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose, side = "right", draftKey }: {
   recipe: RecipeInfo;
   /** The whole form as it is now. */
@@ -104,7 +84,8 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
     void end.current?.scrollIntoView({ block: "end" });
   }, [turns.length, say.isPending]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Escape in one of its own lists (the LLM, the system prompt) closes that list, not the designer
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !e.defaultPrevented && !(e.target as Element | null)?.closest?.("[data-floating], [role=listbox], [role=menu]") && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -191,48 +172,15 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
         <button type="button" aria-label="Close the designer" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
       </div>
       {ready && (
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-line px-3 py-2">
-          <Select
-            size="sm"
-            className="min-w-0 grow basis-0"
-            label="LLM"
-            searchHint="Search your LLMs"
-            value={using.llm ?? ""}
-            onChange={(id) => choose({ llm: id })}
-            options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "vision · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
-            footer={() => <Link href="/settings/designer" className="text-xs text-ink-2 underline">Add or edit LLMs in Settings</Link>}
-          />
-          <Select
-            size="sm"
-            className="min-w-0 grow basis-0"
-            label="System prompt"
-            searchHint="Search your system prompts"
-            value={using.instruction || "none"}
-            onChange={(id) => choose({ instruction: id === "none" ? "" : id })}
-            options={[{ value: "none", label: "No system prompt", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
-            footer={() => <Link href="/settings/designer" className="text-xs text-ink-2 underline">Write your own system prompts in Settings</Link>}
-          />
-          <Button
-            size="sm"
-            tone="quiet"
-            className="shrink-0"
-            disabled={!turns.length || say.isPending}
-            title="Clear this conversation and start again. What is in your form stays."
-            onClick={() => { onTurns([]); say.reset(); }}
-          >
-            <RotateCcw size={13} /> Start over
-          </Button>
-          <button
-            type="button"
-            aria-pressed={showingSystem}
-            aria-label="Show the system prompt"
-            title="What the designer is told for this form, word for word: the model's prompting guide, your system prompt, what it knows of the clip, the cast and the LoRAs, and the reply format."
-            onClick={() => setShowingSystem((v) => !v)}
-            className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-hover", showingSystem ? "bg-accent-wash text-accent" : "text-ink-2 hover:text-ink")}
-          >
-            <Eye size={14} />
-          </button>
-        </div>
+        <SessionBar
+          settings={settings.data}
+          using={using}
+          choose={choose}
+          canRestart={turns.length > 0 && !say.isPending}
+          onRestart={() => { onTurns([]); say.reset(); }}
+          showingSystem={showingSystem}
+          onShowSystem={() => setShowingSystem((v) => !v)}
+        />
       )}
       {showingSystem && ready && (
         <SystemView
@@ -315,134 +263,6 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
           <Button type="submit" tone="primary" className="h-10 w-10 shrink-0 px-0" aria-label="Send" disabled={!ready || !text.trim() || say.isPending}><Send size={15} /></Button>
         </div>
       </form>
-    </div>
-  );
-}
-
-/** A proposed text with what changed against what was there: new words marked, words taken out struck. */
-function Changed({ was, now }: { was: string; now: string }) {
-  const pieces = was.trim() ? wordDiff(was, now) : null;
-  // a text rewritten from end to end, or too long to compare, is read better plain
-  const marked = pieces && changedShare(pieces) < 0.85 && pieces.some((p) => p.kind !== "same");
-  const [plain, setPlain] = useState(false);
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="rounded-lg bg-raised px-2.5 py-2 leading-normal break-words whitespace-pre-wrap">
-        {marked && !plain
-          ? pieces.map((p, k) => (p.kind === "same" ? <span key={k}>{p.text}</span> : p.kind === "added" ? <mark key={k} className="rounded-sm bg-accent-wash px-0.5 text-ink-strong">{p.text}</mark> : <del key={k} className="text-ink-3">{p.text}</del>))
-          : now}
-      </div>
-      {marked && (
-        <button type="button" className="self-start text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setPlain(!plain)}>
-          {plain ? "Show diff" : "Show plain text"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** One thing the designer said: an answer, a question, or a proposal with what can be done with it. */
-function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, onAgain, onOption }: {
-  turn: DesignerTurn;
-  last: boolean;
-  busy: boolean;
-  label(id: string): string;
-  onUse(): void;
-  onUndo(): void;
-  onAnother(): void;
-  onAgain(): void;
-  onOption(words: string): void;
-}) {
-  const r = t.reply;
-  const [raw, setRaw] = useState(false);
-  const changes = Object.entries(r?.changes ?? {});
-  const short = Object.entries(r?.short ?? {});
-  return (
-    <div className={cx("flex flex-col gap-2 rounded-xl border p-3", r?.empty ? "border-warn/60" : "border-line")}>
-      {r?.kind === "question" ? <span className="font-semibold">{r.question}</span> : null}
-      {t.content && <span className={cx("whitespace-pre-wrap", r?.kind === "question" && "text-ink-2")}>{t.content}</span>}
-      {r?.empty && (
-        <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
-          <TriangleAlert size={14} className="mt-px shrink-0" />
-          <span>
-            <span className="font-semibold">It sent no text, twice.</span> Nothing was changed, whatever it says above. The LLM may be refusing what you asked: try another system prompt or another LLM (at the top of this panel), or say it another way.
-          </span>
-        </div>
-      )}
-      {changes.map(([id, value]) => (
-        <div key={id} className="flex flex-col gap-1">
-          <span className="text-xs font-semibold text-ink-2">{label(id)}</span>
-          <Changed was={t.was?.[id] ?? ""} now={value} />
-        </div>
-      ))}
-      {short.length > 0 && (
-        <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
-          <TriangleAlert size={14} className="mt-px shrink-0" />
-          <span>
-            <span className="font-semibold">Much shorter than what you have</span> ({short.map(([id, n]) => `${label(id)}: ${n.now} characters in place of ${n.was}`).join("; ")}). It may be only the line that changed: applying it replaces the whole prompt.
-          </span>
-        </div>
-      )}
-      {r?.repeats && (
-        <div className="flex gap-2 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink">
-          <TriangleAlert size={14} className="mt-px shrink-0" />
-          <span>
-            <span className="font-semibold">This is the previous clip, written again.</span> A clip that extends it should say what happens next. Tell it what comes next in a few words ("she sits down and laughs"), or ask again.
-          </span>
-        </div>
-      )}
-      {r?.checks && r.checks.length > 0 && (
-        <ul className="flex flex-col gap-0.5 rounded-lg bg-warn-wash px-2.5 py-2 text-xs text-warn-ink" aria-label="Against the model's rules">
-          {r.checks.map((c, i) => <li key={i} className="flex gap-1.5"><TriangleAlert size={12} className="mt-px shrink-0" /><span>{c.text}</span></li>)}
-        </ul>
-      )}
-      {r?.tags && (
-        <span className="text-xs text-ink-2">
-          {r.tags.fixed.length > 0 && <>Fixed against the danbooru tag list: {r.tags.fixed.map((f) => `${f.from} → ${f.to}`).join(", ")}. </>}
-          {r.tags.unknown.length > 0 && <span className="text-warn-ink">Not danbooru tags: {r.tags.unknown.join(", ")}.</span>}
-        </span>
-      )}
-      {(changes.length > 0 || r?.empty) && (
-        <span className="flex flex-wrap items-center gap-1.5">
-          {changes.length > 0 && (t.used ? (
-            <>
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-good"><Check size={13} /> Applied</span>
-              {t.was && <Button size="sm" tone="quiet" title="Put back what the form held before" onClick={onUndo}><Undo2 size={13} /> Undo</Button>}
-            </>
-          ) : (
-            <Button size="sm" tone="primary" onClick={onUse}>{short.length || r?.repeats ? "Apply anyway" : "Apply"}</Button>
-          ))}
-          {changes.length > 0 && last && <Button size="sm" disabled={busy} title="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Regenerate</Button>}
-          {(r?.empty || r?.repeats || short.length > 0) && last && <Button size="sm" disabled={busy} title="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Retry</Button>}
-          {r?.raw && <button type="button" className="text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide raw response" : "Raw response"}</button>}
-        </span>
-      )}
-      {raw && r?.raw && <pre className="max-h-48 overflow-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-[11px] leading-normal break-words whitespace-pre-wrap text-ink-2">{r.raw}</pre>}
-      {last && r && r.options.length > 0 && (
-        <span className="flex flex-wrap gap-1.5">
-          {r.options.map((o) => <button key={o} type="button" disabled={busy} onClick={() => onOption(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-left text-xs hover:bg-hover disabled:opacity-45">{o}</button>)}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** The system prompt as the designer would be given it now, read-only, with a copy. It is fetched fresh each time it opens: it follows the form. */
-function SystemView({ body, onClose }: { body: Parameters<typeof api.designerSystem>[0]; onClose(): void }) {
-  const key = JSON.stringify(body);
-  const q = useQuery({ queryKey: ["designer-system", key], queryFn: () => api.designerSystem(body), staleTime: 0 });
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex min-h-0 grow flex-col border-b border-line">
-      <div className="flex shrink-0 items-center gap-2 px-4 py-2 text-xs text-ink-2">
-        <span className="grow">The system prompt for this form, as it is sent.{q.data ? ` ${q.data.system.split(/\s+/).length} words.${q.data.sees ? " The picture is sent with it." : ""}` : ""}</span>
-        <Button size="sm" tone="quiet" disabled={!q.data} onClick={() => { void navigator.clipboard.writeText(q.data?.system ?? "").then(() => setCopied(true)); setTimeout(() => setCopied(false), 1500); }}>
-          <Copy size={12} /> {copied ? "Copied" : "Copy"}
-        </Button>
-        <Button size="sm" tone="quiet" onClick={onClose}><X size={12} /> Close</Button>
-      </div>
-      {q.isError && <ErrorNote>{q.error.message}</ErrorNote>}
-      <pre className="min-h-0 grow overflow-auto px-4 pb-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink">{q.data?.system ?? (q.isPending ? "…" : "")}</pre>
     </div>
   );
 }

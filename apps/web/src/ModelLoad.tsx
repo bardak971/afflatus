@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Folder, MemoryStick } from "lucide-react";
 import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
 import { useQueue } from "./data";
 import { cx } from "./ui";
+
+/** The same keys holding the same values (a value that is an object counts by itself, not by what it holds). */
+const sameEntries = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => Object.is(a[k], b[k]));
+};
 
 /** Stops a render that is under way, or takes one that waits out of the queue. Nothing is added. */
 export function useStop() {
@@ -32,12 +38,19 @@ const useStrip = create<{ form: OpenForm | null; place: { name: string; path: st
 
 /** Put in a form: the strip speaks for it while it is on screen. */
 export function FormModel({ recipe, input, look }: OpenForm) {
-  const said = JSON.stringify([recipe.id, input, look ?? null]);
+  // told again only when something in the form changed: compared value by value, and written out whole only
+  // when a value is a new object (a form whose values are made afresh at each draw)
+  const said = useRef<OpenForm | null>(null);
   useEffect(() => {
-    useStrip.setState({ form: { recipe, input, look } });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [said]);
-  useEffect(() => () => useStrip.setState({ form: null }), []);
+    const was = said.current;
+    if (was && was.recipe === recipe && was.look === look && (sameEntries(was.input, input) || JSON.stringify(was.input) === JSON.stringify(input))) return;
+    said.current = { recipe, input, look };
+    useStrip.setState({ form: said.current });
+  });
+  // gone: the strip forgets the form, unless another one has spoken for itself since (a form that opens as this one closes)
+  useEffect(() => () => {
+    if (useStrip.getState().form === said.current) useStrip.setState({ form: null });
+  }, []);
   return null;
 }
 
@@ -45,10 +58,15 @@ export function FormModel({ recipe, input, look }: OpenForm) {
 export function ResultsPlace({ folder }: { folder: { name: string; path: string | null } | null }) {
   const name = folder?.name;
   const path = folder?.path ?? null;
+  const mine = useRef<ReturnType<typeof useStrip.getState>["place"]>(null);
   useEffect(() => {
-    useStrip.setState({ place: name === undefined ? "unfiled" : { name, path } });
+    mine.current = name === undefined ? "unfiled" : { name, path };
+    useStrip.setState({ place: mine.current });
   }, [name, path]);
-  useEffect(() => () => useStrip.setState({ place: null }), []);
+  // gone: forgotten, unless another place was told since
+  useEffect(() => () => {
+    if (useStrip.getState().place === mine.current) useStrip.setState({ place: null });
+  }, []);
   return null;
 }
 

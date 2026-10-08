@@ -19,7 +19,7 @@ const siteOf = (host: string) => (/^[\d.]+$|^\[/.test(host) ? host : host.split(
  * both on this machine, the address takes the page's own host name. `crossSite`: still another site (ComfyUI on
  * another machine), so it will likely refuse unless it runs with --enable-cors-header.
  */
-export function comfyHref(url: string): { href: string; crossSite: boolean } {
+function comfyHref(url: string): { href: string; crossSite: boolean } {
   try {
     const u = new URL(url);
     const page = window.location.hostname;
@@ -40,6 +40,8 @@ export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { on
   return useMutation({
     mutationFn: async (v: T) => {
       const tab = window.open("", "_blank");
+      // the tab is ComfyUI's: it gets no hold on this page
+      if (tab) tab.opener = null;
       try {
         const r = await request(v);
         const to = comfyHref(r.url);
@@ -58,7 +60,7 @@ export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { on
 
 /** An item put at the end of a timeline: one of the project's (by id), or a new one (null). Gives the timeline it went to. */
 /** The timeline an item was last added to, per project (the Inbox under "none"): "Add to <it>" with one key goes there. */
-export const useLastTimeline = create<{ by: Record<string, { id: string; name: string }>; set(project: string, t: { id: string; name: string }): void }>()(
+const useLastTimeline = create<{ by: Record<string, { id: string; name: string }>; set(project: string, t: { id: string; name: string }): void }>()(
   persist((set) => ({ by: {}, set: (project, t) => set((s) => ({ by: { ...s.by, [project]: t } })) }), { name: "afflatus.last-timeline" }),
 );
 const projectKey = () => projectForNew() ?? "none";
@@ -99,6 +101,7 @@ export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: { id: 
  */
 export function useStartTimeline(opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
   const client = useQueryClient();
+  const say = useBanners((b) => b.push);
   return useMutation({
     mutationFn: async (asset: Asset) => {
       const t = await api.createTimeline();
@@ -110,6 +113,7 @@ export function useStartTimeline(opts: { onSuccess?(target: { id: string; name: 
       void client.invalidateQueries({ queryKey: ["timelines"] });
       opts.onSuccess?.(target);
     },
+    onError: (err) => say({ id: `timeline:${Date.now()}`, tone: "bad", title: "Could not start the timeline", text: err.message, href: "/", go: "Open the library" }),
   });
 }
 
@@ -131,28 +135,10 @@ export function useAddTo() {
   });
 }
 
-/** One item to the end of the timeline last added to; said in a banner, with the way there. */
-export function useAddToLast() {
-  const client = useQueryClient();
-  const say = useBanners((b) => b.push);
-  return useMutation({
-    mutationFn: async (asset: Asset) => {
-      const last = useLastTimeline.getState().by[projectKey()];
-      if (!last) throw new Error("No timeline was added to yet in this project: use \"Add to a timeline…\" once.");
-      await api.addClip(last.id, { asset: asset.id });
-      return { ...last, asset };
-    },
-    onSuccess: (r) => {
-      void client.invalidateQueries({ queryKey: ["timelines"] });
-      say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${r.name}`, text: r.asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${r.id}`, go: "Open the timeline" });
-    },
-    onError: (err) => say({ id: `add:${Date.now()}`, tone: "bad", title: "Could not add it", text: err.message, href: "/", go: "Open the library" }),
-  });
-}
-
 /** A new timeline of several items, in the order given: videos as clips, pictures as stills (as the Add dialog makes them). Then the editor. */
 export function useMakeTimelineOf(opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
   const client = useQueryClient();
+  const say = useBanners((b) => b.push);
   return useMutation({
     mutationFn: async (assets: Asset[]) => {
       const t = await api.createTimeline();
@@ -164,6 +150,7 @@ export function useMakeTimelineOf(opts: { onSuccess?(target: { id: string; name:
       void client.invalidateQueries({ queryKey: ["timelines"] });
       opts.onSuccess?.(target);
     },
+    onError: (err) => say({ id: `timeline:${Date.now()}`, tone: "bad", title: "Could not start the timeline", text: err.message, href: "/", go: "Open the library" }),
   });
 }
 

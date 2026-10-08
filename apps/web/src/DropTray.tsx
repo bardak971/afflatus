@@ -1,26 +1,20 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { Film, FileDown, ImagePlus, Music, Workflow } from "lucide-react";
 import { api, type Asset, type Embedded } from "./api";
-import { PngInfo, workflowFile } from "./PngInfo";
-import { useHandover } from "./store";
+import { fileKind, kindOfType, workflowFile, zonesFor, type Kind, type Zone } from "./dropZones";
+import { openFolderId, useHandover } from "./store";
 import { projectForNew } from "./project";
-import { openFolderId } from "./screens/Studio";
 import { cx } from "./ui";
 
-type Kind = "image" | "video" | "audio" | "json" | "other";
-type Zone = "library" | "settings" | "workflow" | "timeline";
+// PNG info opens the first time a file is dropped on it
+const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
 
 /** What is being dragged over the window, told from the first file's type (its name cannot be read until it is dropped). */
-function kindOf(e: DragEvent): Kind | null {
-  const items = [...(e.dataTransfer?.items ?? [])].filter((i) => i.kind === "file");
-  if (!items.length) return e.dataTransfer?.types.includes("Files") ? "other" : null;
-  const type = items[0]!.type;
-  return type.startsWith("image/") ? "image" : type.startsWith("video/") ? "video" : type.startsWith("audio/") ? "audio" : /json/.test(type) ? "json" : "other";
-}
-const fileKind = (f: File): Kind =>
-  f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") || /\.(mp4|webm|mov|mkv)$/i.test(f.name) ? "video" : f.type.startsWith("audio/") || /\.(wav|mp3|flac|ogg|m4a)$/i.test(f.name) ? "audio" : /\.json$/i.test(f.name) || /json/.test(f.type) ? "json" : "other";
+const kindOf = (e: DragEvent): Kind | null =>
+  kindOfType([...(e.dataTransfer?.items ?? [])].find((i) => i.kind === "file")?.type, Boolean(e.dataTransfer?.types.includes("Files")));
+const ICONS: Record<Zone, ReactNode> = { library: <ImagePlus size={22} />, timeline: <Film size={22} />, settings: <FileDown size={22} />, workflow: <Workflow size={22} /> };
 
 /**
  * A file dragged in from the computer, anywhere in the app: a tray comes up with what can be done with
@@ -79,8 +73,8 @@ export function DropTray() {
   const bringIn = async (files: File[]) => {
     const added: Asset[] = [];
     // into the folder that is open in the library, else the current project's root folder
+    // the server says each with a "library" event: the lists follow by themselves
     for (const f of files) added.push(await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() }));
-    await client.invalidateQueries({ queryKey: ["assets"] });
     return added;
   };
 
@@ -128,26 +122,7 @@ export function DropTray() {
     }
   };
 
-  const zones: Array<{ id: Zone; icon: ReactNode; label: string; hint: string }> = [];
-  if (kind && kind !== "json") {
-    zones.push({
-      id: "library", icon: <ImagePlus size={22} />, label: "Import to library",
-      hint: kind === "audio" ? "to use as a voice sample, a clip's audio or music" : kind === "video" ? "it opens in the viewer: extend it, extract its audio, add it to a timeline" : "it opens in the viewer: img2img, inpaint, i2v, use as a reference image",
-    });
-  }
-  if (timeline && kind && kind !== "json") {
-    zones.push({
-      id: "timeline", icon: kind === "audio" ? <Music size={22} /> : <Film size={22} />, label: kind === "audio" ? "Music track of this timeline" : "Add to this timeline",
-      hint: kind === "audio" ? "it plays under every clip" : kind === "video" ? "at the end, as it is" : "at the end, as a still. Drop it on a clip instead to make it the clip's first or last frame",
-    });
-  }
-  if (kind === "image" || kind === "other") zones.push({ id: "settings", icon: <FileDown size={22} />, label: "PNG info", hint: "its generation parameters (prompt, checkpoint, LoRAs, sampling settings) fill a new form" });
-  if (kind && kind !== "audio") {
-    zones.push({
-      id: "workflow", icon: <Workflow size={22} />, label: kind === "json" ? "Import this workflow" : "Import embedded workflow",
-      hint: kind === "json" ? "it is added to your workflows, to generate with" : "files saved by ComfyUI carry their workflow: it is added to your workflows, to generate with",
-    });
-  }
+  const zones = zonesFor(kind, Boolean(timeline)).map((z) => ({ ...z, icon: z.id === "timeline" && kind === "audio" ? <Music size={22} /> : ICONS[z.id] }));
 
   return (
     <>
@@ -181,7 +156,7 @@ export function DropTray() {
       {said && !kind && (
         <div role="status" className={cx("fixed bottom-14 left-1/2 z-[70] max-w-xl -translate-x-1/2 rounded-xl border px-4 py-2.5 shadow-2xl", said.bad ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>{said.text}</div>
       )}
-      {found && <PngInfo name={found.file.name} first={found.data} read={(recipe) => api.embedded(found.file, recipe)} onClose={() => setFound(null)} />}
+      {found && <Suspense fallback={null}><PngInfo name={found.file.name} first={found.data} read={(recipe) => api.embedded(found.file, recipe)} onClose={() => setFound(null)} /></Suspense>}
     </>
   );
 }

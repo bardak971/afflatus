@@ -22,7 +22,9 @@ interface TextQuestion {
   /** What the button that goes ahead says. */
   yes: string;
 }
-type Open = (Question & { kind: "yes"; answer(ok: boolean): void }) | (TextQuestion & { kind: "text"; answer(text: string | null): void });
+/** `n`: which question it is, so that a second one asked in the place of the first starts from its own text. */
+type Open = { n: number } & ((Question & { kind: "yes"; answer(ok: boolean): void }) | (TextQuestion & { kind: "text"; answer(text: string | null): void }));
+let asked = 0;
 const useConfirm = create<{ open: Open | null }>(() => ({ open: null }));
 const closeOpen = () => {
   const open = useConfirm.getState().open;
@@ -37,6 +39,7 @@ export function ask(question: Question): Promise<boolean> {
     useConfirm.setState({
       open: {
         ...question,
+        n: ++asked,
         kind: "yes",
         answer: (ok) => {
           useConfirm.setState({ open: null });
@@ -53,6 +56,7 @@ export function askText(question: TextQuestion): Promise<string | null> {
     useConfirm.setState({
       open: {
         ...question,
+        n: ++asked,
         kind: "text",
         answer: (text) => {
           useConfirm.setState({ open: null });
@@ -95,15 +99,16 @@ function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
 export function ConfirmHost() {
   const open = useConfirm((s) => s.open);
   if (!open) return null;
-  if (open.kind === "text") return <TextAsk open={open} />;
-  // over every other dialog: Escape answers the question and nothing else
+  if (open.kind === "text") return <TextAsk key={open.n} open={open} />;
+  // over every other dialog: Escape answers the question and nothing else. The focus starts on Cancel:
+  // an Enter pressed by habit does not go ahead with what cannot be undone
   return (
     <Dialog label={open.title} onClose={() => open.answer(false)} z="z-[95]" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
       <h2 className="text-base font-semibold">{open.title}</h2>
       <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
       <div className="flex justify-end gap-2 pt-1">
-        <Button tone="quiet" onClick={() => open.answer(false)}>Cancel</Button>
-        <Button tone="danger" autoFocus onClick={() => open.answer(true)}>{open.yes}</Button>
+        <Button tone="quiet" autoFocus onClick={() => open.answer(false)}>Cancel</Button>
+        <Button tone="danger" onClick={() => open.answer(true)}>{open.yes}</Button>
       </div>
     </Dialog>
   );

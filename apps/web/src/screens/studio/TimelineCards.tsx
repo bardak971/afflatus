@@ -15,16 +15,16 @@ import { projectForNew } from "../../project";
 import { Button, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
 
+const CARD = { S: "minmax(190px,1fr)", M: "minmax(250px,1fr)", L: "minmax(360px,1fr)" } as const;
+/** A card's film strip shows this many clips at most; the rest are a "+N". */
+const STRIP = 8;
+
 /**
  * The timelines of the place that is open, as cards in the Studio's grid: a click opens one in the editor,
  * Ctrl or Shift + click picks several, a right-click gives Open, Rename, Move to a project and Delete,
  * F2 renames, Delete asks about what is picked. The last card is a dashed one that makes a new timeline
  * where the Studio is looking.
  */
-const CARD = { S: "minmax(190px,1fr)", M: "minmax(250px,1fr)", L: "minmax(360px,1fr)" } as const;
-/** A card's film strip shows this many clips at most; the rest are a "+N". */
-const STRIP = 8;
-
 export function TimelineCards({ timelines, ready, place, size = "M", searched = false }: {
   timelines: TimelineBrief[];
   ready: boolean;
@@ -201,63 +201,81 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
           </button>
         )}
         {timelines.map((t) => (
-          <div key={t.id} className="group relative">
-          <a
-            href={`/timelines/${t.id}`}
-            onClick={(e) => click(e, t)}
-            onContextMenu={(e) => menu.open(e, t)}
-            draggable
-            onDragStart={(e) => {
-              // the picked ones go together when this one is among them
-              const ids = picked.has(t.id) ? [...picked] : [t.id];
-              e.dataTransfer.setData(DRAG_TIMELINE, ids.join(","));
-              e.dataTransfer.effectAllowed = "move";
-            }}
-            aria-selected={picked.has(t.id)}
-            className={cx("flex flex-col overflow-hidden rounded-[10px] border-2 bg-panel", picked.has(t.id) ? "border-accent" : "border-transparent outline outline-1 outline-line hover:outline-line-strong")}
-          >
-            {/* a film strip: a frame per clip, in order, so what is in it shows at a glance */}
-            <span className="relative flex aspect-video gap-px overflow-hidden bg-ground text-ink-3">
-              {(t.strip?.length ? t.strip : t.cover ? [t.cover] : []).slice(0, STRIP).map((id, i) => (
-                <span key={i} className="relative min-w-0 flex-1 bg-raised">
-                  {id ? <img src={thumbUrl(id)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center text-[11px]">{i + 1}</span>}
-                </span>
-              ))}
-              {!t.strip?.length && !t.cover && <span className="flex grow items-center justify-center bg-raised"><Film size={26} /></span>}
-              {t.clips > STRIP && <span className="absolute right-1.5 bottom-1.5 rounded bg-ground/85 px-1.5 py-0.5 text-[11px] font-semibold text-ink">+{t.clips - STRIP}</span>}
-            </span>
-            <span className="flex flex-col gap-1 px-3 py-2">
-              <span className="truncate font-semibold">{t.name}</span>
-              <span className="truncate text-xs text-ink-2">{t.clips === 0 ? "Empty" : `${t.clips} clip${t.clips > 1 ? "s" : ""}${t.durationMs ? ` · ${clock(t.durationMs)}` : ""}`} · {when(t.updatedAt)}</span>
-              {/* what is left to do, or that nothing is; the folder when the list is every folder's */}
-              <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] font-semibold">
-                {(t.toRender ?? 0) > 0 && <span className="rounded bg-warn-wash px-1.5 py-0.5 text-warn-ink">{t.toRender} to render</span>}
-                {(t.staleJoins ?? 0) > 0 && <span className="rounded bg-warn-wash px-1.5 py-0.5 text-warn-ink">{t.staleJoins} join{t.staleJoins === 1 ? "" : "s"} to redo</span>}
-                {t.clips > 0 && !t.toRender && !t.staleJoins && <span className="rounded border border-good/40 px-1.5 py-0.5 text-good">Ready</span>}
-                {place.type === "all" && <span className="flex min-w-0 items-center gap-1 rounded bg-raised px-1.5 py-0.5 font-normal text-ink-2"><FolderIcon size={10} className="shrink-0" /><span className="truncate">{folderName(t.folderId)}</span></span>}
-              </span>
-            </span>
-          </a>
-          <span
-            role="checkbox"
-            tabIndex={0}
-            aria-checked={picked.has(t.id)}
-            aria-label={`Select ${t.name}`}
-            title="Select (also Ctrl + click; Shift + click selects the range)"
-            onClick={(e) => click(e, t, true)}
-            onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); setPicked((p) => { const n = new Set(p); if (n.has(t.id)) n.delete(t.id); else n.add(t.id); return n; }); } }}
-            className={cx(
-              "absolute top-2 left-2 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
-              picked.has(t.id) ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
-              !picked.has(t.id) && !picked.size && "opacity-0 group-hover:opacity-100 focus:opacity-100",
-            )}
-          >
-            ✓
-          </span>
-          </div>
+          <TimelineCard key={t.id} t={t} picked={picked.has(t.id)} anyPicked={picked.size > 0} folder={place.type === "all" ? folderName(t.folderId) : null} onClick={(e, tick) => click(e, t, tick)} onMenu={(e) => menu.open(e, t)} onDragStart={(e) => {
+            // the picked ones go together when this one is among them
+            const ids = picked.has(t.id) ? [...picked] : [t.id];
+            e.dataTransfer.setData(DRAG_TIMELINE, ids.join(","));
+            e.dataTransfer.effectAllowed = "move";
+          }} onTick={() => setPicked((p) => { const n = new Set(p); if (n.has(t.id)) n.delete(t.id); else n.add(t.id); return n; })} />
         ))}
       </div>
       {menu.menu && <ContextMenu at={menu.menu.at} label="Actions on this timeline" items={items(menu.menu.subject)} onClose={menu.close} />}
     </>
+  );
+}
+
+/** One timeline as a card: a film strip of its clips, its name and length, what is left to do, and the tick that picks it. */
+function TimelineCard({ t, picked, anyPicked, folder, onClick, onMenu, onDragStart, onTick }: {
+  t: TimelineBrief;
+  picked: boolean;
+  /** Something is picked: the ticks show on every card. */
+  anyPicked: boolean;
+  /** The folder it is listed in, when the list is every folder's. */
+  folder: string | null;
+  onClick(e: React.MouseEvent, tick: boolean): void;
+  onMenu(e: React.MouseEvent): void;
+  onDragStart(e: React.DragEvent): void;
+  onTick(): void;
+}) {
+  return (
+    <div className="group relative">
+      <a
+        href={`/timelines/${t.id}`}
+        onClick={(e) => onClick(e, false)}
+        onContextMenu={onMenu}
+        draggable
+        onDragStart={onDragStart}
+        aria-selected={picked}
+        className={cx("flex flex-col overflow-hidden rounded-[10px] border-2 bg-panel", picked ? "border-accent" : "border-transparent outline outline-1 outline-line hover:outline-line-strong")}
+      >
+        {/* a film strip: a frame per clip, in order, so what is in it shows at a glance */}
+        <span className="relative flex aspect-video gap-px overflow-hidden bg-ground text-ink-3">
+          {(t.strip?.length ? t.strip : t.cover ? [t.cover] : []).slice(0, STRIP).map((id, i) => (
+            <span key={i} className="relative min-w-0 flex-1 bg-raised">
+              {id ? <img src={thumbUrl(id)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center text-[11px]">{i + 1}</span>}
+            </span>
+          ))}
+          {!t.strip?.length && !t.cover && <span className="flex grow items-center justify-center bg-raised"><Film size={26} /></span>}
+          {t.clips > STRIP && <span className="absolute right-1.5 bottom-1.5 rounded bg-ground/85 px-1.5 py-0.5 text-[11px] font-semibold text-ink">+{t.clips - STRIP}</span>}
+        </span>
+        <span className="flex flex-col gap-1 px-3 py-2">
+          <span className="truncate font-semibold">{t.name}</span>
+          <span className="truncate text-xs text-ink-2">{t.clips === 0 ? "Empty" : `${t.clips} clip${t.clips > 1 ? "s" : ""}${t.durationMs ? ` · ${clock(t.durationMs)}` : ""}`} · {when(t.updatedAt)}</span>
+          {/* what is left to do, or that nothing is; the folder when the list is every folder's */}
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] font-semibold">
+            {(t.toRender ?? 0) > 0 && <span className="rounded bg-warn-wash px-1.5 py-0.5 text-warn-ink">{t.toRender} to render</span>}
+            {(t.staleJoins ?? 0) > 0 && <span className="rounded bg-warn-wash px-1.5 py-0.5 text-warn-ink">{t.staleJoins} join{t.staleJoins === 1 ? "" : "s"} to redo</span>}
+            {t.clips > 0 && !t.toRender && !t.staleJoins && <span className="rounded border border-good/40 px-1.5 py-0.5 text-good">Ready</span>}
+            {folder !== null && <span className="flex min-w-0 items-center gap-1 rounded bg-raised px-1.5 py-0.5 font-normal text-ink-2"><FolderIcon size={10} className="shrink-0" /><span className="truncate">{folder}</span></span>}
+          </span>
+        </span>
+      </a>
+      <span
+        role="checkbox"
+        tabIndex={0}
+        aria-checked={picked}
+        aria-label={`Select ${t.name}`}
+        title="Select (also Ctrl + click; Shift + click selects the range)"
+        onClick={(e) => onClick(e, true)}
+        onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onTick(); } }}
+        className={cx(
+          "absolute top-2 left-2 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
+          picked ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
+          !picked && !anyPicked && "opacity-0 group-hover:opacity-100 focus:opacity-100",
+        )}
+      >
+        ✓
+      </span>
+    </div>
   );
 }

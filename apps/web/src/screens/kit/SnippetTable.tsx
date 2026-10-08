@@ -8,6 +8,7 @@ import { api, type Entity } from "../../api";
 import { Select } from "../../Select";
 import { AutoText, Button, cx, Empty, ErrorNote, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
+import { copyText } from "../../secureContext";
 
 export type Snippet = Extract<Entity, { kind: "snippet" }>;
 
@@ -54,7 +55,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
   const menu = useMenu<true>();
   const items: MenuItem[] = [
     { label: ticked ? "Untick" : "Tick", icon: <CheckSquare size={14} />, note: "to move or delete several", run: () => onTick(!ticked) },
-    { label: "Copy its text", icon: <Copy size={14} />, run: () => void navigator.clipboard?.writeText(text) },
+    { label: "Copy its text", icon: <Copy size={14} />, run: () => void copyText(text).catch(() => {}) },
     "—",
     { label: "Delete", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Delete the snippet ${snippet.name}?`, text: "It goes from every draft that uses it.", yes: "Delete" }).then((yes) => yes && remove.mutate()) },
   ];

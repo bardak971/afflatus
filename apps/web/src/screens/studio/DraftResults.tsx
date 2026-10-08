@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Square, X } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets, useQueue } from "../../data";
@@ -21,17 +21,19 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   draft?: string;
   folder: string | undefined;
   /** The scope's own list (Recent, Kept, the folder), for the stage in any scope. */
-  list?: { items: Asset[]; hasNextPage: boolean; more(): void; loading: boolean; ready: boolean };
+  list?: { items: Asset[]; hasNextPage: boolean; more(): void; hasPreviousPage: boolean; newer(): void; loading: boolean; ready: boolean };
   title?: string;
   /** What an empty `list` says, when it is empty because of the grouping rather than the place. */
   empty?: { title: string; body: string };
 }) {
-  const own = useAssets({ draft: draft ?? "__none__" });
+  // the scope's own list given: the draft's is not asked for
+  const own = useAssets({ draft: draft ?? "__none__" }, !list, true);
   const queue = useQueue();
   const items = list ? list.items : own.data?.pages.flatMap((p) => p.items) ?? [];
   const assets = list
-    ? { isSuccess: list.ready, hasNextPage: list.hasNextPage, fetchNextPage: list.more, isFetchingNextPage: list.loading }
+    ? { isSuccess: list.ready, hasNextPage: list.hasNextPage, fetchNextPage: list.more, hasPreviousPage: list.hasPreviousPage, fetchPreviousPage: list.newer, isFetchingNextPage: list.loading, isFetchingPreviousPage: list.loading }
     : own;
+  const busy = assets.isFetchingNextPage || assets.isFetchingPreviousPage;
   const tileMenu = useTileMenu({ onOpen: (a) => setPicked(a.id), into: { draft, folder } });
   // a draft's stage shows its own renders forming; another scope's, whatever renders now
   const running = draft ? (queue.data?.running?.draftId === draft ? queue.data.running : null) : queue.data?.running?.kind === "render" ? queue.data.running : null;
@@ -41,9 +43,15 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   // what is shown large: the one that was picked, else what is forming, else the newest
   const [picked, setPicked] = useState<string | "live" | null>(null);
   const [details, setDetails] = useState<Asset | null>(null);
-  // a new result takes the large place: the pick is forgotten when the list gets a new first item
-  const newest = items[0]?.id;
-  useEffect(() => setPicked(null), [newest, draft]);
+  // a new result takes the large place: the pick is forgotten when the list gets a new first item (a new one at the
+  // very top: not the first page let go past the cap, nor read again on the way back up)
+  const newest = assets.hasPreviousPage ? undefined : items[0]?.id;
+  const seen = useRef(newest);
+  useEffect(() => {
+    if (newest && newest !== seen.current) setPicked(null);
+    if (newest) seen.current = newest;
+  }, [newest]);
+  useEffect(() => setPicked(null), [draft]);
   const chosen = picked && picked !== "live" ? items.find((a) => a.id === picked) : undefined;
   const live = running && (picked === "live" || !chosen);
   const shown = chosen ?? (live ? undefined : items[0]);
@@ -101,12 +109,14 @@ export function DraftResults({ draft, folder, list, title, empty }: {
             </button>
           </span>
         )}
+        {/* the newer pages, let go past the cap (useAssets) */}
+        {assets.hasPreviousPage && <Button size="sm" onClick={() => assets.fetchPreviousPage()} disabled={busy}>Newer</Button>}
         {items.map((a) => (
           <div key={a.id} className={cx("rounded-[12px] border-2", !live && shown?.id === a.id ? "border-accent" : "border-transparent")}>
             <Tile asset={a} onOpen={() => setPicked(a.id)} onMenu={(e) => tileMenu.open(e, a)} />
           </div>
         ))}
-        {assets.hasNextPage && <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={assets.isFetchingNextPage}>More</Button>}
+        {assets.hasNextPage && <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={busy}>More</Button>}
       </div>
       {details && <Viewer asset={items.find((a) => a.id === details.id) ?? details} items={items} onOpen={setDetails} onClose={() => setDetails(null)} into={{ draft, folder }} />}
       {tileMenu.element}

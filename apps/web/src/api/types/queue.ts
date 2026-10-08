@@ -14,6 +14,8 @@ export interface Job {
   label: string;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   error: string | null;
+  /** What went less well than asked, though the job finished: a latent that could not be read, a take that could not be placed. */
+  warning?: string | null;
   generationId: string | null;
   /** The timeline clip it renders a take of, when it is one. */
   clipId: string | null;

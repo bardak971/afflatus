@@ -145,9 +145,3 @@ export interface PresetFilesView {
   /** The family of its recipe and which of the family's own files are missing (Settings' to fetch). */
   needs?: { family: string; name: string; missing: string[] };
 }
-/** A word about one choice of a form: slow, or probably too much, on the card it will run on. */
-export interface Advice {
-  input: string;
-  level: "slow" | "heavy";
-  text: string;
-}

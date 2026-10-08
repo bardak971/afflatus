@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Brush } from "lucide-react";
 import { thumbUrl } from "./api";
 import { useAsset } from "./data";
-import { nameFor } from "./MaskPainter";
+import { nameFor } from "./maskName";
 import { Button, Note, Help } from "./ui";
 import { useExplain } from "./store";
 

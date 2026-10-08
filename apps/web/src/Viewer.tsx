@@ -1,19 +1,21 @@
-import { useEffect, useRef, useState } from "react";
-import { Camera, Clapperboard, Columns2, Film, Link2, Scissors, Star, Trash2 } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Camera, Clapperboard, Columns2, Link2, Scissors, Star, Trash2 } from "lucide-react";
+import { RANDOM_SEED } from "@afflatus/core";
 import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
 import { Kbd, plainKey } from "./Keys";
-import { PngInfo } from "./PngInfo";
-import { Button, cx } from "./ui";
+import { Button } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { OPS } from "./viewer/shared";
 import { useViewerActions } from "./viewer/useViewerActions";
 import { useItemExtras, useTimelineSubmenu } from "./TileMenu";
-import { useLocation } from "wouter";
 import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
 import { ViewerSidebar } from "./viewer/ViewerSidebar";
+
+// the parameters reader is a chunk of its own: fetched the first time Details opens
+const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
 
 /** One item, large, with how it was made and what can be done with it. */
 export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails, into }: {
@@ -75,7 +77,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     else if (e.key === "Delete") void toBin();
     else if (k === "d") download();
     else if (k === "l" && g && recipe) again.mutate(g);
-    else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" });
+    else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" });
     else if (a.kind === "image" && (k === "u" || k === "f" || k === "b")) quick(k);
     else if (a.kind === "image" && (k === "i" || k === "e" || k === "r") && toolFor(k)) openTool.mutate(toolFor(k)!.id);
     else if (a.kind === "image" && k === "m" && opener) animate.mutate();
@@ -146,7 +148,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
             <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
           </Button>
           {g && recipe && (
-            <Button size="sm" disabled={queued.isPending} title="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" })}>Variation <Kbd>V</Kbd></Button>
+            <Button size="sm" disabled={queued.isPending} title="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })}>Variation <Kbd>V</Kbd></Button>
           )}
           {a.kind === "image" && (["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
             <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
@@ -171,7 +173,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
         {timelineMenu.element}
       {compare ?? media(true)}
       <ViewerSidebar acts={acts} detail={detail} trail={trail} onTrail={setTrail} items={items} trim={trim} onTrim={setTrim} onInfo={setInfo} onClose={onClose} comparing={comparing} onCompare={canCompare ? toggleCompare : undefined} />
-      {info && <PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} />}
+      {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
     </div>
   );
 }

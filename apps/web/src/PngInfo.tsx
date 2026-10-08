@@ -11,8 +11,7 @@ import { Select } from "./Select";
 import { useHandover } from "./store";
 import { Button, cx, ErrorNote } from "./ui";
 
-/** The workflow a file carries, as a file the import screen can read. */
-export const workflowFile = (name: string, workflow: unknown) => new File([JSON.stringify(workflow)], `${name.replace(/\.[^.]+$/, "") || "workflow"}.json`, { type: "application/json" });
+import { workflowFile } from "./dropZones";
 
 /**
  * What a picture says about how it was made (A1111's "PNG info"): its prompt, its checkpoint and LoRAs

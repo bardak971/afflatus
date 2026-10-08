@@ -5,6 +5,7 @@ import { clock } from "./format";
 import { Kbd } from "./Keys";
 import { Select } from "./Select";
 import { Button, cx } from "./ui";
+import { useSettled } from "./hooks";
 
 /** Where the cut's quality is remembered, per browser. */
 const CRF_KEY = "afflatus.cut.crf";
@@ -34,11 +35,7 @@ const STRIP_FRAMES = 120;
 
 /** The frames at in and at out, large enough to judge, beside the video while trimming. Asked for once the handles settle. */
 export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
-  const [shown, setShown] = useState(range);
-  useEffect(() => {
-    const t = setTimeout(() => setShown(range), 220);
-    return () => clearTimeout(t);
-  }, [range]);
+  const shown = useSettled(range, 220);
   return (
     <div className="flex h-full min-h-0 w-[22%] max-w-[260px] min-w-[120px] shrink-0 flex-col justify-center gap-2" onClick={(e) => e.stopPropagation()}>
       {[{ label: "In", at: shown.startMs }, { label: "Out", at: shown.endMs }].map((f) => (
@@ -218,12 +215,9 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   const exact = zoom ? (zoom.endMs - zoom.startMs) / frameMs <= STRIP_FRAMES + 0.5 : false;
   const wholeSrc = useMemo(() => `/api/assets/${asset.id}/strip?frames=${Math.min(STRIP_FRAMES, Math.max(16, Math.round(duration / 1000)))}&height=48`, [asset.id, duration]);
   // the strip of the zoomed part is asked for once the zoom has settled: a wheel gesture is many small steps
-  const [settledZoom, setSettledZoom] = useState<Range | null>(null);
-  useEffect(() => {
-    if (!zoom) { setSettledZoom(null); return; }
-    const t = setTimeout(() => setSettledZoom(zoom), 160);
-    return () => clearTimeout(t);
-  }, [zoom]);
+  const settled = useSettled(zoom, 160);
+  // out of the zoom at once
+  const settledZoom = zoom ? settled : null;
   const zoomSrc = useMemo(() => {
     if (!settledZoom) return "";
     const n = Math.min(STRIP_FRAMES, Math.max(2, Math.ceil((settledZoom.endMs - settledZoom.startMs) / frameMs)));

@@ -278,7 +278,7 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
 }
 
 /** What a reference picture shows, in words. */
-export const ROLE_WORDS: Record<ReferenceRole, { label: string; note: string }> = {
+const ROLE_WORDS: Record<ReferenceRole, { label: string; note: string }> = {
   person: { label: "A person", note: "who is in it: the face and the look are kept" },
   place: { label: "A place", note: "where it happens" },
   clothing: { label: "Clothes", note: "what is worn" },

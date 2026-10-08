@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { fileUrl, thumbUrl, type Asset } from "../api";
 import { Kbd } from "../Keys";
-import { Button, cx } from "../ui";
+import { Button } from "../ui";
 
 /** Keeps the second video in step with the first: play, pause, seeks and the rate follow it; a drift past a frame or two is corrected. */
 function useInStep(master: RefObject<HTMLVideoElement | null>, other: RefObject<HTMLVideoElement | null>, key: string) {

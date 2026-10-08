@@ -1,29 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
-import { useAsset, useJobs, useRecipes } from "../../data";
+import { HISTORY, useAsset, useJobs, useRecipes } from "../../data";
 import { clock, fileLabel, took, when } from "../../format";
 import { Select } from "../../Select";
-import { useOpenDraft } from "../../store";
+import { useSettled } from "../../hooks";
+import { useBanners, useOpenDraft } from "../../store";
 import { Button, cx, Empty, Segmented } from "../../ui";
-import { Viewer } from "../../Viewer";
 import { lighter, memoryThatRanOut, shorterStretch } from "./retry";
 
-type Status = "all" | "done" | "failed" | "cancelled";
+// the viewer is fetched the first time a result is opened here
+const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewer })));
 
-/** What was typed, a moment after the typing stopped. */
-function useSettled(value: string, ms = 250): string {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return settled;
-}
+type Status = "all" | "done" | "failed" | "cancelled";
 
 /**
  * What the queue has done: every finished job as a card with what it made (the result itself, not a
@@ -123,17 +116,18 @@ export function History() {
         )}
       </div>
 
-      {asset.data && <Viewer asset={asset.data} onClose={() => setOpen(null)} />}
+      {asset.data && <Suspense fallback={null}><Viewer asset={asset.data} onClose={() => setOpen(null)} /></Suspense>}
     </section>
   );
 }
 
-/** What is done with a finished job: again, back to its draft, out of the list. */
+/** What is done with a finished job: again, back to its draft, out of the list. What fails is said in a banner. */
 function useJobActions() {
   const client = useQueryClient();
-  const refresh = () => client.invalidateQueries({ queryKey: ["queue"] });
-  const again = useMutation({ mutationFn: (v: { id: string; input?: Record<string, unknown> }) => api.retryJob(v.id, v.input), onSuccess: refresh });
-  const dismiss = useMutation({ mutationFn: api.dismissJob, onSuccess: refresh });
+  const say = useBanners((b) => b.push);
+  const failed = (title: string) => (err: Error) => say({ id: `history:${Date.now()}`, tone: "bad", title, text: err.message, href: "/queue", go: "Open queue" });
+  const again = useMutation({ mutationFn: (v: { id: string; input?: Record<string, unknown> }) => api.retryJob(v.id, v.input), onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }), onError: failed("Could not queue it again") });
+  const dismiss = useMutation({ mutationFn: api.dismissJob, onSuccess: () => client.invalidateQueries({ queryKey: HISTORY }), onError: failed("Could not remove it from the history") });
   const openDraft = useOpenDraft((s) => s.open);
   const [, go] = useLocation();
   const toDraft = (id: string) => {
@@ -176,7 +170,7 @@ function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): v
           </span>
         ) : (
           shown.map((m) => (
-            <button key={m.id} type="button" aria-label={`Open ${m.kind}`} onClick={() => onOpen(m.id)} className={cx("relative h-full w-full min-h-0 min-w-0 overflow-hidden", shown.length === 3 && m === shown[0] && "row-span-2", m.inBin && "opacity-40")}>
+            <button key={m.id} type="button" aria-label={`Open ${m.name || m.kind}`} onClick={() => onOpen(m.id)} className={cx("relative h-full w-full min-h-0 min-w-0 overflow-hidden", shown.length === 3 && m === shown[0] && "row-span-2", m.inBin && "opacity-40")}>
               {m.kind === "audio" ? (
                 <span className="absolute inset-0 flex items-center justify-center text-ink-2"><Music size={20} /></span>
               ) : (
@@ -198,6 +192,7 @@ function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): v
         {/* what was asked first; then the model and the figures; then when, and the seed to copy */}
         <span className="truncate text-[13px] font-semibold">{head.prompt || head.label}</span>
         <span className="truncate text-xs text-ink-2">{[head.prompt ? head.label : "", head.model ? fileLabel(head.model) : "", ...facts].filter(Boolean).join(" · ")}</span>
+        {head.warning && <span className="text-xs text-warn-ink" title={head.warning}>{head.warning}</span>}
         {head.seed !== null && jobs.length === 1 && <span className="truncate font-mono text-[11px] text-ink-3" title={`seed ${head.seed}`}>seed {head.seed}</span>}
         <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
           <span className="min-w-0 grow truncate">{head.finishedAt ? when(head.finishedAt) : ""}</span>

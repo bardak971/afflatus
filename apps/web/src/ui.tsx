@@ -296,9 +296,10 @@ export function ErrorNote({ children }: { children: ReactNode }) {
  * A button that asks once more before it does something that cannot simply be undone: pressed, it
  * becomes a word about what happens, the button that does it, and a way back. Left alone for a few
  * seconds, it folds back. Without `label` it is the small icon button (a bin unless `icon` says
- * otherwise), named by `title`.
+ * otherwise), named by `title`. With `open`, the asking is held from outside (a menu item asked it): only
+ * the two buttons show while it is true, and `onCancel` folds it back.
  */
-export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYes, onAsk, disabled, busy, className }: {
+export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYes, onAsk, onCancel, open, disabled, busy, className }: {
   /** What the button says before it asks; left out, a small icon button. */
   label?: ReactNode;
   icon?: ReactNode;
@@ -311,25 +312,33 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
   onYes(): void;
   /** Something to do as it starts asking (clear what an earlier go left on screen). */
   onAsk?(): void;
+  /** Held from outside: asking while true. */
+  open?: boolean;
+  onCancel?(): void;
   disabled?: boolean;
   busy?: boolean;
   className?: string;
 }) {
-  const [asking, setAsking] = useState(false);
+  const [own, setOwn] = useState(false);
+  const asking = open ?? own;
+  const setAsking = (on: boolean) => (open === undefined ? setOwn(on) : !on && onCancel?.());
   useEffect(() => {
     if (!asking) return;
     const back = setTimeout(() => setAsking(false), 6000);
     return () => clearTimeout(back);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asking]);
   if (asking) {
     return (
       <span className="flex flex-wrap items-center gap-1.5">
         {note && <span className="text-xs text-ink-2">{note}</span>}
-        <Button size="sm" tone="danger" autoFocus disabled={busy} onClick={() => { setAsking(false); onYes(); }}>{yes}</Button>
-        <Button size="sm" tone="quiet" onClick={() => setAsking(false)}>{cancel}</Button>
+        {/* the focus on Cancel: an Enter pressed twice by habit does not go ahead */}
+        <Button size="sm" tone="danger" disabled={busy} onClick={() => { setAsking(false); onYes(); }}>{yes}</Button>
+        <Button size="sm" tone="quiet" autoFocus onClick={() => setAsking(false)}>{cancel}</Button>
       </span>
     );
   }
+  if (open !== undefined) return null;
   const ask = () => {
     onAsk?.();
     setAsking(true);

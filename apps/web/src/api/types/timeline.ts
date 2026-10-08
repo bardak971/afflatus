@@ -21,8 +21,8 @@ export interface Take {
   landedMs?: number;
   /** Decoded as one piece with the clip before, still the take it was made from: the join plays as a plain cut. */
   seamless?: boolean;
-  /** Its take-over point: it starts to play this many ms before its shared frames end and the clip before stops as much earlier, a clean cut inside frames that show the same moment. 0: at its first own frame. */
-  leadMs: number;
+  /** How much of its video can play at most: on the model's grid, without the parts it shares with its neighbours. */
+  roomMs: number;
   /** How long its render took, when it was rendered here; null otherwise. */
   renderMs: number | null;
   /** How its own part looks, measured on its frames when it was rendered here; null otherwise. */
@@ -137,6 +137,9 @@ export interface ClipPatch {
   take?: string;
   trimStartMs?: number;
   trimEndMs?: number;
+  /** A trim asked by what is seen: the moment of the video it is to start, or stop, being seen (as the take's startMs and endMs say). The server works the trims out, whatever a landing or a seamless join moves. */
+  shownFromMs?: number;
+  shownToMs?: number;
   after?: string | null;
   sound?: "own" | "muted" | "file";
   soundAsset?: string | null;

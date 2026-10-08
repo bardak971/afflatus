@@ -20,7 +20,7 @@ function icon(state: { progress: number | null; mark: "done" | "failed" | "waiti
   c.font = `bold ${busy ? 38 : 46}px system-ui, sans-serif`;
   c.textAlign = "center";
   c.textBaseline = "middle";
-  c.fillText(state.mark === "done" ? "✓" : state.mark === "failed" ? "!" : "s", size / 2, busy ? 24 : 32);
+  c.fillText(state.mark === "done" ? "✓" : state.mark === "failed" ? "!" : "A", size / 2, busy ? 24 : 32);
   if (busy) {
     // a bar across the bottom: it is what stays readable at the size a tab draws it
     const [x, y, w, h] = [6, 44, size - 12, 14];

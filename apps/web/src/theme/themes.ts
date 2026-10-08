@@ -120,15 +120,34 @@ function luminance(c: string): number {
   }) as [number, number, number];
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
-const contrast = (a: string, b: string) => {
+/** How far apart two colours read (WCAG): 1 for the same, 21 for black on white. */
+export const contrast = (a: string, b: string) => {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
   return (hi + 0.05) / (lo + 0.05);
 };
 
+/** What text needs against what it sits on (WCAG AA, body text). */
+export const LEGIBLE = 4.5;
+
+/**
+ * A colour of text taken just far enough toward black (a light theme) or white (a dark one) to read on
+ * each of `on`: a colour that already reads is left as it is. The palettes' quiet greys and their pale
+ * accents fall short on the light themes' panels.
+ */
+export function legible(colour: string, on: string[], light: boolean): string {
+  for (let t = 0; t <= 1.0001; t += 0.02) {
+    const c = t ? mix(colour, light ? "#000000" : "#ffffff", t) : colour;
+    if (on.every((b) => contrast(c, b) >= LEGIBLE)) return c;
+  }
+  return light ? "#000000" : "#ffffff";
+}
+
 /** A theme's tokens with an accent of its family (its first one when the name is not one of its own). */
 export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   const name = accent && accent in theme.accents ? accent : Object.keys(theme.accents)[0]!;
-  const colour = theme.accents[name]!;
+  // text in the accent, and the two quieter inks, read on the panels and on the page
+  const grounds = [theme.base.panel, theme.base.ground];
+  const colour = legible(theme.accents[name]!, grounds, theme.light);
   // the look the app was drawn in is kept to the last value
   const wash = theme.id === "afflatus" && name === "amber" ? "#211d10" : mix(theme.base.panel, colour, theme.wash);
   // what is written on the accent: the theme's usual ink for it, unless the other one reads clearly better
@@ -136,5 +155,5 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   const other = theme.light ? theme.base.ink : theme.base["ink-strong"];
   const written = contrast(colour, other) > contrast(colour, theme.onAccent) * 1.25 ? other : theme.onAccent;
   // the knob of a switch that is on: white as the app was drawn, else whatever is written on the accent
-  return { ...theme.base, accent: colour, "accent-ink": written, "accent-wash": wash, knob: theme.id === "afflatus" && name === "amber" ? "#ffffff" : written };
+  return { ...theme.base, "ink-2": legible(theme.base["ink-2"], grounds, theme.light), "ink-3": legible(theme.base["ink-3"], grounds, theme.light), accent: colour, "accent-ink": written, "accent-wash": wash, knob: theme.id === "afflatus" && name === "amber" ? "#ffffff" : written };
 }

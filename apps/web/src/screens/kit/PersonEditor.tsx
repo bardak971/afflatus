@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useState, type DragEvent } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, X } from "lucide-react";
-import { thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../../api";
+import { LIMITS } from "@afflatus/core";
+import { api, thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../../api";
+import { DRAG_PICTURE, DRAG_TYPE, useDropZone } from "../../dragging";
 import { useAsset, useRecipes, useSetup } from "../../data";
 import { Viewer } from "../../Viewer";
 import { useLoraWordsOf } from "../../fields";
@@ -8,6 +11,7 @@ import { fileLabel } from "../../format";
 import { Picker, PictureField, SoundField } from "../../PictureField";
 import { ModelLink } from "../../ModelLink";
 import { Select } from "../../Select";
+import { localId } from "../../secureContext";
 import { AutoText, Button, cx, NumberBox, SectionTitle } from "../../ui";
 import { field, takes } from "./shared";
 
@@ -17,8 +21,27 @@ function Pictures({ value, onChange, what }: { value: string[]; onChange(value: 
   // a click shows the picture large
   const [open, setOpen] = useState<string | null>(null);
   const shown = useAsset(open);
+  // pictures dropped on the row: files from the computer (kept with them, not put in the library) or pictures dragged from the library, several at once
+  const room = LIMITS.pictures - value.length;
+  const add = useMutation({
+    mutationFn: async (dropped: { files: File[]; ids: string[] }) => {
+      const made: string[] = [];
+      for (const f of dropped.files.filter((f) => f.type.startsWith("image/")).slice(0, room)) made.push((await api.upload(f, { kit: true })).id);
+      return [...dropped.ids, ...made];
+    },
+    onSuccess: (ids) => onChange([...value, ...ids.filter((id, i) => !value.includes(id) && ids.indexOf(id) === i)].slice(0, LIMITS.pictures)),
+  });
+  const drop = useDropZone([DRAG_PICTURE], () => {}, () => {});
+  const onDrop = (e: DragEvent) => {
+    if (room <= 0) return;
+    e.preventDefault();
+    drop.props.onDragLeave();
+    const files = [...e.dataTransfer.files];
+    const ids = files.length ? [] : e.dataTransfer.getData(DRAG_TYPE).split(",").filter(Boolean).slice(0, room);
+    if (files.length || ids.length) add.mutate({ files, ids });
+  };
   return (
-    <div className="flex flex-wrap gap-2">
+    <div {...drop.props} onDrop={onDrop} className={cx("-m-1 flex flex-wrap gap-2 rounded-xl border-[1.5px] border-transparent p-1", room > 0 && drop.zone)}>
       {value.map((id, i) => (
         <div key={id} className="relative">
           <button type="button" aria-label={`Show image ${i + 1} of ${what} large`} onClick={() => setOpen(id)} className="block cursor-zoom-in rounded-lg">
@@ -27,12 +50,14 @@ function Pictures({ value, onChange, what }: { value: string[]; onChange(value: 
           <button type="button" aria-label="Remove this image" onClick={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/85 text-ink-2 hover:text-ink"><X size={11} /></button>
         </div>
       ))}
-      {value.length < 9 && (
+      {value.length < LIMITS.pictures && (
         <button type="button" aria-label={`Add a reference image of ${what}`} onClick={() => setPicking(true)} className="flex h-28 w-24 flex-col items-center justify-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink">
           <Plus size={16} />
-          <span className="text-xs">Add image</span>
+          <span className="text-xs">{add.isPending ? "Adding…" : "Add image"}</span>
+          <span className="px-1 text-center text-[10px] text-ink-3">or drop them here</span>
         </button>
       )}
+      {add.isError && <span className="basis-full text-xs text-warn-ink">{add.error.message}</span>}
       {/* a file from the computer is kept with the person or place, not put in the library; one picked from the library stays there too */}
       {picking && <Picker kit title={`A reference image of ${what}`} onClose={() => setPicking(false)} onPick={(id) => { if (!value.includes(id)) onChange([...value, id]); setPicking(false); }} />}
       {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(null)} />}
@@ -145,7 +170,8 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
             <PictureField kit label="Reference image of the clothes" optional value={o.picture} onChange={(picture) => setOutfit(o.id, { picture: picture ?? null })} />
           </div>
         ))}
-        <span><Button size="sm" onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: crypto.randomUUID(), name: "", tags: "", sentence: "", picture: null }] })}><Plus size={13} /> New outfit</Button></span>
+        {/* as many as a person holds: the server refuses more, and the person would no longer save */}
+        <span><Button size="sm" disabled={def.outfits.length >= LIMITS.outfits} title={def.outfits.length >= LIMITS.outfits ? `${LIMITS.outfits} outfits is the most a person holds` : undefined} onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: localId(), name: "", tags: "", sentence: "", picture: null }] })}><Plus size={13} /> New outfit</Button></span>
         <span className="text-xs text-ink-3">Without an outfit, {name} is "as in the reference images": nothing about clothes is added to the prompt.</span>
       </div>
     </>

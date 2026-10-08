@@ -69,7 +69,8 @@ export function Banners() {
             type="button"
             onClick={() => {
               dismiss(b.id);
-              go(b.href);
+              if (b.act) b.act();
+              else go(b.href);
             }}
             className="flex min-w-0 grow flex-col gap-0.5 text-left"
           >

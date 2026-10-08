@@ -8,10 +8,8 @@ import { Button, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
 export function StorageCard() {
   const storage = useStorage();
   const client = useQueryClient();
-  const done = () => {
-    void client.invalidateQueries({ queryKey: ["assets"] });
-    void client.invalidateQueries({ queryKey: ["timelines"] });
-  };
+  // the library, the folders and the disk use follow the server's "library" event; the timelines may have played what went
+  const done = () => void client.invalidateQueries({ queryKey: ["timelines"] });
   const idle = useMutation({ mutationFn: api.binIdleTakes, onSuccess: done });
   const empty = useMutation({ mutationFn: api.emptyBin, onSuccess: done });
   const s = storage.data;
@@ -58,6 +56,7 @@ export function StorageCard() {
         </div>
       )}
       {(idle.isError || empty.isError) && <ErrorNote>{(idle.error ?? empty.error)?.message}</ErrorNote>}
+      {empty.data?.inUse ? <div className="text-xs text-ink-2">{empty.data.inUse} item{empty.data.inUse === 1 ? " was" : "s were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</div> : null}
       <div className="text-xs text-ink-3">
         Outputs you do not keep go to the bin after 24 hours{s && s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.
       </div>
@@ -69,7 +68,7 @@ export function StorageCard() {
 
 /** One zip of everything Afflatus keeps, made while it runs: the database and every file. */
 function Backup() {
-  const plan = useQuery({ queryKey: ["assets", "backup-plan"], queryFn: api.backupPlan, staleTime: 60_000 });
+  const plan = useQuery({ queryKey: ["storage", "backup-plan"], queryFn: api.backupPlan, staleTime: 60_000 });
   const p = plan.data;
   if (p && !p.available) return null;
   return (
@@ -80,7 +79,7 @@ function Backup() {
       </div>
       <span className="text-xs text-ink-3">
         One zip, made while Afflatus runs: {p?.database ? "the database (a consistent copy) and " : ""}every file of the library{p ? ` (${p.files} files)` : ""}. Not in it: the files of linked folders, which stay on your disk, and ComfyUI's models.
-        To restore, stop Afflatus, unpack the zip into an empty data folder, and start it again.{p && !p.database ? " With Postgres, back the database up with Postgres's own tools." : ""}
+        To restore, stop Afflatus, unpack the zip into an empty data folder (<code>pnpm restore &lt;zip&gt; &lt;folder&gt;</code> does it, and refuses a folder that is not empty), and start it again with DATA_DIR pointing there.{p && !p.database ? " With Postgres, back the database up with Postgres's own tools." : ""}
       </span>
     </div>
   );
@@ -92,8 +91,8 @@ const KEEP_FOR = [{ value: "30", label: "30 days" }, { value: "90", label: "90 d
 function RenderRecord() {
   const client = useQueryClient();
   const settings = useSettings();
-  const record = useQuery({ queryKey: ["assets", "render-record-size"], queryFn: api.renderRecordSize });
-  const forget = useMutation({ mutationFn: api.clearRenderRecord, onSuccess: () => client.invalidateQueries({ queryKey: ["assets"] }) });
+  const record = useQuery({ queryKey: ["renders", "size"], queryFn: api.renderRecordSize });
+  const forget = useMutation({ mutationFn: api.clearRenderRecord, onSuccess: () => client.invalidateQueries({ queryKey: ["renders"] }) });
   const keep = useMutation({ mutationFn: (days: number) => api.saveSettings({ renderHistoryDays: days }), onSuccess: (saved) => client.setQueryData(["settings"], saved) });
   const r = record.data;
   const days = settings.data?.renderHistoryDays ?? 90;

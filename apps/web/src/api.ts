@@ -5,7 +5,7 @@ export type { ModelInfo };
 import type { HistoryPage, QueueStatus, Rate, TimesPeriod, TimesWindow, TimesSummary, RenderItem } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
-import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type Advice } from "./api/types/designer";
+import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
 import type { Health, FinishSettings, Settings } from "./api/types/settings";
 import type { RecipeInfo, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, HuggingFaceFind, CivitaiFind } from "./api/types/models";
 
@@ -17,16 +17,36 @@ export * from "./api/types/designer";
 export * from "./api/types/settings";
 export * from "./api/types/models";
 /** The server always answers errors as { error }, written for a person to read. */
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  /** The HTTP status the server answered with; absent when it did not answer. */
+  constructor(message: string, readonly status?: number) {
+    super(message);
+  }
+}
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+/** A request the network refused (the server stopped, the connection dropped): said as such, not as the browser's "Failed to fetch". */
+export const NOT_ANSWERING = "Afflatus is not answering. Is it still running?";
+async function send(input: string, init: RequestInit): Promise<Response> {
+  try {
+    // the server takes a change only with this header, JSON or a file: a plain form from another site has none of them
+    return await fetch(input, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-Afflatus": "1" } });
+  } catch (err) {
+    // a request given up on (a query no longer needed) stays an abort, for React Query to tell apart
+    if (err instanceof TypeError) throw new ApiError(NOT_ANSWERING);
+    throw err;
+  }
+}
+
+/** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
+async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await send(`/api${path}`, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`);
+  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
   return data as T;
 }
 
@@ -37,24 +57,27 @@ export interface PacksStarted {
   /** Packs Manager's queue cannot install (a single file, a gist). */
   skipped: string[];
 }
-export interface PackState { id: string; state: "pending" | "done" | "failed"; message?: string }
+interface PackState { id: string; state: "pending" | "done" | "failed"; message?: string }
+
+/** What a query hands its function: its signal (see call). `queryFn: api.queue` passes it as it is. */
+type Asked = { signal?: AbortSignal };
 
 export const api = {
-  recipes: () => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes"),
-  setup: () => call<Scan>("GET", "/setup"),
+  recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
+  setup: (o?: Asked) => call<Scan>("GET", "/setup", undefined, o?.signal),
   /** ComfyUI asked again, now: its address, its files, its nodes. A POST, since it does work on the server. */
   rescanSetup: () => call<Scan>("POST", "/setup/rescan"),
-  health: () => call<Health>("GET", "/health"),
+  health: (o?: Asked) => call<Health>("GET", "/health", undefined, o?.signal),
   /** The tools Afflatus needs looked for again, now. */
   checkHealth: () => call<Health>("POST", "/health/check"),
-  settings: () => call<Settings>("GET", "/settings"),
+  settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
   saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
-  presetFiles: () => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files"),
-  nodePack: () => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack"),
+  presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),
+  nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
-  queue: () => call<QueueStatus>("GET", "/queue"),
-  jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number }) =>
-    call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`),
+  queue: (o?: Asked) => call<QueueStatus>("GET", "/queue", undefined, o?.signal),
+  jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number }, o?: Asked) =>
+    call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`, undefined, o?.signal),
   pause: () => call<QueueStatus>("POST", "/queue/pause"),
   resume: () => call<QueueStatus>("POST", "/queue/resume"),
   /** `into`: the draft it is sent from, and the folder that is open, where its results are filed. */
@@ -64,7 +87,7 @@ export const api = {
   warm: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ id: string }>("POST", "/jobs/warm", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
   /** Whether the models this form would render with are the ones ComfyUI was last asked to load. Null: it cannot be told. */
   loaded: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ loaded: boolean | null }>("POST", "/comfy/loaded", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
-  entities: () => call<{ items: Entity[] }>("GET", "/entities"),
+  entities: (o?: Asked) => call<{ items: Entity[] }>("GET", "/entities", undefined, o?.signal),
   createEntity: (kind: Entity["kind"], name: string, def?: unknown) => call<Entity>("POST", "/entities", def === undefined ? { kind, name } : { kind, name, def }),
   saveEntity: (id: string, patch: { name?: string; def?: unknown }) => call<Entity>("PUT", `/entities/${id}`, patch),
   deleteEntity: (id: string) => call<{ ok: true }>("DELETE", `/entities/${id}`),
@@ -76,54 +99,54 @@ export const api = {
   /** A finished job again; `input` changes some of what it was asked. */
   retryJob: (id: string, input?: Record<string, unknown>) => call<{ id: string }>("POST", `/jobs/${id}/retry`, input ? { input } : {}),
   dismissJob: (id: string) => call<{ ok: true }>("DELETE", `/jobs/${id}`),
-  estimates: () => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates"),
+  estimates: (o?: Asked) => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates", undefined, o?.signal),
   /** A tool's usual pace from its own record: milliseconds per pixel × frame it makes (null until it has run). */
   renderPace: (tool: string) => call<{ msPerWork: number | null }>("GET", `/renders/pace?tool=${encodeURIComponent(tool)}`),
-  renderTimes: (range: TimesPeriod | TimesWindow) => call<TimesSummary>("GET", typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`),
-  renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }) =>
-    call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`),
-  renderRecordSize: () => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size"),
+  renderTimes: (range: TimesPeriod | TimesWindow, o?: Asked) => call<TimesSummary>("GET", typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`, undefined, o?.signal),
+  renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }, o?: Asked) =>
+    call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`, undefined, o?.signal),
+  renderRecordSize: (o?: Asked) => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size", undefined, o?.signal),
   /** ComfyUI's terminal log, the last few hundred lines (`t`: when, `m`: the line). */
-  comfyLogs: () => call<{ lines: Array<{ t: string; m: string }> }>("GET", "/comfy/logs"),
+  comfyLogs: (o?: Asked) => call<{ lines: Array<{ t: string; m: string }> }>("GET", "/comfy/logs", undefined, o?.signal),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
-  advice: (recipe: string, input: Record<string, unknown>) => call<{ items: Advice[]; estimate: { text: string; pace: "usual" | "untested" | "over" } | null }>("POST", "/advice", { recipe, input }),
+  advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: { text: string; pace: "usual" | "untested" | "over" } | null }>("POST", "/advice", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
       "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,
     ),
   /** What a file from the computer says about how it was made. The file is the request body; nothing is stored. */
   embedded: async (file: File, recipe?: string) => {
-    const res = await fetch(`/api/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`, { method: "POST", headers: { "Content-Type": /^(image|video|audio)\//.test(file.type) ? file.type : "application/octet-stream" }, body: file });
+    const res = await send(`/api/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`, { method: "POST", headers: { "Content-Type": /^(image|video|audio)\//.test(file.type) ? file.type : "application/octet-stream" }, body: file });
     const data = (await res.json().catch(() => ({}))) as Embedded & { error?: string };
-    if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`);
+    if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
     return data;
   },
   /** The same for a picture or a video already in the library. */
   assetEmbedded: (id: string, recipe?: string) => call<Embedded>("GET", `/assets/${id}/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`),
-  downloads: () => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string } }>("GET", "/downloads"),
+  downloads: (o?: Asked) => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string } }>("GET", "/downloads", undefined, o?.signal),
   stopDownload: (id: string) => call<{ ok: true }>("DELETE", `/downloads/${id}`),
   startDownload: (body: { file: string; folder: string; page?: ModelPage } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
-  storage: () => call<Storage>("GET", "/storage"),
+  storage: (o?: Asked) => call<Storage>("GET", "/storage", undefined, o?.signal),
   /** What a backup would hold: the files and bytes, and whether the database comes with it (SQLite). */
-  backupPlan: () => call<{ available: boolean; files: number; bytes: number; database: boolean }>("GET", "/backup"),
+  backupPlan: (o?: Asked) => call<{ available: boolean; files: number; bytes: number; database: boolean }>("GET", "/backup", undefined, o?.signal),
   binIdleTakes: () => call<{ moved: number }>("POST", "/storage/bin-idle-takes"),
-  emptyBin: () => call<{ erased: number }>("POST", "/storage/empty-bin"),
-  assetFamilies: () => call<{ items: string[] }>("GET", "/assets/families"),
+  emptyBin: () => call<{ erased: number; inUse?: number }>("POST", "/storage/empty-bin"),
+  assetFamilies: (o?: Asked) => call<{ items: string[] }>("GET", "/assets/families", undefined, o?.signal),
   /** The model files and the LoRAs things in the library were made with, the most used first. */
-  assetModels: () => call<{ models: Array<{ file: string; count: number }>; loras: Array<{ file: string; count: number }> }>("GET", "/assets/models"),
+  assetModels: (o?: Asked) => call<{ models: Array<{ file: string; count: number }>; loras: Array<{ file: string; count: number }> }>("GET", "/assets/models", undefined, o?.signal),
   /** Which tags of a prompt danbooru does not have. */
   checkTags: (text: string, ignore: string[]) => call<{ issues: TagIssue[] }>("POST", "/tags/check", { text, ignore }),
   /** The words known for the files of a model folder beyond what the files say, by file name (lower case, without sub-folder). */
-  modelWords: (folder: string) => call<{ items: Record<string, ModelWords> }>("GET", `/models/${folder}/words`),
+  modelWords: (folder: string, o?: Asked) => call<{ items: Record<string, ModelWords> }>("GET", `/models/${folder}/words`, undefined, o?.signal),
   /** The user's own words for a file; empty takes them away. */
   setModelWords: (folder: string, file: string, words: string | null) => call<{ items: Record<string, ModelWords> }>("PUT", `/models/${folder}/words`, { file, words }),
   /** Ask Civitai, by fingerprint, for the words of files that say none: once per file, and only when lookups are on. */
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }) => {
+  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, o?: Asked) => {
     const q = new URLSearchParams({ limit: "40" });
     // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
     if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
@@ -132,23 +155,24 @@ export const api = {
     if (opts.bin) q.set("bin", "1");
     if (opts.folder) q.set("folder", opts.folder);
     if (opts.after) q.set("after", opts.after);
+    if (opts.before) q.set("before", opts.before);
     if (opts.q?.trim()) q.set("q", opts.q.trim());
     if (opts.family) q.set("family", opts.family);
     if (opts.kept) q.set("kept", "1");
     if (opts.model) q.set("model", opts.model);
     if (opts.lora) q.set("lora", opts.lora);
     if (opts.draft) q.set("draft", opts.draft);
-    return call<{ items: Asset[]; next: string | null }>("GET", `/assets?${q}`);
+    return call<{ items: Asset[]; next: string | null; prev: string | null }>("GET", `/assets?${q}`, undefined, o?.signal);
   },
-  asset: (id: string) => call<AssetDetail>("GET", `/assets/${id}`),
+  asset: (id: string, o?: Asked) => call<AssetDetail>("GET", `/assets/${id}`, undefined, o?.signal),
   keep: (id: string, kept: boolean) => call<Asset>("POST", `/assets/${id}/keep`, { kept }),
   /** Several items at once: kept or not, to the bin, or back from it. */
   bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number }>("POST", "/assets/bulk", { ids, action }),
   bin: (id: string) => call<{ ok: true }>("DELETE", `/assets/${id}`),
   restore: (id: string) => call<Asset>("POST", `/assets/${id}/restore`),
   /** The drafts of the project the app looks at (see project.ts). */
-  drafts: () => call<{ items: DraftBrief[] }>("GET", `/drafts${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`),
-  draft: (id: string) => call<Draft>("GET", `/drafts/${id}`),
+  drafts: (o?: Asked) => call<{ items: DraftBrief[] }>("GET", `/drafts${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),
+  draft: (id: string, o?: Asked) => call<Draft>("GET", `/drafts/${id}`, undefined, o?.signal),
   /** A new draft, in the project the app looks at unless another is named. */
   createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null; project?: string | null }) => call<Draft>("POST", "/drafts", { ...body, project: body.project === undefined ? projectForNew() : body.project }),
   saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; designer?: DesignerSession | null; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
@@ -167,9 +191,9 @@ export const api = {
   designerPlan: (body: { recipe: string; idea: string; clips: number; values?: Record<string, unknown>; look?: Look | null; mood?: string }) =>
     call<{ note: string; clips: Array<Record<string, string>> }>("POST", "/designer/plan", body),
   /** The pages known for the files of a model folder, by file name (lower case, without sub-folder). */
-  modelPages: (folder: string) => call<{ items: Record<string, ModelPage> }>("GET", `/models/${folder}/pages`),
+  modelPages: (folder: string, o?: Asked) => call<{ items: Record<string, ModelPage> }>("GET", `/models/${folder}/pages`, undefined, o?.signal),
   /** The model files matched to their Civitai version, and the newer version when there is one. */
-  modelUpdates: () => call<UpdateReport>("GET", "/models/updates"),
+  modelUpdates: (o?: Asked) => call<UpdateReport>("GET", "/models/updates", undefined, o?.signal),
   checkModelUpdates: () => call<UpdateReport>("POST", "/models/updates/check"),
   /** Look for a file's page: the one known, or the one found for sure, or the ones it may be. */
   findModelPage: (folder: string, file: string) => call<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }>("POST", `/models/${folder}/page`, { file }),
@@ -183,12 +207,12 @@ export const api = {
   /** New clips at the end of a timeline, one per planned text, each flowing on from the one before. */
   planTimeline: (id: string, recipe: string, clips: Array<Record<string, string>>) => call<{ clips: string[]; timeline: Timeline }>("POST", `/timelines/${id}/plan`, { recipe, clips }),
   deleteDraft: (id: string) => call<{ ok: true }>("DELETE", `/drafts/${id}`),
-  modelSettings: () => call<{ items: ModelSettings[] }>("GET", "/model-settings"),
+  modelSettings: (o?: Asked) => call<{ items: ModelSettings[] }>("GET", "/model-settings", undefined, o?.signal),
   saveModelSettings: (body: ModelSettings) => call<ModelSettings>("PUT", "/model-settings", body),
   forgetModelSettings: (family: string, file: string) => call<{ ok: true }>("DELETE", `/model-settings?${new URLSearchParams({ family, file })}`),
   /** What the files of one model folder say about themselves; `pending` are still being read. */
-  modelInfo: (folder: string) => call<{ items: Record<string, ModelInfo>; pending: number }>("GET", `/models/${folder}/info`),
-  folders: () => call<{ items: Folder[] }>("GET", "/folders"),
+  modelInfo: (folder: string, o?: Asked) => call<{ items: Record<string, ModelInfo>; pending: number }>("GET", `/models/${folder}/info`, undefined, o?.signal),
+  folders: (o?: Asked) => call<{ items: Folder[] }>("GET", "/folders", undefined, o?.signal),
   /** A folder inside another, or at the top of a project (null: the Inbox). */
   createFolder: (name: string, parentId: string | null, project?: string | null) => call<Folder>("POST", "/folders", { name, parentId, ...(parentId ? {} : { project: project ?? null }) }),
   /** Link a directory of the disk the server runs on: it becomes a folder, read where it is. */
@@ -202,13 +226,13 @@ export const api = {
   /** A picture, a video or a sound from this computer, into the library. The file is the request body. */
   upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean; /** A picture for a person or a place of the Prompt kit: kept with them, not shown in the library. */ kit?: boolean; /** The folder it goes into. */ folder?: string; /** Without a folder: the project whose root folder it goes into. */ project?: string | null } = {}) => {
     if (!/^(image|video|audio)\//.test(file.type)) throw new ApiError("This file is not a picture, a video or a sound.");
-    const res = await fetch(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : opts.kit ? "&as=kit" : ""}${opts.folder ? `&folder=${encodeURIComponent(opts.folder)}` : ""}${opts.project ? `&project=${encodeURIComponent(opts.project)}` : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
+    const res = await send(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : opts.kit ? "&as=kit" : ""}${opts.folder ? `&folder=${encodeURIComponent(opts.folder)}` : ""}${opts.project ? `&project=${encodeURIComponent(opts.project)}` : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
     const data = (await res.json().catch(() => ({}))) as Asset & { error?: string };
-    if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`);
+    if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
     return data as Asset;
   },
-  workflows: () => call<{ items: WorkflowBrief[] }>("GET", "/workflows"),
-  workflow: (id: string) => call<WorkflowDef>("GET", `/workflows/${id}`),
+  workflows: (o?: Asked) => call<{ items: WorkflowBrief[] }>("GET", "/workflows", undefined, o?.signal),
+  workflow: (id: string, o?: Asked) => call<WorkflowDef>("GET", `/workflows/${id}`, undefined, o?.signal),
   /** Takes the file as it is (ComfyUI's own save, an export) or a workflow Afflatus holds; answers with it in the form Afflatus keeps. */
   inspectWorkflow: (file: unknown) => call<Inspection & { graph: WorkflowDef["graph"]; wiring?: Wiring; editor?: unknown }>("POST", "/workflows/inspect", file),
   /** Put the workflow in ComfyUI's own workflows folder; where ComfyUI is, and the file's path there. */
@@ -225,11 +249,11 @@ export const api = {
   packsStatus: (ids: string[]) => call<{ items: PackState[]; installed: number }>("GET", `/workflows/packs?ids=${encodeURIComponent(ids.join(","))}`),
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),
   /** The timelines of the project the app looks at. */
-  timelines: () => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`),
-  timeline: (id: string) => call<Timeline>("GET", `/timelines/${id}`),
+  timelines: (o?: Asked) => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),
+  timeline: (id: string, o?: Asked) => call<Timeline>("GET", `/timelines/${id}`, undefined, o?.signal),
   /** A new timeline, in the project the app looks at unless another is named. */
   createTimeline: (name?: string, project?: string | null) => call<Timeline>("POST", "/timelines", { ...(name ? { name } : {}), project: project === undefined ? projectForNew() : project }),
-  projects: () => call<{ items: Project[]; inbox: { drafts: number; timelines: number; assets: number } }>("GET", "/projects"),
+  projects: (o?: Asked) => call<{ items: Project[]; inbox: { drafts: number; timelines: number; assets: number } }>("GET", "/projects", undefined, o?.signal),
   createProject: (name: string) => call<Project>("POST", "/projects", { name }),
   editProject: (id: string, patch: { name?: string; archived?: boolean }) => call<Project>("PATCH", `/projects/${id}`, patch),
   /** The project goes; its drafts, timelines and folders go to the Inbox. */
@@ -241,7 +265,7 @@ export const api = {
   duplicateClip: (id: string) => call<{ clip: string }>("POST", `/clips/${id}/duplicate`),
   deleteTimeline: (id: string) => call<{ ok: true }>("DELETE", `/timelines/${id}`),
   /** A new clip: empty, or from a video or a picture of the library. After `after`, first when null, last when left out. */
-  addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip" }) => call<{ clip: string; timeline: Timeline }>("POST", `/timelines/${timeline}/clips`, body),
+  addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip"; stopAtMs?: number }) => call<{ clip: string; timeline: Timeline }>("POST", `/timelines/${timeline}/clips`, body),
   editClip: (id: string, patch: ClipPatch) => call<{ ok: true }>("PATCH", `/clips/${id}`, patch),
   deleteClip: (id: string) => call<{ ok: true }>("DELETE", `/clips/${id}`),
   /** One clip becomes two at a moment of its take (the video's own time). */

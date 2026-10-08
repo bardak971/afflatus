@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronDown, ChevronLeft, Clapperboard, Columns2, Copy, Download, FileSearch, Film, FolderPlus, Link2, Music, Pencil, Plus, Scissors, Shuffle, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { isShown, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
+import { isShown, RANDOM_SEED, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
 import { askText } from "../Confirm";
@@ -16,6 +16,7 @@ import { Button, cx, SectionTitle } from "../ui";
 import { ModelLink } from "../ModelLink";
 import { FORMATS, mb, OPS } from "./shared";
 import type { ViewerActions } from "./useViewerActions";
+import { copyText } from "../secureContext";
 
 const ROLES: Record<string, string> = { start: "First frame", end: "Last frame", source: "Source image", previous: "Previous clip", next: "Next clip",
   mid: "Keyframe", mask: "Mask", person: "Reference: person", place: "Reference: place", clothing: "Reference: clothing", object: "Reference: object", style: "Reference: style", voice: "Voice sample", sound: "Audio",
@@ -54,7 +55,7 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
   const copy = (
     <button
       type="button"
-      onClick={(e) => { e.preventDefault(); void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }}
+      onClick={(e) => { e.preventDefault(); void copyText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {}); }}
       className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-ink-2 hover:bg-hover hover:text-ink"
     >
       <Copy size={11} /> {copied ? "Copied" : "Copy"}
@@ -218,7 +219,6 @@ function Strip({ items, onOpen }: { items: Array<{ asset: Asset; caption?: strin
 /** Where the item is filed, with a way to make the folder on the spot. */
 function FolderPicker({ asset }: { asset: Asset }) {
   const folders = useFolders();
-  const client = useQueryClient();
   const [name, setName] = useState("");
   const move = useAssetAction((folder: string | null) => api.moveAssets([asset.id], folder));
   const create = useMutation({
@@ -226,7 +226,7 @@ function FolderPicker({ asset }: { asset: Asset }) {
       const folder = await api.createFolder(folderName, null);
       await api.moveAssets([asset.id], folder.id);
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ["assets"] }),
+    // the library refreshes on the server's own word (its `library` event)
   });
   // a folder inside another shows where it is
   const all = folders.data?.items ?? [];
@@ -412,7 +412,7 @@ export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, t
   const { a, g, recipe, recipes, keep, restore, leave, again, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, between, extendHere, toolFor, openTool, queued, quick, at, toBin, download } = acts;
   const qc = useQueryClient();
   // a name of the user's own, asked for in a box; the library shows it and the search goes by it
-  const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.renameAsset(v.id, v.name), onSuccess: (_, v) => { void qc.invalidateQueries({ queryKey: ["assets"] }); void qc.invalidateQueries({ queryKey: ["asset", v.id] }); } });
+  const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.renameAsset(v.id, v.name), onSuccess: (_, v) => void qc.invalidateQueries({ queryKey: ["asset", v.id] }) });
   const renameIt = async (of: Asset) => {
     const name = await askText({ title: "Rename", value: of.name, placeholder: "A name for it", yes: "Rename" });
     if (name !== null && name !== of.name) rename.mutate({ id: of.id, name });
@@ -464,7 +464,7 @@ export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, t
         {/* what to do with it: two columns, the item's own kind of things first */}
         <div className="grid grid-cols-2 gap-1.5">
           {g && recipe && <Act icon={<Wand2 size={15} />} label="Reuse parameters" k="L" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft." />}
-          {g && recipe && <Act icon={<Shuffle size={15} />} label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: -1 }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
+          {g && recipe && <Act icon={<Shuffle size={15} />} label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
           {a.kind === "image" && !a.inBin && opener && <Act wide icon={<Clapperboard size={15} />} label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
           {a.kind === "video" && !a.inBin && carrier && <Act icon={<Link2 size={15} />} label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
           {a.kind === "video" && !a.inBin && <Act icon={<Scissors size={15} />} label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}

@@ -6,14 +6,15 @@ import { Link, Redirect, Route, Switch, useLocation } from "wouter";
 import { Film, LayoutGrid, ListOrdered, Settings2, Users, Workflow } from "lucide-react";
 import { useQueue } from "./data";
 import { Banners } from "./Banners";
-import { KeysHelp } from "./Keys";
+import { useSearchKey } from "./Keys";
 import { TabProgress } from "./TabProgress";
 import { DropTray } from "./DropTray";
 import { useDownloads } from "./GetFile";
-import { about, phaseLabel } from "./format";
+import { about, elapsed, phaseLabel } from "./format";
 import { useLiveEvents } from "./live";
 import { Studio } from "./screens/Studio";
 import { ConfirmHost } from "./Confirm";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { FolderImportNote } from "./folderImport";
 import { useSystem, useBanners } from "./store";
 
@@ -23,6 +24,8 @@ const Queue = lazy(() => import("./screens/Queue").then((m) => ({ default: m.Que
 const Setup = lazy(() => import("./screens/Setup").then((m) => ({ default: m.Setup })));
 const TimelineEditor = lazy(() => import("./screens/TimelineEditor").then((m) => ({ default: m.TimelineEditor })));
 const Workflows = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.Workflows })));
+// the list of keys too: it is fetched with the page, but not in its first chunk
+const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysHelp })));
 import { StripModel, StripPlace } from "./ModelLoad";
 import { ProjectSwitch } from "./Projects";
 import { ThemeFlip } from "./theme/Appearance";
@@ -55,7 +58,6 @@ function Strip() {
     return () => clearInterval(t);
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const elapsedMs = run?.startedAt ? Math.max(0, Date.now() - Date.parse(run.startedAt)) : 0;
-  const elapsed = `${Math.floor(elapsedMs / 60000)}:${String(Math.floor((elapsedMs / 1000) % 60)).padStart(2, "0")}`;
   // a model being fetched into ComfyUI goes on whatever screen is open: it is said here, with the way to it
   const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   return (
@@ -67,7 +69,7 @@ function Strip() {
           {run.join && <span className="rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent" title={run.join === "seamless" ? "This clip continues the clip before's exact latent and is decoded as one piece with it: the join plays as a plain cut, the same as the whole chain decoded at once." : run.join === "latent" ? "This clip continues the clip before's exact latent (decoded on its own: the join is faded)." : run.join === "hybrid" ? "This clip continues the clip before in the latent: its sound and run-up from its own latent, its picture guide from its re-encoded last frames (so a chain stays anchored to real pixels)." : "This clip starts beside pinned frames of the clip before (that model has no latent to continue from, or Frames was asked for)."}>{run.join === "seamless" ? "seamless join" : run.join === "latent" ? "latent join" : run.join === "hybrid" ? "frames + latent join" : "pixel join"}</span>}
           <span className="text-ink-2">{phaseLabel(run.phase)}{run.steps ? ` · step ${run.step} of ${run.steps}` : ""}</span>
           {run.spilling && <span className="font-semibold text-warn-ink" title="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together.">spilling out of VRAM · much slower</span>}
-          <span className="font-mono text-ink-2" title="How long this render has been running">{elapsed}</span>
+          <span className="font-mono text-ink-2" title="How long this render has been running">{elapsed(elapsedMs)}</span>
           <span className="text-ink-2">{run.eta ? about(run.eta) : run.progress > 0 ? `${Math.round(run.progress * 100)} %` : "working…"}</span>
           <span className={cx("w-44", !run.progress && "animate-pulse")} title={run.progress > 0 ? `${Math.round(run.progress * 100)} % of this render` : "No step count from this phase yet"}><Bar value={run.progress * 100} /></span>
         </>
@@ -90,6 +92,7 @@ function Strip() {
         // every number keeps the room of three digits: what is beside it does not move when they change
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">
           {gpu.load !== undefined && `GPU ${pad(gpu.load)}% · `}VRAM {pad(gpu.vramPercent)}%
+          {/* 80 °C: a temperature, the same for every card, not a figure of one card */}
           {gpu.temperature !== undefined && <> · <span className={cx(gpu.temperature >= 80 && "text-warn-ink")}>{Math.round(gpu.temperature)}°</span></>}
         </span>
       )}
@@ -120,6 +123,7 @@ function useMissingTools() {
 
 export function App() {
   useLiveEvents();
+  useSearchKey();
   useTheme();
   const [path] = useLocation();
   useMissingTools();
@@ -147,6 +151,8 @@ export function App() {
           <ThemeFlip />
         </nav>
         <Suspense fallback={<div className="grow p-8 text-ink-2">Loading…</div>}>
+        {/* a screen that fails takes only itself down; going to another screen starts afresh */}
+        <ErrorBoundary key={path.split("/")[1]}>
         <Switch>
           <Route path="/"><Studio key="studio" /></Route>
           {/* links from elsewhere that mean "the form": the same screen, with the form open */}
@@ -164,9 +170,10 @@ export function App() {
           {/* the screen's old address still leads to it */}
           <Route path="/setup"><Redirect to="/settings" /></Route>
           <Route>
-            <div className="p-8 text-ink-2">Page not found. <Link href="/" className="underline">Back to Studio</Link></div>
+            <div className="p-8 text-ink-2">Page not found. <Link href="/" className="underline">Open the Studio</Link></div>
           </Route>
         </Switch>
+        </ErrorBoundary>
         </Suspense>
       </div>
       <Strip />
@@ -174,7 +181,7 @@ export function App() {
       <Banners />
       <FolderImportNote />
       <ConfirmHost />
-      <KeysHelp />
+      <Suspense fallback={null}><KeysHelp /></Suspense>
       <TabProgress />
     </div>
   );

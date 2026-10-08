@@ -13,6 +13,9 @@ import { cx } from "./ui";
 /** The dialogs open now, the innermost last. */
 const stack: symbol[] = [];
 
+/** Something open over the dialog that keeps its own keys: a dropdown's list, a menu, a popover. */
+const OVER = "[role=listbox], [role=menu], [data-floating]";
+
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Dialog({ label, onClose, children, className, z = "z-40" }: {
@@ -39,14 +42,15 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
     if (el && !el.contains(document.activeElement)) (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
       if (stack.at(-1) !== id || !el) return;
-      if (e.key === "Escape") {
+      // Escape closes what is open over the dialog first: its list closes, the dialog stays with what it holds
+      if (e.key === "Escape" && !document.querySelector(OVER)) {
         e.preventDefault();
         e.stopPropagation();
         closeNow.current();
         return;
       }
       // Tab stays inside the dialog (a dropdown or a menu open over it keeps its own keys)
-      if (e.key === "Tab" && !document.querySelector("[role=listbox], [role=menu]")) {
+      if (e.key === "Tab" && !document.querySelector(OVER)) {
         const all = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement);
         if (!all.length) {
           e.preventDefault();

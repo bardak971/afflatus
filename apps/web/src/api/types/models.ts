@@ -65,6 +65,8 @@ export interface UpdateReport {
   hashesLeft: number;
   checkedAt: string | null;
   lookups: boolean;
+  /** Why the last check did not go through; null once one has. */
+  error?: string | null;
 }
 /** Where ComfyUI shows a workflow Afflatus put there: straight from the address, or from its Workflows sidebar. */
 export interface Opened {
@@ -92,6 +94,8 @@ export interface WorkflowBrief {
   source: string;
   output: "image" | "video" | "audio";
   nodes: number;
+  /** Why it is not offered as a form: it could not be built (a newer node's format, say). Still listed, so it can be fixed or removed. */
+  problem?: string;
 }
 /** What is saved for a workflow: the workflow itself and which of its parts Afflatus fills in. */
 export interface WorkflowBody {

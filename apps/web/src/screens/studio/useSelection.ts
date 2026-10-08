@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { api, type Asset } from "../../api";
 import { askAboutDisk } from "../../Confirm";
 import { plainKey } from "../../Keys";
@@ -15,7 +15,6 @@ export function useSelection({ items, listKey, binned, off }: {
   off: boolean;
 }) {
   // ---- several items ticked, to move, keep or delete them together
-  const client = useQueryClient();
   const [picked, setPicked] = useState<string[]>([]);
   const lastPicked = useRef<string | null>(null);
   const tick = (a: Asset, range: boolean) => {
@@ -30,10 +29,8 @@ export function useSelection({ items, listKey, binned, off }: {
   };
   // what is ticked is of the list that is shown: another folder, another search, and nothing is
   useEffect(() => setPicked([]), [listKey]);
-  const afterBulk = () => {
-    setPicked([]);
-    return client.invalidateQueries({ queryKey: ["assets"] });
-  };
+  // the library refreshes on the server's own word (its `library` event)
+  const afterBulk = () => setPicked([]);
   const bulk = useMutation({ mutationFn: (action: "keep" | "unkeep" | "bin" | "restore") => api.bulkAssets(picked, action), onSuccess: afterBulk });
   const moveTo = useMutation({ mutationFn: (to: string | null) => api.moveAssets(picked, to), onSuccess: afterBulk });
   const chosen = items.filter((a) => picked.includes(a.id));

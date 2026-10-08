@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDownToLine, Copy, Eraser, Pause, Play, Search } from "lucide-react";
 import { api } from "../../api";
+import { copyText } from "../../secureContext";
 import { Button, cx, ErrorNote } from "../../ui";
 
 /**
@@ -76,7 +77,7 @@ export function ComfyLog({ online }: { online: boolean }) {
         </button>
         <Button size="sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)} title={paused ? "Read the log again every two seconds" : "Stop reading: what is here stays put"}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? "Resume" : "Pause"}</Button>
         <Button size="sm" onClick={() => { setLines([]); seen.current.clear(); }} title="Empty this view. ComfyUI keeps its own log."><Eraser size={13} /> Clear view</Button>
-        <Button size="sm" onClick={() => void navigator.clipboard?.writeText(shown.map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} title="Copy the lines shown"><Copy size={13} /> Copy</Button>
+        <Button size="sm" onClick={() => void copyText(shown.map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} title="Copy the lines shown"><Copy size={13} /> Copy</Button>
         {!stuck && <Button size="sm" tone="primary" onClick={() => { setStuck(true); if (box.current) box.current.scrollTop = box.current.scrollHeight; }}><ArrowDownToLine size={13} /> Follow the end</Button>}
         <span className="grow" />
         <span className="text-ink-3">{shown.length} of {lines.length} lines{paused ? " · paused" : log.isFetching ? " · reading…" : ""} · read-only, straight from ComfyUI</span>

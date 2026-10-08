@@ -1,26 +1,25 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Plus } from "lucide-react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { api, type Asset } from "../api";
-import { useFolders, useProjects, useQueue, useTimelines } from "../data";
+import { useFolders, useProjects, useTimelines } from "../data";
 import { useProject } from "../project";
 import { plainKey } from "../Keys";
 import { Popover } from "../Popover";
-import { useBanners, useHandover, useOpenDraft } from "../store";
+import { displayOf, useBanners, useHandover, useOpenDraft, useStudio, type Scope } from "../store";
 import { cx, Empty, ErrorNote } from "../ui";
 import { Viewer } from "../Viewer";
 import { useTileMenu } from "../TileMenu";
-import { DRAG_TYPE, FolderPanel, Tile, type Place } from "./Library";
+import { DRAG_TYPE, FolderPanel, Tile } from "./Library";
 import { TimelineCards } from "./studio/TimelineCards";
 import { LoadMore } from "../LoadMore";
 import { CreatePanel } from "./studio/CreatePanel";
 import { DraftResults } from "./studio/DraftResults";
-import { groupItems, type GroupBy } from "./studio/grouping";
+import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
+import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
 import { useSelection } from "./studio/useSelection";
 
@@ -31,34 +30,23 @@ import { useSelection } from "./studio/useSelection";
  * result large.
  */
 
-/** How the screen was left: kept from one visit to the next, and while another screen is open. */
-export type Display = "Stage" | "S" | "M" | "L";
-export type Scope = "draft" | "all" | "recent" | "kept";
-export const useStudio = create<{
-  form: boolean;
-  /** The last grid size chosen: what a scope with no display of its own shows. */
-  size: "S" | "M" | "L";
-  /** The display each scope was left on (Stage: the newest large, the others in a strip). */
-  displays: Partial<Record<Scope, Display>>;
-  /** How the grid is cut into sections. */
-  groupBy: GroupBy;
-  /** The Timelines view: its order and the size of its cards. */
-  timelineSort: "recent" | "name" | "length";
-  timelineSize: "S" | "M" | "L";
-  /** What the grid shows while the form is open: this draft's outputs, the whole folder, the last two days, what was kept. */
-  scope: "draft" | "all" | "recent" | "kept";
-  place: Place;
-  set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; displays: Partial<Record<Scope, Display>>; groupBy: GroupBy; timelineSort: "recent" | "name" | "length"; timelineSize: "S" | "M" | "L"; scope: Scope; place: Place }>): void;
-}>()(persist((set) => ({ form: false, size: "M", displays: {}, groupBy: "none", timelineSort: "recent", timelineSize: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "afflatus.studio" }));
-/** What a scope shows: what it was left on, else the stage for "This draft" and the last grid size elsewhere. */
-export const displayOf = (v: { size: "S" | "M" | "L"; displays?: Partial<Record<Scope, Display>> }, scope: Scope): Display => v.displays?.[scope] ?? (scope === "draft" ? "Stage" : v.size);
-/** The folder open in the library, for what is brought in from outside (a drop, an upload): null when none is. */
-export const openFolderId = (): string | null => {
-  const p = useStudio.getState().place;
-  return p.type === "folder" ? p.id : null;
-};
+export { useStudio, displayOf, openFolderId, type Display, type Scope } from "../store";
 
 const TILE = { S: "minmax(120px,1fr)", M: "minmax(170px,1fr)", L: "minmax(250px,1fr)" };
+
+/** What is being made now, first in the grid where its result will land: the only part of the screen that follows its progress. */
+function RunningTile({ onDraft }: { onDraft(id: string): void }) {
+  const running = useQueueOf((q) => (q.running?.kind === "render" ? q.running : null));
+  if (!running) return null;
+  return (
+    <LiveTile
+      job={running}
+      title={running.draftId ? "Open the draft it was queued from" : undefined}
+      // to the draft it comes from: the form opens on it, with what it has made beside it
+      onClick={running.draftId ? () => onDraft(running.draftId!) : undefined}
+    />
+  );
+}
 
 /** The form folded away: a rail at the left edge, as the timeline's media shelf folds, with the way to open it. */
 function FormRail({ onOpen }: { onOpen(): void }) {
@@ -143,7 +131,8 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
       if (by === "length") return b.durationMs - a.durationMs;
       return b.updatedAt.localeCompare(a.updatedAt);
     });
-  const queue = useQueue();
+  // whether a render runs, and from which draft: not its progress, which would draw the whole screen again at every step
+  const running = useQueueOf((q) => (q.running?.kind === "render" ? { draftId: q.running.draftId } : q.running ? { draftId: null as string | null, other: true } : null)) ?? null;
 
   // the folders: a panel under their button, which also opens by itself while something is dragged, to drop it on a folder
   const folderButton = useRef<HTMLButtonElement>(null);
@@ -183,7 +172,6 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
       window.removeEventListener("drop", dropped);
     };
   }, []);
-  const running = queue.data?.running ?? null;
 
   // what is ticked is of the list that is shown: another folder, another search, and nothing is
   const listKey = JSON.stringify([place, kind, q, made, lora, kept, draftOnly, reach]);
@@ -229,9 +217,17 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   };
   const gridMenu = useTileMenu({ onOpen: setOpen, onSelect: (a) => tick(a, false), into: { draft: draftOnly ? draftId ?? undefined : undefined, folder: folder?.id } });
 
+  // what the Create panel is handed keeps its identity from one draw to the next: the panel is not drawn again for nothing
+  const panelFolder = useMemo(() => (folder ? { id: folder.id, name: folder.name, path: folder.path } : null), [folder?.id, folder?.name, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps
+  const closePanel = useCallback(() => useStudio.getState().set({ form: false }), []);
+  const openRunningDraft = (id: string) => {
+    openDraft(id);
+    view.set({ form: true, scope: "draft" });
+  };
+
   return (
     <div className="flex min-h-0 min-w-0 grow">
-      {view.form ? <CreatePanel folder={folder ? { id: folder.id, name: folder.name, path: folder.path } : null} onClose={() => view.set({ form: false })} /> : <FormRail onOpen={() => view.set({ form: true })} />}
+      {view.form ? <CreatePanel folder={panelFolder} onClose={closePanel} /> : <FormRail onOpen={() => view.set({ form: true })} />}
       <div className="flex min-w-0 grow flex-col">
         <LibraryHeader place={place} placeName={placeName} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} items={items} filters={filters} selection={selection} />
 
@@ -239,7 +235,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
           {draftOnly ? (
             stageOfDraft
               ? <DraftResults draft={draftId!} folder={folder?.id} />
-              : <DraftResults folder={folder?.id} empty={items.length && !staged.length ? groupedEmpty : undefined} list={{ items: staged, hasNextPage: Boolean(assets.hasNextPage), more: () => void assets.fetchNextPage(), loading: assets.isFetchingNextPage, ready: assets.isSuccess }} title={reach === "recent" ? "All recent" : placeName} />
+              : <DraftResults folder={folder?.id} empty={items.length && !staged.length ? groupedEmpty : undefined} list={{ items: staged, hasNextPage: Boolean(assets.hasNextPage), more: () => void assets.fetchNextPage(), hasPreviousPage: Boolean(assets.hasPreviousPage), newer: () => void assets.fetchPreviousPage(), loading: assets.isFetchingNextPage || assets.isFetchingPreviousPage, ready: assets.isSuccess }} title={reach === "recent" ? "All recent" : placeName} />
           ) : (
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
@@ -256,20 +252,12 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                         : "Images and videos you generate appear here. Start with Create."}
                 </Empty>
               )}
+              {/* the pages above, let go past the cap (useAssets), read again when scrolled back up to */}
+              {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title}>{groupedEmpty.body}</Empty>}
               <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${TILE[display === "Stage" ? view.size : display]})` }}>
                 {/* what is being made now comes first, where its result will land */}
-                {!showTimelines && running && running.kind === "render" && place.type !== "bin" && !filtered && (
-                  <LiveTile
-                    job={running}
-                    title={running.draftId ? "Open the draft it was queued from" : undefined}
-                    // to the draft it comes from: the form opens on it, with what it has made beside it
-                    onClick={running.draftId ? () => {
-                      openDraft(running.draftId);
-                      view.set({ form: true, scope: "draft" });
-                    } : undefined}
-                  />
-                )}
+                {!showTimelines && running && !("other" in running) && place.type !== "bin" && !filtered && <RunningTile onDraft={openRunningDraft} />}
                 {sections.length === 1 && !sections[0]!.key && sections[0]!.entries.map((e) => tileOf(e))}
               </div>
               {(sections.length > 1 || Boolean(sections[0]?.key)) && sections.map((sec) => (
@@ -284,7 +272,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                   </div>
                 </section>
               ))}
-              {!showTimelines && <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage} onMore={() => void assets.fetchNextPage()} />}
+              {!showTimelines && <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage || assets.isFetchingPreviousPage} onMore={() => void assets.fetchNextPage()} />}
             </>
           )}
         </div>

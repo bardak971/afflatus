@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, Check, FolderKanban, Pencil, Plus } from "lucide-react";
 import { api, type Project } from "./api";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
-import { useProjects } from "./data";
+import { DRAFT_LIST, useProjects } from "./data";
 import { Dialog } from "./Dialog";
 import { useProject, type ProjectChoice } from "./project";
 import { Button, cx, ErrorNote, TwoStep } from "./ui";
@@ -62,8 +62,8 @@ function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): 
   const make = useMutation({
     mutationFn: (n: string) => api.createProject(n),
     onSuccess: (p) => {
+      // its root folder: the server says it with a "library" event, which reads the folders again
       void client.invalidateQueries({ queryKey: ["projects"] });
-      void client.invalidateQueries({ queryKey: ["assets", "folders"] });
       onMade(p);
     },
   });
@@ -95,10 +95,10 @@ function ManageProjects({ onClose }: { onClose(): void }) {
   const current = useProject((s) => s.id);
   const set = useProject((s) => s.set);
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+  // the library and the folders follow the server's "library" event; the drafts and the timelines carry the project in their keys
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["projects"] });
-    void client.invalidateQueries({ queryKey: ["assets"] });
-    void client.invalidateQueries({ queryKey: ["drafts"], exact: true });
+    void client.invalidateQueries({ queryKey: DRAFT_LIST });
     void client.invalidateQueries({ queryKey: ["timelines"] });
   };
   const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.editProject(v.id, { name: v.name }), onSuccess: () => { setEditing(null); refresh(); } });

@@ -10,7 +10,7 @@ import { fileLabel } from "../../format";
 import { Select } from "../../Select";
 import { Button, cx, Segmented } from "../../ui";
 import type { Place } from "../Library";
-import { displayOf, type Scope, type useStudio } from "../Studio";
+import { displayOf, type Scope, type useStudio } from "../../store";
 import { KINDS, type LibraryFilters } from "./useLibraryFilters";
 import type { Selection } from "./useSelection";
 
@@ -44,10 +44,10 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
   filters: LibraryFilters;
   selection: Selection;
 }) {
-  const { kind, setKind, typed, setTyped, made, setMade, lora, setLora, kept, setKept, reach, showTimelines } = filters;
+  const { kind, setKind, typed, setTyped, made, lora, kept, reach, showTimelines } = filters;
   // the scope the display is remembered for: with the form closed, the grid is the folder's
   const scopeNow = reach as Scope;
-  const { picked, setPicked, bulk, moveTo, chosen, binChosen } = selection;
+  const { picked } = selection;
   // one line, always: what does not fit folds, step by step (useFit): 1 the kinds into a menu, 2 the search into an icon, 3 the scopes into a menu
   const bar = useRef<HTMLElement>(null);
   const fold = useFit(bar, 3);
@@ -56,37 +56,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
   const filtersButton = useRef<HTMLButtonElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const active = [made && "model", lora && "LoRA", kept && "Kept only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
-  const folders = useFolders();
-  const projects = useProjects();
-  // the ticked pictures and videos, in the order they were ticked: what a new timeline is made of
-  const [, go] = useLocation();
-  const make = useMakeTimelineOf({ onSuccess: (t) => go(`/timelines/${t.id}`) });
-  const ordered = picked.map((id) => items.find((a) => a.id === id)).filter((a): a is Asset => Boolean(a && a.kind !== "audio"));
-  const usedModels = useAssetModels();
-  const families = useAssetFamilies();
-  const recipes = useRecipes();
-  const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
-  // every place a selection can go, grouped by project: the project itself (its root folder), then its folders
-  // indented under it; last the Inbox's folders. A folder's name alone does not say which project it is in.
-  const folderOptions = useMemo(() => {
-    const all = folders.data?.items ?? [];
-    const out: Array<{ value: string; label: string; note?: string; group: string }> = [];
-    const walk = (parent: string | null, project: string | null, path: string, group: string, skip: string | null) => {
-      for (const f of all.filter((x) => x.parentId === parent && x.projectId === project && x.id !== skip)) {
-        out.push({ value: f.id, label: path ? `${path} › ${f.name}` : f.name, group });
-        walk(f.id, project, path ? `${path} › ${f.name}` : f.name, group, skip);
-      }
-    };
-    for (const p of (projects.data?.items ?? []).filter((x) => !x.archivedAt)) {
-      if (p.folderId) out.push({ value: p.folderId, label: "Root", note: "the project itself, in no folder", group: p.name });
-      walk(null, p.id, "", p.name, p.folderId);
-    }
-    walk(null, null, "", "Inbox", null);
-    out.push({ value: "__none__", label: "Inbox", note: "out of every folder and project", group: "Inbox" });
-    return out;
-  }, [folders.data, projects.data]);
   return (
-
     <header ref={bar} className="flex h-[60px] shrink-0 flex-nowrap items-center gap-2 overflow-hidden px-5">
       <h1 className="sr-only">Studio</h1>
       <button
@@ -153,30 +123,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
       )))}
       <span className="min-w-2 grow" />
       <div id="timeline-selection-slot" className="contents" />
-      {!draftOnly && picked.length > 0 && (
-        <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
-          <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
-          {picked.length < items.length && <button type="button" onClick={() => setPicked(items.map((a) => a.id))} className="text-xs text-ink-2 underline hover:text-ink">select all {items.length}</button>}
-          {place.type === "bin" ? (
-            <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Restore</Button>
-          ) : (
-            <>
-              {ordered.length > 0 && <Button size="sm" disabled={make.isPending} title="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} /> {make.isPending ? "Making…" : "Make a timeline of these"}</Button>}
-              <div className="w-44">
-                <Select
-                  size="sm" label="Move the selected items to a folder" placeholder="Move to folder" searchHint="Search folders" value=""
-                  onChange={(to) => moveTo.mutate(to === "__none__" ? null : to)}
-                  options={folderOptions}
-                />
-              </div>
-              {chosen.some((a) => !a.kept) && <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} /> Keep</Button>}
-              {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} title="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Unkeep</Button>}
-              <Button size="sm" disabled={bulk.isPending} title="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} /> Bin</Button>
-            </>
-          )}
-          <button type="button" aria-label="Clear selection" title="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
-        </div>
-      )}
+      {!draftOnly && picked.length > 0 && <SelectionBar place={place} items={items} selection={selection} />}
       {!draftOnly && picked.length === 0 && (
         <>
           {fold >= 2 && !searching && !typed ? (
@@ -204,53 +151,116 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
           </button>}
         </>
       )}
-      {filtersOpen && (
-        <Popover anchor={filtersButton} onClose={() => setFiltersOpen(false)} label="Filters" width={300} height={340}>
-          <div className="flex flex-col gap-3 p-3">
-            {!showTimelines && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Group by</span>
-                <Segmented
-                  label="Group by" value={view.groupBy ?? "none"}
-                  onChange={(g) => view.set({ groupBy: g })}
-                  options={[{ value: "none", label: "None" }, { value: "timeline", label: "Timeline" }, { value: "draft", label: "Draft" }, { value: "day", label: "Day" }]}
-                />
-                <span className="text-xs text-ink-3">{GROUP_HINT[view.groupBy ?? "none"]}</span>
-              </div>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Filter</span>
-          {(families.data?.items.length ?? 0) > 0 && (
-            <div>
-              <Select
-                size="sm" className={cx(made && "border-accent")} label="Filter by model" searchHint="Search models used in the library" value={made} onChange={setMade}
-                options={[
-                  { value: "", label: "Any model" },
-                  ...families.data!.items.map((f) => ({ value: `f:${f}`, label: familyName(f), group: "Model family" })),
-                  ...(usedModels.data?.models ?? []).map((m) => ({ value: `m:${m.file}`, label: fileLabel(m.file), note: String(m.count), search: m.file, group: "Checkpoint or model file" })),
-                ]}
-              />
-            </div>
-          )}
-          {(usedModels.data?.loras.length ?? 0) > 0 && (
-            <div>
-              <Select
-                size="sm" className={cx(lora && "border-accent")} label="Filter by LoRA" searchHint="Search LoRAs used in the library" value={lora} onChange={setLora}
-                options={[{ value: "", label: "Any LoRA" }, ...usedModels.data!.loras.map((l) => ({ value: l.file, label: fileLabel(l.file), note: String(l.count), search: l.file }))]}
-              />
-            </div>
-          )}
-              <button type="button" aria-pressed={kept} onClick={() => setKept(!kept)} className={cx("flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
-                <Star size={13} fill={kept ? "currentColor" : "none"} /> Kept only
-              </button>
-            </div>
-            {active.length > 0 && (
-              <button type="button" onClick={() => { setMade(""); setLora(""); setKept(false); view.set({ groupBy: "none" }); }} className="self-start text-xs text-ink-2 underline hover:text-ink">Clear all</button>
-            )}
-          </div>
-        </Popover>
-      )}
+      {filtersOpen && <FiltersPanel anchor={filtersButton} onClose={() => setFiltersOpen(false)} view={view} filters={filters} active={active.length > 0} />}
     </header>
+  );
+}
 
+/** With items ticked: how many, and what is done with them together (a timeline of them, a folder, keep, the bin). */
+function SelectionBar({ place, items, selection }: { place: Place; items: Asset[]; selection: Selection }) {
+  const { picked, setPicked, bulk, moveTo, chosen, binChosen } = selection;
+  const folders = useFolders();
+  const projects = useProjects();
+  // the ticked pictures and videos, in the order they were ticked: what a new timeline is made of
+  const [, go] = useLocation();
+  const make = useMakeTimelineOf({ onSuccess: (t) => go(`/timelines/${t.id}`) });
+  const ordered = picked.map((id) => items.find((a) => a.id === id)).filter((a): a is Asset => Boolean(a && a.kind !== "audio"));
+  // every place a selection can go, grouped by project: the project itself (its root folder), then its folders
+  // indented under it; last the Inbox's folders. A folder's name alone does not say which project it is in.
+  const folderOptions = useMemo(() => {
+    const all = folders.data?.items ?? [];
+    const out: Array<{ value: string; label: string; note?: string; group: string }> = [];
+    const walk = (parent: string | null, project: string | null, path: string, group: string, skip: string | null) => {
+      for (const f of all.filter((x) => x.parentId === parent && x.projectId === project && x.id !== skip)) {
+        out.push({ value: f.id, label: path ? `${path} › ${f.name}` : f.name, group });
+        walk(f.id, project, path ? `${path} › ${f.name}` : f.name, group, skip);
+      }
+    };
+    for (const p of (projects.data?.items ?? []).filter((x) => !x.archivedAt)) {
+      if (p.folderId) out.push({ value: p.folderId, label: "Root", note: "the project itself, in no folder", group: p.name });
+      walk(null, p.id, "", p.name, p.folderId);
+    }
+    walk(null, null, "", "Inbox", null);
+    out.push({ value: "__none__", label: "Inbox", note: "out of every folder and project", group: "Inbox" });
+    return out;
+  }, [folders.data, projects.data]);
+  return (
+    <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
+      <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
+      {picked.length < items.length && <button type="button" onClick={() => setPicked(items.map((a) => a.id))} className="text-xs text-ink-2 underline hover:text-ink">select all {items.length}</button>}
+      {place.type === "bin" ? (
+        <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Restore</Button>
+      ) : (
+        <>
+          {ordered.length > 0 && <Button size="sm" disabled={make.isPending} title="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} /> {make.isPending ? "Making…" : "Make a timeline of these"}</Button>}
+          <div className="w-44">
+            <Select
+              size="sm" label="Move the selected items to a folder" placeholder="Move to folder" searchHint="Search folders" value=""
+              onChange={(to) => moveTo.mutate(to === "__none__" ? null : to)}
+              options={folderOptions}
+            />
+          </div>
+          {chosen.some((a) => !a.kept) && <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} /> Keep</Button>}
+          {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} title="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Unkeep</Button>}
+          <Button size="sm" disabled={bulk.isPending} title="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} /> Bin</Button>
+        </>
+      )}
+      <button type="button" aria-label="Clear selection" title="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+    </div>
+  );
+}
+
+/** Model, LoRA, Kept only and the grouping: set now and then, so in a panel under the Filters button. */
+function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefObject<HTMLButtonElement | null>; onClose(): void; view: ReturnType<typeof useStudio.getState>; filters: LibraryFilters; /** Something is set: "Clear all" is offered. */ active: boolean }) {
+  const { made, setMade, lora, setLora, kept, setKept, showTimelines } = filters;
+  const usedModels = useAssetModels();
+  const families = useAssetFamilies();
+  const recipes = useRecipes();
+  const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
+  return (
+    <Popover anchor={anchor} onClose={onClose} label="Filters" width={300} height={340}>
+      <div className="flex flex-col gap-3 p-3">
+        {!showTimelines && (
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Group by</span>
+            <Segmented
+              label="Group by" value={view.groupBy ?? "none"}
+              onChange={(g) => view.set({ groupBy: g })}
+              options={[{ value: "none", label: "None" }, { value: "timeline", label: "Timeline" }, { value: "draft", label: "Draft" }, { value: "day", label: "Day" }]}
+            />
+            <span className="text-xs text-ink-3">{GROUP_HINT[view.groupBy ?? "none"]}</span>
+          </div>
+        )}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Filter</span>
+      {(families.data?.items.length ?? 0) > 0 && (
+        <div>
+          <Select
+            size="sm" className={cx(made && "border-accent")} label="Filter by model" searchHint="Search models used in the library" value={made} onChange={setMade}
+            options={[
+              { value: "", label: "Any model" },
+              ...families.data!.items.map((f) => ({ value: `f:${f}`, label: familyName(f), group: "Model family" })),
+              ...(usedModels.data?.models ?? []).map((m) => ({ value: `m:${m.file}`, label: fileLabel(m.file), note: String(m.count), search: m.file, group: "Checkpoint or model file" })),
+            ]}
+          />
+        </div>
+      )}
+      {(usedModels.data?.loras.length ?? 0) > 0 && (
+        <div>
+          <Select
+            size="sm" className={cx(lora && "border-accent")} label="Filter by LoRA" searchHint="Search LoRAs used in the library" value={lora} onChange={setLora}
+            options={[{ value: "", label: "Any LoRA" }, ...usedModels.data!.loras.map((l) => ({ value: l.file, label: fileLabel(l.file), note: String(l.count), search: l.file }))]}
+          />
+        </div>
+      )}
+          <button type="button" aria-pressed={kept} onClick={() => setKept(!kept)} className={cx("flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
+            <Star size={13} fill={kept ? "currentColor" : "none"} /> Kept only
+          </button>
+        </div>
+        {active && (
+          <button type="button" onClick={() => { setMade(""); setLora(""); setKept(false); view.set({ groupBy: "none" }); }} className="self-start text-xs text-ink-2 underline hover:text-ink">Clear all</button>
+        )}
+      </div>
+    </Popover>
   );
 }

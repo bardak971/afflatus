@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
@@ -52,6 +52,9 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  // the search bar is the combobox: a screen reader follows the active option through aria-activedescendant
+  const listId = useId();
+  const optionId = (i: number) => `${listId}-${i}`;
 
   const selected = options.find((o) => o.value === value);
   // sections stay in their order while searching: the best matches of the first section, then of the next
@@ -164,6 +167,11 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
             <Search size={14} className="shrink-0 text-ink-3" />
             <input
               autoFocus
+              role="combobox"
+              aria-expanded="true"
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={shown[active] ? optionId(active) : undefined}
               aria-label={`Search ${label}`}
               placeholder={searchHint ?? (options.length > 1 ? `Search ${options.length}` : "Search")}
               value={query}
@@ -187,14 +195,16 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
               className="h-10 min-w-0 grow bg-transparent text-ink placeholder:text-ink-3"
             />
           </div>
-          <div ref={list} role="listbox" aria-label={label} className="flex min-h-0 grow flex-col overflow-y-auto p-1">
+          <div ref={list} id={listId} role="listbox" aria-label={label} className="flex min-h-0 grow flex-col overflow-y-auto p-1">
             {shown.map((o, i) => (
               <Fragment key={o.value}>
               {o.group && o.group !== shown[i - 1]?.group && <div className={cx("shrink-0 px-2 pt-2 pb-1 text-[10px] font-bold tracking-[0.08em] uppercase", o.marked ? "text-accent" : "text-ink-3")}>{o.group}</div>}
               <button
                 type="button"
+                id={optionId(i)}
                 role="option"
                 aria-selected={o.value === value}
+                tabIndex={-1}
                 data-index={i}
                 onClick={() => pick(o)}
                 onPointerMove={() => setActive(i)}

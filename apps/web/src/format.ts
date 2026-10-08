@@ -2,6 +2,17 @@ import type { RecipeStatus } from "./api";
 import { missingNodesSaid } from "@afflatus/core";
 
 /** "42 s", "3 min 05 s". */
+/** A length to a tenth of a second: "4.5 s". */
+export const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+
+/** A time that was measured, said plainly: "48 s", "2 min 10 s", "1 h 05 min". */
+export function spell(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return s % 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s / 60} min`;
+  return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`;
+}
+
 export function took(ms: number): string {
   const s = Math.round(ms / 1000);
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
@@ -29,12 +40,44 @@ export function clock(ms: number, opts: { decimals?: 0 | 1 | 2 } = {}): string {
   return `${base}.${String(part).padStart(decimals, "0")}`;
 }
 
+/** How long something has been going, to the second below: "0:59", "12:05" (minutes past the hour go on counting). */
+export function elapsed(ms: number): string {
+  const s = Math.floor(Math.max(0, ms) / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** A long time: "42 s" (under a minute and a half), "48 min", "6 h 12 min". */
+export function long(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  return ms < 90_000 ? took(ms) : min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")} min`;
+}
+
+/** The same as `long`, short enough for the scale of a chart: "42s", "3m 05s", "4m", "1h 05m". */
+export function brief(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return s % 60 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s` : `${s / 60}m`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+
+/** Seconds per step, as ComfyUI says it (s/it): two decimals under ten seconds, one above. "—" when not known. */
+export const pace = (stepMs: number | null): string => (stepMs === null ? "—" : (stepMs / 1000).toFixed(stepMs < 10_000 ? 2 : 1));
+
+/** What is left of a countdown: "going to the bin" once over, else "12 min left" (never under 1), "5 h left". */
+export function left(ms: number, over = "going to the bin"): string {
+  return ms <= 0 ? over : ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min left` : `${Math.round(ms / 3_600_000)} h left`;
+}
+
 /** A time that is a guess, said as one: "about 40 s", "about 2 min". Empty when there is nothing to go on. */
 export function aboutMs(ms: number | null | undefined): string {
   if (!ms || ms <= 0) return "";
   const s = ms / 1000;
   return s < 90 ? `about ${Math.max(5, Math.round(s / 5) * 5)} s` : `about ${Math.round(s / 60)} min`;
 }
+
+const REPO = "https://github.com/bardak971/afflatus";
+/** Where the source of a release is: its tag ("v0.2.1", "0.2.1"); the repository itself for "dev" or nothing known. */
+export const sourceOf = (version: string | undefined) => (version && /^v?\d+\.\d+\.\d+/.test(version) ? `${REPO}/tree/${version}` : REPO);
 
 /** A size on disk: "340 MB", "38.2 GB". */
 export const size = (bytes: number) =>
@@ -63,7 +106,6 @@ export function when(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/** Why a recipe cannot run on this ComfyUI, in one sentence. */
 /** The graph checker's words, said plainly: `49:43 KSampler: "beta57" is not a choice of "scheduler"`. */
 export function problemSaid(problem: string): string {
   const choice = /^(\S+) (.+?): "(.*)" is not a choice of "(.+)"$/.exec(problem);
@@ -71,6 +113,7 @@ export function problemSaid(problem: string): string {
   return `ComfyUI would refuse it: ${problem}.`;
 }
 
+/** Why a recipe cannot run on this ComfyUI, in one sentence. */
 export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean): string | null {
   if (!comfyOnline) return "ComfyUI is not answering.";
   if (!status || status.ready) return null;

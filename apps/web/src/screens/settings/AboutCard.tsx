@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSetup } from "../../data";
+import { sourceOf } from "../../format";
 import { Button, cx, ErrorNote } from "../../ui";
 
 /** The app itself: its version, where it runs, what it talks to. */
@@ -19,7 +20,8 @@ export function AboutCard() {
         <dt>Database</dt><dd className="text-ink">{health.data?.database ?? "…"}</dd>
         <dt>ComfyUI</dt><dd className="text-ink">{comfy?.online ? `${comfy.version} · ${comfy.nodes} node types · ${comfy.device}` : comfy ? "not answering" : "…"}</dd>
         <dt>License</dt><dd className="text-ink">AGPL-3.0</dd>
-        <dt>Source</dt><dd><a className="font-semibold text-ink underline" href="https://github.com/bardak971/afflatus" target="_blank" rel="noreferrer">github.com/bardak971/afflatus</a></dd>
+        {/* the AGPL's offer of the source: the code of the release that runs, not whatever the main branch holds now */}
+        <dt>Source</dt><dd><a className="font-semibold text-ink underline" href={sourceOf(health.data?.version)} target="_blank" rel="noreferrer">{sourceOf(health.data?.version).replace(/^https:\/\//, "")}</a></dd>
       </dl>
       <h3 className="mt-2 font-bold">On this computer</h3>
       <div className="text-ink-2">What Afflatus needs where it runs, checked when it started{health.data?.checkedAt ? ` (${new Date(health.data.checkedAt).toLocaleTimeString()})` : ""}. ComfyUI is checked on its own tab.</div>

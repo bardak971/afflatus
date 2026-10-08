@@ -27,6 +27,18 @@ export type MenuItem =
 interface MenuAt {
   x: number;
   y: number;
+  /** Opened from the keyboard (the menu key, Shift + F10, Enter on a button): its first item is active at once. */
+  keyed?: boolean;
+}
+
+/**
+ * Where a menu opens: at the pointer, or, opened from the keyboard (which leaves the pointer at 0, 0), under
+ * the top of the element it was opened on.
+ */
+export function menuAt(e: { clientX: number; clientY: number }, el: { getBoundingClientRect(): { left: number; top: number; width: number; height: number } } | null): MenuAt {
+  if ((e.clientX !== 0 || e.clientY !== 0) || !el) return { x: e.clientX, y: e.clientY };
+  const r = el.getBoundingClientRect();
+  return { x: r.left + Math.min(16, r.width / 2), y: r.top + Math.min(r.height, 28), keyed: true };
 }
 
 /**
@@ -50,7 +62,7 @@ export function ContextMenu({ at, items, label, onClose }: { at: MenuAt; items: 
       window.removeEventListener("blur", away);
     };
   }, [onClose]);
-  return createPortal(<Panel at={at} items={items} label={label} onClose={onClose} />, document.body);
+  return createPortal(<Panel at={at} items={items} label={label} onClose={onClose} keyed={Boolean(at.keyed)} />, document.body);
 }
 
 /** One panel of a menu: the menu itself, or a submenu beside the item that opened it. */
@@ -69,7 +81,7 @@ function Panel({ at, flipX, items, label, onClose, onBack, keyed = true }: {
   const rows = useRef<Array<HTMLButtonElement | null>>([]);
   const [pos, setPos] = useState<MenuAt>(at);
   const runnable = items.map((it, i) => (it !== "—" && !it.disabled ? i : -1)).filter((i) => i >= 0);
-  const [active, setActive] = useState(onBack && keyed ? (runnable[0] ?? -1) : -1);
+  const [active, setActive] = useState(keyed ? (runnable[0] ?? -1) : -1);
   /** The submenu open from this panel: which item, and whether the keyboard opened it. */
   const [sub, setSub] = useState<{ index: number; keyed: boolean } | null>(null);
 
@@ -183,9 +195,9 @@ function Panel({ at, flipX, items, label, onClose, onBack, keyed = true }: {
 /** The state of one menu: where it is and what it holds. `open` takes the right-click event. */
 export function useMenu<T>() {
   const [menu, setMenu] = useState<{ at: MenuAt; subject: T } | null>(null);
-  const open = (e: { preventDefault(): void; clientX: number; clientY: number }, subject: T) => {
+  const open = (e: { preventDefault(): void; clientX: number; clientY: number; currentTarget?: EventTarget | null }, subject: T) => {
     e.preventDefault();
-    setMenu({ at: { x: e.clientX, y: e.clientY }, subject });
+    setMenu({ at: menuAt(e, e.currentTarget instanceof Element ? e.currentTarget : null), subject });
   };
   return { menu, open, close: () => setMenu(null) };
 }

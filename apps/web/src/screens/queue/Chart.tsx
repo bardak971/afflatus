@@ -1,19 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../../ui";
 import { themeInUse, useThemeChoice } from "../../theme/store";
+import { brushWindow, curve, statOf } from "./chartMath";
+import { useBrush } from "./useBrush";
+import { PLOT, useChartScale, type Series } from "./useChartScale";
 
 /**
  * A panel with lines over time, after Grafana's: soft fills under the lines, a crosshair that reads
  * every series where the pointer is, and a legend whose entries can be clicked to look at one alone.
  */
-
-interface Series {
-  name: string;
-  /** One value per time; null where there is nothing to say (no render in that stretch): the line passes over it. */
-  values: Array<number | null>;
-  color?: string;
-  dashed?: boolean;
-}
 
 /** The colours lines are drawn in: the accents of the theme that is up, the one in use first. */
 export function useChartColors(): string[] {
@@ -25,45 +20,6 @@ export function useChartColors(): string[] {
     const first = all.find(([name]) => name === mine) ?? all[0];
     return [...new Set([first?.[1], ...all.map(([, c]) => c)].filter((c): c is string => Boolean(c)))];
   }, [choice]);
-}
-
-/** A curve through the points that never overshoots them (monotone cubic). */
-function curve(points: Array<[number, number]>): string {
-  const n = points.length;
-  if (!n) return "";
-  if (n < 3) return points.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
-  const dx: number[] = [];
-  const slope: number[] = [];
-  for (let i = 0; i < n - 1; i++) {
-    dx.push(points[i + 1]![0] - points[i]![0]);
-    slope.push((points[i + 1]![1] - points[i]![1]) / (dx[i] || 1));
-  }
-  const m: number[] = [slope[0]!];
-  for (let i = 1; i < n - 1; i++) m.push(slope[i - 1]! * slope[i]! <= 0 ? 0 : (slope[i - 1]! + slope[i]!) / 2);
-  m.push(slope[n - 2]!);
-  for (let i = 0; i < n - 1; i++) {
-    if (slope[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
-    const a = m[i]! / slope[i]!;
-    const b = m[i + 1]! / slope[i]!;
-    const h = Math.hypot(a, b);
-    if (h > 3) { m[i] = (3 / h) * a * slope[i]!; m[i + 1] = (3 / h) * b * slope[i]!; }
-  }
-  let d = `M${points[0]![0].toFixed(1)},${points[0]![1].toFixed(1)}`;
-  for (let i = 0; i < n - 1; i++) {
-    const [x0, y0] = points[i]!;
-    const [x1, y1] = points[i + 1]!;
-    const k = dx[i]! / 3;
-    d += `C${(x0 + k).toFixed(1)},${(y0 + m[i]! * k).toFixed(1)} ${(x1 - k).toFixed(1)},${(y1 - m[i + 1]! * k).toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`;
-  }
-  return d;
-}
-
-/** A round figure at or above the largest value, so the top grid line says something. */
-function ceiling(max: number): number {
-  if (max <= 0) return 1;
-  const power = 10 ** Math.floor(Math.log10(max));
-  for (const m of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * power >= max) return m * power;
-  return max;
 }
 
 export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, children, step, onBrush, detail }: {
@@ -101,7 +57,8 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
   const [solo, setSolo] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   /** A drag under way: where it began and where the pointer is, in pixels across the panel. */
-  const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
+  const brush = useBrush(Boolean(onBrush));
+  const drag = brush.drag;
   const palette = useChartColors();
   useEffect(() => {
     const el = box.current;
@@ -112,34 +69,10 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
     return () => watch.disconnect();
   }, []);
 
-  // past the last colour they come round again, dashed, so two lines of one colour can be told apart
-  const coloured = series.map((s, i) => ({ ...s, color: s.color ?? palette[i % palette.length] ?? "currentColor", dashed: s.dashed ?? (!s.color && i >= palette.length) }));
+  const { coloured, shown, stacks, max, x, y, W, H, n } = useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom });
+  const { L, T } = PLOT;
   const filled = fill ?? (stacked || series.length <= 3);
   const onAxis = axisFormat ?? format;
-  const shown = coloured.filter((s) => !solo || s.name === solo);
-  const L = 48, R = 10, T = 8, B = 20;
-  const W = width - L - R;
-  const H = height - T - B;
-  const n = times.length;
-  const x = (i: number) => L + (n > 1 ? (i / (n - 1)) * W : W / 2);
-
-  // stacked: each series sits on the sum of the ones under it
-  const stacks = useMemo(() => {
-    const base = new Array<number>(n).fill(0);
-    return shown.map((s) => {
-      const low = [...base];
-      const high = s.values.map((v, i) => (stacked ? (base[i] = base[i]! + (v ?? 0)) : v));
-      return { ...s, low, high };
-    });
-  }, [shown, stacked, n]);
-  const max = top ?? ceiling(Math.max(0, ...stacks.flatMap((s) => s.high.filter((v): v is number => v !== null))));
-  const y = (v: number) => T + H - ((Math.max(bottom, v) - bottom) / (max - bottom || 1)) * H;
-
-  const statOf = (values: Array<number | null>) => {
-    const real = values.filter((v): v is number => v !== null);
-    if (!real.length) return null;
-    return stat === "sum" ? real.reduce((a, b) => a + b, 0) : stat === "last" ? real.at(-1)! : stat === "max" ? Math.max(...real) : real.reduce((a, b) => a + b, 0) / real.length;
-  };
   // as many labels along the bottom as fit without touching, for labels of the length these are
   const labelWidth = Math.max(60, (n ? timeLabel(times[0]!).length : 8) * 6.5 + 24);
   const ticks = Math.max(2, Math.min(n, Math.floor(W / labelWidth)));
@@ -159,28 +92,20 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
             const rect = e.currentTarget.getBoundingClientRect();
             const px = e.clientX - rect.left;
             setHover(Math.max(0, Math.min(n - 1, Math.round(((px - L) / W) * (n - 1)))));
-            if (drag) setDrag({ ...drag, x1: px });
+            brush.move(e);
           }}
           onMouseLeave={() => {
             setHover(null);
-            setDrag(null);
+            brush.cancel();
           }}
           onMouseDown={(e) => {
-            if (!onBrush || e.button !== 0) return;
-            e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
-            setDrag({ x0: e.clientX - rect.left, x1: e.clientX - rect.left });
+            if (brush.start(e)) e.preventDefault();
           }}
           onMouseUp={() => {
             if (!drag || !onBrush) return;
-            const [a, b] = [Math.min(drag.x0, drag.x1), Math.max(drag.x0, drag.x1)];
-            setDrag(null);
-            if (b - a < 6 || n < 2) return;
-            const at = (px: number) => Math.max(0, Math.min(n - 1, ((px - L) / W) * (n - 1)));
-            const i0 = Math.floor(at(a));
-            const i1 = Math.ceil(at(b));
-            const span = step ?? (times[1]! - times[0]!);
-            onBrush(times[i0]!, Math.min(times[n - 1]! + span, times[i1]! + (i1 === i0 ? span : 0)));
+            const span = brush.end();
+            const window = span && brushWindow(span[0], span[1], { left: L, width: W }, times, step);
+            if (window) onBrush(window.from, window.to);
           }}
           style={onBrush ? { cursor: drag ? "col-resize" : "crosshair" } : undefined}
         >
@@ -248,7 +173,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
       </div>
       <div className="flex flex-wrap gap-x-3.5 gap-y-1">
         {coloured.map((s) => {
-          const value = statOf(s.values);
+          const value = statOf(s.values, stat);
           return (
             <button
               key={s.name}

@@ -46,6 +46,7 @@ export function ComfyCard() {
   useEffect(() => {
     if (savedDir !== undefined) setDir(savedDir);
   }, [savedDir]);
+  const unload = useMutation({ mutationFn: (minutes: number) => api.saveSettings({ unloadAfterMinutes: minutes }), onSuccess: (saved) => client.setQueryData(["settings"], saved) });
   const saveDir = useMutation({
     mutationFn: () => api.saveSettings({ comfyDir: dir.trim() }),
     onSuccess: (saved) => client.setQueryData(["settings"], saved),
@@ -125,10 +126,11 @@ export function ComfyCard() {
             min={0}
             max={1440}
             unit="min"
-            onCommit={(v) => void api.saveSettings({ unloadAfterMinutes: v }).then((saved) => client.setQueryData(["settings"], saved))}
+            onCommit={(v) => unload.mutate(v)}
           />
         </div>
       )}
+      {unload.isError && <ErrorNote>{unload.error.message}</ErrorNote>}
     </section>
   );
 }

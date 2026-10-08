@@ -20,53 +20,71 @@ interface Run {
   /** Files that are no picture, video or sound: left where they are. */
   skipped: number;
   over: boolean;
+  /** What stopped it before it began (the folders could not be read). */
+  error?: string;
 }
 
+/** The folders a file sits in under the folder that was picked, the picked one first. */
+export const pathOf = (f: { webkitRelativePath?: string; name: string }) => (f.webkitRelativePath || f.name).split("/").slice(0, -1);
+
+/**
+ * The folder of the library a file's folders lead to, made when it is not there yet: each one once (the
+ * same promise for every file that needs it), one already there under the same parent used again.
+ */
+export function folderMaker(into: string | null, known: Array<Pick<Folder, "id" | "parentId" | "name">>, make: (name: string, parent: string | null) => Promise<string>) {
+  const made = new Map<string, Promise<string>>();
+  const folderFor = (parts: string[]): Promise<string | null> => {
+    if (!parts.length) return Promise.resolve(into);
+    const key = parts.join("/");
+    if (!made.has(key)) {
+      made.set(key, (async () => {
+        const parent = await folderFor(parts.slice(0, -1));
+        const leaf = parts.at(-1)!.slice(0, 120);
+        const there = known.find((f) => f.parentId === parent && f.name === leaf);
+        return there ? there.id : make(leaf, parent);
+      })());
+    }
+    return made.get(key)!;
+  };
+  return folderFor;
+}
+
+/**
+ * The library's lists follow by themselves while it runs: every upload is a "library" event, and live.ts
+ * reads the lists again at most once a second. The QueryClient is kept for the folders made here.
+ */
 export const useFolderImport = create<{ run: Run | null; start(files: File[], into: string | null, client: QueryClient): Promise<void>; dismiss(): void }>((set, get) => ({
   run: null,
   dismiss: () => set({ run: null }),
   async start(files, into, client) {
     if (get().run && !get().run!.over) return;
     const media = files.filter((f) => /^(image|video|audio)\//.test(f.type));
-    const pathOf = (f: File) => (f.webkitRelativePath || f.name).split("/").slice(0, -1);
     const name = pathOf(files[0] ?? new File([], ""))[0] ?? "a folder";
     set({ run: { name, done: 0, total: media.length, failed: 0, skipped: files.length - media.length, over: media.length === 0 } });
     if (!media.length) return;
-
-    // the folders it needs, made once each: one that is there already under the same parent is used again
-    const known: Folder[] = (await api.folders()).items;
-    const made = new Map<string, Promise<string>>();
-    const folderFor = (parts: string[]): Promise<string | null> => {
-      if (!parts.length) return Promise.resolve(into);
-      const key = parts.join("/");
-      if (!made.has(key)) {
-        made.set(key, (async () => {
-          const parent = await folderFor(parts.slice(0, -1));
-          const leaf = parts.at(-1)!.slice(0, 120);
-          const there = known.find((f) => f.parentId === parent && f.name === leaf);
-          return there ? there.id : (await api.createFolder(leaf, parent, parent ? undefined : projectForNew())).id;
-        })());
-      }
-      return made.get(key)!;
-    };
-
-    const left = [...media];
     const step = (patch: Partial<Run>) => set((s) => (s.run ? { run: { ...s.run, ...patch } } : s));
-    // a few at a time: the server reads each file to make its small picture
-    await Promise.all(Array.from({ length: 3 }, async () => {
-      for (let file = left.shift(); file; file = left.shift()) {
-        try {
-          const folder = await folderFor(pathOf(file));
-          await api.upload(file, { folder: folder ?? undefined, project: projectForNew() });
-          step({ done: get().run!.done + 1 });
-        } catch {
-          step({ done: get().run!.done + 1, failed: get().run!.failed + 1 });
+    try {
+      const folderFor = folderMaker(into, (await api.folders()).items, async (leaf, parent) => (await api.createFolder(leaf, parent, parent ? undefined : projectForNew())).id);
+      const left = [...media];
+      // a few at a time: the server reads each file to make its small picture
+      await Promise.all(Array.from({ length: 3 }, async () => {
+        for (let file = left.shift(); file; file = left.shift()) {
+          try {
+            const folder = await folderFor(pathOf(file));
+            await api.upload(file, { folder: folder ?? undefined, project: projectForNew() });
+            step({ done: get().run!.done + 1 });
+          } catch {
+            step({ done: get().run!.done + 1, failed: get().run!.failed + 1 });
+          }
         }
-        if (get().run!.done % 8 === 0) void client.invalidateQueries({ queryKey: ["assets"] });
-      }
-    }));
-    step({ over: true });
-    void client.invalidateQueries({ queryKey: ["assets"] });
+      }));
+    } catch (err) {
+      step({ error: (err as Error).message });
+    } finally {
+      // over whatever happened: the note can be closed, and the next import is not refused
+      step({ over: true });
+      void client.invalidateQueries({ queryKey: ["folders"] });
+    }
   },
 }));
 
@@ -79,7 +97,7 @@ export function FolderImportNote() {
     <div role="status" className="fixed bottom-14 left-24 z-[60] flex w-80 flex-col gap-1.5 rounded-xl border border-line-strong bg-panel px-3.5 py-2.5 shadow-2xl shadow-shade/60">
       <div className="flex items-center gap-2">
         <FolderUp size={14} className="shrink-0 text-ink-2" />
-        <span className="min-w-0 grow truncate font-semibold">{run.over ? `"${run.name}" is in your library` : `Importing "${run.name}"`}</span>
+        <span className="min-w-0 grow truncate font-semibold">{run.error ? `"${run.name}" could not be imported` : run.over ? `"${run.name}" is in your library` : `Importing "${run.name}"`}</span>
         {run.over && <button type="button" aria-label="Close" onClick={dismiss} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={13} /></button>}
       </div>
       {!run.over && <Bar value={run.total ? (run.done / run.total) * 100 : 0} />}
@@ -88,6 +106,7 @@ export function FolderImportNote() {
         {run.failed > 0 && <span className="text-warn-ink"> · {run.failed} failed</span>}
         {run.skipped > 0 && ` · ${run.skipped} other file${run.skipped === 1 ? "" : "s"} skipped`}
       </span>
+      {run.error && <span className="text-xs text-warn-ink">{run.error}</span>}
     </div>
   );
 }

@@ -31,4 +31,21 @@ describe("how much of a text is new", () => {
   it("counts the struck words out: they are not part of the new text", () => {
     expect(changedShare([{ text: "ab", kind: "same" }, { text: "cd", kind: "added" }, { text: "zzzz", kind: "removed" }])).toBe(0.5);
   });
+  it("is nothing for nothing", () => {
+    expect(changedShare([])).toBe(0);
+  });
+});
+
+describe("the word diff at the edges", () => {
+  it("marks everything added from an empty text, and everything gone to one", () => {
+    expect(text(wordDiff("", "two words")!)).toBe("+two words");
+    expect(text(wordDiff("two words", "")!)).toBe("-two words");
+    expect(wordDiff("", "")).toEqual([]);
+  });
+  it("tells a word with its punctuation from the word without it", () => {
+    expect(text(wordDiff("a dress, red", "a dress red")!)).toBe("a |-dress,|+dress| red");
+  });
+  it("is all the same for the same text", () => {
+    expect(wordDiff("same words here", "same words here")).toEqual([{ text: "same words here", kind: "same" }]);
+  });
 });

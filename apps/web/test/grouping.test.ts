@@ -38,4 +38,18 @@ describe("the grid in sections", () => {
     const today = new Date().toISOString();
     expect(groupItems([asset("t", { createdAt: today })], "day", new Set())[0]!.label).toBe("Today");
   });
+
+  it("names the days, counts the items of a section, and keeps their order", () => {
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+    const s = groupItems([asset("n1", { createdAt: yesterday }), asset("n2", { createdAt: yesterday })], "day", new Set());
+    expect(s.map((x) => [x.label, x.note])).toEqual([["Yesterday", "2 items"]]);
+    expect(s[0]!.entries.map((e) => e.asset.id)).toEqual(["n1", "n2"]);
+  });
+
+  it("links a timeline's section to it, and puts the lowest take on top when none plays", () => {
+    const s = groupItems([take("t2", "z", 1, 2, 2, false), take("t1", "z", 1, 1, 2, false)], "timeline", new Set());
+    expect(s[0]!.timeline).toBe("z");
+    expect(s[0]!.entries[0]!.asset.id).toBe("t1");
+    expect(s[0]!.entries[0]!.stack).toBe("z:1");
+  });
 });

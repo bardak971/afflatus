@@ -37,35 +37,43 @@ export function StageStrip({ job, className }: { job: Pick<RunningJob, "id" | "s
   );
 }
 
-export function LivePreview({ job, className, sound }: {
+export function LivePreview({ job, className, sound, volume }: {
   job: Pick<RunningJob, "id" | "previewSeq" | "previewMime">;
   className?: string;
   /** With its sound and the player's controls, where there is room to watch it. */
   sound?: boolean;
+  /**
+   * Its loudness set by the screen it is shown on (0 to 1, 0 = muted), as the timeline's own volume slider: then
+   * the browser's controls are not shown, that screen's are the ones, and a click pauses or plays it.
+   */
+  volume?: number;
 }) {
   const heard = useLiveSound();
   if (job.previewSeq <= 0) return null;
   const src = previewUrl(job.id, job.previewSeq);
+  const ruled = sound && volume !== undefined;
   if (job.previewMime?.startsWith("video/")) {
     return (
       <video
         // a new clip each step: the key starts the player again from its first frame
         key={job.previewSeq}
-        // the new player takes the sound as it was left on the one before it
+        // the new player takes the sound as it was left on the one before it (or as the screen it is on says)
         ref={(el) => {
           if (!el || !sound) return;
-          el.muted = heard.muted;
-          el.volume = heard.volume;
+          el.muted = ruled ? volume === 0 : heard.muted;
+          el.volume = ruled ? Math.max(0, Math.min(1, volume)) : heard.volume;
         }}
         src={src}
         autoPlay
         loop
-        muted={!sound || heard.muted}
+        muted={!sound || (ruled ? volume === 0 : heard.muted)}
         playsInline
-        controls={sound}
+        controls={sound && !ruled}
+        data-live={ruled ? "" : undefined}
+        onClick={ruled ? (e) => void (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause()) : undefined}
         onVolumeChange={(e) => {
           const el = e.currentTarget;
-          if (sound && (el.muted !== heard.muted || el.volume !== heard.volume)) heard.set(el.muted, el.volume);
+          if (sound && !ruled && (el.muted !== heard.muted || el.volume !== heard.volume)) heard.set(el.muted, el.volume);
         }}
         className={className}
       />

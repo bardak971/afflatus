@@ -48,6 +48,8 @@ export interface AssetDetail extends Asset {
     recipe: string;
     family: string;
     inputs: Record<string, unknown>;
+    /** The form as it was sent, before its cast was worked in: what a tool carries on with, the cast given again beside it. Absent when no cast was. */
+    asked?: Record<string, unknown>;
     /** What was settled when it rendered: the seed that was drawn, the model files that were loaded. */
     resolved: { seed?: number; loads?: string[]; overlap?: { headMs: number; tailMs: number } };
     tookMs: number;

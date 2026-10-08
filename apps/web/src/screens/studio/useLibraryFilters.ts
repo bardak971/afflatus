@@ -2,6 +2,10 @@ import { useMemo, useState } from "react";
 import { useAssets } from "../../data";
 import { useSettled } from "../../hooks";
 import type { Place } from "../Library";
+import type { Scope } from "../../store";
+
+/** The scopes there are now. */
+const SCOPES: readonly Scope[] = ["draft", "all", "recent"];
 
 export const KINDS = [
   { id: "all", label: "All", kind: undefined },
@@ -20,7 +24,7 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
   /** Told when the kind is changed from the chips (the Studio moves between / and /timelines with it). */
   onKind?(kind: LibraryKind): void;
   /** The form open or not, and what the grid shows beside it. */
-  view: { form: boolean; scope: "draft" | "all" | "recent" | "kept" };
+  view: { form: boolean; scope: Scope };
   draftId: string | null;
 }) {
   const [kind, setKindState] = useState<LibraryKind>(initialKind);
@@ -39,8 +43,8 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
   const [kept, setKept] = useState(false);
   const showTimelines = kind === "timeline" && place.type !== "bin";
   // with the form open, "Recent" and "Kept" look across the project, not the folder: what is there to drag into the form
-  // "Kept" was a scope: one left on it shows the folder (Kept only is in Filters now)
-  const reach = view.form && draftId && view.scope !== "kept" ? view.scope : "all";
+  // "Kept" was a scope: a store kept from then still says it, and shows the folder (Kept only is in Filters now)
+  const reach: Scope = view.form && draftId && SCOPES.includes(view.scope) ? view.scope : "all";
   const since48 = useMemo(() => new Date(Date.now() - 2 * 86_400_000).toISOString(), [reach]); // eslint-disable-line react-hooks/exhaustive-deps
   const assets = useAssets({
     kind: KINDS.find((k) => k.id === kind)!.kind,
@@ -54,7 +58,7 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
     model: model || undefined,
     lora: lora || undefined,
     kept: kept || undefined,
-  });
+  }, true, true);
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
   const filtered = Boolean(q || made || lora || kept);
   return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, showTimelines, reach, assets, items, filtered };

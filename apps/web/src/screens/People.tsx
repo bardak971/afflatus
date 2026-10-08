@@ -1,6 +1,6 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, MapPin, Play, Plus, Search, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
+import { MapPin, Play, Plus, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { api, thumbUrl, type Entity, type RecipeInfo } from "../api";
@@ -10,8 +10,11 @@ import { ShippedPreset } from "../ShippedPreset";
 import { importPresetFile, savePresetFile } from "../presetFile";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { handPreset } from "../handoff";
-import { useStudio } from "./Studio";
-import { Button, cx, ErrorNote, TwoStep } from "../ui";
+import { useStudio } from "../store";
+import { Button, ErrorNote } from "../ui";
+import { ask } from "../Confirm";
+import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
+import { KitHeader, TABS, type Tab } from "./kit/KitHeader";
 import { PersonEditor, PlaceEditor } from "./kit/PersonEditor";
 import { authorOf, PresetList } from "./kit/PresetList";
 import { Badge, Mark, Row } from "./kit/Row";
@@ -20,14 +23,6 @@ import { SnippetTable, type Snippet } from "./kit/SnippetTable";
 import { StyleEditor } from "./kit/StyleEditor";
 import { useEntityDraft } from "./kit/useEntityDraft";
 
-type Tab = "person" | "place" | "style" | "snippet" | "preset";
-const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode }> = [
-  { id: "person", title: "People", add: "New person", icon: <User size={22} /> },
-  { id: "place", title: "Places", add: "New place", icon: <MapPin size={22} /> },
-  { id: "style", title: "Styles", add: "New style", icon: <Sparkles size={22} /> },
-  { id: "snippet", title: "Snippets", add: "New snippet", icon: <Bookmark size={22} /> },
-  { id: "preset", title: "Presets", add: "New preset", icon: <Bookmark size={22} /> },
-];
 const TAB_KEY = "afflatus.kit.tab";
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
@@ -59,7 +54,7 @@ export function People() {
   const [open, setOpen] = useState<string | null>(null);
   const stored = all.find((e) => e.id === open) ?? null;
 
-  const { edit, saved, flush, retry, change, dropPending } = useEntityDraft({ stored, loading: entities.isLoading });
+  const { edit, saved, failure, flush, retry, change, dropPending } = useEntityDraft({ stored, loading: entities.isLoading });
   /** Another item, or none, with what was changed kept. */
   const select = (id: string | null) => void flush().then(() => setOpen(id));
   const setTab = (next: Tab) => {
@@ -80,12 +75,17 @@ export function People() {
   });
   const remove = useMutation({
     mutationFn: api.deleteEntity,
-    onSuccess: () => {
-      dropPending();
-      setOpen(null);
+    onSuccess: (_, id) => {
+      // the change waiting for this item goes with it; another item's still goes out
+      dropPending(id);
+      setOpen((o) => (o === id ? null : o));
       return client.invalidateQueries({ queryKey: ["entities"] });
     },
   });
+  /** Deleting is asked first, from the row's menu as from the item's header. */
+  const askRemove = async (e: Entity) => {
+    if (await ask({ title: `Delete ${e.name}`, text: noteOfDelete(e), yes: "Delete" })) remove.mutate(e.id);
+  };
   /** The right-click menu of a row: what the open item's header offers. */
   const rowMenu = useMenu<Entity>();
   const rowItems = (e: Entity): MenuItem[] => [
@@ -94,7 +94,7 @@ export function People() {
       { label: "Apply in Studio", icon: <Play size={14} />, run: () => applyInStudio(e.id) },
       { label: "Save as a file", icon: <FileDown size={14} />, run: () => savePresetFile(e) },
     ] : []),
-    ...(e.kind === "preset" && e.source === "shipped" ? [] : ["—" as const, { label: "Delete", icon: <Trash2 size={14} />, danger: true, run: () => remove.mutate(e.id) }]),
+    ...(e.kind === "preset" && e.source === "shipped" ? [] : ["—" as const, { label: "Delete…", icon: <Trash2 size={14} />, danger: true, run: () => void askRemove(e) }]),
   ];
   const fileInput = useRef<HTMLInputElement>(null);
   const doImport = useMutation({
@@ -147,26 +147,7 @@ export function People() {
 
   return (
     <div className="flex min-h-0 min-w-0 grow flex-col">
-      <header className="grid h-[60px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 px-6">
-        <h1 className="text-base font-semibold">Prompt kit</h1>
-        <div role="tablist" aria-label="What to show" className="flex gap-1 rounded-[10px] bg-raised p-[3px]">
-          {TABS.map((t) => {
-            const on = t.id === tab;
-            return (
-              <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => setTab(t.id)} className={cx("flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold whitespace-nowrap", on ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:text-ink")}>
-                {t.title} <span className={cx("font-normal", on ? "text-ink-2" : "text-ink-3")}>{all.filter((e) => e.kind === t.id).length}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex items-center justify-end">
-          <label className="flex h-9 w-64 min-w-0 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
-            <Search size={14} className="shrink-0 text-ink-3" />
-            <input data-search aria-label={`Search your ${here.title.toLowerCase()}`} placeholder={`Search ${here.title.toLowerCase()}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
-            {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-          </label>
-        </div>
-      </header>
+      <KitHeader tab={tab} onTab={setTab} all={all} query={query} onQuery={setQuery} />
 
       {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
       {(entities.isError || create.isError || remove.isError || doImport.isError) && <div className="px-6 pb-3"><ErrorNote>{(entities.error ?? create.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
@@ -213,21 +194,10 @@ export function People() {
               </div>
             ) : editing ? (
               <div className="mx-auto flex max-w-3xl flex-col gap-5">
-                <div className="flex items-center gap-3">
-                  <input aria-label="Name" value={editing.name} onChange={(e) => change({ ...editing, name: e.target.value })} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
-                  <span className={cx("flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
-                    {saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : "Could not save"}
-                    {saved === "failed" && <button type="button" onClick={retry} className="font-semibold underline underline-offset-2">Retry</button>}
-                  </span>
-                  {editing.kind === "preset" && (
-                    <>
-                      <Button size="sm" tone="primary" onClick={() => void flush().then(() => applyInStudio(editing.id))} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
-                      <Button size="sm" onClick={() => savePresetFile(editing)} title="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
-                    </>
-                  )}
-                  <TwoStep title={`Delete ${editing.name}`} icon={<Trash2 size={15} />} note={editing.kind === "person" || editing.kind === "place" ? "Images picked from your library stay there; images uploaded here go to the bin with it." : "It cannot be brought back."} yes="Delete" cancel="Keep" onYes={() => remove.mutate(editing.id)} className="h-9 w-9 rounded-lg" />
-                  <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
-                </div>
+                <ItemHeader
+                  item={editing} saved={saved} failure={failure} onRename={(name) => change({ ...editing, name })} onRetry={retry}
+                  onApply={() => void flush().then(() => applyInStudio(editing.id))} onDelete={() => remove.mutate(editing.id)} onClose={() => select(null)}
+                />
                 {editing.kind === "person" && <PersonEditor def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "place" && <PlaceEditor def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
