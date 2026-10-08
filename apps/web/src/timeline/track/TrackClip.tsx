@@ -1,7 +1,7 @@
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Link2, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo, type RunningJob, type Timeline } from "../../api";
-import { phaseLabel } from "../../format";
+import { aboutMs, phaseLabel } from "../../format";
 import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
 import { DRAG_CLIP, fileVersion, otherShape, PAD, pinInputs, playAt, titleOf, type Slot } from "../model";
@@ -19,7 +19,7 @@ export type Stretch = { clip: string; side: "start" | "end"; lengthMs: number };
  * One clip on the track: its frames at their length, its number and title, what is pinned to it, its render
  * or its state, its edges to trim it by, the join before it, and its sound under it.
  */
-export function TrackClip({ s, clips, timeline, recipes, selected, picked, running, stretch, over, range, slots, totalMs, pps, xOf, measureOf, restOn, leaveTip, pinOn, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin }: {
+export function TrackClip({ s, clips, timeline, recipes, selected, picked, running, stretch, over, range, slots, totalMs, pps, xOf, measureOf, restOn, leaveTip, pinOn, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin, renderOf }: {
   s: Slot;
   clips: Clip[];
   timeline: Timeline;
@@ -58,6 +58,8 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
   onSoundMenu?(clip: Clip, e: React.MouseEvent): void;
   onStop(job: string): void;
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
+  /** A clip with nothing to play yet that can be rendered: how, and about how long it takes (null: no figure yet). */
+  renderOf?(clip: Clip): { run(): void; ms: number | null } | null;
 }) {
   const recipeOf = (c: Clip) => recipes.find((r) => r.id === c.recipe);
 
@@ -129,7 +131,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }}
         className={cx(
           "absolute overflow-hidden rounded-lg border-2 text-left",
-          on ? "border-accent" : picked?.has(c.id) ? "border-accent/60" : s.planned ? "border-dashed border-line-strong" : "border-line-strong",
+          on ? "border-accent" : picked?.has(c.id) ? "border-accent/60" : s.planned ? (c.failed ? "border-dashed border-warn/50" : "border-dashed border-line-strong") : "border-line-strong",
           picked?.has(c.id) && "ring-2 ring-accent/40",
           s.planned && "bg-raised",
         )}
@@ -145,6 +147,10 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         {live && <LivePreview job={live} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
         {/* its number only: the frames stay clean (the prompt is in its hover card and its panel) */}
         <span className="absolute top-1 left-1.5 rounded bg-ground/85 px-1.5 py-px text-[11px] font-bold">{s.index + 1}</span>
+        {/* nothing to play yet: what it will be, in its own words, beside its number (clear of its pinned pictures) */}
+        {s.planned && !c.job && s.width > 100 && (
+          <span className="absolute top-1.5 right-2 left-9 truncate text-[11px] text-ink-2">{titleOf(c, recipe)}</span>
+        )}
         <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">
           {c.job ? (
             <span className="flex min-w-0 grow flex-col gap-1 rounded bg-ground/85 px-1.5 py-1 text-[11px]">
@@ -168,9 +174,28 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
             </span>
           ) : (
             <>
-              <span className={cx("truncate rounded bg-ground/85 px-1.5 py-px text-[11px]", c.failed && s.planned ? "text-warn-ink" : s.planned ? "text-ink-2" : "font-semibold")}>
-                {s.planned ? (c.failed ? "The render failed" : s.width > 100 ? "Not rendered yet" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
-              </span>
+              {s.planned && renderOf?.(c) && s.width > 70 ? (
+                // the render it is waiting for, from here: Render (Retry after a failure, its reason on hover) and about how long
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-tip={c.failed ? `The render failed: ${c.failed}` : "Render this clip"}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      renderOf(c)?.run();
+                    }}
+                    className={cx("flex h-[22px] shrink-0 items-center rounded-[7px] px-2 text-[11px] font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "bg-accent text-accent-ink")}
+                  >
+                    {c.failed ? "Retry" : "Render"}
+                  </button>
+                  <span className={cx("truncate font-mono text-[10.5px]", c.failed ? "text-warn-ink" : "text-ink-3")}>{c.failed ? "failed" : aboutMs(renderOf(c)?.ms).replace("about ", "~")}</span>
+                </span>
+              ) : (
+                <span className={cx("truncate rounded bg-ground/85 px-1.5 py-px text-[11px]", c.failed && s.planned ? "text-warn-ink" : s.planned ? "text-ink-2" : "font-semibold")}>
+                  {s.planned ? (c.failed ? "The render failed" : s.width > 100 ? "Not rendered yet" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
+                </span>
+              )}
               <span className="flex shrink-0 items-center gap-1">
                 {c.kind === "still" && s.width > 70 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Still</span>}
                 {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Imported</span>}

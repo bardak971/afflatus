@@ -450,6 +450,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           clock={clock}
           running={running}
           onStop={(job) => stop.mutate(job)}
+          // a clip with nothing to play yet renders from the track itself, as from its menu
+          renderOf={(c) => (c.kind === "video" && !c.job && ready(c).input && !render.isPending ? { run: () => render.mutate({ clips: [c] }), ms: takes(c) } : null)}
           busy={add.isPending}
           onSelect={(clipId) => select(clipId)}
           onSelectMusic={() => setMusicOpen(true)}

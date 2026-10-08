@@ -31,7 +31,7 @@ export interface TimeRange {
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onJoin, range, onRange, onRangeMenu, snapQuiet }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -47,6 +47,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   busy: boolean;
   /** Stop a clip's render, or take it out of the queue. */
   onStop(job: string): void;
+  /** A clip with nothing to play yet that can be rendered: how, and about how long (each clip shows it). */
+  renderOf?(clip: Clip): { run(): void; ms: number | null } | null;
   onSelect(clip: string): void;
   /** The clips picked with Ctrl + click, to render together; and the pick itself. */
   picked?: Set<string>;
@@ -321,6 +323,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 onMenu={onMenu}
                 onSoundMenu={onSoundMenu}
                 onStop={onStop}
+                renderOf={renderOf}
                 onJoin={onJoin}
               />
             ))}
