@@ -3,7 +3,7 @@ import type { ModelInfo, Known } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { HistoryPage, QueueStatus, Rate, TimesPeriod, TimesWindow, TimesSummary, RenderItem } from "./api/types/queue";
-import type { Asset, AssetDetail, Folder, Project, Storage } from "./api/types/library";
+import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
 import type { Health, FinishSettings, Settings } from "./api/types/settings";
@@ -146,8 +146,8 @@ export const api = {
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, o?: Asked) => {
-    const q = new URLSearchParams({ limit: "40" });
+  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number }, o?: Asked) => {
+    const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
     // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
     if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
     if (opts.since) q.set("since", opts.since);
@@ -216,10 +216,11 @@ export const api = {
   /** A folder inside another, or at the top of a project (null: the Inbox). */
   createFolder: (name: string, parentId: string | null, project?: string | null) => call<Folder>("POST", "/folders", { name, parentId, ...(parentId ? {} : { project: project ?? null }) }),
   /** Link a directory of the disk the server runs on: it becomes a folder, read where it is. */
-  linkFolder: (path: string, name?: string) => call<Folder>("POST", "/folders/link", name ? { path, name } : { path }),
+  /** `project`: the project it goes to the top of (null: the Inbox); left out, the Inbox too. `files`: what it holds, sub-folders included. */
+  linkFolder: (path: string, name?: string, project?: string | null) => call<Folder & { files?: number }>("POST", "/folders/link", { path, ...(name ? { name } : {}), ...(project !== undefined ? { project } : {}) }),
   /** Read a linked folder's directory again. */
   scanFolder: (id: string) => call<{ files: number; folders: number }>("POST", `/folders/${id}/scan`, {}),
-  editFolder: (id: string, patch: { name?: string; parentId?: string | null }) => call<{ ok: true }>("PATCH", `/folders/${id}`, patch),
+  editFolder: (id: string, patch: { name?: string; parentId?: string | null; project?: string | null }) => call<{ ok: true }>("PATCH", `/folders/${id}`, patch),
   deleteFolder: (id: string) => call<{ ok: true }>("DELETE", `/folders/${id}`),
   moveAssets: (ids: string[], folderId: string | null) => call<{ moved: number }>("POST", "/assets/move", { ids, folderId }),
   renameAsset: (id: string, name: string) => call<Asset>("PATCH", `/assets/${id}`, { name }),
@@ -258,6 +259,18 @@ export const api = {
   editProject: (id: string, patch: { name?: string; archived?: boolean }) => call<Project>("PATCH", `/projects/${id}`, patch),
   /** The project goes; its drafts, timelines and folders go to the Inbox. */
   deleteProject: (id: string) => call<{ ok: true }>("DELETE", `/projects/${id}`),
+  /** Every project with its folders, timelines and sizes; with `q`, only what matches (and the drafts that do). */
+  /** `kind`: the folders' and projects' counts and sizes are of that kind of item only. */
+  projectsTree: (q: string, kind?: "image" | "video" | "audio" | null, o?: Asked) => {
+    const p = new URLSearchParams({ ...(q ? { q } : {}), ...(kind ? { kind } : {}) });
+    return call<ProjectsTree>("GET", `/projects/tree${p.size ? `?${p}` : ""}`, undefined, o?.signal);
+  },
+  /** Its root folder: that folder of it, or (without one) a new folder named after it. */
+  setProjectRoot: (id: string, folderId?: string) => call<Project>("POST", `/projects/${id}/root`, folderId ? { folderId } : {}),
+  /** The drafts of one project (null: the Inbox), whatever project the app looks at. */
+  draftsOf: (project: string | null, o?: Asked) => call<{ items: DraftBrief[] }>("GET", `/drafts?project=${encodeURIComponent(project ?? "none")}`, undefined, o?.signal),
+  /** A draft taken to another project (null: the Inbox); nothing else moves with it. */
+  moveDraft: (id: string, project: string | null) => call<Draft>("PUT", `/drafts/${id}`, { project }),
   editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),
   undoTimeline: (id: string) => call<{ undone: string }>("POST", `/timelines/${id}/undo`),
   redoTimeline: (id: string) => call<{ redone: string }>("POST", `/timelines/${id}/redo`),
@@ -286,7 +299,7 @@ export const api = {
   /** Every clip's selected take brought to its final quality by an upscale route, as a new take each; the drafts stay. */
   finishTimeline: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }>("POST", `/timelines/${id}/finish`, opts),
   /** One frame of a video, saved as a picture in the library. */
-  frame: (video: string, atMs: number) => call<Asset>("POST", `/assets/${video}/frame`, { atMs }),
+  frame: (video: string, atMs: number, timeline?: string) => call<Asset>("POST", `/assets/${video}/frame`, { atMs, ...(timeline ? { timeline } : {}) }),
   /** A range of a video as new videos, in the queue: copied, split out, or removed. */
   /** A range of a video: copied, split out, removed, or slowed down ("slow", ×2 or ×4: RIFE on the GPU when ComfyUI has it, else ffmpeg; `engine` says which). */
   range: (video: string, opts: { startMs: number; endMs: number; action: "copy" | "split" | "remove" | "slow"; crf?: number; factor?: 2 | 4 }) => call<{ id: string; engine?: "rife" | "ffmpeg" }>("POST", `/assets/${video}/range`, opts),

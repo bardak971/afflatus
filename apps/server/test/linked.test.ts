@@ -198,3 +198,25 @@ describe("a folder linked to a directory of the disk", () => {
     expect(existsSync(join(dir, "one.png"))).toBe(true);
   });
 });
+
+describe("a folder linked into a project", () => {
+  it("lands at the top of that project, its sub-folders with it, and says how many files it holds", async () => {
+    const p = (await post(t.app, "/api/projects", { name: "Shoot day" })).json() as { id: string };
+    const res = await post(t.app, "/api/folders/link", { path: dir, project: p.id });
+    expect(res.statusCode).toBe(200);
+    const made = res.json() as { id: string; projectId: string | null; count: number; files: number };
+    expect(made).toMatchObject({ projectId: p.id, count: 1, files: 2 });
+    // the project's own root folder aside: the linked one and its sub-folder
+    const all = (await get(t.app, "/api/folders")).json().items as Array<{ name: string; projectId: string | null; path: string | null }>;
+    expect(all.filter((f) => f.path).map((f) => f.projectId)).toEqual([p.id, p.id]);
+  });
+  it("answers 404 for a project that does not exist, and links nothing", async () => {
+    const res = await post(t.app, "/api/folders/link", { path: dir, project: "nope" });
+    expect(res.statusCode).toBe(404);
+    expect(await folders()).toEqual([]);
+  });
+  it("goes to the Inbox without a project", async () => {
+    const made = (await post(t.app, "/api/folders/link", { path: dir, project: null })).json() as { projectId: string | null };
+    expect(made.projectId).toBeNull();
+  });
+});

@@ -60,6 +60,9 @@ export const useDrafts = (enabled = true) => {
   return useQuery({ queryKey: [...DRAFT_LIST, project], queryFn: api.drafts, enabled });
 };
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: api.projects });
+/** The Projects panel's tree, searched by `q` (empty: all of it), counted for one kind of item or all. Under "projects": what reads the projects again reads it too. */
+export const useProjectsTree = (q: string, kind: "image" | "video" | "audio" | null = null) =>
+  useQuery({ queryKey: ["projects", "tree", q, kind], queryFn: ({ signal }) => api.projectsTree(q, kind, { signal }), placeholderData: keepPreviousData });
 export const useTimeline = (id: string | undefined) => useQuery({ queryKey: ["timelines", id], queryFn: ({ signal }) => api.timeline(id!, { signal }), enabled: Boolean(id) });
 export const useEntities = () => useQuery({ queryKey: ["entities"], queryFn: api.entities });
 export const useWorkflows = () => useQuery({ queryKey: ["workflows"], queryFn: api.workflows });
@@ -71,10 +74,10 @@ export const useModelWords = (folder: string) => useQuery({ queryKey: ["model-wo
 export const useModelSettings = () => useQuery({ queryKey: ["model-settings"], queryFn: api.modelSettings, staleTime: Infinity });
 /**
  * What a "library" event reads again besides the lists and the items under "assets": the folders (their
- * counts), the disk use, and the models and families the library's filters offer. Each has a key of its
+ * counts), the disk use, the projects (their counts, sizes and tree), and the models and families the library's filters offer. Each has a key of its
  * own, so that a change to one item does not read them all again through the "assets" prefix.
  */
-export const LIBRARY_KEYS = [["assets"], ["folders"], ["storage"], ["facets"]] as const;
+export const LIBRARY_KEYS = [["assets"], ["folders"], ["storage"], ["projects"], ["facets"]] as const;
 /** What a render that ended changes: the record of render times and the estimates made from it (live.ts). */
 export const RENDER_KEYS = [["renders"], ["estimates"]] as const;
 

@@ -65,6 +65,43 @@ describe("projects", () => {
     expect(counts.inbox).toMatchObject({ drafts: 1, timelines: 1 });
   });
 
+  it("takes a folder to another project with the folders inside it, or out of every project", async () => {
+    const p = await call("POST", "/api/projects", { name: "From" });
+    const q = await call("POST", "/api/projects", { name: "To" });
+    const shots = await call("POST", "/api/folders", { name: "shots", parentId: p.folderId });
+    const inner = await call("POST", "/api/folders", { name: "close-ups", parentId: shots.id });
+    const of = async (id: string) => ((await get(t.app, "/api/folders")).json().items as Array<{ id: string; parentId: string | null; projectId: string | null }>).find((f) => f.id === id)!;
+    // into Q's root folder, as the folder menu's "Move to" does: it and what is inside it are Q's
+    await call("PATCH", `/api/folders/${shots.id}`, { parentId: q.folderId });
+    expect(await of(shots.id)).toMatchObject({ parentId: q.folderId, projectId: q.id });
+    expect((await of(inner.id)).projectId).toBe(q.id);
+    // "The Inbox": at the top, in no project
+    await call("PATCH", `/api/folders/${shots.id}`, { parentId: null, project: null });
+    expect(await of(shots.id)).toMatchObject({ parentId: null, projectId: null });
+    expect((await of(inner.id)).projectId).toBeNull();
+  });
+
+  it("takes the timelines filed in a folder along when the folder goes to another project", async () => {
+    const q = await call("POST", "/api/projects", { name: "Seaside" });
+    const shots = await call("POST", "/api/folders", { name: "Harbor", parentId: null });
+    const tl = await t.services.timelines.create("Harbor walk", null, shots.id);
+    await call("PATCH", `/api/folders/${shots.id}`, { parentId: q.folderId });
+    const row = await t.db.selectFrom("timelines").select(["project_id", "folder_id"]).where("id", "=", tl.id).executeTakeFirstOrThrow();
+    expect(row).toMatchObject({ project_id: q.id, folder_id: shots.id });
+  });
+
+  it("loses its root folder cleanly when that folder is deleted, and a folder moved to it lands at its top", async () => {
+    const p = await call("POST", "/api/projects", { name: "Rootless" });
+    const r = await t.app.inject({ method: "DELETE", url: `/api/folders/${p.folderId}` });
+    expect(r.statusCode).toBe(200);
+    const now = (await get(t.app, "/api/projects")).json().items.find((x: { id: string }) => x.id === p.id);
+    expect(now.folderId).toBeNull();
+    const loose = await call("POST", "/api/folders", { name: "loose", parentId: null });
+    await call("PATCH", `/api/folders/${loose.id}`, { parentId: null, project: p.id });
+    const f = ((await get(t.app, "/api/folders")).json().items as Array<{ id: string; parentId: string | null; projectId: string | null }>).find((x) => x.id === loose.id);
+    expect(f).toMatchObject({ parentId: null, projectId: p.id });
+  });
+
   it("is archived and unarchived, and deleting it sends its things to the Inbox", async () => {
     const p = await call("POST", "/api/projects", { name: "Gone" });
     const d = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });

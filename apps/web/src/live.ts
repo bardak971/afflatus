@@ -95,7 +95,8 @@ export function useLiveEvents(): void {
     });
 
     source.addEventListener("models", on("model-info"));
-    source.addEventListener("timeline", on("timelines"));
+    // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
+    source.addEventListener("timeline", () => refetch(client, [["timelines"], ["projects", "tree"]]));
     source.addEventListener("entities", on("entities"));
     source.addEventListener("downloads", on("downloads"));
     // ComfyUI has a file it did not have: what is ready may have changed

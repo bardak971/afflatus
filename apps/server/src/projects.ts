@@ -3,6 +3,7 @@ import { z } from "zod";
 import { httpError } from "./errors";
 import { newId, now, OWNER, type Db } from "./db";
 import type { Services } from "./services";
+import { NOT_IN_LIBRARY } from "./assetSearch";
 
 /**
  * Projects: what drafts, timelines and folders are grouped under. A project has a root folder, where its
@@ -27,6 +28,97 @@ export async function rootFolderOf(db: Db, project: string | null | undefined): 
   if (!p?.folder_id) return null;
   const f = await db.selectFrom("folders").select("id").where("id", "=", p.folder_id).executeTakeFirst();
   return f?.id ?? null;
+}
+
+const treeQuery = z.object({ q: z.string().trim().max(100).optional(), kind: z.enum(["image", "video", "audio"]).optional() });
+
+interface FolderNode { id: string; name: string; linked: boolean; items: number; totalItems: number; bytes: number; children: FolderNode[] }
+type TimelineLeaf = { id: string; name: string; folderId: string | null; clips: number; durationMs: number; bytes: number; exported: boolean; updatedAt: string };
+type DraftLeaf = { id: string; title: string; name: string | null; recipe: string; updatedAt: string };
+interface TreeGroup {
+  id: string | null; kind: "inbox" | "project"; name: string; archived: boolean; rootFolderId: string | null;
+  counts: { drafts: number; timelines: number; items: number }; bytes: number; folders: FolderNode[]; timelines: TimelineLeaf[]; drafts?: DraftLeaf[];
+}
+/** The drafts of a group the tree shows when searching, at most. */
+const TREE_DRAFTS = 50;
+
+/**
+ * Every project (and the Inbox) with its folders as a tree, its timelines and its counts and sizes: the projects panel. A
+ * handful of grouped queries for all of it. `q`: only what matches, folders with the ancestors of a match, and the drafts that match.
+ * `only`: the items counted and sized are only of that kind (pictures, videos or sounds).
+ */
+export async function projectsTree(s: Services, q?: string, only?: "image" | "video" | "audio") {
+  const db = s.db;
+  const needle = q ? q.toLowerCase() : "";
+  const hit = (text: string | null | undefined) => Boolean(needle && text && text.toLowerCase().includes(needle));
+  const projects = await db.selectFrom("projects").selectAll().where("owner_id", "=", OWNER).execute();
+  const folders = await db.selectFrom("folders").select(["id", "parent_id", "name", "path", "project_id"]).where("owner_id", "=", OWNER).execute();
+  // the library's items (not in the bin, not a mask or a kit picture), by folder; the loose ones under null
+  const byFolder = new Map(
+    (await db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>("bytes").as("b")]).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).$if(Boolean(only), (qb) => qb.where("kind", "=", only!)).groupBy("folder_id").execute())
+      .map((r) => [r.folder_id, { n: Number(r.n), b: Number(r.b ?? 0) }]),
+  );
+  const total = await db.selectFrom("assets").select((eb) => eb.fn.sum<number>("bytes").as("b")).where("deleted_at", "is", null).executeTakeFirst();
+  const draftCounts = new Map((await db.selectFrom("drafts").select((eb) => ["project_id", eb.fn.countAll().as("n")]).groupBy("project_id").execute()).map((r) => [r.project_id, Number(r.n)]));
+  const leaves = await s.timelines.leaves();
+  const matching = needle
+    ? (await db.selectFrom("drafts").select(["id", "title", "name", "recipe_id", "updated_at", "project_id"]).orderBy("updated_at", "desc").execute()).filter((d) => hit(d.title) || hit(d.name))
+    : [];
+
+  const known = new Set(projects.map((p) => p.id));
+  const groupOf = (project: string | null) => (project && known.has(project) ? project : null);
+  const folderIds = new Set(folders.map((f) => f.id));
+  const rootOf = (p: { folder_id: string | null }) => (p.folder_id && folderIds.has(p.folder_id) ? p.folder_id : null);
+  const roots = new Set(projects.flatMap((p) => rootOf(p) ?? []));
+  const childrenOf = new Map<string | null, typeof folders>();
+  for (const f of folders) childrenOf.set(f.parent_id, [...(childrenOf.get(f.parent_id) ?? []), f]);
+  const byFolderName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+  // a node and what is under it; a root folder is never a node (its project stands for it), a loop is cut
+  const node = (f: (typeof folders)[number], seen: Set<string>): FolderNode => {
+    seen.add(f.id);
+    const children = (childrenOf.get(f.id) ?? []).filter((c) => !roots.has(c.id) && !seen.has(c.id)).sort(byFolderName).map((c) => node(c, seen));
+    const own = byFolder.get(f.id) ?? { n: 0, b: 0 };
+    return {
+      id: f.id, name: f.name, linked: Boolean(f.path), items: own.n, children,
+      totalItems: own.n + children.reduce((sum, c) => sum + c.totalItems, 0), bytes: own.b + children.reduce((sum, c) => sum + c.bytes, 0),
+    };
+  };
+  // searching: a folder that matches, or holds one that does
+  const prune = (nodes: FolderNode[]): FolderNode[] =>
+    nodes.flatMap((n) => {
+      const children = prune(n.children);
+      return hit(n.name) || children.length ? [{ ...n, children }] : [];
+    });
+  const sizeOf = (ids: Array<string | null>) => ids.reduce((acc, id) => {
+    const c = byFolder.get(id) ?? { n: 0, b: 0 };
+    return { n: acc.n + c.n, b: acc.b + c.b };
+  }, { n: 0, b: 0 });
+
+  const group = (id: string | null, name: string, archived: boolean, rootFolderId: string | null): TreeGroup | null => {
+    const own = folders.filter((f) => groupOf(f.project_id) === id);
+    // a project's: the children of its root, and its folders at the top (one that lost its root); the Inbox's: its folders at the top
+    const top = id === null
+      ? own.filter((f) => f.parent_id === null)
+      : [...(rootFolderId ? (childrenOf.get(rootFolderId) ?? []).filter((c) => !roots.has(c.id)) : []), ...own.filter((f) => f.parent_id === null && f.id !== rootFolderId)];
+    const seen = new Set<string>(rootFolderId ? [rootFolderId] : []);
+    let nodes = [...new Map(top.map((f) => [f.id, f])).values()].sort(byFolderName).map((f) => node(f, seen));
+    let timelines: TimelineLeaf[] = leaves.filter((t) => groupOf(t.projectId) === id).map(({ projectId: _, ...t }) => t);
+    // its items: in its folders, the root among them; the Inbox's, the loose ones too
+    const size = sizeOf([...own.map((f) => f.id), ...(id === null ? [null] : [])]);
+    const counts = { drafts: draftCounts.get(id) ?? 0, timelines: timelines.length, items: size.n };
+    const kind = id === null ? ("inbox" as const) : ("project" as const);
+    if (!needle) return { id, kind, name, archived, rootFolderId, counts, bytes: size.b, folders: nodes, timelines };
+    nodes = prune(nodes);
+    timelines = timelines.filter((t) => hit(t.name));
+    const drafts = matching.filter((d) => groupOf(d.project_id) === id).slice(0, TREE_DRAFTS).map((d) => ({ id: d.id, title: d.title, name: d.name, recipe: d.recipe_id, updatedAt: d.updated_at }));
+    if (!nodes.length && !timelines.length && !drafts.length && !hit(name)) return null;
+    return { id, kind, name, archived, rootFolderId, counts, bytes: size.b, folders: nodes, timelines, drafts };
+  };
+
+  const byName = (a: { name: string }, b: { name: string }) => a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  const ordered = [...projects.filter((p) => !p.archived_at).sort(byName), ...projects.filter((p) => p.archived_at).sort(byName)];
+  const groups = [group(null, "Inbox", false, null), ...ordered.map((p) => group(p.id, p.name, Boolean(p.archived_at), rootOf(p)))];
+  return { totalBytes: Number(total?.b ?? 0), groups: groups.filter((g): g is TreeGroup => g !== null) };
 }
 
 export function registerProjects(app: FastifyInstance, s: Services): void {
@@ -54,6 +146,34 @@ export function registerProjects(app: FastifyInstance, s: Services): void {
       assets: Number((await s.db.selectFrom("assets").select((eb) => eb.fn.countAll().as("n")).where("deleted_at", "is", null).where((eb) => inboxFolders.length ? eb.or([eb("folder_id", "is", null), eb("folder_id", "in", inboxFolders)]) : eb("folder_id", "is", null)).executeTakeFirst())?.n ?? 0),
     };
     return { items, inbox };
+  });
+
+  /** The projects panel: every project and the Inbox, their folders, timelines, counts and sizes (projectsTree). */
+  app.get("/api/projects/tree", async (req) => {
+    const query = treeQuery.parse(req.query);
+    return projectsTree(s, query.q || undefined, query.kind);
+  });
+
+  /**
+   * Give the project a root folder: `folderId`, one of its own folders that is not linked (put at its top), or, without it, a new
+   * folder named after it. What was its root stays, as one of its folders.
+   */
+  app.post<{ Params: { id: string } }>("/api/projects/:id/root", async (req) => {
+    const body = z.strictObject({ folderId: z.string().optional() }).parse(req.body ?? {});
+    const p = await mustExist(req.params.id);
+    let folder = body.folderId;
+    if (folder) {
+      const f = await s.db.selectFrom("folders").selectAll().where("id", "=", folder).executeTakeFirst();
+      if (!f || f.project_id !== p.id) throw httpError("That folder is not one of this project's.");
+      if (f.path) throw httpError("A linked folder is a directory of your disk: it cannot be a project's root folder.");
+      if (f.parent_id) await s.db.updateTable("folders").set({ parent_id: null }).where("id", "=", f.id).execute();
+    } else {
+      folder = newId();
+      await s.db.insertInto("folders").values({ id: folder, owner_id: OWNER, parent_id: null, name: p.name, path: null, project_id: p.id, created_at: now() }).execute();
+    }
+    await s.db.updateTable("projects").set({ folder_id: folder, updated_at: now() }).where("id", "=", p.id).execute();
+    s.queue.events.emit("library");
+    return view(await mustExist(p.id));
   });
 
   /** A new project, with its root folder of the same name. */

@@ -95,3 +95,40 @@ export interface Storage {
   bin: { count: number; bytes: number };
   unkept: { count: number; bytes: number };
 }
+
+/** The Projects panel's tree (GET /projects/tree): the Inbox first, then the active projects, then the archived ones. */
+export interface ProjectsTree {
+  /** Everything not in the bin. */
+  totalBytes: number;
+  groups: TreeGroup[];
+}
+export interface TreeGroup {
+  /** null: the Inbox (what is in no project). */
+  id: string | null;
+  kind: "inbox" | "project";
+  name: string;
+  archived: boolean;
+  /** Where its things land; null for the Inbox, and for a project that has none. Not a node of the tree: the project's row stands for it. */
+  rootFolderId: string | null;
+  counts: { drafts: number; timelines: number; items: number };
+  bytes: number;
+  /** The children of its root folder (and folders of it left without a parent). */
+  folders: FolderNode[];
+  /** Newest first. */
+  timelines: TimelineLeaf[];
+  /** Only with a search: its matching drafts, 50 at most. */
+  drafts?: DraftLeaf[];
+}
+export interface FolderNode {
+  id: string;
+  name: string;
+  /** A folder of the disk. */
+  linked: boolean;
+  /** Items directly in it; in it and every folder under it. */
+  items: number;
+  totalItems: number;
+  bytes: number;
+  children: FolderNode[];
+}
+export interface TimelineLeaf { id: string; name: string; folderId: string | null; clips: number; durationMs: number; bytes: number; exported: boolean; updatedAt: string }
+export interface DraftLeaf { id: string; title: string; name: string | null; recipe: string; updatedAt: string }

@@ -120,6 +120,8 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
   app.put<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
     const body = saveBody.parse(req.body);
     const current = await get(req.params.id);
+    // moved to another project (or the Inbox, null): it alone moves
+    if (body.project && !(await s.db.selectFrom("projects").select("id").where("id", "=", body.project).executeTakeFirst())) throw httpError("this project was not found", 404);
     const recipe = body.recipe ?? current.recipe_id;
     const all = body.forms ?? (JSON.parse(current.forms) as Record<string, Record<string, unknown>>);
     const json = JSON.stringify(all);

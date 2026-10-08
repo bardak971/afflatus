@@ -145,8 +145,9 @@ export class Linked {
     }
   }
 
-  /** Link a directory: it becomes a folder at the top of the tree, and is read at once. */
-  async link(path: string, name?: string, comfyDir = ""): Promise<Folder> {
+  /** Link a directory: it becomes a folder at the top of the tree (of a project, or of the Inbox), and is read at once. */
+  async link(path: string, name?: string, comfyDir = "", project: string | null = null): Promise<Folder> {
+    if (project && !(await this.db.selectFrom("projects").select("id").where("id", "=", project).executeTakeFirst())) throw httpError("this project was not found", 404);
     const dir = resolve(path.trim());
     const there = await stat(dir).catch(() => null);
     if (!there?.isDirectory()) throw httpError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
@@ -156,7 +157,7 @@ export class Linked {
       const other = resolve(f.path!);
       if (under(dir, other) || under(other, dir)) throw httpError(`This folder is already linked, or is inside or around "${f.name}", which is.`);
     }
-    const row: Folder = { id: newId(), owner_id: OWNER, parent_id: null, name: (name?.trim() || basename(dir) || dir).slice(0, 120), path: dir, project_id: null, created_at: now() };
+    const row: Folder = { id: newId(), owner_id: OWNER, parent_id: null, name: (name?.trim() || basename(dir) || dir).slice(0, 120), path: dir, project_id: project, created_at: now() };
     await this.db.insertInto("folders").values(row).execute();
     await this.load();
     await this.scan(row.id);

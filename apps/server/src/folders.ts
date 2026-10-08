@@ -46,9 +46,14 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
 
   /** Link a directory of the disk the server runs on: it becomes a folder, with its sub-directories as sub-folders. */
   app.post("/api/folders/link", async (req) => {
-    const body = z.strictObject({ path: z.string().trim().min(1).max(1000), name: z.string().trim().max(120).optional() }).parse(req.body);
-    const row = await s.linked.link(body.path, body.name, (await readSettings(s.db)).comfyDir);
-    return { id: row.id, parentId: null, name: row.name, count: 0, path: row.path, root: true };
+    // `project`: the project it goes to the top of (null or left out: the Inbox)
+    const body = z.strictObject({ path: z.string().trim().min(1).max(1000), name: z.string().trim().max(120).optional(), project: z.string().nullable().optional() }).parse(req.body);
+    const row = await s.linked.link(body.path, body.name, (await readSettings(s.db)).comfyDir, body.project ?? null);
+    // what it holds: `count` directly in it, `files` in it and its sub-folders
+    const rows = await all();
+    const under = (id: string): string[] => rows.filter((f) => f.parent_id === id).flatMap((f) => [f.id, ...under(f.id)]);
+    const counted = (ids: string[]) => s.db.selectFrom("assets").select((eb) => eb.fn.countAll().as("n")).where("folder_id", "in", ids).where("deleted_at", "is", null).executeTakeFirst().then((r) => Number(r?.n ?? 0));
+    return { id: row.id, parentId: null, name: row.name, count: await counted([row.id]), files: await counted([row.id, ...under(row.id)]), path: row.path, root: true, projectId: row.project_id };
   });
 
   /** Read a linked folder's directory again. */
@@ -97,6 +102,9 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
       const under = (id: string): string[] => rows.filter((f) => f.parent_id === id).flatMap((f) => [f.id, ...under(f.id)]);
       const ids = under(folder.id);
       if (ids.length) await s.db.updateTable("folders").set({ project_id: project }).where("id", "in", ids).execute();
+      // the timelines filed in them follow: a timeline is in the project of its folder
+      await s.db.updateTable("timelines").set({ project_id: project }).where("folder_id", "in", [folder.id, ...ids]).execute();
+      s.queue.events.emit("timeline");
     }
     s.queue.events.emit("library");
     return { ok: true };
@@ -114,6 +122,8 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     await s.db.transaction().execute(async (tx) => {
       await tx.updateTable("assets").set({ folder_id: folder.parent_id }).where("folder_id", "=", folder.id).execute();
       await tx.updateTable("folders").set({ parent_id: folder.parent_id }).where("parent_id", "=", folder.id).execute();
+      // a project's root folder: the project keeps its things, without a root folder (they land at the top, in it)
+      await tx.updateTable("projects").set({ folder_id: null }).where("folder_id", "=", folder.id).execute();
       await tx.deleteFrom("folders").where("id", "=", folder.id).execute();
     });
     s.queue.events.emit("library");

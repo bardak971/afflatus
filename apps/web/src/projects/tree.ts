@@ -1,0 +1,323 @@
+import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../api/types/library";
+
+/**
+ * The Projects panel's tree as the rows it draws: what is unfolded, in order, each with its `tree`
+ * branch prefix (├─ └─ │). Pure: the panel hands it the tree, what is open and the drafts read so far.
+ */
+
+export type RowKind = "all" | "inbox" | "project" | "archive" | "folder" | "item" | "timeline" | "drafts" | "draft" | "more" | "bin";
+
+/** Something a row can be moved as: its place now, to tell a move from staying put. */
+export type Moving =
+  | { kind: "folder"; id: string; group: string | null; /** Its parent in the tree; null at the top of its group. */ parent: string | null; name: string; /** The top of a folder of the disk: it changes project, never nests. */ linkedRoot?: boolean }
+  | { kind: "timeline"; id: string; group: string | null; folder: string | null; name: string }
+  | { kind: "draft"; id: string; group: string | null; name: string }
+  | { kind: "asset"; id: string; folder: string | null; name: string; /** A file of a folder of the disk: it only goes to another such folder. */ onDisk?: boolean };
+
+/** Somewhere a row can be dropped. `group`: the project, null for the Inbox. */
+export type Target =
+  | { kind: "group"; group: string | null; root: string | null; name: string }
+  | { kind: "folder"; id: string; group: string | null; linked: boolean; /** Its folders above, nearest last. */ ancestors: string[]; name: string };
+
+export interface Row {
+  /** Unique among the rows: "all", "g:<id|inbox>", "archived", "f:<id>", "a:<id>", "t:<id>", "d:<group>", "dr:<id>", "more:<d:group|f:id>". */
+  key: string;
+  kind: RowKind;
+  /** What it is on the server (a project, folder, timeline or draft id); null for the others. */
+  id: string | null;
+  label: string;
+  /** What it holds, said in a few words. */
+  meta: string;
+  bytes: number | null;
+  depth: number;
+  prefix: string;
+  foldable: boolean;
+  open: boolean;
+  /** The row it is under. */
+  parent: string | null;
+  /** The group it belongs to: a project id, null for the Inbox (and for All and Archived). */
+  group: string | null;
+  linked?: boolean;
+  /** A folder of the disk that was linked itself (not one of its sub-folders). */
+  linkedRoot?: boolean;
+  archived?: boolean;
+  /** A project without a root folder. */
+  noRoot?: boolean;
+  /** With a search: its name holds it. */
+  match?: boolean;
+  /** With a search: neither it nor anything under it matches; with a kind: a folder that holds none of it. */
+  faded?: boolean;
+  /** With a kind: a folder that holds none of it. */
+  empty?: boolean;
+  moving?: Moving;
+  target?: Target;
+  /** An item of a folder: the item. */
+  asset?: Asset;
+  /** A "Show more" row: the key of the row whose list grows. */
+  more?: string;
+}
+
+/** The items of a folder as read so far (null: not yet), and whether there are more to read. */
+export interface ItemsRead {
+  items: Asset[] | null;
+  more: boolean;
+}
+
+/** An item's row: "Image" when it has no name; what it is, how long or how big. */
+export const itemLabel = (a: Asset) => a.name || (a.kind === "image" ? "Image" : a.kind === "video" ? "Video" : "Sound");
+export const itemMeta = (a: Asset) =>
+  [a.kind === "image" ? "image" : a.kind === "video" ? "video" : "sound", a.kind === "image" ? (a.width && a.height ? `${a.width}×${a.height}` : null) : a.durationMs !== null ? clock(a.durationMs) : null].filter(Boolean).join(" · ");
+
+/** The drafts of a group as read so far: what there is, and how many to show. */
+export interface DraftsRead {
+  items: DraftLeaf[] | null;
+  /** How many are shown (50, then 50 more each time). */
+  limit: number;
+}
+
+export type ItemKind = "image" | "video" | "audio";
+const KIND_WORD: Record<ItemKind, string> = { image: "image", video: "video", audio: "sound" };
+/** A folder's items, as many as there are of the kind shown: "3 here · 12 items in all", "4 videos", "on your disk". */
+export function folderMeta(f: { items: number; totalItems: number; linked: boolean }, kind?: ItemKind | null): string {
+  const word = kind ? KIND_WORD[kind] : "item";
+  const counted = f.totalItems !== f.items ? `${f.items} here · ${plural(f.totalItems, word)} in all` : plural(f.totalItems, word);
+  return `${counted}${f.linked ? " · on your disk" : ""}`;
+}
+
+export const groupKey = (g: { id: string | null }) => `g:${g.id ?? "inbox"}`;
+export const draftsKey = (group: string | null) => `d:${group ?? "inbox"}`;
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const clock = (ms: number) => {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+export const groupMeta = (g: TreeGroup) => [plural(g.counts.timelines, "timeline"), plural(g.counts.drafts, "draft"), plural(g.counts.items, "item")].join(" · ");
+
+/** The text of a draft row: its name, else the start of its prompt. */
+export const draftLabel = (d: DraftLeaf) => d.name || d.title || "No prompt yet";
+
+export function flatten(tree: ProjectsTree, s: {
+  isOpen(key: string): boolean;
+  /** The drafts of a group, by its draftsKey; absent while not read. Not used with a search: the tree carries them. */
+  drafts(key: string): DraftsRead | undefined;
+  q?: string;
+  /** Only pictures, videos or sounds: folders count that kind (the tree was read for it), and those with none fade. */
+  kind?: ItemKind | null;
+  /** The items of a folder, by its row key; absent while not read. Not used with a search (it is on names of folders, timelines and drafts). */
+  items?(key: string): ItemsRead | undefined;
+  /** What the bin holds: its row ends the tree, searching or not. */
+  bin?: { count: number; bytes: number } | null;
+  /** "3 h ago", "Krea 2": how a draft row says when and with what. */
+  draftMeta?(d: DraftLeaf): string;
+}): Row[] {
+  const q = (s.q ?? "").trim().toLowerCase();
+  const has = (text: string) => Boolean(q) && text.toLowerCase().includes(q);
+  const rows: Row[] = [];
+  type Node = { row: Omit<Row, "depth" | "prefix" | "parent" | "open" | "foldable">; kids: () => Node[]; count: number };
+
+  // a folder of the disk under another of the disk is one of its sub-folders: it never moves on its own
+  const folderNodes = (g: TreeGroup, list: FolderNode[], parent: string | null, ancestors: string[], parentLinked = false, filed: Map<string, TreeGroup["timelines"]> = new Map()): Node[] =>
+    list.map((f) => ({
+      row: {
+        key: `f:${f.id}`, kind: "folder", id: f.id, label: f.name, bytes: f.bytes, group: g.id, linked: f.linked, linkedRoot: f.linked && !parentLinked, archived: g.archived,
+        meta: folderMeta(f, s.kind),
+        ...(s.kind && !f.totalItems ? { empty: true } : {}),
+        match: has(f.name),
+        ...(f.linked && parentLinked ? {} : { moving: { kind: "folder" as const, id: f.id, group: g.id, parent, name: f.name, ...(f.linked ? { linkedRoot: true } : {}) } }),
+        target: { kind: "folder", id: f.id, group: g.id, linked: f.linked, ancestors, name: f.name },
+      },
+      // its items show when it is unfolded, not while searching
+      count: f.children.length + (filed.get(f.id)?.length ?? 0) + (q ? 0 : f.items),
+      // its sub-folders, the timelines filed in it, then its items
+      kids: () => [...folderNodes(g, f.children, f.id, [...ancestors, f.id], f.linked, filed), ...(filed.get(f.id) ?? []).map((t) => timelineNode(g, t)), ...(q ? [] : itemNodes(g, f))],
+    }));
+  const itemNodes = (g: TreeGroup, f: FolderNode): Node[] => {
+    if (!f.items) return [];
+    const key = `f:${f.id}`;
+    const read = s.items?.(key);
+    if (!read?.items) return [{ row: { key: `more:${key}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id }, count: 0, kids: () => [] }];
+    return [
+      ...read.items.map((a): Node => ({
+        row: { key: `a:${a.id}`, kind: "item", id: a.id, label: itemLabel(a), meta: itemMeta(a), bytes: a.bytes, group: g.id, archived: g.archived, asset: a, moving: { kind: "asset", id: a.id, folder: f.id, name: itemLabel(a), ...(a.path ? { onDisk: true } : {}) } },
+        count: 0,
+        kids: () => [],
+      })),
+      ...(read.more ? [{ row: { key: `more:${key}`, kind: "more" as const, id: null, label: "Show more", meta: "", bytes: null, group: g.id, more: key }, count: 0, kids: () => [] }] : []),
+    ];
+  };
+
+  const groupNode = (g: TreeGroup): Node => {
+    const key = groupKey(g);
+    const dk = draftsKey(g.id);
+    const searched = q ? g.drafts ?? [] : null;
+    const draftCount = searched ? searched.length : g.counts.drafts;
+    const draftRows = (): Node[] => {
+      if (searched) return searched.map((d) => draftNode(g, d));
+      const read = s.drafts(dk);
+      if (!read?.items) return [{ row: { key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id }, count: 0, kids: () => [] }];
+      const shown = read.items.slice(0, read.limit).map((d) => draftNode(g, d));
+      const left = read.items.length - read.limit;
+      return left > 0 ? [...shown, { row: { key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Show more", meta: `${left} more`, bytes: null, group: g.id, more: dk }, count: 0, kids: () => [] }] : shown;
+    };
+    // a timeline filed in one of the group's folders shows inside it; one in no folder, or in the project's root, under the group
+    const shown = new Set<string>();
+    const walkFolders = (list: FolderNode[]) => list.forEach((f) => { shown.add(f.id); walkFolders(f.children); });
+    walkFolders(g.folders);
+    const filed = new Map<string, TreeGroup["timelines"]>();
+    const loose: TreeGroup["timelines"] = [];
+    for (const t of g.timelines) {
+      if (t.folderId && shown.has(t.folderId)) filed.set(t.folderId, [...(filed.get(t.folderId) ?? []), t]);
+      else loose.push(t);
+    }
+    const kids = (): Node[] => [
+      ...folderNodes(g, g.folders, null, [], false, filed),
+      ...loose.map((t) => timelineNode(g, t)),
+      ...(draftCount ? [{ row: { key: dk, kind: "drafts" as const, id: null, label: `Drafts · ${draftCount}`, meta: "", bytes: null, group: g.id, archived: g.archived }, count: draftCount, kids: draftRows }] : []),
+    ];
+    const count = g.folders.length + loose.length + (draftCount ? 1 : 0);
+    return {
+      row: {
+        key, kind: g.kind, id: g.id, label: g.name, meta: groupMeta(g), bytes: g.bytes, group: g.id, archived: g.archived, noRoot: g.kind === "project" && !g.rootFolderId,
+        match: has(g.name),
+        target: { kind: "group", group: g.id, root: g.rootFolderId, name: g.kind === "inbox" ? "the Inbox" : g.name },
+      },
+      count,
+      kids,
+    };
+  };
+  const timelineNode = (g: TreeGroup, t: TreeGroup["timelines"][number]): Node => ({
+    row: {
+      key: `t:${t.id}`, kind: "timeline", id: t.id, label: t.name, bytes: t.bytes, group: g.id, archived: g.archived,
+      meta: [plural(t.clips, "clip"), clock(t.durationMs), ...(t.exported ? ["exported"] : [])].join(" · "),
+      match: has(t.name),
+      moving: { kind: "timeline", id: t.id, group: g.id, folder: t.folderId, name: t.name },
+    },
+    count: 0,
+    kids: () => [],
+  });
+  const draftNode = (g: TreeGroup, d: DraftLeaf): Node => ({
+    row: { key: `dr:${d.id}`, kind: "draft", id: d.id, label: draftLabel(d), meta: s.draftMeta?.(d) ?? "", bytes: null, group: g.id, archived: g.archived, match: has(draftLabel(d)), moving: { kind: "draft", id: d.id, group: g.id, name: draftLabel(d) } },
+    count: 0,
+    kids: () => [],
+  });
+
+  const active = tree.groups.filter((g) => !g.archived);
+  const archived = tree.groups.filter((g) => g.archived);
+  const top: Node[] = [
+    { row: { key: "all", kind: "all", id: null, label: "All", meta: "everything, every project", bytes: tree.totalBytes, group: null }, count: 0, kids: () => [] },
+    ...active.map(groupNode),
+    ...(archived.length
+      ? [{ row: { key: "archived", kind: "archive" as const, id: null, label: `Archived (${archived.length})`, meta: plural(archived.length, "project"), bytes: archived.reduce((n, g) => n + g.bytes, 0), group: null }, count: archived.length, kids: () => archived.map(groupNode) }]
+      : []),
+    ...(s.bin ? [{ row: { key: "bin", kind: "bin" as const, id: null, label: "Bin", meta: s.bin.count ? `${plural(s.bin.count, "item")} · kept a week` : "empty", bytes: s.bin.bytes, group: null }, count: 0, kids: () => [] }] : []),
+  ];
+
+  /** With a search: it, or something under it, matches. */
+  const lit = (n: Node): boolean => Boolean(n.row.match) || n.kids().some((k) => k.row.kind !== "more" && lit(k));
+  const walk = (nodes: Node[], depth: number, prefixes: string, parent: string | null) => {
+    nodes.forEach((n, i) => {
+      const last = i === nodes.length - 1;
+      const foldable = n.count > 0;
+      const open = foldable && s.isOpen(n.row.key);
+      rows.push({ ...n.row, depth, parent, foldable, open, prefix: depth === 0 ? "" : prefixes + (last ? "└─ " : "├─ "), ...(q || n.row.empty ? { faded: Boolean(n.row.empty) || (Boolean(q) && !lit(n)) } : {}) });
+      if (open) walk(n.kids(), depth + 1, depth === 0 ? "" : prefixes + (last ? "   " : "│  "), n.row.key);
+    });
+  };
+  walk(top, 0, "", null);
+  return rows;
+}
+
+/**
+ * Shift + click: the rows from the last one picked to this one, in the order they are shown, keeping only
+ * those that can be picked. Without a last one (or one no longer shown), only this one.
+ */
+export function rangePick(order: string[], anchor: string | null, to: string, pickable: (key: string) => boolean = () => true): string[] {
+  const a = anchor ? order.indexOf(anchor) : -1;
+  const b = order.indexOf(to);
+  if (b < 0) return [];
+  if (a < 0) return pickable(to) ? [to] : [];
+  return order.slice(Math.min(a, b), Math.max(a, b) + 1).filter(pickable);
+}
+
+/** A move to make on the server, one per row moved. */
+export type Op =
+  | { kind: "folder"; id: string; patch: { parentId?: string | null; project?: string | null } }
+  | { kind: "timeline"; id: string; patch: { project: string | null; folder: string | null } }
+  | { kind: "draft"; id: string; project: string | null }
+  | { kind: "asset"; id: string; folder: string };
+
+/**
+ * What a drop of these rows on that one does: the moves to make, or null when it is refused (a draft onto
+ * a folder, a folder into itself or one under it, anything but items onto a folder of the disk, an item onto a
+ * project without a root folder or the Inbox, a file of the disk anywhere but another folder of the disk,
+ * a folder of the disk into any folder: it only changes project). Rows already where
+ * they would go are left out; a drop that moves nothing is refused too.
+ */
+export function planDrop(items: Moving[], t: Target): Op[] | null {
+  if (!items.length) return null;
+  const ops: Op[] = [];
+  for (const m of items) {
+    if (t.kind === "folder") {
+      if (m.kind === "draft") return null;
+      // items may go into a folder of the disk (the server writes the file there); nothing else does
+      if (m.kind === "asset") {
+        // a file of the disk stays on the disk: only into another folder of it (the server moves the file there)
+        if (m.onDisk && !t.linked) return null;
+        if (m.folder !== t.id) ops.push({ kind: "asset", id: m.id, folder: t.id });
+        continue;
+      }
+      if (t.linked) return null;
+      if (m.kind === "folder") {
+        if (m.linkedRoot) return null;
+        if (m.id === t.id || t.ancestors.includes(m.id)) return null;
+        if (m.parent === t.id) continue;
+        ops.push({ kind: "folder", id: m.id, patch: { parentId: t.id } });
+      } else {
+        // filed in that folder but listed in another project (a folder moved without it): it still has to move
+        if (m.folder === t.id && m.group === t.group) continue;
+        ops.push({ kind: "timeline", id: m.id, patch: { project: t.group, folder: t.id } });
+      }
+      continue;
+    }
+    // onto a project (into its root folder when it has one) or the Inbox; an item only into a root folder
+    if (m.kind === "asset") {
+      if (!t.root || m.onDisk) return null;
+      if (m.folder !== t.root) ops.push({ kind: "asset", id: m.id, folder: t.root });
+    } else if (m.kind === "folder" && m.linkedRoot) {
+      // a folder of the disk changes project, at the top of it
+      if (m.group === t.group) continue;
+      ops.push({ kind: "folder", id: m.id, patch: { project: t.group } });
+    } else if (m.kind === "folder") {
+      if (m.group === t.group && m.parent === null) continue;
+      ops.push({ kind: "folder", id: m.id, patch: t.root ? { parentId: t.root } : { parentId: null, project: t.group } });
+    } else if (m.kind === "timeline") {
+      if (m.group === t.group && (m.folder === null || m.folder === t.root)) continue;
+      ops.push({ kind: "timeline", id: m.id, patch: { project: t.group, folder: null } });
+    } else {
+      if (m.group === t.group) continue;
+      ops.push({ kind: "draft", id: m.id, project: t.group });
+    }
+  }
+  return ops.length ? ops : null;
+}
+
+/** Where ↑ ↓ ← → go: the next or previous row, a row's parent. */
+export function step(rows: Row[], from: string | null, by: 1 | -1): string | null {
+  if (!rows.length) return null;
+  const i = from ? rows.findIndex((r) => r.key === from) : -1;
+  if (i < 0) return rows[by === 1 ? 0 : rows.length - 1]!.key;
+  return rows[Math.max(0, Math.min(rows.length - 1, i + by))]!.key;
+}
+
+/**
+ * What a drop on the Bin does: items go to the bin (restorable for a week); folders, timelines and drafts
+ * are deleted (a folder's items go to the folder above it). Null when there is nothing to drop; projects
+ * are never dragged, so never binned.
+ */
+export function planBin(items: Moving[]): { assets: string[]; folders: string[]; timelines: string[]; drafts: string[] } | null {
+  if (!items.length) return null;
+  const of = (k: Moving["kind"]) => items.filter((m) => m.kind === k).map((m) => m.id);
+  return { assets: of("asset"), folders: of("folder"), timelines: of("timeline"), drafts: of("draft") };
+}
