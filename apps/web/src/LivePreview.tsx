@@ -5,11 +5,16 @@ import { VolumeControl } from "./mediaControls";
 import { cx } from "./ui";
 
 /**
- * Whether the sound of a live preview is on, and how loud: each step brings a new clip, and the choice
- * made on one of them holds for the ones after it (and for the next render).
+ * The sound of a live preview, on its own (not the player's): every render starts silent, its first steps are
+ * noise. Turned on, it stays on for that render's steps (each brings a new clip); the next render starts silent
+ * again. How loud is kept, for good.
  */
-const useLiveSound = create<{ muted: boolean; volume: number; set(muted: boolean, volume: number): void }>()(
-  persist((set) => ({ muted: false, volume: 1, set: (muted, volume) => set({ muted, volume }) }), { name: "afflatus.live-sound" }),
+const useLiveSound = create<{ volume: number; heardJob: string | null; set(volume: number): void; hear(job: string | null): void }>()(
+  persist(
+    (set) => ({ volume: 1, heardJob: null, set: (volume) => set({ volume }), hear: (heardJob) => set({ heardJob }) }),
+    // a new name: the old one kept "unmuted" for every render after
+    { name: "afflatus.live-sound.2", partialize: (s) => ({ volume: s.volume }) },
+  ),
 );
 
 /**
@@ -50,7 +55,8 @@ export function LivePreview({ job, className, sound, volume }: {
    */
   volume?: number;
 }) {
-  const heard = useLiveSound();
+  const live = useLiveSound();
+  const heard = { volume: live.volume, muted: live.heardJob !== job.id };
   if (job.previewSeq <= 0) return null;
   const src = previewUrl(job.id, job.previewSeq);
   const ruled = sound && volume !== undefined;
@@ -72,7 +78,8 @@ export function LivePreview({ job, className, sound, volume }: {
         loop
         muted={!sound || (ruled ? volume === 0 : heard.muted)}
         playsInline
-        data-live={ruled ? "" : undefined}
+        // full screen pauses and plays it by this mark
+        data-live={sound ? "" : undefined}
         onClick={sound ? (e) => void (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause()) : undefined}
         className={own ? "h-full w-auto max-w-full rounded-[inherit] object-contain" : className}
       />
@@ -82,7 +89,15 @@ export function LivePreview({ job, className, sound, volume }: {
       <div className={cx("relative inline-flex justify-center", className)}>
         {video}
         <div className="absolute bottom-2 right-2 rounded-lg border border-line bg-panel px-1.5 py-0.5">
-          <VolumeControl volume={heard.volume} muted={heard.muted} onVolume={(v) => heard.set(v === 0, v)} onMuted={(m) => heard.set(m, heard.volume)} />
+          <VolumeControl
+            volume={heard.volume}
+            muted={heard.muted}
+            onVolume={(v) => {
+              live.set(v);
+              live.hear(v === 0 ? null : job.id);
+            }}
+            onMuted={(m) => live.hear(m ? null : job.id)}
+          />
         </div>
       </div>
     );
