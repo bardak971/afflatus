@@ -93,7 +93,7 @@ export function AppearanceCard() {
         </div>
       </div>
       {families.map((t) => <Accents key={t.family} theme={t.family === inUse.family ? inUse : t} picked={choice.accents[t.family]} onPick={(name) => pickAccent(t.family, name)} />)}
-      <div className="border-t border-line pt-3">
+      <div className="flex flex-col gap-3.5 border-t border-line pt-3">
         <Toggle on={explain.on} onChange={explain.set} label="Explain every setting in the forms" note="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting." />
         <Toggle on={hover.video} onChange={(video) => hover.set({ video })} label="Play videos when the mouse rests on a card" note="Off: a video card shows its frame until you open it." />
         <Toggle on={hover.sound} onChange={(sound) => hover.set({ sound })} label="Play sound on hover" note="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened." />
