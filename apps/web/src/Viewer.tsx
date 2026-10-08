@@ -34,6 +34,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   // "made from" and "used to make" lead to other items without leaving the viewer
   const [trail, setTrail] = useState<Asset[]>([]);
   const [info, setInfo] = useState(false);
+  // the name, edited in place at the top of the side (F2)
+  const [naming, setNaming] = useState(false);
   // Trim: in and out on a video, and what is done with the range; the range's two frames are shown beside the video
   const [trim, setTrim] = useState(false);
   const [trimRange, setTrimRange] = useState<Range | null>(null);
@@ -63,6 +65,11 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
       return;
     }
     if (info || !plainKey(e, { over: "[data-keys-help]" })) return;
+    if (e.key === "F2" && !inline && !a.inBin) {
+      e.preventDefault();
+      setNaming(true);
+      return;
+    }
     const k = e.key.toLowerCase();
     // a video that has the focus keeps its own arrow keys
     const inPlayer = (e.target as HTMLElement | null)?.tagName === "VIDEO";
@@ -143,25 +150,25 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
         {timelineMenu.element}
         {compare ?? media(false)}
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
-          {canCompare && <Button size="sm" tone={comparing ? "primary" : "plain"} aria-pressed={comparing} title="Compare: pin this one and move to another with the arrow keys; videos play in step, two pictures also with a wipe" onClick={toggleCompare}><Columns2 size={13} /> Compare <Kbd>X</Kbd></Button>}
-          <Button size="sm" onClick={() => keep.mutate(!a.kept)} tone={a.kept ? "primary" : "plain"} aria-pressed={a.kept} title={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
+          {canCompare && <Button size="sm" tone={comparing ? "primary" : "plain"} aria-pressed={comparing} data-tip="Compare: pin this one and move to another with the arrow keys; videos play in step, two pictures also with a wipe" onClick={toggleCompare}><Columns2 size={13} /> Compare <Kbd>X</Kbd></Button>}
+          <Button size="sm" onClick={() => keep.mutate(!a.kept)} tone={a.kept ? "primary" : "plain"} aria-pressed={a.kept} data-tip={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
             <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
           </Button>
           {g && recipe && (
-            <Button size="sm" disabled={queued.isPending} title="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })}>Variation <Kbd>V</Kbd></Button>
+            <Button size="sm" disabled={queued.isPending} data-tip="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })}>Variation <Kbd>V</Kbd></Button>
           )}
           {a.kind === "image" && (["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-            <Button key={k} size="sm" disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
+            <Button key={k} size="sm" disabled={queued.isPending} data-tip={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
           ))}
           {a.kind === "image" && (["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
-            <Button key={k} size="sm" disabled={openTool.isPending} title={`${OPS[k]!.label}: a new draft in the form, with this image as the source.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
+            <Button key={k} size="sm" disabled={openTool.isPending} data-tip={`${OPS[k]!.label}: a new draft in the form, with this image as the source.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
           ))}
-          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} title={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
-          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} title={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
-          {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
-          {a.kind === "video" && !a.inBin && <Button size="sm" tone={trim ? "primary" : "plain"} aria-pressed={trim} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." onClick={() => setTrim(!trim)}><Scissors size={13} /> Trim <Kbd>T</Kbd></Button>}
-          {onDetails && <Button size="sm" onClick={onDetails} title="Generation parameters, folder, lineage and every action">Details</Button>}
-          <Button size="sm" onClick={() => void toBin()} title="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
+          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} data-tip={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
+          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} data-tip={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
+          {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} data-tip="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
+          {a.kind === "video" && !a.inBin && <Button size="sm" tone={trim ? "primary" : "plain"} aria-pressed={trim} data-tip="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." onClick={() => setTrim(!trim)}><Scissors size={13} /> Trim <Kbd>T</Kbd></Button>}
+          {onDetails && <Button size="sm" onClick={onDetails} data-tip="Generation parameters, folder, lineage and every action">Details</Button>}
+          <Button size="sm" onClick={() => void toBin()} data-tip="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
         </div>
       </div>
     );
@@ -170,9 +177,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   return (
     <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
       {menuElement}
-        {timelineMenu.element}
+      {timelineMenu.element}
       {compare ?? media(true)}
-      <ViewerSidebar acts={acts} detail={detail} trail={trail} onTrail={setTrail} items={items} trim={trim} onTrim={setTrim} onInfo={setInfo} onClose={onClose} comparing={comparing} onCompare={canCompare ? toggleCompare : undefined} />
+      <ViewerSidebar acts={acts} asset={asset} detail={detail} naming={naming} onNaming={setNaming} trail={trail} onTrail={setTrail} items={items} trim={trim} onTrim={setTrim} onInfo={setInfo} onClose={onClose} comparing={comparing} onCompare={canCompare ? toggleCompare : undefined} />
       {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
     </div>
   );

@@ -1,11 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronDown, ChevronLeft, Clapperboard, Columns2, Copy, Download, FileSearch, Film, FolderPlus, Link2, Music, Pencil, Plus, Scissors, Shuffle, Star, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { isShown, RANDOM_SEED, type InputSpec, type LoraValue, type SizeValue } from "@afflatus/core";
+import { useMutation } from "@tanstack/react-query";
+import { ChevronDown, Copy, Film, FolderPlus, Plus, Star, Trash2, Undo2, Wand2 } from "lucide-react";
+import { isShown, RANDOM_SEED, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
-import { askText } from "../Confirm";
 import { useAssetAction, useFamilies, useFolders, useRecipes, useSetup, useTimelines, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { Kbd } from "../Keys";
@@ -15,6 +14,7 @@ import { Select } from "../Select";
 import { Button, cx, SectionTitle } from "../ui";
 import { ModelLink } from "../ModelLink";
 import { FORMATS, mb, OPS } from "./shared";
+import { ViewerHeader } from "./ViewerHeader";
 import type { ViewerActions } from "./useViewerActions";
 import { copyText } from "../secureContext";
 
@@ -25,8 +25,8 @@ const ROLES: Record<string, string> = { start: "First frame", end: "Last frame",
 /** One setting as it was when the item was made, written out for a person. */
 function valueOf(spec: InputSpec, value: unknown): ReactNode {
   switch (spec.type) {
-    case "model": return <span title={String(value)}>{fileLabel(String(value))}</span>;
-    case "choice": return <span title={String(value)}>{fileLabel(String(value))}</span>;
+    case "model": return <span data-tip={String(value)}>{fileLabel(String(value))}</span>;
+    case "choice": return <span data-tip={String(value)}>{fileLabel(String(value))}</span>;
     case "number": return `${value}${spec.unit ?? ""}`;
     case "toggle": return spec.captions ? (value ? spec.captions.on : spec.captions.off) : value ? "On" : "Off";
     case "size": {
@@ -78,32 +78,31 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
     );
   }
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-ink-2">{title}</span>
+        <SectionTitle>{title}</SectionTitle>
         {copy}
       </div>
-      <div className="rounded-lg bg-raised px-3 py-2.5 leading-normal break-words whitespace-pre-wrap">{text}</div>
+      <div className="max-h-[220px] overflow-y-auto rounded-xl border border-line bg-raised p-3 text-[12.5px] leading-relaxed break-words whitespace-pre-wrap">{text}</div>
     </div>
   );
 }
 
-/** One thing to do with the item: an icon, a word, its key. Pressed: it is on (Kept, Trim). */
-function Act({ icon, label, k, pressed, onClick, disabled, title, wide }: { icon: ReactNode; label: string; k?: string; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
+/** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). */
+function Act({ label, k, pressed, onClick, disabled, title, wide }: { label: string; k?: string; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={title}
+      data-tip={title}
       aria-pressed={pressed}
       className={cx(
-        "flex h-10 min-w-0 items-center gap-2 rounded-lg border px-3 text-left hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
-        pressed ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink",
+        "flex h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-3 text-left text-[13px] font-semibold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
+        pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
         wide && "col-span-2",
       )}
     >
-      <span className="shrink-0">{icon}</span>
       <span className="min-w-0 grow truncate">{label}</span>
       {k && <Kbd>{k}</Kbd>}
     </button>
@@ -131,7 +130,7 @@ function OpenInComfy({ asset }: { asset: Asset }) {
   return (
     <div className="flex flex-col gap-1.5">
       <div>
-        <Button size="sm" onClick={() => open.mutate()} disabled={open.isPending || !online} title={online ? "Its graph, built again from these parameters, in ComfyUI's editor. The images and sounds it used are named, not carried over." : "ComfyUI is not running."}>Open in ComfyUI</Button>
+        <Button size="sm" onClick={() => open.mutate()} disabled={open.isPending || !online} data-tip={online ? "Its graph, built again from these parameters, in ComfyUI's editor. The images and sounds it used are named, not carried over." : "ComfyUI is not running."}>Open in ComfyUI</Button>
       </div>
       {open.isError && <span className="text-xs text-warn-ink">{open.error.message}</span>}
       {opened && !opened.direct && (
@@ -142,6 +141,19 @@ function OpenInComfy({ asset }: { asset: Asset }) {
     </div>
   );
 }
+
+/** One setting in the parameters grid: its name dim, its value in the mono face. Wide: it takes the two columns. */
+function Cell({ label, children, title, wide }: { label: string; children: ReactNode; title?: string; wide?: boolean }) {
+  return (
+    <div className={cx("flex min-w-0 flex-col gap-0.5", wide && "col-span-2")}>
+      <span className="text-ink-3">{label}</span>
+      <span data-tip={title} className={cx("min-w-0 font-mono text-ink", !wide && "truncate")}>{children}</span>
+    </div>
+  );
+}
+
+/** The sampling settings shown up front even where the form keeps them under Advanced: what is asked of a render first. */
+const UP_FRONT = ["steps", "cfg", "sampler", "scheduler"];
 
 /** How it was made: every setting of the form it came from, in the form's order. */
 function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>; recipe: RecipeInfo | undefined; asset: Asset }) {
@@ -157,22 +169,35 @@ function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>;
   const loose = recipe ? [] : Object.entries(g.inputs).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v));
   // the main text whole; what to avoid and the other texts folded to a line
   const main = texts.find((i) => !("optional" in i && i.optional) && i.id !== "negative") ?? texts[0];
-  // what the form shows up front is what matters; what sits under Advanced is folded here too
-  const key = settings.filter((i) => !i.advanced);
-  const rest = settings.filter((i) => i.advanced);
+  // what the form shows up front is what matters, and the sampling; what sits under Advanced is folded here too
+  const key = settings.filter((i) => !i.advanced || UP_FRONT.includes(i.id));
+  const rest = settings.filter((i) => !key.includes(i));
   const more = rest.length + (switches.length ? 1 : 0) + loose.length + (g.resolved.loads?.length ? 1 : 0);
+  // sampler and scheduler side by side, as one
+  const sampler = key.find((i) => i.id === "sampler");
+  const scheduler = sampler && key.find((i) => i.id === "scheduler");
+  const plain = (i: InputSpec) => fileLabel(String(g.inputs[i.id]));
+  // the reference pictures given: what each was for (the pictures themselves are under Source)
+  const refs = (recipe?.inputs ?? []).flatMap((i) => (i.type === "references" && Array.isArray(g.inputs[i.id]) ? (g.inputs[i.id] as ReferenceValue[]) : []));
+  const cells = key.filter((i) => i !== scheduler).map((i) => {
+    if (i === sampler && scheduler) return <Cell key={i.id} label="Sampler · scheduler" title={`${plain(i)} · ${plain(scheduler)}`}>{plain(i)} · {plain(scheduler)}</Cell>;
+    const many = i.type === "loras" && (g.inputs[i.id] as LoraValue[]).length > 0;
+    const value = valueOf(i, g.inputs[i.id]);
+    return <Cell key={i.id} label={i.label} wide={many} title={typeof value === "string" ? value : undefined}>{value}</Cell>;
+  });
   const rows = (list: InputSpec[]) => list.map((i) => <Row key={i.id} label={i.label}>{valueOf(i, g.inputs[i.id])}</Row>);
   return (
     <>
       {texts.map((i) => <Sent key={i.id} title={i.label} text={text(i.id)} folded={i !== main} />)}
-      <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5">
-        {typeof g.resolved.seed === "number" && <Row label="Seed"><span className="font-mono">{g.resolved.seed}</span></Row>}
-        {rows(key)}
-      </dl>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+        {typeof g.resolved.seed === "number" && <Cell label="Seed">{g.resolved.seed}</Cell>}
+        {cells}
+        {refs.length > 0 && <Cell label={refs.length > 1 ? "References" : "Reference"}>{[...new Set(refs.map((r) => r.role))].map((role) => { const n = refs.filter((r) => r.role === role).length; return n > 1 ? `${role} ×${n}` : role; }).join(" · ")}</Cell>}
+      </div>
       {(more > 0 || recipe) && (
         <details className="group rounded-lg border border-line">
           <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink">
-            <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> {more > 0 ? `All parameters · ${more + key.length} more` : "In ComfyUI"}
+            <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> {more > 0 ? `All parameters · ${more} more` : "In ComfyUI"}
           </summary>
           <div className="flex flex-col gap-3 border-t border-line p-3">
             {(rest.length > 0 || switches.length > 0 || loose.length > 0) && (
@@ -189,7 +214,7 @@ function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>;
             {g.resolved.loads && g.resolved.loads.length > 0 && (
               <div className="flex flex-col gap-1">
                 <span className="text-xs text-ink-2">Model files loaded</span>
-                {g.resolved.loads.map((f) => <span key={f} title={f} className="truncate">{fileLabel(f)}</span>)}
+                {g.resolved.loads.map((f) => <span key={f} data-tip={f} className="truncate">{fileLabel(f)}</span>)}
               </div>
             )}
             {recipe && <OpenInComfy asset={asset} />}
@@ -281,8 +306,8 @@ function TimelinePicker({ asset }: { asset: Asset }) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="grid grid-cols-2 gap-1.5">
-        {last && <Button size="sm" disabled={add.isPending} title={`At the end of ${last.name}, the timeline you last added to`} onClick={() => add.mutate(last.id)}><span className="truncate">Add to {last.name}</span> <Kbd>A</Kbd></Button>}
-        <Button size="sm" disabled={start.isPending} title={asset.kind === "image" ? "A new timeline whose clip 1 opens on this picture, its form open" : "A new timeline whose clip 1 is this video"} onClick={() => start.mutate(asset)}>Start a timeline from it <Kbd>N</Kbd></Button>
+        {last && <Button size="sm" disabled={add.isPending} data-tip={`At the end of ${last.name}, the timeline you last added to`} onClick={() => add.mutate(last.id)}><span className="truncate">Add to {last.name}</span> <Kbd>A</Kbd></Button>}
+        <Button size="sm" disabled={start.isPending} data-tip={asset.kind === "image" ? "A new timeline whose clip 1 opens on this picture, its form open" : "A new timeline whose clip 1 is this video"} onClick={() => start.mutate(asset)}>Start a timeline from it <Kbd>N</Kbd></Button>
       </div>
       <Select
         dashed
@@ -392,11 +417,13 @@ function ChangePicker({ madeWith, keys, start }: {
  * Everything about the item, beside it: what it is, what can be done with it, how it was made, where it
  * came from and what it was used in, the tools for a picture, where to put it, and the file's details.
  */
-export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, trim, onTrim: setTrim, onInfo: setInfo, onClose, comparing, onCompare }: {
+export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, items, trim, onTrim: setTrim, onInfo: setInfo, naming, onNaming, onClose, comparing, onCompare }: {
   /** Compare: the one on screen is pinned and the arrow keys move the other; present when there is a list to move through. */
   comparing?: boolean;
   onCompare?(): void;
   acts: ViewerActions;
+  /** The item as it was listed (see ViewerHeader). */
+  asset: Asset;
   detail: ReturnType<typeof useAsset>;
   /** The items followed from the first one: "made from" and "used to make"; Back steps out of it. */
   trail: Asset[];
@@ -407,81 +434,54 @@ export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, t
   onTrim(trim: boolean): void;
   /** The embedded generation parameters, read from the file. */
   onInfo(open: true): void;
+  /** The name is being edited in place (F2, or a click on it). */
+  naming: boolean;
+  onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, recipe, recipes, keep, restore, leave, again, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, between, extendHere, toolFor, openTool, queued, quick, at, toBin, download } = acts;
-  const qc = useQueryClient();
-  // a name of the user's own, asked for in a box; the library shows it and the search goes by it
-  const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.renameAsset(v.id, v.name), onSuccess: (_, v) => void qc.invalidateQueries({ queryKey: ["asset", v.id] }) });
-  const renameIt = async (of: Asset) => {
-    const name = await askText({ title: "Rename", value: of.name, placeholder: "A name for it", yes: "Rename" });
-    if (name !== null && name !== of.name) rename.mutate({ id: of.id, name });
-  };
+  const { a, g, recipe, recipes, keep, restore, leave, again, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, between, extendHere, toolFor, openTool, queued, quick, toBin, download } = acts;
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
   const sources = detail.data?.id === a.id ? detail.data.sources : [];
   const usedIn = detail.data?.id === a.id ? detail.data.usedIn : [];
   return (
-    <aside className="flex w-[440px] shrink-0 flex-col border-l border-line bg-panel">
-      <div className="flex min-h-14 shrink-0 items-center gap-1 border-b border-line p-2">
-        {trail.length > 0 && (
-          <button type="button" aria-label="Back to the previous item" onClick={() => setTrail(trail.slice(0, -1))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><ChevronLeft size={16} /></button>
-        )}
-        <span className={cx("min-w-0 grow font-semibold", trail.length === 0 && "pl-2")}>{title}</span>
-        {at >= 0 && items!.length > 1 && <span className="shrink-0 text-xs text-ink-2" title="Arrow keys: previous and next item">{at + 1} of {items!.length} <Kbd>←</Kbd> <Kbd>→</Kbd></span>}
-        <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">?</button>
-        <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
-      </div>
-      <div className="flex min-h-0 grow flex-col gap-5 overflow-y-auto p-4">
+    <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
+      <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />
+      <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-5 py-3.5">
         {a.inBin ? (
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2.5 text-warn-ink">
             <span>In the bin.</span>
             <Button size="sm" tone="danger" onClick={() => restore.mutate(undefined)}><Undo2 size={14} /> Restore</Button>
           </div>
         ) : (
           !a.kept && (
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2.5 text-warn-ink">
               <span>Not kept: it goes to the bin after a day.</span>
               <Button size="sm" tone="danger" onClick={() => keep.mutate(true)}>Keep</Button>
             </div>
           )
         )}
 
-        {/* what it is, in one line; the file's details are folded at the end */}
-        <div className="-mt-1 text-xs text-ink-2">
-          {[
-            a.width && a.height ? `${a.width} × ${a.height}` : "",
-            a.kind === "video" && a.durationMs ? `${(a.durationMs / 1000).toFixed(1)} s` : "",
-            a.kind === "video" && a.fps ? `${Math.round(a.fps)} fps` : "",
-            a.kind === "video" && a.durationMs ? (a.hasSound ? "with audio" : "silent") : "",
-            `${FORMATS[a.mime] ?? a.mime} ${mb(a.bytes)}`,
-            when(a.createdAt),
-            g ? `rendered in ${took(g.tookMs)}` : "",
-          ].filter(Boolean).join(" · ")}
-        </div>
-
         {/* what to do with it: two columns, the item's own kind of things first */}
-        <div className="grid grid-cols-2 gap-1.5">
-          {g && recipe && <Act icon={<Wand2 size={15} />} label="Reuse parameters" k="L" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft." />}
-          {g && recipe && <Act icon={<Shuffle size={15} />} label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
-          {a.kind === "image" && !a.inBin && opener && <Act wide icon={<Clapperboard size={15} />} label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
-          {a.kind === "video" && !a.inBin && carrier && <Act icon={<Link2 size={15} />} label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
-          {a.kind === "video" && !a.inBin && <Act icon={<Scissors size={15} />} label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}
-          {a.kind === "video" && !a.inBin && <Act icon={<Camera size={15} />} label={saveFrame.isPending ? "Saving…" : "Save frame"} k="G" onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library." />}
-          {a.kind === "video" && !a.inBin && a.hasSound && <Act icon={<Music size={15} />} label={takeSound.isPending ? "Extracting…" : "Extract audio"} onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music." />}
-          {a.kind === "audio" && !a.inBin && follower && <Act wide icon={<Music size={15} />} label="Use as voice sample" onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample." />}
-          {a.kind !== "audio" && !a.inBin && !g && <Act icon={<FileSearch size={15} />} label="PNG info" k="P" onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form." />}
-          {onCompare && a.kind !== "audio" && <Act icon={<Columns2 size={15} />} label="Compare" k="X" pressed={comparing} onClick={onCompare} title="Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe" />}
-          {!a.inBin && <Act icon={<Pencil size={15} />} label="Rename" onClick={() => void renameIt(a)} title="A name of your own for it: the library shows it and the search goes by it" />}
-          {!a.inBin && <Act icon={<Star size={15} fill={a.kept ? "currentColor" : "none"} />} label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
-          <Act icon={<Download size={15} />} label="Download" k="D" onClick={download} title="Download the file" />
+        <div className="grid grid-cols-2 gap-2">
+          {g && recipe && <Act label="Reuse parameters" k="L" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft." />}
+          {g && recipe && <Act label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
+          {a.kind === "image" && !a.inBin && opener && <Act wide label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
+          {a.kind === "video" && !a.inBin && carrier && <Act label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
+          {a.kind === "video" && !a.inBin && <Act label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}
+          {a.kind === "video" && !a.inBin && <Act label={saveFrame.isPending ? "Saving…" : "Save frame"} k="G" onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library." />}
+          {a.kind === "video" && !a.inBin && a.hasSound && <Act label={takeSound.isPending ? "Extracting…" : "Extract audio"} onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music." />}
+          {a.kind === "audio" && !a.inBin && follower && <Act wide label="Use as voice sample" onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample." />}
+          {a.kind !== "audio" && !a.inBin && !g && <Act label="PNG info" k="P" onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form." />}
+          {onCompare && a.kind !== "audio" && <Act label="Compare" k="X" pressed={comparing} onClick={onCompare} title="Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe" />}
+          {!a.inBin && <Act label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
+          <Act label="Download" k="D" onClick={download} title="Download the file" />
         </div>
         {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="-mt-3 text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
 
         {g && (
-          <div className="flex flex-col gap-2.5">
-            <SectionTitle>Generation parameters</SectionTitle>
+          <div className="flex flex-col gap-3">
             <Made g={g} recipe={recipe} asset={a} />
           </div>
         )}
@@ -510,7 +510,7 @@ export function ViewerSidebar({ acts, detail, trail, onTrail: setTrail, items, t
             <SectionTitle>Image tools</SectionTitle>
             <div className="grid grid-cols-2 gap-1.5">
               {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-                <Act key={k} icon={<Wand2 size={15} />} label={OPS[k]!.label} k={k.toUpperCase()} disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)} />
+                <Act key={k} label={OPS[k]!.label} k={k.toUpperCase()} disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)} />
               ))}
             </div>
             <ChangePicker madeWith={recipe} keys={Object.fromEntries((["i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [[toolFor(k)!.id, k]] : [])))} start={openTool} />

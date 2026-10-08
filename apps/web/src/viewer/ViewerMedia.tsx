@@ -3,6 +3,7 @@ import type { Range } from "../Trim";
 import { fileUrl, thumbUrl, type Asset } from "../api";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import type { ViewerActions } from "./useViewerActions";
+import { AudioPlayer } from "../AudioPlayer";
 
 // Trim is a chunk of its own: fetched the first time a video is trimmed
 const Trim = lazy(() => import("../Trim").then((m) => ({ default: m.Trim })));
@@ -45,7 +46,7 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
       {a.kind === "image" && (overlay
         ? <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onImageMenu} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
         : (
-          <button type="button" onClick={onDetails} title="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
+          <button type="button" onClick={onDetails} aria-label="Details: generation parameters, lineage and every action" data-tip="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
             <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onImageMenu} className="max-h-full max-w-full rounded-lg object-contain" />
           </button>
         ))}
@@ -55,7 +56,7 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
           {trim && trimRange && <Suspense fallback={null}><RangeFrames asset={a} range={trimRange} /></Suspense>}
         </div>
       )}
-      {a.kind === "audio" && <audio key={a.id} src={fileUrl(a.id)} controls onClick={overlay ? (e) => e.stopPropagation() : undefined} />}
+      {a.kind === "audio" && <AudioPlayer key={a.id} asset={a.id} name={a.name || "Audio"} className="w-full max-w-[640px]" onClick={overlay ? (e) => e.stopPropagation() : undefined} />}
       {a.kind === "video" && trim && (
         <Suspense fallback={null}>
         <Trim
