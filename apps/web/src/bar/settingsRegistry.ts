@@ -48,29 +48,29 @@ const barPart = (key: "snippets" | "history" | "cast", label: string, about: str
 });
 
 export const SETTINGS: SettingEntry[] = [
-  { id: "hover.video", label: "Play videos on hover", page: "appearance", words: "mouse card preview", scope: "this browser", kind: "switch", about: "Videos in the library play, muted, while the mouse rests on them. Off: a video card shows its frame until you open it.", get: () => useHoverPlay.getState().video, set: (_c, v) => useHoverPlay.getState().set({ video: Boolean(v) }) },
-  { id: "hover.sound", label: "Play sound on hover", page: "appearance", words: "audio mouse card", scope: "this browser", kind: "switch", about: "The sound of a video playing on hover, and of a sound card. Off: they stay silent until opened.", get: () => useHoverPlay.getState().sound, set: (_c, v) => useHoverPlay.getState().set({ sound: Boolean(v) }) },
-  { id: "explain", label: "Explain every setting in the forms", page: "appearance", words: "help tooltips notes", scope: "this browser", kind: "switch", about: "On: a line under each setting of a form says what it does. Off: it sits behind the ? beside its name.", get: () => useExplain.getState().on, set: (_c, v) => useExplain.getState().set(Boolean(v)) },
+  { id: "hover.video", label: "Play videos on hover", page: "interface", words: "mouse card preview", scope: "this browser", kind: "switch", about: "Videos in the library play, muted, while the mouse rests on them. Off: a video card shows its frame until you open it.", get: () => useHoverPlay.getState().video, set: (_c, v) => useHoverPlay.getState().set({ video: Boolean(v) }) },
+  { id: "hover.sound", label: "Play sound on hover", page: "interface", words: "audio mouse card", scope: "this browser", kind: "switch", about: "The sound of a video playing on hover, and of a sound card. Off: they stay silent until opened.", get: () => useHoverPlay.getState().sound, set: (_c, v) => useHoverPlay.getState().set({ sound: Boolean(v) }) },
+  { id: "explain", label: "Explain every setting in the forms", page: "interface", words: "help tooltips notes", scope: "this browser", kind: "switch", about: "On: a line under each setting of a form says what it does. Off: it sits behind the ? beside its name.", get: () => useExplain.getState().on, set: (_c, v) => useExplain.getState().set(Boolean(v)) },
   {
-    id: "theme.mode", label: "Theme: dark, light or the system's", page: "appearance", words: "dark light system mode night day", scope: "this browser", kind: "choice", about: "Which of your two themes is up: the dark one, the light one, or the one your system says.",
+    id: "theme.mode", label: "Theme: dark, light or the system's", page: "interface", words: "dark light system mode night day", scope: "this browser", kind: "choice", about: "Which of your two themes is up: the dark one, the light one, or the one your system says.",
     get: () => useThemeChoice.getState().mode,
     set: (_c, v) => useThemeChoice.getState().set({ mode: v as "dark" | "light" | "system" }),
     options: () => [{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }],
   },
   {
-    id: "theme.night", label: "Dark theme", page: "appearance", words: "theme palette colours catppuccin rose pine", scope: "this browser", kind: "choice", about: "The theme shown while the dark one is up.",
+    id: "theme.night", label: "Dark theme", page: "interface", words: "theme palette colours catppuccin rose pine", scope: "this browser", kind: "choice", about: "The theme shown while the dark one is up.",
     get: () => useThemeChoice.getState().night,
     set: (_c, v) => { const s = useThemeChoice.getState(); s.set({ night: String(v), mode: s.mode === "light" ? "dark" : s.mode }); },
     options: () => THEMES.filter((t) => !t.light).map((t) => ({ value: t.id, label: t.name })),
   },
   {
-    id: "theme.day", label: "Light theme", page: "appearance", words: "theme palette colours latte dawn", scope: "this browser", kind: "choice", about: "The theme shown while the light one is up. Pictures and videos stay on a dark stage.",
+    id: "theme.day", label: "Light theme", page: "interface", words: "theme palette colours latte dawn", scope: "this browser", kind: "choice", about: "The theme shown while the light one is up. Pictures and videos stay on a dark stage.",
     get: () => useThemeChoice.getState().day,
     set: (_c, v) => { const s = useThemeChoice.getState(); s.set({ day: String(v), mode: s.mode === "dark" ? "light" : s.mode }); },
     options: () => THEMES.filter((t) => t.light).map((t) => ({ value: t.id, label: t.name })),
   },
-  { id: "notify.each", label: "Notify after each render", page: "notifications", words: "browser notification done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes or fails.", get: () => useNotify.getState().eachRender, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ eachRender: Boolean(v) }); } },
-  { id: "notify.empty", label: "Notify when the queue is empty", page: "notifications", words: "browser notification done", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done.", get: () => useNotify.getState().whenEmpty, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ whenEmpty: Boolean(v) }); } },
+  { id: "notify.each", label: "Notify after each render", page: "interface", words: "browser notification done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes or fails.", get: () => useNotify.getState().eachRender, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ eachRender: Boolean(v) }); } },
+  { id: "notify.empty", label: "Notify when the queue is empty", page: "interface", words: "browser notification done", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done.", get: () => useNotify.getState().whenEmpty, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ whenEmpty: Boolean(v) }); } },
   server("tagCheck", "Danbooru tag check", "prompts", "Tags written for an anime model are compared with danbooru's list: another name or a typo is pointed out under the prompt.", "typo tags anime"),
   server("civitaiLookups", "Civitai lookups", "models", "Missing model files, trigger words and model pages may be looked for on Civitai (file hashes are sent).", "trigger words lora names"),
   server("downloadModels", "Download missing files into ComfyUI", "models", "Missing model files may be fetched into ComfyUI, through ComfyUI-Manager.", "manager fetch"),

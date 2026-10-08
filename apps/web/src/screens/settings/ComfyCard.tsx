@@ -3,30 +3,38 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings, useSetup } from "../../data";
 import { gb } from "../../format";
-import { Button, cx, ErrorNote, fieldClass, NumberBox } from "../../ui";
+import { Slider } from "../../Slider";
+import { Button, cx, ErrorNote, fieldClass } from "../../ui";
+import { Block, Card, Fact, Row, Status, warnButton } from "./Rows";
+
+const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
 
 /** Afflatus's node pack (MiniMax H3 continued in the latent): written into ComfyUI's folder when it is known, loaded after a ComfyUI restart. */
-function NodePackLine() {
+function NodePackRow() {
   const settings = useSettings();
   const pack = useQuery({ queryKey: ["node-pack", settings.data?.comfyDir], queryFn: api.nodePack, enabled: Boolean(settings.data), staleTime: 30_000 });
   if (!pack.data) return null;
   const p = pack.data;
-  const why = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
+  if (p.loaded) return <Row label="Node pack" help={WHY_PACK}><Status ok>Loaded</Status></Row>;
+  if (p.written) {
+    return (
+      <Row tone="warn" label="Node pack: restart ComfyUI" help={`Afflatus's node pack was written to ComfyUI's custom_nodes folder: restart ComfyUI to load it. ${WHY_PACK}`}>
+        <span className="text-xs text-warn-ink">written to custom_nodes</span>
+      </Row>
+    );
+  }
+  if (p.canWrite) {
+    return <Row label="Node pack" help={`With the folder set, Afflatus puts its node pack in ComfyUI's custom_nodes. ${WHY_PACK}`}><span className="text-xs text-ink-3">goes into custom_nodes with the folder set</span></Row>;
+  }
   return (
-    <div className="flex flex-col gap-1.5 text-xs text-ink-2">
-      {p.loaded ? (
-        <span>Afflatus's node pack is loaded in ComfyUI. {why}</span>
-      ) : p.written ? (
-        <span className="text-warn-ink">Afflatus's node pack was written to ComfyUI's custom_nodes folder: <span className="font-semibold">restart ComfyUI</span> to load it. {why}</span>
-      ) : p.canWrite ? (
-        <span>With the folder set, Afflatus puts its node pack in ComfyUI's custom_nodes. {why}</span>
-      ) : (
-        <span>
-          ComfyUI's folder is not on this computer, so Afflatus cannot write its node pack there. Install it once by hand:{" "}
-          <a href="/api/comfy/node-pack.zip" download className="font-semibold text-ink underline">download the node pack</a>, unpack it into ComfyUI's <span className="font-mono">custom_nodes</span> folder (it makes <span className="font-mono">custom_nodes/afflatus-nodes/</span>) and restart ComfyUI. {why}
-        </span>
-      )}
-    </div>
+    <Row
+      tone="warn"
+      label="Node pack not installed"
+      help={`ComfyUI's folder is not on this computer, so Afflatus cannot write its node pack there. Install it once by hand: download it, unpack it into ComfyUI's custom_nodes folder (it makes custom_nodes/afflatus-nodes/) and restart ComfyUI. ${WHY_PACK}`}
+    >
+      {/* a link (the zip is a download), drawn as the warn button */}
+      <a href="/api/comfy/node-pack.zip" download className={warnButton}>Download the node pack</a>
+    </Row>
   );
 }
 
@@ -47,6 +55,12 @@ export function ComfyCard() {
     if (savedDir !== undefined) setDir(savedDir);
   }, [savedDir]);
   const unload = useMutation({ mutationFn: (minutes: number) => api.saveSettings({ unloadAfterMinutes: minutes }), onSuccess: (saved) => client.setQueryData(["settings"], saved) });
+  // the slider's value while it moves; saved only where it is let go
+  const savedUnload = settings.data?.unloadAfterMinutes;
+  const [minutes, setMinutes] = useState(0);
+  useEffect(() => {
+    if (savedUnload !== undefined) setMinutes(savedUnload);
+  }, [savedUnload]);
   const saveDir = useMutation({
     mutationFn: () => api.saveSettings({ comfyDir: dir.trim() }),
     onSuccess: (saved) => client.setQueryData(["settings"], saved),
@@ -63,74 +77,44 @@ export function ComfyCard() {
     },
   });
   const comfy = setup.data?.comfy;
+  const never = (v: number) => (v > 0 ? `${v} min` : "never");
   return (
-    <section id="comfyui" className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-bold">ComfyUI</h2>
-        {comfy && (
-          <span className={cx("flex items-center gap-1.5 font-semibold", comfy.online ? "text-good" : "text-warn-ink")}>
-            <span className={cx("h-2 w-2 rounded-full", comfy.online ? "bg-good" : "bg-warn")} />
-            {comfy.online ? "Connected" : "Not answering"}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="comfy-url" className="text-xs text-ink-2">ComfyUI URL</label>
-        <div className="flex gap-2">
-          <input
-            id="comfy-url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            spellCheck={false}
-            className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)}
-          />
+    <div className="flex flex-col gap-4">
+      <Card id="comfyui" title="Connection" status={comfy && <Status ok={comfy.online}>{comfy.online ? "Connected" : "Not answering"}</Status>}>
+        <Row label="ComfyUI URL" htmlFor="comfy-url" help="The address ComfyUI listens on (8188 unless started with --port). Test again saves it first when it changed. Testing only reads what ComfyUI has: it never starts a render or loads a model.">
+          <input id="comfy-url" value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
           <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>
-        </div>
-      </div>
-      {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
-      {comfy?.online === false && <ErrorNote>{comfy.error}</ErrorNote>}
-      {comfy?.online && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-ink-2">
-          <dt>Version</dt><dd className="text-ink">{comfy.version}</dd>
-          <dt>GPU</dt><dd className="text-ink">{comfy.device}</dd>
-          <dt>VRAM</dt><dd className="text-ink">{gb(comfy.vramTotal)} ({gb(comfy.vramFree)} free)</dd>
-          <dt>Node types</dt><dd className="text-ink">{comfy.nodes}</dd>
-        </dl>
-      )}
-      <div className="text-xs text-ink-3">Testing only reads what ComfyUI has. It never starts a render or loads a model.</div>
-      <div className="flex flex-col gap-1.5 border-t border-line pt-3">
-        <label htmlFor="comfy-dir" className="text-xs text-ink-2">ComfyUI folder on this computer <span className="text-ink-3">(optional: the one with main.py; lets "Open in ComfyUI" show the workflow straight away)</span></label>
-        <div className="flex gap-2">
-          <input
-            id="comfy-dir"
-            value={dir}
-            onChange={(e) => setDir(e.target.value)}
-            placeholder="D:\ComfyUI  —  empty when ComfyUI runs elsewhere"
-            spellCheck={false}
-            className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)}
-          />
+        </Row>
+        {(test.isError || comfy?.online === false) && (
+          <Block>
+            {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
+            {comfy?.online === false && <ErrorNote>{comfy.error}</ErrorNote>}
+          </Block>
+        )}
+        {comfy?.online && (
+          <Row label="ComfyUI" start>
+            <Fact tip="ComfyUI version">v{comfy.version.replace(/^v/, "")}</Fact>
+            <Fact tip={`${comfy.device}: ${gb(comfy.vramTotal)} VRAM, ${gb(comfy.vramFree)} free`}><span className="max-w-[340px] truncate">{comfy.device} · {gb(comfy.vramTotal)} · {gb(comfy.vramFree).replace(" GB", "")} free</span></Fact>
+            <Fact tip="Node types this ComfyUI has">{comfy.nodes} nodes</Fact>
+          </Row>
+        )}
+        <Row label="Folder on this computer" htmlFor="comfy-dir" help={`Optional: ComfyUI's own folder, the one with main.py. It lets "Open in ComfyUI" show the workflow straight away, and Afflatus write its node pack into custom_nodes. Leave it empty when ComfyUI runs on another computer.`}>
+          <input id="comfy-dir" value={dir} onChange={(e) => setDir(e.target.value)} placeholder="D:\ComfyUI  —  empty when ComfyUI runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
           <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
-        </div>
-        {saveDir.isError && <ErrorNote>{saveDir.error.message}</ErrorNote>}
-        <NodePackLine />
-      </div>
+        </Row>
+        {saveDir.isError && <Block><ErrorNote>{saveDir.error.message}</ErrorNote></Block>}
+        <NodePackRow />
+      </Card>
+
       {settings.data && (
-        <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
-          <span className="min-w-0">
-            Unload models after
-            <span className="block text-xs text-ink-2">{settings.data.unloadAfterMinutes > 0 ? "minutes without a render: the VRAM is freed. The next render loads them again." : "0 = never: they stay loaded until something else needs the VRAM. \"Unload models\" in the Queue does it manually."}</span>
-          </span>
-          <NumberBox
-            label="Minutes without a render before ComfyUI's models are unloaded"
-            value={settings.data.unloadAfterMinutes}
-            min={0}
-            max={1440}
-            unit="min"
-            onCommit={(v) => unload.mutate(v)}
-          />
-        </div>
+        <Card title="VRAM">
+          <Row label="Unload models after" help={`Minutes without a render, then ComfyUI's models are unloaded and the VRAM is freed; the next render loads them again. 0 = never: they stay loaded until something else needs the VRAM. "Unload models" in the Queue does it by hand.`}>
+            <Slider label="Minutes without a render before ComfyUI's models are unloaded" value={minutes} min={0} max={1440} box={false} format={never} onChange={setMinutes} onCommit={(v) => unload.mutate(v)} className="max-w-[320px] grow" />
+            <span className="w-16 shrink-0 text-right font-mono text-xs text-ink">{never(minutes)}</span>
+          </Row>
+          {unload.isError && <Block><ErrorNote>{unload.error.message}</ErrorNote></Block>}
+        </Card>
       )}
-      {unload.isError && <ErrorNote>{unload.error.message}</ErrorNote>}
-    </section>
+    </div>
   );
 }

@@ -7,7 +7,8 @@ import { useFamilies, useRecipes, useSettings, useSetup } from "../../data";
 import { fileLabel, problemSaid } from "../../format";
 import { GetFile } from "../../GetFile";
 import { Select } from "../../Select";
-import { cx, ErrorNote, Toggle } from "../../ui";
+import { cx, ErrorNote, Help, Toggle } from "../../ui";
+import { Block, Card } from "./Rows";
 
 /**
  * One switch per model: whether it is offered in the lists to choose from (the model list in Studio, a
@@ -30,11 +31,13 @@ export function ModelSwitches() {
   const shown = recipes.data.families.filter((f) => recipes.data.recipes.some((r) => r.family === f.id));
   const names = new Set<string>();
   const twice = new Set(shown.map((f) => f.name).filter((n) => (names.has(n) ? true : (names.add(n), false))));
+  const offCount = shown.filter((f) => !families.isOn(f.id)).length;
   return (
-    <>
-      <h2 className="text-[15px] font-bold">Models</h2>
-      <div className="text-ink-2">Off: left out of the model lists. What you generated with it stays.</div>
-      <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
+    <Card
+      id="model-switches"
+      title={<span className="flex items-center gap-1.5">Models <Help title="Models" text="One switch per model family: off, it is left out of the model lists (Studio, a clip's model on a timeline, the tools under a picture). What you generated with it stays. Left alone a family follows its model files; set by hand it stays as set." /></span>}
+      status={<span className="font-mono text-xs text-ink-3">{shown.length - offCount} of {shown.length} on</span>}
+    >
         {shown.map((f) => {
           const mine = recipes.data.recipes.filter((r) => r.family === f.id);
           const found = families.found(f.id);
@@ -47,7 +50,7 @@ export function ModelSwitches() {
           const open = needs === f.id;
           return (
             <div key={f.id} className="flex flex-col">
-              <div className="flex h-11 items-center gap-3 px-3">
+              <div className="flex min-h-[52px] items-center gap-3 px-[18px]">
                 <span className={cx("truncate font-semibold", !on && "text-ink-2")}>{name}</span>
                 <span className="shrink-0 text-xs text-ink-3">{imported ? `${mine.length} workflow${mine.length > 1 ? "s" : ""}` : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
                 <span className="grow" />
@@ -71,7 +74,7 @@ export function ModelSwitches() {
                 <Toggle bare on={on} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={`${name} in the model lists`} />
               </div>
               {open && slots.length > 0 && (
-                <div className="flex flex-col gap-2 border-t border-line bg-raised px-3 py-2.5 text-xs text-ink-2">
+                <div className="flex flex-col gap-2 border-t border-line bg-raised px-[18px] py-2.5 text-xs text-ink-2">
                   {slots.map((x) => (
                     <div key={x.id}>
                       <span className="font-semibold text-ink">{x.label}</span>: {x.hint}
@@ -83,9 +86,8 @@ export function ModelSwitches() {
             </div>
           );
         })}
-      </div>
-      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-    </>
+      {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+    </Card>
   );
 }
 
@@ -112,9 +114,8 @@ function SlotChoices({ family }: { family: string }) {
   });
   if (!slots.length) return null;
   return (
-    <div className="flex flex-col gap-2 px-3 py-2.5">
-      <span className="text-xs font-semibold">Files in use</span>
-      <span className="text-xs text-ink-2">More than one file fits here. Left to itself, Afflatus takes the first its patterns name; pick another to use it everywhere this family does.</span>
+    <div className="flex flex-col gap-2 px-[18px] py-2.5">
+      <span className="flex items-center gap-1.5 text-xs font-semibold">Files in use <Help title="Files in use" text="More than one file fits here. Left to itself, Afflatus takes the first its patterns name; pick another to use it everywhere this family does." /></span>
       {slots.map((s) => (
         <div key={s.id} className="flex items-center justify-between gap-3">
           <span className="flex min-w-0 flex-col"><span className="truncate text-xs font-semibold">{s.label}</span><span className="truncate text-xs text-ink-3">{s.folder}</span></span>
@@ -154,7 +155,7 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
   const needed = slots.filter((x) => s?.missingSlots.includes(x.id));
   const extra = s?.ready ? slots.filter((x) => x.optional && !x.file && x.get) : [];
   return (
-    <div className="flex flex-col gap-1 px-3 py-2.5">
+    <div className="flex flex-col gap-1 px-[18px] py-2.5">
       <div className="flex items-center justify-between gap-3">
         <span className="font-semibold">{r.title}</span>
         <span className={cx("shrink-0 text-xs font-semibold", s?.ready ? "text-good" : "text-warn-ink")}>{s ? (s.ready ? "Ready" : "Not ready") : "Unknown"}</span>
@@ -206,18 +207,15 @@ export function ReadyList() {
   const ready = listed.filter((r) => readyOf(r.id)).length;
   const groups = (recipes.data?.families ?? []).map((f) => ({ family: f, recipes: listed.filter((r) => r.family === f.id) })).filter((g) => g.recipes.length);
   return (
-    <section id="ready" className="flex flex-col gap-2.5 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">What is ready</h2>
-      {setup.isLoading && <div className="text-ink-2">Asking ComfyUI…</div>}
-      {setup.isError && <ErrorNote>{setup.error.message}</ErrorNote>}
-      {setup.data && (
-        <div className="text-ink-2">
-          {listed.length
-            ? `${ready} of ${listed.length} operations ready. Models that are off are not listed.`
-            : "Nothing yet: no model of any family was found in ComfyUI. Put the files in, or download them (above), and each family turns on by itself; a switch above forces one on or off."}
-        </div>
+    <Card
+      id="ready"
+      title={<span className="flex items-center gap-1.5">What is ready <Help title="What is ready" text="Every operation of the families that are on, by family: open when something is missing (files, custom nodes), folded when all is well. Models that are off are not listed." /></span>}
+      status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{ready} of {listed.length} ready</span> : null}
+    >
+      {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
+      {setup.data && !listed.length && (
+        <Block className="text-ink-2">Nothing yet: no model of any family was found in ComfyUI. Put the files in, or download them, and each family turns on by itself; a switch above forces one on or off.</Block>
       )}
-      <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
         {groups.map(({ family, recipes: mine }) => {
           const good = mine.filter((r) => readyOf(r.id)).length;
           const all = good === mine.length;
@@ -225,7 +223,7 @@ export function ReadyList() {
           const open = opened[family.id] ?? (setup.data ? !all : false);
           return (
             <div key={family.id} className="flex flex-col">
-              <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [family.id]: !open })} className="flex h-11 items-center gap-3 px-3 text-left hover:bg-hover">
+              <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [family.id]: !open })} className="flex min-h-[52px] items-center gap-3 px-[18px] text-left hover:bg-hover">
                 <span className="truncate font-semibold">{family.name}</span>
                 <span className="grow" />
                 {(() => {
@@ -249,7 +247,6 @@ export function ReadyList() {
             </div>
           );
         })}
-      </div>
-    </section>
+    </Card>
   );
 }

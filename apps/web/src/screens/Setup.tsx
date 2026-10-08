@@ -1,27 +1,55 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Search, X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
-import { AppearanceCard } from "../theme/Appearance";
-import { Segmented } from "../ui";
+import { api } from "../api";
+import { useFamilies, useRecipes, useSetup, useStorage } from "../data";
+import { size } from "../format";
+import { cx, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
 import { DesignerCard } from "./settings/DesignerCard";
 import { LinkCard } from "./settings/LinkCard";
 import { ModelSwitches, ReadyList } from "./settings/ModelsTab";
-import { NotifyCard } from "./settings/NotifyCard";
+import { InterfaceTab } from "./settings/InterfaceTab";
 import { PromptsCard, WritingCard } from "./settings/PromptsCard";
 import { StorageCard } from "./settings/StorageCard";
 import { UpdatesCard } from "./settings/UpdatesCard";
 import { BarCard } from "./settings/BarCard";
-import { INDEX, TABS, type Tab } from "./settings/settingsIndex";
+import { INDEX, MOVED, TABS, type Tab } from "./settings/settingsIndex";
+
+/** What each tab says at a glance, beside its name: ComfyUI answering, operations not ready, the disk used, the version. */
+function useTabMarks(): Partial<Record<Tab, ReactNode>> {
+  const setup = useSetup();
+  const recipes = useRecipes();
+  const families = useFamilies();
+  const storage = useStorage();
+  // the same query as About's: read once, kept
+  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), staleTime: Infinity });
+  const comfy = setup.data?.comfy;
+  // operations of the families that are on that cannot run: a family turned off is a choice, not a problem
+  const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family) && !setup.data!.recipes.find((x) => x.id === r.id)?.ready).length : 0;
+  return {
+    comfyui: comfy && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
+    models: notReady > 0 && <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{notReady} not ready</span>,
+    storage: storage.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{size(storage.data.total)}</span>,
+    about: health.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</span>,
+  };
+}
 
 /** Settings, in tabs: one for each thing being set up. The address carries the tab. */
 export function Setup() {
   const params = useParams<{ tab?: string }>();
   const [, go] = useLocation();
-  const tab: Tab = TABS.some((t) => t.id === params.tab) ? (params.tab as Tab) : "comfyui";
+  const moved = params.tab ? MOVED[params.tab] : undefined;
+  const tab: Tab = moved ?? (TABS.some((t) => t.id === params.tab) ? (params.tab as Tab) : "comfyui");
+  // an old address (/settings/appearance) is put right, so that what is bookmarked next is the new one
+  useEffect(() => {
+    if (moved) go(`/settings/${moved}`, { replace: true });
+  }, [moved, go]);
+  const marks = useTabMarks();
   const [typed, setTyped] = useState("");
   // each word typed is in the entry as typed, or as letters in order from the start of one of its words
   // ("civit" finds Civitai; "bin" does not find "github")
@@ -42,7 +70,7 @@ export function Setup() {
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
       <header className="flex h-20 shrink-0 items-center gap-5">
         <h1 className="text-xl font-semibold">Settings</h1>
-        <Segmented<Tab> size="sm" oneLine label="Settings" value={tab} options={TABS.map((t) => ({ value: t.id, label: t.label }))} onChange={open} />
+        <Segmented<Tab> oneLine label="Settings" value={tab} options={TABS.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
         <span className="grow" />
         <div className="relative">
           <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
@@ -64,28 +92,26 @@ export function Setup() {
         </div>
       </header>
 
+      {/* one column of cards, every setting one row */}
       <div className="min-h-0 grow overflow-y-auto pb-4">
-        {tab === "comfyui" && <div className="max-w-[760px]"><ComfyCard /></div>}
-        {tab === "models" && (
-          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_440px]">
-            <div className="flex flex-col gap-5">
-              <section id="model-switches" className="flex flex-col gap-2.5 rounded-xl border border-line bg-panel p-[18px]"><ModelSwitches /></section>
+        <div className="flex max-w-[860px] flex-col gap-4">
+          {tab === "comfyui" && <ComfyCard />}
+          {tab === "models" && (
+            <>
+              <ModelSwitches />
               <ReadyList />
-              <UpdatesCard />
-            </div>
-            <div className="flex flex-col gap-5">
               <CivitaiCard />
               <LinkCard />
-            </div>
-          </div>
-        )}
-        {tab === "designer" && <div className="max-w-[900px]"><DesignerCard /></div>}
-        {tab === "prompts" && <div className="flex max-w-[900px] flex-col gap-4"><PromptsCard /><WritingCard /></div>}
-        {tab === "appearance" && <div className="max-w-[900px]"><AppearanceCard /></div>}
-        {tab === "bar" && <div className="max-w-[1100px]"><BarCard /></div>}
-        {tab === "storage" && <div className="max-w-[760px]"><StorageCard /></div>}
-        {tab === "notifications" && <div className="max-w-[760px]"><NotifyCard /></div>}
-        {tab === "about" && <div className="max-w-[760px]"><AboutCard /></div>}
+              <UpdatesCard />
+            </>
+          )}
+          {tab === "designer" && <DesignerCard />}
+          {tab === "prompts" && <><PromptsCard /><WritingCard /></>}
+          {tab === "interface" && <InterfaceTab />}
+          {tab === "bar" && <BarCard />}
+          {tab === "storage" && <StorageCard />}
+          {tab === "about" && <AboutCard />}
+        </div>
       </div>
     </div>
   );

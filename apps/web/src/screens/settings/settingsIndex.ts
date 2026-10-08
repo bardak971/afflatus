@@ -5,19 +5,22 @@ export const TABS = [
   { id: "models", label: "Models" },
   { id: "designer", label: "Designer" },
   { id: "prompts", label: "Prompts" },
-  { id: "appearance", label: "Appearance" },
+  { id: "interface", label: "Interface" },
   { id: "bar", label: "Command bar" },
   { id: "storage", label: "Storage" },
-  { id: "notifications", label: "Notifications" },
   { id: "about", label: "About" },
 ] as const;
 export type Tab = (typeof TABS)[number]["id"];
+
+/** Tabs that were merged into another: an old address (/settings/appearance) still opens the right one. */
+export const MOVED: Record<string, Tab> = { appearance: "interface", notifications: "interface" };
 
 /** Every setting, by the words someone would look for: what the search box finds, and the tab it is on. */
 export const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
   { tab: "comfyui", label: "ComfyUI URL", words: "address connection test port 8188" },
   { tab: "comfyui", label: "ComfyUI folder on this computer", words: "open in comfyui directory main.py" },
-  { tab: "comfyui", label: "Unload models after N minutes", words: "vram free idle" },
+  { tab: "comfyui", label: "Node pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
+  { tab: "comfyui", label: "Unload models after", words: "vram free idle minutes never" },
   { tab: "models", label: "Models on or off in the lists", words: "families switch hide" },
   { tab: "models", label: "What is ready", words: "missing files nodes operations" },
   { tab: "models", label: "Civitai API key", words: "token" },
@@ -31,9 +34,11 @@ export const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
   { tab: "designer", label: "Context size and max output tokens", words: "thinking" },
   { tab: "designer", label: "Forget every conversation", words: "chat history" },
   { tab: "prompts", label: "Danbooru tag check", words: "typo tags" },
-  { tab: "appearance", label: "Theme", words: "dark light catppuccin rose pine system" },
-  { tab: "appearance", label: "Accent colour", words: "color" },
-  { tab: "appearance", label: "Explain every setting in the forms", words: "help tooltips" },
+  { tab: "interface", label: "Theme", words: "appearance dark light catppuccin rose pine system" },
+  { tab: "interface", label: "Accent colour", words: "appearance color" },
+  { tab: "interface", label: "Explain every setting in the forms", words: "help tooltips" },
+  { tab: "interface", label: "Play videos on hover", words: "mouse card preview" },
+  { tab: "interface", label: "Play sound on hover", words: "audio mouse card" },
   { tab: "bar", label: "Command bar shortcut", words: "ctrl k keyboard palette search" },
   { tab: "bar", label: "Learn what I use", words: "command bar ranking recent" },
   { tab: "bar", label: "Prompt snippets typed by name", words: "command bar ; expand" },
@@ -44,8 +49,8 @@ export const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
   { tab: "storage", label: "Takes that never play", words: "idle" },
   { tab: "storage", label: "Render times kept for", words: "history retention days forget" },
   { tab: "storage", label: "Back up now", words: "backup zip export restore database files" },
-  { tab: "notifications", label: "Notify when the queue is empty", words: "browser notification" },
-  { tab: "notifications", label: "Notify after each render", words: "browser notification" },
+  { tab: "interface", label: "Notify when the queue is empty", words: "notifications browser" },
+  { tab: "interface", label: "Notify after each render", words: "notifications browser" },
   { tab: "about", label: "Version", words: "about license source github" },
   { tab: "about", label: "Start-up checks: ffmpeg, ffprobe, Node, data folder", words: "tools missing install path preflight" },
 ];

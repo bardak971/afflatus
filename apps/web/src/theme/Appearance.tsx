@@ -58,14 +58,9 @@ function Accents({ theme, picked, onPick }: { theme: Theme; picked: string | und
   );
 }
 
-/**
- * How Afflatus looks in this browser: a theme for the night and one for the day, which of the two is up,
- * and the accent. Kept in the browser, so that another screen can look another way.
- */
-export function AppearanceCard() {
+/** The theme tiles (dark, light) and the accents of the families in play: Settings › Interface draws them in its own card. */
+export function ThemePickers() {
   const choice = useThemeChoice();
-  const explain = useExplain();
-  const hover = useHoverPlay();
   const inUse = themeInUse(choice);
   const night = THEMES.filter((t) => !t.light);
   const day = THEMES.filter((t) => t.light);
@@ -73,13 +68,7 @@ export function AppearanceCard() {
   const families = [...new Map([choice.night, choice.day].map((id) => THEMES.find((t) => t.id === id) ?? THEMES[0]!).map((t) => [t.family, t])).values()];
   const pickAccent = (family: string, name: string) => choice.set({ accents: { ...choice.accents, [family]: name } });
   return (
-    <section className="flex flex-col gap-3.5 rounded-xl border border-line bg-panel p-[18px]">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-[15px] font-bold">Appearance</h2>
-        <div className="w-64">
-          <Segmented label="Theme mode" value={choice.mode} onChange={(mode) => choice.set({ mode })} options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }]} />
-        </div>
-      </div>
+    <>
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-semibold">Dark theme</span>
         <div className="flex flex-wrap gap-1">
@@ -93,6 +82,30 @@ export function AppearanceCard() {
         </div>
       </div>
       {families.map((t) => <Accents key={t.family} theme={t.family === inUse.family ? inUse : t} picked={choice.accents[t.family]} onPick={(name) => pickAccent(t.family, name)} />)}
+    </>
+  );
+}
+
+/** The theme's mode: dark, light or the system's. */
+export function ThemeMode() {
+  const choice = useThemeChoice();
+  return <Segmented label="Theme mode" value={choice.mode} onChange={(mode) => choice.set({ mode })} options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }]} />;
+}
+
+/**
+ * How Afflatus looks in this browser: a theme for the night and one for the day, which of the two is up,
+ * and the accent. Kept in the browser, so that another screen can look another way.
+ */
+export function AppearanceCard() {
+  const explain = useExplain();
+  const hover = useHoverPlay();
+  return (
+    <section className="flex flex-col gap-3.5 rounded-xl border border-line bg-panel p-[18px]">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-[15px] font-bold">Appearance</h2>
+        <div className="w-64"><ThemeMode /></div>
+      </div>
+      <ThemePickers />
       <div className="flex flex-col gap-3.5 border-t border-line pt-3">
         <Toggle on={explain.on} onChange={explain.set} label="Explain every setting in the forms" note="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting." />
         <Toggle on={hover.video} onChange={(video) => hover.set({ video })} label="Play videos when the mouse rests on a card" note="Off: a video card shows its frame until you open it." />

@@ -2,20 +2,21 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings } from "../../data";
-import { AutoText, Button, ErrorNote, Toggle } from "../../ui";
+import { AutoText, Button, ErrorNote, Help, Toggle } from "../../ui";
+import { Block, Card, Fact, Row } from "./Rows";
 
 /** The prompting guides, one per model family, folded; each opens to its text. */
 function Guides({ own, onSave }: { own: Record<string, string>; onSave(id: string, text: string): Promise<unknown> }) {
   const guides = useQuery({ queryKey: ["designer-guides"], queryFn: api.designerGuides, staleTime: 60_000 });
   const [open, setOpen] = useState<string | null>(null);
-  if (guides.isError) return <ErrorNote>{guides.error.message}</ErrorNote>;
+  if (guides.isError) return <Block><ErrorNote>{guides.error.message}</ErrorNote></Block>;
   return (
-    <div className="flex flex-col gap-2">
+    <>
       {(guides.data?.items ?? []).map((g) => (
         // the guide of your workflows for a model shares its family's name: told apart as on the Models tab
         <GuideEditor key={g.id} guide={g.id.startsWith("workflow-") ? { ...g, name: `${g.name} (your workflows)` } : g}own={own[g.id] ?? ""} open={open === g.id} onOpen={() => setOpen(open === g.id ? null : g.id)} onSave={(text) => onSave(g.id, text)} />
       ))}
-    </div>
+    </>
   );
 }
 
@@ -33,8 +34,8 @@ function GuideEditor({ guide, own, open, onOpen, onSave }: {
   const dirty = text !== (own || guide.guide);
   const save = useMutation({ mutationFn: (t: string) => onSave(t) });
   return (
-    <div className="rounded-lg border border-line">
-      <button type="button" aria-expanded={open} onClick={onOpen} className="flex h-10 w-full items-center gap-2 px-3 text-left hover:bg-hover">
+    <div>
+      <button type="button" aria-expanded={open} onClick={onOpen} className="flex min-h-[52px] w-full items-center gap-2 px-[18px] text-left hover:bg-hover">
         <span className="font-semibold">{guide.name}</span>
         <span className="text-xs text-ink-3">{guide.style === "tags" ? "tags" : "sentences"} · {guide.guide.split(/\s+/).length} words</span>
         {yours && <span className="rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">yours</span>}
@@ -42,7 +43,7 @@ function GuideEditor({ guide, own, open, onOpen, onSave }: {
         <span className="text-xs text-ink-2">{open ? "Close" : yours ? "Read or change" : "Read"}</span>
       </button>
       {open && (
-        <div className="flex flex-col gap-2 border-t border-line p-3">
+        <div className="flex flex-col gap-2 border-t border-line bg-raised/40 px-[18px] py-3">
           <AutoText
             aria-label={`Prompting guide for ${guide.name}`}
             rows={8}
@@ -69,14 +70,9 @@ export function PromptsCard() {
   const put = async (patch: Record<string, unknown>) => client.setQueryData(["settings"], await api.saveSettings(patch));
   const s = settings.data;
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">Prompting guides</h2>
-      <div className="text-ink-2">
-        How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent.
-      </div>
+    <Card title={<span className="flex items-center gap-1.5">Prompting guides <Help title="Prompting guides" text="How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent." /></span>}>
       <Guides own={s?.designerGuides ?? {}} onSave={(id, text) => put({ designerGuides: { ...(s?.designerGuides ?? {}), [id]: text } })} />
-
-    </section>
+    </Card>
   );
 }
 
@@ -86,16 +82,15 @@ export function WritingCard() {
   const client = useQueryClient();
   const save = useMutation({ mutationFn: api.saveSettings, onSuccess: (saved) => client.setQueryData(["settings"], saved) });
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">Writing prompts</h2>
-      <Toggle on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
-      <div className="text-xs text-ink-3">
-        For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of Afflatus's: nothing is sent anywhere.
-      </div>
-      <div className="text-xs text-ink-3">
-        In every prompt: <span className="font-mono text-ink-2">{"{red|black|white}"}</span> is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).
-      </div>
-      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-    </section>
+    <Card title="Writing prompts">
+      <Row label="Danbooru tag check" help="For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of Afflatus's: nothing is sent anywhere.">
+        <Toggle bare on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
+      </Row>
+      <Row label="Wildcards and weights" help="In every prompt: {red|black|white} is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).">
+        <Fact tip="A wildcard: one of the choices for each output">{"{red|black|white}"}</Fact>
+        <Fact tip="Changes the weight of the tag the cursor is in">Ctrl + ↑ ↓</Fact>
+      </Row>
+      {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+    </Card>
   );
 }

@@ -11,25 +11,13 @@ import { mainTextOf } from "../../form";
 import { NewSnippet } from "../../snippets/NewSnippet";
 import { useOpenDraft } from "../../store";
 import { Button, cx, ErrorNote, Toggle } from "../../ui";
+import { Block, Card, Fact, Row } from "./Rows";
 
 const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, history: false, cast: false };
 
 /** A key as a keycap. */
 function Cap({ children }: { children: ReactNode }) {
   return <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-raised px-2 font-mono text-xs text-ink shadow-[inset_0_-1px_0_var(--color-line-strong)]">{children}</kbd>;
-}
-
-/** One setting of the card: its name and a line about it on the left, its control on the right. */
-function Line({ title, note, children, last }: { title: string; note: ReactNode; children: ReactNode; last?: boolean }) {
-  return (
-    <div className={cx("flex items-center gap-3 py-3", !last && "border-b border-line")}>
-      <span className="flex min-w-0 grow flex-col gap-0.5">
-        <span className="font-semibold">{title}</span>
-        <span className="text-[12.5px] text-ink-2">{note}</span>
-      </span>
-      {children}
-    </div>
-  );
 }
 
 /**
@@ -40,7 +28,8 @@ function ShortcutRecorder({ value, onChange }: { value: string; onChange(shortcu
   const [listening, setListening] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   return (
-    <span className="flex shrink-0 flex-col items-end gap-1">
+    // pulled into the row's right edge: the keycaps line up with the switches under them, not the button's padding
+    <span className="-mr-2 flex shrink-0 flex-col items-end gap-1">
       <button
         type="button"
         data-shortcut-recorder
@@ -103,53 +92,57 @@ export function BarCard() {
   const [adding, setAdding] = useState(false);
 
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-2">
-      <section aria-label="The bar" className="flex flex-col rounded-xl border border-line bg-panel px-[18px] pt-[14px] pb-1.5">
-        <h2 className="mb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">The bar</h2>
-        <Line title="Shortcut" note={<>Opens the bar from anywhere, a text box included. Click, then press the keys to change it{bar.shortcut !== DEFAULT.shortcut && <> · <button type="button" className="underline" onClick={() => saveBar({ shortcut: DEFAULT.shortcut })}>back to Ctrl+K</button></>}</>}>
+    <div className="flex flex-col gap-4">
+      <Card title="The bar" label="The bar">
+        <Row label="Shortcut" help="Opens the bar from anywhere, a text box included. Click it, then press the keys of the new one; Escape leaves it as it was.">
+          {bar.shortcut !== DEFAULT.shortcut && <Button size="sm" tone="quiet" onClick={() => saveBar({ shortcut: DEFAULT.shortcut })}>Back to Ctrl+K</Button>}
           <ShortcutRecorder value={bar.shortcut || DEFAULT.shortcut} onChange={(shortcut) => saveBar({ shortcut })} />
-        </Line>
-        <Line title="Learn what I use" note="What you open often and lately comes first · kept in this browser">
+        </Row>
+        <Row label="Learn what I use" help="What you open often and lately comes first. Kept in this browser.">
           <Toggle bare on={learn} onChange={setLearn} label="Learn what I use" />
-        </Line>
-        <Line title="Preview" note="Beside the results; Shift shows or hides it · this browser">
+        </Row>
+        <Row label="Preview" help="The selected result shown beside the list; Shift shows or hides it. Kept in this browser.">
           <Toggle bare on={preview} onChange={setPreview} label="Preview" />
-        </Line>
-        <Line last title="Forget what I used" note={forgot ? "Forgotten: recents and ranking start over." : "Recents and ranking start over"}>
+        </Row>
+        <Row label="Forget what I used" sub={forgot ? "Forgotten: recents and ranking start over." : undefined} help="Recents and ranking start over.">
           <Button size="sm" disabled={forgot} onClick={() => { saveRanks({}); setForgot(true); }}>Forget</Button>
-        </Line>
-      </section>
+        </Row>
+      </Card>
 
-      <section aria-label="Optional parts" className="flex flex-col rounded-xl border border-line bg-panel px-[18px] pt-[14px] pb-1.5">
-        <h2 className="mb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Optional parts · off until you turn them on</h2>
-        <Line title="Prompt snippets" note={<>Type <span className="font-mono text-ink">;name</span> in any prompt box, then a space or Tab: the snippet's text goes there</>} last={false}>
+      <Card title="Optional parts" label="Optional parts" status={<span className="text-xs text-ink-3">off until you turn them on</span>}>
+        <Row label="Prompt snippets" help="Type ;name in any prompt box, then a space or Tab: the snippet's text goes there.">
           <Toggle bare on={bar.snippets} onChange={(snippets) => saveBar({ snippets })} label="Prompt snippets" />
-        </Line>
+        </Row>
         {bar.snippets && (
-          <div className="flex flex-col gap-2 border-b border-line pt-1 pb-3.5">
-            <span className="text-[12.5px] text-ink-2">
-              Your snippets live in the <Link href="/kit#snippets" className="font-semibold text-ink underline underline-offset-2">Prompt kit › Snippets</Link>: each is typed as <span className="font-mono text-ink">;</span> and its name, lower case, with dashes for spaces ({snippets.length ? <span className="font-mono text-accent">;{slugOf(snippets[0]!.name)}</span> : <span className="font-mono">;cine-look</span>}).
-            </span>
-            {adding ? (
-              <div className="overflow-hidden rounded-lg border border-line">
-                <NewSnippet style={style} categories={categories} first={openPrompt} onDone={() => setAdding(false)} onCancel={() => setAdding(false)} />
-              </div>
-            ) : (
-              <button type="button" onClick={() => setAdding(true)} className="flex items-center gap-1.5 self-start rounded-lg border border-dashed border-line-strong px-3 py-1.5 text-[13px] text-ink-2 hover:text-ink">
+          <Row
+            label="Your snippets"
+            sub={!draftId && !adding ? "No draft is open: a new snippet starts empty." : undefined}
+            help="Your snippets live in the Prompt kit › Snippets. Each is typed as ; and its name, lower case, with dashes for spaces. A new one here starts from the prompt of the draft open in the Studio."
+          >
+            <Fact tip="How a snippet is typed">{snippets.length ? `;${slugOf(snippets[0]!.name)}` : ";cine-look"}</Fact>
+            <Link href="/kit#snippets" className="inline-flex h-8 items-center rounded-lg border border-line-strong px-3 text-xs font-semibold text-ink hover:bg-hover">Prompt kit › Snippets</Link>
+            {!adding && (
+              <button type="button" onClick={() => setAdding(true)} className="flex h-8 items-center gap-1.5 rounded-lg border border-dashed border-line-strong px-3 text-xs font-semibold text-ink-2 hover:text-ink">
                 <Plus size={13} /> Snippet from the open prompt
               </button>
             )}
-            {!draftId && !adding && <span className="text-xs text-ink-3">No draft is open: the new snippet starts empty.</span>}
-          </div>
+          </Row>
         )}
-        <Line title="Prompt history" note={<>Type <span className="font-mono text-ink">"</span> in the bar to search every prompt you rendered, with its render</>}>
+        {bar.snippets && adding && (
+          <Block>
+            <div className="overflow-hidden rounded-lg border border-line">
+              <NewSnippet style={style} categories={categories} first={openPrompt} onDone={() => setAdding(false)} onCancel={() => setAdding(false)} />
+            </div>
+          </Block>
+        )}
+        <Row label="Prompt history" help={`Type " in the bar to search every prompt you rendered, with its render.`}>
           <Toggle bare on={bar.history} onChange={(history) => saveBar({ history })} label="Prompt history" />
-        </Line>
-        <Line last title="Cast with @" note={<>Type <span className="font-mono text-ink">@</span> in the bar to add a person of the Prompt kit to the open draft</>}>
+        </Row>
+        <Row label="Cast with @" help="Type @ in the bar to add a person of the Prompt kit to the open draft.">
           <Toggle bare on={bar.cast} onChange={(cast) => saveBar({ cast })} label="Cast with @" />
-        </Line>
-        {error && <div className="pb-3"><ErrorNote>{error}</ErrorNote></div>}
-      </section>
+        </Row>
+        {error && <Block><ErrorNote>{error}</ErrorNote></Block>}
+      </Card>
     </div>
   );
 }
