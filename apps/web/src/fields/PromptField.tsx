@@ -138,8 +138,9 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
         className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-[13px]" : "text-sm")}
       />
       {snippetKeys.list}
-      {/* bare, its head has no ?: the keys it takes in a corner of its own, out of the way of the text */}
-      {bare && <Help title={spec.label} text={keys} className="absolute right-2 bottom-2 opacity-60 hover:opacity-100" />}
+      {/* the main prompt in its card, whose head has no ?: the keys it takes in a corner of its own, out of the way of
+          the text (the other texts' rows have a ? of their own) */}
+      {bare && !spec.optional && <Help title={spec.label} text={keys} className="absolute right-2 bottom-2 opacity-60 hover:opacity-100" />}
       </div>
       {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
     </div>
