@@ -5,7 +5,6 @@ import { Kbd } from "../Keys";
 import { cx } from "../ui";
 import { layout, NEW_CLIP, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
 import type { Clock } from "./clock";
-import { ClipTip } from "./ClipTip";
 import { FramePeek } from "./track/FramePeek";
 import type { PinPlace } from "./track/peek";
 import { PinPeek, type PinOver } from "./track/PinPeek";
@@ -17,8 +16,7 @@ import { useMotionMarks } from "./track/useMotionMarks";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
 import { Wave } from "./track/Wave";
 
-/** How long the pointer rests on a clip before its tooltip shows; on a pinned picture, before its card shows. */
-const TIP_AFTER_MS = 1000;
+/** How long the pointer rests on a pinned picture before its card shows. */
 const PIN_AFTER_MS = 250;
 
 /** In and Out on the timeline, on the clock of what plays. */
@@ -88,16 +86,6 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const inner = useRef<HTMLDivElement>(null);
   /** An edge being dragged: the clip, which edge, and the length it has for now. */
   const [stretch, setStretch] = useState<Stretch | null>(null);
-  /** The clip whose tooltip shows, and where; the timer that is counting towards showing one. */
-  const [tip, setTip] = useState<{ clip: string; left: number; top: number } | null>(null);
-  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const restOn = (id: string, el: HTMLElement) => {
-    if (tipTimer.current) clearTimeout(tipTimer.current);
-    tipTimer.current = setTimeout(() => {
-      const r = el.getBoundingClientRect();
-      setTip({ clip: id, left: r.left, top: r.bottom });
-    }, TIP_AFTER_MS);
-  };
   /** The pinned picture whose card shows (PinPeek), and the timer counting towards showing one. */
   const [pinOver, setPinOver] = useState<PinOver | null>(null);
   const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,16 +95,13 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     if (!where || !el) return setPinOver(null);
     pinTimer.current = setTimeout(() => setPinOver({ clip, where, el }), PIN_AFTER_MS);
   };
-  // a press, a drag or leaving the clip puts both away
+  // a press, a drag or leaving the clip puts it away (the clip's own figures are on the frame card: FramePeek)
   const leaveTip = () => {
-    if (tipTimer.current) clearTimeout(tipTimer.current);
     if (pinTimer.current) clearTimeout(pinTimer.current);
-    tipTimer.current = pinTimer.current = null;
-    setTip(null);
+    pinTimer.current = null;
     setPinOver(null);
   };
   useEffect(() => () => {
-    if (tipTimer.current) clearTimeout(tipTimer.current);
     if (pinTimer.current) clearTimeout(pinTimer.current);
   }, []);
   const pull = useRef<{ x: number; base: number; least: number; most: number } | null>(null);
@@ -285,11 +270,6 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               snapQuiet={snapQuiet}
             />
 
-            {/* a pinned picture's card says more about that spot than the clip's tooltip: the tooltip waits */}
-            {tip && !pinOver && (() => {
-              const i = clips.findIndex((c) => c.id === tip.clip);
-              return i >= 0 ? <ClipTip clip={clips[i]!} index={i} clips={clips} at={tip} /> : null;
-            })()}
             {slots.map((s) => (
               <TrackClip
                 key={s.clip.id}
@@ -308,7 +288,6 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 pps={pps}
                 xOf={xOf}
                 measureOf={measureOf}
-                restOn={restOn}
                 leaveTip={leaveTip}
                 pinOn={pinOver?.clip === s.clip.id ? pinOver.where : null}
                 restPin={restPin}
@@ -364,7 +343,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
 
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
             <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} />
-            <FramePeek area={inner} floor={floor} slots={slots} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging)} />
+            <FramePeek area={inner} floor={floor} slots={slots} clips={clips} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging)} />
             {pinOver && (() => {
               const s = slots.find((x) => x.clip.id === pinOver.clip);
               const r = floor.current?.getBoundingClientRect();

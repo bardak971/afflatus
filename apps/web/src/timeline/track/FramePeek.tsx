@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { fileUrl, type RecipeInfo } from "../../api";
+import { fileUrl, type Clip, type RecipeInfo } from "../../api";
 import { cx } from "../../ui";
 import { PAD, pinInputs, stamp, type Slot } from "../model";
+import { ClipFacts } from "./ClipFacts";
 import { fitFrame, frameUrl, HINTS, PEEK, pinnedNote } from "./peek";
 import { PeekCard, PeekEmpty, PeekFooter, PeekFrame, preload } from "./PeekCard";
 import { ROW } from "./rows";
@@ -18,6 +19,8 @@ interface Over {
   top: number;
   slot: Slot;
   hint: string;
+  /** On the clip itself, not the ruler above it: the card says the clip's figures too. */
+  onClip: boolean;
 }
 
 /**
@@ -26,14 +29,16 @@ interface Over {
  * the pointer's place through the ruler and the clips, and the clip under it is outlined. It listens on the
  * track itself, so that only it draws again as the pointer moves; it hides while a button is held (the
  * playhead or a range being dragged: the viewer shows the frame then), while something is dragged, and while
- * `paused` (a pinned picture's card is up, an edge is being dragged).
+ * `paused` (a pinned picture's card is up, an edge is being dragged). On a clip, the card says the clip's
+ * figures on the right of the frame (ClipFacts); over the ruler, the frame alone.
  */
-export function FramePeek({ area, floor, slots, recipes, pps, totalMs, paused }: {
+export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, paused }: {
   /** The track's inner surface, ruler included: what the pointer moves over. */
   area: RefObject<HTMLDivElement | null>;
   /** The editor's track panel: the card stays between its edges. */
   floor: RefObject<HTMLDivElement | null>;
   slots: Slot[];
+  clips: Clip[];
   recipes: RecipeInfo[];
   pps: number;
   totalMs: number;
@@ -85,7 +90,7 @@ export function FramePeek({ area, floor, slots, recipes, pps, totalMs, paused }:
       latest = take ? frameUrl(take.asset, Math.min(take.endMs - 60, take.startMs + Math.max(0, Math.min(1, (x - slot.left) / Math.max(1, slot.width))) * slot.lengthMs), fitFrame(take.asset.width, take.asset.height, PEEK.frame).h) : null;
       if (performance.now() - askedAt >= FRAME_EVERY_MS) ask();
       else trail ??= setTimeout(ask, FRAME_EVERY_MS);
-      setOver({ x, clientX: e.clientX, top: box.top, slot, hint: target?.closest<HTMLElement>("[data-hint]")?.dataset.hint ?? HINTS.ruler });
+      setOver({ x, clientX: e.clientX, top: box.top, slot, hint: target?.closest<HTMLElement>("[data-hint]")?.dataset.hint ?? HINTS.ruler, onClip: y >= ROW.top });
       if (!isArmed && !timer) {
         timer = setTimeout(() => {
           timer = null;
@@ -148,6 +153,9 @@ export function FramePeek({ area, floor, slots, recipes, pps, totalMs, paused }:
     title = `clip ${s.index + 1}${note ? ` · ${note}` : c.failed ? " · render failed" : " · not rendered yet"}`;
   }
 
+  // the clip's figures beside the frame: as wide as what they hold (see ClipFacts)
+  const facts = over.onClip ? (c.kind === "video" && c.take ? PEEK.facts : PEEK.factsShort) : 0;
+
   return (
     <>
       {armed && (
@@ -155,9 +163,14 @@ export function FramePeek({ area, floor, slots, recipes, pps, totalMs, paused }:
           {/* where the pointer is, through the ruler and the clips; and the clip it is over */}
           <div aria-hidden className="pointer-events-none absolute top-0 z-[13] w-[1.5px] bg-accent" style={{ left: over.x - 0.75, height: ROW.top + ROW.height }} />
           <div aria-hidden className={cx("pointer-events-none absolute z-[13] rounded-lg border-2 border-accent", s.planned && "border-dashed")} style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }} />
-          <PeekCard x={over.clientX} y={over.top - PEEK.margin} width={width} bounds={bounds ? { left: bounds.left, right: bounds.right } : undefined} label={`Frame at ${stamp(atMs)}`}>
-            {body}
-            <PeekFooter title={title} right={stamp(atMs)} mono hint={over.hint} />
+          <PeekCard x={over.clientX} y={over.top - PEEK.margin} width={width + facts} bounds={bounds ? { left: bounds.left, right: bounds.right } : undefined} label={`Frame at ${stamp(atMs)}`}>
+            <div className="flex">
+              <div className="shrink-0" style={{ width }}>
+                {body}
+                <PeekFooter title={title} right={stamp(atMs)} mono hint={over.hint} />
+              </div>
+              {facts > 0 && <ClipFacts clip={c} index={s.index} clips={clips} />}
+            </div>
           </PeekCard>
         </>
       )}

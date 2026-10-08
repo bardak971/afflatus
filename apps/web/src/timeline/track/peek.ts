@@ -1,4 +1,6 @@
-import type { Asset, Take } from "../../api";
+import type { Asset, Clip, Take } from "../../api";
+import { seconds, spell } from "../../format";
+import { driftOf, type Drift } from "../lookDrift";
 import { fileVersion, stamp } from "../model";
 
 /**
@@ -18,6 +20,9 @@ export const PEEK = {
   footer: 62,
   /** The least room kept between a card and the edge of the window or the editor. */
   margin: 8,
+  /** The clip's figures beside the frame, when the pointer is on a clip: a take's, and the few words of one with no take. */
+  facts: 380,
+  factsShort: 220,
 } as const;
 
 /** The gestures the ruler and the clips take: the card's last line. */
@@ -117,4 +122,73 @@ export class Lru<K, V> {
   get count(): number {
     return this.items.size;
   }
+}
+
+/** A line of the clip's figures: plain, dim, a warning, or the accent (something happening now). */
+export interface FactLine {
+  text: string;
+  tone?: "dim" | "warn" | "accent";
+}
+
+/**
+ * What a clip is, read without opening it, beside its frame on the hover card. Only what decides something:
+ * its length and how long it took; how it joins the clip before (and how much the picture jumps there), how wide
+ * its run-up came out, which take plays; how far its look slid along its run; its size and what is happening to
+ * it; anything that needs attention. The prompt, the seed and the files stay in the Inspector.
+ */
+export interface ClipFacts {
+  /** Its length in bold, then how it came to be. Null: a short card (a still, a clip not rendered). */
+  head: { text: string; detail?: string } | null;
+  chips: Array<{ text: string; tone: "accent" | "neutral" }>;
+  /** Against the clip before and the run's start; null when it does not continue a measured run. */
+  drift: Drift | null;
+  /** The dim last line: size, frame rate, a render on its way. */
+  foot: FactLine[];
+  /** Whole lines: the short card's words, and what needs attention. */
+  lines: FactLine[];
+}
+
+/** A join kind in a chip's words; "hybrid": takes made before 2026-10-08 only. */
+function joinWords(clip: Clip, take: Take, index: number): string {
+  // a seamless take after another take than the one it was decoded with (or that one trimmed) plays faded, as a latent join
+  if (take.joinKind === "seamless") return take.seamless ? "seamless join" : "latent join, faded";
+  if (take.joinKind === "latent") return "latent join";
+  if (take.joinKind === "hybrid") return "frames + latent join";
+  if (take.joinKind === "pixels") return "pixel join";
+  return clip.joined === "continue" ? `extends clip ${index}` : "cut";
+}
+
+/** The figures of clip `index` for the hover card; `jump`: how much the picture jumps where it meets the clip before, once measured (×1 = like its own motion). */
+export function clipFacts(clip: Clip, index: number, clips: Clip[], jump: number | null): ClipFacts {
+  const take = clip.kind === "video" ? clip.take : null;
+  const facts: ClipFacts = { head: null, chips: [], drift: null, foot: [], lines: [] };
+  const job: FactLine | null = clip.job ? (clip.job.status === "running" ? { text: take ? "rendering a new take" : "Rendering now", tone: "accent" } : { text: take ? "queued for a new take" : "Queued for a render", tone: take ? undefined : "dim" }) : null;
+  if (clip.kind === "still") {
+    facts.lines.push({ text: `Still · ${seconds(clip.lengthMs)}` });
+  } else if (!take) {
+    facts.lines.push(clip.failed && !clip.job ? { text: "The render failed", tone: "warn" } : job ?? { text: "Not rendered yet", tone: "dim" });
+  } else {
+    facts.head = { text: seconds(clip.lengthMs), detail: take.renderMs ? `rendered in ${spell(take.renderMs)}` : clip.recipe ? undefined : "imported" };
+    if (index > 0) {
+      const flows = clip.joined === "continue";
+      facts.chips.push({ text: `${joinWords(clip, take, index)}${flows && jump !== null ? ` ×${jump.toFixed(1)}` : ""}`, tone: flows ? "accent" : "neutral" });
+      // a join made in the latent: how wide its run-up came out against the latent it was guided by (1.00 = the same)
+      if (take.measure?.drift) facts.chips.push({ text: `run-up ×${take.measure.drift.width.toFixed(2)}`, tone: "neutral" });
+    }
+    const n = clip.takes.findIndex((t) => t.id === take.id) + 1;
+    if (clip.takes.length > 1) facts.chips.push({ text: `take ${n} of ${clip.takes.length}`, tone: "neutral" });
+    if (take.finishedFrom) {
+      const draft = clip.takes.find((t) => t.id === take.finishedFrom);
+      const by = draft?.asset.width && take.asset.width ? Math.round((take.asset.width / draft.asset.width) * 10) / 10 : null;
+      facts.chips.push({ text: `upscaled${by && by !== 1 ? ` ×${by}` : ""}`, tone: "neutral" });
+    }
+    facts.drift = driftOf(clips, index);
+    if (take.asset.width && take.asset.height) facts.foot.push({ text: `${take.asset.width} × ${take.asset.height}${take.asset.fps ? ` · ${Math.round(take.asset.fps)} fps` : ""}` });
+    if (take.trimStartMs > 0 || take.trimEndMs > 0) facts.foot.push({ text: `trimmed${take.trimStartMs > 0 ? ` ${seconds(take.trimStartMs)} at the start` : ""}${take.trimStartMs > 0 && take.trimEndMs > 0 ? "," : ""}${take.trimEndMs > 0 ? ` ${seconds(take.trimEndMs)} at the end` : ""}` });
+    if (job) facts.foot.push(job);
+    if (clip.failed && !clip.job) facts.lines.push({ text: "The last render failed", tone: "warn" });
+  }
+  if (!take && clip.kind === "still" && job) facts.lines.push(job);
+  if (clip.join === "stale") facts.lines.push({ text: `Join stale: clip ${index} changed since`, tone: "warn" });
+  return facts;
 }

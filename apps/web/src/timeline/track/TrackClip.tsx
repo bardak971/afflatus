@@ -19,7 +19,7 @@ export type Stretch = { clip: string; side: "start" | "end"; lengthMs: number };
  * One clip on the track: its frames at their length, its number and title, what is pinned to it, its render
  * or its state, its edges to trim it by, the join before it, and its sound under it.
  */
-export function TrackClip({ s, clips, timeline, recipes, selected, picked, running, stretch, over, range, slots, totalMs, pps, xOf, measureOf, restOn, leaveTip, pinOn, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin, renderOf }: {
+export function TrackClip({ s, clips, timeline, recipes, selected, picked, running, stretch, over, range, slots, totalMs, pps, xOf, measureOf, leaveTip, pinOn, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin, renderOf }: {
   s: Slot;
   clips: Clip[];
   timeline: Timeline;
@@ -38,8 +38,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
   xOf(clientX: number): number;
   /** How a video or a sound file moves and sounds, once measured. */
   measureOf(id: string | undefined): Motion | undefined;
-  /** The tooltip: the pointer rests on the clip, or leaves it. */
-  restOn(id: string, el: HTMLElement): void;
+  /** The pointer leaves the clip, or presses on it: a pinned picture's card goes. */
   leaveTip(): void;
   /** Its pinned picture whose card shows, if any; and the pointer resting on one of its pinned pictures (null: leaving it). */
   pinOn?: PinPlace | null;
@@ -95,7 +94,6 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
           e.dataTransfer.effectAllowed = "move";
         }}
         onDragOver={(e) => overClip(e, s)}
-        onPointerEnter={(e) => restOn(c.id, e.currentTarget)}
         onPointerLeave={leaveTip}
         onPointerDown={leaveTip}
         onKeyDown={(e) => {
