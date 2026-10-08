@@ -56,6 +56,7 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
           <VideoPlayer
             asset={a.id}
             sound={a.hasSound}
+            lengthMs={a.durationMs}
             video={player}
             controls={!trim}
             className="h-full max-h-full w-full justify-center"

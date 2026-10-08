@@ -13,11 +13,13 @@ import { cx } from "./ui";
  * Space does, and the arrow keys on the position go back and forth. Without `controls` it is the bare
  * video (a click still plays and pauses it): another screen has the controls, as Trim does.
  */
-export function VideoPlayer({ asset, sound, video: outer, controls = true, barRoom, compact, muted: silent, className, videoClassName, videoProps, onVideoClick }: {
+export function VideoPlayer({ asset, sound, lengthMs, video: outer, controls = true, barRoom, compact, muted: silent, className, videoClassName, videoProps, onVideoClick }: {
   /** The video in the library. */
   asset: string;
   /** It has a sound track: its waveform is the position strip. */
   sound?: boolean;
+  /** Its length as the library knows it: the bar works with it until the file says its own (a file still being written may never say it). */
+  lengthMs?: number | null;
   /** The video element, for whoever reads or moves its position (Trim, save frame, Compare). */
   video?: RefObject<HTMLVideoElement | null>;
   controls?: boolean;
@@ -48,12 +50,14 @@ export function VideoPlayer({ asset, sound, video: outer, controls = true, barRo
   const motion = useQuery({ queryKey: ["motion", asset], queryFn: () => api.motion(asset), enabled: Boolean(sound && controls), staleTime: Infinity, retry: 0 });
   const bars = sound ? barsOf(motion.data?.sound, BARS) : null;
 
-  // another video: from its start, paused
+  // another video: from its start, paused. Its length is read from the element, not cleared: a file the
+  // browser has seen loads its metadata before this effect runs, and no event would say it again
   useEffect(() => {
     setOn(false);
     setNow(0);
-    setLength(null);
-  }, [asset]);
+    const d = el.current?.duration;
+    setLength(d !== undefined && Number.isFinite(d) && d > 0 ? d : lengthMs ? lengthMs / 1000 : null);
+  }, [asset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const v = el.current;
@@ -69,6 +73,8 @@ export function VideoPlayer({ asset, sound, video: outer, controls = true, barRo
     let frame = 0;
     const tick = () => {
       setNow(v.currentTime);
+      // its length, the moment the file knows it, if no event said it
+      if (Number.isFinite(v.duration) && v.duration > 0) setLength((l) => (l === v.duration ? l : v.duration));
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
