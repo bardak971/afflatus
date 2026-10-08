@@ -198,6 +198,8 @@ export function useDraft(firstRecipe: string | undefined) {
     draft,
     // (an empty one that is not the open one is on its way out: it is not shown)
     drafts: (list.data?.items ?? []).filter((d) => !d.empty || d.id === openId),
+    /** How many drafts hold settings and nothing else (no prompt, no name, nothing made). */
+    unused: list.data?.unused ?? 0,
     saving,
     failure,
     /** Send the edit that could not be saved again. */

@@ -2,6 +2,7 @@ import { chatJson } from "./designer";
 import type { Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { NOT_IN_LIBRARY } from "./assetSearch";
 import { httpError } from "./errors";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { emptyLook, lookSchema, type Look } from "./entities";
@@ -90,15 +91,54 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     return d;
   };
 
-  /** `project`: only the drafts of that project; "none": the Inbox; left out: all. */
-  app.get("/api/drafts", async (req) => {
-    const { project } = z.object({ project: z.string().optional() }).parse(req.query);
-    await sweepIdleDrafts(s.db);
+  /** The drafts of a project ("none": the Inbox; left out: all), newest first. */
+  const inProject = (project: string | undefined) => {
     let q = s.db.selectFrom("drafts").selectAll();
     if (project === "none") q = q.where("project_id", "is", null);
     else if (project) q = q.where("project_id", "=", project);
-    const rows = await q.orderBy("updated_at", "desc").limit(LIST_LIMIT).execute();
-    return { items: rows.map(brief) };
+    return q;
+  };
+  /** Drafts with no prompt, no name, no conversation and nothing ever made from them: settings picked and left. */
+  const unusedOf = async (project: string | undefined, keep?: string) => {
+    const bare = (await inProject(project).where("title", "=", "").where("name", "is", null).execute()).filter((d) => d.id !== keep && (!d.chat || d.chat === "[]"));
+    if (!bare.length) return [];
+    const made = new Set((await s.db.selectFrom("generations").select("draft_id").where("draft_id", "in", bare.map((d) => d.id)).execute()).map((g) => g.draft_id));
+    return bare.filter((d) => !made.has(d.id));
+  };
+
+  /**
+   * `project`: only the drafts of that project; "none": the Inbox; left out: all. Each with its newest output (the
+   * cover) and how many it has in the library, read in one query; and how many drafts are unused (see unusedOf).
+   */
+  app.get("/api/drafts", async (req) => {
+    const { project } = z.object({ project: z.string().optional() }).parse(req.query);
+    await sweepIdleDrafts(s.db);
+    const rows = await inProject(project).orderBy("updated_at", "desc").limit(LIST_LIMIT).execute();
+    const outputs = rows.length
+      ? await s.db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
+        .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind"])
+        .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
+        .orderBy("assets.created_at", "desc").execute()
+      : [];
+    const made = new Map<string, { cover: string; coverKind: "image" | "video" | "audio"; outputs: number }>();
+    for (const o of outputs) {
+      if (!o.draft) continue;
+      const m = made.get(o.draft);
+      if (m) m.outputs++;
+      else made.set(o.draft, { cover: o.id, coverKind: o.kind, outputs: 1 });
+    }
+    return {
+      items: rows.map((d) => ({ ...brief(d), cover: made.get(d.id)?.cover ?? null, coverKind: made.get(d.id)?.coverKind ?? null, outputs: made.get(d.id)?.outputs ?? 0 })),
+      unused: (await unusedOf(project)).length,
+    };
+  });
+
+  /** The unused drafts deleted (see unusedOf), but the one open (`keep`). */
+  app.post("/api/drafts/clear-unused", async (req) => {
+    const { project, keep } = z.strictObject({ project: z.string().optional(), keep: z.string().optional() }).parse(req.body ?? {});
+    const gone = (await unusedOf(project, keep)).map((d) => d.id);
+    if (gone.length) await s.db.deleteFrom("drafts").where("id", "in", gone).execute();
+    return { deleted: gone.length };
   });
 
   app.post("/api/drafts", async (req) => {

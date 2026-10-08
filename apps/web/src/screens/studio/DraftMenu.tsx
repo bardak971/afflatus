@@ -1,0 +1,198 @@
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { ChevronDown, Film, Image as ImageIcon, Music, Plus, Search } from "lucide-react";
+import { fuzzyFilter } from "@afflatus/core";
+import { thumbUrl, type DraftBrief } from "../../api";
+import { useRecipes } from "../../data";
+import { when } from "../../format";
+import { Kbd } from "../../Keys";
+import { Popover } from "../../Popover";
+import { cx } from "../../ui";
+
+/** When a draft was last changed, short: "4 h ago" today, else the day ("03/10"), with the year when it is not this one. */
+function changed(iso: string): string {
+  const d = new Date(iso);
+  if (Date.now() - d.getTime() < 86_400_000) return when(iso);
+  const day = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return d.getFullYear() === new Date().getFullYear() ? day : `${day}/${String(d.getFullYear()).slice(2)}`;
+}
+
+const OUTPUT_WORD = { image: ["picture", "pictures"], video: ["take", "takes"], audio: ["sound", "sounds"] } as const;
+
+/** A draft's cover: its newest output, or a dashed box when nothing was made from it. */
+function Cover({ d, size }: { d: DraftBrief; size: number }) {
+  const style = { width: size, height: size };
+  if (d.cover) return <img src={thumbUrl(d.cover)} alt="" loading="lazy" style={style} className="shrink-0 rounded-md bg-raised object-cover" />;
+  return <span aria-hidden style={style} className="shrink-0 rounded-md border border-dashed border-line-strong" />;
+}
+
+/**
+ * The drafts, as the command bar's rows: the cover, the name, the model on a dim line, and on the right how
+ * many outputs it has and when it was last changed. Opens from the head of the Create panel; typing narrows
+ * the list, the arrow keys move in it, Enter opens. A draft with no prompt is named after its model.
+ */
+export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNew, onClearUnused }: {
+  drafts: DraftBrief[];
+  open: DraftBrief | null;
+  /** What a draft is called: its name, else the start of its prompt, else "" (named after its model here). */
+  titleOf(d: DraftBrief): string;
+  /** How many drafts hold settings and nothing else. */
+  unused: number;
+  onPick(id: string): void;
+  onNew(): void;
+  onClearUnused(): Promise<unknown>;
+}) {
+  const recipes = useRecipes();
+  const [shown, setShown] = useState(false);
+  const [query, setQuery] = useState("");
+  const [at, setAt] = useState(0);
+  const [asking, setAsking] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+
+  const recipeOf = (id: string) => recipes.data?.recipes.find((r) => r.id === id);
+  const familyOf = (id: string) => {
+    const r = recipeOf(id);
+    return recipes.data?.families.find((f) => f.id === r?.family)?.name ?? r?.family ?? "";
+  };
+  const modelLine = (d: DraftBrief) => {
+    const r = recipeOf(d.recipe);
+    const family = familyOf(d.recipe);
+    return r ? (r.title.toLowerCase().startsWith(family.toLowerCase()) ? r.title : `${family} · ${r.title}`) : d.recipe;
+  };
+  const nameOf = (d: DraftBrief) => titleOf(d) || `${familyOf(d.recipe) || "Untitled"} draft`;
+  const countOf = (d: DraftBrief) => {
+    const n = d.outputs ?? 0;
+    if (!n) return "—";
+    const words = OUTPUT_WORD[recipeOf(d.recipe)?.output ?? d.coverKind ?? "image"];
+    return `${n} ${n === 1 ? words[0] : words[1]}`;
+  };
+
+  const list = useMemo(
+    () => fuzzyFilter(drafts, query, (d) => `${nameOf(d)} ${d.title} ${modelLine(d)}`),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [drafts, query, recipes.data],
+  );
+  const close = () => {
+    setShown(false);
+    setQuery("");
+    setAsking(false);
+  };
+  const pick = (id: string) => {
+    close();
+    if (id !== current?.id) onPick(id);
+  };
+  const onKeys = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setAt((i) => Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1))));
+    } else if (e.key === "Enter" && list[at]) {
+      e.preventDefault();
+      pick(list[at]!.id);
+    }
+  };
+
+  const Kind = current?.coverKind === "video" ? Film : current?.coverKind === "audio" ? Music : ImageIcon;
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={shown}
+        aria-label={`Drafts: ${current ? nameOf(current) : "no draft yet"}`}
+        onClick={() => (shown ? close() : (setShown(true), setAt(Math.max(0, drafts.findIndex((d) => d.id === current?.id)))))}
+        className={cx("flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg border bg-raised pr-2.5 pl-1.5 text-left font-semibold", shown ? "border-accent" : "border-line-strong hover:border-accent")}
+      >
+        {current ? <Cover d={drafts.find((d) => d.id === current.id) ?? current} size={24} /> : <Kind size={14} className="text-ink-3" />}
+        <span className={cx("min-w-0 grow truncate", current && !titleOf(current) && "text-ink-2")}>{current ? nameOf(current) : "No draft yet"}</span>
+        {(drafts.find((d) => d.id === current?.id)?.outputs ?? 0) > 0 && <span className="shrink-0 font-mono text-[11px] font-normal text-ink-3">{drafts.find((d) => d.id === current?.id)!.outputs}</span>}
+        <ChevronDown size={14} className="shrink-0 text-ink-2" />
+      </button>
+      {shown && (
+        <Popover anchor={button} onClose={close} label="Drafts" width={420} height={560}>
+          <label className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
+            <Search size={14} className="shrink-0 text-ink-3" />
+            <input
+              autoFocus
+              data-search="drafts"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setAt(0);
+              }}
+              onKeyDown={onKeys}
+              placeholder="Search drafts by name, prompt or model"
+              aria-label="Search drafts"
+              className="min-w-0 grow bg-transparent text-sm outline-none placeholder:text-ink-3"
+            />
+            <Kbd>Esc</Kbd>
+          </label>
+          <button type="button" onClick={() => { close(); onNew(); }} className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-3 text-left font-semibold hover:bg-hover">
+            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-line-strong text-ink-2"><Plus size={14} /></span>
+            <span className="grow">New draft</span>
+            <span className="text-xs font-normal text-ink-3">this one is kept</span>
+          </button>
+          <div className="min-h-0 overflow-y-auto py-1">
+            <div className="px-3 pt-1.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{query ? `${list.length} found` : "Recent"}</div>
+            {list.map((d, i) => {
+              const isOpen = d.id === current?.id;
+              const named = Boolean(titleOf(d));
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => pick(d.id)}
+                  onMouseMove={() => setAt(i)}
+                  className={cx(
+                    "flex w-full items-center gap-2.5 px-3 py-[7px] text-left",
+                    isOpen ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : i === at ? "bg-hover" : "",
+                  )}
+                >
+                  <Cover d={d} size={36} />
+                  <span className="flex min-w-0 grow flex-col gap-0.5">
+                    <span className={cx("truncate font-semibold", !named && "text-ink-2")}>{nameOf(d)}</span>
+                    <span className="truncate text-xs text-ink-3">{modelLine(d)}{isOpen ? " · open" : ""}</span>
+                  </span>
+                  <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-[11px]">
+                    <span className="text-ink-2">{countOf(d)}</span>
+                    <span className="text-ink-3">{changed(d.updatedAt)}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {!list.length && <div className="px-3 py-4 text-sm text-ink-3">No draft matches.</div>}
+          </div>
+          {unused > 0 && !query && (
+            <div className="flex h-10 shrink-0 items-center gap-2 border-t border-line px-3 text-xs text-ink-2">
+              {asking ? (
+                <>
+                  <span className="grow">Delete {unused} draft{unused === 1 ? "" : "s"} with no prompt and nothing made? The open one stays.</span>
+                  <button
+                    type="button"
+                    disabled={clearing}
+                    onClick={() => {
+                      setClearing(true);
+                      void onClearUnused().finally(() => {
+                        setClearing(false);
+                        setAsking(false);
+                      });
+                    }}
+                    className="rounded-md px-2 py-1 font-semibold text-warn-ink hover:bg-warn-wash"
+                  >
+                    Delete
+                  </button>
+                  <button type="button" onClick={() => setAsking(false)} className="rounded-md px-2 py-1 font-semibold text-ink hover:bg-hover">Keep</button>
+                </>
+              ) : (
+                <>
+                  <span className="grow" data-tip="No prompt, no name and nothing made from them: settings picked and left">{unused} unused draft{unused === 1 ? "" : "s"}</span>
+                  <button type="button" onClick={() => setAsking(true)} className="rounded-md px-2 py-1 font-semibold text-ink hover:bg-hover">Clear them</button>
+                </>
+              )}
+            </div>
+          )}
+        </Popover>
+      )}
+    </>
+  );
+}

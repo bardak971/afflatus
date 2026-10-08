@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -14,9 +14,20 @@ export const useParts = create<{ open: Record<string, boolean>; set(id: string, 
 );
 
 /**
- * One part of a form. Folded, it is one line that says what it holds, so it need not be opened to be
- * checked; open, its fields are under that line. A part that needs something from the user (a picture
- * that is not chosen yet) is open whatever was remembered.
+ * The Create panel draws its prompt as a card like the other parts, with the Designer and Snippets in its
+ * head (given to it with the helpers); a timeline clip's Inspector keeps the prompt bare.
+ */
+export const CardPrompt = createContext(false);
+
+/** The name of a part: small, bold, upper case, quiet. */
+export const PartHead = ({ children }: { children: ReactNode }) => (
+  <span className="truncate text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{children}</span>
+);
+
+/**
+ * One part of a form, as a card. Folded, it is its name over one bold line that says what it holds, so it
+ * need not be opened to be checked; open, one line under its head and its settings under that. A part that
+ * needs something from the user (a picture that is not chosen yet) is open whatever was remembered.
  */
 export function Part({ id, title, help, summary, warn, needs, head, children, startOpen }: {
   id: string;
@@ -38,43 +49,39 @@ export function Part({ id, title, help, summary, warn, needs, head, children, st
   const set = useParts((s) => s.set);
   const open = kept || Boolean(needs);
   return (
-    <section data-part={id} className={cx("scroll-mt-12 rounded-[10px] border", open ? "border-line-strong" : "border-line bg-raised")}>
+    <section data-part={id} className={cx("scroll-mt-12 rounded-xl border transition-colors", open ? "border-line-strong bg-panel" : "border-line bg-raised hover:border-line-strong")}>
       <div className={cx("flex items-center", Boolean(head) && "pr-3")}>
-        <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="flex min-w-0 grow items-center gap-2.5 px-3 py-2 text-left">
+        <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="flex min-w-0 grow items-center gap-2.5 px-3 py-2.5 text-left">
           <span className="flex min-w-0 grow flex-col gap-0.5">
-            <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
-            <span className={cx("truncate", open ? "text-xs text-ink-2" : "font-semibold")}>{summary}</span>
+            <PartHead>{title}</PartHead>
+            <span className="truncate font-semibold">{summary}</span>
             {warn && <span className="truncate text-xs text-warn-ink">{warn}</span>}
           </span>
-          <ChevronDown size={15} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
+          <ChevronDown size={15} className={cx("shrink-0 text-ink-2 transition-transform motion-reduce:transition-none", open && "rotate-180")} />
         </button>
         {help && <span className="pr-3"><Help text={help} /></span>}
         {head}
       </div>
-      {open && <div className="flex flex-col gap-3.5 px-3 pt-1 pb-3">{children}</div>}
+      {open && <div className="flex flex-col gap-2 border-t border-line px-3 pt-2 pb-3">{children}</div>}
     </section>
   );
 }
 
-/** A second text of a form (the negative prompt, the sounds of a clip): a line that says what it holds, opening to the text itself. */
+/** A second text of a form (the negative prompt, the sounds of a clip): a row that says what it holds, opening to the text itself under it. */
 export function TextFold({ spec, value, children }: { spec: Extract<InputSpec, { type: "prompt" }>; value: string; children: ReactNode }) {
   const id = `text:${spec.id}`;
   const open = useParts((s) => s.open[id] ?? false);
   const set = useParts((s) => s.set);
-  if (open) {
-    return (
-      <div className="flex flex-col gap-1">
-        {children}
-        <button type="button" onClick={() => set(id, false)} className="self-end rounded-md px-1 text-xs text-ink-2 hover:text-ink hover:underline">Collapse</button>
-      </div>
-    );
-  }
+  const said = value.trim().replace(/\s+/g, " ");
   return (
-    <button type="button" aria-expanded={false} onClick={() => set(id, true)} className="flex h-8 items-center gap-2 rounded-lg px-1 text-left text-xs text-ink-2 hover:text-ink">
-      <span className="shrink-0 font-semibold">{spec.label}</span>
-      <span className="min-w-0 grow truncate">{value.trim() || "empty"}</span>
-      <ChevronDown size={14} className="shrink-0" />
-    </button>
+    <div data-part={id} className="flex flex-col">
+      <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="grid h-9 w-full grid-cols-[104px_minmax(0,1fr)_14px] items-center gap-2 px-3 text-left">
+        <span className="truncate text-xs font-semibold text-ink-2">{spec.label}</span>
+        <span className={cx("truncate text-xs", said ? "text-ink" : "text-ink-3")}>{said || "empty"}</span>
+        <ChevronDown size={14} className={cx("text-ink-3 transition-transform motion-reduce:transition-none", open && "rotate-180")} />
+      </button>
+      {open && <div className="px-3 pb-3">{children}</div>}
+    </div>
   );
 }
 

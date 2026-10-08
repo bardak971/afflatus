@@ -54,9 +54,9 @@ export function Strip({ parts, open, query, setQuery, found }: {
       const line = box.top + 56;
       let best: string | null = null;
       let most = 0;
-      // scrolled to the end: the last part is the one being read, however short it is
+      // scrolled to the end: the last part is the one being read, however short it is (a form too short to scroll is at its start, not its end)
       const last = elements[elements.length - 1];
-      if (last && root.scrollTop + root.clientHeight >= root.scrollHeight - 2) {
+      if (last && root.scrollHeight > root.clientHeight + 2 && root.scrollTop + root.clientHeight >= root.scrollHeight - 2) {
         setCurrent(last.dataset.part ?? null);
         return;
       }

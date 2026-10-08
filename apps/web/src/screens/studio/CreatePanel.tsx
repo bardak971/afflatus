@@ -11,6 +11,7 @@ import { takePreset } from "../../handoff";
 import { notReady } from "../../format";
 import { LookBar, lookWords } from "../../LookBar";
 import { CastPictures } from "../../castPictures";
+import { CardPrompt, PartHead } from "../../recipeForm/Part";
 import { appendTo } from "../../promptText";
 import { useBanners, usePanelWidth } from "../../store";
 import { cx, ErrorNote, ScrollColumn, PanelEdge } from "../../ui";
@@ -99,7 +100,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const [designing, setDesigning] = useState(false);
   const mainText = recipe ? mainTextOf(recipe) : undefined;
   const titleOf = (x: { id: string; name: string | null; title: string }) =>
-    x.name || (x.id === draft?.id && mainText ? String(draft.forms[draft.recipe]?.[mainText.id] ?? "").trim().slice(0, 60) : x.title) || "No prompt yet";
+    x.name || (x.id === draft?.id && mainText ? String(draft.forms[draft.recipe]?.[mainText.id] ?? "").trim().slice(0, 60) : x.title) || "";
   const takesLook = recipe?.inputs.some((i) => i.type === "prompt" || i.type === "loras" || i.type === "references");
 
   const panelWidth = usePanelWidth((s) => s.width);
@@ -108,7 +109,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
       <PanelEdge side="right" />
       <DraftHeader d={d} draft={draft} titleOf={titleOf} onClose={onClose} />
 
-      <ScrollColumn className="flex flex-col gap-2.5 p-3">
+      <ScrollColumn className="flex flex-col gap-2 px-3 pt-2 pb-3">
         {recipes.isError && <ErrorNote>{recipes.error.message}</ErrorNote>}
         <span className={cx("flex items-center gap-2 px-1 text-xs", d.saving === "failed" ? "text-warn-ink" : "text-ink-3")}>
           {d.saving === "saved" ? "Draft saved" : d.saving === "saving" ? "Saving…" : `Could not save the draft${d.failure ? ` (${d.failure})` : ""}: what is on screen is kept here until it is.`}
@@ -116,6 +117,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
         </span>
         {recipe && draft && (
           <CastPictures recipe={recipe} input={whole} look={draft.look}>
+          <CardPrompt.Provider value>
           <Form
             key={`${draft.id}:${recipe.id}`}
             recipe={recipe}
@@ -134,12 +136,14 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
                 look={draft.look}
                 onLook={d.setLook}
                 onDesigner={() => setDesigning(true)}
+                head={<PartHead>{mainText?.label ?? "Prompt"}</PartHead>}
                 onInsert={(snippet) => {
                   if (mainText?.type === "prompt") d.setValue(recipe.id, mainText.id, appendTo(String(whole[mainText.id] ?? ""), snippet, mainText.style));
                 }}
               />
             }
           />
+          </CardPrompt.Provider>
           </CastPictures>
         )}
       </ScrollColumn>

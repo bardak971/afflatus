@@ -13,6 +13,10 @@ export interface DraftBrief {
   /** Nothing was done in it yet. */
   empty: boolean;
   projectId: string | null;
+  /** In the list: its newest output in the library (the cover), and how many it has there. */
+  cover?: string | null;
+  coverKind?: "image" | "video" | "audio" | null;
+  outputs?: number;
 }
 export interface Draft extends DraftBrief {
   /** Recipe id → the values of its form. */

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useContext, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isShown, type InputSpec } from "@afflatus/core";
 import { api, type RecipeInfo, type RecipeStatus } from "./api";
@@ -10,7 +10,7 @@ import { MissingModel } from "./PresetFiles";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
-import { Part, TextFold, useParts } from "./recipeForm/Part";
+import { CardPrompt, Part, TextFold, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 
@@ -78,9 +78,13 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const { chapters, advancedMoved, promptMoved, mainText, hit, sought, texts, frames, refs, loras, out, knobs, sampling, upscaling, encoding, rare, hidden } = layout;
   const said = summariesOf(recipe, layout, values, { madeSummary, lookSummary, frameSummary: frameExtra?.summary });
 
-  const render = (i: InputSpec) => (
+  const card = useContext(CardPrompt);
+  // (bare: true only; .map() passes its index in that place)
+  const render = (i: InputSpec, bare?: unknown) => (
     <div key={i.id} className="flex flex-col gap-1">
       <Field
+        bare={bare === true}
+        standard={defaults[i.id]}
         spec={i} value={values[i.id]} values={values} options={status?.options[i.id]} family={family} model={inUse}
         onChange={(v) => onChange(i.id, v)}
         onValue={onChange}
@@ -125,10 +129,13 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
   const promptBlock = mainText && promptHit && (
-    <div data-part="prompt" className="flex scroll-mt-12 flex-col gap-1.5">
-      {!q && helpers}
-      {isShown(mainText, seen) && (!q || hit(mainText)) && render(mainText)}
-      {texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}
+    // in the Create panel a card like the others, its head (with the Designer and Snippets) given with the helpers; the other texts as rows at its foot
+    <div data-part="prompt" className={card ? "flex scroll-mt-12 flex-col rounded-xl border border-line-strong bg-panel" : "flex scroll-mt-12 flex-col gap-1.5"}>
+      <div className={card ? "flex flex-col gap-2 px-3 pt-2.5 pb-3" : "contents"}>
+        {!q && helpers}
+        {isShown(mainText, seen) && (!q || hit(mainText)) && render(mainText, card && !q && mainText.type === "prompt")}
+      </div>
+      {texts.length > 0 && <div className={card ? "border-t border-line py-0.5" : "-mx-3 flex flex-col"}>{texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}</div>}
     </div>
   );
   const advancedPart = rare.length > 0 && (

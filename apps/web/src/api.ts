@@ -189,7 +189,9 @@ export const api = {
   bin: (id: string) => call<{ ok: true }>("DELETE", `/assets/${id}`),
   restore: (id: string) => call<Asset>("POST", `/assets/${id}/restore`),
   /** The drafts of the project the app looks at (see project.ts). */
-  drafts: (o?: Asked) => call<{ items: DraftBrief[] }>("GET", `/drafts${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),
+  drafts: (o?: Asked) => call<{ items: DraftBrief[]; unused: number }>("GET", `/drafts${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),
+  /** The drafts with no prompt, no name and nothing made from them, deleted, but the open one. */
+  clearUnusedDrafts: (keep?: string) => call<{ deleted: number }>("POST", "/drafts/clear-unused", { project: projectParam() ?? undefined, keep }),
   draft: (id: string, o?: Asked) => call<Draft>("GET", `/drafts/${id}`, undefined, o?.signal),
   /** A new draft, in the project the app looks at unless another is named. */
   createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null; project?: string | null }) => call<Draft>("POST", "/drafts", { ...body, project: body.project === undefined ? projectForNew() : body.project }),

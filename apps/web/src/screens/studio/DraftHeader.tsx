@@ -4,10 +4,9 @@ import { ChevronLeft, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, type Draft, type DraftBrief } from "../../api";
 import { DRAFT_LIST } from "../../data";
 import type { useDraft } from "../../draft";
-import { when } from "../../format";
-import { Select } from "../../Select";
+import { DraftMenu } from "./DraftMenu";
 import { useBanners } from "../../store";
-import { TwoStep } from "../../ui";
+import { fieldClass, TwoStep } from "../../ui";
 
 /**
  * The head of the Create panel: the draft it is on (a list to switch, a name of its own), and the way to a
@@ -16,7 +15,7 @@ import { TwoStep } from "../../ui";
 export function DraftHeader({ d, draft, titleOf, onClose }: {
   d: ReturnType<typeof useDraft>;
   draft: Draft | null;
-  /** What a draft is called in the list. */
+  /** What a draft is called in the list: its name, else the start of its prompt, else "" (the menu names it after its model). */
   titleOf(x: DraftBrief): string;
   onClose(): void;
 }) {
@@ -65,19 +64,20 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
               cancelledNaming.current = true;
               setNaming(null);
             }}
-            className="h-9 min-w-0 grow rounded-lg border border-accent bg-raised px-2.5 font-semibold placeholder:font-normal placeholder:text-ink-3"
+            className={`${fieldClass} h-9 min-w-0 grow font-semibold placeholder:font-normal`}
           />
         </form>
       ) : (
         <div className="min-w-0 grow">
-          <Select
-            label="Drafts"
-            searchHint="Search drafts"
-            className="h-9 font-semibold"
-            value={draft?.id ?? ""}
-            onChange={(id) => void d.switchTo(id).catch(failed("opened"))}
-            options={d.drafts.map((x) => ({ value: x.id, label: titleOf(x), note: x.id === draft?.id ? "open" : when(x.updatedAt) }))}
-            placeholder="No draft yet"
+          <DraftMenu
+            drafts={d.drafts}
+            open={draft}
+            titleOf={titleOf}
+            // the open one is never cleared: not counted when it is one of them
+            unused={Math.max(0, d.unused - (draft && !draft.name && !titleOf(draft) && !d.drafts.find((x) => x.id === draft.id)?.outputs ? 1 : 0))}
+            onPick={(id) => void d.switchTo(id).catch(failed("opened"))}
+            onNew={() => void d.startNew().catch(failed("started"))}
+            onClearUnused={() => api.clearUnusedDrafts(draft?.id).then(() => client.invalidateQueries({ queryKey: DRAFT_LIST }), failed("cleared"))}
           />
         </div>
       )}

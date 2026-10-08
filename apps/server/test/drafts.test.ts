@@ -87,13 +87,34 @@ describe("thumbnails", () => {
     fake.pending = [];
     fake.history[promptId] = { status: { completed: true }, outputs: { [out]: { images: [{ filename: `${promptId}.png`, subfolder: "", type: "temp" }] } } };
   };
-  const render = async () => {
-    await post(t.app, "/api/jobs", job());
+  const render = async (draft?: string) => {
+    await post(t.app, "/api/jobs", { ...job(), ...(draft ? { draft } : {}) });
     await until(() => fake.prompts.size === 1);
     finish([...fake.prompts.keys()][0]!);
     await until(async () => (await get(t.app, "/api/assets")).json().items.length === 1);
     return (await get(t.app, "/api/assets")).json().items[0] as { id: string; bytes: number };
   };
+
+  it("give each draft in the list its newest output and their count; unused drafts are counted and cleared, never the open one", async () => {
+    const made = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "a harbor walk" } } })).json();
+    const a = await render(made.id);
+    // settings picked, nothing written, nothing made: unused (the open one is kept when clearing)
+    const bare = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { steps: 30 } } })).json();
+    const open = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { steps: 20 } } })).json();
+    const named = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { steps: 20 } } })).json();
+    await put(`/api/drafts/${named.id}`, { name: "Kept by its name" });
+
+    const list = (await get(t.app, "/api/drafts")).json();
+    const byId = new Map(list.items.map((d: { id: string }) => [d.id, d]));
+    expect(byId.get(made.id)).toMatchObject({ cover: a.id, coverKind: "image", outputs: 1 });
+    expect(byId.get(bare.id)).toMatchObject({ cover: null, outputs: 0 });
+    expect(list.unused).toBe(2);
+
+    expect((await post(t.app, "/api/drafts/clear-unused", { keep: open.id })).json()).toEqual({ deleted: 1 });
+    const left = (await get(t.app, "/api/drafts")).json().items.map((d: { id: string }) => d.id);
+    expect(left).not.toContain(bare.id);
+    expect(left).toEqual(expect.arrayContaining([made.id, open.id, named.id]));
+  });
 
   it("are made when a picture is stored, small and in WebP", async () => {
     const a = await render();

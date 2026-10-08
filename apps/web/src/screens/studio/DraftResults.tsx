@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Square, X } from "lucide-react";
+import { Images, Square, X } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets, useQueue } from "../../data";
-import { about, phaseLabel } from "../../format";
+import { about, clock, phaseLabel } from "../../format";
+import { Kbd } from "../../Keys";
+import { useStudio } from "../../store";
 import { LivePreview, StageStrip } from "../../LivePreview";
 import { useStop } from "../../ModelLoad";
 import { Bar, Button, cx, Empty, ErrorNote } from "../../ui";
 import { Viewer } from "../../Viewer";
 import { useTileMenu } from "../../TileMenu";
-import { Tile } from "../Library";
+import { Tile, tileName } from "../Library";
 import { LiveTile } from "./LiveTile";
 
 /**
@@ -59,7 +61,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   if (assets.isSuccess && !items.length && !running && !waiting) {
     if (!draft && empty) return <Empty title={empty.title}>{empty.body}</Empty>;
     if (!draft) return <Empty title="Nothing here yet">Nothing in this view. Another scope or folder may have what you are looking for.</Empty>;
-    return <Empty title="No output from this draft yet">Write a prompt in the form and press Generate. This draft's outputs show here, the newest one large. "Whole folder" shows everything in the folder.</Empty>;
+    return <NothingYet />;
   }
   return (
     <div className="flex h-full min-h-0 gap-4">
@@ -98,8 +100,8 @@ export function DraftResults({ draft, folder, list, title, empty }: {
           />
         )}
       </div>
-      <div className="flex w-[140px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-4">
-        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{draft ? "This draft" : title ?? "Here"} · {items.length}</span>
+      <div className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-4">
+        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{draft ? "This draft" : title ?? "Here"} · {items.length}</span>
         {running && <LiveTile job={running} on={Boolean(live)} onClick={() => setPicked("live")} />}
         {waiting > 0 && (
           <span className="flex items-center justify-between gap-1 rounded-lg border border-dashed border-line-strong py-1 pr-1 pl-2 text-xs text-ink-2">
@@ -111,15 +113,56 @@ export function DraftResults({ draft, folder, list, title, empty }: {
         )}
         {/* the newer pages, let go past the cap (useAssets) */}
         {assets.hasPreviousPage && <Button size="sm" onClick={() => assets.fetchPreviousPage()} disabled={busy}>Newer</Button>}
-        {items.map((a) => (
-          <div key={a.id} className={cx("rounded-[12px] border-2", !live && shown?.id === a.id ? "border-accent" : "border-transparent")}>
-            <Tile asset={a} onOpen={() => setPicked(a.id)} onMenu={(e) => tileMenu.open(e, a)} />
-          </div>
-        ))}
+        {items.map((a) => {
+          const on = !live && shown?.id === a.id;
+          return (
+            // at its own shape (a portrait take stays portrait), with its name under it; the one shown large is marked
+            <div key={a.id} className={cx("flex flex-col gap-1.5 rounded-[12px] p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
+              <div style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
+                <Tile fill plain asset={a} onOpen={() => setPicked(a.id)} onMenu={(e) => tileMenu.open(e, a)} />
+              </div>
+              {/* what it is, under the picture: its name, then its clip and its length (or size) */}
+              <span className="flex min-w-0 flex-col gap-1 px-0.5">
+                <span className="truncate text-[12.5px] font-bold" data-tip={tileName(a)}>{tileName(a)}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {/* in the accent, flush with the name above it */}
+                  {a.clipOf && <span className="min-w-0 truncate text-[11px] font-semibold text-accent">Clip {a.clipOf.clip}{a.clipOf.takes > 1 ? ` · take ${a.clipOf.take}` : ""}</span>}
+                  <span className="grow" />
+                  <span className="shrink-0 font-mono text-[11px] text-ink-2">{a.durationMs !== null && a.kind !== "image" ? clock(a.durationMs, { decimals: 1 }) : a.width && a.height ? `${a.width}×${a.height}` : ""}</span>
+                </span>
+              </span>
+            </div>
+          );
+        })}
         {assets.hasNextPage && <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={busy}>More</Button>}
       </div>
       {details && <Viewer asset={items.find((a) => a.id === details.id) ?? details} items={items} onOpen={setDetails} onClose={() => setDetails(null)} into={{ draft, folder }} />}
       {tileMenu.element}
+    </div>
+  );
+}
+
+/** How tall a tile of the column gets at most: a portrait take is narrower, not taller. */
+const TILE_H = 170;
+
+/** A tile's own shape, width over height, kept between a tall portrait and a wide landscape (a sound: a wide strip). */
+function shapeOf(a: Asset): number {
+  if (a.kind === "audio" || !a.width || !a.height) return a.kind === "audio" ? 2 : 3 / 4;
+  return Math.max(0.5, Math.min(2, a.width / a.height));
+}
+
+/** The draft has made nothing yet: one line, the key that generates, and the way to the rest of the folder. */
+function NothingYet() {
+  const set = useStudio((s) => s.set);
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 rounded-xl bg-ground">
+      <Images size={28} strokeWidth={1.5} className="text-ink-3" />
+      <span className="text-[15px] font-semibold">Nothing made in this draft yet</span>
+      <span className="flex items-center gap-1.5 text-ink-2">
+        <Kbd>Ctrl</Kbd><Kbd>↵</Kbd> generates
+        <span className="text-line-strong">·</span>
+        <button type="button" onClick={() => set({ scope: "all" })} className="font-semibold text-accent hover:underline">Folder</button> shows the rest
+      </span>
     </div>
   );
 }
