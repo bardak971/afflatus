@@ -5,7 +5,7 @@
   "description": "A self-hosted studio for pictures, videos and timelines, in front of your own ComfyUI.",
   "license": "AGPL-3.0-only",
   "type": "module",
-  "packageManager": "pnpm@10.6.2",
+  "packageManager": "pnpm@10.34.6",
   "engines": {
     "node": ">=22.16"
   },
@@ -18,6 +18,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "check:graphs": "tsx scripts/check-graphs.ts",
+    "restore": "tsx scripts/restore-backup.ts",
     "comfy:scan": "tsx scripts/comfy-scan.ts",
     "comfy:load": "tsx scripts/comfy-load.ts",
     "catalog:save": "tsx scripts/save-node-catalog.ts",

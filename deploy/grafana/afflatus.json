@@ -193,7 +193,7 @@
         "graphMode": "none",
         "textMode": "value"
       },
-      "description": "Share of the last day a Afflatus render held the GPU."
+      "description": "Share of the last day an Afflatus render held the GPU."
     },
     {
       "id": 5,

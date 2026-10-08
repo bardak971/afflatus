@@ -1,6 +1,5 @@
 # session notes with a LAN address, disk paths and personal details: never published
-HANDOVER.md
-HANDOVER-import.md
+HANDOVER*.md
 
 node_modules/
 dist/
@@ -19,6 +18,9 @@ data-demo/
 __pycache__/
 *.pyc
 
+# vitest's local cache (it holds this machine's paths)
+**/.vitest/
+
 # a local corpus of other people's workflows for the importer's regression check (packages/workflows/test/corpus.test.ts): not published
 packages/workflows/test/corpus/*
 !packages/workflows/test/corpus/expect.json
@@ -26,3 +28,6 @@ packages/workflows/test/corpus/*
 
 # working notes, kept locally only
 STATUS.md
+
+# Claude Code agent worktrees
+.claude/worktrees/

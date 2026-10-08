@@ -8,7 +8,7 @@ The release bundles run with nothing installed: they carry their own Node runtim
 | Linux, x64 | `afflatus-<version>-linux-x64.tar.gz` | `tar xzf` it, run `./afflatus.sh` |
 | macOS on Apple Silicon | `afflatus-<version>-darwin-arm64.tar.gz` | `tar xzf` it, run `./afflatus.sh` |
 
-A console window opens and says the address; your browser opens on `http://127.0.0.1:8720` a few seconds later. Closing the window, or Ctrl+C, stops Afflatus. There is nothing to install and nothing is written outside the folder you unpacked.
+A console window opens and says the address; your browser opens on `http://127.0.0.1:8720` a few seconds later. Closing the window, or Ctrl+C, stops Afflatus. There is nothing to install. Outside the folder you unpacked, Afflatus writes only working copies in the system's temp folder (uploads, trims, exports, backups; removed once done), the node pack into ComfyUI's `custom_nodes` when you give it ComfyUI's folder, pictures and clips it hands to ComfyUI into ComfyUI's `input/afflatus`, and what you save into a linked folder.
 
 ## First run
 
@@ -19,7 +19,7 @@ A console window opens and says the address; your browser opens on `http://127.0
 
 ## Where things are
 
-- Your data, the library, the settings and the timelines, lives in the `data` folder next to the launcher. Nothing else is written.
+- Your data, the library, the settings and the timelines, lives in the `data` folder next to the launcher.
 - To update, unpack the next release over the old folder, or beside it and move the `data` folder across. The database migrates itself at start.
 - To move Afflatus to another machine, move the folder. A backup is one zip from Settings → Storage → Back up now; restoring is unpacking it into an empty `data` folder.
 
@@ -31,8 +31,8 @@ The launcher reads a few environment variables. On Windows set them in the conso
 |---|---|---|
 | `PORT` | `8720` | The port. Change it when another program, or another Afflatus, has 8720 |
 | `HOST` | `127.0.0.1` | The address. `0.0.0.0` makes it reachable from other machines on your network; there is no login, so only do that on a network you trust |
-| `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, the `HOST` address and the host of `PUBLIC_URL`. A request that names any other host (a page on another site pointing one of its names at this machine) gets a 403. When you open Afflatus by your PC's name or LAN address, put that name or address here: `ALLOWED_HOSTS=pc.lan,192.168.1.20` |
-| `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.1.20:8720`), given to ComfyUI for model downloads when ComfyUI runs elsewhere; its host is answered to as well |
+| `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, the `HOST` address and the host of `PUBLIC_URL`. A request that names any other host (a page on another site pointing one of its names at this machine) gets a 403. When you open Afflatus by your PC's name or LAN address, put that name or address here: `ALLOWED_HOSTS=pc.lan,192.168.x.y` |
+| `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.x.y:8720`), given to ComfyUI for model downloads when ComfyUI runs elsewhere; its host is answered to as well |
 | `LINK_ROOTS` | empty | Only the folders named here (and what is inside them) can be linked from Settings → Folders, separated as PATH is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus can be reached from other machines: without it, anyone who can open the page can link any folder of the disk Afflatus can read and have its pictures, videos and sounds served and written to. The system's own folders (Windows, Program Files, AppData, a drive's root, the home folder itself) are never linked, whatever is set |
 | `DATA_DIR` | the `data` folder beside the launcher | Where everything is kept |
 | `FFMPEG`, `FFPROBE` | the bundled ones (`bin/`), or the PATH on macOS | The tools' paths |

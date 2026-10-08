@@ -2,7 +2,7 @@
 // ffprobe where a build can be redistributed (the LGPL builds for Windows and Linux; on macOS the start
 // script points at Homebrew), the launcher, and the archive the GitHub release carries.
 //
-//   node scripts/release/bundle.mjs --platform win-x64|linux-x64|darwin-arm64 [--version 0.1.0] [--ffmpeg autobuild-…] [--record]
+//   node scripts/release/bundle.mjs --platform win-x64|linux-x64|darwin-arm64 [--version v0.2.1] [--ffmpeg autobuild-…] [--record]
 //
 // Runs on the platform it packs for (npm ci resolves sharp's native package for the host). Everything it
 // downloads is one exact release, checked against a SHA-256 before it is unpacked: Node against nodejs.org's
@@ -17,11 +17,11 @@ import { fileURLToPath } from "node:url";
 /**
  * The Node the bundles run on: one exact release, the newest of major 24 when it was last bumped (the
  * Dockerfile runs on node:24 too). To bump: take the version from https://nodejs.org/dist/index.json and set
- * it here; the checksum comes from nodejs.org at run time. v24.19.0 is the version this was last run with.
+ * it here; the checksum comes from nodejs.org at run time.
  */
 const NODE_VERSION = "v24.21.0";
 /**
- * The ffmpeg the Windows and Linux bundles carry: one dated BtbN autobuild of the master branch (LGPL), not
+ * The ffmpeg the Windows and Linux bundles carry: the 9.0 release-branch build (LGPL) of one dated BtbN autobuild, not
  * the rolling "latest". A tag from https://github.com/BtbN/FFmpeg-Builds/releases, of the form
  * autobuild-YYYY-MM-DD-HH-MM; the script refuses to run while this is empty, and --ffmpeg names one for a run.
  */
@@ -36,6 +36,11 @@ const opt = (name, fallback) => {
 };
 const platform = opt("platform", { win32: "win-x64", linux: "linux-x64", darwin: "darwin-arm64" }[process.platform]);
 const version = opt("version", process.env.AFFLATUS_VERSION?.trim() || "dev");
+// the version names files and is written into the launchers: a tag (v1.2.3, v1.2.3-rc.1) or "dev", nothing else
+if (!/^v\d+\.\d+\.\d+(-[\w.]+)?$/.test(version) && version !== "dev") throw new Error(`--version ${JSON.stringify(version)} is not a release tag (v1.2.3 or v1.2.3-rc.1)`);
+/** The version inside a .bat `set "X=…"` (% doubled, no quote) and inside a POSIX single-quoted string. */
+const batVersion = version.replace(/%/g, "%%").replace(/"/g, "");
+const shVersion = `'${version.replace(/'/g, "'\\''")}'`;
 const ffmpegTag = opt("ffmpeg", FFMPEG_TAG);
 const record = argv.includes("--record");
 if (!["win-x64", "linux-x64", "darwin-arm64"].includes(platform)) throw new Error(`unknown platform ${platform}`);
@@ -134,13 +139,13 @@ if (platform !== "darwin-arm64") {
   if (!ffmpegTag) throw new Error("no ffmpeg build is named: set FFMPEG_TAG in scripts/release/bundle.mjs to a dated BtbN release tag (autobuild-YYYY-MM-DD-HH-MM, from https://github.com/BtbN/FFmpeg-Builds/releases), or pass --ffmpeg <tag>. The rolling \"latest\" build is not used: a release carries one known ffmpeg.");
   if (!/^autobuild-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}$/.test(ffmpegTag)) throw new Error(`${ffmpegTag} is not a BtbN autobuild tag (autobuild-YYYY-MM-DD-HH-MM)`);
   console.log(`[bundle] ffmpeg (LGPL, BtbN ${ffmpegTag})`);
-  // the release's files are listed through the API: the master build's name carries its git revision, so it cannot be spelled out here
+  // the release's files are listed through the API: a build's name carries its git revision, so it cannot be spelled out here
   const release = await (await get(`https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/${ffmpegTag}`, { headers: { Accept: "application/vnd.github+json", ...headers } })).json();
   const assets = release.assets ?? [];
   // the 9.0 release branch (n9.0.x), not the master nightly: a release ships an ffmpeg that is itself a release
   const wanted = platform === "win-x64" ? /^ffmpeg-n9\.0[\w.-]*-win64-lgpl-9\.0\.zip$/ : /^ffmpeg-n9\.0[\w.-]*-linux64-lgpl-9\.0\.tar\.xz$/;
   const asset = assets.find((a) => wanted.test(a.name));
-  if (!asset) throw new Error(`BtbN release ${ffmpegTag} has no master LGPL build for ${platform} among: ${assets.map((a) => a.name).join(", ") || "nothing"}`);
+  if (!asset) throw new Error(`BtbN release ${ffmpegTag} has no 9.0 LGPL build for ${platform} among: ${assets.map((a) => a.name).join(", ") || "nothing"}`);
   // the checksum: the release's own list when it has one; else the one written down here the first time (--record)
   const sumsFile = join(here, "checksums.json");
   const sums = JSON.parse(readFileSync(sumsFile, "utf8"));
@@ -187,7 +192,7 @@ if (platform === "win-x64") {
     'set "PATH=%~dp0bin;%PATH%"',
     'if "%DATA_DIR%"=="" set "DATA_DIR=%~dp0data"',
     'if "%PORT%"=="" set "PORT=8720"',
-    `set "AFFLATUS_VERSION=${version}"`,
+    `set "AFFLATUS_VERSION=${batVersion}"`,
     "echo Afflatus %AFFLATUS_VERSION% - http://127.0.0.1:%PORT%  (close this window to stop it)",
     'start "" /b cmd /c "timeout /t 3 >nul & start "" http://127.0.0.1:%PORT%"',
     '"%~dp0node\\node.exe" "%~dp0app\\apps\\server\\dist\\index.mjs"',
@@ -203,7 +208,7 @@ if (platform === "win-x64") {
     'export PATH="$PWD/bin:$PATH"',
     'export DATA_DIR="${DATA_DIR:-$PWD/data}"',
     'export PORT="${PORT:-8720}"',
-    `export AFFLATUS_VERSION="${version}"`,
+    `export AFFLATUS_VERSION=${shVersion}`,
     ...(mac ? [
       'if ! command -v ffmpeg >/dev/null 2>&1; then',
       '  echo "ffmpeg is not installed: trims, exports and video previews need it. Install it with:  brew install ffmpeg"',
@@ -226,6 +231,7 @@ writeFileSync(join(bundle, "README.txt"), [
   platform === "darwin-arm64" ? "ffmpeg is needed for trims, exports and video previews: brew install ffmpeg" : "ffmpeg and ffprobe (LGPL builds by BtbN) are in bin/, with their build named in bin/VERSIONS.txt.",
   "",
   "Afflatus is free software under the AGPL-3.0: https://github.com/bardak971/afflatus",
+  "The other people's code it ships, and their licences, are listed in app/THIRD_PARTY_NOTICES.txt.",
   "",
 ].join("\n"));
 

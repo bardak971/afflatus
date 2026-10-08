@@ -3,12 +3,13 @@
 
 image:
   repository: ghcr.io/bardak971/afflatus
-  tag: "0.1.0"
+  # empty: the chart's appVersion, the release this chart came with
+  tag: ""
   pullPolicy: IfNotPresent
 
-# The GHCR pull secret, while the image is private.
+# Pull secrets, for an image kept in a private registry.
 imagePullSecrets: []
-#  - name: ghcr-pull
+#  - name: registry-pull
 
 # One, always: SQLite in the volume is one writer, and the queue is one worker for one ComfyUI.
 replicas: 1
@@ -19,7 +20,8 @@ port: 8720
 persistence:
   enabled: true
   size: 50Gi
-  storageClassName: longhorn
+  # empty: the cluster's default storage class
+  storageClassName: ""
   accessModes: [ReadWriteOnce]
   # An existing claim instead of one made by the chart.
   existingClaim: ""
@@ -30,7 +32,10 @@ database:
   existingSecret: ""
   key: DATABASE_URL
 
-# Plain environment for the container (TZ, FFMPEG… ; HOST, PORT and DATA_DIR are set by the chart).
+# Plain environment for the container (TZ, FFMPEG, LINK_ROOTS… ; HOST, PORT and DATA_DIR are set by the chart).
+# The server answers only to the names it knows: reached through a gateway or a routes app rather than the
+# chart's Ingress, name that host in ALLOWED_HOSTS (comma-separated) and set PUBLIC_URL to its address. With
+# the Ingress on, the chart sets both from ingress.host; an ALLOWED_HOSTS given here is added to it.
 env: {}
 # Secrets and config maps whole, as environment.
 envFrom: []
@@ -64,7 +69,8 @@ service:
   type: ClusterIP
 
 # An Ingress, for clusters that route that way. Left off where a gateway or a central routes app does it
-# (then route to the service `<release>-afflatus` on `port`).
+# (then route to the service `<release>-afflatus` on `port`, and see env above). When on, the chart sets
+# PUBLIC_URL to https://<host> (http without tls) and adds the host to ALLOWED_HOSTS.
 ingress:
   enabled: false
   className: ""

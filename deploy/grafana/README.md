@@ -11,7 +11,7 @@ What is there:
 |---|---|---|---|
 | `afflatus_queue_jobs` | gauge | `state` queued / running | Jobs in the queue |
 | `afflatus_comfy_online` | gauge | | 1 when ComfyUI answers |
-| `afflatus_gpu_busy` | gauge | | 1 while a Afflatus render holds the GPU |
+| `afflatus_gpu_busy` | gauge | | 1 while an Afflatus render holds the GPU |
 | `afflatus_gpu_memory_percent`, `afflatus_gpu_temperature_celsius`, `afflatus_gpu_load_percent` | gauge | | As ComfyUI's machine reports them (a monitor extension gives heat and load) |
 | `afflatus_renders_total` | counter | `recipe`, `family`, `title`, `status` done / failed / cancelled | Renders that ran on ComfyUI |
 | `afflatus_render_model_loads_total` | counter | `recipe`, `family`, `title` | Renders that had to load their model first |
@@ -27,10 +27,14 @@ scrape_configs:
   - job_name: Afflatus
     scrape_interval: 30s
     static_configs:
-      - targets: ["<the machine Afflatus runs on>:8721"]
+      - targets: ["<the machine Afflatus runs on>:8720"]
 ```
 
-In a cluster, a `ServiceMonitor` or `PodMonitor` on Afflatus's port does the same.
+In a cluster, a `ServiceMonitor` or `PodMonitor` on Afflatus's port does the same (the chart has one:
+`metrics.enabled`).
+
+`/metrics` and `/api/health` answer whatever the Host header says: a scraper or a probe calls the
+server by its IP, a name the rest of the API refuses (see `ALLOWED_HOSTS`).
 
 `afflatus.json` is a dashboard for them: import it in Grafana (Dashboards, New, Import) and pick your
 Prometheus as its data source. It is laid out like a queue dashboard: what is going on now, the

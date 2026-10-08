@@ -11,8 +11,11 @@ services:
     image: ghcr.io/bardak971/afflatus:latest
     container_name: afflatus
     restart: unless-stopped
+    # this computer only: there is no login. To open it to your network, write "8720:8720" instead, set
+    # ALLOWED_HOSTS below to the name or address the other machines use, and LINK_ROOTS to the folders that
+    # may be linked (see docs/install-docker.md)
     ports:
-      - "8720:8720"
+      - "127.0.0.1:8720:8720"
     volumes:
       - afflatus-data:/data
     environment:

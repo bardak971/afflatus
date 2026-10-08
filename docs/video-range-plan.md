@@ -1,6 +1,6 @@
 # A range on a video — the plan
 
-Settled with the owner on 2026-10-03. One idea under several features: pick an **in** and an **out** on any
+Settled on 2026-10-03. One idea under several features: pick an **in** and an **out** on any
 video of the library, then do something with the range. Everything below sits on the same handles.
 
 ## 0. What is there already
@@ -73,7 +73,7 @@ live app gets it; the cut job runs against real ffmpeg either way.
 
 ## 3. Slices C, D, E — the range on the timeline (built 2026-10-04, replacing Trim on the timeline)
 
-The owner's question after a day with Trim on the timeline: "do we really need the Trim menu? imagine I want to
+The question after a day with Trim on the timeline: "do we really need the Trim menu? imagine I want to
 regen a range between 2 clips". Trim works on one take, so it cannot. The timeline got what every NLE has
 instead: **In and Out on the ruler**, with the actions on the range. Trim stays in the viewer, for raw footage.
 
@@ -90,7 +90,7 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
   frame at Out (`Timelines.frame`, made once per moment; a still is its own picture), on the clip's model when
   it takes those frames, else the first that does, with that clip's words and settings and `seconds` = the
   range snapped to the model's steps; the clip after it becomes a cut. **Nothing is rendered**: the new clip
-  comes back selected, its form (and the Designer) is the owner's first, then New take renders it. It is a
+  comes back selected, its form (and the Designer) comes first, then New take renders it. It is a
   clip like any other, so it can be re-rendered again and again. In = Out on a cut = **Bridge** (slice D): a
   clip between the two, pinned to their frames, nothing removed. One Undo step.
 - **Split at In / Out** (`splitRange`): the clips under In and Out each become two (a still into two stills);
@@ -122,7 +122,7 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
   inserts a new clip after Out that returns to the frame at In, so the range plays round; like Regenerate, the
   clip comes back selected and nothing is rendered until New take.
 
-## 5. Slice F — Slow motion (built 2026-10-04: a `slow` cut job, RIFE on the GPU when ComfyUI has it, ffmpeg otherwise; from Trim, from the timeline range — each clip under it slowed as its own clip with the slowed video as a take, stills held longer — and from a clip's menu; the sound slowed with it, pitch kept) (the owner, 2026-10-04: "if the GPU is faster and better quality, yes" → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
+## 5. Slice F — Slow motion (built 2026-10-04: a `slow` cut job, RIFE on the GPU when ComfyUI has it, ffmpeg otherwise; from Trim, from the timeline range — each clip under it slowed as its own clip with the slowed video as a take, stills held longer — and from a clip's menu; the sound slowed with it, pitch kept) (decided 2026-10-04: the GPU when it is faster and better → RIFE on the GPU first, ffmpeg minterpolate only as the fallback)
 
 - Trim mode: **Slow motion ×2 / ×4** on the range: a job running RIFE on the range's frames (the
   `FrameInterpolationModelLoader` / RIFE nodes are already used for frame interpolation; this one is a ComfyUI
@@ -138,7 +138,7 @@ instead: **In and Out on the ruler**, with the actions on the range. Trim stays 
 
 A (done) → B (done) → C + D as the range on the timeline (done) → F (1 session) → scene detection when wanted.
 
-## Open points for the owner
+## Open points
 
 1. Trim mode in Studio's inline viewer too (planned yes), or the big viewer only.
 2. Re-encode quality for cut copies: `crf 10` like the joins (big files, no visible loss) or `crf 16`.

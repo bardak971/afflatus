@@ -1,10 +1,12 @@
-Afflatus {{ .Values.image.tag }} is deploying as {{ include "afflatus.name" . }} in {{ .Release.Namespace }}.
+Afflatus {{ include "afflatus.tag" . }} is deploying as {{ include "afflatus.name" . }} in {{ .Release.Namespace }}.
 
 Inside the cluster it answers on http://{{ include "afflatus.name" . }}.{{ .Release.Namespace }}.svc:{{ .Values.port }}
 {{- if .Values.ingress.enabled }}
-and outside on http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}
+and outside on {{ .Values.env.PUBLIC_URL | default (include "afflatus.ingressUrl" .) }}
+(set as PUBLIC_URL, and {{ .Values.ingress.host }} added to ALLOWED_HOSTS: the server refuses names it does not know).
 {{- else }}
-; route to that service from your gateway or ingress.
+; route to that service from your gateway or ingress, and name the host it is reached by in
+env.ALLOWED_HOSTS (and env.PUBLIC_URL): the server refuses names it does not know.
 {{- end }}
 
 First visit: Settings → ComfyUI, give it the address of your ComfyUI (the machine with the GPU). Then

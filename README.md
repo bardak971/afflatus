@@ -86,10 +86,10 @@ The models are other people's work under their own licences, and you accept thos
 | Windows | Unzip `afflatus-<version>-win-x64.zip`, double-click `Afflatus.bat`. ffmpeg is inside. |
 | Linux | `tar xzf afflatus-<version>-linux-x64.tar.gz` and run `afflatus.sh`. ffmpeg is inside. |
 | macOS (Apple Silicon) | `tar xzf afflatus-<version>-darwin-arm64.tar.gz` and run `afflatus.sh`. Install ffmpeg once with `brew install ffmpeg`. |
-| Docker | `docker run -p 8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or `docker compose up -d` with the [compose.yaml](compose.yaml) of this repository. ffmpeg is in the image. |
+| Docker | `docker run -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or `docker compose up -d` with the [compose.yaml](compose.yaml) of this repository. That publishes the port on this computer only; to open it to your network, write `-p 8720:8720` and set `ALLOWED_HOSTS` and `LINK_ROOTS` ([the Docker guide](docs/install-docker.md)). ffmpeg is in the image (Debian's package, a GPL build). |
 | Kubernetes | The Helm chart in [chart](chart); see [the guide](docs/install-cluster.md). |
 
-The image is `ghcr.io/bardak971/afflatus`, tagged like the release and `latest`, for `linux/amd64` and `linux/arm64`. Your data (library, settings, timelines) lives in a `data` folder next to the launcher, or in the `/data` volume. Updating is unpacking the next release over the old one, or pulling the next image; the database migrates itself at start. A backup is one zip from Settings → Storage.
+The image is `ghcr.io/bardak971/afflatus`, tagged like the release and `latest` (a pre-release tag does not move `latest`), for `linux/amd64` and `linux/arm64`. Your data (library, settings, timelines) lives in a `data` folder next to the launcher, or in the `/data` volume. Updating is unpacking the next release over the old one, or pulling the next image; the database migrates itself at start. A backup is one zip from Settings → Storage; `pnpm restore <backup.zip> <empty data folder>` puts it back (Afflatus stopped). With Postgres the zip holds the files, not the database: back the database up with its own tools.
 
 When Afflatus runs on another machine than ComfyUI (a server with ComfyUI on your PC), ComfyUI must listen on the network (`--listen`), and Afflatus needs `PUBLIC_URL` set to the address ComfyUI can reach it at, so that ComfyUI-Manager can fetch downloads through it.
 
@@ -116,6 +116,7 @@ To try it without a GPU, `corepack pnpm demo` runs the same app against a preten
 | `DATA_DIR` | `./data` | Where the database and the files live |
 | `PUBLIC_URL` | empty | The address ComfyUI reaches Afflatus at, when they are on different machines |
 | `ALLOWED_HOSTS` | empty | Extra host names Afflatus answers to, when it is reached by a name of your own |
+| `LINK_ROOTS` | empty | The folders that may be linked into the library, and what is inside them, separated as `PATH` is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus is reached from other machines |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite. SQLite is the supported one; Postgres is written and not yet exercised |
 | `FFMPEG`, `FFPROBE` | from the PATH | The tools' paths |
 
@@ -135,4 +136,4 @@ A release is a tag: `git tag v0.2.0 && git push --tags` runs the tests, builds t
 
 ## License
 
-[AGPL-3.0](LICENSE). The node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT and vendors the MIT continuation nodes by ttulttul; the ffmpeg builds in the Windows and Linux bundles are the LGPL builds by BtbN. The shipped presets in [presets](presets) point at other people's models under their own licences, accepted once before a download; nothing of theirs is bundled.
+[AGPL-3.0](LICENSE). The node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT and vendors the MIT continuation nodes of ttulttul's [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), with one small change (a guarded import); the ffmpeg builds in the Windows and Linux bundles are the LGPL builds by BtbN. The shipped presets in [presets](presets) point at other people's models under their own licences, accepted once before a download; nothing of theirs is bundled. Every release carries `THIRD_PARTY_NOTICES.txt`: the npm packages and fonts it ships, with their licences.

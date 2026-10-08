@@ -1,6 +1,6 @@
 # Projects — the plan
 
-Settled with the owner on 2026-10-04, from two questions that turned out to be one: the timeline's media shelf
+Settled on 2026-10-04, from two questions that turned out to be one: the timeline's media shelf
 will not scale past a handful of items, and the todo asked what a draft is next to a "project".
 
 ## The model

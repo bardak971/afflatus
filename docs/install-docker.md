@@ -1,6 +1,6 @@
 # Afflatus with Docker
 
-One image, `ghcr.io/bardak971/afflatus`, with ffmpeg inside, for `linux/amd64` and `linux/arm64`. It is tagged like the release (`0.1.0`), by minor (`0.1`) and `latest`. ComfyUI is not in it: Afflatus talks to the one you run.
+One image, `ghcr.io/bardak971/afflatus`, with ffmpeg inside, for `linux/amd64` and `linux/arm64`. It is tagged like the release (`0.2.1`), by minor (`0.2`) and `latest`; a pre-release (`0.3.0-rc.1`) gets its own tag only. ComfyUI is not in it: Afflatus talks to the one you run. Its ffmpeg is Debian's package, a GPL build.
 
 ## Compose
 
@@ -13,7 +13,7 @@ services:
     container_name: afflatus
     restart: unless-stopped
     ports:
-      - "8720:8720"
+      - "127.0.0.1:8720:8720"
     volumes:
       - afflatus-data:/data
     extra_hosts:
@@ -27,12 +27,12 @@ volumes:
 docker compose up -d
 ```
 
-Open `http://127.0.0.1:8720`. To update, `docker compose pull && docker compose up -d`. The data volume carries everything (database, library, settings) across updates.
+Open `http://127.0.0.1:8720`. The port is published on this computer only. To reach Afflatus from other machines, publish it as `8720:8720`, and set `ALLOWED_HOSTS` and `LINK_ROOTS` (below). To update, `docker compose pull && docker compose up -d`. The data volume carries everything (database, library, settings) across updates.
 
 Or without compose:
 
 ```
-docker run -d --name afflatus -p 8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest
+docker run -d --name afflatus -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest
 ```
 
 ## ComfyUI's address
@@ -54,7 +54,7 @@ The container cannot write into ComfyUI's folder, so install Afflatus's node pac
 | `PORT` | `8720` | The port inside the container |
 | `HOST` | `0.0.0.0` | Listens on all addresses inside the container; publish the port as you see fit |
 | `DATA_DIR` | `/data` | The volume |
-| `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated. `localhost` and `127.0.0.1` always are; a request with any other `Host` header gets a 403, which keeps a page from another site from driving the API by pointing one of its names at this machine. Name here whatever you open Afflatus as from other machines, and the name a reverse proxy or a scraper uses (`ALLOWED_HOSTS=afflatus.home,192.168.1.20`) |
+| `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated. `localhost` and `127.0.0.1` always are; a request with any other `Host` header gets a 403, which keeps a page from another site from driving the API by pointing one of its names at this machine. Name here whatever you open Afflatus as from other machines, and the name a reverse proxy or a scraper uses (`ALLOWED_HOSTS=afflatus.home,192.168.x.y`) |
 | `PUBLIC_URL` | empty | The address ComfyUI reaches Afflatus at, for model downloads; its host is answered to as well |
 | `LINK_ROOTS` | empty | The directories that may be linked as folders, `:`-separated (a mounted volume: `LINK_ROOTS=/media`). Set it whenever the port is published beyond this machine: without it anyone who can open the page can link any directory the container can read |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite in the volume. SQLite is the supported one |

@@ -1,16 +1,16 @@
 # Built-ins audit — 2026-10-04
 
 Every built-in recipe read against the official ComfyUI templates (templates package 0.11.70, core 0.37.0), the
-model cards and the node packs' own docs. Read-only pass; nothing below is applied yet. Hardware in mind: one
-RTX 4070 Ti (12 GB), 32 GB RAM, full steps by default, turbo for drafts.
+model cards and the node packs' own docs. Read-only pass; nothing below is applied yet. Defaults in mind: full
+steps, turbo for drafts.
 
 Legend: **cheap** = a default or a regex, no new node; **add** = a node, a pass or an input; confidence in brackets.
 
 ## Verdict in one paragraph
 
 The graphs are right. Wan, LTX 2.3, Qwen Edit 2511, Krea 2 Turbo, Klein and Kontext match the official
-templates node for node and value for value. What is off is a handful of defaults (turbo on where the owner
-renders full steps, steps below the authors' setting, a shift that does not match the noise boundary), a few
+templates node for node and value for value. What is off is a handful of defaults (turbo on where full steps
+are the norm, steps below the authors' setting, a shift that does not match the noise boundary), a few
 detection regexes, two real bugs (H3 turbo without its LoRA, Kontext's shift computed on the wrong size), and
 some unused capabilities of nodes already in the graph.
 
@@ -72,17 +72,17 @@ some unused capabilities of nodes already in the graph.
 
 ### Shared tools
 - `UPSCALER_PREFER`: UltraSharp over-sharpens skin; put `nomos8ksc` first and add `clearreality` [medium]
-- video pixel upscale: prefer **2× models** (`2xNomosUni_span_multijpg`, `RealESRGAN_x2plus`) so the 4×-then-lanczos-down round trip disappears; add a download link (the folder is empty on the owner's machine) [medium]
+- video pixel upscale: prefer **2× models** (`2xNomosUni_span_multijpg`, `RealESRGAN_x2plus`) so the 4×-then-lanczos-down round trip disappears; add a download link (the folder is empty on a fresh ComfyUI) [medium]
 - remove background: the core node loads BiRefNet-architecture files only, so `u2net`/BEN2 in the prefer list can never load; prefer `lucida`/`birefnet`, give the tools family a slot with a `get` URL [high]
 - RTX route: also accept NVIDIA's own `RTXVideoSuperResolution` node (verify the DynamicCombo API shape first) [medium]
 
 ## Additions (bigger, pick later)
 
-- **Wan**: hybrid turbo pass (3 samplers: 2 high steps without LoRA at cfg 3.5, then LoRA high, then LoRA low) for drafts with motion; core `CreateVideo`+`SaveVideo` fallback so VHS is not a hard dependency; `VAEDecodeTiled` fallback; 5B TI2V path (one model, fits 12 GB far better); `ColorMatch` across chained clips (KJNodes).
+- **Wan**: hybrid turbo pass (3 samplers: 2 high steps without LoRA at cfg 3.5, then LoRA high, then LoRA low) for drafts with motion; core `CreateVideo`+`SaveVideo` fallback so VHS is not a hard dependency; `VAEDecodeTiled` fallback; 5B TI2V path (one model, far lighter); `ColorMatch` across chained clips (KJNodes).
 - **H3**: KJNodes `MiniMaxH3MemoryEfficientSageAttentionPatch` + `MiniMaxChunkFeedForward` (sageattention is installed) for 768p/long clips; style embeddings slot; `MiniMaxH3AddGuide` audio-only anchor to carry music across a join; `MMH3TiledDiffusion` as the seam-free tiling route; latent-level prefix for continuation (DaSiWa does it without the pixel round trip).
 - **LTX**: the **temporal upscaler is on disk and unused** (`ltx-2.3-temporal-upscaler-x2`): same loader and `LTXVLatentUpsampler` node, frames n→2n−1 = ×2 fps in latent space, audio untouched → a "Smooth: LTX temporal" alternative to RIFE with one short refine pass.
 - **SDXL**: v-pred support (`ModelSamplingDiscrete v_prediction zsnr` + `RescaleCFG 0.7`) as a per-model choice; soft inpainting (`DifferentialDiffusion` with the blurred mask in the latent); an outpaint recipe (`ImagePadForOutpaint`); optional PAG 0.3 toggle.
-- **Qwen**: GGUF loading (`UnetLoaderGGUF`) for the 20 GB fp8 UNET on 12 GB (helps Flux too); **Qwen-Image 2.1** (released 2026-09-20: 7B, gen+edit in one, 25 steps cfg 1, up to 10 refs, int8 6.8 GB, ~14 s per image on a 4070) as a new family once the licence is checked.
+- **Qwen**: GGUF loading (`UnetLoaderGGUF`) for the large fp8 UNET on smaller cards (helps Flux too); **Qwen-Image 2.1** (released 2026-09-20: 7B, gen+edit in one, 25 steps cfg 1, up to 10 refs, an int8 file) as a new family once the licence is checked.
 - **Flux**: Kontext second image via `ImageStitch`; FLUX.1 Fill inpaint (guidance 30, `InpaintModelConditioning` + `DifferentialDiffusion`) only if the Flux.1 look is wanted; Nunchaku SVDQuant path (FLUX.1 only, ~6 GB, 3× faster).
 - **Video upscale**: SeedVR2 or FlashVSR for temporally stable upscaling (new packs, minutes per clip).
 
@@ -91,12 +91,6 @@ some unused capabilities of nodes already in the graph.
 TeaCache, Enhance-a-Video, NAG (wrapper-only or lossy); FreeU, DetailDaemon (style-dependent); PuLID/ACE/Redux
 (Klein references cover identity); Gemma prompt enhancer (Afflatus has its own LLM); negative prompt for H3 (cfg 1,
 no effect, doubles cost); SAM in the face detailer (fine without).
-
-## Environment notes (owner's machine, not the repo)
-
-The audit read a stale copy of ComfyUI on another drive. The live install (the one on port 8188) has the compiler
-flag in its launcher, torch 2.10 cu130, RIFE 4.26 and seven upscale models through its A1111 model paths. Nothing to
-fix; the stale copy is only a trap for the next audit.
 
 ## Applied 2026-10-04
 

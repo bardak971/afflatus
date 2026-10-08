@@ -1,12 +1,16 @@
 # Afflatus: the server and the web app in one image, ffmpeg included. ComfyUI is not in it: Afflatus talks to
 # the one you run, at the address you give it in Settings.
 #
-#   docker run -p 8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest
+#   docker run -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest
 #
 # The build stage can run on any platform; the runtime stage installs the npm dependencies for its own
 # platform (sharp has one native package per platform), so a multi-arch build gets each right.
+#
+# Both stages start from one exact node:24-bookworm-slim, pinned by the digest of its multi-arch index. To
+# move it, `docker buildx imagetools inspect node:24-bookworm-slim` prints the new one (its Digest line).
+# The ffmpeg is Debian's own package, a GPL build (the desktop bundles carry an LGPL one).
 
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
 WORKDIR /src
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -20,9 +24,12 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 ARG AFFLATUS_VERSION=dev
 ENV AFFLATUS_VERSION=$AFFLATUS_VERSION
-RUN node scripts/release/stage.mjs
+# a release passes the package-lock.json its stage job resolved (a path inside the build context), so the
+# image installs the same tree as the bundles; a local build resolves one here
+ARG AFFLATUS_LOCK=
+RUN node scripts/release/stage.mjs ${AFFLATUS_LOCK:+--lock "$AFFLATUS_LOCK"}
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini \
  && rm -rf /var/lib/apt/lists/*

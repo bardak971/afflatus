@@ -4,17 +4,25 @@
 // once `npm install --omit=dev` has been run in app/ for the platform it runs on (that is the bundle script's and
 // the Dockerfile's part: sharp has one native package per platform).
 //
-//   node scripts/release/stage.mjs            → release/app
-//   node scripts/release/stage.mjs --install  → and `npm install --omit=dev` in it, for this platform
+//   node scripts/release/stage.mjs                    → release/app, its package-lock.json resolved here
+//   node scripts/release/stage.mjs --lock <file>      → with that package-lock.json instead (one staged before)
+//   node scripts/release/stage.mjs --install          → and `npm ci --omit=dev` in it, for this platform
+//
+// A release resolves the lockfile once (the stage job of release.yml) and hands that one file to the image and
+// to every bundle, so all of them install the same tree. It also writes THIRD_PARTY_NOTICES.txt: every
+// package that ships, with its licence, from `pnpm licenses list --prod`.
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const out = join(root, "release", "app");
-const args = new Set(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const args = new Set(argv);
+const lockAt = argv.includes("--lock") ? argv[argv.indexOf("--lock") + 1] : undefined;
+if (argv.includes("--lock") && !lockAt) throw new Error("--lock needs the path of a package-lock.json");
 const win = process.platform === "win32";
 // on Windows corepack and npm are .cmd files, which Node only runs through the shell (the arguments here are fixed strings)
 const run = (cmd, cmdArgs, cwd = root) => execFileSync(cmd, cmdArgs, { cwd, stdio: "inherit", shell: win });
@@ -73,14 +81,54 @@ for (const name of Object.keys(serverPkg.dependencies)) {
   deps[name] = installed.version;
 }
 const version = process.env.AFFLATUS_VERSION?.trim() || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+// a tag (v0.2.1, v0.3.0-rc.1), the package's own version (0.2.1), or "dev": it goes into files and the UI as is
+if (!/^v?\d+\.\d+\.\d+(-[\w.]+)?$/.test(version) && version !== "dev") throw new Error(`AFFLATUS_VERSION ${JSON.stringify(version)} is not a version (v1.2.3 or v1.2.3-rc.1)`);
 writeFileSync(join(out, "package.json"), JSON.stringify({ name: "afflatus", version, private: true, license: "AGPL-3.0-only", type: "module", dependencies: deps }, null, 2) + "\n");
 writeFileSync(join(out, "VERSION"), version + "\n");
 console.log(`[stage] ${Object.keys(deps).length} npm dependencies pinned:`, Object.entries(deps).map(([k, v]) => `${k}@${v}`).join(", "));
 
-// the whole tree, transitive packages included, resolved once here and written down: the Dockerfile and the
-// bundle script then run `npm ci`, which installs exactly this and nothing newer
-console.log("[stage] package-lock.json");
-run("npm", ["install", "--package-lock-only", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"], out);
+// the whole tree, transitive packages included, written down once: the Dockerfile and the bundle script then
+// run `npm ci`, which installs exactly this and nothing newer. With --lock, the one a release staged before
+// (so the image and every bundle install the same tree); else resolved here against the registry.
+if (lockAt) {
+  console.log(`[stage] package-lock.json from ${lockAt}`);
+  const lock = JSON.parse(readFileSync(resolve(lockAt), "utf8"));
+  const locked = lock.packages?.[""]?.dependencies ?? {};
+  const same = Object.keys(deps).length === Object.keys(locked).length && Object.entries(deps).every(([k, v]) => locked[k] === v);
+  if (!same) throw new Error(`${lockAt} was staged for other dependencies (${JSON.stringify(locked)}) than these (${JSON.stringify(deps)}): stage again without --lock`);
+  lock.version = version;
+  lock.packages[""].version = version;
+  writeFileSync(join(out, "package-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+} else {
+  console.log("[stage] package-lock.json");
+  run("npm", ["install", "--package-lock-only", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"], out);
+}
+
+// what ships of other people's code, with its licence: the server's npm packages and what the web bundle
+// inlines (React, the icons, the router, the fonts). The licence files are copied whole: the MIT, BSD and ISC
+// notices ask to travel with the code, the OFL to travel with the fonts.
+console.log("[stage] THIRD_PARTY_NOTICES.txt");
+const listed = JSON.parse(execFileSync("corepack", ["pnpm", "licenses", "list", "--prod", "--json"], { cwd: root, encoding: "utf8", shell: win, maxBuffer: 64 * 1024 * 1024 }));
+const packages = Object.values(listed).flat().sort((a, b) => a.name.localeCompare(b.name));
+const licenceText = (dir) => {
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => /^(licen[cs]e|copying|notice)([.-]|$)/i.test(f)).sort() : [];
+  return files.map((f) => readFileSync(join(dir, f), "utf8").replace(/\r\n/g, "\n").trim()).join("\n\n");
+};
+const rule = "-".repeat(78);
+const notices = [
+  "Afflatus is free software under the GNU AGPL-3.0 (LICENSE). It ships the packages below, each under its own licence.",
+  "The node pack in comfy-nodes/ carries its own LICENSE files; apps/server/assets/LICENSE-danbooru-tags covers the tag list.",
+  "sharp's platform package (@img/sharp-*) carries libvips, under the LGPL-3.0-or-later.",
+  "",
+  ...packages.map((p) => `${p.name} ${p.versions.join(", ")}  ${p.license}${p.homepage ? `  ${p.homepage}` : ""}`),
+  "",
+  ...packages.flatMap((p) => {
+    const text = p.paths.map(licenceText).find(Boolean);
+    return [rule, `${p.name} ${p.versions.join(", ")} (${p.license})`, "", text || `No licence file in the package; its package.json says ${p.license}.`, ""];
+  }),
+];
+writeFileSync(join(out, "THIRD_PARTY_NOTICES.txt"), notices.join("\n"));
+console.log(`[stage] ${packages.length} packages in THIRD_PARTY_NOTICES.txt`);
 
 if (args.has("--install")) {
   console.log("[stage] npm ci --omit=dev");
