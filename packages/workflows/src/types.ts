@@ -59,6 +59,8 @@ export const control = z.object({
   front: z.boolean().optional(),
   /** What the input is for, in the node author's words: ComfyUI's tooltip for it, read when the workflow was imported. */
   help: z.string().optional(),
+  /** A number that picks one of a switch's inputs ("1", "2"…): shown as a choice, each value named after what it picks. */
+  picks: z.array(z.object({ value: z.number(), label: z.string() })).optional(),
 });
 export type Control = z.infer<typeof control>;
 

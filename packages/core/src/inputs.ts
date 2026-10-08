@@ -253,7 +253,7 @@ function schemaOf(spec: InputSpec): z.ZodType {
     case "choice":
       // options read from ComfyUI are checked against the node catalog, not here
       return Array.isArray(spec.options)
-        ? z.preprocess((v) => (typeof v === "string" && spec.renamed?.[v] ? spec.renamed[v] : v), z.enum([...(spec.extra ?? []), ...spec.options] as [string, ...string[]]).default(spec.default))
+        ? z.preprocess((v) => { const k = typeof v === "number" || typeof v === "boolean" ? String(v) : v; return typeof k === "string" && spec.renamed?.[k] ? spec.renamed[k] : v; }, z.enum([...(spec.extra ?? []), ...spec.options] as [string, ...string[]]).default(spec.default))
         : z.string().min(1).default(spec.default);
     case "seed":
       return z.number().int().min(RANDOM_SEED).max(2 ** 32 - 1).default(RANDOM_SEED);

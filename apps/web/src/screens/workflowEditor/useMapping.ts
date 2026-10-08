@@ -128,7 +128,7 @@ export function useMapping(start: Editing) {
     set({ loras: points.map((p) => ({ node: p.node, output: p.output, label: points.length > 1 ? p.label : "", ...(p.power ? { power: true } : {}) })) });
   };
   const toggleControl = (c: Inspection["candidates"][number]) => {
-    const { classType: _c, title: _t, suggested: _s, off: _o, ...control } = c;
+    const { classType: _c, title: _t, suggested: _s, byAuthor: _a, off: _o, ...control } = c;
     const on = b.controls.some((x) => x.id === c.id);
     set({
       controls: on ? b.controls.filter((x) => x.id !== c.id) : [...b.controls, control],
@@ -198,8 +198,27 @@ export function useMapping(start: Editing) {
   const attachedNotes = new Set(found.toggles.flatMap((t) => noteFor(t.label)));
   const looseNotes = found.notes.filter((n) => !attachedNotes.has(n));
 
+  // a saved workflow against what its author put forward (forms saved before Afflatus followed the author, or changed since)
+  const onForm = new Set(b.controls.map((c) => c.id));
+  const authorDiff = {
+    add: found.candidates.filter((c) => c.suggested && !onForm.has(c.id) && !taken.has(keyOf(c.target))),
+    remove: b.controls.filter((x) => found.candidates.some((c) => c.id === x.id && !c.suggested)),
+  };
+  /** Put the author's settings on the form, or take off what the author did not put forward (off its sections too). */
+  const followAuthor = (what: "add" | "remove") => {
+    if (what === "add") {
+      set({ controls: [...b.controls, ...authorDiff.add.map(({ classType: _c, title: _t, suggested: _s, byAuthor: _a, off: _o, ...c }) => c)] });
+      return;
+    }
+    const gone = new Set(authorDiff.remove.map((c) => c.id));
+    set({
+      controls: b.controls.filter((c) => !gone.has(c.id)),
+      sections: (b.sections ?? []).map((s) => ({ ...s, items: s.items.flatMap((it): Section["items"] => (typeof it === "string" ? (gone.has(it) ? [] : [it]) : [{ ...it, items: it.items.filter((id) => !gone.has(id)) }])) })),
+    });
+  };
+
   return {
-    start, found, reread, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues,
+    start, found, reread, authorDiff, followAuthor, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues,
     textOptions, pickText, pickImage, modelFileOf, pickModel, videoRoleOf, setVideoRole, pickSound, toggleLoras, toggleControl, change, toggleSwitch,
     switchFor, setSwitchFor, saveSwitch, dropSwitch, nodeList, changeSwitch, taken, groups, switches, preview, video, noteFor, looseNotes,
   };

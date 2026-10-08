@@ -4,7 +4,7 @@ import {
 import type { Chapter } from "@afflatus/core";
 import { MODEL_FILE, own } from "./catalog";
 import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
-import { ancestors, cutFileNameChains, modesFor, prune, remove, settle, skipsFor, trim } from "./wiring";
+import { ancestors, cutFileNameChains, modesFor, prune, readersOf, remove, selectorOf, settle, skipsFor, trim } from "./wiring";
 import { MEDIA_LOADERS } from "./inspect";
 import { offLine, sectionSummary } from "./explain";
 import { fillDirector } from "./director";
@@ -67,7 +67,12 @@ type Under = InputSpec["showWhen"];
 function controlSpec(c: Control, under: Under): InputSpec {
   const base = { id: c.id, label: c.label, advanced: !c.front, ...(under ? { showWhen: under } : {}), ...(c.help ? { note: c.help } : {}) };
   switch (c.kind) {
-    case "number": return { ...base, type: "number", min: c.min ?? 0, max: c.max ?? 100, step: c.step ?? 1, default: Number(c.default) };
+    case "number": {
+      // a number that picks one of a switch's inputs: a choice of what it picks (a value saved as the number still reads)
+      const picked = c.picks?.find((p) => p.value === Number(c.default));
+      if (c.picks && picked) return { ...base, type: "choice", options: c.picks.map((p) => p.label), default: picked.label, renamed: Object.fromEntries(c.picks.map((p) => [String(p.value), p.label])) };
+      return { ...base, type: "number", min: c.min ?? 0, max: c.max ?? 100, step: c.step ?? 1, default: Number(c.default) };
+    }
     case "toggle": return { ...base, type: "toggle", default: Boolean(c.default), ...(c.captions ? { captions: c.captions } : {}) };
     case "choice": return { ...base, type: "choice", options: c.choices ?? [String(c.default)], default: String(c.default) };
     case "text": return { ...base, type: "prompt", style: "sentences", optional: true, default: String(c.default) };
@@ -275,7 +280,9 @@ function formInputs(def: WorkflowDef): Form {
     }
     return undefined;
   };
-  for (const c of b.controls) if (!under(c.target.node)) inputs.push(controlInput(c, fromStage(c.target.node)));
+  // a setting used by only some of what a switch on the form picks shows while one of those is picked
+  const picked = whenPicked(def);
+  for (const c of b.controls) if (!under(c.target.node)) inputs.push(controlInput(c, fromStage(c.target.node) ?? picked.get(c.id)));
   for (const t of b.toggles) {
     // what the author said of it, then what it does off, worked out from the graph
     const note = [t.help, offLine(g, def.wiring, t)].filter(Boolean).join("\n\n");
@@ -345,6 +352,43 @@ function placeSections(def: WorkflowDef, inputs: InputSpec[], net: Form["net"]):
   return chapters;
 }
 
+/**
+ * For each control used by only some of the values a switch's control on the form can take (a numbered pick, or a
+ * yes/no that picks a side), the values it is used under: built for each value (written, pruned, settled), what the
+ * result is made from tells. Nothing for a control every value uses, or none.
+ */
+function whenPicked(def: WorkflowDef): Map<string, NonNullable<InputSpec["showWhen"]>> {
+  const b = def.bindings;
+  const g = def.graph as Graph;
+  const out = new Map<string, NonNullable<InputSpec["showWhen"]>>();
+  const readers = readersOf(g);
+  const drives = (t: Target) => selectorOf(g[t.node]?.class_type)?.by === t.input
+    || Object.keys(g[t.node]?.inputs ?? {}).length === 1 && (readers.get(`${t.node}:0`) ?? []).some((r) => selectorOf(g[r.node]?.class_type)?.by === r.input);
+  const drivers = b.controls.filter((c) => (c.picks || c.kind === "toggle") && drives(c.target));
+  if (!drivers.length) return out;
+  const modes = modesFor(def.wiring, b.toggles, {});
+  for (const d of drivers) {
+    const values = d.picks ? d.picks.map((p) => ({ form: p.label as unknown, graph: p.value as unknown })) : [{ form: true, graph: true }, { form: false, graph: false }];
+    const used = values.map((v) => {
+      const whole = structuredClone(g);
+      for (const at of [d.target, ...(d.also ?? [])]) write(whole, at, v.graph);
+      const pruned = prune(whole, def.wiring, modes);
+      settle(pruned);
+      return ancestors(pruned.graph, b.result.node);
+    });
+    for (const c of b.controls) {
+      if (c.id === d.id || out.has(c.id)) continue;
+      const when = values.filter((_, i) => used[i]!.has(c.target.node)).map((v) => v.form);
+      if (!when.length || when.length === values.length) continue;
+      out.set(c.id, !d.picks && when.length === 1 ? (when[0] ? d.id : { input: d.id, in: [false] }) : { input: d.id, in: when });
+    }
+  }
+  return out;
+}
+
+/** What a form's value is in the graph: the number a named pick stands for, else itself. */
+const formValue = (c: Control, value: unknown) => (c.picks && typeof value === "string" ? c.picks.find((p) => p.label === value)?.value ?? Number(c.default) : value);
+
 /** Seconds → a frame count the model accepts. */
 const framesFor = (length: NonNullable<WorkflowDef["bindings"]["length"]>, s: number) => {
   const { fps, step, offset } = length;
@@ -366,7 +410,7 @@ function buildWorkflow(def: WorkflowDef, form: Form, input: Record<string, unkno
     write(whole, b.size.height, size.height);
   }
   if (b.length && typeof input.seconds === "number") write(whole, b.length.target, framesFor(b.length, input.seconds));
-  for (const c of b.controls) if (input[c.id] !== undefined && !net.has(c.id)) for (const at of [c.target, ...(c.also ?? [])]) write(whole, at, input[c.id]);
+  for (const c of b.controls) if (input[c.id] !== undefined && !net.has(c.id)) for (const at of [c.target, ...(c.also ?? [])]) write(whole, at, formValue(c, input[c.id]));
   // "Upscale by": the node is given the size itself, base size times the factor, whatever the upscale model's own factor
   for (const c of b.controls) {
     const by = net.has(c.id) ? input[net.get(c.id)!.id] : undefined;

@@ -18,10 +18,38 @@ export function ShowPanel({ m }: { m: Mapping }) {
         onChange={(e) => setFilter(e.target.value)}
         className={cx(text, "sticky top-0 z-10 h-9 shrink-0 shadow-[0_0_0_8px_var(--color-ground)]")}
       />
+      <FollowAuthor m={m} />
       <SwitchList m={m} />
       <StagesPick m={m} />
       <WidgetList m={m} />
     </section>
+  );
+}
+
+/**
+ * A saved workflow whose form is not what its author put forward (saved before Afflatus followed the author, or
+ * changed since): what to add, what to take off, each said by name and done with one click.
+ */
+function FollowAuthor({ m }: { m: Mapping }) {
+  const { start, authorDiff, followAuthor } = m;
+  if (!start.id || (!authorDiff.add.length && !authorDiff.remove.length)) return null;
+  const names = (labels: string[]) => labels.slice(0, 6).join(", ") + (labels.length > 6 ? ` and ${labels.length - 6} more` : "");
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-accent/40 bg-accent-wash px-3 py-2.5 text-xs">
+      <span className="font-semibold text-ink">The form starts with what the workflow's author put forward. This one was saved differently:</span>
+      {authorDiff.add.length > 0 && (
+        <div className="flex items-start gap-2">
+          <span className="grow text-ink-2">Put forward by the author, not on the form: {names(authorDiff.add.map((c) => c.label))}</span>
+          <button type="button" onClick={() => followAuthor("add")} className="shrink-0 rounded-md border border-accent/50 px-2 py-1 font-semibold text-accent hover:bg-hover">Add {authorDiff.add.length}</button>
+        </div>
+      )}
+      {authorDiff.remove.length > 0 && (
+        <div className="flex items-start gap-2">
+          <span className="grow text-ink-2">On the form, not put forward by the author (ticked by Afflatus before, or by you): {names(authorDiff.remove.map((c) => c.label))}</span>
+          <button type="button" onClick={() => followAuthor("remove")} className="shrink-0 rounded-md border border-line px-2 py-1 font-semibold text-ink-2 hover:bg-hover">Remove {authorDiff.remove.length}</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -105,14 +133,17 @@ function WidgetList({ m }: { m: Mapping }) {
         const open = Boolean(filter) || openNodes.has(node) || tickedHere > 0;
         return (
           <div key={node} className="flex flex-col gap-1">
-            <button type="button" aria-expanded={open} onClick={() => flipNode(node)} className="flex items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-hover">
-              {open ? <ChevronDown size={13} className="shrink-0 text-ink-3" /> : <ChevronRight size={13} className="shrink-0 text-ink-3" />}
-              <span className="min-w-0 truncate font-semibold">{items[0]!.title}</span>
-              <span className="shrink-0 text-ink-3">#{node}</span>
+            {/* the node author's "?" sits beside the row's button, not in it: a button cannot hold another */}
+            <div className="flex items-center gap-1.5 rounded-md text-xs hover:bg-hover">
+              <button type="button" aria-expanded={open} onClick={() => flipNode(node)} className="flex min-w-0 items-center gap-1.5 py-1 text-left">
+                {open ? <ChevronDown size={13} className="shrink-0 text-ink-3" /> : <ChevronRight size={13} className="shrink-0 text-ink-3" />}
+                <span className="min-w-0 truncate font-semibold">{items[0]!.title}</span>
+                <span className="shrink-0 text-ink-3">#{node}</span>
+              </button>
               {found.about?.[items[0]!.classType] && <Help text={found.about[items[0]!.classType]!} />}
-              <span className="grow" />
-              <span className="shrink-0 text-ink-2">{tickedHere ? `${tickedHere} of ${items.length}` : `${items.length} widget${items.length === 1 ? "" : "s"}`}</span>
-            </button>
+              <button type="button" tabIndex={-1} aria-hidden onClick={() => flipNode(node)} className="h-6 grow" />
+              <span className="shrink-0 py-1 text-ink-2">{tickedHere ? `${tickedHere} of ${items.length}` : `${items.length} widget${items.length === 1 ? "" : "s"}`}</span>
+            </div>
             {open && items.map((c) => {
               const ticked = b.controls.find((x) => x.id === c.id);
               const used = taken.has(keyOf(c.target));

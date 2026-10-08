@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { baseModels, checkGraph, dryContext, parseInput, schemaFor, warmGraph, type Graph, type NodeCatalog } from "@afflatus/core";
-import { factorOfUpscaler, inspect, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
+import { ancestors, factorOfUpscaler, inspect, legendOf, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
 import { catalog, flux, panel, sdxl, wan } from "./fixtures";
 
 const defOf = (graph: Graph, title: string, model: string): WorkflowDef =>
@@ -383,6 +383,54 @@ describe("what the form starts with: what the author put forward", () => {
   it("a picture loader its author renamed stays a picture, not a list of files", () => {
     const named: Graph = { ...twoPass, "9": { class_type: "LoadImage", inputs: { image: "pose.png" }, _meta: { title: "Pose" } } as Graph[string] };
     expect(inspect(named, catalog).candidates.find((c) => c.target.node === "9")?.suggested ?? false).toBe(false);
+  });
+});
+
+describe("a switch that picks one of its inputs by a number its author put forward", () => {
+  // the picture as it comes, or enlarged: easy-use's index switch, its index in a value node the author named
+  const picking: Graph = {
+    "4": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "model.safetensors" } },
+    "5": { class_type: "EmptyLatentImage", inputs: { width: 1024, height: 1024, batch_size: 1 } },
+    "6": { class_type: "CLIPTextEncode", inputs: { text: "a harbour", clip: ["4", 1] } },
+    "7": { class_type: "CLIPTextEncode", inputs: { text: "", clip: ["4", 1] } },
+    "3": { class_type: "KSampler", inputs: { seed: 1, steps: 8, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1, model: ["4", 0], positive: ["6", 0], negative: ["7", 0], latent_image: ["5", 0] } },
+    "8": { class_type: "VAEDecode", inputs: { samples: ["3", 0], vae: ["4", 2] }, _meta: { title: "As it comes" } },
+    "22": { class_type: "ImageScaleBy", inputs: { upscale_method: "lanczos", scale_by: 1.5, image: ["8", 0] }, _meta: { title: "Larger" } },
+    "40": { class_type: "PrimitiveInt", inputs: { value: 0 }, _meta: { title: "Output" } },
+    "41": { class_type: "easy imageIndexSwitch", inputs: { index: ["40", 0], image0: ["8", 0], image1: ["22", 0] } },
+    "9": { class_type: "SaveImage", inputs: { filename_prefix: "x", images: ["41", 0] } },
+  } as Graph;
+  const found = inspect(picking, catalog);
+  const bindings = ticking(found, (c) => c.target.node === "22" && c.target.input === "scale_by");
+  const recipe = recipeFromWorkflow(workflowDef.parse({ id: "workflow.picking", title: "Picking", model: "X", source: "t.json", graph: picking, bindings }));
+  const build = (input: Record<string, unknown>) => recipe.build(parseInput(recipe, input), dryContext());
+
+  it("reads the names its author wrote for the numbers", () => {
+    expect([...legendOf("➡️ Styler first (1) / Styler second (2) / No styler (3) / Styler only (4)")]).toEqual([[1, "Styler first"], [2, "Styler second"], [3, "No styler"], [4, "Styler only"]]);
+    expect([...legendOf("Mode: 1 = Base | 2 = Refined")]).toEqual([[1, "Base"], [2, "Refined"]]);
+    expect(legendOf("Steps (30)").size).toBe(0);
+  });
+
+  it("is a choice of what each number picks, named after it", () => {
+    expect(recipe.inputs.find((i) => i.id === "ctl_40_value")).toMatchObject({ type: "choice", label: "Output", options: ["As it comes", "Larger"], default: "As it comes" });
+    // a value saved as the number still reads
+    expect(parseInput(recipe, { ctl_40_value: 1 })).toMatchObject({ ctl_40_value: "Larger" });
+  });
+
+  it("shows a setting of one side only while that side is picked", () => {
+    expect(recipe.inputs.find((i) => i.id === "ctl_22_scale_by")?.showWhen).toEqual({ input: "ctl_40_value", in: ["Larger"] });
+  });
+
+  it("sends ComfyUI the side picked only, the switch taken out", () => {
+    const plain = build({});
+    expect(plain.graph["9"]!.inputs.images).toEqual(["8", 0]);
+    expect(plain.graph["41"]).toBeUndefined();
+    // what is left of the other side is read by nothing: ComfyUI runs only what an output needs
+    expect(ancestors(plain.graph, "9").has("22")).toBe(false);
+    const larger = build({ ctl_40_value: "Larger", ctl_22_scale_by: 2 });
+    expect(larger.graph["9"]!.inputs.images).toEqual(["22", 0]);
+    expect(larger.graph["22"]!.inputs.scale_by).toBe(2);
+    expect(checkGraph(larger, catalog)).toEqual([]);
   });
 });
 

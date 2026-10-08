@@ -130,10 +130,41 @@ export function prune(graph: Graph, wiring: Wiring | undefined, modes: Record<st
   return { graph: out, broken };
 }
 
-/** Nodes that pass on one of two inputs depending on a yes/no value. */
-const CHOOSERS: Record<string, { by: string; yes: string; no: string }> = {
-  ComfySwitchNode: { by: "switch", yes: "on_true", no: "on_false" },
-};
+/**
+ * A node that passes on one of its inputs, picked by a value: a yes/no (ComfyUI's own switch, KJ's, Crystools')
+ * or a number that names the input by the number it ends with (CR's "text1", Impact's "input1", easy-use's
+ * "value0", Dream's "input_0", JPS's "img_1", the four-way text switch). Only kinds whose meaning is known are
+ * listed: a switch that picks while the workflow runs (rgthree's Any Switch: the first input that arrives) is not one.
+ */
+export interface Selector {
+  /** The input that holds the value. */
+  by: string;
+  /** The inputs it can pass on, with the value that picks each. */
+  options(node: Graph[string]): Array<{ value: boolean | number; input: string }>;
+  /** ComfyUI's own: a chosen input that is not connected breaks what reads it (the others are left to ComfyUI then). */
+  strict?: boolean;
+}
+const yesNo = (by: string, strict = false): Selector => ({ by, strict, options: () => [{ value: true, input: "on_true" }, { value: false, input: "on_false" }] });
+const numbered = (by: string): Selector => ({
+  by,
+  options: (node) => Object.keys(node.inputs).flatMap((name) => {
+    const m = name === by ? null : /^[a-z]+_?(\d+)$/i.exec(name);
+    return m ? [{ value: Number(m[1]), input: name }] : [];
+  }).sort((a, z) => Number(a.value) - Number(z.value)),
+});
+const SELECTORS: Array<[RegExp, Selector]> = [
+  [/^ComfySwitchNode$/, yesNo("switch", true)],
+  [/^LazySwitchKJ$/, yesNo("switch")],
+  [/^Switch [a-z]+ \[Crystools\]$/, yesNo("boolean")],
+  [/^Four_Input_Text_Switch$/, numbered("switch")],
+  [/^CR [A-Za-z]* ?Input Switch( \(4 way\))?$/, numbered("Input")],
+  [/^ImpactSwitch$/, numbered("select")],
+  [/^easy (anything|text|image)IndexSwitch$/, numbered("index")],
+  [/^Big [A-Za-z]+ Switch \[Dream\]$/, numbered("select")],
+  [/^[A-Za-z]+ Switch \(JPS\)$/, numbered("select")],
+];
+/** The selector a node is, when it is one of the kinds whose meaning is known. */
+export const selectorOf = (classType: string | undefined): Selector | undefined => (classType ? SELECTORS.find(([re]) => re.test(classType))?.[1] : undefined);
 
 /** The one value a node holds, when it holds one typed-in value and nothing else (a number, a text, a yes/no node). */
 export function soleValue(node: Graph[string] | undefined): { input: string; value: unknown } | null {
@@ -156,32 +187,45 @@ export function readersOf(graph: Graph, byNode = false): Map<string, Target[]> {
   return map;
 }
 
-/** A yes/no value that is known before anything runs: typed in, or read from a node that only holds one. */
-function booleanAt(graph: Graph, value: unknown): boolean | null {
-  if (typeof value === "boolean") return value;
-  if (!isRef(value)) return null;
-  const held = soleValue(graph[value[0]])?.value;
-  return typeof held === "boolean" ? held : null;
+/** A value that is known before anything runs: typed in, or read from a node that only holds one (rgthree's primitive too). */
+export function valueAt(graph: Graph, value: unknown): unknown {
+  if (!isRef(value)) return value;
+  const node = graph[value[0]];
+  if (node?.class_type === "Power Primitive (rgthree)") return node.inputs.value;
+  return soleValue(node)?.value;
+}
+
+/** The input a selector passes on, for the value it is given; undefined when the value picks none of them. */
+export function pickedBy(sel: Selector, node: Graph[string], value: unknown): string | undefined {
+  const v = typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value)) ? Number(value) : value;
+  return sel.options(node).find((o) => o.value === v)?.input;
 }
 
 /**
- * Where a node chooses between two inputs by a yes/no value that is already known, connect its readers
- * straight to the chosen one and take the node out. ComfyUI would only run the chosen side anyway, but
- * it checks both before starting: the side that is not used would still need its picture and its files.
+ * Where a node passes on one of its inputs by a value that is already known, connect its readers straight to the
+ * chosen one and take the node out. ComfyUI checks every side before starting (and runs every side of a switch that
+ * is not lazy): the side that is not used would still need its picture and its files, and take its time.
+ * `every`: all the selectors (building, with the form's values in), or ComfyUI's own switch only (reading).
  */
-export function settle({ graph, broken }: Pruned): void {
+export function settle({ graph, broken }: Pruned, every = true): void {
   for (const [id, node] of Object.entries(graph)) {
-    const chooser = CHOOSERS[node.class_type];
-    const by = chooser ? booleanAt(graph, node.inputs[chooser.by]) : null;
-    if (!chooser || by === null) continue;
-    const chosen = node.inputs[by ? chooser.yes : chooser.no];
-    for (const [reader, other] of Object.entries(graph)) {
-      for (const [name, value] of Object.entries(other.inputs)) {
-        if (!isRef(value) || value[0] !== id) continue;
-        if (chosen === undefined) {
-          delete other.inputs[name];
-          broken.add(reader);
-        } else other.inputs[name] = chosen;
+    const sel = selectorOf(node.class_type);
+    // reading a workflow (every = false), only ComfyUI's own switch is settled: the others' value can be on the form,
+    // and every side they can pick is part of the workflow until then
+    if (!sel || (!every && !sel.strict)) continue;
+    const value = valueAt(graph, node.inputs[sel.by]);
+    if (value === undefined || value === null || (typeof value !== "boolean" && typeof value !== "number" && typeof value !== "string")) continue;
+    const input = pickedBy(sel, node, value);
+    const chosen = input ? node.inputs[input] : undefined;
+    const readers = Object.entries(graph).flatMap(([reader, other]) => Object.entries(other.inputs).filter(([, v]) => isRef(v) && v[0] === id).map(([name, v]) => ({ reader, other, name, out: (v as Ref)[1] })));
+    // what it says besides the value it passes on (Impact's switch: the label and the number picked) is ComfyUI's to work out
+    if (readers.some((r) => r.out !== 0)) continue;
+    if (!isRef(chosen) && !sel.strict) continue;
+    for (const { reader, other, name } of readers) {
+      if (isRef(chosen)) other.inputs[name] = chosen;
+      else {
+        delete other.inputs[name];
+        broken.add(reader);
       }
     }
     delete graph[id];

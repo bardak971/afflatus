@@ -15,7 +15,8 @@ const KIND_WORD: Record<string, string> = { prompt: "text", number: "number", to
 /** Step 3: the form's name and model, its sections, and the form itself as Create will show it. */
 export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | null }) {
   const { b, set, graph, preview, title, setTitle, model, setModel, switchFor, setSwitchFor } = m;
-  const familyNames = (useRecipes().data?.families ?? []).map((f) => f.name);
+  // a built-in family and the workflows made for the same model share its name: offered once
+  const familyNames = [...new Set((useRecipes().data?.families ?? []).map((f) => f.name))];
   const inputs = preview.recipe?.inputs ?? [];
   // everything the form will hold can be placed in a section, the main prompt apart (it leads the form, with its helpers)
   const placeable = inputs

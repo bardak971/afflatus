@@ -1,4 +1,5 @@
 import type { Graph, NodeCatalog } from "@afflatus/core";
+import { pickedBy, selectorOf, valueAt } from "../src";
 
 /** Comparing a graph of Afflatus's with ComfyUI's own "Export (API)" of the same workflow (comfyExport.mjs). */
 
@@ -81,12 +82,11 @@ export function withFileIds(theirs: Graph, raw: { nodes: EditorNode[]; definitio
 
 /**
  * ComfyUI's graph with what only passes things on taken out, as a job's build takes them out: an rgthree Context
- * (each output is the input of the same name, or the context it extends) and a switch whose position is a saved
- * value (ComfyUI's own, a yes/no typed in or read from a primitive). What read them reads their source instead.
+ * (each output is the input of the same name, or the context it extends) and a selector whose value is saved
+ * (wiring.ts's table: a yes/no or a number, typed in or read from a value node). What read them reads their source instead.
  */
 export function withoutPassThroughs(theirs: Graph, catalog: NodeCatalog): Graph {
   const g = structuredClone(theirs);
-  const literal = (v: unknown): unknown => (isRef(v) ? g[String(v[0])]?.class_type?.startsWith("Primitive") ? g[String(v[0])]!.inputs.value : undefined : v);
   const through = (ref: [string | number, number], seen = 0): [string | number, number] | null => {
     const n = g[String(ref[0])];
     if (!n || seen > 50) return ref;
@@ -101,11 +101,12 @@ export function withoutPassThroughs(theirs: Graph, catalog: NodeCatalog): Graph 
       const at = catalog[from?.class_type ?? ""]?.output_name?.findIndex((o) => o.toLowerCase() === name) ?? -1;
       return at < 0 ? null : through([base[0], at], seen + 1);
     }
-    if (n.class_type === "ComfySwitchNode") {
-      const on = literal(n.inputs.switch);
-      if (typeof on !== "boolean") return ref;
-      const picked = n.inputs[on ? "on_true" : "on_false"];
-      return isRef(picked) ? through(picked, seen + 1) : null;
+    const sel = selectorOf(n.class_type);
+    if (sel && ref[1] === 0) {
+      const input = pickedBy(sel, n, valueAt(g, n.inputs[sel.by]));
+      if (!input) return ref;
+      const picked = n.inputs[input];
+      return isRef(picked) ? through(picked, seen + 1) : sel.strict ? null : ref;
     }
     return ref;
   };

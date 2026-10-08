@@ -3,7 +3,7 @@ import { hasKind, infoOf, isSamplingPass, MODEL_FILE, optsOf, own, specOf, typeO
 import { scaleAfterModel } from "./recipe";
 import { splitCaptions, type Bindings, type Control, type ImageBinding, type MediaBinding, type Mode, type Target, type Toggle, type Wiring } from "./types";
 import { isDirector } from "./director";
-import { ancestors, prune, readersOf, settle, cutFileNameChains, soleValue, standInLoaders, standInPrimitives, standInSavers, unbundleContexts } from "./wiring";
+import { ancestors, prune, readersOf, selectorOf, settle, cutFileNameChains, soleValue, standInLoaders, standInPrimitives, standInSavers, unbundleContexts } from "./wiring";
 import { chapterName, frameNodes, PASS_WORK } from "./suggest";
 
 /**
@@ -570,6 +570,49 @@ function findAbout(r: Reading): { about: Record<string, string>; toggles: Toggle
   return { about, toggles };
 }
 
+/**
+ * When a number picks one of a switch's inputs (on the switch itself, or in a value node that only feeds switches),
+ * the values it can take, each named after what it picks: the name its author gave the node behind that input, else
+ * the node's title. Only the inputs that are connected; nothing when the saved value picks none of them.
+ */
+function picksOf(r: Reading, node: string, input: string): Array<{ value: number; label: string }> | undefined {
+  const { graph, names } = r;
+  const n = graph[node];
+  if (!n) return undefined;
+  const own = selectorOf(n.class_type);
+  const switches = own?.by === input ? [node]
+    : (r.uses.get(`${node}:0`) ?? []).filter((t) => selectorOf(graph[t.node]?.class_type)?.by === t.input).map((t) => t.node);
+  const at = switches[0];
+  if (!at) return undefined;
+  const sw = graph[at]!;
+  const sel = selectorOf(sw.class_type)!;
+  const options = sel.options(sw).filter((o) => typeof o.value === "number" && isRef(sw.inputs[o.input]));
+  const value = Number(n.inputs[input]);
+  if (options.length < 2 || !options.some((o) => o.value === value)) return undefined;
+  // the author's own legend ("Styler first (1) / Styler second (2)", "1 = Base | 2 = Refined"): on the value's node,
+  // the switch, or the frame either is drawn in
+  const frames = (r.editor?.frames ?? []).filter((f) => f.nodes.includes(node) || f.nodes.includes(at)).map((f) => f.title);
+  const legend = [names.titleOf(node), names.titleOf(at), ...frames].map(legendOf).find((l) => options.every((o) => l.has(o.value as number)));
+  const titled = options.map((o) => {
+    const from = (sw.inputs[o.input] as Ref)[0];
+    return { value: o.value as number, label: legend?.get(o.value as number) ?? names.givenName(from) ?? String(o.value) };
+  });
+  // two of one name are told apart by their number
+  return titled.map((t) => (titled.filter((x) => x.label === t.label).length > 1 ? { ...t, label: `${t.label} (${t.value})` } : t));
+}
+
+/** The values a title names: "Styler first (1) / Styler second (2)" or "1 = Base | 2: Refined". */
+export function legendOf(title: string): Map<number, string> {
+  const out = new Map<number, string>();
+  const clean = (t: string) => t.replace(/[\p{Extended_Pictographic}➡️⬅️]/gu, "").replace(/^[\s:;,.\-–—]+|[\s:;,.\-–—]+$/g, "").trim();
+  for (const m of title.matchAll(/([^/|,;()]+?)\s*\((\d+)\)/g)) if (clean(m[1]!)) out.set(Number(m[2]), clean(m[1]!));
+  if (out.size < 2) {
+    out.clear();
+    for (const m of title.matchAll(/(\d+)\s*[=:]\s*([^/|,;]+)/g)) if (clean(m[2]!)) out.set(Number(m[1]), clean(m[2]!));
+  }
+  return out.size >= 2 ? out : new Map();
+}
+
 /** A picture, a clip or a sound by its file name. */
 const MEDIA_FILE = /\.(png|jpe?g|webp|gif|bmp|mp4|webm|mov|mkv|wav|mp3|flac|ogg)$/i;
 /** Slider nodes that keep an int and a float: the inputs that are the value they give. */
@@ -639,6 +682,8 @@ function collectCandidates(
         : isDuration ? { ...c, front: true, label: names.givenLabel(id, input) ?? "Seconds" }
         : c;
       const offers = c.kind === "choice" ? choicesOf(specOf(catalog, n.class_type, input)) ?? undefined : undefined;
+      const picks = c.kind === "number" ? picksOf(r, id, input) : undefined;
+      if (picks) named.picks = picks;
       candidates.push({ ...tame(named, isDuration ? "seconds" : primitive ? (names.givenName(id) ?? "") : ""), classType: n.class_type, title: names.titleOf(id), suggested, ...(byAuthor ? { byAuthor: true, front: true } : {}), ...(graph[id] ? {} : { off: true }), ...(offers?.length ? { offers } : {}) });
     }
   }
@@ -920,7 +965,7 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
   const { framed, bypasser } = framedSwitches(source, editor, bridged);
   // what runs with the switches as they were saved: the parts are looked for in there
   const pruned = prune(source, editor, { ...editor?.modes, ...bridgedModes });
-  settle(pruned);
+  settle(pruned, false);
   const { graph } = pruned;
   // a file name built by a chain of nodes: the name is Afflatus's to give, the chain is not read
   cutFileNameChains(graph, "afflatus");
