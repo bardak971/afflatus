@@ -37,8 +37,9 @@ export function RenderTimes() {
   const anything = t.done + t.failed + t.cancelled > 0;
   const spanMs = d.to - d.from;
   const stretch = d.step < HOUR ? `${Math.round(d.step / 60_000)} minutes` : d.step === HOUR ? "hour" : d.step < DAY ? `${Math.round(d.step / HOUR)} hours` : "day";
+  // en-GB: the UI is in English, and day before month, 24 h, whatever the browser's own locale
   const timeLabel = (time: number, full?: boolean) =>
-    new Date(time).toLocaleString(undefined, full
+    new Date(time).toLocaleString("en-GB", full
       ? d.step < DAY ? { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", month: "short", year: "numeric" }
       : d.step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
   const chart: ChartBase = { times: d.times, timeLabel, step: d.step, onBrush: zoom, detail: (i: number) => <TopList bucket={d.buckets[i]} /> };
@@ -49,7 +50,7 @@ export function RenderTimes() {
       <div className="flex flex-wrap items-center gap-3">
         <WindowBar view={view} shown={{ from: d.from, to: d.to }} typed={typed} onTyped={setTyped} onPreset={pick} onZoom={zoom} />
         <span className="text-xs text-ink-3">{windowSaid} · a stretch is {d.step < DAY && d.step !== HOUR ? "" : "one "}{stretch} · drag on a chart to zoom in</span>
-        {d.since && <span className="text-xs text-ink-3">History since {new Date(d.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}.</span>}
+        {d.since && <span className="text-xs text-ink-3">History since {new Date(d.since).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.</span>}
       </div>
 
       {!d.since && (
@@ -79,7 +80,7 @@ export function RenderTimes() {
                 series={[...d.models.map((m) => ({ name: m.name, values: m.pace })), { name: "as usual", values: d.times.map(() => 100), color: "var(--color-ink-3)", dashed: true }]}
               />
               <TimeChart
-                {...chart} title="Finished" note={`per ${stretch}`} format={(v) => String(Math.round(v))} stacked stat="sum"
+                {...chart} title="Finished" note={`per ${stretch}`} format={(v) => String(Math.round(v))} axisFormat={(v) => String(+v.toFixed(1))} stacked bars stat="sum"
                 series={[
                   { name: "Images", values: d.finished.images, color: "var(--color-picture)" },
                   { name: "Videos", values: d.finished.videos, color: tones[0] },

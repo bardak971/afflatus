@@ -14,9 +14,9 @@ export const PLOT = { L: 48, R: 10, T: 8, B: 20 };
 /**
  * Where everything of a chart goes: each series' colour (past the last colour of the palette they come
  * round again, dashed, so two lines of one colour can be told apart), the stacks, the top of the scale,
- * and the functions from a stretch and a value to a point of the panel.
+ * and the functions from a stretch and a value to a point of the panel (and back, from a pixel across to a stretch).
  */
-export function useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom }: {
+export function useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom, bars }: {
   series: Series[];
   times: number[];
   width: number;
@@ -27,16 +27,21 @@ export function useChartScale({ series, times, width, height, palette, solo, sta
   stacked?: boolean;
   top?: number;
   bottom: number;
+  /** One bar per stretch, each in its own band of the width, rather than points from edge to edge. */
+  bars?: boolean;
 }) {
   const coloured = series.map((s, i) => ({ ...s, color: s.color ?? palette[i % palette.length] ?? "currentColor", dashed: s.dashed ?? (!s.color && i >= palette.length) }));
   const shown = coloured.filter((s) => !solo || s.name === solo);
   const W = width - PLOT.L - PLOT.R;
   const H = height - PLOT.T - PLOT.B;
   const n = times.length;
-  const x = (i: number) => PLOT.L + (n > 1 ? (i / (n - 1)) * W : W / 2);
+  const band = n ? W / n : W;
+  const x = (i: number) => PLOT.L + (bars ? (i + 0.5) * band : n > 1 ? (i / (n - 1)) * W : W / 2);
+  /** The stretch under a pixel across the panel. */
+  const at = (px: number) => Math.max(0, Math.min(n - 1, bars ? Math.floor((px - PLOT.L) / band) : Math.round(((px - PLOT.L) / W) * (n - 1))));
   // stacked: each series sits on the sum of the ones under it
   const stacks = stackSeries(shown, n, Boolean(stacked));
   const max = top ?? ceiling(Math.max(0, ...stacks.flatMap((s) => s.high.filter((v): v is number => v !== null))));
   const y = (v: number) => PLOT.T + H - ((Math.max(bottom, v) - bottom) / (max - bottom || 1)) * H;
-  return { coloured, shown, stacks, max, x, y, W, H, n };
+  return { coloured, shown, stacks, max, x, at, band, y, W, H, n };
 }

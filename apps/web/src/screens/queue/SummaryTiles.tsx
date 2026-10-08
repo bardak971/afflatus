@@ -26,8 +26,8 @@ export function SummaryTiles({ d }: { d: TimesSummary }) {
       <Tile label="GPU time" value={long(t.gpuMs)} note={`longest render: ${long(t.longestMs)}`} />
       <Tile label="GPU busy" value={pct(t.gpuMs / Math.max(1, d.spanMs))} note="of the period, with Afflatus's renders" />
       <Tile label="Queue wait" value={maybe(t.waitedUsualMs)} note={`median · p90: ${maybe(t.waitedSlowMs)}`} />
-      <Tile label="Model load" value={pct(t.loadMs / Math.max(1, t.gpuMs))} note={`${long(t.loadMs)} of the GPU time`} />
-      <Tile label="Model loads" value={`${t.loads} time${t.loads === 1 ? "" : "s"}`} note={t.loadUsualMs === null ? undefined : `${long(t.loadUsualMs)} each, median`} />
+      {/* one tile for the loads, their share and how many: 12 tiles fill the rows of 4 and of 6 */}
+      <Tile label="Model load" value={pct(t.loadMs / Math.max(1, t.gpuMs))} note={`of the GPU time · ${t.loads} load${t.loads === 1 ? "" : "s"}${t.loadUsualMs === null ? "" : `, median ${long(t.loadUsualMs)}`}`} />
       <Tile label="Estimate error" value={t.off === null ? "—" : `± ${pct(t.off)}`} note="how far off the estimates usually are" />
       <Tile label="Most used" value={d.models[0]?.name.split(" · ")[0] ?? "—"} note={d.models[0] ? `${pct(d.models[0].gpuMs / Math.max(1, t.gpuMs))} of the GPU time` : undefined} />
       <Tile label="Peak VRAM" value={t.vramPeak === null ? "—" : `${Math.round(t.vramPeak)} %`} note={t.vramUsual === null ? "not reported" : `median ${Math.round(t.vramUsual)} %`} />

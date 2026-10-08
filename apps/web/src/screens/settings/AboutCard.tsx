@@ -24,7 +24,7 @@ export function AboutCard() {
         <dt>Source</dt><dd><a className="font-semibold text-ink underline" href={sourceOf(health.data?.version)} target="_blank" rel="noreferrer">{sourceOf(health.data?.version).replace(/^https:\/\//, "")}</a></dd>
       </dl>
       <h3 className="mt-2 font-bold">On this computer</h3>
-      <div className="text-ink-2">What Afflatus needs where it runs, checked when it started{health.data?.checkedAt ? ` (${new Date(health.data.checkedAt).toLocaleTimeString()})` : ""}. ComfyUI is checked on its own tab.</div>
+      <div className="text-ink-2">What Afflatus needs where it runs, checked when it started{health.data?.checkedAt ? ` (${new Date(health.data.checkedAt).toLocaleTimeString("en-GB")})` : ""}. ComfyUI is checked on its own tab.</div>
       <div className="flex flex-col gap-1.5">
         {checks.map((c) => (
           <div key={c.id} className={cx("flex flex-col gap-0.5 rounded-lg border px-3 py-2", c.ok ? "border-line" : "border-warn bg-warn-wash")}>

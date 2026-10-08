@@ -29,7 +29,7 @@ export function UpdatesCard() {
   const shown = newer.filter((u) => (kind === "all" || u.folder === kind) && (!needle || `${u.modelName} ${u.file} ${u.versionName} ${u.newer!.name}`.toLowerCase().includes(needle)));
   // grouped by what they are: checkpoints, diffusion models, LoRAs
   const groups = KINDS.map((k) => ({ ...k, items: shown.filter((u) => u.folder === k.id) })).filter((g) => g.items.length);
-  const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : "");
+  const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB") : "");
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
       <h2 className="text-[15px] font-bold">Newer versions on Civitai</h2>
@@ -47,7 +47,7 @@ export function UpdatesCard() {
               {check.isPending
                 ? "Asking Civitai, hashing a few files…"
                 : r?.checkedAt
-                  ? `Last check ${new Date(r.checkedAt).toLocaleString()}: ${r.items.length} file${r.items.length === 1 ? "" : "s"} matched, ${newer.length} with a newer version${r.unmatched ? `, ${r.unmatched} not on Civitai or not readable` : ""}${r.hashesLeft ? `, ${r.hashesLeft} still to hash` : ""}.`
+                  ? `Last check ${new Date(r.checkedAt).toLocaleString("en-GB")}: ${r.items.length} file${r.items.length === 1 ? "" : "s"} matched, ${newer.length} with a newer version${r.unmatched ? `, ${r.unmatched} not on Civitai or not readable` : ""}${r.hashesLeft ? `, ${r.hashesLeft} still to hash` : ""}.`
                   : "Not checked yet."}
               {r?.error && <span className="block text-warn-ink">The last check did not go through: {r.error}</span>}
             </span>

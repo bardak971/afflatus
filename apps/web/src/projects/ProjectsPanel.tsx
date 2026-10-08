@@ -953,7 +953,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                 )}
               </span>
               <span data-tip={r.path} className={cx("min-w-0 truncate text-right text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>
-              <span data-tip={r.created ? new Date(r.created).toLocaleString() : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
+              <span data-tip={r.created ? new Date(r.created).toLocaleString("en-GB") : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
               <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">{r.bytes !== null ? size(r.bytes) : ""}</span>
             </div>
           );

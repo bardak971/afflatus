@@ -58,14 +58,30 @@ export function stackSeries<S extends { values: Array<number | null> }>(series: 
 
 /**
  * A drag across a chart of `n` stretches as the window of time it covers: from the start of the first
- * stretch it touches to the end of the last. `left` and `width`: the plot's place across the panel.
+ * stretch it touches to the end of the last. `left` and `width`: the plot's place across the panel;
+ * `bars`: the stretches are drawn as bars, each in its own band, not as points on a line.
  */
-export function brushWindow(a: number, b: number, plot: { left: number; width: number }, times: number[], step?: number): { from: number; to: number } | null {
+export function brushWindow(a: number, b: number, plot: { left: number; width: number }, times: number[], step?: number, bars?: boolean): { from: number; to: number } | null {
   const n = times.length;
   if (n < 2) return null;
+  const span = step ?? times[1]! - times[0]!;
+  if (bars) {
+    // bars: each stretch owns a band of the width, so a drag covers the bars it touches, whole
+    const band = (px: number) => Math.max(0, Math.min(n - 1, Math.floor(((px - plot.left) / plot.width) * n)));
+    return { from: times[band(Math.min(a, b))]!, to: times[band(Math.max(a, b))]! + span };
+  }
   const at = (px: number) => Math.max(0, Math.min(n - 1, ((px - plot.left) / plot.width) * (n - 1)));
   const i0 = Math.floor(at(Math.min(a, b)));
   const i1 = Math.ceil(at(Math.max(a, b)));
-  const span = step ?? times[1]! - times[0]!;
   return { from: times[i0]!, to: Math.min(times[n - 1]! + span, times[i1]! + (i1 === i0 ? span : 0)) };
+}
+
+/** A bar as an SVG path, from `y0` (its foot) up to `y1`, its top corners rounded by `r` (less when the bar is too narrow or short for it). */
+export function bar(x: number, width: number, y0: number, y1: number, r: number): string {
+  const h = y0 - y1;
+  if (h <= 0 || width <= 0) return "";
+  const k = Math.max(0, Math.min(r, width / 2, h));
+  const f = (v: number) => v.toFixed(1);
+  if (!k) return `M${f(x)},${f(y0)}V${f(y1)}H${f(x + width)}V${f(y0)}Z`;
+  return `M${f(x)},${f(y0)}V${f(y1 + k)}Q${f(x)},${f(y1)} ${f(x + k)},${f(y1)}H${f(x + width - k)}Q${f(x + width)},${f(y1)} ${f(x + width)},${f(y1 + k)}V${f(y0)}Z`;
 }

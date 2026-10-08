@@ -1,13 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../../ui";
 import { themeInUse, useThemeChoice } from "../../theme/store";
-import { brushWindow, curve, statOf } from "./chartMath";
+import { bar, brushWindow, curve, statOf } from "./chartMath";
 import { useBrush } from "./useBrush";
 import { PLOT, useChartScale, type Series } from "./useChartScale";
 
 /**
  * A panel with lines over time, after Grafana's: soft fills under the lines, a crosshair that reads
  * every series where the pointer is, and a legend whose entries can be clicked to look at one alone.
+ * Counts are drawn as bars instead: a curve between two stretches would say there were 2.5 renders.
  */
 
 /** The colours lines are drawn in: the accents of the theme that is up, the one in use first. */
@@ -22,7 +23,7 @@ export function useChartColors(): string[] {
   }, [choice]);
 }
 
-export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, children, step, onBrush, detail }: {
+export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, bars, children, step, onBrush, detail }: {
   title: string;
   note?: string;
   /** The start of each stretch of time, ms since the epoch. */
@@ -43,6 +44,8 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
   bottom?: number;
   /** A soft fill under each line. Left to itself: only where few lines share the panel. */
   fill?: boolean;
+  /** Counts: one bar per stretch (stacked when `stacked`), not a curve that would suggest values between the stretches. */
+  bars?: boolean;
   children?: ReactNode;
   /** The length of a stretch, so that a drag ends after the last stretch it covers. */
   step?: number;
@@ -69,13 +72,15 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
     return () => watch.disconnect();
   }, []);
 
-  const { coloured, shown, stacks, max, x, y, W, H, n } = useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom });
+  const { coloured, shown, stacks, max, x, at, band, y, W, H, n } = useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom, bars });
   const { L, T } = PLOT;
   const filled = fill ?? (stacked || series.length <= 3);
   const onAxis = axisFormat ?? format;
   // as many labels along the bottom as fit without touching, for labels of the length these are
   const labelWidth = Math.max(60, (n ? timeLabel(times[0]!).length : 8) * 6.5 + 24);
   const ticks = Math.max(2, Math.min(n, Math.floor(W / labelWidth)));
+  // a gap between bars, so that each reads as its own stretch
+  const barWidth = Math.max(1, band * 0.72);
 
   return (
     <section className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-panel p-3.5">
@@ -90,8 +95,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           className="block"
           onMouseMove={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            const px = e.clientX - rect.left;
-            setHover(Math.max(0, Math.min(n - 1, Math.round(((px - L) / W) * (n - 1)))));
+            setHover(at(e.clientX - rect.left));
             brush.move(e);
           }}
           onMouseLeave={() => {
@@ -104,7 +108,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           onMouseUp={() => {
             if (!drag || !onBrush) return;
             const span = brush.end();
-            const window = span && brushWindow(span[0], span[1], { left: L, width: W }, times, step);
+            const window = span && brushWindow(span[0], span[1], { left: L, width: W }, times, step, bars);
             if (window) onBrush(window.from, window.to);
           }}
           style={onBrush ? { cursor: drag ? "col-resize" : "crosshair" } : undefined}
@@ -126,7 +130,22 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           {Array.from({ length: ticks }, (_x, k) => Math.round((k / (ticks - 1)) * (n - 1))).map((i, k) => (
             <text key={i} x={x(i)} y={height - 5} textAnchor={k === 0 ? "start" : k === ticks - 1 ? "end" : "middle"} className="fill-ink-3 font-mono text-[10px]">{timeLabel(times[i]!)}</text>
           ))}
-          {stacks.map((s, i) => {
+          {bars && hover !== null && <rect pointerEvents="none" x={x(hover) - band / 2} y={T} width={band} height={H} className="fill-ink-3/15" />}
+          {bars && stacks.map((s, i) => (
+            <path
+              key={s.name}
+              fill={s.color}
+              fillOpacity={0.85}
+              d={s.high.map((v, k) => {
+                if (v === null || !s.values[k]) return "";
+                // stacked: only the top part of a bar is rounded; side by side: each series has its slice of the bar's width
+                const round = !stacked || stacks.slice(i + 1).every((o) => !o.values[k]);
+                const w = stacked ? barWidth : barWidth / stacks.length;
+                return bar(x(k) - barWidth / 2 + (stacked ? 0 : i * w), w, y(stacked ? s.low[k]! : bottom), y(v), round ? 3 : 0);
+              }).join("")}
+            />
+          ))}
+          {!bars && stacks.map((s, i) => {
             const points = s.high.map((v, k) => (v === null ? null : ([x(k), y(v)] as [number, number]))).filter((p): p is [number, number] => p !== null);
             if (!points.length) return null;
             const line = curve(points);
@@ -144,7 +163,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           {drag && Math.abs(drag.x1 - drag.x0) >= 2 && (
             <rect pointerEvents="none" x={Math.min(drag.x0, drag.x1)} y={T} width={Math.abs(drag.x1 - drag.x0)} height={H} className="fill-accent/15 stroke-accent" strokeWidth="1" />
           )}
-          {hover !== null && (
+          {hover !== null && !bars && (
             <g pointerEvents="none">
               <line x1={x(hover)} x2={x(hover)} y1={T} y2={T + H} className="stroke-ink-3" strokeWidth="1" />
               {stacks.map((s) => s.high[hover] !== null && s.values[hover] !== null && <circle key={s.name} cx={x(hover)} cy={y(s.high[hover]!)} r="3.5" fill={s.color} className="stroke-panel" strokeWidth="1.5" />)}
@@ -159,7 +178,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
             <span className="font-semibold">{timeLabel(times[hover]!, true)}</span>
             {[...shown].sort((a, b) => (b.values[hover] ?? -1) - (a.values[hover] ?? -1)).map((s) => (
               <span key={s.name} className="flex items-center gap-2">
-                <span className="h-0.5 w-3 shrink-0 rounded-full" style={{ background: coloured.find((c) => c.name === s.name)!.color }} />
+                <span className={cx("shrink-0", bars ? "size-2 rounded-sm" : "h-0.5 w-3 rounded-full")} style={{ background: coloured.find((c) => c.name === s.name)!.color }} />
                 <span className="grow truncate text-ink-2">{s.name}</span>
                 <span className="font-mono">{s.values[hover] === null ? "—" : format(s.values[hover]!)}</span>
               </span>
@@ -182,7 +201,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
               onClick={() => setSolo(solo === s.name ? null : s.name)}
               className={cx("flex items-center gap-1.5 rounded px-1 text-xs hover:bg-hover", solo && solo !== s.name ? "text-ink-3 opacity-60" : "text-ink-2")}
             >
-              <span className="h-0.5 w-3.5 rounded-full" style={{ background: s.color }} />
+              <span className={bars ? "size-2 rounded-sm" : "h-0.5 w-3.5 rounded-full"} style={{ background: s.color }} />
               {s.name}
               {value !== null && <span className="font-mono text-ink">{format(value)}</span>}
             </button>

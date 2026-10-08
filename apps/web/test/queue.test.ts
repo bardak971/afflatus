@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brushWindow, ceiling, curve, stackSeries, statOf } from "../src/screens/queue/chartMath";
+import { bar, brushWindow, ceiling, curve, stackSeries, statOf } from "../src/screens/queue/chartMath";
 import { dropped, modelSwitches, moved } from "../src/screens/queue/order";
 import { brushSpan } from "../src/screens/queue/useBrush";
 import { presetOf, typedWindow } from "../src/screens/queue/useTimesView";
@@ -46,6 +46,20 @@ describe("the charts' arithmetic", () => {
     // never past the end of the last stretch
     expect(brushWindow(350, 900, { left: 0, width: 400 }, times, 100)).toEqual({ from: 300, to: 400 });
     expect(brushWindow(0, 50, { left: 0, width: 400 }, [0])).toBeNull();
+  });
+  it("takes a drag across bars for the bars it touches, whole", () => {
+    // four bars of 100 px each: the 2nd to the 3rd
+    const times = [0, 100, 200, 300];
+    expect(brushWindow(110, 290, { left: 0, width: 400 }, times, undefined, true)).toEqual({ from: 100, to: 300 });
+    // within one bar: that stretch
+    expect(brushWindow(120, 130, { left: 0, width: 400 }, times, undefined, true)).toEqual({ from: 100, to: 200 });
+    expect(brushWindow(350, 900, { left: 0, width: 400 }, times, 100, true)).toEqual({ from: 300, to: 400 });
+  });
+  it("draws a bar with its top corners rounded, less when it is too short for them", () => {
+    expect(bar(0, 10, 50, 50, 3)).toBe("");
+    expect(bar(0, 10, 50, 20, 0)).toBe("M0.0,50.0V20.0H10.0V50.0Z");
+    expect(bar(0, 10, 50, 20, 3)).toBe("M0.0,50.0V23.0Q0.0,20.0 3.0,20.0H7.0Q10.0,20.0 10.0,23.0V50.0Z");
+    expect(bar(0, 10, 50, 49, 3)).toContain("V50.0Q0.0,49.0 1.0,49.0H9.0");
   });
   it("takes a short drag for a click", () => {
     expect(brushSpan(null)).toBeNull();

@@ -103,7 +103,7 @@ export function when(iso: string): string {
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return new Date(iso).toLocaleDateString();
+  return new Date(iso).toLocaleDateString("en-GB");
 }
 
 /** The graph checker's words, said plainly: `49:43 KSampler: "beta57" is not a choice of "scheduler"`. */

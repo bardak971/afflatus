@@ -31,7 +31,7 @@ const dayLabel = (day: string) => {
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   if (day === today) return "Today";
   if (day === yesterday) return "Yesterday";
-  return new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+  return new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 };
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 

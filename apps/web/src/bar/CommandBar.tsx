@@ -296,7 +296,7 @@ export function CommandBar() {
         return [{ group: "Queue", rows: withRanges(found, q) }].filter((s) => s.rows.length);
       }
       case "history": {
-        const rows = (history.data?.items ?? []).map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${new Date(h.createdAt).toLocaleDateString()}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
+        const rows = (history.data?.items ?? []).map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${new Date(h.createdAt).toLocaleDateString("en-GB")}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
         return [{ group: "Prompt history", rows: withRanges(rows, q) }].filter((s) => s.rows.length);
       }
       case "cast": {

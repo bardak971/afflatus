@@ -540,7 +540,7 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
             {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap">The last {(g.resolved.overlap.tailMs / 1000).toFixed(1)} s repeat the start of the next clip. A timeline skips them.</Row> : null}
             <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
             {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
-            <Row label="Created">{made.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
+            <Row label="Created">{made.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
             {g && <Row label="Render time">{took(g.tookMs)}</Row>}
           </dl>
         </details>
