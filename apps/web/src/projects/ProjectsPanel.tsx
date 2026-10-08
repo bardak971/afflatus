@@ -4,7 +4,7 @@ import { keepPreviousData, useQueries, useQueryClient } from "@tanstack/react-qu
 import { useLocation } from "wouter";
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, ChevronRight, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, FolderSymlink, Globe, Inbox, Link2, List, Music, RefreshCw, Unlink, PenLine, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, thumbUrl, type Asset, type DraftLeaf } from "../api";
-import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../ContextMenu";
 import { DRAFT_LIST, useFolders, useProjects, useProjectsTree, useRecipes, useStorage } from "../data";
 import { recipeLabel, size, when } from "../format";
 import { useProject } from "../project";
@@ -457,7 +457,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
           rename,
           moveTo,
           "—",
-          { label: "Bin unused takes…", icon: <Trash2 size={14} />, disabled: !r.unused, note: r.unused ? size(r.unused.bytes) : "none", run: () => void actions.binUnused(r) },
+          { label: "Bin unused takes…", icon: <Trash2 size={14} />, danger: true, disabled: !r.unused, note: r.unused ? size(r.unused.bytes) : "none", run: () => void actions.binUnused(r) },
           del,
         ];
       case "draft":
@@ -471,6 +471,11 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       default:
         return [];
     }
+  };
+  /** The head of a row's menu: its name and what it holds; several picked: how many. */
+  const menuHead = (r: Row | "picked"): MenuHead => {
+    const n = r === "picked" ? picked.size : r.key === "picked-items" ? pickedItems().length : subjectOf(r).length;
+    return r === "picked" || n > 1 ? { title: `${n} items` } : { title: r.label, sub: r.meta || undefined };
   };
   // an item: the library tile's own menu; one of several picked items: a menu for them all
   const itemMenu = useItemMenu({ onView, onStudio: (a) => showInStudio(a, byKey.get(`a:${a.id}`)?.group ?? null) });
@@ -988,7 +993,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         }}
       />
       {itemMenu.element}
-      {menu && <ContextMenu at={menu.at} label={menu.subject === "picked" ? "Move to" : menu.subject.label} items={menuItems(menu.subject)} onClose={closeMenu} />}
+      {menu && <ContextMenu at={menu.at} label={menu.subject === "picked" ? "Move to" : menu.subject.label} head={menuHead(menu.subject)} items={menuItems(menu.subject)} onClose={closeMenu} />}
     </div>,
     document.body,
   );

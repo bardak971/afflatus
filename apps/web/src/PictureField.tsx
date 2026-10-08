@@ -5,7 +5,8 @@ import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, thumbUrl, type Asset } from "./api";
-import { Dialog } from "./Dialog";
+import { Dialog, DialogHead } from "./Dialog";
+import { Kbd } from "./Keys";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
 import { Viewer } from "./Viewer";
@@ -50,10 +51,12 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
   const upload = useUpload((a) => onPick(a.id), kit);
 
   return (
-    <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-2xl border border-line-strong bg-panel">
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-line pr-3 pl-5">
-          <h2 className="text-base font-semibold">{title}</h2>
-          <span className="hidden text-ink-2 xl:inline">Pick one from your library, or bring one in.</span>
+    <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+        {/* the head, with the search and the ways to bring one in between it and the way out */}
+        <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-3.5">
+          <span className="min-w-0 grow">
+            <DialogHead icon={kind === "audio" ? <Music size={16} /> : kind === "video" ? <Film size={16} /> : <ImagePlus size={16} />} title={title} sub="Pick one from your library, or bring one in" />
+          </span>
           <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
             <Search size={13} className="shrink-0 text-ink-3" />
             <input autoFocus data-search="picker" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className="min-w-0 grow bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
@@ -63,7 +66,6 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
               {all ? "Everything" : project === "none" ? "Inbox" : "This project"}
             </button>
           )}
-          <span className="grow" />
           <Button onClick={() => file.current?.click()} disabled={upload.isPending}>
             <Upload size={15} /> {upload.isPending ? "Adding…" : "From your computer"}
           </Button>
@@ -78,7 +80,8 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
               e.target.value = "";
             }}
           />
-          <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
+          <Kbd>Esc</Kbd>
+          <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
         </header>
         <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
           {upload.isError && <ErrorNote>{upload.error.message}</ErrorNote>}

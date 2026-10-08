@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { X } from "lucide-react";
+import { ScanSearch } from "lucide-react";
 import { api, type Embedded } from "./api";
 import { useRecipes } from "./data";
-import { Dialog } from "./Dialog";
+import { Dialog, DialogFoot, DialogHead } from "./Dialog";
 import { useOpenNewDraft } from "./draft";
 import { fileLabel, recipeLabel } from "./format";
 import { GetFile } from "./GetFile";
+import { Kbd } from "./Keys";
 import { Select } from "./Select";
 import { useHandover } from "./store";
 import { Button, cx, ErrorNote } from "./ui";
@@ -59,13 +60,9 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
 
   const s = data?.settings;
   return (
-    <Dialog label="PNG info" onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-2xl border border-line-strong bg-panel">
-        <header className="flex shrink-0 items-center gap-3 border-b border-line py-3 pr-3 pl-5">
-          <div className="flex min-w-0 grow flex-col">
-            <h2 className="text-base font-semibold">PNG info</h2>
-            <span className="truncate text-xs text-ink-2" data-tip={name}>{name}</span>
-          </div>
-          <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
+    <Dialog label="PNG info" onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+        <header className="shrink-0 border-b border-line px-5 py-3.5">
+          <DialogHead icon={<ScanSearch size={16} />} title="PNG info" sub={<span data-tip={name}>{name} · how it was made</span>} onClose={onClose} />
         </header>
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
           {failed && <ErrorNote>{failed}</ErrorNote>}
@@ -112,13 +109,15 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
             </>
           )}
         </div>
-        <footer className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3">
-          {data?.workflow ? (
-            <Button onClick={() => { hand({ workflow: workflowFile(name, data.workflow) }); onClose(); go("/workflows"); }}>Import embedded workflow</Button>
-          ) : null}
-          <span className="grow" />
-          <Button onClick={onClose}>Close</Button>
-          {s && <Button tone="primary" onClick={() => void send()}>Send to form</Button>}
+        {/* the foot's own margins undo this padding: it runs edge to edge under the scrolling part */}
+        <footer className="shrink-0 px-5 pb-5">
+          <DialogFoot>
+            <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+            {data?.workflow ? (
+              <Button onClick={() => { hand({ workflow: workflowFile(name, data.workflow) }); onClose(); go("/workflows"); }}>Import embedded workflow</Button>
+            ) : null}
+            {s && <Button tone="primary" onClick={() => void send()}>Send to form</Button>}
+          </DialogFoot>
         </footer>
     </Dialog>
   );

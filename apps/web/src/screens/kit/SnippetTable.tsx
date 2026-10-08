@@ -61,7 +61,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
   ];
   return (
     <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} items={items} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} head={{ title: snippet.name, sub: snippet.def.category || "No category" }} items={items} onClose={menu.close} />}
       <span className="flex h-8 w-7 items-center justify-center">
         <Checkbox label={`Tick ${snippet.name}`} checked={ticked} onChange={onTick} />
       </span>

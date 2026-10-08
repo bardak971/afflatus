@@ -8,6 +8,7 @@ import { Loras, type MainText } from "./fields/Loras";
 import { PromptField } from "./fields/PromptField";
 import { SeedField } from "./fields/SeedField";
 import { SizeField } from "./fields/SizeField";
+import { withNote } from "./fieldNotes";
 import { fileLabel } from "./format";
 import { MaskField } from "./MaskField";
 import { Slider } from "./Slider";
@@ -68,6 +69,8 @@ export function Field({ spec, value, values, options, family, model, onChange, o
   /** What the model starts with: a number's slider marks it with a notch (a click on it goes back). */
   standard?: unknown;
 }) {
+  // a setting its recipe says nothing about takes the list's words (the ones every model shares, an imported workflow's)
+  spec = withNote(spec);
   const id = useId();
   const explain = useExplain((st) => st.on);
   // the pictures the form's cast adds to this reference input when it is sent
@@ -149,7 +152,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
     }
 
     case "seed":
-      return <SeedField id={id} label={spec.label} value={Number(value ?? RANDOM_SEED)} onChange={onChange} />;
+      return <SeedField id={id} label={spec.label} note={spec.note} value={Number(value ?? RANDOM_SEED)} onChange={onChange} />;
 
     case "image":
       if (spec.role === "mask") {
@@ -182,13 +185,14 @@ export function Field({ spec, value, values, options, family, model, onChange, o
  * line under it), the control on the right. Numbers, switches and choices are drawn so; pictures, prompts and
  * lists of files keep their own stacked shape.
  */
-function FieldRow({ label, note, htmlFor, children }: { label: string; note?: string; htmlFor?: string; children: ReactNode }) {
+export function FieldRow({ label, note, htmlFor, children }: { label: string; note?: string; htmlFor?: string; children: ReactNode }) {
   const explain = useExplain((st) => st.on);
   return (
-    <div className="grid min-h-11 grid-cols-[104px_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
-      <span className="flex min-w-0 items-center gap-1.5">
+    <div className="grid min-h-11 grid-cols-[124px_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+      <span className="flex min-w-0 items-center justify-between gap-1.5">
         {htmlFor ? <label htmlFor={htmlFor} className="truncate font-semibold">{label}</label> : <span className="truncate font-semibold">{label}</span>}
-        {note && !explain && <Help text={note} />}
+        {/* pinned to the column's right edge: the ?s of a card line up */}
+        {note && !explain && <Help text={note} title={label} />}
       </span>
       <div className="flex min-w-0 flex-col gap-1.5">{children}</div>
       {explain && note && <span className="col-span-2 text-xs text-ink-2">{note}</span>}

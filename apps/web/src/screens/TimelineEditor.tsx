@@ -4,7 +4,7 @@ import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type
 import { useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
 import { estimateFor } from "../estimate";
-import { notReady } from "../format";
+import { clock as mmss, notReady } from "../format";
 import { Picker } from "../PictureField";
 import { useNewClock } from "../timeline/clock";
 import { Inspector, MusicPanel } from "../timeline/Inspector";
@@ -15,7 +15,7 @@ import { Track } from "../timeline/Track";
 import { ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
-import { ContextMenu, useMenu } from "../ContextMenu";
+import { ContextMenu, useMenu, type MenuHead } from "../ContextMenu";
 import { useBanners } from "../store";
 import { CastDialog } from "../timeline/CastDialog";
 import { ClipDesigner } from "../timeline/ClipDesigner";
@@ -147,6 +147,21 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     return here && here.clip.id === c.id ? here : null;
   };
   const rangeMenu = useMenu<true>();
+  /** The head of a clip's menu: "Clip 3", its length and which take plays, the picture it shows. */
+  const clipHead = (c: Clip): MenuHead => {
+    const n = clips.findIndex((x) => x.id === c.id) + 1;
+    const take = c.take && c.takes.length > 1 ? ` · take ${c.takes.findIndex((x) => x.id === c.take!.id) + 1} of ${c.takes.length}` : "";
+    return {
+      title: `Clip ${n}`,
+      thumb: c.take?.asset.id ?? c.still?.id ?? c.pictures[0]?.asset.id,
+      sub: <>{c.kind === "still" ? "Still · " : ""}<span className="font-mono">{mmss(c.lengthMs)}</span>{take}</>,
+    };
+  };
+  /** The head of a clip's audio menu: what is heard, and how loud. */
+  const soundHead = (c: Clip): MenuHead => ({
+    title: `Audio of clip ${clips.findIndex((x) => x.id === c.id) + 1}`,
+    sub: `${c.sound === "own" ? "Own audio" : c.sound === "muted" ? "Muted" : "Audio file"} · ${c.volume} %`,
+  });
   const error = m.error ?? rangeAct.error;
   useEffect(() => {
     if (!note) return;
@@ -538,10 +553,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" items={clipMenuItems(clipMenu.menu.subject, clipActs)} onClose={clipMenu.close} />}
-      {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" items={rangeItems()} onClose={rangeMenu.close} />}
-      {soundMenu.menu && <ContextMenu at={soundMenu.menu.at} label="The audio of this clip" items={soundMenuItems(shown.clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject, { patch: (clip, p) => patch.mutate({ clip, patch: p }), pick: setSoundPick, select })} onClose={soundMenu.close} />}
-      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" items={musicMenuItems(t.music, { pick: () => setMusicPick(true), open: () => { setSelected(null); setMusicOpen(true); }, edit: (p) => edit.mutate(p) })} onClose={musicMenu.close} />}
+      {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" head={clipHead(clipMenu.menu.subject)} items={clipMenuItems(clipMenu.menu.subject, clipActs)} onClose={clipMenu.close} />}
+      {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" head={{ title: "Range", sub: <span className="font-mono">{mmss(range.inMs, { decimals: 1 })} – {mmss(range.outMs, { decimals: 1 })}</span> }} items={rangeItems()} onClose={rangeMenu.close} />}
+      {soundMenu.menu && <ContextMenu at={soundMenu.menu.at} label="The audio of this clip" head={soundHead(shown.clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject)} items={soundMenuItems(shown.clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject, { patch: (clip, p) => patch.mutate({ clip, patch: p }), pick: setSoundPick, select })} onClose={soundMenu.close} />}
+      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" head={{ title: "Music", sub: t.music ? t.music.asset.name || "Sound" : "None yet" }} items={musicMenuItems(t.music, { pick: () => setMusicPick(true), open: () => { setSelected(null); setMusicOpen(true); }, edit: (p) => edit.mutate(p) })} onClose={musicMenu.close} />}
       {soundPick && <Picker title={`Audio of clip ${shown.clips.findIndex((x) => x.id === soundPick.id) + 1}`} kind="audio" onClose={() => setSoundPick(null)} onPick={(soundAsset) => { patch.mutate({ clip: soundPick.id, patch: { soundAsset } }); setSoundPick(null); }} />}
       {musicPick && <Picker title="Music" kind="audio" onClose={() => setMusicPick(false)} onPick={(asset) => { edit.mutate({ music: { asset } }); setMusicPick(false); setMusicOpen(true); }} />}
 

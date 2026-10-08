@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Film, Plus } from "lucide-react";
+import { Film, ListPlus, Plus } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
 import { useAddToTimeline } from "./actions";
 import { thumbUrl, type Asset } from "./api";
 import { useFolders, useTimelines } from "./data";
-import { Dialog } from "./Dialog";
+import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { clock, when } from "./format";
+import { Kbd } from "./Keys";
 import { useProject } from "./project";
 import { Select } from "./Select";
 import { useBanners, useStudio } from "./store";
@@ -36,9 +37,8 @@ export function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): voi
     .filter((t) => folder === "any" || (folder === "root" ? t.folderId === null : t.folderId === folder))
     .filter((t) => !typed.trim() || fuzzyScore(typed.trim(), t.name) !== null);
   return (
-    <Dialog label="Add to a timeline" onClose={onClose} z="z-50" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
-        <span className="text-base font-semibold">Add to a timeline</span>
-        <span className="text-xs text-ink-2">{asset.kind === "image" ? "The image goes at the end, as a still you can animate or hold." : "The video goes at the end, as a clip of its own."}</span>
+    <Dialog label="Add to a timeline" onClose={onClose} z="z-50" className={DIALOG}>
+        <DialogHead icon={<ListPlus size={16} />} title="Add to a timeline" sub={asset.kind === "image" ? "The image goes at the end, as a still you can animate or hold" : "The video goes at the end, as a clip of its own"} onClose={onClose} />
         {add.isError && <ErrorNote>{add.error.message}</ErrorNote>}
         <div className="flex gap-2">
           <input autoFocus data-search="add-timeline" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search timelines" aria-label="Search timelines" className={cx(fieldClass, "h-9 min-w-0 grow text-sm")} />
@@ -59,12 +59,11 @@ export function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): voi
           {/* the folder list above is the one way to every folder: no button here that only shows with a folder picked */}
           {timelines.isSuccess && !items.length && <span className="text-ink-2">{typed.trim() ? "No timeline of that name here." : "No timeline in this folder."}</span>}
         </div>
-        <div className="flex gap-2">
+        <DialogFoot>
+          <Button tone="quiet" onClick={onClose}>Cancel <Kbd>Esc</Kbd></Button>
+          <Button onClick={() => { onClose(); go("/timelines"); }}>All timelines</Button>
           <Button tone="primary" disabled={add.isPending} onClick={() => add.mutate(null)}><Plus size={14} strokeWidth={2.6} /> New timeline with it</Button>
-          <Button tone="quiet" onClick={onClose}>Cancel</Button>
-          <span className="grow" />
-          <Button size="sm" tone="quiet" onClick={() => { onClose(); go("/timelines"); }}>All timelines</Button>
-        </div>
+        </DialogFoot>
     </Dialog>
   );
 }

@@ -26,6 +26,8 @@ import { useEntityDraft } from "./kit/useEntityDraft";
 const TAB_KEY = "afflatus.kit.tab";
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+/** What an item is, at the head of its menu. */
+const KIND_WORD = { person: "Person", place: "Place", style: "Style", preset: "Preset", snippet: "Snippet" } as const;
 /** One line about an item, under its name. */
 function summaryOf(e: Entity, recipes: RecipeInfo[]): string {
   if (e.kind === "person") return `${plural(e.def.pictures.length, "reference image")}, ${e.def.voice ? "voice sample" : "no voice sample"}, ${plural(e.def.outfits.length, "outfit")}`;
@@ -149,7 +151,7 @@ export function People() {
     <div className="flex min-h-0 min-w-0 grow flex-col">
       <KitHeader tab={tab} onTab={setTab} all={all} query={query} onQuery={setQuery} />
 
-      {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
+      {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" head={{ title: rowMenu.menu.subject.name, sub: `${KIND_WORD[rowMenu.menu.subject.kind]} · ${summaryOf(rowMenu.menu.subject, recipeList)}` }} items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
       {(entities.isError || create.isError || remove.isError || doImport.isError) && <div className="px-6 pb-3"><ErrorNote>{(entities.error ?? create.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
 
       {tab === "snippet" ? (

@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
-import { createPortal } from "react-dom";
-import { Check, HelpCircle, Trash2 } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 import { PANEL, useExplain, usePanelWidth } from "./store";
 
 /** The few shapes every screen shares, so that a button looks the same wherever it is. */
@@ -123,38 +122,21 @@ export function Toggle({ on, onChange, label, note, bare, disabled }: { on: bool
 }
 
 /**
- * A small ? that tells something on hover or focus: where a line of explanation would be noise. The
- * text is drawn over everything (not inside the panel, which would cut it), under the ? when there is
- * room and above it otherwise, kept on the screen.
+ * A small ? that tells something on hover or focus: where a line of explanation would be noise. What it says
+ * is the app's tooltip (Tip.tsx), with its arrow; `title` is a bold first line over it.
  */
-export function Help({ text, className }: { text: string; className?: string }) {
-  const [at, setAt] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
-  const show = (el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    const width = 272;
-    const left = Math.max(8, Math.min(r.left - 8, window.innerWidth - width - 8));
-    // under it when there is room for a few lines, else above
-    setAt(window.innerHeight - r.bottom > 120 ? { left, top: r.bottom + 6 } : { left, bottom: window.innerHeight - r.top + 6 });
-  };
+export function Help({ text, title, className }: { text: string; title?: string; className?: string }) {
   return (
     <span className={cx("inline-flex shrink-0 items-center", className)}>
       <button
         type="button"
-        aria-label={text}
-        onMouseEnter={(e) => show(e.currentTarget)}
-        onFocus={(e) => show(e.currentTarget)}
-        onMouseLeave={() => setAt(null)}
-        onBlur={() => setAt(null)}
-        className="flex h-4 w-4 items-center justify-center rounded-full text-ink-3 hover:text-ink focus:text-ink"
+        aria-label={title ? `${title}: ${text}` : text}
+        data-tip={text}
+        data-tip-head={title}
+        className="flex h-4 w-4 items-center justify-center rounded-full bg-accent-wash text-[10px] leading-none font-bold text-accent hover:brightness-125 focus-visible:brightness-125"
       >
-        <HelpCircle size={13} />
+        ?
       </button>
-      {at && createPortal(
-        <span role="tooltip" style={{ left: at.left, top: at.top, bottom: at.bottom, width: 272 }} className="pointer-events-none fixed z-[80] rounded-lg border border-line-strong bg-raised px-2.5 py-2 text-left text-xs leading-snug font-normal normal-case tracking-normal text-ink shadow-xl shadow-shade/40">
-          {text}
-        </span>,
-        document.body,
-      )}
     </span>
   );
 }

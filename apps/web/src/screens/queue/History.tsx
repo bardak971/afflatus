@@ -136,6 +136,9 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
   );
 }
 
+/** How a finished job ended, at the head of its menu. */
+const STATUS_WORD = { queued: "Waiting", running: "Running", done: "Done", failed: "Failed", cancelled: "Cancelled" } as const;
+
 /** One finished job, or several asked for together: what it made, under its name, and the facts of how. */
 function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): void }) {
   const head = jobs[0]!;
@@ -157,7 +160,7 @@ function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): vo
   const tip = [head.prompt, name !== head.label ? head.label : "", head.seed !== null && jobs.length === 1 ? `seed ${head.seed}` : ""].filter(Boolean).join("\n");
   return (
     <div className={cx(ROW, "group rounded-xl py-1.5 hover:bg-hover", head.status === "cancelled" && "opacity-60 hover:opacity-100")} onContextMenu={(e) => menu.open(e, true)}>
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${name}`} items={items} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${name}`} head={{ title: name, sub: `${STATUS_WORD[head.status]}${jobs.length > 1 ? ` · ${jobs.length} jobs` : ""} · ${modelOf(head)}`, thumb: first && first.kind !== "audio" ? first.id : undefined }} items={items} onClose={menu.close} />}
       <Thumb jobs={jobs} onOpen={onOpen} />
       <span className="flex min-w-0 items-center gap-2">
         <span className="flex min-w-0 grow flex-col gap-0.5" data-tip={tip || undefined}>

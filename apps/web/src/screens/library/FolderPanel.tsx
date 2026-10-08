@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, Folder as FolderIcon, FolderKanban, FolderPlus, FolderUp, HardDrive, Link2, Pencil, RefreshCw, Trash2, Unlink } from "lucide-react";
 import type { Folder } from "../../api";
 import { askText } from "../../Confirm";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../../ContextMenu";
 import { useFolders, useProjects, useStorage } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
 import { size } from "../../format";
@@ -183,6 +183,8 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
           { label: "The Inbox", icon: <FolderKanban size={14} />, note: "out of every project", disabled: f.projectId === null && f.parentId === null, run: () => m.toProject.mutate({ id: f.id, name: f.name, project: null }) },
         ] }]
       : [];
+  /** The head of a folder's menu: its name, how many items, whether it is of the disk. */
+  const folderHead = (f: Folder): MenuHead => ({ title: f.name, sub: `${f.count} item${f.count === 1 ? "" : "s"}${f.path ? " · on your disk" : ""}` });
   const folderItems = (f: Folder): MenuItem[] => [
     { label: "Open", icon: <FolderIcon size={14} />, run: () => onPlace({ type: "folder", id: f.id }) },
     ...(!f.path ? [{ label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => void askText({ title: `A folder inside ${f.name}`, value: "", placeholder: "Name", yes: "Make it" }).then((name) => name?.trim() && m.create.mutate({ name: name.trim(), parent: f.id })) }] : []),
@@ -243,7 +245,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
           />
         ),
       )}
-      {folderMenu.menu && <ContextMenu at={folderMenu.menu.at} label={`Folder ${folderMenu.menu.subject.name}`} items={folderItems(folderMenu.menu.subject)} onClose={folderMenu.close} />}
+      {folderMenu.menu && <ContextMenu at={folderMenu.menu.at} label={`Folder ${folderMenu.menu.subject.name}`} head={folderHead(folderMenu.menu.subject)} items={folderItems(folderMenu.menu.subject)} onClose={folderMenu.close} />}
       <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", over === "unfiled")} {...drop("unfiled", null)} data-tip="What is in no folder and no project. Drop here to take items out of their folder">Inbox</button>
 
       {adding ? (

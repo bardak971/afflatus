@@ -1,7 +1,9 @@
-import { Download } from "lucide-react";
+import { Download, Film } from "lucide-react";
 import { fileUrl, type Asset, type Clip, type Timeline } from "../api";
-import { Dialog } from "../Dialog";
-import { Button, ErrorNote, Segmented, Toggle } from "../ui";
+import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
+import { FieldRow } from "../fields";
+import { Kbd } from "../Keys";
+import { Button, Chip, ErrorNote, Segmented, Toggle } from "../ui";
 import { stamp } from "./model";
 import type { TimeRange } from "./Track";
 
@@ -33,50 +35,83 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
   const exportDone = exp?.asked && !t.exporting && t.exported && t.exported.id !== exp.before ? t.exported : null;
   const exportSize = (scale: number) => (t.width && t.height ? `${Math.round((t.width * scale) / 2) * 2} × ${Math.round((t.height * scale) / 2) * 2}` : "");
   const playable = clips.filter((c) => c.lengthMs > 0).length;
+  const busy = Boolean(t.exporting || exporting);
+  // the size it comes out at: the timeline's frame by the scale (not said at the finished size)
+  const size = exp.fit === "largest" && finishedSize ? "" : exportSize(exp.scale);
   return (
-    <Dialog label="Export video" onClose={onClose}>
-        <span className="text-base font-semibold">Export video</span>
-        <span className="text-ink-2">{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable < clips.length ? `${playable} of ${clips.length} clips` : `${playable} clip${playable > 1 ? "s" : ""}`}`} · one MP4 in your library</span>
+    <Dialog label="Export video" onClose={onClose} className={DIALOG}>
+        <DialogHead icon={<Film size={16} />} title="Export video" sub={`${t.name} · one MP4 in your library`} onClose={onClose} />
+        <div className="flex flex-wrap gap-1.5">
+          <Chip>{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable < clips.length ? `${playable} of ${clips.length} clips` : `${playable} clip${playable > 1 ? "s" : ""}`}`}</Chip>
+          {misfits > 0 && !exportDone && !busy && <Chip tone="warn" tip={`${misfits} clip${misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).`}>{misfits} clip{misfits > 1 ? "s" : ""} letterboxed</Chip>}
+        </div>
         {exportDone ? (
           <>
             <span>Done. <span className="font-semibold text-ink">{exportDone.name}</span> is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}{exportDone.durationMs ? `, ${stamp(exportDone.durationMs)}` : ""}.</span>
-            <div className="flex flex-wrap gap-2">
-              <a href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 font-semibold text-accent-ink"><Download size={15} /> Download</a>
+            <DialogFoot>
+              <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
               <Button onClick={() => { onOpen(exportDone); onClose(); }}>Open</Button>
-              <Button tone="quiet" onClick={onClose}>Close</Button>
-            </div>
+              <a href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-accent px-4 font-bold text-accent-ink hover:brightness-110"><Download size={15} /> Download</a>
+            </DialogFoot>
           </>
-        ) : t.exporting || exporting ? (
+        ) : busy ? (
           <>
             <span>{t.exporting?.status === "queued" ? "Queued, after the renders that were asked for before it." : "Exporting."} It runs in the queue, you can keep working.</span>
-            <div><Button tone="quiet" onClick={onClose}>Close</Button></div>
+            <DialogFoot>
+              <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+            </DialogFoot>
           </>
         ) : (
           <>
             {exp.asked && t.exportFailed && <ErrorNote>The export failed: {t.exportFailed}</ErrorNote>}
-            <div className="flex flex-col gap-1.5">
-              <span className="flex items-baseline justify-between text-xs font-semibold"><span>Resolution</span><span className="font-normal text-ink-2">{exportSize(exp.scale)}</span></span>
-              <Segmented<"1" | "1.5" | "2"> label="Resolution" value={String(exp.scale) as "1" | "1.5" | "2"} onChange={(v) => setExp({ ...exp, scale: Number(v) as 1 | 1.5 | 2 })} options={[{ value: "1", label: "As rendered" }, { value: "1.5", label: "1.5× upscale" }, { value: "2", label: "2× upscale" }]} />
-              <span className="text-xs text-ink-2">Upscaling is done by ffmpeg (lanczos, then a light unsharp), not by a model: every frame is resized and a little sharper. The clips are not rendered again, so it works on a small card.</span>
+            <div className="flex flex-col">
+              <FieldRow label="Resolution" note="Upscaling is done by ffmpeg (lanczos, then a light unsharp), not by a model: every frame is resized and a little sharper. The clips are not rendered again, so it works on a small card.">
+                <Segmented<"1" | "1.5" | "2"> label="Resolution" value={String(exp.scale) as "1" | "1.5" | "2"} onChange={(v) => setExp({ ...exp, scale: Number(v) as 1 | 1.5 | 2 })} options={[{ value: "1", label: "As rendered" }, { value: "1.5", label: "1.5×", tip: "1.5× upscale" }, { value: "2", label: "2×", tip: "2× upscale" }]} oneLine className="w-fit" />
+              </FieldRow>
+              {range && !emptyRange && (
+                <FieldRow label="Only the range" note={`In ${stamp(range.inMs)} to Out ${stamp(range.outMs)}`}>
+                  <Toggle bare on={exp.range} onChange={(only) => setExp({ ...exp, range: only })} label="Only the range" />
+                </FieldRow>
+              )}
+              {t.music && (
+                exp.range && range ? (
+                  <FieldRow label="Music" note="The music is left out of a range: it would start from its beginning, not from In.">
+                    <span className="text-xs text-ink-2">Left out of a range</span>
+                  </FieldRow>
+                ) : (
+                  <FieldRow label="Music">
+                    <Toggle bare on={exp.music} onChange={(music) => setExp({ ...exp, music })} label="Include the music" />
+                  </FieldRow>
+                )
+              )}
+              {Math.max(0, ...clips.map((c) => c.take?.asset.fps ?? 0)) < 47 && (
+                <FieldRow label="Interpolation" note="Frame interpolation to 48 fps, by ffmpeg minterpolate. The frames in between are worked out by your processor, not by a model: slow (minutes for a short video), and fast motion can smear. Frame interpolation at render time (RIFE, in the clip's form) is better.">
+                  <Toggle bare on={exp.smooth} onChange={(smooth) => setExp({ ...exp, smooth })} label="Frame interpolation" />
+                </FieldRow>
+              )}
+              {clips.some((c, i) => i > 0 && c.joined === "continue" && c.take && c.take.headMs > c.take.trimStartMs) && (
+                <FieldRow label="Blend joins" note="A clip that extends the one before is crossfaded in over the frames they share (up to 0.4 s), with its sound.">
+                  <Toggle bare on={exp.blend} onChange={(blend) => setExp({ ...exp, blend })} label="Blend joins" />
+                </FieldRow>
+              )}
+              {playable > 1 && (
+                <FieldRow label="Match colours" note="At joins: each clip's brightness and tint nudged to the clip before, a few steps at most.">
+                  <Toggle bare on={exp.match} onChange={(match) => setExp({ ...exp, match })} label="Match colours at joins" />
+                </FieldRow>
+              )}
+              {finishedSize && (
+                <FieldRow label="Finished size" note="The frame of the largest take: the finished clips as they are, the drafts enlarged to it. Off: the timeline's frame.">
+                  <span className="flex items-center gap-2.5">
+                    <Toggle bare on={exp.fit === "largest"} onChange={(on) => setExp({ ...exp, fit: on ? "largest" : "timeline" })} label={`At the finished size (${finishedSize})`} />
+                    <span className="text-xs text-ink-2">{finishedSize}</span>
+                  </span>
+                </FieldRow>
+              )}
             </div>
-            {range && !emptyRange && <Toggle on={exp.range} onChange={(only) => setExp({ ...exp, range: only })} label="Only the range" note={`In ${stamp(range.inMs)} to Out ${stamp(range.outMs)}`} />}
-            {t.music && (exp.range && range ? <span className="text-xs text-ink-2">The music is left out of a range: it would start from its beginning, not from In.</span> : <Toggle on={exp.music} onChange={(music) => setExp({ ...exp, music })} label="Include the music" />)}
-            {Math.max(0, ...clips.map((c) => c.take?.asset.fps ?? 0)) < 47 && (
-              <div className="flex flex-col gap-1">
-                <Toggle on={exp.smooth} onChange={(smooth) => setExp({ ...exp, smooth })} label="Frame interpolation" note="48 fps, ffmpeg minterpolate" />
-                <span className="text-xs text-ink-2">The frames in between are worked out by your processor, not by a model: slow (minutes for a short video), and fast motion can smear. Frame interpolation at render time (RIFE, in the clip's form) is better.</span>
-              </div>
-            )}
-            {clips.some((c, i) => i > 0 && c.joined === "continue" && c.take && c.take.headMs > c.take.trimStartMs) && (
-              <Toggle on={exp.blend} onChange={(blend) => setExp({ ...exp, blend })} label="Blend joins" note="a clip that extends the one before is crossfaded in over the frames they share (up to 0.4 s), with its sound" />
-            )}
-            {playable > 1 && <Toggle on={exp.match} onChange={(match) => setExp({ ...exp, match })} label="Match colours at joins" note="each clip's brightness and tint nudged to the clip before, a few steps at most" />}
-            {finishedSize && <Toggle on={exp.fit === "largest"} onChange={(on) => setExp({ ...exp, fit: on ? "largest" : "timeline" })} label={`At the finished size (${finishedSize})`} note="the frame of the largest take: the finished clips as they are, the drafts enlarged to it. Off: the timeline's frame" />}
-            {misfits > 0 && <span className="text-xs text-ink-2">{misfits} clip{misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).</span>}
-            <div className="flex flex-wrap gap-2">
-              <Button tone="primary" onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); onExport({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined, blend: exp.blend, match: exp.match, fit: exp.fit }); }}>Export</Button>
-              <Button tone="quiet" onClick={onClose}>Close</Button>
-            </div>
+            <DialogFoot info={size || undefined}>
+              <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+              <Button tone="primary" autoFocus onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); onExport({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined, blend: exp.blend, match: exp.match, fit: exp.fit }); }}>Export</Button>
+            </DialogFoot>
           </>
         )}
     </Dialog>

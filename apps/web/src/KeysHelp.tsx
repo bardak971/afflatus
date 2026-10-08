@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
-import { Dialog } from "./Dialog";
-import { typing } from "./Keys";
+import { Keyboard, X } from "lucide-react";
+import { Dialog, DialogHead } from "./Dialog";
+import { Kbd, typing } from "./Keys";
 import { useSettings } from "./data";
 import { cx } from "./ui";
 
@@ -143,12 +143,15 @@ export function KeysHelp() {
   };
   const shown = all ? KEYS : KEYS.filter((g) => onPage(g.where));
   return (
-    <Dialog label="Keyboard shortcuts" onClose={() => setOpen(false)} z="z-[90]" className="flex max-h-full w-full max-w-[1500px] flex-col rounded-2xl border border-line-strong bg-panel">
-        <header data-keys-help className="flex h-16 shrink-0 items-center gap-4 border-b border-line pr-3 pl-6">
-          <h2 className="text-lg font-semibold">Keyboard shortcuts</h2>
-          <span className="grow text-ink-2">{all ? "Every screen's keys. They act when the focus is not in a text field." : "The keys of what is on screen now. They act when the focus is not in a text field."}</span>
-          <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-8 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>{all ? "This screen only" : "Every screen"}</button>
-          <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
+    <Dialog label="Keyboard shortcuts" onClose={() => setOpen(false)} z="z-[90]" className="flex max-h-full w-full max-w-[1500px] flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+        {/* the head, with the switch between it and the way out */}
+        <header data-keys-help className="flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-3.5">
+          <span className="min-w-0 grow">
+            <DialogHead icon={<Keyboard size={16} />} title="Keyboard shortcuts" sub={all ? "Every screen's keys. They act when the focus is not in a text field." : "The keys of what is on screen now. They act when the focus is not in a text field."} />
+          </span>
+          <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-8 shrink-0 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>{all ? "This screen only" : "Every screen"}</button>
+          <Kbd>Esc</Kbd>
+          <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={() => setOpen(false)} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
         </header>
         {/* two wide columns of cards: each row has the keys in a column of one width, and the words beside them on one line or two */}
         <div className="grid min-h-0 content-start gap-4 overflow-y-auto p-5 lg:grid-cols-2">

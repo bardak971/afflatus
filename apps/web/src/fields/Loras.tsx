@@ -187,7 +187,7 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
   }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model]);
   return (
     <div className="flex flex-col gap-1.5">
-      <Label aside={`${value.length} of ${spec.max}`}>{spec.label}</Label>
+      <Label aside={`${value.length} of ${spec.max}`} note={spec.note}>{spec.label}</Label>
       {failed && <span className="text-xs text-ink-3">Trigger words could not be looked up: {failed}</span>}
       {value.map((l, i) => (
         <div key={l.file} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">

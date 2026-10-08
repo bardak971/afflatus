@@ -26,6 +26,11 @@ export function WaitingList({ waiting, onOrder, onRemove }: { waiting: Job[]; on
     "—",
     { label: "Remove from the queue", icon: <X size={14} />, danger: true, run: () => onRemove(j.id) },
   ];
+  /** The head of its menu: its name, its place in the line and its model. */
+  const waitingHead = (j: { id: string; label: string; index: number }) => {
+    const w = waiting.find((x) => x.id === j.id);
+    return { title: j.label, sub: `Waiting · ${j.index + 1} of ${ids.length}${w ? ` · ${modelOf(w)}` : ""}` };
+  };
   const drop = (index: number) => {
     if (!dragged) return;
     onOrder(dropped(ids, dragged, index));
@@ -79,7 +84,7 @@ export function WaitingList({ waiting, onOrder, onRemove }: { waiting: Job[]; on
         {all && waiting.length > SHOWN && <button type="button" onClick={() => setAll(false)} className="underline-offset-2 hover:text-ink hover:underline">show the first {SHOWN} only</button>}
         {waiting.length > 1 && <span data-tip="Images go before videos unless you move them.">{more > 0 || (all && waiting.length > SHOWN) ? " · " : ""}drag a row to reorder</span>}
       </div>
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${menu.menu.subject.label}`} items={itemsOf(menu.menu.subject)} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${menu.menu.subject.label}`} head={waitingHead(menu.menu.subject)} items={itemsOf(menu.menu.subject)} onClose={menu.close} />}
     </div>
   );
 }

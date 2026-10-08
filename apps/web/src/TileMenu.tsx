@@ -6,14 +6,15 @@ import { Clapperboard, Copy, Download, ExternalLink, Eye, Film, MoreHorizontal, 
 import { useAddTo, useLast, useQueueVariation, useStartTimeline } from "./actions";
 import { AddToTimeline } from "./AddToTimeline";
 import { api, type Asset } from "./api";
-import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
+import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
 import { formPlaces, useFormTarget } from "./formTarget";
 import { useAsset, useDrafts, useFamilies, useRecipes, useSetup, useTimelines } from "./data";
 import { saveAsset } from "./download";
 import { useOpenNewDraft } from "./draft";
-import { when } from "./format";
+import { clock, when } from "./format";
 import { useItemMutations } from "./itemMutations";
 import { usedLast } from "./picker";
+import { tileName } from "./screens/Library";
 
 /**
  * The right-click menu of a library tile: what the viewer offers on the item, without opening it. Each
@@ -97,11 +98,24 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
 
   const element = (
     <>
-      {a && menu && <ContextMenu at={menu.at} label={`Actions on this ${a.kind}`} items={items(a)} onClose={close} />}
+      {a && menu && <ContextMenu at={menu.at} label={`Actions on this ${a.kind}`} head={assetHead(a)} items={items(a)} onClose={close} />}
       {timelineMenu.element}
     </>
   );
   return { open, element, items, reading: detail.isLoading };
+}
+
+const KIND_WORD = { image: "Picture", video: "Video", audio: "Sound" } as const;
+
+/** The head of an item's menu: its picture, its name, "Video · 0:05 · Clip 3". */
+export function assetHead(a: Asset): MenuHead {
+  const length = a.kind !== "image" && a.durationMs !== null ? <span className="font-mono">{clock(a.durationMs)}</span> : null;
+  return {
+    title: tileName(a),
+    // a sound has no picture
+    thumb: a.kind === "audio" ? undefined : a.id,
+    sub: <>{KIND_WORD[a.kind]}{length && <> · {length}</>}{a.clipOf && ` · Clip ${a.clipOf.clip}`}</>,
+  };
 }
 
 /**

@@ -6,10 +6,10 @@ import { Check, Film, Folder as FolderIcon, FolderKanban, Pencil, Plus, Trash2, 
 import { Select } from "../../Select";
 import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api";
 import { ask, askText } from "../../Confirm";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../../ContextMenu";
 import { useFolders, useProjects, useProjectsTree } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
-import { when } from "../../format";
+import { clock, when } from "../../format";
 import { plainKey } from "../../Keys";
 import { projectForNew } from "../../project";
 import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
@@ -152,6 +152,11 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
       { label: some ? `Delete ${some}` : "Delete", key: "Del", icon: <Trash2 size={13} />, danger: true, note: "the videos stay in your library", run: () => void removeSome(many) },
     ];
   };
+  /** The head of its menu: its name, length and clips; several picked: how many. */
+  const headOf = (t: TimelineBrief): MenuHead =>
+    picked.has(t.id) && picked.size > 1
+      ? { title: `${picked.size} timelines` }
+      : { title: t.name, thumb: t.cover ?? undefined, sub: <><span className="font-mono">{clock(t.durationMs)}</span> · {t.clips} clip{t.clips === 1 ? "" : "s"}</> };
   const error = create.error ?? rename.error ?? move.error ?? remove.error;
 
   return (
@@ -215,7 +220,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
           }} onTick={() => setPicked((p) => { const n = new Set(p); if (n.has(t.id)) n.delete(t.id); else n.add(t.id); return n; })} />
         ))}
       </div>
-      {menu.menu && <ContextMenu at={menu.menu.at} label="Actions on this timeline" items={items(menu.menu.subject)} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label="Actions on this timeline" head={headOf(menu.menu.subject)} items={items(menu.menu.subject)} onClose={menu.close} />}
     </>
   );
 }

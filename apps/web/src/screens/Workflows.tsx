@@ -201,7 +201,7 @@ export function Workflows() {
           {error && <ErrorNote>{error.message}</ErrorNote>}
 
           <SectionTitle>Your workflows · {list.data?.items.length ?? 0}</SectionTitle>
-          {cardMenu.menu && <ContextMenu at={cardMenu.menu.at} label={`Actions on ${cardMenu.menu.subject.title}`} items={cardItems(cardMenu.menu.subject)} onClose={cardMenu.close} />}
+          {cardMenu.menu && <ContextMenu at={cardMenu.menu.at} label={`Actions on ${cardMenu.menu.subject.title}`} head={{ title: recipeLabel(cardMenu.menu.subject.model, cardMenu.menu.subject.title), sub: `${KIND[cardMenu.menu.subject.output]} · ${cardMenu.menu.subject.nodes} nodes` }} items={cardItems(cardMenu.menu.subject)} onClose={cardMenu.close} />}
           {list.data?.items.map((w) => {
             const recipe = recipes.data?.recipes.find((r) => r.id === w.id);
             // a saved workflow that cannot be built says why; otherwise what the setup check says of its recipe

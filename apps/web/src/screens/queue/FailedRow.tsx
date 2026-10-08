@@ -95,7 +95,7 @@ export function FailedRow({ job }: { job: HistoryJob }) {
           </div>
         </div>
       )}
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${job.label}`} items={items} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${job.label}`} head={{ title: job.label, sub: `Failed · ${modelOf(job)}` }} items={items} onClose={menu.close} />}
     </div>
   );
 }

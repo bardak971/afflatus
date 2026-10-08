@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { create } from "zustand";
-import { Dialog } from "./Dialog";
+import { CircleAlert, PenLine } from "lucide-react";
+import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
+import { Kbd } from "./Keys";
 import { Button, cx, fieldClass } from "./ui";
 
 /**
@@ -71,8 +73,8 @@ function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
   const [text, setText] = useState(open.value);
   const send = () => open.answer(text.trim());
   return (
-    <Dialog label={open.title} onClose={() => open.answer(null)} z="z-[95]" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
-      <h2 className="text-base font-semibold">{open.title}</h2>
+    <Dialog label={open.title} onClose={() => open.answer(null)} z="z-[95]" className={DIALOG}>
+      <DialogHead icon={<PenLine size={15} />} title={open.title} />
       <input
         autoFocus
         value={text}
@@ -87,10 +89,10 @@ function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
         onFocus={(e) => e.currentTarget.select()}
         className={cx(fieldClass, "w-full py-2")}
       />
-      <div className="flex justify-end gap-2 pt-1">
-        <Button tone="quiet" onClick={() => open.answer(null)}>Cancel</Button>
-        <Button tone="primary" onClick={send}>{open.yes}</Button>
-      </div>
+      <DialogFoot>
+        <Button onClick={() => open.answer(null)}>Cancel <Kbd>Esc</Kbd></Button>
+        <Button tone="primary" onClick={send}>{open.yes} <Kbd>↵</Kbd></Button>
+      </DialogFoot>
     </Dialog>
   );
 }
@@ -102,13 +104,13 @@ export function ConfirmHost() {
   // over every other dialog: Escape answers the question and nothing else. The focus starts on Cancel:
   // an Enter pressed by habit does not go ahead with what cannot be undone
   return (
-    <Dialog label={open.title} onClose={() => open.answer(false)} z="z-[95]" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-line-strong bg-panel p-5">
-      <h2 className="text-base font-semibold">{open.title}</h2>
+    <Dialog label={open.title} onClose={() => open.answer(false)} z="z-[95]" className={DIALOG}>
+      <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
       <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
-      <div className="flex justify-end gap-2 pt-1">
-        <Button tone="quiet" autoFocus onClick={() => open.answer(false)}>Cancel</Button>
+      <DialogFoot>
+        <Button autoFocus onClick={() => open.answer(false)}>Keep <Kbd>Esc</Kbd></Button>
         <Button tone="danger" onClick={() => open.answer(true)}>{open.yes}</Button>
-      </div>
+      </DialogFoot>
     </Dialog>
   );
 }

@@ -1,13 +1,13 @@
 import { RANDOM_SEED } from "@afflatus/core";
 import { useSeedMode, type SeedMode } from "../seedMode";
-import { cx, Segmented } from "../ui";
+import { cx, Help, Segmented } from "../ui";
 import { field } from "./Label";
 
 /**
  * Random, or a seed typed in that is kept the same, moved one up or one down after every render; the way it moves
  * is one setting for every form (ComfyUI's "control after generate"). "Make 4" with +1 takes four seeds in a row.
  */
-export function SeedField({ id, label, value, onChange }: { id: string; label: string; value: number; onChange(v: number): void }) {
+export function SeedField({ id, label, note, value, onChange }: { id: string; label: string; note?: string; value: number; onChange(v: number): void }) {
   const mode = useSeedMode((s) => s.mode);
   const setMode = useSeedMode((s) => s.set);
   const random = value === RANDOM_SEED;
@@ -22,6 +22,7 @@ export function SeedField({ id, label, value, onChange }: { id: string; label: s
       <div className="flex items-center gap-3">
         {/* random, there is no number box to name: the chips carry the name themselves */}
         {random ? <span className="shrink-0">{label}</span> : <label htmlFor={id} className="shrink-0">{label}</label>}
+        {note && <Help text={note} title={label} />}
         <Segmented
           label={label}
           value={random ? "random" : mode}

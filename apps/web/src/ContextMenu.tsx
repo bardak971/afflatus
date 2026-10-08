@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
+import { thumbUrl } from "./api";
 import { Kbd } from "./Keys";
 import { cx } from "./ui";
 
@@ -24,6 +25,14 @@ export type MenuItem =
     }
   | "—";
 
+/** What a menu is about, at its top: a name, a dim line, and the picture of an item when it has one. */
+export interface MenuHead {
+  title: string;
+  sub?: ReactNode;
+  /** An item of the library: its thumbnail. */
+  thumb?: string;
+}
+
 interface MenuAt {
   x: number;
   y: number;
@@ -46,7 +55,7 @@ export function menuAt(e: { clientX: number; clientY: number }, el: { getBoundin
  * a scroll or a resize; the arrow keys walk it, Enter runs, → opens a submenu and ← closes it. While it
  * is open the screen's own keys are off (Keys.plainKey sees the [role=menu]).
  */
-export function ContextMenu({ at, items, label, onClose }: { at: MenuAt; items: MenuItem[]; label: string; onClose(): void }) {
+export function ContextMenu({ at, items, label, head, onClose }: { at: MenuAt; items: MenuItem[]; label: string; head?: MenuHead; onClose(): void }) {
   useEffect(() => {
     const down = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest?.("[data-context-menu]")) onClose(); };
     const away = () => onClose();
@@ -62,16 +71,17 @@ export function ContextMenu({ at, items, label, onClose }: { at: MenuAt; items: 
       window.removeEventListener("blur", away);
     };
   }, [onClose]);
-  return createPortal(<Panel at={at} items={items} label={label} onClose={onClose} keyed={Boolean(at.keyed)} />, document.body);
+  return createPortal(<Panel at={at} items={items} label={label} head={head} onClose={onClose} keyed={Boolean(at.keyed)} />, document.body);
 }
 
 /** One panel of a menu: the menu itself, or a submenu beside the item that opened it. */
-function Panel({ at, flipX, items, label, onClose, onBack, keyed = true }: {
+function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }: {
   at: MenuAt;
   /** Where to put it when it does not fit on the right: its right edge here (the parent's left edge). */
   flipX?: number;
   items: MenuItem[];
   label: string;
+  head?: MenuHead;
   onClose(): void;
   onBack?(): void;
   /** Opened from the keyboard: its first item is active at once. */
@@ -141,13 +151,22 @@ function Panel({ at, flipX, items, label, onClose, onBack, keyed = true }: {
         data-context-menu
         // a menu opened from inside a popover (the folder panel) is part of it: pressing an item does not close the popover first
         data-floating=""
-        className="fixed z-[90] flex min-w-[220px] max-w-[340px] flex-col rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60"
+        className="fixed z-[90] flex min-w-[230px] max-w-[340px] flex-col rounded-[14px] border border-line-strong bg-panel p-1.5 shadow-2xl shadow-shade/60 motion-safe:animate-[tip-in_100ms_ease-out]"
         style={{ left: pos.x, top: pos.y }}
         onContextMenu={(e) => e.preventDefault()}
       >
+        {head && (
+          <div className="mb-1 flex items-center gap-2.5 border-b border-line px-2 pt-1 pb-2.5">
+            {head.thumb && <img src={thumbUrl(head.thumb)} alt="" className="h-10 w-10 shrink-0 rounded-lg bg-raised object-cover" />}
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate font-bold">{head.title}</span>
+              {head.sub && <span className="truncate text-xs text-ink-3">{head.sub}</span>}
+            </span>
+          </div>
+        )}
         {items.map((it, i) =>
           it === "—" ? (
-            <div key={`rule-${i}`} className="my-1 border-t border-line" />
+            <div key={`rule-${i}`} className="mx-2 my-1 border-t border-line" />
           ) : (
             <button
               // by place, not by label: two items may say the same thing (two projects of one name under "Move to")
@@ -165,12 +184,12 @@ function Panel({ at, flipX, items, label, onClose, onBack, keyed = true }: {
               }}
               onClick={() => choose(i)}
               className={cx(
-                "flex items-center gap-2.5 px-3 py-1.5 text-left text-sm disabled:opacity-40",
-                (i === active || sub?.index === i) && !it.disabled && "bg-hover",
+                "flex h-8 shrink-0 items-center gap-2.5 rounded-lg px-2 text-left text-sm disabled:opacity-40",
+                (i === active || sub?.index === i) && !it.disabled && (it.danger ? "bg-warn-wash" : "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]"),
                 it.danger ? "text-warn-ink" : "text-ink",
               )}
             >
-              <span className="flex w-4 shrink-0 items-center justify-center text-ink-2">{it.icon}</span>
+              <span className={cx("flex w-4 shrink-0 items-center justify-center", it.danger ? "text-warn-ink" : "text-ink-2")}>{it.icon}</span>
               <span className="min-w-0 grow truncate">{it.label}{it.note && <span className="ml-1.5 text-xs text-ink-3">{it.note}</span>}</span>
               {it.key && <span className="flex shrink-0 gap-1">{it.key.split("  ").map((k) => <Kbd key={k}>{k}</Kbd>)}</span>}
               {it.items && <ChevronRight size={14} className="shrink-0 text-ink-2" />}

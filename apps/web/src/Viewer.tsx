@@ -9,7 +9,7 @@ import { Button } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { OPS } from "./viewer/shared";
 import { useViewerActions } from "./viewer/useViewerActions";
-import { useItemExtras, useTimelineSubmenu } from "./TileMenu";
+import { assetHead, useItemExtras, useTimelineSubmenu } from "./TileMenu";
 import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
 import { ViewerSidebar } from "./viewer/ViewerSidebar";
@@ -124,9 +124,9 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     return [...tileExtras.first(a), ...list.slice(0, bin), "—", ...extras, ...list.slice(bin)];
   };
   const menuElement = videoMenu.menu
-    ? <ContextMenu at={videoMenu.menu.at} label="Actions on this video" items={withViewerExtras(videoItems())} onClose={videoMenu.close} />
+    ? <ContextMenu at={videoMenu.menu.at} label="Actions on this video" head={assetHead(a)} items={withViewerExtras(videoItems())} onClose={videoMenu.close} />
     : imageMenu.menu
-      ? <ContextMenu at={imageMenu.menu.at} label="Actions on this picture" items={withViewerExtras(imageItems())} onClose={imageMenu.close} />
+      ? <ContextMenu at={imageMenu.menu.at} label="Actions on this picture" head={assetHead(a)} items={withViewerExtras(imageItems())} onClose={imageMenu.close} />
       : null;
   const media = (overlay: boolean) => (
     <ViewerMedia

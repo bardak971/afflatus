@@ -57,7 +57,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
           <StageStrip job={running} />
         </div>
       )}
-      {menu.menu && <ContextMenu at={menu.menu.at} label="Actions on the running render" items={[{ label: "Stop this render", icon: <X size={14} />, danger: true, run: () => onStop(running.id) }]} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label="Actions on the running render" head={{ title: running.label, sub: `Running · ${modelOf(running)}` }} items={[{ label: "Stop this render", icon: <X size={14} />, danger: true, run: () => onStop(running.id) }]} onClose={menu.close} />}
     </div>
   );
 }

@@ -4,10 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api, type Clip, type FinishSettings } from "../api";
 import { useSettings } from "../data";
-import { Dialog } from "../Dialog";
+import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
+import { FieldRow } from "../fields";
 import { fileLabel } from "../format";
+import { Kbd } from "../Keys";
 import { Select } from "../Select";
-import { Button, ErrorNote, NumberBox, Segmented, Toggle } from "../ui";
+import { Button, Chip, cx, ErrorNote, NumberBox, Segmented, Toggle } from "../ui";
 
 const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: string }> = [
   { value: "seedvr", label: "SeedVR2 (restores + enlarges)", detail: "any clip; the whole clip in view, so no flicker; compression and softness repaired too. Minutes per clip" },
@@ -56,54 +58,59 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
   const workOf = (c: Clip) => { const a = c.take!.asset; return (a.width ?? 0) * v.factor * (a.height ?? 0) * v.factor * Math.max(1, (Math.max(0, (a.durationMs ?? 0) - hiddenRunUp(c.take!.headMs)) / 1000) * (a.fps ?? 24)); };
   const estimateMs = pace.data?.msPerWork ? todo.reduce((n, c) => n + workOf(c) * pace.data!.msPerWork!, 0) : null;
   return (
-    <Dialog label="Finish all clips" onClose={onClose} className="flex w-full max-w-lg flex-col gap-3.5 rounded-2xl border border-line-strong bg-panel p-5">
-        <span className="flex items-center gap-2 text-base font-semibold"><Sparkles size={16} className="text-accent" /> Finish all clips</span>
-        <span className="text-ink-2">Each clip's selected take is brought to its final quality by the route below, as a new take that plays in its place. The motion stays the same; the draft stays in the takes list. One job per clip, in order.</span>
-        <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
-        {v.route === "latent" && h3 < videos.length && <span className="text-xs text-ink-2">{videos.length - h3} of the {videos.length} clips are not H3 renders: they take SeedVR2.</span>}
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex flex-col"><span className="text-xs font-semibold">Upscale by</span><span className="text-xs text-ink-2">{v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"}</span></span>
-          <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
+    <Dialog label="Finish all clips" onClose={onClose} className={cx(DIALOG, "max-w-lg")}>
+        <DialogHead icon={<Sparkles size={16} />} title="Finish all clips" sub="Each clip's take to its final quality · one job per clip, in order" onClose={onClose} />
+        <div className="flex flex-wrap gap-1.5">
+          <Chip tone="accent">{todo.length} clip{todo.length === 1 ? "" : "s"} to finish</Chip>
+          {stills > 0 && <Chip>{stills} still{stills > 1 ? "s" : ""} left as {stills > 1 ? "they are" : "it is"}</Chip>}
+          {v.route === "latent" && h3 < videos.length && <Chip tone="warn" tip="Only H3 renders are re-sampled in the latent.">{videos.length - h3} of {videos.length} not H3: SeedVR2</Chip>}
         </div>
-        {(v.route === "seedvr" || (v.route === "latent" && h3 < videos.length)) && (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold">SeedVR2 colour match</span>
-            <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
-            <span className="text-xs text-ink-2">the restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint</span>
-            <div className="flex items-center justify-between gap-3 pt-1">
-              <span className="flex flex-col"><span className="text-xs font-semibold">SeedVR2 frames together</span><span className="text-xs text-ink-2">0: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl</span></span>
-              <NumberBox label="SeedVR2 frames together" value={v.seedvrFrames ?? 0} min={0} max={49} step={4} onCommit={(seedvrFrames) => setV({ ...v, seedvrFrames: Math.round(seedvrFrames) })} />
-            </div>
-          </div>
-        )}
-        {v.route === "latent" && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-3">
-              <span className="flex flex-col"><span className="text-xs font-semibold">Re-sample denoise</span><span className="text-xs text-ink-2">0.2 adds detail and keeps the clip; 0.25 and up invent small things (a bird, a moon); past 0.4 faces change</span></span>
-              <NumberBox label="Re-sample denoise" value={v.latentDenoise} min={0.05} max={0.6} step={0.05} onCommit={(latentDenoise) => setV({ ...v, latentDenoise })} />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="flex flex-col"><span className="text-xs font-semibold">Re-sample steps</span><span className="text-xs text-ink-2">each step is a pass over the whole clip</span></span>
-              <NumberBox label="Re-sample steps" value={v.latentSteps} min={1} max={6} step={1} onCommit={(latentSteps) => setV({ ...v, latentSteps: Math.round(latentSteps) })} />
-            </div>
-          </div>
-        )}
-        {v.route === "model" && (
-          <Select label="Upscale model" value={v.upscaleModel} onChange={(upscaleModel) => setV({ ...v, upscaleModel })} placeholder={upscaleModels.length ? "The first found" : "No upscale model in ComfyUI"} options={[{ value: "", label: "The first found" }, ...upscaleModels.map((m) => ({ value: m, label: fileLabel(m) }))]} />
-        )}
-        {finished.length > 0 && <Toggle on={redo} onChange={setRedo} label={`Redo the ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already`} note="off: they are skipped" />}
-        <span className="text-xs text-ink-2">
-          {todo.length} clip{todo.length === 1 ? "" : "s"} to finish{stills ? `; ${stills} still${stills > 1 ? "s" : ""} left as ${stills > 1 ? "they are" : "it is"}` : ""}. The finished takes arrive as the jobs land; export "At the finished size" afterwards.
-          {estimateMs ? ` About ${Math.max(1, Math.round(estimateMs / 60_000))} min in all, from your past finishes with this route.` : tool && pace.isSuccess ? " No time estimate yet: this route has not run here (the first finish teaches it)." : ""}
-        </span>
+        <span className="text-ink-2">Each finished take plays in place of its draft, with the same motion (the draft stays in the takes list); export "At the finished size" afterwards.</span>
+        <div className="flex flex-col">
+          <FieldRow label="Route" note={ROUTES.find((r) => r.value === v.route)?.detail}>
+            <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
+          </FieldRow>
+          <FieldRow label="Upscale by" note={v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"}>
+            <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
+          </FieldRow>
+          {(v.route === "seedvr" || (v.route === "latent" && h3 < videos.length)) && (
+            <>
+              <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
+                <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
+              </FieldRow>
+              <FieldRow label="Frames together" note="SeedVR2 frames together. 0: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl">
+                <NumberBox label="SeedVR2 frames together" value={v.seedvrFrames ?? 0} min={0} max={49} step={4} onCommit={(seedvrFrames) => setV({ ...v, seedvrFrames: Math.round(seedvrFrames) })} />
+              </FieldRow>
+            </>
+          )}
+          {v.route === "latent" && (
+            <>
+              <FieldRow label="Denoise" note="Re-sample denoise. 0.2 adds detail and keeps the clip; 0.25 and up invent small things (a bird, a moon); past 0.4 faces change">
+                <NumberBox label="Re-sample denoise" value={v.latentDenoise} min={0.05} max={0.6} step={0.05} onCommit={(latentDenoise) => setV({ ...v, latentDenoise })} />
+              </FieldRow>
+              <FieldRow label="Steps" note="Re-sample steps: each step is a pass over the whole clip">
+                <NumberBox label="Re-sample steps" value={v.latentSteps} min={1} max={6} step={1} onCommit={(latentSteps) => setV({ ...v, latentSteps: Math.round(latentSteps) })} />
+              </FieldRow>
+            </>
+          )}
+          {v.route === "model" && (
+            <FieldRow label="Upscale model">
+              <Select label="Upscale model" value={v.upscaleModel} onChange={(upscaleModel) => setV({ ...v, upscaleModel })} placeholder={upscaleModels.length ? "The first found" : "No upscale model in ComfyUI"} options={[{ value: "", label: "The first found" }, ...upscaleModels.map((m) => ({ value: m, label: fileLabel(m) }))]} />
+            </FieldRow>
+          )}
+          {finished.length > 0 && (
+            <FieldRow label="Redo finished" note={`The ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already. Off: they are skipped`}>
+              <Toggle bare on={redo} onChange={setRedo} label={`Redo the ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already`} />
+            </FieldRow>
+          )}
+        </div>
         {go.isError && <ErrorNote>{go.error.message}</ErrorNote>}
         {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-        <div className="flex flex-wrap items-center gap-2">
+        <DialogFoot info={estimateMs ? <span data-tip="From your past finishes with this route.">About {Math.max(1, Math.round(estimateMs / 60_000))} min in all</span> : tool && pace.isSuccess ? <span data-tip="This route has not run here: the first finish teaches it.">No time estimate yet</span> : undefined}>
+          <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+          <Button disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
           <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {todo.length} clip{todo.length === 1 ? "" : "s"}</Button>
-          <Button size="sm" disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
-          <span className="grow" />
-          <Button tone="quiet" onClick={onClose}>Close</Button>
-        </div>
+        </DialogFoot>
     </Dialog>
   );
 }

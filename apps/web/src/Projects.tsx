@@ -1,9 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderKanban } from "lucide-react";
+import { FolderKanban, FolderPlus } from "lucide-react";
 import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
-import { Dialog } from "./Dialog";
+import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
+import { FieldRow } from "./fields";
+import { Kbd } from "./Keys";
 import { useProject } from "./project";
 import { Button, cx, ErrorNote, fieldClass } from "./ui";
 
@@ -81,7 +83,7 @@ function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): 
   });
   return (
     // over the Projects panel it is opened from
-    <Dialog label="New project" onClose={onClose} z="z-[70]">
+    <Dialog label="New project" onClose={onClose} z="z-[70]" className={DIALOG}>
       <form
         className="flex flex-col gap-3.5"
         onSubmit={(e) => {
@@ -89,14 +91,15 @@ function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): 
           if (name.trim()) make.mutate(name.trim());
         }}
       >
-        <span className="text-base font-semibold">New project</span>
-        <span className="text-ink-2">A project holds drafts, timelines and folders. It gets a root folder of the same name, where its renders land unless another folder of it is open. The library, the drafts and the timelines then show this project's.</span>
-        <input autoFocus aria-label="Project name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" maxLength={120} className={cx(fieldClass, "h-10")} />
+        <DialogHead icon={<FolderPlus size={16} />} title="New project" sub="Drafts, timelines and folders, with a root folder of its name" onClose={onClose} />
+        <FieldRow label="Name" htmlFor="new-project-name" note="A project holds drafts, timelines and folders. It gets a root folder of the same name, where its renders land unless another folder of it is open. The library, the drafts and the timelines then show this project's.">
+          <input id="new-project-name" autoFocus aria-label="Project name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" maxLength={120} className={cx(fieldClass, "h-10")} />
+        </FieldRow>
         {make.isError && <ErrorNote>{make.error.message}</ErrorNote>}
-        <div className="flex gap-2">
-          <Button tone="primary" type="submit" disabled={!name.trim() || make.isPending}>Create</Button>
-          <Button tone="quiet" type="button" onClick={onClose}>Cancel</Button>
-        </div>
+        <DialogFoot>
+          <Button tone="quiet" type="button" onClick={onClose}>Cancel <Kbd>Esc</Kbd></Button>
+          <Button tone="primary" type="submit" disabled={!name.trim() || make.isPending}>Create <Kbd>↵</Kbd></Button>
+        </DialogFoot>
       </form>
     </Dialog>
   );
