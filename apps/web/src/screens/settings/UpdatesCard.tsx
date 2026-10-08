@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Search } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { api, type UpdateRow } from "../../api";
 import { useModelUpdates, useSettings } from "../../data";
 import { fileLabel } from "../../format";
-import { Button, ErrorNote, Segmented, Toggle } from "../../ui";
+import { Dialog, DialogHead, DIALOG } from "../../Dialog";
+import { Button, cx, ErrorNote, Segmented, Toggle } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 
 /** Newer versions of the models here, on Civitai: a check on request, and once a day when asked for. Its own card, wide: the list can be long. */
@@ -13,7 +14,7 @@ export function UpdatesCard() {
   const client = useQueryClient();
   const report = useModelUpdates();
   const [q, setQ] = useState("");
-  // the list folded by default: with many models it would make the tab endless
+  // the list in a dialog of its own: few update their models, and with many it would make the tab endless
   const [open, setOpen] = useState(false);
   const save = useMutation({ mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }) });
   const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(["model-updates"], r) });
@@ -60,48 +61,51 @@ export function UpdatesCard() {
           </Row>
           {newer.length > 0 && (
             <Row label="Newer versions" sub={`${newer.length} of your models`}>
-              <Button size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
-                {open ? "Hide the list" : `Show ${newer.length}`} <ChevronDown size={13} className={open ? "rotate-180" : ""} />
-              </Button>
+              <Button size="sm" onClick={() => setOpen(true)}>Show the list</Button>
             </Row>
           )}
-          {open && newer.length > 8 && (
-            <Row label="Filter">
-              <Segmented label="Kind" value={kind} onChange={(v) => setKind(v as typeof kind)} options={[{ value: "all", label: `All ${newer.length}` }, ...KINDS.map((k) => ({ value: k.id, label: `${k.label} ${newer.filter((u) => u.folder === k.id).length}` })).filter((o) => !o.label.endsWith(" 0"))]} />
-              <label className="flex h-8 items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
-                <Search size={13} className="shrink-0 text-ink-3" />
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filter ${newer.length}`} className="w-40 min-w-0 bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
-              </label>
-            </Row>
-          )}
-          {open && shown.length > 0 && (
-            // its own scroll, the head kept in view: the page stays as long as the other tabs
-            <div className="max-h-[520px] overflow-y-auto border-t border-line">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-raised text-left text-[11px] tracking-wide text-ink-2 uppercase">
-                  <tr><th className="py-1.5 pr-3 pl-[18px] font-semibold">Model</th><th className="px-3 py-1.5 font-semibold">You have</th><th className="px-3 py-1.5 font-semibold">Newer</th><th className="px-3 py-1.5" /></tr>
-                </thead>
-                {groups.map((g) => (
-                <tbody key={g.id}>
-                  <tr className="border-t border-line bg-raised/60"><th colSpan={4} className="py-1.5 pr-3 pl-[18px] text-left text-xs font-semibold text-ink-2">{g.label} · {g.items.length}</th></tr>
-                  {g.items.map((u) => (
-                    <tr key={`${u.folder}/${u.file}`} className="border-t border-line align-top">
-                      <td className="max-w-[360px] py-2 pr-3 pl-[18px]">
-                        <span className="block truncate font-semibold">{u.modelName || fileLabel(u.file)}</span>
-                        <span className="block truncate text-xs text-ink-3" data-tip={`${u.folder}/${u.file}`}>{u.folder}/{u.file}</span>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-ink-2">{u.versionName || "an older version"}</td>
-                      <td className="px-3 py-2 whitespace-nowrap"><span className="font-semibold">{u.newer!.name}</span>{u.newer!.publishedAt && <span className="text-ink-2"> · {day(u.newer!.publishedAt)}</span>}</td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <a href={u.newer!.page} target="_blank" rel="noreferrer" className="mr-2 text-xs font-semibold underline">Open</a>
-                        {fetching && <Button size="sm" onClick={() => get.mutate(u)} disabled={get.isPending} data-tip="Fetch the newer version into the same folder. The file you have stays until you remove it.">Get it</Button>}
-                      </td>
-                    </tr>
+          {open && (
+            <Dialog label="Newer versions on Civitai" onClose={() => setOpen(false)} className={cx(DIALOG, "max-h-[85vh] max-w-4xl")}>
+              <DialogHead icon={<RefreshCw size={16} />} title="Newer versions on Civitai" sub={`${newer.length} of your models · ${r?.checkedAt ? `checked ${new Date(r.checkedAt).toLocaleString("en-GB")}` : "not checked yet"}`} onClose={() => setOpen(false)} />
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented label="Kind" value={kind} onChange={(v) => setKind(v as typeof kind)} options={[{ value: "all", label: `All ${newer.length}` }, ...KINDS.map((k) => ({ value: k.id, label: `${k.label} ${newer.filter((u) => u.folder === k.id).length}` })).filter((o) => !o.label.endsWith(" 0"))]} />
+                <label className="flex h-8 grow items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
+                  <Search size={13} className="shrink-0 text-ink-3" />
+                  <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filter ${newer.length}`} className="min-w-0 grow bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
+                </label>
+              </div>
+              {/* its own scroll, the head kept in view; what you have and what is newer on one line, so it fits */}
+              <div className="min-h-0 overflow-y-auto rounded-xl border border-line">
+                <table className="w-full table-fixed text-sm">
+                  <thead className="sticky top-0 z-10 bg-raised text-left text-[11px] tracking-wide text-ink-2 uppercase">
+                    <tr><th className="w-[46%] py-1.5 pr-3 pl-3.5 font-semibold">Model</th><th className="px-3 py-1.5 font-semibold">You have → newer</th><th className="w-[130px] px-3 py-1.5" /></tr>
+                  </thead>
+                  {groups.map((g) => (
+                  <tbody key={g.id}>
+                    <tr className="border-t border-line bg-raised/60"><th colSpan={3} className="py-1.5 pr-3 pl-3.5 text-left text-xs font-semibold text-ink-2">{g.label} · {g.items.length}</th></tr>
+                    {g.items.map((u) => (
+                      <tr key={`${u.folder}/${u.file}`} className="border-t border-line align-top">
+                        <td className="py-2 pr-3 pl-3.5">
+                          <span className="block truncate font-semibold" data-tip={u.modelName || undefined}>{u.modelName || fileLabel(u.file)}</span>
+                          <span className="block truncate text-xs text-ink-3" data-tip={`${u.folder}/${u.file}`}>{u.folder}/{u.file}</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="block truncate"><span className="text-ink-2">{u.versionName || "older"}</span> <span className="text-ink-3">→</span> <span className="font-semibold">{u.newer!.name}</span></span>
+                          {u.newer!.publishedAt && <span className="block font-mono text-xs text-ink-3">{day(u.newer!.publishedAt)}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <a href={u.newer!.page} target="_blank" rel="noreferrer" className="mr-2 text-xs font-semibold underline">Open</a>
+                          {fetching && <Button size="sm" onClick={() => get.mutate(u)} disabled={get.isPending} data-tip="Fetch the newer version into the same folder. The file you have stays until you remove it.">Get it</Button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
                   ))}
-                </tbody>
-                ))}
-              </table>
-            </div>
+                </table>
+                {!shown.length && <div className="p-4 text-xs text-ink-3">Nothing matches.</div>}
+              </div>
+              {get.isError && <ErrorNote>{get.error.message}</ErrorNote>}
+            </Dialog>
           )}
           {(check.isError || get.isError || save.isError) && <Block><ErrorNote>{(check.error ?? get.error ?? save.error)?.message}</ErrorNote></Block>}
         </>
