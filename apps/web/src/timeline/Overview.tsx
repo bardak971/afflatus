@@ -159,7 +159,7 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
               <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
             )}
           </FieldRow>
-          <FieldRow label="Cast and mood">
+          <FieldRow label="Cast and mood" note="Who is in the video and a few words of look and mood, set once for every clip: the people's reference pictures and LoRAs, and the words added to each clip's prompt. A clip given its own keeps it; changes apply from the next take.">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-[12.5px] font-semibold text-ink" data-tip={castWords || undefined}>
                 <span className="truncate">{castWords || "Nobody yet, no mood set."}</span>
