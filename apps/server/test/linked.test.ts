@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -218,5 +218,48 @@ describe("a folder linked into a project", () => {
   it("goes to the Inbox without a project", async () => {
     const made = (await post(t.app, "/api/folders/link", { path: dir, project: null })).json() as { projectId: string | null };
     expect(made.projectId).toBeNull();
+  });
+});
+
+describe("a linked folder whose directory moved", () => {
+  const tree = async () => (await get(t.app, "/api/projects/tree")).json() as { groups: Array<{ id: string | null; folders: Array<{ id: string; path?: string; missing?: boolean; children: Array<{ path?: string }> }> }> };
+  it("says where it is in the tree, and that it is not found once its directory is gone", async () => {
+    const root = await link();
+    const node = async () => (await tree()).groups.find((g) => g.id === null)!.folders.find((f) => f.id === root.id)!;
+    expect(await node()).toMatchObject({ path: dir });
+    expect((await node()).missing).toBeUndefined();
+    // the sub-folder is under it: no path of its own
+    expect((await node()).children[0]!.path).toBeUndefined();
+    const away = `${dir}-moved`;
+    renameSync(dir, away);
+    try {
+      expect(await node()).toMatchObject({ path: dir, missing: true });
+    } finally {
+      renameSync(away, dir);
+    }
+  });
+
+  it("is linked again where it is now: its files keep their ids, the sub-folders follow, and it is read again", async () => {
+    const root = await link();
+    const [one] = await inFolder(root.id);
+    const sub = (await folders()).find((f) => f.name === "day 1")!;
+    const [two] = await inFolder(sub.id);
+    const away = `${dir}-moved`;
+    renameSync(dir, away);
+    try {
+      writeFileSync(join(away, "three.png"), picture());
+      const res = await post(t.app, `/api/folders/${root.id}/relink`, { path: away });
+      expect(res.statusCode).toBe(200);
+      const now = await inFolder(root.id);
+      expect(now.find((a) => a.name === "one.png")).toMatchObject({ id: one!.id, path: join(away, "one.png") });
+      expect(now.map((a) => a.name).sort()).toEqual(["one.png", "three.png"]);
+      expect((await folders()).find((f) => f.id === sub.id)?.path).toBe(join(away, "day 1"));
+      expect((await inFolder(sub.id))[0]).toMatchObject({ id: two!.id, path: join(away, "day 1", "two.png") });
+      // a sub-folder is not linked again by itself, nor is a directory that is not there
+      expect((await post(t.app, `/api/folders/${sub.id}/relink`, { path: away })).statusCode).toBe(400);
+      expect((await post(t.app, `/api/folders/${root.id}/relink`, { path: join(away, "nowhere") })).statusCode).toBe(400);
+    } finally {
+      renameSync(away, dir);
+    }
   });
 });

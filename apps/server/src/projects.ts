@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -33,7 +34,7 @@ export async function rootFolderOf(db: Db, project: string | null | undefined): 
 
 const treeQuery = z.object({ q: z.string().trim().max(100).optional(), kind: z.enum(["image", "video", "audio"]).optional() });
 
-interface FolderNode { id: string; name: string; linked: boolean; items: number; totalItems: number; bytes: number; children: FolderNode[] }
+interface FolderNode { id: string; name: string; linked: boolean; /** The directory of a linked folder (the one that was linked: its sub-folders are under it). */ path?: string; /** A linked folder whose directory cannot be read now: moved, deleted, its disk not there. */ missing?: boolean; items: number; totalItems: number; bytes: number; children: FolderNode[] }
 /** `unusedTakes`, `unusedBytes`: its takes no clip plays and nothing else needs, and the size of their videos (timelineUnused.ts). */
 type TimelineLeaf = { id: string; name: string; folderId: string | null; clips: number; durationMs: number; bytes: number; exported: boolean; unusedTakes: number; unusedBytes: number; createdAt: string; updatedAt: string };
 type DraftLeaf = { id: string; title: string; name: string | null; recipe: string; createdAt: string; updatedAt: string };
@@ -73,6 +74,10 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
   const folderIds = new Set(folders.map((f) => f.id));
   const rootOf = (p: { folder_id: string | null }) => (p.folder_id && folderIds.has(p.folder_id) ? p.folder_id : null);
   const roots = new Set(projects.flatMap((p) => rootOf(p) ?? []));
+  // the directories that were linked, and which of them cannot be read now (one look each, at the disk)
+  const linkedRoots = folders.filter((f) => f.path && !folders.some((p) => p.id === f.parent_id && p.path));
+  const missing = new Set((await Promise.all(linkedRoots.map(async (f) => ((await stat(f.path!).catch(() => null))?.isDirectory() ? null : f.id)))).filter((x): x is string => x !== null));
+  const linkedRoot = new Set(linkedRoots.map((f) => f.id));
   const childrenOf = new Map<string | null, typeof folders>();
   for (const f of folders) childrenOf.set(f.parent_id, [...(childrenOf.get(f.parent_id) ?? []), f]);
   const byFolderName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
@@ -82,7 +87,7 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
     const children = (childrenOf.get(f.id) ?? []).filter((c) => !roots.has(c.id) && !seen.has(c.id)).sort(byFolderName).map((c) => node(c, seen));
     const own = byFolder.get(f.id) ?? { n: 0, b: 0 };
     return {
-      id: f.id, name: f.name, linked: Boolean(f.path), items: own.n, children,
+      id: f.id, name: f.name, linked: Boolean(f.path), ...(linkedRoot.has(f.id) ? { path: f.path!, ...(missing.has(f.id) ? { missing: true } : {}) } : {}), items: own.n, children,
       totalItems: own.n + children.reduce((sum, c) => sum + c.totalItems, 0), bytes: own.b + children.reduce((sum, c) => sum + c.bytes, 0),
     };
   };

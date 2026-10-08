@@ -56,6 +56,14 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     return { id: row.id, parentId: null, name: row.name, count: await counted([row.id]), files: await counted([row.id, ...under(row.id)]), path: row.path, root: true, projectId: row.project_id };
   });
 
+  /** A linked folder pointed at where its directory is now; read again at once. */
+  app.post<{ Params: { id: string } }>("/api/folders/:id/relink", async (req) => {
+    await mustExist(req.params.id);
+    const body = z.strictObject({ path: z.string().trim().min(1).max(1000) }).parse(req.body);
+    const row = await s.linked.relink(req.params.id, body.path, (await readSettings(s.db)).comfyDir);
+    return { id: row.id, name: row.name, path: row.path };
+  });
+
   /** Read a linked folder's directory again. */
   app.post<{ Params: { id: string } }>("/api/folders/:id/scan", async (req) => {
     await mustExist(req.params.id);

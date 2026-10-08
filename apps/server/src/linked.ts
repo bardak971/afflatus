@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, delimiter, dirname, extname, join, parse, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import type { EventEmitter } from "node:events";
 import { loadConfig } from "./config";
@@ -162,6 +162,39 @@ export class Linked {
     await this.load();
     await this.scan(row.id);
     return row;
+  }
+
+  /**
+   * Point a linked folder at where its directory is now (moved, or on a disk that came back under another letter): its
+   * sub-folders and files keep their places in Afflatus (their timelines, their names, what they were filed with), only
+   * their paths change; then the directory is read again, and what is not there any more goes as in any reading.
+   */
+  async relink(rootId: string, path: string, comfyDir = ""): Promise<Folder> {
+    const root = await this.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst();
+    if (!root?.path || (await this.rootOf(root)).id !== root.id) throw httpError("Only a folder that was linked itself can be linked again.");
+    const old = resolve(root.path);
+    const dir = resolve(path.trim());
+    if (!(await stat(dir).catch(() => null))?.isDirectory()) throw httpError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
+    const refused = whyNotLinkable(dir, process.env, process.platform, homedir(), comfyDir);
+    if (refused) throw httpError(refused);
+    for (const f of await this.roots()) {
+      if (f.id === root.id) continue;
+      const other = resolve(f.path!);
+      if (under(dir, other) || under(other, dir)) throw httpError(`This folder is already linked, or is inside or around "${f.name}", which is.`);
+    }
+    const moved = (p: string) => join(dir, relative(old, resolve(p)));
+    await this.db.transaction().execute(async (tx) => {
+      const folders = (await tx.selectFrom("folders").select(["id", "path"]).where("path", "is not", null).execute()).filter((f) => under(resolve(f.path!), old));
+      for (const f of folders) await tx.updateTable("folders").set({ path: moved(f.path!) }).where("id", "=", f.id).execute();
+      const files = (await tx.selectFrom("assets").select(["id", "file_key"]).where("file_key", "like", `${LINKED}%`).execute()).filter((a) => under(resolve(diskPath(a.file_key)), old));
+      for (const a of files) await tx.updateTable("assets").set({ file_key: LINKED + moved(diskPath(a.file_key)) }).where("id", "=", a.id).execute();
+      // a file taken to the bin goes back to the new place
+      const binned = (await tx.selectFrom("assets").select(["id", "linked_path"]).where("linked_path", "is not", null).execute()).filter((a) => under(resolve(a.linked_path!), old));
+      for (const a of binned) await tx.updateTable("assets").set({ linked_path: moved(a.linked_path!) }).where("id", "=", a.id).execute();
+    });
+    await this.load();
+    await this.scan(root.id);
+    return (await this.db.selectFrom("folders").selectAll().where("id", "=", root.id).executeTakeFirstOrThrow());
   }
 
   /** Stop showing a linked folder. Nothing on the disk is touched: only what Afflatus knew about it goes. */
