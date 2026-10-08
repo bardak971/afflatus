@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api, ApiError, lookAdds, type Draft } from "./api";
 import { DRAFT_LIST, useDrafts } from "./data";
+import { useProject, type ProjectChoice } from "./project";
 import { useBanners, useOpenDraft } from "./store";
 
 const SAVE_AFTER_MS = 500;
@@ -37,6 +38,21 @@ export async function remade(d: Draft): Promise<Draft> {
 }
 
 /**
+ * What becomes of the open draft, of project `draftProject` (null: the Inbox), while the app looks at `project`
+ * (null: everything, which takes any draft): "keep" when it is there; "follow" (the app looks at its project)
+ * when it was opened from another project since the last switch, `under` being the project looked at then; else
+ * "leave" for that project's own draft (`pickFor`): the project was switched to since, or the draft was moved.
+ */
+export function draftFate(draftProject: string | null, under: ProjectChoice | undefined, project: ProjectChoice): "keep" | "follow" | "leave" {
+  if (project === null || (draftProject ?? "none") === project) return "keep";
+  return under === project ? "follow" : "leave";
+}
+
+/** The draft a project opens on: the one last open in it while it is still in its list, else its newest; never `skip` (the one left, or gone). */
+export const pickFor = (items: { id: string }[], last: string | undefined, skip: string | null) =>
+  items.find((d) => d.id === last && d.id !== skip) ?? items.find((d) => d.id !== skip);
+
+/**
  * A draft that was just made (from a picture, a workflow, a file's parameters) opened in the form:
  * it is put in the cache, the list is told, it becomes the open draft, and the screen goes to the form.
  */
@@ -63,7 +79,8 @@ export function useOpenNewDraft() {
  */
 export function useDraft(firstRecipe: string | undefined) {
   const client = useQueryClient();
-  const { id: openId, open } = useOpenDraft();
+  const { id: openId, under, last, open, remember } = useOpenDraft();
+  const project = useProject((s) => s.id);
   const list = useDrafts();
   const say = useBanners((b) => b.push);
   const loaded = useQuery({ queryKey: ["drafts", openId], queryFn: () => api.draft(openId!), enabled: Boolean(openId), retry: false, staleTime: Infinity });
@@ -77,6 +94,8 @@ export function useDraft(firstRecipe: string | undefined) {
   // the draft on screen, for what arrives after a wait (a designer's reply, a seed moved after queuing)
   const shown = useRef<Draft | null>(null);
   shown.current = draft;
+  // the open draft is of another project than the one looked at (the choice is global, the open draft too)
+  const fate = loaded.data ? draftFate(loaded.data.projectId, under, project) : "keep";
 
   const flush = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current);
@@ -115,12 +134,21 @@ export function useDraft(firstRecipe: string | undefined) {
     if (loaded.data && loaded.data.id !== draft?.id) setDraft(loaded.data);
   }, [loaded.data, draft?.id]);
 
-  // nothing open, or the open one is gone: take the most recent, or start the first one
+  // the project it is in is remembered as where it was last open; opened from another project, the app follows it there
+  useEffect(() => {
+    if (!loaded.data) return;
+    if (fate === "keep") remember(loaded.data.projectId ?? "none", loaded.data.id);
+    else if (fate === "follow") useProject.getState().set(loaded.data.projectId ?? "none");
+  }, [loaded.data, fate, remember]);
+
+  // nothing open, the open one is gone, or another project is looked at since: take the one last open in it (else the most recent), or start the first one
   const creating = useRef(false);
   useEffect(() => {
     if (!list.data) return;
-    if (openId && !loaded.isError) return;
-    const newest = list.data.items.find((d) => d.id !== openId);
+    if (openId && !loaded.isError && fate !== "leave") return;
+    // what is unsaved of the one left is saved under its own id
+    if (fate === "leave") void flush();
+    const newest = pickFor(list.data.items, project === null ? undefined : last[project], openId);
     if (newest) open(newest.id);
     else if (firstRecipe && !creating.current) {
       creating.current = true;
@@ -135,7 +163,7 @@ export function useDraft(firstRecipe: string | undefined) {
           creating.current = false;
         });
     }
-  }, [list.data, openId, loaded.isError, firstRecipe, open, client, say]);
+  }, [list.data, openId, loaded.isError, fate, flush, project, last, firstRecipe, open, client, say]);
 
   // leaving the screen saves what is pending
   useEffect(() => () => void flush(), [flush]);
@@ -195,7 +223,8 @@ export function useDraft(firstRecipe: string | undefined) {
   );
 
   return {
-    draft,
+    // (one of another project is not shown while the project's own is opened)
+    draft: fate === "keep" ? draft : null,
     // (an empty one that is not the open one is on its way out: it is not shown)
     drafts: (list.data?.items ?? []).filter((d) => !d.empty || d.id === openId),
     /** How many drafts hold settings and nothing else (no prompt, no name, nothing made). */

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Draft, Entity, RecipeInfo } from "../src/api";
-import { putDraft, remade, saveBodyOf } from "../src/draft";
+import { draftFate, pickFor, putDraft, remade, saveBodyOf } from "../src/draft";
 import { presetRefusal } from "../src/screens/studio/PresetMenu";
 import { copyText, localId } from "../src/secureContext";
 
@@ -70,5 +70,30 @@ describe("on a page that is not secure (the LAN address over http)", () => {
   it("makes ids without crypto.randomUUID, each its own", () => {
     const ids = new Set(Array.from({ length: 50 }, localId));
     expect(ids.size).toBe(50);
+  });
+});
+
+describe("the open draft when the project looked at changes", () => {
+  it("is kept in its own project, the Inbox, or while everything is looked at", () => {
+    expect(draftFate("p1", "p1", "p1")).toBe("keep");
+    expect(draftFate(null, "p1", "none")).toBe("keep");
+    expect(draftFate("p1", "p2", null)).toBe("keep");
+  });
+  it("is left for the project's own draft once another project is looked at", () => {
+    expect(draftFate("p1", "p1", "p2")).toBe("leave");
+    expect(draftFate("p1", null, "none")).toBe("leave");
+    // opened before the project was remembered with it (an older page)
+    expect(draftFate("p1", undefined, "p2")).toBe("leave");
+  });
+  it("is followed to its project when it was opened from another one", () => {
+    expect(draftFate("p1", "p2", "p2")).toBe("follow");
+    expect(draftFate(null, "p2", "p2")).toBe("follow");
+  });
+  it("opens the project on the draft last open in it, else its newest, never the one left", () => {
+    const items = [{ id: "new" }, { id: "old" }];
+    expect(pickFor(items, "old", "x")).toEqual({ id: "old" });
+    expect(pickFor(items, "elsewhere", "x")).toEqual({ id: "new" });
+    expect(pickFor(items, undefined, "new")).toEqual({ id: "old" });
+    expect(pickFor([], "old", null)).toBeUndefined();
   });
 });

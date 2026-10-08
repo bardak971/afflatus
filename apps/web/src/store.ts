@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SystemLoad } from "./api";
+import { useProject, type ProjectChoice } from "./project";
 import type { GroupBy } from "./screens/studio/grouping";
 
 /** The machine's load, pushed by the server about every two seconds. */
@@ -64,10 +65,20 @@ export const useHandover = create<{ workflow: File | null; show: string | null; 
 
 /**
  * Which draft this browser has open. Only the pointer lives here: the draft itself is on the server,
- * so it is the same from another browser or after a restart.
+ * so it is the same from another browser or after a restart. `under`: the project looked at when it was
+ * opened (a draft of another project opened since is followed there; a project switched to since gets its own
+ * draft, see `draftForProject`). `last`: the draft last open in each project ("none": the Inbox).
  */
-export const useOpenDraft = create<{ id: string | null; open(id: string | null): void }>()(
-  persist((set) => ({ id: null, open: (id) => set({ id }) }), { name: "afflatus.open-draft" }),
+export const useOpenDraft = create<{ id: string | null; under?: ProjectChoice; last: Record<string, string>; open(id: string | null): void; remember(project: string, id: string): void }>()(
+  persist(
+    (set) => ({
+      id: null,
+      last: {},
+      open: (id) => set({ id, under: useProject.getState().id }),
+      remember: (project, id) => set((s) => (s.last[project] === id ? s : { last: { ...s.last, [project]: id } })),
+    }),
+    { name: "afflatus.open-draft" },
+  ),
 );
 
 /**
