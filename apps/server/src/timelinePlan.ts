@@ -31,6 +31,20 @@ export function ownInputs(recipe: Recipe<any>, input: Record<string, unknown>): 
   return Object.fromEntries(Object.entries(input).filter(([id]) => ids.has(id)));
 }
 
+/**
+ * Where a clip that carries on picks up from a clip before whose latent was kept: on the latent's grid (17k + 5 frames), at or
+ * before the moment asked, so the join is made in the latent. Off the grid, the queue joins on frames instead (finishLatent),
+ * which a trim made by hand nearly always lands on. The very end of the video stays as it is (the whole latent is taken), and so
+ * does a moment whose grid frame would leave fewer frames than the run-up the form asks for.
+ */
+export function handoverOnGrid(atMs: number, before: { durationMs: number; latentFrames: number | null }, runUpFrames: number): number {
+  if (!before.latentFrames || atMs >= before.durationMs - 40) return atMs;
+  const frame = Math.round((atMs * MODEL_FPS) / 1000);
+  const grid = latentFrameAtOrBefore(frame);
+  if (grid === frame || grid < Math.max(runUpFrames, 22)) return atMs;
+  return Math.round(grid * (1000 / MODEL_FPS));
+}
+
 /** What a new clip takes over from the nearest clip before it made with the same recipe: its settings, not its story or its pictures. */
 export function settingsOf(recipe: Recipe<any>, all: Placed[], index: number): Record<string, unknown> {
   const before = all.slice(0, index).reverse().find((p) => p.clip.recipe_id === recipe.id);
@@ -216,6 +230,9 @@ export class TimelinePlan {
           at = Math.round(usable * (1000 / MODEL_FPS));
         }
       }
+      // a clip before trimmed by hand stops wherever its out point was put: picked up on the latent's grid all the same, and
+      // that clip then stops there when the take comes back (TimelineTakes, the hand-over before the frozen tail)
+      if (!sameBefore) at = handoverOnGrid(at, { durationMs: before.asset.duration_ms ?? 0, latentFrames: before.asset.latent_frames }, Number(raw.context) || 22);
       plan.input[prevSpec.id] = { asset: before.asset.id, at };
       plan.links.prev = { take: before.take.id, at };
     } else if (startSpec && recipe.traits?.continues === "frame") {

@@ -8,6 +8,7 @@ import { colourNudge, joinVideos, meansAlong, meansWithin, stretchMeans } from "
 import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { markJoins, trimsOf, LEAST_PLAY_MS, type AssetRow, type ClipRow, type Placed, type TakeRow } from "../src/timelineModel";
+import { handoverOnGrid } from "../src/timelinePlan";
 import { tools } from "../src/video";
 import { get, makeApp, type TestApp } from "./helpers";
 
@@ -450,6 +451,18 @@ describe("the join sums shared by the server and the player", () => {
     expect(latentFrameAtOrBefore(22)).toBe(22);
     expect(chunkAtOrAfter(23)).toBe(34);
     expect(chunkAtOrAfter(34)).toBe(34);
+  });
+  it("picks up a clip trimmed by hand on its latent's grid, so the join stays in the latent", () => {
+    const before = { durationMs: 5167, latentFrames: 124 };
+    // 4.1 s is frame 98, 4.958 s frame 119: both off the grid, back to frame 90 and 107
+    expect(handoverOnGrid(4100, before, 39)).toBe(3750);
+    expect(handoverOnGrid(4958, before, 39)).toBe(4458);
+    // on the grid already, or the very end (the whole latent): as asked
+    expect(handoverOnGrid(4458, before, 39)).toBe(4458);
+    expect(handoverOnGrid(5150, before, 39)).toBe(5150);
+    // a grid frame shorter than the run-up asked for, or no latent kept: as asked, joined on frames
+    expect(handoverOnGrid(1500, before, 39)).toBe(1500);
+    expect(handoverOnGrid(4100, { durationMs: 5167, latentFrames: null }, 22)).toBe(4100);
   });
   it("marks a landing on a finished take as on its draft (markJoins)", () => {
     const asset = { duration_ms: 5000, latent_frames: null, fps: 24 } as AssetRow;
