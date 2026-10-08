@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { Camera, Clapperboard, Download, Music, Scissors, Shuffle, Star, Trash2, Wand2 } from "lucide-react";
+import { Camera, Clapperboard, Download, FlipHorizontal2, Music, Scissors, Shuffle, Star, Trash2, Wand2 } from "lucide-react";
 import { RANDOM_SEED } from "@afflatus/core";
 import { useQueueVariation } from "../actions";
 import { askAboutDisk } from "../Confirm";
@@ -106,6 +106,10 @@ export function useViewerActions({ asset, first, trailed, items, detail, into, i
       ...(opener && !a.inBin ? [{ label: `Make a video of it (${openerName})`, key: "M", icon: <Clapperboard size={14} />, run: () => animate.mutate() }] : []),
       ...(now.length ? [{ label: "Queue now", icon: <Wand2 size={14} />, note: "with its own parameters", items: now }] : []),
       ...(forms.length ? [{ label: "Open in a form", icon: <Wand2 size={14} />, note: "a new draft", items: forms }] : []),
+      ...(!a.inBin ? [{ label: "Mirror", icon: <FlipHorizontal2 size={14} />, note: "a mirrored copy", items: [
+        { label: "Left and right", run: () => media.mirror.mutate("horizontal") },
+        { label: "Top and bottom", run: () => media.mirror.mutate("vertical") },
+      ] }] : []),
       "—" as const,
       { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin() },
     ];

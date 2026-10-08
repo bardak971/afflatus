@@ -30,6 +30,21 @@ export async function makeThumb(bytes: Uint8Array): Promise<Uint8Array | null> {
   }
 }
 
+/**
+ * A picture mirrored as it is seen (turned upright first, as its metadata says), as a PNG: left and right swapped
+ * ("horizontal") or top and bottom ("vertical"). Null when it cannot be made (not a picture, no image library).
+ */
+export async function mirrorPicture(bytes: Uint8Array, axis: "horizontal" | "vertical"): Promise<Uint8Array | null> {
+  const lib = await sharp();
+  if (!lib) return null;
+  try {
+    const upright = lib(bytes).rotate();
+    return new Uint8Array(await (axis === "horizontal" ? upright.flop() : upright.flip()).png().toBuffer());
+  } catch {
+    return null;
+  }
+}
+
 /** What a picture really is, read from its bytes: null when it is not a picture that can be opened. */
 export async function readPicture(bytes: Uint8Array): Promise<{ mime: string; width: number; height: number } | null> {
   const lib = await sharp();

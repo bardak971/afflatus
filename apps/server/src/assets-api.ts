@@ -12,7 +12,7 @@ import { isLinked } from "./linked";
 import { assetView, extOf, newAssetRow } from "./media";
 import { castOf, madeIn } from "./provenance";
 import type { Services } from "./services";
-import { makeThumb, thumbKey } from "./thumbs";
+import { makeThumb, mirrorPicture, readPicture, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
 
 /**
@@ -53,6 +53,37 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     await s.db.updateTable("assets").set({ name }).where("id", "=", req.params.id).execute();
     s.queue.events.emit("library");
     return assetView(await asset(req.params.id));
+  });
+
+  /**
+   * A picture mirrored, left and right or top and bottom: a new picture beside it in the same folder, kept, its source
+   * remembered. No GPU: done here with the image library. A keyframe that faces the wrong way for the clip before is
+   * the usual reason (the rider travelling right to left when the shot before goes left to right).
+   */
+  app.post<{ Params: { id: string } }>("/api/assets/:id/mirror", async (req) => {
+    const { axis } = z.strictObject({ axis: z.enum(["horizontal", "vertical"]) }).parse(req.body ?? {});
+    const a = await asset(req.params.id);
+    if (a.kind !== "image") throw httpError("only a picture can be mirrored");
+    const bytes = await mirrorPicture(await s.storage.get(a.file_key), axis);
+    if (!bytes) throw httpError("this picture could not be mirrored: it could not be read, or the image library did not load on this machine");
+    const id = newId();
+    const key = `assets/${id.slice(0, 2)}/${id}.png`;
+    await s.storage.put(key, bytes);
+    const thumb = await makeThumb(bytes);
+    if (thumb) await s.storage.put(thumbKey(id), thumb);
+    const at = now();
+    // its size read from what was made: a picture taken sideways was turned upright first
+    const size = await readPicture(bytes);
+    await s.db
+      .insertInto("assets")
+      .values(newAssetRow({
+        id, kind: "image", origin: "edited", name: a.name ? `${a.name}, mirrored` : "", file_key: key, thumb_key: thumb ? thumbKey(id) : null,
+        mime: "image/png", bytes: bytes.length, width: size?.width ?? a.width, height: size?.height ?? a.height,
+        duration_ms: null, fps: null, has_sound: 0, folder_id: a.folder_id, generation_id: null, source_id: a.id, kept_at: at, created_at: at,
+      }))
+      .execute();
+    s.queue.events.emit("library");
+    return assetView(await asset(id));
   });
 
   /**

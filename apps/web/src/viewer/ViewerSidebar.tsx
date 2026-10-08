@@ -439,9 +439,9 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, recipe, recipes, keep, restore, leave, again, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, between, extendHere, toolFor, openTool, queued, quick, toBin, download } = acts;
+  const { a, g, recipe, recipes, keep, restore, leave, again, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, mirror, between, extendHere, toolFor, openTool, queued, quick, toBin, download } = acts;
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
-  const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
+  const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "edited" ? "Edited copy" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
   const sources = detail.data?.id === a.id ? detail.data.sources : [];
   const usedIn = detail.data?.id === a.id ? detail.data.usedIn : [];
@@ -491,7 +491,7 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
             <SectionTitle>Source</SectionTitle>
             <Strip
               items={[
-                ...(detail.data?.source ? [{ asset: detail.data.source.asset, caption: detail.data.source.range ? `${clock(detail.data.source.range.startMs)}–${clock(detail.data.source.range.endMs)} of it` : a.kind === "image" ? "Frame of it" : "Cut from it" }] : []),
+                ...(detail.data?.source ? [{ asset: detail.data.source.asset, caption: detail.data.source.range ? `${clock(detail.data.source.range.startMs)}–${clock(detail.data.source.range.endMs)} of it` : a.origin === "edited" ? "Mirrored from it" : a.kind === "image" ? "Frame of it" : "Cut from it" }] : []),
                 ...sources.map((s) => ({ asset: s.asset, caption: ROLES[s.role] ?? s.role })),
               ]}
               onOpen={(next) => setTrail([...trail, next])}
@@ -512,7 +512,10 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
               {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
                 <Act key={k} label={OPS[k]!.label} k={k.toUpperCase()} disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)} />
               ))}
+              <Act label="Mirror ↔" disabled={mirror.isPending} title="A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU. For a keyframe that faces the wrong way for the clip before." onClick={() => mirror.mutate("horizontal")} />
+              <Act label="Mirror ↕" disabled={mirror.isPending} title="A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." onClick={() => mirror.mutate("vertical")} />
             </div>
+            {mirror.isError && <span className="text-warn-ink">{mirror.error.message}</span>}
             <ChangePicker madeWith={recipe} keys={Object.fromEntries((["i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [[toolFor(k)!.id, k]] : [])))} start={openTool} />
           </div>
         )}
