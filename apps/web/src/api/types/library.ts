@@ -124,6 +124,10 @@ export interface FolderNode {
   name: string;
   /** A folder of the disk. */
   linked: boolean;
+  /** The directory of the folder of the disk that was linked itself (not set on its sub-folders). */
+  path?: string;
+  /** That directory cannot be read now: moved, deleted, its disk not there. */
+  missing?: boolean;
   /** Items directly in it; in it and every folder under it. */
   items: number;
   totalItems: number;

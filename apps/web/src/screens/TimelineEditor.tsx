@@ -29,6 +29,7 @@ import { useClipEdits } from "../timeline/useClipEdits";
 import { useEditorKeys } from "../timeline/useEditorKeys";
 import { useRange } from "../timeline/useRange";
 import { useTimelineMutations } from "../timeline/useTimelineMutations";
+import { useSelectedClip, useTimelineRequest } from "../bar/bridge";
 
 /**
  * The timeline editor: your media on the left, the video in the middle, the selected clip on the right,
@@ -170,6 +171,51 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const takes = (c: Clip) => estimateFor(estimates.data, recipes.data?.recipes.find((r) => r.id === c.recipe), ready(c).input ?? inputsOf(c))?.ms ?? null;
   const allMs = missing.reduce((sum, c) => sum + (takes(c) ?? 0), 0);
 
+  // what the command bar asked of this timeline (render clips by number, render what is missing, export): done here, as
+  // the buttons do it, once the timeline and its forms are read
+  const openExport = useRef<(() => void) | null>(null);
+  const request = useTimelineRequest((r) => r.request);
+  useEffect(() => {
+    if (!request || request.timeline !== id || !t || !shown) return;
+    const asked = useTimelineRequest.getState().take();
+    if (request.do === "export") {
+      asked?.reply(null);
+      return openExport.current?.();
+    }
+    const list = request.do === "render-missing" ? missing : clips.filter((c, i) => request.clips.includes(i + 1) && c.kind === "video" && !c.job && ready(c).input);
+    if (!list.length) {
+      asked?.reply(null);
+      say({ id: `bar-render:${Date.now()}`, tone: "bad", title: request.do === "render-missing" ? `${t.name} has no clip left to render` : `Nothing to render in clip${request.clips.length > 1 ? "s" : ""} ${request.clips.join(", ")}`, text: request.do === "render" ? "A clip renders when it is a video clip with its form filled, and is not already in the queue." : undefined, href: `/timelines/${id}`, go: "Open the timeline" });
+      return;
+    }
+    // (the promise, not the mutation's own callbacks: those are dropped when the editor is left before the answer)
+    render.mutateAsync({ clips: list }).then(
+      (made) => {
+        asked?.reply(made.ids);
+        // sent to the top of the queue: the bar says so once they are there
+        if (!request.top) say({ id: `bar-render:${Date.now()}`, tone: "good", title: `${list.length} clip${list.length > 1 ? "s" : ""} of ${t.name} queued`, href: "/queue", go: "Open queue" });
+      },
+      (err: Error) => {
+        asked?.reply(null);
+        say({ id: `bar-render:${Date.now()}`, tone: "bad", title: `Clips of ${t.name} could not be rendered`, text: err.message, href: `/timelines/${id}`, go: "Open the timeline" });
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, id, t, shown]);
+
+  // the selected clip, for the command bar's `@name`: who is in it and the Inspector's own change of its cast
+  const setLook = patch.mutateAsync;
+  const castRecipe = current?.recipe ? recipes.data?.recipes.find((r) => r.id === current.recipe) ?? null : null;
+  const castNumber = current ? clips.indexOf(current) + 1 : 0;
+  useEffect(() => {
+    if (!current || !t) return void useSelectedClip.getState().set(null);
+    useSelectedClip.getState().set({
+      timeline: id, timelineName: t.name, id: current.id, number: castNumber, kind: current.kind, recipe: castRecipe,
+      look: current.look ?? t.look, own: current.look !== null, setLook: (look) => setLook({ clip: current.id, patch: { look } }),
+    });
+  }, [current, t, id, castNumber, castRecipe, setLook]);
+  useEffect(() => () => useSelectedClip.getState().set(null), []);
+
   /** How loud the player plays here (0 to 1) and whether it is muted: this browser's, over the timeline's own mix. */
   const [volume, setVolume] = useState(() => {
     try {
@@ -294,6 +340,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     add: (v: { asset: string; after?: string | null }) => add.mutate(v),
   };
   const designed = designing ? clips.find((x) => x.id === designing) : undefined;
+  const exportNow = () => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
+  openExport.current = exportNow;
 
   return (
     <div className="flex min-w-0 grow flex-col">
@@ -314,7 +362,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         onRenderMissing={() => render.mutate({ clips: missing })}
         onRenderPicked={() => { render.mutate({ clips: clips.filter(renderable) }); setPicked(new Set()); }}
         onFinish={() => setFin(true)}
-        onExport={() => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", before: t.exported?.id ?? null, asked: Boolean(t.exporting) })}
+        onExport={exportNow}
       />
 
       <div className="flex min-h-0 grow">

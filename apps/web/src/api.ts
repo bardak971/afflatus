@@ -7,6 +7,7 @@ import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from 
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
 import type { Health, FinishSettings, Settings } from "./api/types/settings";
+import type { CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, HuggingFaceFind, CivitaiFind } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
@@ -16,6 +17,7 @@ export * from "./api/types/timeline";
 export * from "./api/types/designer";
 export * from "./api/types/settings";
 export * from "./api/types/models";
+export * from "./api/types/bar";
 /** The server always answers errors as { error }, written for a person to read. */
 export class ApiError extends Error {
   /** The HTTP status the server answered with; absent when it did not answer. */
@@ -109,6 +111,19 @@ export const api = {
   /** ComfyUI's terminal log, the last few hundred lines (`t`: when, `m`: the line). */
   comfyLogs: (o?: Asked) => call<{ lines: Array<{ t: string; m: string }> }>("GET", "/comfy/logs", undefined, o?.signal),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
+  /** Everything the command bar can find, in one answer. */
+  commandIndex: (o?: Asked) => call<CommandIndex>("GET", "/command-index", undefined, o?.signal),
+  /** What rendering would take: a timeline's clips (by number, 1 = the first; left out, those with nothing rendered yet) or a draft's next render. */
+  commandEstimate: (of: { timeline: string; clips?: number[] } | { draft: string }, o?: Asked) =>
+    call<CommandEstimate>("GET", `/command-estimate?${"draft" in of ? `draft=${encodeURIComponent(of.draft)}` : `timeline=${encodeURIComponent(of.timeline)}${of.clips?.length ? `&clips=${of.clips.join(",")}` : ""}`}`, undefined, o?.signal),
+  /** The prompts that were rendered, each once, newest first; `q`: only those holding it. */
+  promptHistory: (q?: string, limit?: number, o?: Asked) => {
+    const params = new URLSearchParams();
+    if (q?.trim()) params.set("q", q.trim());
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return call<{ items: PromptHistoryItem[] }>("GET", `/prompt-history${qs ? `?${qs}` : ""}`, undefined, o?.signal);
+  },
   advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: { text: string; pace: "usual" | "untested" | "over" } | null }>("POST", "/advice", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
@@ -221,6 +236,7 @@ export const api = {
   /** `project`: the project it goes to the top of (null: the Inbox); left out, the Inbox too. `files`: what it holds, sub-folders included. */
   linkFolder: (path: string, name?: string, project?: string | null) => call<Folder & { files?: number }>("POST", "/folders/link", { path, ...(name ? { name } : {}), ...(project !== undefined ? { project } : {}) }),
   /** Read a linked folder's directory again. */
+  relinkFolder: (id: string, path: string) => call<{ id: string; name: string; path: string }>("POST", `/folders/${id}/relink`, { path }),
   scanFolder: (id: string) => call<{ files: number; folders: number }>("POST", `/folders/${id}/scan`, {}),
   editFolder: (id: string, patch: { name?: string; parentId?: string | null; project?: string | null }) => call<{ ok: true }>("PATCH", `/folders/${id}`, patch),
   deleteFolder: (id: string) => call<{ ok: true }>("DELETE", `/folders/${id}`),

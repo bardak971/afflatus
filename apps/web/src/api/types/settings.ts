@@ -1,4 +1,5 @@
 /** The settings, the language models they name, and the start-up checks. */
+import type { BarSettings } from "./bar";
 
 /** Alive, the version, and the start-up checks: what this computer has of what Afflatus needs. */
 export interface Health {
@@ -67,5 +68,6 @@ export interface Settings {
   /** How many days the time of each render is kept one by one; 0 for good. Older ones become daily figures. */
   renderHistoryDays: number;
   /** Once a day, Civitai is asked for newer versions of the models here (lookups on; hashes are sent). */
-  updateChecks: boolean;
+  updateChecks: boolean;  /** The command bar's shortcut and its optional parts. */
+  bar: BarSettings;
 }

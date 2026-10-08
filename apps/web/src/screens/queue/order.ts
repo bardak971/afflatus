@@ -9,6 +9,12 @@ export function moved(ids: string[], id: string, to: number): string[] {
   return next;
 }
 
+/** The waiting ids with `ids` first, in the order they wait in (one that no longer waits is left out). */
+export function atTop(waiting: string[], ids: string[]): string[] {
+  const up = new Set(ids);
+  return [...waiting.filter((x) => up.has(x)), ...waiting.filter((x) => !up.has(x))];
+}
+
 /** The ids with `dragged` dropped before the job at `index` (the one after the last: at the end). */
 export function dropped(ids: string[], dragged: string, index: number): string[] {
   const from = ids.indexOf(dragged);

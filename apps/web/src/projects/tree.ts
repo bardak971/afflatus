@@ -41,6 +41,10 @@ export interface Row {
   linked?: boolean;
   /** A folder of the disk that was linked itself (not one of its sub-folders). */
   linkedRoot?: boolean;
+  /** That folder's directory, in full (the meta shows its end). */
+  path?: string;
+  /** That directory cannot be read now. */
+  missing?: boolean;
   archived?: boolean;
   /** A project without a root folder. */
   noRoot?: boolean;
@@ -85,10 +89,19 @@ export interface DraftsRead {
 export type ItemKind = "image" | "video" | "audio";
 const KIND_WORD: Record<ItemKind, string> = { image: "image", video: "video", audio: "sound" };
 /** A folder's items, as many as there are of the kind shown: "3 here · 12 items in all", "4 videos", "on your disk". */
-export function folderMeta(f: { items: number; totalItems: number; linked: boolean }, kind?: ItemKind | null): string {
+export function folderMeta(f: { items: number; totalItems: number; linked: boolean; path?: string; missing?: boolean }, kind?: ItemKind | null): string {
   const word = kind ? KIND_WORD[kind] : "item";
   const counted = f.totalItems !== f.items ? `${f.items} here · ${plural(f.totalItems, word)} in all` : plural(f.totalItems, word);
-  return `${counted}${f.linked ? " · on your disk" : ""}`;
+  // the folder that was linked says where it is on the disk (the end of its path); its sub-folders are under it
+  if (f.path) return f.missing ? `not found · ${pathEnd(f.path)}` : `${pathEnd(f.path)} · ${counted}`;
+  return counted;
+}
+
+/** The end of a path, its last two parts: "…\renders\refs" (the whole of a short one). */
+export function pathEnd(path: string): string {
+  const sep = path.includes("\\") ? "\\" : "/";
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts.length > 2 ? `…${sep}${parts.slice(-2).join(sep)}` : path;
 }
 
 /** The order of the rows of each level, set by the column headers: by name, by when it was made, by size; `desc` turns it around. */
@@ -174,6 +187,7 @@ export function flatten(tree: ProjectsTree, s: {
       row: {
         key: `f:${f.id}`, kind: "folder", id: f.id, label: f.name, bytes: f.bytes, group: g.id, linked: f.linked, linkedRoot: f.linked && !parentLinked, archived: g.archived,
         meta: folderMeta(f, s.kind),
+        ...(f.path ? { path: f.path, ...(f.missing ? { missing: true } : {}) } : {}),
         ...(s.kind && !f.totalItems ? { empty: true } : {}),
         ...(!f.totalItems && !f.children.length && !filed.get(f.id)?.length ? { dim: true } : {}),
         match: has(f.name),
@@ -355,6 +369,20 @@ export function planDrop(items: Moving[], t: Target): Op[] | null {
     }
   }
   return ops.length ? ops : null;
+}
+
+/**
+ * Why a refused drop is refused, when the reason is the disk (the rest needs no words: a folder into itself is plain).
+ * Null when it is not refused, or not for that.
+ */
+export function whyRefused(items: Moving[], t: Target): string | null {
+  if (!items.length || planDrop(items, t)) return null;
+  for (const m of items) {
+    if (m.kind === "asset" && m.onDisk && !(t.kind === "folder" && t.linked)) return "a file of your disk: only into another folder of your disk";
+    if (m.kind === "folder" && m.linkedRoot && t.kind === "folder") return "a folder of your disk: drop it on a project";
+    if (t.kind === "folder" && t.linked && m.kind !== "asset") return "a folder of your disk: only files go in it";
+  }
+  return null;
 }
 
 /** Where ↑ ↓ ← → go: the next or previous row, a row's parent. */

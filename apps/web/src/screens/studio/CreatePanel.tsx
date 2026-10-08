@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../../api";
 import { useEntities, useFamilies, useModelSettings, useRecipes, useSetup } from "../../data";
@@ -48,10 +48,10 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const formValues = recipe && draft ? draft.forms[recipe.id] : undefined;
   useEffect(() => {
     if (!recipe || !draft) { publish(null); return; }
-    publish({ recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value) });
+    publish({ recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, look: draft.look, setLook: d.setLook, generate: () => makeNow.current() });
     // the form is gone with the panel
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, draft?.id, formValues]);
+  }, [recipe, draft?.id, formValues, draft?.look]);
   useEffect(() => () => publish(null), [publish]);
 
   const comfyOnline = setup.data?.comfy.online ?? false;
@@ -63,6 +63,11 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const defaults = useMemo(() => (recipe ? formDefaults(recipe, status?.options, settings.data?.items ?? [], formValues).defaults : {}), [recipe, status, settings.data, formValues]);
   const whole = useMemo(() => (recipe && draft ? { ...defaults, ...formValues } : {}), [recipe, draft, defaults, formValues]);
   const send = useGenerate({ recipe, draft, defaults, folder: folder?.id, d, blocked });
+  // Generate from elsewhere (the command bar), refused as the button is
+  const makeNow = useRef(() => {});
+  makeNow.current = () => {
+    if (recipe && draft && !blocked && !send.isPending) send.mutate();
+  };
 
   const pick = useModelPick({ recipe, draft, onPick: d.setRecipe });
   // a preset is a whole setup, kept under a name: the model, its form, who is in it

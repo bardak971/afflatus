@@ -216,6 +216,16 @@ export function useTreeActions() {
         say({ id: `tree-link:${Date.now()}`, tone: "good", title: `${m?.name ?? path} linked: ${n} file${n === 1 ? "" : "s"}`, text: "Its files are used where they are; nothing was copied.", href: "/", go: "Open the Studio" });
       }
     },
+    /** A folder of the disk whose directory is not found, pointed at where it is now: its files keep their places. */
+    async relink(r: Row) {
+      const id = r.id;
+      if (!id) return;
+      const path = await askText({ title: `Link ${r.label} again`, value: r.path ?? "", placeholder: "Where the folder is now, for example D:\images\shoots", yes: "Link again" });
+      if (!path) return;
+      if (await run(`${r.label} could not be linked again`, () => api.relinkFolder(id, path))) {
+        say({ id: `tree-relink:${Date.now()}`, tone: "good", title: `${r.label} linked again`, text: "Its files kept their places in your timelines and folders.", href: "/", go: "Open the Studio" });
+      }
+    },
     /** A folder of the disk read again: what is new appears, what is gone goes. */
     async rescan(r: Row) {
       const id = r.id;

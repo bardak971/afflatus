@@ -4,6 +4,7 @@ import type { ProgressUpdate, QueueStatus, SystemLoad } from "./api";
 import { HISTORY, LIBRARY_KEYS, RENDER_KEYS } from "./data";
 import { endedSince, mergeProgress, notifyTag, throttle } from "./liveState";
 import { useBanners, useNotify, useSystem } from "./store";
+import { BAR_INDEX, useBar } from "./bar/store";
 
 /** The version this page was built as (vite.config.ts), "dev" from the sources: what the server's hello is held against. */
 export const BUILD_VERSION = __AFFLATUS_VERSION__;
@@ -94,6 +95,14 @@ export function useLiveEvents(): void {
       busy = working;
     });
 
+    // the command bar's index: marked old a moment after the last of a run of changes, read again at once only while the bar is open
+    let indexWait: ReturnType<typeof setTimeout> | null = null;
+    const readIndex = () => {
+      if (indexWait) clearTimeout(indexWait);
+      indexWait = setTimeout(() => void client.invalidateQueries({ queryKey: BAR_INDEX, refetchType: useBar.getState().open ? "active" : "none" }), 300);
+    };
+    for (const name of ["library", "timeline", "queue", "entities", "models"]) source.addEventListener(name, readIndex);
+
     source.addEventListener("models", on("model-info"));
     // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
     source.addEventListener("timeline", () => refetch(client, [["timelines"], ["projects", "tree"]]));
@@ -123,6 +132,7 @@ export function useLiveEvents(): void {
     return () => {
       readQueue.cancel();
       readLibrary.cancel();
+      if (indexWait) clearTimeout(indexWait);
       unwatch();
       source.close();
     };

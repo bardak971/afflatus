@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { InputSpec, ReferenceValue } from "@afflatus/core";
-import type { Asset, RecipeInfo } from "./api";
+import type { Asset, Look, RecipeInfo } from "./api";
 import type { MenuItem } from "./ContextMenu";
 
 /**
@@ -12,7 +12,15 @@ interface Target {
   recipe: RecipeInfo;
   values: Record<string, unknown>;
   set(input: string, value: unknown): void;
+  /** The draft it is (the command bar's commands act on the open draft). */
+  draftId?: string;
+  /** Who is in it and how it looks, and the way to change that (the command bar's @ cast). */
+  look?: Look | null;
+  setLook?(look: Look): void;
+  /** Generate, as its button does (refused as the button is: nothing when it cannot run). */
+  generate?(): void;
 }
+export type FormTarget = Target;
 export const useFormTarget = create<{ target: Target | null; publish(t: Target | null): void }>((set) => ({
   target: null,
   publish: (target) => set({ target }),

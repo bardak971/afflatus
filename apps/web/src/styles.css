@@ -110,3 +110,17 @@ input[type="range"] {
     scrollbar-color: var(--color-line-strong) transparent;
   }
 }
+
+/* the command bar: it comes in quickly from a little above, the page behind fades */
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    /* (the bar is centred with the translate property; this moves it on top of that) */
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+@keyframes bar-fade {
+  from {
+    opacity: 0;
+  }
+}

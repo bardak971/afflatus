@@ -10,7 +10,7 @@ import { recipeLabel, size, when } from "../format";
 import { useProject } from "../project";
 import { useHandover, useOpenDraft, useStudio } from "../store";
 import { cx, ErrorNote, Help, Segmented } from "../ui";
-import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
+import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, whyRefused, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
 import { useItemMenu } from "./useItemMenu";
 import { useTreeActions } from "./useTreeActions";
 
@@ -68,7 +68,8 @@ const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
   draft: { icon: <PenLine size={16} />, tone: "text-good" },
   more: { icon: null, tone: "" },
 };
-const LINKED = { icon: <FolderSymlink size={16} />, tone: "text-[color-mix(in_srgb,var(--color-picture)_50%,var(--color-good))]" };
+/** A folder of the disk: its own icon and colour, on it and on every folder under it. */
+const LINKED = { icon: <FolderSymlink size={16} />, tone: "text-good" };
 
 /** The text with what was searched for marked in it. */
 function Lit({ text, q }: { text: string; q: string }) {
@@ -89,8 +90,10 @@ function Lit({ text, q }: { text: string; q: string }) {
  * onto a project, the Inbox or a folder to move them; a right-click gives the rest. Escape or a click
  * elsewhere closes it; a menu or a question opened from it does not.
  */
-export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
+export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: searchFor }: {
   anchor: RefObject<HTMLElement | null>;
+  /** What the search starts on (a name the command bar was asked to show). */
+  search?: string;
   onClose(): void;
   onNew(): void;
   /** An item clicked: shown large in the Viewer, the panel kept underneath. */
@@ -156,8 +159,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
   }, []);
 
   // the search: what is typed, and what is asked for a quarter second after the last key
-  const [text, setText] = useState("");
-  const [q, setQ] = useState("");
+  const [text, setText] = useState(searchFor ?? "");
+  const [q, setQ] = useState(searchFor?.trim().slice(0, 100) ?? "");
   useEffect(() => {
     const t = setTimeout(() => setQ(text.trim().slice(0, 100)), 250);
     return () => clearTimeout(t);
@@ -432,7 +435,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
         if (r.linked)
           return [
             { label: "Open", key: "Enter", icon: <FolderOpen size={14} />, run: () => activate(r) },
-            { label: "Rescan", icon: <RefreshCw size={14} />, note: "what changed on your disk", run: () => void actions.rescan(r) },
+            ...(r.missing ? [{ label: "Link again…", icon: <Link2 size={14} />, note: "where it is now", run: () => void actions.relink(r) }] : []),
+            { label: "Rescan", icon: <RefreshCw size={14} />, disabled: r.missing, note: r.missing ? "not found on your disk" : "what changed on your disk", run: () => void actions.rescan(r) },
             ...(r.linkedRoot
               ? [rename, { ...moveTo, note: "to another project" }, "—" as const, { label: "Unlink…", icon: <Unlink size={14} />, danger: true, note: "nothing on your disk is touched", run: () => void actions.unlink(r) }]
               : []),
@@ -494,6 +498,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
     return r.kind === "bin" ? Boolean(planBin(moving)) : Boolean(r.target && planDrop(moving, r.target));
   };
   const [over, setOver] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ key: string; why: string } | null>(null);
   const opening = useRef<{ key: string; t: ReturnType<typeof setTimeout> } | null>(null);
   const stopOpening = () => {
     if (opening.current) clearTimeout(opening.current.t);
@@ -520,8 +525,12 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
     const fromDisk = !dragged.current && e.dataTransfer.types.includes("Files");
     if (fromDisk ? !takesFiles(r) : !dragged.current || !takes(r)) {
       if (over === r.key) setOver(null);
+      // a drop refused for a reason of the disk says so, in place of the row's line
+      const why = fromDisk ? (r.kind === "folder" && r.linked ? "a folder of your disk: put files in it on your disk" : null) : dragged.current && r.target ? whyRefused(movingOf(dragged.current), r.target) : null;
+      if (why ? refused?.key !== r.key || refused.why !== why : refused?.key === r.key) setRefused(why ? { key: r.key, why } : null);
       return;
     }
+    if (refused) setRefused(null);
     e.preventDefault();
     e.dataTransfer.dropEffect = fromDisk ? "copy" : "move";
     if (over !== r.key) setOver(r.key);
@@ -532,6 +541,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
   };
   const dragLeave = (r: Row, e: DragEvent) => {
     if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    if (refused?.key === r.key) setRefused(null);
     if (over === r.key) setOver(null);
     if (opening.current?.key === r.key) stopOpening();
   };
@@ -540,6 +550,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
     const items = dragged.current;
     dragged.current = null;
     setOver(null);
+    setRefused(null);
     stopOpening();
     if (!items) {
       // files from the computer: uploaded there; a folder dropped is not read (its right-click "Import a folder…" is)
@@ -555,6 +566,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
   const dragEnd = () => {
     dragged.current = null;
     setOver(null);
+    setRefused(null);
     setOverBadge(null);
     stopOpening();
   };
@@ -935,7 +947,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
                   </button>
                 )}
               </span>
-              <span className={cx("min-w-0 truncate text-right text-xs", r.dim ? "text-ink-3" : "text-ink-2")}>{r.meta}</span>
+              <span title={r.path} className={cx("min-w-0 truncate text-right text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>
               <span title={r.created ? new Date(r.created).toLocaleString() : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
               <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">{r.bytes !== null ? size(r.bytes) : ""}</span>
             </div>

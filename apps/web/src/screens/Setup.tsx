@@ -14,50 +14,8 @@ import { NotifyCard } from "./settings/NotifyCard";
 import { PromptsCard, WritingCard } from "./settings/PromptsCard";
 import { StorageCard } from "./settings/StorageCard";
 import { UpdatesCard } from "./settings/UpdatesCard";
-
-const TABS = [
-  { id: "comfyui", label: "ComfyUI" },
-  { id: "models", label: "Models" },
-  { id: "designer", label: "Designer" },
-  { id: "prompts", label: "Prompts" },
-  { id: "appearance", label: "Appearance" },
-  { id: "storage", label: "Storage" },
-  { id: "notifications", label: "Notifications" },
-  { id: "about", label: "About" },
-] as const;
-type Tab = (typeof TABS)[number]["id"];
-
-/** Every setting, by the words someone would look for: what the search box finds, and the tab it is on. */
-const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
-  { tab: "comfyui", label: "ComfyUI URL", words: "address connection test port 8188" },
-  { tab: "comfyui", label: "ComfyUI folder on this computer", words: "open in comfyui directory main.py" },
-  { tab: "comfyui", label: "Unload models after N minutes", words: "vram free idle" },
-  { tab: "models", label: "Models on or off in the lists", words: "families switch hide" },
-  { tab: "models", label: "What is ready", words: "missing files nodes operations" },
-  { tab: "models", label: "Civitai API key", words: "token" },
-  { tab: "models", label: "Civitai lookups", words: "trigger words model pages lora names" },
-  { tab: "models", label: "Download missing files into ComfyUI", words: "manager" },
-  { tab: "models", label: "Download a model from a URL", words: "link hugging face civitai get" },
-  { tab: "models", label: "Newer versions of your models", words: "update check civitai lora checkpoint version" },
-  { tab: "designer", label: "LLMs", words: "language model base url api key vision openai" },
-  { tab: "designer", label: "System prompts", words: "instructions designer standing" },
-  { tab: "prompts", label: "Prompting guides per model", words: "designer rules examples family guide" },
-  { tab: "designer", label: "Context size and max output tokens", words: "thinking" },
-  { tab: "designer", label: "Forget every conversation", words: "chat history" },
-  { tab: "prompts", label: "Danbooru tag check", words: "typo tags" },
-  { tab: "appearance", label: "Theme", words: "dark light catppuccin rose pine system" },
-  { tab: "appearance", label: "Accent colour", words: "color" },
-  { tab: "appearance", label: "Explain every setting in the forms", words: "help tooltips" },
-  { tab: "storage", label: "Disk usage", words: "space size" },
-  { tab: "storage", label: "Empty the bin", words: "trash delete" },
-  { tab: "storage", label: "Takes that never play", words: "idle" },
-  { tab: "storage", label: "Render times kept for", words: "history retention days forget" },
-  { tab: "storage", label: "Back up now", words: "backup zip export restore database files" },
-  { tab: "notifications", label: "Notify when the queue is empty", words: "browser notification" },
-  { tab: "notifications", label: "Notify after each render", words: "browser notification" },
-  { tab: "about", label: "Version", words: "about license source github" },
-  { tab: "about", label: "Start-up checks: ffmpeg, ffprobe, Node, data folder", words: "tools missing install path preflight" },
-];
+import { BarCard } from "./settings/BarCard";
+import { INDEX, TABS, type Tab } from "./settings/settingsIndex";
 
 /** Settings, in tabs: one for each thing being set up. The address carries the tab. */
 export function Setup() {
@@ -130,6 +88,7 @@ export function Setup() {
         {tab === "designer" && <div className="max-w-[900px]"><DesignerCard /></div>}
         {tab === "prompts" && <div className="flex max-w-[900px] flex-col gap-4"><PromptsCard /><WritingCard /></div>}
         {tab === "appearance" && <div className="max-w-[900px]"><AppearanceCard /></div>}
+        {tab === "bar" && <div className="max-w-[1100px]"><BarCard /></div>}
         {tab === "storage" && <div className="max-w-[760px]"><StorageCard /></div>}
         {tab === "notifications" && <div className="max-w-[760px]"><NotifyCard /></div>}
         {tab === "about" && <div className="max-w-[760px]"><AboutCard /></div>}

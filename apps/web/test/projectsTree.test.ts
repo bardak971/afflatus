@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, FolderNode, ProjectsTree, TreeGroup } from "../src/api/types/library";
-import { flatten, folderMeta, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type Moving, type Target } from "../src/projects/tree";
+import { flatten, folderMeta, pathEnd, whyRefused, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type Moving, type Target } from "../src/projects/tree";
 
 const folder = (id: string, children: FolderNode[] = [], linked = false): FolderNode => ({ id, name: id, linked, items: 1, totalItems: 1 + children.length, bytes: 2 ** 20, children });
 const group = (id: string | null, over: Partial<TreeGroup> = {}): TreeGroup => ({
@@ -220,7 +220,7 @@ describe("folders of the disk", () => {
 describe("one kind of item shown", () => {
   it("says the folders' counts in that kind", () => {
     expect(folderMeta({ items: 4, totalItems: 4, linked: false }, "video")).toBe("4 videos");
-    expect(folderMeta({ items: 1, totalItems: 1, linked: true }, "audio")).toBe("1 sound · on your disk");
+    expect(folderMeta({ items: 1, totalItems: 1, linked: true }, "audio")).toBe("1 sound");
     expect(folderMeta({ items: 2, totalItems: 5, linked: false }, "image")).toBe("2 here · 5 images in all");
     expect(folderMeta({ items: 3, totalItems: 3, linked: false })).toBe("3 items");
   });
@@ -325,5 +325,27 @@ describe("empty rows and unused takes", () => {
     expect(row?.meta).toBe("4 clips · 0:20 · exported · 31 unused · 120 MB");
     expect(row?.unused).toEqual({ takes: 31, bytes: 120 * 2 ** 20 });
     expect(flatten(tree, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: () => undefined }).find((r) => r.key === "t:box")?.unused).toBeUndefined();
+  });
+});
+
+describe("a folder of the disk", () => {
+  it("shows the end of its path, or that it is not found", () => {
+    expect(pathEnd("D:\\images\\renders\\refs")).toBe("…\\renders\\refs");
+    expect(pathEnd("/srv/media/shoots/day")).toBe("…/shoots/day");
+    expect(pathEnd("D:\\refs")).toBe("D:\\refs");
+    expect(folderMeta({ items: 2, totalItems: 2, linked: true, path: "D:\\images\\refs" })).toBe("…\\images\\refs · 2 items");
+    expect(folderMeta({ items: 2, totalItems: 2, linked: true, path: "D:\\images\\refs", missing: true })).toBe("not found · …\\images\\refs");
+  });
+
+  it("says why a drop is refused when the disk is the reason, and nothing otherwise", () => {
+    const disk: Target = { kind: "folder", id: "d", group: null, linked: true, ancestors: [], name: "d" };
+    const plain: Target = { kind: "folder", id: "f", group: null, linked: false, ancestors: [], name: "f" };
+    const timeline: Moving = { kind: "timeline", id: "t", group: null, folder: null, name: "t" };
+    expect(whyRefused([timeline], disk)).toBe("a folder of your disk: only files go in it");
+    expect(whyRefused([{ kind: "asset", id: "a", folder: "d", name: "a", onDisk: true }], plain)).toBe("a file of your disk: only into another folder of your disk");
+    expect(whyRefused([{ kind: "folder", id: "d2", group: null, parent: null, name: "d2", linkedRoot: true }], plain)).toBe("a folder of your disk: drop it on a project");
+    // allowed, or refused for another reason: no words
+    expect(whyRefused([timeline], plain)).toBeNull();
+    expect(whyRefused([{ kind: "folder", id: "f", group: null, parent: null, name: "f" }], plain)).toBeNull();
   });
 });

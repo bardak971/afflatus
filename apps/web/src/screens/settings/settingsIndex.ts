@@ -1,0 +1,51 @@
+/** The tabs of Settings and every setting by the words someone would look for: the screen's search and the command bar's `/` read them. */
+
+export const TABS = [
+  { id: "comfyui", label: "ComfyUI" },
+  { id: "models", label: "Models" },
+  { id: "designer", label: "Designer" },
+  { id: "prompts", label: "Prompts" },
+  { id: "appearance", label: "Appearance" },
+  { id: "bar", label: "Command bar" },
+  { id: "storage", label: "Storage" },
+  { id: "notifications", label: "Notifications" },
+  { id: "about", label: "About" },
+] as const;
+export type Tab = (typeof TABS)[number]["id"];
+
+/** Every setting, by the words someone would look for: what the search box finds, and the tab it is on. */
+export const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
+  { tab: "comfyui", label: "ComfyUI URL", words: "address connection test port 8188" },
+  { tab: "comfyui", label: "ComfyUI folder on this computer", words: "open in comfyui directory main.py" },
+  { tab: "comfyui", label: "Unload models after N minutes", words: "vram free idle" },
+  { tab: "models", label: "Models on or off in the lists", words: "families switch hide" },
+  { tab: "models", label: "What is ready", words: "missing files nodes operations" },
+  { tab: "models", label: "Civitai API key", words: "token" },
+  { tab: "models", label: "Civitai lookups", words: "trigger words model pages lora names" },
+  { tab: "models", label: "Download missing files into ComfyUI", words: "manager" },
+  { tab: "models", label: "Download a model from a URL", words: "link hugging face civitai get" },
+  { tab: "models", label: "Newer versions of your models", words: "update check civitai lora checkpoint version" },
+  { tab: "designer", label: "LLMs", words: "language model base url api key vision openai" },
+  { tab: "designer", label: "System prompts", words: "instructions designer standing" },
+  { tab: "prompts", label: "Prompting guides per model", words: "designer rules examples family guide" },
+  { tab: "designer", label: "Context size and max output tokens", words: "thinking" },
+  { tab: "designer", label: "Forget every conversation", words: "chat history" },
+  { tab: "prompts", label: "Danbooru tag check", words: "typo tags" },
+  { tab: "appearance", label: "Theme", words: "dark light catppuccin rose pine system" },
+  { tab: "appearance", label: "Accent colour", words: "color" },
+  { tab: "appearance", label: "Explain every setting in the forms", words: "help tooltips" },
+  { tab: "bar", label: "Command bar shortcut", words: "ctrl k keyboard palette search" },
+  { tab: "bar", label: "Learn what I use", words: "command bar ranking recent" },
+  { tab: "bar", label: "Prompt snippets typed by name", words: "command bar ; expand" },
+  { tab: "bar", label: "Prompt history in the bar", words: "command bar quote" },
+  { tab: "bar", label: "Cast with @", words: "command bar person people" },
+  { tab: "storage", label: "Disk usage", words: "space size" },
+  { tab: "storage", label: "Empty the bin", words: "trash delete" },
+  { tab: "storage", label: "Takes that never play", words: "idle" },
+  { tab: "storage", label: "Render times kept for", words: "history retention days forget" },
+  { tab: "storage", label: "Back up now", words: "backup zip export restore database files" },
+  { tab: "notifications", label: "Notify when the queue is empty", words: "browser notification" },
+  { tab: "notifications", label: "Notify after each render", words: "browser notification" },
+  { tab: "about", label: "Version", words: "about license source github" },
+  { tab: "about", label: "Start-up checks: ffmpeg, ffprobe, Node, data folder", words: "tools missing install path preflight" },
+];

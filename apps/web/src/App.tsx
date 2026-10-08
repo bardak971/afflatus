@@ -17,6 +17,7 @@ import { ConfirmHost } from "./Confirm";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { FolderImportNote } from "./folderImport";
 import { useSystem, useBanners } from "./store";
+import { BarHost } from "./bar/BarHost";
 
 // every screen but the Studio is a chunk of its own, fetched the first time its address is opened
 const People = lazy(() => import("./screens/People").then((m) => ({ default: m.People })));
@@ -180,6 +181,7 @@ export function App() {
       <DropTray />
       <Banners />
       <FolderImportNote />
+      <BarHost />
       <ConfirmHost />
       <Suspense fallback={null}><KeysHelp /></Suspense>
       <TabProgress />

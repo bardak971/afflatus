@@ -7,6 +7,15 @@ import { cx } from "./ui";
 /** Keys held together are written with " + " between them; keys that do the two halves of one thing with two spaces. */
 const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> }> = [
   {
+    where: "Command bar",
+    note: "Everything Afflatus holds and does, from any screen. The shortcut can be changed in Settings › Command bar.",
+    keys: [
+      ["Ctrl + K", "Open or close the bar, a text box included"], ["↑  ↓", "Move through the results"], ["Enter", "The result's first action (open, run, switch)"], ["Ctrl + Enter", "Its second action"],
+      ["Tab", "The result's whole list of actions; Tab or Esc goes back"], ["Shift", "Show or hide the preview"], ["Esc", "Clear what is typed, then close"],
+      [">  #  /", "Commands · projects and folders · settings"], ["=  !", "The calculator · the queue"],
+    ],
+  },
+  {
     where: "Viewer (any item)",
     note: "An image, a video or an audio file: opened from the grid, or shown large under \"This draft\".",
     keys: [

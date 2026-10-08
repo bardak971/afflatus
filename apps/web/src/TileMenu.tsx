@@ -20,8 +20,10 @@ import { usedLast } from "./picker";
  * entry mirrors a button or a key of the viewer. What needs the item's generation parameters (Reuse,
  * Variation, Open in ComfyUI) is offered once they are read, which starts when the menu opens.
  */
-export function useTileMenu({ onOpen, onSelect, into, first, compact }: {
+export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }: {
   onOpen(asset: Asset): void;
+  /** The item the menu is for while it is not open at the pointer (the command bar lists its actions): its generation is read for it. */
+  subject?: Asset | null;
   /** Inside an editor: what the Studio does with an item (i2v, reuse, timelines, projects) folds into one "More" submenu. */
   compact?: boolean;
   /** What the place the menu opens in does with the item, before everything else (the editor's library: add it to the timeline). */
@@ -33,7 +35,7 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact }: {
 }) {
   const { menu, open, close } = useMenu<Asset>();
   const formTarget = useFormTarget((st) => st.target);
-  const a = menu?.subject ?? null;
+  const a = menu?.subject ?? subject ?? null;
   const detail = useAsset(a?.id ?? null);
   const { renameIt, keep, bin, restore, moveToItems, openInComfy, failed } = useItemMutations();
   const recipes = useRecipes();
@@ -99,7 +101,7 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact }: {
       {timelineMenu.element}
     </>
   );
-  return { open, element };
+  return { open, element, items, reading: detail.isLoading };
 }
 
 /**

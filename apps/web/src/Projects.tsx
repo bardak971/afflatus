@@ -33,7 +33,20 @@ export function ProjectSwitch() {
   }, [current, projects.isSuccess, projects.isFetching, picked, set]);
   // the lists follow by themselves: the library, the drafts and the timelines carry the project in their query keys (data.ts)
   const label = current === null ? "All" : current === "none" ? "Inbox" : picked?.name ?? "…";
-  const close = useCallback(() => setOpen(false), []);
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const close = useCallback(() => {
+    setOpen(false);
+    setSearch(undefined);
+  }, []);
+  // opened from elsewhere (the command bar's "Show in Projects"), its search on what to find
+  useEffect(() => {
+    const on = (e: Event) => {
+      setSearch((e as CustomEvent<{ search?: string }>).detail?.search);
+      setOpen(true);
+    };
+    window.addEventListener("afflatus:projects", on);
+    return () => window.removeEventListener("afflatus:projects", on);
+  }, []);
   return (
     <>
       <button
@@ -48,7 +61,7 @@ export function ProjectSwitch() {
         <FolderKanban size={14} />
         <span className="w-full truncate text-center">{label}</span>
       </button>
-      {open && <Suspense fallback={null}><ProjectsPanel anchor={button} onClose={close} onNew={() => setMaking(true)} onView={setViewing} hidden={Boolean(viewing)} /></Suspense>}
+      {open && <Suspense fallback={null}><ProjectsPanel key={search ?? ""} search={search} anchor={button} onClose={close} onNew={() => setMaking(true)} onView={setViewing} hidden={Boolean(viewing)} /></Suspense>}
       {viewing && <Suspense fallback={null}><Viewer asset={viewing} onClose={() => setViewing(null)} /></Suspense>}
       {making && <NewProject onClose={() => setMaking(false)} onMade={(p) => { setMaking(false); set(p.id); }} />}
     </>

@@ -8,6 +8,7 @@ import { nudgeWeight, replaceTag } from "../promptText";
 import { AutoText, cx } from "../ui";
 import { field, Label } from "./Label";
 import { useLoraWords } from "./Loras";
+import { useSnippetKeys } from "../bar/SnippetKeys";
 
 /**
  * Under a prompt written in tags: one short line when some of its tags are not danbooru tags (what anime
@@ -107,9 +108,12 @@ export function PromptField({ spec, id, value, values, onChange }: { spec: Extra
   const checked = spec.style === "tags" && !spec.optional && Boolean(settings.data?.tagCheck);
   const ignore = useLoraWords(checked ? values : undefined);
   const weighs = spec.weights !== false;
+  // `;name` puts a snippet of the Prompt kit in (Settings › Command bar)
+  const snippetKeys = useSnippetKeys({ value, onChange });
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} note={spec.note}>{spec.label}</Label>
+      <div data-snippet-box className="relative flex flex-col">
       <AutoText
         id={id}
         rows={spec.optional && !spec.example ? 2 : 4}
@@ -117,7 +121,9 @@ export function PromptField({ spec, id, value, values, onChange }: { spec: Extra
         placeholder={spec.placeholder}
         title={weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. {a|b|c}: one is picked for each result.` : "{a|b|c}: one is picked for each result."}
         onChange={(e) => onChange(e.target.value)}
+        onSelect={snippetKeys.onSelect}
         onKeyDown={(e) => {
+          if (snippetKeys.onKeyDown(e)) return;
           if (!weighs || !(e.ctrlKey || e.metaKey) || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
           const el = e.currentTarget;
           const next = nudgeWeight(el.value, el.selectionStart, el.selectionEnd, e.key === "ArrowUp" ? 0.1 : -0.1, spec.style === "tags");
@@ -129,6 +135,8 @@ export function PromptField({ spec, id, value, values, onChange }: { spec: Extra
         }}
         className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-[13px]" : "text-sm")}
       />
+      {snippetKeys.list}
+      </div>
       {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
     </div>
   );
