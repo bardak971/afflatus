@@ -184,6 +184,21 @@ export function markJoins(placed: Placed[]): void {
   }
 }
 
+/**
+ * The timeline as it would play with another take of the clip at `index` playing: the take-over points (what the clip
+ * before gives up, where a landing or a seamless take starts) are marked again for it. The placed clips are copied; the
+ * ones given are left as they are. For figures of a take that does not play, measured as it would if it did.
+ */
+export function playingAs(placed: Placed[], index: number, takeId: string): Placed[] {
+  const copy = placed.map((p, i) => {
+    const takes = p.takes.map((t) => ({ take: t.take, asset: t.asset }) as Taken);
+    const wanted = i === index ? takeId : p.active?.take.id;
+    return { ...p, takes, active: takes.find((t) => t.take.id === wanted) ?? null };
+  });
+  markJoins(copy);
+  return copy;
+}
+
 /** The least a rendered clip is left to play, trimmed: trimmed to nothing it would show as a clip not rendered yet. */
 export const LEAST_PLAY_MS = 100;
 /**

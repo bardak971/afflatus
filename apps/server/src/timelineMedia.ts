@@ -8,7 +8,7 @@ import { sourceOf } from "./storage";
 import { folderForMade } from "./timelineFolder";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo, videoFacts } from "./video";
-import { joinFade, lengthOf, sameMaking, seamless, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
+import { joinFade, lengthOf, playingAs, sameMaking, seamless, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
 
 /**
  * What the timelines read out of their videos: a frame as a picture, the film strip, the motion and
@@ -218,15 +218,20 @@ export class TimelineMedia {
       const { start, end } = visible(p.active);
       return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}`, fade: side === "start" ? joinFade(p.active, p.clip.joined === "continue" && me.clip.kind === "video") : null };
     };
-    const prev = edge(all[i - 1], "end");
-    const next = edge(all[i + 1], "start");
-    if (!prev && !next) return me.takes.map((t) => ({ take: t.take.id, in: null, out: null }));
+    if (!edge(all[i - 1], "end") && !edge(all[i + 1], "start")) return me.takes.map((t) => ({ take: t.take.id, in: null, out: null }));
     const sources = new Map<string, Promise<string | Uint8Array>>();
     const load = (a: AssetRow) => {
       if (!sources.has(a.id)) sources.set(a.id, this.source(a));
       return sources.get(a.id)!;
     };
-    return fewAtATime(me.takes, 3, async (t) => {
+    return fewAtATime(me.takes, 3, async (taken) => {
+      // each take as it would play: where the clip before ends, and where it starts itself, move with the take that
+      // plays (a continuation's take-over point, a landing, a seamless take). Measured against the playing take's
+      // points, the others' figures changed with every take picked, and "smoothest" with them
+      const as = playingAs(all, i, taken.take.id);
+      const t = as[i]!.active!;
+      const prev = edge(as[i - 1], "end");
+      const next = edge(as[i + 1], "start");
       const { start, end } = visible(t);
       const key = `${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}`;
       let score = this.joinScores.get(key);
@@ -234,7 +239,7 @@ export class TimelineMedia {
         const fps = t.asset.fps ?? 24;
         score = {
           // as the join plays: with the fade the export and the player put there
-          in: prev ? await joinJump({ source: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { source: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }, joinFade(t, me.clip.joined === "continue" && all[i - 1]?.clip.kind === "video")) : null,
+          in: prev ? await joinJump({ source: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { source: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }, joinFade(t, me.clip.joined === "continue" && as[i - 1]?.clip.kind === "video")) : null,
           out: next ? await joinJump({ source: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { source: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }, next.fade) : null,
         };
         this.joinScores.set(key, score);
