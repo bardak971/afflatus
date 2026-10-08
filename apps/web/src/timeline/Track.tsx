@@ -5,6 +5,9 @@ import { cx } from "../ui";
 import { layout, NEW_CLIP, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
 import type { Clock } from "./clock";
 import { ClipTip } from "./ClipTip";
+import { FramePeek } from "./track/FramePeek";
+import type { PinPlace } from "./track/peek";
+import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { HEIGHT, MUSIC, ROW, SOUND } from "./track/rows";
 import { TrackClip, type Stretch } from "./track/TrackClip";
@@ -13,8 +16,9 @@ import { useMotionMarks } from "./track/useMotionMarks";
 import { useTrackDrop } from "./track/useTrackDrop";
 import { Wave } from "./track/Wave";
 
-/** How long the pointer rests on a clip before its tooltip shows. */
+/** How long the pointer rests on a clip before its tooltip shows; on a pinned picture, before its card shows. */
 const TIP_AFTER_MS = 1000;
+const PIN_AFTER_MS = 250;
 
 /** In and Out on the timeline, on the clock of what plays. */
 export interface TimeRange {
@@ -76,6 +80,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   snapQuiet?: boolean;
 }) {
   const clips = timeline.clips;
+  const floor = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   /** An edge being dragged: the clip, which edge, and the length it has for now. */
@@ -90,13 +95,26 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
       setTip({ clip: id, left: r.left, top: r.bottom });
     }, TIP_AFTER_MS);
   };
+  /** The pinned picture whose card shows (PinPeek), and the timer counting towards showing one. */
+  const [pinOver, setPinOver] = useState<PinOver | null>(null);
+  const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restPin = (clip: string, where: PinPlace | null, el?: HTMLImageElement) => {
+    if (pinTimer.current) clearTimeout(pinTimer.current);
+    pinTimer.current = null;
+    if (!where || !el) return setPinOver(null);
+    pinTimer.current = setTimeout(() => setPinOver({ clip, where, el }), PIN_AFTER_MS);
+  };
+  // a press, a drag or leaving the clip puts both away
   const leaveTip = () => {
     if (tipTimer.current) clearTimeout(tipTimer.current);
-    tipTimer.current = null;
+    if (pinTimer.current) clearTimeout(pinTimer.current);
+    tipTimer.current = pinTimer.current = null;
     setTip(null);
+    setPinOver(null);
   };
   useEffect(() => () => {
     if (tipTimer.current) clearTimeout(tipTimer.current);
+    if (pinTimer.current) clearTimeout(pinTimer.current);
   }, []);
   const pull = useRef<{ x: number; base: number; least: number; most: number } | null>(null);
 
@@ -230,7 +248,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   }, [clips.length, totalMs]);
 
   return (
-    <div data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
+    <div ref={floor} data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
       <div className="flex">
         <div className="relative w-[64px] shrink-0 border-r border-line text-[11px] font-semibold text-ink-2" style={{ height: HEIGHT }}>
           <span className="absolute left-3" style={{ top: ROW.top + ROW.height / 2 - 8 }}>Video</span>
@@ -254,7 +272,6 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               totalMs={totalMs}
               playEnd={playEnd}
               pps={pps}
-              width={width}
               xOf={xOf}
               range={range}
               onRange={onRange}
@@ -265,7 +282,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               snapQuiet={snapQuiet}
             />
 
-            {tip && (() => {
+            {/* a pinned picture's card says more about that spot than the clip's tooltip: the tooltip waits */}
+            {tip && !pinOver && (() => {
               const i = clips.findIndex((c) => c.id === tip.clip);
               return i >= 0 ? <ClipTip clip={clips[i]!} index={i} clips={clips} at={tip} /> : null;
             })()}
@@ -289,6 +307,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 measureOf={measureOf}
                 restOn={restOn}
                 leaveTip={leaveTip}
+                pinOn={pinOver?.clip === s.clip.id ? pinOver.where : null}
+                restPin={restPin}
                 overClip={overClip}
                 startPull={startPull}
                 movePull={movePull}
@@ -340,13 +360,19 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
 
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
             <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} />
+            <FramePeek area={inner} floor={floor} slots={slots} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging)} />
+            {pinOver && (() => {
+              const s = slots.find((x) => x.clip.id === pinOver.clip);
+              const r = floor.current?.getBoundingClientRect();
+              return s && pinOver.el.isConnected ? <PinPeek over={pinOver} slot={s} recipe={recipes.find((x) => x.id === s.clip.recipe)} bounds={r ? { left: r.left, right: r.right } : undefined} /> : null;
+            })()}
           </div>
         </div>
       </div>
       <div className="flex h-8 items-center gap-2 border-t border-line pr-2 pl-3 text-xs">
         <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
-        <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => onZoom(Math.max(ZOOM.least, pps / 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
-        <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => onZoom(Math.min(ZOOM.most, pps * 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
+        <button type="button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => onZoom(Math.max(ZOOM.least, pps / 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
+        <button type="button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => onZoom(Math.min(ZOOM.most, pps * 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
         <button type="button" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
       </div>
     </div>

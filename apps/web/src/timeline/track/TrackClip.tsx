@@ -6,6 +6,7 @@ import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
 import { DRAG_CLIP, fileVersion, otherShape, PAD, pinInputs, playAt, titleOf, type Slot } from "../model";
 import type { TimeRange } from "../Track";
+import { HINTS, type PinPlace } from "./peek";
 import { ROW, SOUND } from "./rows";
 import type { Motion } from "./useMotionMarks";
 import type { Over } from "./useTrackDrop";
@@ -18,7 +19,7 @@ export type Stretch = { clip: string; side: "start" | "end"; lengthMs: number };
  * One clip on the track: its frames at their length, its number and title, what is pinned to it, its render
  * or its state, its edges to trim it by, the join before it, and its sound under it.
  */
-export function TrackClip({ s, clips, timeline, recipes, selected, picked, running, stretch, over, range, slots, totalMs, pps, xOf, measureOf, restOn, leaveTip, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin }: {
+export function TrackClip({ s, clips, timeline, recipes, selected, picked, running, stretch, over, range, slots, totalMs, pps, xOf, measureOf, restOn, leaveTip, pinOn, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin }: {
   s: Slot;
   clips: Clip[];
   timeline: Timeline;
@@ -40,6 +41,9 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
   /** The tooltip: the pointer rests on the clip, or leaves it. */
   restOn(id: string, el: HTMLElement): void;
   leaveTip(): void;
+  /** Its pinned picture whose card shows, if any; and the pointer resting on one of its pinned pictures (null: leaving it). */
+  pinOn?: PinPlace | null;
+  restPin(clip: string, where: PinPlace | null, el?: HTMLImageElement): void;
   /** Something is dragged over the clip. */
   overClip(e: DragEvent, s: Slot): void;
   /** Its edges: drag to shorten it (or to give back what was cut). */
@@ -118,6 +122,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
           onMenu(c, e);
         }}
         aria-pressed={on}
+        data-hint={HINTS.clip}
         // a clip that has its picture is read over it: the colours of the dark stage
         data-stage={s.planned ? undefined : ""}
         aria-label={`Clip ${s.index + 1}, ${titleOf(c, recipe)}${s.planned ? ", not rendered yet" : `, ${(c.lengthMs / 1000).toFixed(1)} seconds`}`}
@@ -150,7 +155,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
                 <button
                   type="button"
                   aria-label={live ? `Stop the render of clip ${s.index + 1}` : `Remove clip ${s.index + 1} from the queue`}
-                  title={live ? "Stop render" : "Remove from queue"}
+                  data-hint={live ? "click: stop the render" : "click: remove it from the queue"}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -177,10 +182,10 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
             </>
           )}
         </span>
-        {/* pictures pinned to its start and its end */}
-        {opens && <img src={thumbUrl(opens)} alt="" title="First frame" draggable={false} className="absolute top-6 left-3.5 h-7 w-7 rounded border-2 border-picture object-cover" />}
-        {ends && <img src={thumbUrl(ends)} alt="" title="Last frame" draggable={false} className="absolute top-6 right-3.5 h-7 w-7 rounded border-2 border-picture object-cover" />}
-        {through && <img src={thumbUrl(through.asset)} alt="" title="Keyframe" draggable={false} className="absolute top-6 h-7 w-7 -translate-x-1/2 rounded border-2 border-picture object-cover" style={{ left: `${through.part * 100}%` }} />}
+        {/* pictures pinned to its start, its end and its middle: resting on one shows it large (PinPeek) */}
+        {opens && <img src={thumbUrl(opens)} alt="" data-pin draggable={false} onPointerEnter={(e) => restPin(c.id, "start", e.currentTarget)} onPointerLeave={() => restPin(c.id, null)} className={pinLook(pinOn === "start", "left-3.5")} />}
+        {ends && <img src={thumbUrl(ends)} alt="" data-pin draggable={false} onPointerEnter={(e) => restPin(c.id, "end", e.currentTarget)} onPointerLeave={() => restPin(c.id, null)} className={pinLook(pinOn === "end", "right-3.5")} />}
+        {through && <img src={thumbUrl(through.asset)} alt="" data-pin draggable={false} onPointerEnter={(e) => restPin(c.id, "mid", e.currentTarget)} onPointerLeave={() => restPin(c.id, null)} className={pinLook(pinOn === "mid", "-translate-x-1/2")} style={{ left: `${through.part * 100}%` }} />}
         {pinned && <span aria-hidden className={cx("absolute inset-y-0 w-2 bg-accent", pinned === "start" ? "left-0" : pinned === "end" ? "right-0" : "left-1/2 -translate-x-1/2")} />}
       </div>
 
@@ -188,9 +193,9 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
       {on && !s.planned && !c.job && (
         <>
           {c.kind === "video" && (
-            <span role="separator" aria-label="Drag to trim the start of the clip" title="Drag to trim the start" onPointerDown={(e) => startPull(e, s, "start")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-l-lg bg-accent" style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
+            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => startPull(e, s, "start")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-l-lg bg-accent" style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
           )}
-          <span role="separator" aria-label="Drag to trim the end of the clip" title={c.kind === "still" ? "Drag to change the still's duration" : "Drag to trim the end"} onPointerDown={(e) => startPull(e, s, "end")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-r-lg bg-accent" style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
+          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => startPull(e, s, "end")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-r-lg bg-accent" style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
         </>
       )}
 
@@ -204,7 +209,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         <button
           type="button"
           onClick={() => (toggles ? onJoin!(c, c.joined === "continue" ? "cut" : "continue") : onSelect(c.id))}
-          title={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${toggles ? ". Click: make it a cut" : ""}` : `A cut${toggles ? `. Click: extend clip ${s.index}` : r && c.kind === "video" ? ": this model cannot extend a clip" : ""}`}
+          data-hint={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${toggles ? ". Click: make it a cut" : ""}` : `A cut${toggles ? `. Click: extend clip ${s.index}` : r && c.kind === "video" ? ": this model cannot extend a clip" : ""}`}
           aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : c.joined === "continue" ? `The join before clip ${s.index + 1}: it extends clip ${s.index}` : `The join before clip ${s.index + 1}: a cut`}
           style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
           className={cx(
@@ -246,3 +251,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
   );
 
 }
+
+/** A pinned picture on a clip: framed in the colour of pictures, ringed in the accent while its card shows. */
+const pinLook = (on: boolean, place: string) =>
+  cx("absolute top-6 h-7 w-7 rounded border-2 object-cover transition-shadow", place, on ? "border-accent ring-[3px] ring-accent/30" : "border-picture");

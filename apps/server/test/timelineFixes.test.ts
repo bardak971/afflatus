@@ -395,6 +395,22 @@ describe("what is worked out of a video", () => {
     expect(items[2].y).toBe(10);
   });
 
+  it("does not land a clip whose own last frame is pinned on the clip after", async () => {
+    const tl = (await t.services.timelines.create("Harbor walk")).id;
+    const a = await clip(tl, 0, { joined: "cut" });
+    const b = await clip(tl, 1);
+    await take(b, await video());
+    const pinned = await video({ kind: "image", mime: "image/png", name: "end.png", duration_ms: null });
+    const recipe = t.services.registry.recipe("h3.video")!;
+    const free = await t.services.timelines.plan(a, recipe, {}, true);
+    expect(free.links.next).toBeDefined();
+    expect(free.input.next).toBeDefined();
+    const ends = await t.services.timelines.plan(a, recipe, { end: pinned.id }, true);
+    expect(ends.links.next).toBeUndefined();
+    expect(ends.input.next).toBeUndefined();
+    expect(ends.input.end).toBe(pinned.id);
+  });
+
   it("says that ffmpeg is missing rather than taking it for a clip that moves to its end (LOW)", async () => {
     const tl = (await t.services.timelines.create("No ffmpeg")).id;
     const a = await clip(tl, 0, { joined: "cut" });

@@ -100,7 +100,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
         <div className="flex flex-wrap items-center gap-2">
           <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {todo.length} clip{todo.length === 1 ? "" : "s"}</Button>
-          <Button size="sm" disabled={save.isPending} title="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
+          <Button size="sm" disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
           <span className="grow" />
           <Button tone="quiet" onClick={onClose}>Close</Button>
         </div>

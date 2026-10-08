@@ -165,7 +165,11 @@ export class TimelinePlan {
     }
     const after = i < all.length - 1 ? all[i + 1]! : null;
     const nextSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "next");
-    if (fit && nextSpec && after?.active && after.clip.joined === "continue") {
+    // a clip with its own last frame pinned ends on that picture: given the next clip's video too, both would guide the
+    // same last frames (the take bends toward the next clip, then the pinned frame snaps in), so the pin wins
+    const endSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "end");
+    const pinnedEnd = Boolean(endSpec && typeof plan.input[endSpec.id] === "string" && plan.input[endSpec.id] !== "");
+    if (fit && !pinnedEnd && nextSpec && after?.active && after.clip.joined === "continue") {
       const at = landingOnGrid(after.active);
       plan.input[nextSpec.id] = { asset: after.active.asset.id, at };
       plan.links.next = { take: after.active.take.id, at };

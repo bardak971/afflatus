@@ -9,7 +9,7 @@ export function Readout({ clock, slots, cursor, total }: { clock: Clock; slots: 
     <>
       <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
       {head && cursor === null && head.slot.clip.lengthMs > 0 && (
-        <span className="hidden text-xs text-ink-2 lg:inline" title="Which clip is under the playhead, and where in it">
+        <span className="hidden text-xs text-ink-2 lg:inline" data-tip="Which clip is under the playhead, and where in it">
           clip {head.slot.index + 1} · <span className="font-mono">{stamp(Math.max(0, time - head.slot.clip.atMs))}</span> of <span className="font-mono">{stamp(head.slot.clip.lengthMs)}</span>
         </span>
       )}

@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, follows, joinFade as fadeOf, landsOn, MODEL_FPS, type JoinTake, type Recipe } from "@afflatus/core";
+import { chunkAtOrAfter, follows, joinFade as fadeOf, landsOn, MODEL_FPS, secondsOf, type JoinTake, type Recipe } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -140,6 +140,16 @@ export const visible = (t: Taken) => {
 };
 /** How long a clip plays: its take's seen part, a still's time on screen, nothing when there is nothing to show. */
 export const lengthOf = (p: Placed) => (p.clip.kind === "still" ? (p.still ? p.clip.still_ms : 0) : p.active ? visible(p.active).end - visible(p.active).start : 0);
+/**
+ * How long a clip is drawn in the editor: what it plays, or, with nothing to play yet, the length its form asks for (five
+ * seconds when it says none, one at least). The same sum as the editor's layout (apps/web/src/timeline/model.ts), so the
+ * command bar says the length the editor's header does.
+ */
+export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined) => {
+  const plays = lengthOf(p);
+  if (plays > 0) return plays;
+  return Math.max(1000, ((recipe ? secondsOf(recipe.inputs, JSON.parse(p.clip.inputs) as Record<string, unknown>) : null) ?? 5) * 1000);
+};
 /** What a take that opens on a still says it carried on from. */
 export const stillRef = (assetId: string) => `still:${assetId}`;
 

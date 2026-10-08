@@ -18,7 +18,7 @@ import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, FROM_PREVIOUS, laidOut, lengthOf, markJoins, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
+import { clockOf, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -296,6 +296,8 @@ export class Timelines {
       if (exported) sizes.set(t.export_asset_id!, live.get(t.export_asset_id!)!);
       return {
         id: t.id, name: t.name, projectId: t.project_id, folderId: t.folder_id, clips: all.length, durationMs: all.reduce((sum, p) => sum + lengthOf(p), 0),
+        // what the editor's header says: the clips with nothing rendered yet at the length their form asks for
+        plannedMs: all.reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0),
         bytes: [...sizes.values()].reduce((a, b) => a + b, 0), exported, createdAt: t.created_at, updatedAt: t.updated_at,
       };
     });
@@ -317,6 +319,8 @@ export class Timelines {
         cover: first?.active?.asset.id ?? first?.still?.id ?? null,
         // a frame per clip (its playing take, or its picture), for the card's film strip
         strip: all.slice(0, 12).map((p) => p.active?.asset.id ?? p.still?.id ?? null),
+        // and how long each of them plays, so a frame is as wide as its clip is long
+        lengths: all.slice(0, 12).map(lengthOf),
         // clips with nothing to play yet, and joins that no longer follow on
         toRender: all.filter((p) => p.clip.kind !== "still" && !p.active).length,
         staleJoins: all.filter((_, i) => this.joinState(all, i) === "stale").length,

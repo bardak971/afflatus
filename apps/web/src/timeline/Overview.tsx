@@ -128,7 +128,7 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
         {elsewhere.length > 0 && (
           <span className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
             {elsewhere.length === 1 ? "1 take sits in another folder." : `${elsewhere.length} takes sit in other folders.`}
-            <Button size="sm" disabled={gather.isPending} onClick={() => gather.mutate()} title="Move those videos into this folder in the library. Nothing on the timeline changes.">{gather.isPending ? "Moving…" : "Move them here"}</Button>
+            <Button size="sm" disabled={gather.isPending} onClick={() => gather.mutate()} data-tip="Move those videos into this folder in the library. Nothing on the timeline changes.">{gather.isPending ? "Moving…" : "Move them here"}</Button>
             {gather.isError && <span className="text-warn-ink">{gather.error.message}</span>}
           </span>
         )}
@@ -148,7 +148,7 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
               const broke = carry !== null && carry > 3;
               const bad = jumped || broke;
               return (
-                <button key={c.id} type="button" onClick={() => onPick(c.id)} title={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? ". Past ×3 the join shows" : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
+                <button key={c.id} type="button" onClick={() => onPick(c.id)} data-tip={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? ". Past ×3 the join shows" : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
                   {i + 1}: {figure === undefined ? "…" : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
                 </button>
               );

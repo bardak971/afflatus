@@ -226,7 +226,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
       <PanelEdge side="left" />
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-2">
         {onClose && (
-          <button type="button" onClick={onClose} aria-label="Back to the timeline" title="Back to the timeline's own panel: its music, cast and export (Esc)" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink">
+          <button type="button" onClick={onClose} aria-label="Back to the timeline" data-tip="Back to the timeline's own panel: its music, cast and export (Esc)" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink">
             <ChevronLeft size={16} />
           </button>
         )}
@@ -320,7 +320,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               const leftFrame = opens ? thumbUrl(opens) : carries && before ? (before.kind === "still" && before.still ? thumbUrl(before.still.id) : before.take ? `/api/assets/${before.take.asset.id}/peek?at=${Math.max(0, Math.round(before.take.endMs - 20))}&h=160&v=${fileVersion(before.take.asset)}` : null) : null;
               const rightFrame = ends ? thumbUrl(ends) : nextJoined && after?.take ? `/api/assets/${after.take.asset.id}/peek?at=${Math.round(after.take.startMs)}&h=160&v=${fileVersion(after.take.asset)}` : null;
               const startsHow = carries ? `Extends clip ${index}: its motion carries in` : opens ? `Opens on a picture` : "Starts on its own";
-              const endsHow = nextJoined ? `ends where clip ${index + 2} begins` : ends ? "ends on a picture" : "ends free";
+              // its own pinned last frame wins over landing on the clip after (the server skips the landing then)
+              const endsHow = ends ? "ends on a picture" : nextJoined ? `ends where clip ${index + 2} begins` : "ends free";
               const seconds = secondsInput(form.inputs);
               const landing = recipe.inputs.find((i) => i.id === "landing" && i.type === "choice");
               const landingOptions = landing && landing.type === "choice" && Array.isArray(landing.options) ? landing.options : [];
@@ -377,7 +378,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                         <span className="animate-pulse text-ink-2">The designer is writing what happens between…</span>
                       ) : (
                         <>
-                          {onWriteBetween && (nextJoined || ends) && <Button size="sm" onClick={onWriteBetween} title="The designer writes the stretch from how the clip before ends to how the clip after starts, in the clip's time."><Wand2 size={13} /> {written ? "Designer: write it again" : "Designer: write it"}</Button>}
+                          {onWriteBetween && (nextJoined || ends) && <Button size="sm" onClick={onWriteBetween} data-tip="The designer writes the stretch from how the clip before ends to how the clip after starts, in the clip's time."><Wand2 size={13} /> {written ? "Designer: write it again" : "Designer: write it"}</Button>}
                           <Button size="sm" onClick={onDesigner}>Talk to the designer</Button>
                         </>
                       )}
@@ -432,7 +433,13 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         <div className="flex shrink-0 flex-col gap-2 border-t border-line p-4">
           {error && <ErrorNote>{error}</ErrorNote>}
           {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href={why.includes("ComfyUI") ? "/settings" : "/settings/models"} className="font-semibold underline">Open Settings</Link> : null}</div>}
-          {canFit && <Toggle on={fit} onChange={setFit} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />}
+          {/* a pinned last frame wins over the landing (the server skips it): shown off, the stored choice kept for when the pin goes */}
+          {canFit && (
+            <div className="flex flex-col gap-1">
+              <Toggle on={fit && !ends} onChange={setFit} disabled={Boolean(ends)} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />
+              {ends && <span className="text-xs text-ink-2">Off: this clip's own last frame is pinned.</span>}
+            </div>
+          )}
           {!clip.job && (
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold">Takes at once</span>
@@ -449,12 +456,12 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${about(running.eta)}` : ""}</span>
               </div>
               <Bar value={(running?.progress ?? 0) * 100} />
-              <Button size="sm" className="self-start" onClick={onStop} title={running ? "Stop this render. Nothing is added; the clip keeps the takes it has." : "Remove it from the queue."}>
+              <Button size="sm" className="self-start" onClick={onStop} data-tip={running ? "Stop this render. Nothing is added; the clip keeps the takes it has." : "Remove it from the queue."}>
                 {running ? "Stop render" : "Remove from queue"}
               </Button>
             </div>
           ) : (
-            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit, count)} title={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
+            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit, count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
               {busy ? "Sending…" : `${count > 1 ? `Render ${count} takes` : take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
             </Button>
           )}
@@ -505,7 +512,7 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
   return (
     <div className="flex flex-col gap-2">
       {/* one line, folded: the table takes room that the form needs more often */}
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex items-center gap-2 text-left" title={open ? "Fold the figures" : "Every figure, with its meaning"}>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex items-center gap-2 text-left" data-tip={open ? "Fold the figures" : "Every figure, with its meaning"}>
         <SectionTitle>Look</SectionTitle>
         <span className="min-w-0 grow truncate font-mono text-[11px] tabular-nums text-ink-3">{brief}</span>
         <ChevronDown size={13} className={cx("shrink-0 text-ink-3 transition-transform", open && "rotate-180")} />
@@ -514,7 +521,7 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
       <table className="w-full text-xs">
         <tbody>
           {rows.map((r) => (
-            <tr key={r.label} title={r.why}>
+            <tr key={r.label} data-tip={r.why}>
               <td className="py-0.5 text-ink-2">{r.label}</td>
               <td className={cx("py-0.5 text-right font-mono tabular-nums", r.bad && "text-warn-ink")}>{r.value}</td>
               <td className="py-0.5 pl-3 text-right font-mono tabular-nums text-ink-3">{r.since ?? ""}</td>
@@ -533,7 +540,7 @@ function PinDrop({ className, onPick, children }: { className?: string; onPick(i
   const upload = useMutation({ mutationFn: (file: File) => api.upload(file, { project: projectForNew() }), onSuccess: (a) => onPick(a.id) });
   const drop = useDropZone([DRAG_PICTURE], onPick, (file) => file.type.startsWith("image/") && upload.mutate(file));
   return (
-    <div {...drop.props} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} title={drop.wanted ? "Drop the picture here" : undefined}>
+    <div {...drop.props} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} data-tip={drop.wanted ? "Drop the picture here" : undefined}>
       {children}
       {upload.isPending && <span className="ml-1 text-xs text-ink-2">Adding…</span>}
     </div>
@@ -572,8 +579,8 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
                     >
                       <span className="relative">
                         <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
-                        {smoothest === t.id && clip.takes.length > 1 && <span className="absolute bottom-1 left-1 rounded bg-good px-1 py-px text-[9px] font-bold leading-tight text-ground" title="The smoothest joins of the takes">smoothest</span>}
-                        {t.finishedFrom && <span className="absolute top-1 left-1 rounded bg-accent px-1 py-px text-[9px] font-bold leading-tight text-accent-ink" title={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</span>}
+                        {smoothest === t.id && clip.takes.length > 1 && <span className="absolute bottom-1 left-1 rounded bg-good px-1 py-px text-[9px] font-bold leading-tight text-ground" data-tip="The smoothest joins of the takes">smoothest</span>}
+                        {t.finishedFrom && <span className="absolute top-1 left-1 rounded bg-accent px-1 py-px text-[9px] font-bold leading-tight text-accent-ink" data-tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</span>}
                       </span>
                       <span className={cx("text-[11px]", on ? "font-semibold text-accent" : "text-ink-2")}>{on ? "plays" : `take ${i + 1}`}</span>
                       {(() => {
@@ -581,14 +588,14 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
                         if (!j || (j.in === null && j.out === null)) return null;
                         const bad = (v: number | null) => v !== null && v >= 2.5;
                         return (
-                          <span className="flex items-center gap-1 font-mono text-[10px] leading-none" title="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
+                          <span className="flex items-center gap-1 font-mono text-[10px] leading-none" data-tip="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
                             {j.in !== null && <span className={bad(j.in) ? "text-warn-ink" : "text-ink-3"}>in ×{j.in}</span>}
                             {j.out !== null && <span className={bad(j.out) ? "text-warn-ink" : "text-ink-3"}>out ×{j.out}</span>}
                           </span>
                         );
                       })()}
                     </button>
-                    <button type="button" aria-label={`Remove take ${i + 1}`} title="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/80 text-ink-2 hover:text-ink">
+                    <button type="button" aria-label={`Remove take ${i + 1}`} data-tip="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/80 text-ink-2 hover:text-ink">
                       <X size={11} />
                     </button>
                   </div>

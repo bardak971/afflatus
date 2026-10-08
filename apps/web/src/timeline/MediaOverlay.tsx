@@ -145,7 +145,7 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
         type="button"
         aria-pressed={open}
         aria-label={open ? "Fold the media away" : "Show the media"}
-        title={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form; a click adds at the end."}
+        data-tip={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form; a click adds at the end."}
         onClick={() => setOpen(!open)}
         className={cx("flex h-8 w-8 items-center justify-center rounded-lg hover:bg-hover hover:text-ink", open ? "text-accent" : "text-ink-2")}
       >
@@ -159,7 +159,7 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
   const tileOf = (a: Asset) => {
     const where = used.where.get(a.id);
     return (
-      <div key={a.id} title={where ? `${where} of this timeline. ${what(a)}` : what(a)} className={cx("relative rounded-[10px]", used.playing.has(a.id) && "ring-2 ring-accent")}>
+      <div key={a.id} data-tip={where ? `${where} of this timeline. ${what(a)}` : what(a)} className={cx("relative rounded-[10px]", used.playing.has(a.id) && "ring-2 ring-accent")}>
         <Tile asset={a} onOpen={() => onOpen(a)} onMenu={(e) => menu.open(e, a)} />
         {where && scope !== "timeline" && <span className="pointer-events-none absolute top-2 left-2 z-10 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-bold text-accent-ink shadow">{where}</span>}
       </div>
@@ -171,7 +171,7 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
       {tab}
       <section aria-label="Your library" className="absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
         <div ref={bar} className="flex h-12 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
-          <button ref={folderButton} type="button" aria-expanded={folders} title="Folders, the Inbox and the bin" onClick={() => setFolders((o) => !o)} className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 text-sm font-semibold">
+          <button ref={folderButton} type="button" aria-expanded={folders} data-tip="Folders, the Inbox and the bin" onClick={() => setFolders((o) => !o)} className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 text-sm font-semibold">
             {placeName} <span className="text-ink-3">▾</span>
           </button>
           {fold >= 2
@@ -191,7 +191,7 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
             type="button"
             aria-haspopup="dialog"
             aria-expanded={filtersOpen}
-            title="Kept only, and how the shelf is grouped"
+            data-tip="Kept only, and how the shelf is grouped"
             onClick={() => setFiltersOpen(!filtersOpen)}
             className={cx("flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold", active || filtersOpen ? "border-accent text-ink" : "border-line text-ink-2 hover:text-ink")}
           >

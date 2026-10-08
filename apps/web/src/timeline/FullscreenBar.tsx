@@ -79,7 +79,7 @@ export function FullscreenBar({ box, c, live }: { box: RefObject<HTMLDivElement 
         shown ? "opacity-100" : "pointer-events-none opacity-0",
       )}
     >
-      {live !== "picture" && <button type="button" aria-label={paused ? "Play" : "Pause"} title={paused ? "Play (Space)" : "Pause (Space)"} onClick={toggle} className={button}>
+      {live !== "picture" && <button type="button" aria-label={paused ? "Play" : "Pause"} data-tip={paused ? "Play (Space)" : "Pause (Space)"} onClick={toggle} className={button}>
         {paused ? <Play size={18} /> : <Pause size={18} />}
       </button>}
       {!live && <span className="font-mono text-sm text-white/85 tabular-nums">{clockText(now, { decimals: 1 })} / {clockText(c.total, { decimals: 1 })}</span>}
@@ -91,18 +91,18 @@ export function FullscreenBar({ box, c, live }: { box: RefObject<HTMLDivElement 
           step={10}
           value={Math.min(now, c.total)}
           aria-label="Where it plays"
-          title="Drag to go to a moment"
+          data-tip="Drag to go to a moment"
           onChange={(e) => c.onSeek(Number(e.target.value))}
           className="mx-2 min-w-0 grow cursor-pointer accent-accent"
         />
       ) : (
         <span className="grow" />
       )}
-      <button type="button" aria-label={quiet ? "Unmute" : "Mute"} title={quiet ? "Unmute" : "Mute"} onClick={c.onMute} className={button}>
+      <button type="button" aria-label={quiet ? "Unmute" : "Mute"} data-tip={quiet ? "Unmute" : "Mute"} onClick={c.onMute} className={button}>
         {quiet ? <VolumeX size={17} /> : <Volume2 size={17} />}
       </button>
-      <input type="range" min={0} max={1} step={0.01} value={c.muted ? 0 : c.volume} aria-label="Volume" title={`Volume ${Math.round((c.muted ? 0 : c.volume) * 100)} %`} onChange={(e) => c.onVolume(Number(e.target.value))} className="w-28 cursor-pointer accent-accent" />
-      <button type="button" aria-label="Leave full screen" title="Leave full screen (Esc)" onClick={() => void document.exitFullscreen().catch(() => {})} className={button}>
+      <input type="range" min={0} max={1} step={0.01} value={c.muted ? 0 : c.volume} aria-label="Volume" data-tip={`Volume ${Math.round((c.muted ? 0 : c.volume) * 100)} %`} onChange={(e) => c.onVolume(Number(e.target.value))} className="w-28 cursor-pointer accent-accent" />
+      <button type="button" aria-label="Leave full screen" data-tip="Leave full screen (Esc)" onClick={() => void document.exitFullscreen().catch(() => {})} className={button}>
         <Minimize size={17} />
       </button>
     </div>

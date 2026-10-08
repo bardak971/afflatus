@@ -52,30 +52,30 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
       <span className="grow" />
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again
-        <span className="flex max-w-sm items-center gap-2 text-warn-ink" title={saveFailed}>
+        <span className="flex max-w-sm items-center gap-2 text-warn-ink" data-tip={saveFailed}>
           <span className="truncate">Could not save the clip's form: {saveFailed}</span>
           <Button size="sm" onClick={onRetrySave}>Retry</Button>
         </span>
       ) : (error || note) ? (
-        <span className={error ? "max-w-sm truncate text-warn-ink" : "max-w-sm truncate text-ink-2"} title={error?.message}>{error?.message ?? note}</span>
+        <span className={error ? "max-w-sm truncate text-warn-ink" : "max-w-sm truncate text-ink-2"} data-tip={error?.message}>{error?.message ?? note}</span>
       ) : null}
-      <Button className="px-3" disabled={!t.redo || redo.pending} title={t.redo ? `Redo: ${t.redo} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={redo.run} aria-label="Redo">
+      <Button className="px-3" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={redo.run} aria-label="Redo">
         <Redo2 size={15} />
       </Button>
-      <Button className="px-3" disabled={!t.undo || undo.pending} title={t.undo ? `Undo: ${t.undo} (Ctrl+Z)` : "Nothing to undo"} onClick={undo.run}>
+      <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo} (Ctrl+Z)` : "Nothing to undo"} onClick={undo.run}>
         <Undo2 size={15} /> Undo
       </Button>
       {missing.length > 0 && (
-        <Button tone="primary" disabled={rendering} title="Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order." onClick={onRenderMissing}>
+        <Button tone="primary" disabled={rendering} data-tip="Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order." onClick={onRenderMissing}>
           Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}
         </Button>
       )}
       {picked.size > 0 && (
-        <Button tone="primary" disabled={rendering || !picked.renderable} title="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={onRenderPicked}>
+        <Button tone="primary" disabled={rendering || !picked.renderable} data-tip="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={onRenderPicked}>
           Render {picked.size} picked
         </Button>
       )}
-      <Button disabled={!clips.some((c) => c.kind === "video" && c.take)} title="Every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>
+      <Button disabled={!clips.some((c) => c.kind === "video" && c.take)} data-tip="Every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>
         <Sparkles size={15} /> Finish
       </Button>
       <Button disabled={!t.durationMs} onClick={onExport}>
@@ -114,29 +114,29 @@ export function Transport({ t, clock, slots, cursor, total, playing, ranged, loo
 }) {
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
-      <button type="button" aria-label="Previous clip" title="Previous clip" disabled={!t.durationMs} onClick={() => onJump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
-      <button type="button" aria-label={playing ? "Pause" : ranged ? "Play the range" : "Play"} title={ranged ? "Play the range: from the playhead inside it, else from In; stops at Out (Space)" : "Play / pause (Space)"} disabled={!t.durationMs} onClick={onToggle} className={cx("flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40", ranged ? "bg-accent text-accent-ink" : "bg-ink text-ground")}>
+      <button type="button" aria-label="Previous clip" data-tip="Previous clip" disabled={!t.durationMs} onClick={() => onJump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
+      <button type="button" aria-label={playing ? "Pause" : ranged ? "Play the range" : "Play"} data-tip={ranged ? "Play the range: from the playhead inside it, else from In; stops at Out (Space)" : "Play / pause (Space)"} disabled={!t.durationMs} onClick={onToggle} className={cx("flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40", ranged ? "bg-accent text-accent-ink" : "bg-ink text-ground")}>
         {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}
       </button>
-      <button type="button" aria-label="Next clip" title="Next clip" disabled={!t.durationMs} onClick={() => onJump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
+      <button type="button" aria-label="Next clip" data-tip="Next clip" disabled={!t.durationMs} onClick={() => onJump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
       {ranged && (
-        <button type="button" aria-label="Loop the range" aria-pressed={loopRange} title={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={onToggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>
+        <button type="button" aria-label="Loop the range" aria-pressed={loopRange} data-tip={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={onToggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>
       )}
       <Readout clock={clock} slots={slots} cursor={cursor} total={total} />
       <span className="grow" />
       {/* how loud it plays here (the clips' and the music's own volumes stay as set) */}
       <div className="group flex items-center gap-1">
-        <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} title={muted || volume === 0 ? "Unmute" : "Mute"} onClick={onMute} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+        <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} data-tip={muted || volume === 0 ? "Unmute" : "Mute"} onClick={onMute} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
           {muted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
         </button>
-        <input type="range" min={0} max={1} step={0.01} value={muted ? 0 : volume} aria-label="Volume" title={`Volume ${Math.round((muted ? 0 : volume) * 100)} %`} onChange={(e) => onVolume(Number(e.target.value))} className="w-20 cursor-pointer accent-accent" />
+        <input type="range" min={0} max={1} step={0.01} value={muted ? 0 : volume} aria-label="Volume" data-tip={`Volume ${Math.round((muted ? 0 : volume) * 100)} %`} onChange={(e) => onVolume(Number(e.target.value))} className="w-20 cursor-pointer accent-accent" />
       </div>
-      <button type="button" aria-label="Full screen" title="Full screen (Esc leaves it; Space plays and pauses)" disabled={!t.durationMs} onClick={onFullscreen} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Maximize size={15} /></button>
-      <button type="button" aria-label="Extend from this frame" title="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || adding} onClick={onExtend} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>
+      <button type="button" aria-label="Full screen" data-tip="Full screen (Esc leaves it; Space plays and pauses)" disabled={!t.durationMs} onClick={onFullscreen} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Maximize size={15} /></button>
+      <button type="button" aria-label="Extend from this frame" data-tip="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || adding} onClick={onExtend} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>
       <button
         type="button"
         aria-label="Save frame"
-        title="Save frame: the frame on screen, as an image in your library"
+        data-tip="Save frame: the frame on screen, as an image in your library"
         disabled={!t.durationMs || saving}
         onClick={onSaveFrame}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"

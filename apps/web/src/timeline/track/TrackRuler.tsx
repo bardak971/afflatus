@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import type { Clock } from "../clock";
 import { PAD, playAt, stamp, type Slot } from "../model";
 import type { TimeRange } from "../Track";
+import { HINTS } from "./peek";
 import { HEIGHT, RULER } from "./rows";
 import type { useMotionMarks } from "./useMotionMarks";
 
@@ -10,9 +11,10 @@ const stepFor = (pps: number) => [1, 2, 5, 10, 15, 30, 60, 120].find((s) => s * 
 
 /**
  * The ruler over the track: its marks, the playhead moved by a click or a drag, the range swept with Shift
- * and dragged by its brackets, the quiet moments and pauses In and Out snap to, and the frame under the pointer.
+ * and dragged by its brackets, and the quiet moments and pauses In and Out snap to. The frame under the pointer
+ * is FramePeek's, over the ruler and the clips alike.
  */
-export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, width, xOf, range, onRange, onSeek, band, motion, snapRange, snapQuiet }: {
+export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, xOf, range, onRange, onSeek, band, motion, snapRange, snapQuiet }: {
   /** The moment of what plays: the slider says it, set in place so that the ruler does not redraw on every tick. */
   clock: Clock;
   durationMs: number;
@@ -21,8 +23,6 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, wi
   /** Where what plays ends. */
   playEnd: number;
   pps: number;
-  /** The track's whole width, in pixels. */
-  width: number;
   /** A pointer's x, in the track's own pixels. */
   xOf(clientX: number): number;
   range: TimeRange | null;
@@ -68,20 +68,6 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, wi
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
-  /** The frame under the pointer on the ruler: which video, at what moment, and where to draw it. */
-  const [peek, setPeek] = useState<{ x: number; ms: number; asset: string; at: number } | null>(null);
-  const peekAt = useRef(0);
-  const peekFrom = (clientX: number) => {
-    const t = performance.now();
-    if (t - peekAt.current < 60) return;
-    peekAt.current = t;
-    const x = xOf(clientX);
-    const ms = playAt(slots, x);
-    const slot = slots.find((s) => !s.planned && ms >= s.clip.atMs && ms < s.clip.atMs + s.clip.lengthMs && s.clip.take);
-    if (!slot) return setPeek(null);
-    setPeek({ x, ms, asset: slot.clip.take!.asset.id, at: slot.clip.take!.startMs + (ms - slot.clip.atMs) });
-  };
-
   // ---- the ruler's marks
   const step = stepFor(pps);
   const marks = [];
@@ -110,8 +96,7 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, wi
           } else scrub(e);
         }}
         onPointerMove={(e) => {
-          if (!e.currentTarget.hasPointerCapture(e.pointerId)) return peekFrom(e.clientX);
-          setPeek(null);
+          if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
           if (sweep.current === null) return scrub(e);
           const ms = snapRange(playAt(slots, xOf(e.clientX)));
           onRange({ inMs: Math.min(sweep.current, ms), outMs: Math.max(sweep.current, ms) });
@@ -120,11 +105,10 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, wi
           sweep.current = null;
           e.currentTarget.releasePointerCapture(e.pointerId);
         }}
-        onPointerLeave={() => setPeek(null)}
         onDragStart={(e) => e.preventDefault()}
         className="absolute inset-x-0 top-0 cursor-ew-resize touch-none border-b border-line"
         style={{ height: RULER }}
-        title="Click or drag: the playhead. Shift-drag: a range. Ctrl + wheel zooms, the wheel scrolls."
+        data-hint={HINTS.ruler}
       >
         {marks.map((s) => (
           <span key={s} className="pointer-events-none absolute top-0 h-full border-l border-line-strong pl-1 font-mono text-[10px] leading-[18px] text-ink-3" style={{ left: PAD + s * pps }}>
@@ -151,7 +135,7 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, wi
             aria-valuemin={0}
             aria-valuemax={Math.round(playEnd / 1000)}
             aria-valuenow={Math.round(range.inMs / 1000)}
-            title={`In ${stamp(range.inMs)}: drag it (I sets it at the playhead)`}
+            data-hint="drag: move In · I: In at the playhead"
             onPointerDown={(e) => grabHandle(e, "in")}
             onPointerMove={moveHandle}
             onPointerUp={dropHandle}
@@ -167,7 +151,7 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, wi
             aria-valuemin={0}
             aria-valuemax={Math.round(playEnd / 1000)}
             aria-valuenow={Math.round(range.outMs / 1000)}
-            title={`Out ${stamp(range.outMs)}: drag it (O sets it at the playhead)`}
+            data-hint="drag: move Out · O: Out at the playhead"
             onPointerDown={(e) => grabHandle(e, "out")}
             onPointerMove={moveHandle}
             onPointerUp={dropHandle}
@@ -178,12 +162,6 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, wi
             ]
           </span>
         </>
-      )}
-      {peek && (
-        <div aria-hidden className="pointer-events-none absolute z-30 flex flex-col items-center gap-0.5" style={{ left: Math.max(PAD, Math.min(width - 130, peek.x - 60)), top: RULER + 4 }}>
-          <img src={`/api/assets/${peek.asset}/peek?at=${Math.round(peek.at)}&h=120`} alt="" className="max-h-[120px] max-w-[120px] rounded-md border border-line-strong bg-black object-contain shadow-xl shadow-shade/40" />
-          <span className="rounded bg-ground/90 px-1.5 font-mono text-[10px] text-ink">{stamp(peek.ms)}</span>
-        </div>
       )}
     </>
   );
