@@ -8,7 +8,7 @@ import type { TimeRange } from "./Track";
  * the arrows step a frame (with Alt: move the selected clip one place), Escape clears, Delete removes the selected
  * clip. What changes often is read through refs, so the listener is only put back when an action it calls changes.
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
@@ -33,11 +33,15 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   selectedNow: RefObject<string | null>;
   setSelected: Dispatch<SetStateAction<string | null>>;
   setPicked: Dispatch<SetStateAction<Set<string>>>;
+  /** The music's panel is open, and how to close it (Escape). */
+  musicOpenNow?: RefObject<boolean>;
+  closeMusic?(): void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      const typing = Boolean(el.closest("input, textarea, select, [contenteditable]"));
+      // writing in a field (a slider, a switch or a box to tick is not: the keys still drive the editor there)
+      const typing = Boolean(el.closest("textarea, select, [contenteditable]")) || (el instanceof HTMLInputElement && !["range", "checkbox", "radio", "button"].includes(el.type));
       if (e.code === "Space" && !typing && !el.closest("button, [role=listbox], [role=dialog]")) {
         e.preventDefault();
         toggle();
@@ -90,6 +94,12 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
       if (e.key === "Escape" && !typing && !open && selectedNow.current) {
         e.preventDefault();
         setSelected(null);
+        return;
+      }
+      // the same from the music's panel
+      if (e.key === "Escape" && !typing && !open && musicOpenNow?.current) {
+        e.preventDefault();
+        closeMusic?.();
         return;
       }
       // Alt + an arrow: the selected clip one place earlier or later

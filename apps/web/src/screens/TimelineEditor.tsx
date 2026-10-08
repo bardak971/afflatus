@@ -47,6 +47,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** The clips picked with Ctrl + click on the track, to render together. */
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [musicOpen, setMusicOpen] = useState(false);
+  // for Escape, which closes it as it closes a clip's panel
+  const musicOpenNow = useRef(false);
+  musicOpenNow.current = musicOpen;
   const [playing, setPlaying] = useState(false);
   // the moment of what plays: not state, so that a tick redraws the track and the readout, not the whole editor
   const clock = useNewClock();
@@ -213,7 +216,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   selectedNow.current = current?.id ?? null;
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
-  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked });
+  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false) });
 
   const jump = (by: -1 | 1) => {
     const time = clock.get();
