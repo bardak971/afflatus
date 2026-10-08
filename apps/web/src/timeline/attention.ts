@@ -92,3 +92,11 @@ export function fixAll(rows: Row[], clips: Clip[], msOf: (c: Clip) => number | n
   const render = clips.filter((c) => wanted.has(c.id));
   return { patches, render: render.map((c) => c.id), ms: render.reduce((sum, c) => sum + (msOf(c) ?? 0), 0) };
 }
+
+/**
+ * A row set aside ("keep as it is": the smoother take was not the better one, the clip is not in the cut): what it is
+ * and the take each of its clips plays. Another take, or a new render, is another decision: the row comes back.
+ * A clip with nothing rendered is never set aside: there is nothing to keep.
+ */
+export const canDismiss = (r: Row) => r.kind !== "missing";
+export const dismissKey = (r: Row, clips: Clip[]) => `${r.kind}:${r.ids.map((id) => `${id}@${clips.find((c) => c.id === id)?.take?.id ?? "-"}`).join(",")}`;

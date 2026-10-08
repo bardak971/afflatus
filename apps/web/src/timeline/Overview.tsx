@@ -1,5 +1,7 @@
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { api, type Clip, type Timeline } from "../api";
 import { AudioPlayer } from "../AudioPlayer";
 import { openProjects } from "../bar/bridge";
@@ -11,7 +13,12 @@ import { aboutMs } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
-import { attention, fixAll, type Act, type Fix, type JoinFigures, type Row } from "./attention";
+import { attention, canDismiss, dismissKey, fixAll, type Act, type Fix, type JoinFigures, type Row } from "./attention";
+
+/** The rows of Needs attention set aside, per timeline, in this browser (see dismissKey). */
+const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string, keys: string[]): void }>()(
+  persist((set) => ({ by: {}, set: (timeline, keys) => set((s) => ({ by: { ...s.by, [timeline]: keys } })) }), { name: "afflatus.attention-kept" }),
+);
 import { otherShape } from "./model";
 
 /** A quiet action in a card's head or row: accent words, no box. */
@@ -98,7 +105,14 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   const worst = figured.reduce<Clip | null>((w, c) => (!w || joinsOf.get(c.id)! > joinsOf.get(w.id)! ? c : w), null);
 
   // what needs attention, one row each with the action that mends it; Fix all once two rows or more have one
-  const rows = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill });
+  const listed = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill });
+  // the ones set aside stay out, Fix all included, until their clips play another take
+  const dismissed = useDismissed();
+  const kept = new Set(dismissed.by[t.id] ?? []);
+  const rows = listed.filter((r) => !(canDismiss(r) && kept.has(dismissKey(r, clips))));
+  const setAside = listed.length - rows.length;
+  // only the keys of rows still listed are kept: a take changed, its old key goes
+  const dismiss = (r: Row) => dismissed.set(t.id, [...listed.filter((x) => kept.has(dismissKey(x, clips))).map((x) => dismissKey(x, clips)), dismissKey(r, clips)]);
   const fix = fixAll(rows, clips, msOf);
   const run = (a: Act) => onFix(a.do === "render" ? { patches: [], render: a.clips } : a.do === "take" ? { patches: [{ clip: a.clip, patch: { take: a.take } }], render: [] } : { patches: a.clips.map((clip) => ({ clip, patch: { fill: true } })), render: [] });
   const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
@@ -140,13 +154,20 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
                 </button>
               ))}
               {r.act && <ActButton act={r.act} kind={r.kind} disabled={rendering} onClick={() => run(r.act!)} />}
+              {canDismiss(r) && (
+                <button type="button" aria-label="Keep as it is" data-tip="Keep as it is: not listed again until its clips play another take" onClick={() => dismiss(r)} className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink">
+                  <X size={13} />
+                </button>
+              )}
             </div>
           ))}
+          {setAside > 0 && <ShowAgain n={setAside} onClick={() => dismissed.set(t.id, [])} />}
         </section>
       ) : (
         <section className="flex flex-col gap-1 rounded-xl border border-line px-3 py-2.5">
           <PartHead>Needs attention</PartHead>
-          <span className="text-sm text-good">Every clip is rendered and every join holds.</span>
+          <span className="text-sm text-good">{setAside ? "Nothing else: the rest is kept as it is." : "Every clip is rendered and every join holds."}</span>
+          {setAside > 0 && <ShowAgain n={setAside} onClick={() => dismissed.set(t.id, [])} />}
         </section>
       )}
 
@@ -258,6 +279,15 @@ function Fact({ label, value, warn }: { label: string; value: string; warn?: boo
       <span className="text-[11.5px] text-ink-3">{label}</span>
       <span className={cx("truncate font-mono", warn ? "text-warn-ink" : "text-ink")}>{value}</span>
     </span>
+  );
+}
+
+/** The rows set aside, said at the foot of Needs attention: a click lists them again. */
+function ShowAgain({ n, onClick }: { n: number; onClick(): void }) {
+  return (
+    <button type="button" onClick={onClick} className="self-start px-3 pt-1 text-xs text-ink-3 underline-offset-2 hover:text-ink hover:underline">
+      {n} kept as {n === 1 ? "it is" : "they are"} · show
+    </button>
   );
 }
 

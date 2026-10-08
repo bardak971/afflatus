@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, Clip, Take } from "../src/api";
-import { attention, fixAll, type JoinFigures } from "../src/timeline/attention";
+import { attention, canDismiss, dismissKey, fixAll, type JoinFigures } from "../src/timeline/attention";
 
 /** A clip with only what the rows read. */
 const clip = (over: Partial<Clip> & { id: string }): Clip =>
@@ -64,5 +64,19 @@ describe("Fix all", () => {
       render: ["a", "b", "d"],
       ms: 180_000,
     });
+  });
+});
+
+describe("a row kept as it is", () => {
+  it("is the same row while its clips play the same takes, another once one plays another", () => {
+    const clips = [rendered("a", ["t1", "t2"]), rendered("b", ["u1"])];
+    const row = { key: "shape", kind: "shape" as const, ids: ["a", "b"], warn: false };
+    const before = dismissKey(row, clips);
+    expect(dismissKey(row, [rendered("a", ["t1", "t2"]), rendered("b", ["u1"])])).toBe(before);
+    expect(dismissKey(row, [rendered("a", ["t2", "t1"]), rendered("b", ["u1"])])).not.toBe(before);
+  });
+  it("never a clip with nothing rendered: there is nothing to keep", () => {
+    expect(canDismiss({ key: "missing", kind: "missing", ids: ["a"], warn: false })).toBe(false);
+    expect(canDismiss({ key: "join:b", kind: "join", ids: ["b"], warn: true })).toBe(true);
   });
 });
