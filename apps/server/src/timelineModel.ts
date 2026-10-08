@@ -234,6 +234,6 @@ export interface TimelineCore {
   renumber(timelineId: string, order: string[], db?: Db): Promise<void>;
   /** What a new clip takes over from the nearest clip before it made with the same recipe: its settings, not its story or its pictures. */
   settingsOf(recipe: Recipe<any>, all: Placed[], index: number): Record<string, unknown>;
-  /** One frame of a video as a picture in the library (timelineMedia.ts). */
-  frame(video: AssetRow, atMs: number, once?: boolean): Promise<AssetRow>;
+  /** One frame of a video as a picture in the library (timelineMedia.ts), in the folder of the timeline it is taken in. */
+  frame(video: AssetRow, atMs: number, once?: boolean, timeline?: string): Promise<AssetRow>;
 }

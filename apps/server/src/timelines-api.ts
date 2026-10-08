@@ -7,6 +7,7 @@ import { askedOf } from "./jobs-api";
 import { assetView } from "./media";
 import { rifeModelIn } from "./queue";
 import { rootFolderOf } from "./projects";
+import { folderOfTimeline } from "./timelineFolder";
 import type { Services } from "./services";
 import { clockOf, FROM_PREVIOUS, type Timelines } from "./timelines";
 
@@ -290,7 +291,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * in the queue, by ffmpeg; the job's label says what it does.
    */
   app.post<{ Params: { id: string } }>("/api/assets/:id/range", async (req) => {
-    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove", "slow"]), crf: z.number().int().min(0).max(40).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() }).parse(req.body);
+    // `timeline`: the timeline it is cut in, whose folder the new videos land in (see folderForMade)
+    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove", "slow"]), crf: z.number().int().min(0).max(40).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional(), timeline: z.string().optional() }).parse(req.body);
     const video = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
     if (!video || video.kind !== "video") throw httpError("this video was not found", 404);
     if (body.endMs - body.startMs < 20) throw httpError("That range is too short: pick at least one frame.");
@@ -299,18 +301,18 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     if (body.action === "slow") {
       const factor = body.factor ?? 2;
       const engine = await slowEngine(s);
-      return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf }, `${name} · slow ×${factor} ${clockOf(body.startMs)}–${clockOf(body.endMs)}`), engine };
+      return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf, timeline: body.timeline }, `${name} · slow ×${factor} ${clockOf(body.startMs)}–${clockOf(body.endMs)}`), engine };
     }
     const said = body.action === "copy" ? `${name} · ${clockOf(body.startMs)}–${clockOf(body.endMs)} → library` : body.action === "split" ? `${name} · split at ${clockOf(body.startMs)} and ${clockOf(body.endMs)}` : `${name} · remove ${clockOf(body.startMs)}–${clockOf(body.endMs)}`;
-    return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf }, said) };
+    return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf, timeline: body.timeline }, said) };
   });
 
-  /** One frame of a video, as a picture in the library: to open another clip on, or to keep. */
+  /** One frame of a video, as a picture in the library: to open another clip on, or to keep. `timeline`: the one it is saved from (its folder, see folderForMade). */
   app.post<{ Params: { id: string } }>("/api/assets/:id/frame", async (req) => {
-    const { atMs } = z.strictObject({ atMs: z.number().min(0) }).parse(req.body);
+    const { atMs, timeline } = z.strictObject({ atMs: z.number().min(0), timeline: z.string().optional() }).parse(req.body);
     const video = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
     if (!video || video.kind !== "video") throw httpError("this video was not found", 404);
-    return assetView(await t.media.frame(video, atMs));
+    return assetView(await t.media.frame(video, atMs, false, timeline));
   });
 }
 
@@ -353,7 +355,7 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
         // what was typed before the cast was worked in: what a tool opened from the take carries
         asked: askedOf(typed, input),
         // the render lands in the timeline's folder: its own, else its project's root
-        folder: view.folderId ?? (await rootFolderOf(s.db, view.projectId)) ?? undefined,
+        folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
       });
       pending.set(clip.id, id);
       ids.push(id);
@@ -369,7 +371,7 @@ async function finishClips(s: Services, timeline: string, b: z.infer<typeof fini
   const view = await t.view(timeline);
   const jobs: string[] = [];
   const skipped: Array<{ clip: number; why: string }> = [];
-  const folder = view.folderId ?? (await rootFolderOf(s.db, view.projectId)) ?? undefined;
+  const folder = (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined;
   for (const [i, clip] of view.clips.entries()) {
     if (b.clips && !b.clips.includes(clip.id)) continue;
     const take = clip.take;

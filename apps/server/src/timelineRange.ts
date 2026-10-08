@@ -44,7 +44,7 @@ export class TimelineRange {
    * stays); `split` = before, range, after as three (the source goes to the bin); `remove` = one video
    * without the range (the source goes to the bin). Each new video remembers its source and its range.
    */
-  async cutRange(video: AssetRow, startMs: number, endMs: number, action: "copy" | "split" | "remove", opts: { crf?: number; signal?: AbortSignal } = {}): Promise<AssetRow[]> {
+  async cutRange(video: AssetRow, startMs: number, endMs: number, action: "copy" | "split" | "remove", opts: { crf?: number; signal?: AbortSignal; folder?: string | null } = {}): Promise<AssetRow[]> {
     const { db, events } = this.core;
     const { source, ext, total } = await this.opened(video);
     if (!total) throw new CutError("This video could not be read.");
@@ -66,7 +66,7 @@ export class TimelineRange {
     const rows: AssetRow[] = [];
     for (const piece of pieces) {
       const out = await rangeKeep(source, ext, facts, piece.keep, opts);
-      rows.push(await this.cutRow(video, out, `${base} · ${piece.said}`, piece.range));
+      rows.push(await this.cutRow(video, out, `${base} · ${piece.said}`, piece.range, opts.folder));
     }
     await db.transaction().execute(async (tx) => {
       for (const row of rows) await tx.insertInto("assets").values(row).execute();
@@ -87,10 +87,10 @@ export class TimelineRange {
   }
 
   /**
-   * A video cut out of another, ready to be filed beside it: its file and its small picture are put away
-   * here, the row (its source and the range taken, kept, not in the bin) is the caller's to insert.
+   * A video cut out of another, ready to be filed beside it (or in `folder`, the timeline's it is cut in): its file and its small
+   * picture are put away here, the row (its source and the range taken, kept, not in the bin) is the caller's to insert.
    */
-  private async cutRow(original: AssetRow, out: Uint8Array, name: string, range: string): Promise<AssetRow> {
+  private async cutRow(original: AssetRow, out: Uint8Array, name: string, range: string, folder?: string | null): Promise<AssetRow> {
     const { storage } = this.core;
     const seen = await readVideo(out, "mp4");
     const id = newId();
@@ -103,7 +103,7 @@ export class TimelineRange {
       id, owner_id: OWNER, kind: "video", origin: "cut", name, file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
       width: seen.facts?.width ?? original.width, height: seen.facts?.height ?? original.height,
       duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? original.fps, has_sound: seen.facts?.hasSound ? 1 : 0,
-      folder_id: original.folder_id, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null, fine_latent_key: null,
+      folder_id: folder === undefined ? original.folder_id : folder, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null, fine_latent_key: null,
       kept_at: at, countdown_from: null, deleted_at: null, linked_path: null, created_at: at,
     };
   }
@@ -294,13 +294,13 @@ export class TimelineRange {
   }
 
   /** The picture at a moment of a clip (`localMs` after it starts playing): a still itself, a frame of a take. */
-  private async pictureAt(l: Laid, localMs: number): Promise<AssetRow> {
+  private async pictureAt(timelineId: string, l: Laid, localMs: number): Promise<AssetRow> {
     if (l.p.clip.kind === "still") return l.p.still!;
     const x = l.p.active!;
     const { start, end } = visible(x);
     // within what is seen: the last frame that plays is a little before the moment the clip stops
     const ms = Math.max(start, Math.min(end - 20, start + localMs));
-    return this.core.frame(x.asset, ms, true);
+    return this.core.frame(x.asset, ms, true, timelineId);
   }
 
   /**
@@ -333,8 +333,8 @@ export class TimelineRange {
     b += landing;
     const widenedMs = wide.widenedMs + landing;
     const context = rangeContext(recipe, before, after)!;
-    const first = context.start === "frame" ? await this.pictureAt(before!, a - before!.atMs) : null;
-    const last = context.end === "frame" ? await this.pictureAt(after!, b - after!.atMs) : null;
+    const first = context.start === "frame" ? await this.pictureAt(timelineId, before!, a - before!.atMs) : null;
+    const last = context.end === "frame" ? await this.pictureAt(timelineId, after!, b - after!.atMs) : null;
     await this.core.remember(timelineId, b - a >= 40 ? "the regenerated range" : "the clip added between");
     if (b - a >= 40) await this.cutOut(timelineId, a, b);
     // where it goes: after the last clip that stops by In
@@ -468,8 +468,8 @@ export class TimelineRange {
     const recipe = fits(own) ? own : registry.recipes().find(fits);
     if (!recipe) throw httpError("None of your video models takes a last frame: nothing can bring the range back to its start.");
     const context: RangeContext = { start: startBy(recipe)!, end: "frame" };
-    const first = context.start === "frame" ? await this.pictureAt(source, b - source.atMs) : null;
-    const last = await this.pictureAt(target, a - target.atMs);
+    const first = context.start === "frame" ? await this.pictureAt(timelineId, source, b - source.atMs) : null;
+    const last = await this.pictureAt(timelineId, target, a - target.atMs);
     await this.core.remember(timelineId, "the loop clip");
     // Out inside a clip: split there, so that the loop clip comes right after what plays in the range
     if (b < source.atMs + source.lengthMs - 40) await this.splitAt(timelineId, source.p, b - source.atMs);
@@ -498,9 +498,9 @@ export class TimelineRange {
   }
 
   /** A video made from a range of another, filed in the library next to it with its source and range. */
-  async keepCut(original: AssetRow, out: Uint8Array, name: string, startMs: number, endMs: number): Promise<AssetRow> {
+  async keepCut(original: AssetRow, out: Uint8Array, name: string, startMs: number, endMs: number, folder?: string | null): Promise<AssetRow> {
     const { db, events } = this.core;
-    const row = await this.cutRow(original, out, name, `${Math.round(startMs)}-${Math.round(endMs)}`);
+    const row = await this.cutRow(original, out, name, `${Math.round(startMs)}-${Math.round(endMs)}`, folder);
     await db.insertInto("assets").values(row).execute();
     events.emit("library");
     return db.selectFrom("assets").selectAll().where("id", "=", row.id).executeTakeFirstOrThrow();
@@ -513,11 +513,11 @@ export class TimelineRange {
   }
 
   /** The range slowed by ffmpeg (no GPU), filed in the library. */
-  async slowRange(video: AssetRow, startMs: number, endMs: number, factor: 2 | 4, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<AssetRow> {
+  async slowRange(video: AssetRow, startMs: number, endMs: number, factor: 2 | 4, opts: { crf?: number; signal?: AbortSignal; folder?: string | null } = {}): Promise<AssetRow> {
     const { source, ext, total, fps } = await this.opened(video);
     if (!total) throw new CutError("This video could not be read.");
     const out = await slowMotion(source, ext, { durationMs: total, fps, hasSound: Boolean(video.has_sound) }, startMs, endMs, factor, opts);
-    return this.keepCut(video, out, this.slowName(video, startMs, endMs, factor), startMs, endMs);
+    return this.keepCut(video, out, this.slowName(video, startMs, endMs, factor), startMs, endMs, opts.folder);
   }
 
   /**

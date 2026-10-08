@@ -116,7 +116,7 @@ export function useTimelineMutations(id: string, o: {
   });
   const duplicate = useMutation({ mutationFn: api.duplicateClip, onSuccess: (r) => { after(); o.on.select(r.clip); } });
   const exportIt = useMutation({ mutationFn: (v: ExportOptions) => api.exportTimeline(id, v), onSuccess: after });
-  const frame = useMutation({ mutationFn: (v: { asset: string; at: number }) => api.frame(v.asset, v.at), onSuccess: (a) => o.on.open(a) });
+  const frame = useMutation({ mutationFn: (v: { asset: string; at: number }) => api.frame(v.asset, v.at, id), onSuccess: (a) => o.on.open(a) });
   /**
    * A loop ends where the clip begins: on its opening picture when it has one, else on the first frame
    * that plays of its take (saved as a picture, and pinned as the opening picture too unless the clip
@@ -131,7 +131,7 @@ export function useTimelineMutations(id: string, o: {
       const opening = !flows && pins.start && typeof stored[pins.start] === "string" ? (stored[pins.start] as string) : null;
       if (opening) return editInputs(c, { ...stored, [pins.end]: opening });
       if (!c.take) return;
-      const first = await api.frame(c.take.asset.id, c.take.startMs + 20);
+      const first = await api.frame(c.take.asset.id, c.take.startMs + 20, id);
       editInputs(c, { ...stored, ...(pins.start && !flows ? { [pins.start]: first.id } : {}), [pins.end]: first.id });
       o.on.note("It will loop from the next take: it now ends on its own first frame.");
     },

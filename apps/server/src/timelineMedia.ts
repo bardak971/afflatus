@@ -4,6 +4,7 @@ import { newId, now } from "./db";
 import { notFound } from "./errors";
 import { extOf, newAssetRow, pngSize } from "./media";
 import { sourceOf } from "./storage";
+import { folderForMade } from "./timelineFolder";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo, videoFacts } from "./video";
 import { joinFade, lengthOf, sameMaking, seamless, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
@@ -43,9 +44,10 @@ export class TimelineMedia {
 
   /**
    * One frame of a video as a picture in the library. `once`: the same frame asked for again is the same
-   * picture (a clip rendered several times from the same last frame does not fill the library with copies).
+   * picture (a clip rendered several times from the same last frame does not fill the library with copies). It lands in the
+   * folder of `timeline`, the one it is taken in (not said: see folderForMade).
    */
-  async frame(video: AssetRow, atMs: number, once = false): Promise<AssetRow> {
+  async frame(video: AssetRow, atMs: number, once = false, timeline?: string): Promise<AssetRow> {
     const { db, storage, events } = this.core;
     const id = once ? createHash("sha1").update(`frame:${video.id}:${Math.round(atMs)}`).digest("hex").slice(0, 32) : newId();
     const have = once ? await db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirst() : undefined;
@@ -65,7 +67,7 @@ export class TimelineMedia {
       .values(newAssetRow({
         id, kind: "image", origin: "frame", name: video.name ? `${video.name}, a frame` : "", file_key: key,
         thumb_key: thumb ? thumbKey(id) : null, mime: "image/png", bytes: bytes.length, width: size?.width ?? video.width, height: size?.height ?? video.height,
-        duration_ms: null, fps: null, has_sound: 0, folder_id: video.folder_id, generation_id: null, source_id: video.id, kept_at: at, created_at: at,
+        duration_ms: null, fps: null, has_sound: 0, folder_id: await folderForMade(db, video, timeline), generation_id: null, source_id: video.id, kept_at: at, created_at: at,
       }))
       .execute();
     events.emit("library");

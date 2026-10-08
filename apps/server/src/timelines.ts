@@ -4,6 +4,7 @@ import type { InputSpec } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import { httpError, notFound } from "./errors";
 import { rootFolderOf } from "./projects";
+import { timelineMediaFollows } from "./timelineFolder";
 import type { Look } from "./entities";
 import { assetView } from "./media";
 import type { Registry } from "./registry";
@@ -76,6 +77,8 @@ export interface CutOptions {
   /** "finish": the start of the video that is never seen (a continuation's hidden run-up, hiddenRunUp): enlarged plainly, not restored. */
   hiddenMs?: number;
   finishedFrom?: string;
+  /** The timeline it is cut in, without a clip: its folder is where the new videos land (folderForMade). */
+  timeline?: string;
 }
 
 /** The recipe id of a job that exports a timeline instead of rendering something. */
@@ -176,7 +179,7 @@ export class Timelines {
       db, storage, registry, events,
       row: (id) => this.row(id), clipRow: (id) => this.clipRow(id), assetRow: (id) => this.assetRow(id), placed: (id) => this.placed(id),
       remember: (id, label, added) => this.remember(id, label, added), touch: (id) => this.touch(id), keep: (id, db) => this.keep(id, db), renumber: (id, order, db) => this.renumber(id, order, db),
-      settingsOf, frame: (video, atMs, once) => this.media.frame(video, atMs, once),
+      settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline),
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
@@ -274,6 +277,28 @@ export class Timelines {
     return takeFollows(b.active.take, a.active) || takeLandsOn(a.active.take, b.active) ? "fresh" : "stale";
   }
 
+  /**
+   * Every timeline as the projects tree lists it, newest first: its clips, how long it plays, the size of its videos (its takes'
+   * and its export, each once, none in the bin) and whether it has an export. A few queries for all of them.
+   */
+  async leaves() {
+    const rows = await this.db.selectFrom("timelines").selectAll().where("owner_id", "=", OWNER).orderBy("updated_at", "desc").execute();
+    const placed = await this.placedOf(rows.map((t) => t.id));
+    const exports = rows.flatMap((t) => (t.export_asset_id ? [t.export_asset_id] : []));
+    const live = new Map(exports.length ? (await this.db.selectFrom("assets").select(["id", "bytes"]).where("id", "in", exports).where("deleted_at", "is", null).execute()).map((a) => [a.id, Number(a.bytes)]) : []);
+    return rows.map((t) => {
+      const all = placed.get(t.id) ?? [];
+      const sizes = new Map<string, number>();
+      for (const p of all) for (const x of p.takes) if (!x.asset.deleted_at) sizes.set(x.asset.id, Number(x.asset.bytes));
+      const exported = t.export_asset_id !== null && live.has(t.export_asset_id);
+      if (exported) sizes.set(t.export_asset_id!, live.get(t.export_asset_id!)!);
+      return {
+        id: t.id, name: t.name, projectId: t.project_id, folderId: t.folder_id, clips: all.length, durationMs: all.reduce((sum, p) => sum + lengthOf(p), 0),
+        bytes: [...sizes.values()].reduce((a, b) => a + b, 0), exported, updatedAt: t.updated_at,
+      };
+    });
+  }
+
   /** `project`: only the timelines of that project; "none": the Inbox; left out: all. */
   async list(project?: string) {
     let q = this.db.selectFrom("timelines").selectAll().where("owner_id", "=", OWNER);
@@ -354,7 +379,8 @@ export class Timelines {
   }
 
   async edit(id: string, patch: TimelinePatch) {
-    await this.row(id);
+    const before = await this.row(id);
+    if (patch.project && !(await this.db.selectFrom("projects").select("id").where("id", "=", patch.project).executeTakeFirst())) throw notFound("this project");
     // the frame is one thing: a width without a height (or the other way round) would be set to nothing at all
     if ((patch.width === undefined) !== (patch.height === undefined)) throw httpError("The width and the height go together: send both, or null for both to let the first clip rendered decide.");
     const m = patch.music;
@@ -367,24 +393,35 @@ export class Timelines {
       patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : "the music's settings",
     );
     const within = (n: number, least: number, most: number) => Math.max(least, Math.min(most, Math.round(n)));
-    await this.db
-      .updateTable("timelines")
-      .set({
-        ...(patch.name !== undefined ? { name: patch.name.trim() || "Untitled" } : {}),
-        ...(patch.project !== undefined ? { project_id: patch.project } : {}),
-        ...(patch.folder !== undefined ? { folder_id: patch.folder, folder_chosen: 1 } : {}),
-        ...(patch.width !== undefined && patch.height !== undefined ? { width: patch.width, height: patch.height } : {}),
-        ...(m?.asset !== undefined ? { music_asset_id: m.asset } : {}),
-        ...(m?.volume !== undefined ? { music_volume: within(m.volume, 0, 100) } : {}),
-        ...(m?.fadeInMs !== undefined ? { music_fade_in_ms: within(m.fadeInMs, 0, 20_000) } : {}),
-        ...(m?.fadeOutMs !== undefined ? { music_fade_out_ms: within(m.fadeOutMs, 0, 20_000) } : {}),
-        ...(m?.duck !== undefined ? { music_duck: m.duck ? 1 : 0 } : {}),
-        ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
-        ...(patch.mood !== undefined ? { mood: patch.mood.trim() || null } : {}),
-        updated_at: now(),
-      })
-      .where("id", "=", id)
-      .execute();
+    // to another project without a folder said: a folder of the project it leaves gives way to the new one's root
+    const project = patch.project !== undefined ? patch.project : before.project_id;
+    const leftBehind = patch.folder === undefined && project !== before.project_id && before.folder_id
+      && (await this.db.selectFrom("folders").select("project_id").where("id", "=", before.folder_id).executeTakeFirst())?.project_id !== project;
+    const folder = patch.folder !== undefined ? { folder_id: patch.folder, folder_chosen: 1 } : leftBehind ? { folder_id: await rootFolderOf(this.db, project), folder_chosen: 0 } : {};
+    const moved = project !== before.project_id || ("folder_id" in folder && folder.folder_id !== before.folder_id);
+    await this.db.transaction().execute(async (tx) => {
+      await tx
+        .updateTable("timelines")
+        .set({
+          ...(patch.name !== undefined ? { name: patch.name.trim() || "Untitled" } : {}),
+          ...(patch.project !== undefined ? { project_id: patch.project } : {}),
+          ...folder,
+          ...(patch.width !== undefined && patch.height !== undefined ? { width: patch.width, height: patch.height } : {}),
+          ...(m?.asset !== undefined ? { music_asset_id: m.asset } : {}),
+          ...(m?.volume !== undefined ? { music_volume: within(m.volume, 0, 100) } : {}),
+          ...(m?.fadeInMs !== undefined ? { music_fade_in_ms: within(m.fadeInMs, 0, 20_000) } : {}),
+          ...(m?.fadeOutMs !== undefined ? { music_fade_out_ms: within(m.fadeOutMs, 0, 20_000) } : {}),
+          ...(m?.duck !== undefined ? { music_duck: m.duck ? 1 : 0 } : {}),
+          ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
+          ...(patch.mood !== undefined ? { mood: patch.mood.trim() || null } : {}),
+          updated_at: now(),
+        })
+        .where("id", "=", id)
+        .execute();
+      // what it made follows it to its new folder
+      if (moved) await timelineMediaFollows(tx, id);
+    });
+    if (moved) this.events.emit("library");
     if (m?.asset) await this.keep(m.asset);
     this.changed();
     return this.view(id);

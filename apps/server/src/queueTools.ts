@@ -6,6 +6,7 @@ import { slowSoundOnto } from "./cut";
 import { now, type Tables } from "./db";
 import { extOf } from "./media";
 import { readVideo } from "./video";
+import { folderForMade, timelineOfClip } from "./timelineFolder";
 import { recordTool, toolPace } from "./renders";
 import { CUT_JOB, type CutOptions, type ExportOptions, type Timelines } from "./timelines";
 import { readJson, type JobRow, type QueueCore, type Running } from "./queueModel";
@@ -94,15 +95,17 @@ export function runCut(core: QueueCore, row: JobRow): Promise<void> {
     if (!clips) throw new Error("timelines are not available");
     const video = await core.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
     if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
-    if (opts.action === "finish") await runFinish(core, row, run, clips, video, opts);
-    else if (opts.action === "slow" && opts.engine === "rife") await runSlowRife(core, row, run, clips, video, opts);
-    else if (opts.action === "slow") await runSlowFfmpeg(core, row, run, clips, video, opts);
-    else await clips.range.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: run.abort.signal });
+    // what it makes lands in the folder of the timeline it is made in: its clip's, the one named, else see folderForMade
+    const folder = await folderForMade(core.db, video, (await timelineOfClip(core.db, opts.clip)) ?? opts.timeline);
+    if (opts.action === "finish") await runFinish(core, row, run, clips, video, opts, folder);
+    else if (opts.action === "slow" && opts.engine === "rife") await runSlowRife(core, row, run, clips, video, opts, folder);
+    else if (opts.action === "slow") await runSlowFfmpeg(core, row, run, clips, video, opts, folder);
+    else await clips.range.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: run.abort.signal, folder });
   });
 }
 
 /** The whole video up to ComfyUI, the upscale route run on its frames (the sound passed through), the result back as a video. */
-async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions): Promise<void> {
+async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions, folder: string | null): Promise<void> {
   const made = (await madeBefore(core, row)) ?? (await makeOnce(core, row, async () => {
     const comfy = await core.comfy();
     const catalog = await comfy.catalog();
@@ -159,7 +162,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
       `route=${routeKey};by=${opts.by ?? 2};frames=${opts.seedvrFrames ?? 0}`, Math.round(source.width * by) * Math.round(source.height * by) * Math.max(1, outFrames));
     const output = await followed(core, comfy, run, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
     const bytes = await comfy.client.view(output);
-    let kept = await clips.range.keepCut(video, bytes, clips.finishName(video, opts.route ?? "seedvr", by), 0, video.duration_ms ?? 0);
+    let kept = await clips.range.keepCut(video, bytes, clips.finishName(video, opts.route ?? "seedvr", by), 0, video.duration_ms ?? 0, folder);
     // the draft's frames, enlarged: its length on the model's frame grid is the draft's (lengthOnGrid), or an interpolated
     // finish plays one frame short and a seamless join skips it. The latent itself stays the draft's (renderedOf)
     if (video.latent_frames && Math.abs((kept.duration_ms ?? 0) - (video.duration_ms ?? 0)) <= 42) {
@@ -172,7 +175,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
 }
 
 /** RIFE on the GPU: the range goes up to ComfyUI, a small graph interpolates it, the video comes back with the range's own sound slowed to match. */
-async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions): Promise<void> {
+async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions, folder: string | null): Promise<void> {
   const factor = opts.factor ?? 2;
   const made = (await madeBefore(core, row)) ?? (await makeOnce(core, row, async () => {
     const comfy = await core.comfy();
@@ -193,7 +196,7 @@ async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Ti
     const silent = await comfy.client.view(await followed(core, comfy, run, g, outNode, [`frame_interpolation/${rife}`], note));
     // RIFE hands the picture back without sound: the range's own sound goes on it, slowed to match
     const bytes = await slowSoundOnto(silent, part.bytes, factor);
-    const kept = await clips.range.keepCut(video, bytes, clips.range.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs);
+    const kept = await clips.range.keepCut(video, bytes, clips.range.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs, folder);
     await noteTool(core, note, "done", kept);
     return kept;
   }));
@@ -201,8 +204,8 @@ async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Ti
 }
 
 /** The range slowed by ffmpeg on the computer Afflatus runs on. */
-async function runSlowFfmpeg(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions): Promise<void> {
-  const made = (await madeBefore(core, row)) ?? (await makeOnce(core, row, () => clips.range.slowRange(video, opts.startMs, opts.endMs, opts.factor ?? 2, { crf: opts.crf, signal: run.abort.signal })));
+async function runSlowFfmpeg(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions, folder: string | null): Promise<void> {
+  const made = (await madeBefore(core, row)) ?? (await makeOnce(core, row, () => clips.range.slowRange(video, opts.startMs, opts.endMs, opts.factor ?? 2, { crf: opts.crf, signal: run.abort.signal, folder })));
   if (opts.clip) await place(core, clips, opts.clip, made);
 }
 

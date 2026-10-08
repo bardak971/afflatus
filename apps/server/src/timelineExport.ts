@@ -2,6 +2,7 @@ import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joi
 import { newId, now } from "./db";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
+import { folderOfTimeline } from "./timelineFolder";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
 import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type TimelineCore, type TimelineRow } from "./timelineModel";
@@ -104,7 +105,7 @@ export class TimelineExport {
     };
   }
 
-  /** The export put in the library (and its storage), named after the timeline (and the range), as the timeline's last export. */
+  /** The export put in the library (and its storage), named after the timeline (and the range), as the timeline's last export, in the timeline's folder (folderOfTimeline). */
   private async storeExport(t: TimelineRow, file: string, frame: { width: number; height: number }, fps: number, win: { a: number; b: number } | null) {
     const { db, storage, events } = this.core;
     const assetId = newId();
@@ -120,7 +121,7 @@ export class TimelineExport {
       .values(newAssetRow({
         id: assetId, kind: "video", origin: "exported", name: win ? `${t.name} · ${clockOf(win.a)}–${clockOf(win.b)}` : t.name, file_key: key, thumb_key: thumb ? thumbKey(assetId) : null,
         mime: "video/mp4", bytes, width: video.facts?.width ?? frame.width, height: video.facts?.height ?? frame.height,
-        duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: t.folder_id, generation_id: null,
+        duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: await folderOfTimeline(db, t), generation_id: null,
         kept_at: at, created_at: at,
       }))
       .execute();
