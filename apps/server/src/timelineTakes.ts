@@ -1,4 +1,5 @@
 import { joinKindOf } from "@afflatus/core";
+import { nameTake } from "./autoName";
 import { newId, now, type Db } from "./db";
 import { lengthOnGrid, type AssetRow, type TimelineCore } from "./timelineModel";
 import type { TakeLinks } from "./timelinePlan";
@@ -41,6 +42,8 @@ export class TimelineTakes {
       .execute();
     const clip = await db.updateTable("clips").set({ take_id: id, updated_at: now() }).where("id", "=", clipId).returning("timeline_id").executeTakeFirst();
     await this.core.keep(asset.id, db);
+    // a render that has no name yet is called after its timeline, clip and take (a name given by hand stays)
+    await nameTake(db, id);
     // the first video of a timeline decides its frame
     if (clip && asset.width && asset.height) {
       await db.updateTable("timelines").set({ width: asset.width, height: asset.height }).where("id", "=", clip.timeline_id).where("width", "is", null).execute();

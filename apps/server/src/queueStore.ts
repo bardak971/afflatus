@@ -1,5 +1,6 @@
 import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
 import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
+import { draftNames, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
 import { frameAt, lookOf, repairJoinAudio, runUpBreak, type Measure } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
@@ -61,7 +62,7 @@ export const draftOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, ass
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   outputs: Outputs,
-  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked">,
+  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null },
 ): Promise<string> {
   const { db, storage } = core;
   const files = collectOutputs(resume, outputs);
@@ -85,6 +86,12 @@ export async function store(
       // in its own column for the timelines, and in resolved as before (the asset API hands resolved out whole)
       if (filed.measure) resolved.measure = filed.measure;
       rows.push(newAssetRow({ ...filed.row, folder_id: folder, generation_id: generationId, created_at: at }));
+    }
+    // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
+    if (row.draft_id && !row.clip_id) {
+      const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);
+      const names = await draftNames(db, row.draft_id, rows.length, { prompt: promptOf(input, prompts), recipe: recipe.title });
+      names?.forEach((name, i) => (rows[i]!.name ||= name));
     }
     await writeRows(db, { id: generationId, recipe, input, resolved, genMs: Date.now() - resume.startedAt, at }, row, sourcesOf(recipe, input, resume), rows);
   } catch (err) {
