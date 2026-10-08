@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckSquare, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronDown, ChevronRight, Copy, Trash2 } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { ask } from "../../Confirm";
 import { fuzzyFilter } from "@afflatus/core";
 import { api, type Entity } from "../../api";
 import { Select } from "../../Select";
-import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
+import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Help, Segmented, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
 import { copyText } from "../../secureContext";
 
@@ -105,13 +105,21 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
 /**
  * Every snippet as a list that is changed in place: by category (each folds away), narrowed to one
  * category or by the search, several ticked at once to move them to another category or delete them.
+ * The category it is narrowed to and the snippet just made are the screen's: its New button makes one
+ * in that category.
  */
-export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: string }) {
+export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: {
+  snippets: Snippet[];
+  query: string;
+  /** The one category shown; null for all. */
+  only: string | null;
+  onOnly(only: string | null): void;
+  /** The snippet just made: its name is in focus, its category open. */
+  fresh: string | null;
+}) {
   const client = useQueryClient();
-  const [only, setOnly] = useState<string | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [folds, setFolds] = useState<Record<string, boolean>>(() => remembered(OPEN_KEY, {}));
-  const [fresh, setFresh] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState("");
   const categories = [...new Set(snippets.map((s) => s.def.category))].sort((a, b) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b));
   const narrowed = only === null ? snippets : snippets.filter((s) => s.def.category === only);
@@ -119,15 +127,8 @@ export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: 
   // a category that is gone (its last snippet moved away) is no filter any more
   useEffect(() => {
     if (only !== null && !snippets.some((s) => s.def.category === only)) setOnly(null);
-  }, [only, snippets]);
+  }, [only, snippets, setOnly]);
   const refresh = () => client.invalidateQueries({ queryKey: ["entities"] });
-  const create = useMutation({
-    mutationFn: () => api.createEntity("snippet", "New snippet", { text: "", category: only ?? "", style: null }),
-    onSuccess: async (made) => {
-      await refresh();
-      setFresh(made.id);
-    },
-  });
   const chosen = snippets.filter((s) => ticked.has(s.id));
   const move = useMutation({
     mutationFn: (category: string) => Promise.all(chosen.map((s) => api.saveEntity(s.id, { def: { ...s.def, category } }))),
@@ -169,8 +170,6 @@ export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: 
           options={[choice("All", snippets.length, EVERY), ...categories.map((c) => choice(c || "No category", snippets.filter((s) => s.def.category === c).length, c))]}
           onChange={(v) => setOnly(v === EVERY ? null : v)}
         />
-        <span className="grow" />
-        <Button size="sm" tone="primary" disabled={create.isPending} onClick={() => create.mutate()}><Plus size={13} /> New snippet{only ? ` in ${only}` : ""}</Button>
       </div>
       {chosen.length > 0 && (
         <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-accent bg-panel px-3 py-2">
@@ -202,11 +201,11 @@ export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: 
           <Button size="sm" tone="quiet" onClick={() => setTicked(new Set())}>Untick all</Button>
         </div>
       )}
-      {(create.isError || move.isError || removeAll.isError) && <ErrorNote>{(create.error ?? move.error ?? removeAll.error)?.message}</ErrorNote>}
+      {(move.isError || removeAll.isError) && <ErrorNote>{(move.error ?? removeAll.error)?.message}</ErrorNote>}
       {snippets.length === 0 && (
-        <Empty title="No snippets yet">A snippet is a bit of prompt text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is appended to your prompt each time you generate; the dice ticks one of each category at random.</Empty>
+        <Empty title="No snippets yet"><Help title="Snippets" text={`A snippet is a bit of prompt text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is appended to your prompt each time you generate; the dice ticks one of each category at random.`} /></Empty>
       )}
-      {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches">No snippet has these words in its name, its category or its text.</Empty>}
+      {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" />}
       {found.length > 0 && (
         <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] gap-1.5 px-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">
           <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Prompt style</span><span className="w-8" />

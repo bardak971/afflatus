@@ -21,8 +21,8 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
 }) {
   return (
     <div className="flex items-center gap-3">
-      <input aria-label="Name" value={item.name} onChange={(e) => onRename(e.target.value)} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
-      <Chip tone={saved === "failed" ? "warn" : "neutral"} tip={saved === "failed" ? failure ?? undefined : undefined}>
+      <input aria-label="Name" value={item.name} onChange={(e) => onRename(e.target.value)} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent -ml-2 px-2 text-[22px] font-bold hover:border-line focus:border-accent focus:bg-raised" />
+      <Chip tone={saved === "failed" ? "warn" : saved === "saved" ? "good" : "neutral"} tip={saved === "failed" ? failure ?? undefined : undefined}>
         {saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : `Could not save${failure ? `: ${failure}` : ""}`}
         {saved === "failed" && <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>}
       </Chip>

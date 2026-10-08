@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MapPin, Play, Plus, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
+import { MapPin, Play, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { api, thumbUrl, type Entity, type RecipeInfo } from "../api";
@@ -11,7 +11,7 @@ import { importPresetFile, savePresetFile } from "../presetFile";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { handPreset } from "../handoff";
 import { useStudio } from "../store";
-import { Button, ErrorNote } from "../ui";
+import { Button, cx, ErrorNote, Help } from "../ui";
 import { ask } from "../Confirm";
 import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
 import { KitHeader, TABS, type Tab } from "./kit/KitHeader";
@@ -28,10 +28,10 @@ const TAB_KEY = "afflatus.kit.tab";
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 /** What an item is, at the head of its menu. */
 const KIND_WORD = { person: "Person", place: "Place", style: "Style", preset: "Preset", snippet: "Snippet" } as const;
-/** One line about an item, under its name. */
+/** One line about an item, under its name: terse, the list is read at a glance. */
 function summaryOf(e: Entity, recipes: RecipeInfo[]): string {
-  if (e.kind === "person") return `${plural(e.def.pictures.length, "reference image")}, ${e.def.voice ? "voice sample" : "no voice sample"}, ${plural(e.def.outfits.length, "outfit")}`;
-  if (e.kind === "place") return plural(e.def.pictures.length, "reference image");
+  if (e.kind === "person") return `${plural(e.def.pictures.length, "picture")} · ${e.def.voice ? "voice" : "no voice"} · ${plural(e.def.outfits.length, "outfit")}`;
+  if (e.kind === "place") return plural(e.def.pictures.length, "picture");
   if (e.kind === "style") return `set up for ${plural(Object.values(e.def.models).filter((m) => m.loras.length || m.words.trim()).length, "model")}`;
   if (e.kind === "preset") return `${e.def.recipe ? (recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here") : "any model"} · ${plural(Object.keys(e.def.inputs).length, "parameter")} set`;
   return e.def.text;
@@ -54,6 +54,9 @@ export function People() {
   const [tab, setTabNow] = useState<Tab>(() => TABS.find((t) => `#${t.title.toLowerCase()}` === window.location.hash)?.id ?? remembered<Tab>(TAB_KEY, "person"));
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+  // the Snippets tab: the one category shown (the New button makes a snippet in it) and the snippet just made
+  const [snippetOnly, setSnippetOnly] = useState<string | null>(null);
+  const [freshSnippet, setFreshSnippet] = useState<string | null>(null);
   const stored = all.find((e) => e.id === open) ?? null;
 
   const { edit, saved, failure, flush, retry, change, dropPending } = useEntityDraft({ stored, loading: entities.isLoading });
@@ -64,6 +67,7 @@ export function People() {
     setQuery("");
     void flush().then(() => {
       setOpen(null);
+      setSnippetOnly(null);
       setTabNow(next);
     });
   };
@@ -73,6 +77,13 @@ export function People() {
     onSuccess: async (e) => {
       await client.invalidateQueries({ queryKey: ["entities"] });
       setOpen(e.id);
+    },
+  });
+  const createSnippet = useMutation({
+    mutationFn: () => api.createEntity("snippet", "New snippet", { text: "", category: snippetOnly ?? "", style: null }),
+    onSuccess: async (made) => {
+      await client.invalidateQueries({ queryKey: ["entities"] });
+      setFreshSnippet(made.id);
     },
   });
   const remove = useMutation({
@@ -119,28 +130,17 @@ export function People() {
     useStudio.getState().set({ form: true });
     go("/");
   };
-  const newButton = (
-    <button type="button" disabled={create.isPending} onClick={() => create.mutate(tab as "person" | "place" | "style" | "preset")} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed border-line-strong text-xs font-semibold text-ink-2 hover:border-accent hover:text-ink">
-      <Plus size={14} /> {here.add}
-    </button>
-  );
-  /** The head of the list, for every kind: the new button (and the import, for presets), and the word when the search finds nothing. */
-  const head = (
+  /** The one New button, in the header: for the tab open (a snippet goes into the category shown). */
+  const onNew = () => (tab === "snippet" ? createSnippet.mutate() : create.mutate(tab));
+  /** Before it, for presets: bringing one in from a file. */
+  const importButton = tab === "preset" && (
     <>
-      {!query.trim() && (
-        <div className="flex items-center gap-2 pb-1.5">
-          {newButton}
-          {tab === "preset" && (
-            <>
-              <Button size="sm" onClick={() => fileInput.current?.click()} disabled={doImport.isPending} data-tip="A preset file: one saved from Afflatus, or one of the shipped shape" className="flex h-9 shrink-0 items-center gap-1.5"><Upload size={13} /> Import</Button>
-              <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) doImport.mutate(f); e.target.value = ""; }} />
-            </>
-          )}
-        </div>
-      )}
-      {mine.length > 0 && found.length === 0 && <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>}
+      <Button size="sm" onClick={() => fileInput.current?.click()} disabled={doImport.isPending} data-tip="A preset file: one saved from Afflatus, or one of the shipped shape" className="flex h-9 shrink-0 items-center gap-1.5"><Upload size={13} /> Import</Button>
+      <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) doImport.mutate(f); e.target.value = ""; }} />
     </>
   );
+  /** The head of the list: the word when the search finds nothing. */
+  const head = mine.length > 0 && found.length === 0 && <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>;
   const explain = tab === "person"
     ? "A person is reference images, a voice sample and prompt text. Afflatus gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
     : tab === "place" ? "A place is reference images and prompt text: the clip or the image happens there."
@@ -149,17 +149,21 @@ export function People() {
 
   return (
     <div className="flex min-h-0 min-w-0 grow flex-col">
-      <KitHeader tab={tab} onTab={setTab} all={all} query={query} onQuery={setQuery} />
+      <KitHeader
+        tab={tab} onTab={setTab} all={all} query={query} onQuery={setQuery} extra={importButton}
+        newLabel={tab === "snippet" && snippetOnly ? `New snippet in ${snippetOnly}` : undefined}
+        onNew={onNew} busy={create.isPending || createSnippet.isPending}
+      />
 
       {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" head={{ title: rowMenu.menu.subject.name, sub: `${KIND_WORD[rowMenu.menu.subject.kind]} · ${summaryOf(rowMenu.menu.subject, recipeList)}` }} items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
-      {(entities.isError || create.isError || remove.isError || doImport.isError) && <div className="px-6 pb-3"><ErrorNote>{(entities.error ?? create.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
+      {(entities.isError || create.isError || createSnippet.isError || remove.isError || doImport.isError) && <div className="px-6 pt-3"><ErrorNote>{(entities.error ?? create.error ?? createSnippet.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
 
       {tab === "snippet" ? (
-        <main className="min-h-0 grow overflow-y-auto px-6 pb-8">
-          <SnippetTable snippets={all.filter((e): e is Snippet => e.kind === "snippet")} query={query} />
+        <main className="min-h-0 grow overflow-y-auto px-6 pt-4 pb-8">
+          <SnippetTable snippets={all.filter((e): e is Snippet => e.kind === "snippet")} query={query} only={snippetOnly} onOnly={setSnippetOnly} fresh={freshSnippet} />
         </main>
       ) : (
-        <div className="grid min-h-0 grow grid-cols-[440px_minmax(0,1fr)]">
+        <div className={cx("grid min-h-0 grow", tab === "preset" ? "grid-cols-[420px_minmax(0,1fr)]" : "grid-cols-[320px_minmax(0,1fr)]")}>
           <aside className="flex min-h-0 flex-col border-r border-line">
             {tab === "preset" ? (
               <PresetList found={found} open={open} onSelect={select} onMenu={(e, ev) => rowMenu.open(ev, e)}>{head}</PresetList>
@@ -182,9 +186,9 @@ export function People() {
             )}
           </aside>
 
-          <section className="min-h-0 overflow-y-auto px-8 py-5">
+          <section className="min-h-0 overflow-y-auto px-7 py-4">
             {shipped ? (
-              <div className="mx-auto flex max-w-3xl flex-col gap-5">
+              <div className="flex max-w-[820px] flex-col gap-3">
                 <div className="flex items-center gap-3">
                   <h2 className="min-w-0 grow truncate text-xl font-semibold">{shipped.name}</h2>
                   <Badge>{authorOf(shipped)}</Badge>
@@ -195,7 +199,7 @@ export function People() {
                 <ShippedPreset e={shipped} onCopied={(c) => setOpen(c.id)} />
               </div>
             ) : editing ? (
-              <div className="mx-auto flex max-w-3xl flex-col gap-5">
+              <div className="flex max-w-[820px] flex-col gap-3">
                 <ItemHeader
                   item={editing} saved={saved} failure={failure} onRename={(name) => change({ ...editing, name })} onRetry={retry}
                   onApply={() => void flush().then(() => applyInStudio(editing.id))} onDelete={() => remove.mutate(editing.id)} onClose={() => select(null)}
@@ -206,11 +210,13 @@ export function People() {
                 {editing.kind === "preset" && <PresetEditor id={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}
               </div>
             ) : (
-              <div className="mx-auto flex max-w-xl flex-col items-center gap-4 pt-16 text-center">
+              // nothing open: the kind's icon and one line; what the kind is, behind its ?
+              <div className="flex max-w-[820px] flex-col items-center gap-3 pt-24 text-center">
                 <span className="text-ink-3">{here.icon}</span>
-                <h2 className="text-lg font-semibold">{mine.length ? `Choose ${tab === "person" ? "a person" : tab === "place" ? "a place" : tab === "style" ? "a style" : "a preset"} on the left` : `No ${here.title.toLowerCase()} yet`}</h2>
-                <p className="text-ink-2">{explain}</p>
-                <Button onClick={() => create.mutate(tab as "person" | "place" | "style" | "preset")} disabled={create.isPending} className="flex items-center gap-2"><Plus size={14} /> {here.add}</Button>
+                <h2 className="flex items-center gap-2 text-base font-semibold">
+                  {mine.length ? `Choose ${tab === "person" ? "a person" : tab === "place" ? "a place" : tab === "style" ? "a style" : "a preset"} on the left` : `No ${here.title.toLowerCase()} yet`}
+                  <Help text={explain} title={here.title} />
+                </h2>
               </div>
             )}
           </section>
