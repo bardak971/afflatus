@@ -13,6 +13,16 @@ export interface Storage {
   open(key: string, range?: { start: number; end: number }): Promise<{ size: number; stream: Readable }>;
   size(key: string): Promise<number>;
   delete(key: string): Promise<void>;
+  /**
+   * Where the file is on this machine's disk, for a tool that reads it there (ffmpeg) instead of from bytes held in memory;
+   * null when it is not on a disk here (a bucket). Left out: never on a disk here.
+   */
+  localPath?(key: string): string | null;
+}
+
+/** A stored file as ffmpeg can be handed it: its path on the disk when it has one, else its bytes. */
+export async function sourceOf(storage: Storage, key: string): Promise<string | Uint8Array> {
+  return storage.localPath?.(key) ?? (await storage.get(key));
 }
 
 export class LocalStorage implements Storage {
@@ -57,5 +67,9 @@ export class LocalStorage implements Storage {
 
   async delete(key: string): Promise<void> {
     await rm(this.path(key), { force: true });
+  }
+
+  localPath(key: string): string | null {
+    return this.path(key);
   }
 }

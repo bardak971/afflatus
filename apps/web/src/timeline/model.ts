@@ -1,5 +1,5 @@
 import { secondsOf } from "@afflatus/core";
-import type { Clip, RecipeInfo } from "../api";
+import type { Asset, Clip, ClipPatch, RecipeInfo, Take } from "../api";
 import { clock } from "../format";
 
 /** What the editor's parts share: how clips are laid out along the track, and a few words about them. */
@@ -96,3 +96,30 @@ export function pinInputs(recipe: RecipeInfo | undefined) {
   const mid = find("mid");
   return { start: find("start")?.id, end: find("end")?.id, mid: mid?.type === "image" && mid.at ? mid.id : undefined, midAt: mid?.type === "image" ? mid.at : undefined };
 }
+
+/** How much of a take can play at most: its video on the model's grid, without the parts it shares with its neighbours (the server's roomMs). */
+export const roomOf = (take: Take) => take.roomMs;
+
+/** A clip's change as the server takes it, a trim asked by what is seen (shownFromMs, shownToMs) included. */
+export type ShownPatch = ClipPatch;
+
+/** The version of a file, for an address the browser may keep for good: it changes when a linked file is written again. */
+export const fileVersion = (a: Asset) => `${a.bytes}-${Date.parse(a.createdAt) || 0}`;
+
+/** Where a clip moved one place earlier (-1) or later (1) goes: the clip it then comes after, null for first; undefined when it is at that end already. */
+export function moveAfter(clips: Clip[], id: string, by: -1 | 1): string | null | undefined {
+  const i = clips.findIndex((c) => c.id === id);
+  if (i < 0 || (by < 0 && i === 0) || (by > 0 && i === clips.length - 1)) return undefined;
+  if (by > 0) return clips[i + 1]!.id;
+  return i >= 2 ? clips[i - 2]!.id : null;
+}
+
+/**
+ * What the player plays changes only when this does: the clips that play, their takes and pictures, where they start, how
+ * long, what is heard and how they join. A timeline read again with nothing of that changed keeps the player's frame loop.
+ */
+export const playSignature = (clips: Clip[]) =>
+  clips
+    .filter((c) => c.lengthMs > 0 && (c.take || c.still))
+    .map((c) => [c.id, c.take?.id ?? c.still?.id, c.atMs, c.lengthMs, c.take?.startMs, c.take?.headMs, c.take?.trimStartMs, c.take?.landedMs ?? "", c.take?.seamless ? 1 : 0, c.joined, c.sound, c.soundAsset?.id ?? "", c.volume, c.fill ? 1 : 0].join(":"))
+    .join("|");

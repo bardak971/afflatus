@@ -4,12 +4,10 @@ import { Film } from "lucide-react";
 import { api, fileUrl, type Clip, type RunningJob, type Take, type Timeline } from "../api";
 import { phaseLabel } from "../format";
 import { LivePreview } from "../LivePreview";
+import { FullscreenBar, type ScreenControls } from "./FullscreenBar";
 import { cx } from "../ui";
-
-/** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
-const PREROLL_MS = 800;
-/** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
-const CUT_EARLY_MS = 24;
+import { playSignature } from "./model";
+import { useHandover } from "./useHandover";
 
 export interface PlayerHandle {
   /** Go to a moment of what plays. */
@@ -45,10 +43,16 @@ export const Player = forwardRef<PlayerHandle, {
   onStop?(job: string): void;
   /** The timeline, for the colour matching at the joins (the export's, shown here too). */
   timeline?: string;
-}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline, master = 1, onPickPreview }, ref) {
+  /** The editor's transport, shown over the picture while the player fills the screen. */
+  screen?: ScreenControls;
+}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline, master = 1, onPickPreview, screen }, ref) {
   const masterRef = useRef(master);
   masterRef.current = master;
-  const seq = useMemo(() => clips.filter((c) => c.lengthMs > 0 && (c.take || c.still)), [clips]);
+  // the clips that play, kept while what plays of them is the same: a timeline read again (a render's progress, a form
+  // saved) does not restart the frame loop below, which follows this list
+  const signature = playSignature(clips);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const seq = useMemo(() => clips.filter((c) => c.lengthMs > 0 && (c.take || c.still)), [signature]);
   // each clip's colour nudge toward the clip before at their join, as the export applies it: shown here as a colour matrix on the video
   const matches = useQuery({
     queryKey: ["match", timeline, clips.map((c) => `${c.take?.id ?? c.still?.id ?? "-"}:${c.take?.startMs ?? 0}:${c.take?.endMs ?? 0}`).join(",")],
@@ -74,41 +78,12 @@ export const Player = forwardRef<PlayerHandle, {
   const prior = at > 0 ? seq[at - 1] : undefined;
   const keyOf = (c: Clip) => c.take?.id ?? `still:${c.id}`;
   const startOf = (c: Clip) => c.take?.startMs ?? 0;
-  /** How long the next clip fades in over the end of this one: a clip that extends the one before, over the frames they share (as the export does). */
-  const blendOf = (c: Clip | undefined, from: Clip | undefined) => {
-    if (!c?.take || !from) return 0;
-    // landed on by the clip before: both show the same moments around the take-over point, inside that clip's guided tail
-    if (c.take.landedMs) {
-      const x = Math.min(170, c.take.landedMs, c.lengthMs - 40, from.lengthMs - 40);
-      return x >= 80 ? x : 0;
-    }
-    return 0;
-  };
-  /**
-   * A continuation dissolves in over the clip before, which holds its last frame, over 170 ms as the export does (DISSOLVE_MS:
-   * longer doubled a moving subject).
-   */
-  const dissolveOf = (c: Clip | undefined, from: Clip | undefined) => {
-    // decoded as one piece with the clip before: a plain cut is the whole chain decoded at once
-    if (!c?.take || !from?.take || c.take.landedMs || c.joined !== "continue" || c.take.seamless) return 0;
-    if (c.take.headMs - c.take.trimStartMs < 80) return 0;
-    const x = Math.min(170, c.lengthMs - 40);
-    return x >= 80 ? x : 0;
-  };
   /** The clip before, held on its last frame under the one dissolving in. */
   const [frozen, setFrozen] = useState<Clip | null>(null);
   const thaw = useRef(0);
   /** The next clip is fading in, over this many ms. */
   const [fading, setFading] = useState(0);
   const fadeOn = useRef(false);
-  /**
-   * How late a video runs after it is told to play from a moment: it is started that much ahead. Learned at every join
-   * (60 to 85 ms measured). Kept in step by its speed instead, it was in step at the take-over but its frames then came
-   * unevenly (one display refresh, then five) for most of a second after it, at every join (2026-10-08).
-   */
-  const startLag = useRef(70);
-  /** When the clip after was started, and whether it was checked once since. */
-  const started = useRef({ at: 0, checked: false });
   /** The clip after has shown its first frame (it is on screen already): the take-over is now. */
   const handReady = useRef(false);
   /** The clip after is watched on its own frames for the take-over. */
@@ -227,147 +202,8 @@ export const Player = forwardRef<PlayerHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, nowKey, onPlaying, Boolean(music)]);
 
-  // looked at on every frame while it plays; the video's own clock also calls it, because a browser
-  // stops drawing frames for a tab that is not in front while the video goes on playing
-  const step = useRef<() => boolean>(() => false);
-  useEffect(() => {
-    if (!playing) return;
-    let frameId = 0;
-    step.current = () => {
-      const c = seq[at];
-      if (!c) return true;
-      const el = c.take ? els.current.get(c.take.id) : undefined;
-      if (c.take && !el) return true;
-      const t = performance.now();
-      const local = el ? el.currentTime * 1000 - startOf(c) : pos.current.local + (t - pos.current.at);
-      // a frame early rather than late: late, the clip before shows the moment the clip after opens on, and it is seen twice.
-      // When the clip after runs (it was started early), the change waits until it is at its start: a video a frame or two
-      // behind would show a moment again; this one has real frames past its end (the ones they share) to show meanwhile
-      const following = seq[at + 1];
-      const followEl = following?.take ? els.current.get(following.take.id) : undefined;
-      // how far it is behind the moment this one shows (they show the same moments around the change)
-      const behind = followEl && !followEl.paused && fadeOn.current ? startOf(following!) + (local - c.lengthMs) - followEl.currentTime * 1000 : 0;
-      // watched on its own frames (see arm): it takes over when it shows its first one, or late at the latest; else as before
-      const watched = armed.current;
-      const due = handReady.current || (watched ? local >= c.lengthMs + 100 : local >= c.lengthMs - CUT_EARLY_MS && (behind <= 12 || local >= c.lengthMs + 100));
-      if (due || el?.ended) {
-        if (seq[at + 1]) {
-          // a continuation dissolves in: this clip stops on its last frame and stays under it meanwhile
-          const following = seq[at + 1]!;
-          const dissolve = dissolveOf(following, c);
-          if (dissolve && el) {
-            el.pause();
-            window.clearTimeout(thaw.current);
-            setFrozen(c);
-            thaw.current = window.setTimeout(() => setFrozen(null), dissolve + 60);
-            const nextVideo = following.take ? els.current.get(following.take.id) : undefined;
-            nextVideo?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dissolve, easing: "linear" });
-          }
-          // shown at once, before the page redraws: waiting for the redraw held this clip's last frame a frame or two longer (the
-          // clip after then appeared ahead, a frame skipped). The page's own state takes over at its next redraw (see below)
-          const nextShown = following.take ? els.current.get(following.take.id) : undefined;
-          if (!dissolve && nextShown) nextShown.style.opacity = "1";
-          // it takes over where this one got to: the playhead runs on without a step
-          place(at + 1, Math.max(0, local - c.lengthMs), true);
-        } else {
-          pos.current = { key: keyOf(c), local: c.lengthMs, at: t };
-          onTime(c.atMs + c.lengthMs);
-          onPlaying(false);
-        }
-        return false;
-      }
-      // the clip after starts running a little early, hidden and muted, so that it has frames decoded and is in
-      // step at the moment it takes over (a video started cold at the cut shows black for a frame, then rushes).
-      // It runs exactly where it must be to arrive at its start when this clip ends: started ahead of that, the
-      // take-over had to seek it back, which stalled the picture and held the playhead at every join
-      const after = seq[at + 1];
-      const blend = blendOf(after, c);
-      const remaining = c.lengthMs - local;
-      const nextEl = after?.take ? els.current.get(after.take.id) : undefined;
-      const expected = after ? startOf(after) - remaining : 0;
-      const lag = startLag.current;
-      /**
-       * The take-over on the clip after's own clock: the moment it puts its first frame on screen it is shown (in that very
-       * frame), and the step below hands over. Decided on this clip's clock instead, the change waited for the next redraw
-       * and this clip's last frame stayed up two refreshes too long, at every join (2026-10-08). Not for a fade or a dissolve.
-       */
-      const arm = (v: HTMLVideoElement, first: number) => {
-        if (blend || dissolveOf(after, c) || !("requestVideoFrameCallback" in v)) return;
-        armed.current = true;
-        const watch = (_now: number, meta: { mediaTime: number }) => {
-          if (!fadeOn.current || handReady.current) return;
-          if (meta.mediaTime * 1000 >= first - 4) {
-            v.style.opacity = "1";
-            // heard from the same frame (it ran silent by its volume)
-            if (after) v.volume = Math.max(0, Math.min(1, (after.volume / 100) * masterRef.current));
-            handReady.current = true;
-          } else v.requestVideoFrameCallback(watch);
-        };
-        v.requestVideoFrameCallback(watch);
-      };
-      if (nextEl && !fadeOn.current && remaining <= PREROLL_MS) {
-        fadeOn.current = true;
-        // silent by its volume, not muted: unmuted at the take-over, a playing video starts its sound and its picture stalled
-        // there for two or three frames (its first frame stayed up ~45 ms, measured 2026-10-08); a volume change costs nothing
-        nextEl.muted = after?.sound !== "own";
-        nextEl.volume = 0;
-        if (nextEl.playbackRate !== 1) nextEl.playbackRate = 1;
-        // all but invisible, not invisible: a video at opacity 0 is not kept drawn, and shown it put its first frame up a display
-        // refresh late at every join; at 0.4 % it is drawn and costs nothing to show (only this one: every hidden video drawn
-        // made the frames come unevenly elsewhere). A fade or a dissolve brings it in itself
-        if (!blend && !dissolveOf(after, c)) nextEl.style.opacity = "0.004";
-        // started ahead by the delay it will lose; a clip that starts at its very first frame waits there, paused on it
-        nextEl.currentTime = Math.max(0, expected + lag) / 1000;
-        if (expected + lag >= 0) {
-          void nextEl.play().catch(() => {});
-          started.current = { at: t, checked: false };
-          if (after) arm(nextEl, startOf(after));
-        }
-      }
-      if (nextEl && fadeOn.current) {
-        // one that waited on its first frame starts when it is due, as early as it will be late
-        if (nextEl.paused && expected + lag >= 0 && remaining > 30) {
-          void nextEl.play().catch(() => {});
-          started.current = { at: t, checked: false };
-          if (after) arm(nextEl, startOf(after));
-        } else if (!nextEl.paused && !started.current.checked && t - started.current.at > 200 && expected >= 0) {
-          // once, out of sight, when it has settled: how far off it runs teaches the next join, and a stray start is set right
-          // with one seek here (never near the take-over, never by its speed)
-          started.current.checked = true;
-          const off = expected - nextEl.currentTime * 1000;
-          startLag.current = Math.max(0, Math.min(200, lag + off * 0.7 + 4));
-          if (Math.abs(off) > 20 && remaining > 300) nextEl.currentTime = (expected + startLag.current) / 1000;
-        }
-      }
-      // over its last frames, a clip that fades in over this one shows, over the moments they share
-      if (nextEl && blend && !fadedIn.current && remaining <= blend) {
-        fadedIn.current = true;
-        setFading(Math.max(40, remaining));
-      }
-      // the playhead runs on: a clip that took over a few ms behind its start shows its first frames meanwhile
-      if (local > -400) {
-        pos.current = { key: keyOf(c), local: Math.max(0, local), at: t };
-        tuneMusic(c.atMs + Math.max(0, local));
-        // the screen around the video does not need every frame's time
-        if (t - said.current > 66) {
-          said.current = t;
-          onTime(c.atMs + Math.max(0, local));
-        }
-      }
-      return true;
-    };
-    const tick = () => {
-      if (step.current()) frameId = requestAnimationFrame(tick);
-    };
-    frameId = requestAnimationFrame(tick);
-    // a picture has no video to keep time when the tab is not in front
-    const slow = setInterval(() => step.current(), 250);
-    return () => {
-      cancelAnimationFrame(frameId);
-      clearInterval(slow);
-      step.current = () => false;
-    };
-  }, [playing, at, seq, place, onPlaying, onTime, tuneMusic]);
+  // the frame loop while it plays, and the hand-over from one clip to the next (useHandover.ts)
+  const step = useHandover({ seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, setFrozen, setFading, place, onPlaying, onTime, tuneMusic, keyOf, startOf });
 
   // the screen: as large as fits, in the timeline's shape
   const box = useRef<HTMLDivElement>(null);
@@ -470,7 +306,7 @@ export const Player = forwardRef<PlayerHandle, {
       {live && !playing && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#08090b]">
           {live.job.previewSeq > 0
-            ? <LivePreview job={live.job} sound className="h-full w-full object-contain" />
+            ? <LivePreview job={live.job} sound volume={master} className="h-full w-full object-contain" />
             : <span className="text-ink-2">Clip {live.clip} is generating. The live preview shows here from its first step.</span>}
           <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 py-1 pr-1 pl-3 text-xs font-semibold whitespace-nowrap">
             Clip {live.clip} · {phaseLabel(live.job.phase)}{live.job.steps ? ` · step ${live.job.step} of ${live.job.steps}` : ""}
@@ -478,6 +314,7 @@ export const Player = forwardRef<PlayerHandle, {
           </span>
         </div>
       )}
+      {screen && <FullscreenBar box={box} c={screen} live={live && !playing ? (live.job.previewMime?.startsWith("video/") ? "video" : "picture") : null} />}
     </div>
   );
 });

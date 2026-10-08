@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ChevronDown, ChevronLeft, ImagePlus, Music, Trash2, Wand2, X } from "lucide-react";
 import { secondsInput } from "@afflatus/core";
-import { api, thumbUrl, type Clip, type ClipPatch, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
+import { api, thumbUrl, type Clip, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
 import { WritingHelp } from "../WritingHelp";
 import { appendTo } from "../promptText";
@@ -16,7 +16,7 @@ import { CastPictures } from "../castPictures";
 import { Select } from "../Select";
 import { AutoText, Bar, Button, cx, ErrorNote, Help, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
 import { usePanelWidth } from "../store";
-import { otherShape, pinInputs, shapeOf } from "./model";
+import { fileVersion, otherShape, pinInputs, roomOf, shapeOf, type ShownPatch } from "./model";
 import { DRAG_PICTURE, useDropZone } from "../dragging";
 import { projectForNew } from "../project";
 
@@ -91,7 +91,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   error: string | null;
   onInputs(next: Record<string, unknown>): void;
   onRecipe(id: string): void;
-  onPatch(patch: ClipPatch): void;
+  onPatch(patch: ShownPatch): void;
   /** Render it: `count` takes at once (the first with the form's seed, the others with a fresh one each). */
   onRender(fit: boolean, count: number): void;
   onRemove(): void;
@@ -156,9 +156,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const canFit = Boolean(recipe?.traits?.endAnchor && after?.take && after.joined === "continue");
   const take = clip.take;
   const loops = Boolean(ends && (ends === opens));
-  /** How much of the take can play at most: its video without the parts it shares with its neighbours. */
-  const room = take ? (take.asset.durationMs ?? 0) - take.headMs - take.tailMs : 0;
-  const without = (id: string | undefined) => Object.fromEntries(Object.entries(stored).filter(([k]) => k !== id));
+  /** How much of the take can play at most: its video on the model's grid without the parts it shares with its neighbours (the server's). */
+  const room = take ? roomOf(take) : 0;
   const shapes = { tall: "portrait", wide: "landscape", square: "square" } as const;
   const shown = still ? clip.still : take?.asset;
   const misfit = otherShape(clip, timeline) && shown?.width && shown.height && timeline.width && timeline.height
@@ -190,101 +189,11 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   // ---- what the clip got (its takes, how much of the one that plays is used, how it looks) and its pinned
   // frames: above the form for a clip with no form; inside it otherwise, as its Takes chapter and in Inputs
   const inForm = Boolean(!still && form && recipe);
-  const takesInner = clip.takes.length > 0 ? (
-    <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-start gap-2">
-              {clip.takes.map((t, i) => {
-                const on = t.id === take?.id;
-                return (
-                  <div key={t.id} className="relative" onMouseEnter={() => !on && onPreview(t)} onMouseLeave={() => onPreview(null)}>
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      aria-label={on ? `Take ${i + 1}, the one that plays` : `Play take ${i + 1} instead`}
-                      onFocus={() => !on && onPreview(t)}
-                      onBlur={() => onPreview(null)}
-                      onClick={() => {
-                        onPreview(null);
-                        if (!on) onPatch({ take: t.id });
-                      }}
-                      className="flex w-[68px] flex-col gap-1 text-left"
-                    >
-                      <span className="relative">
-                        <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
-                        {smoothest === t.id && clip.takes.length > 1 && <span className="absolute bottom-1 left-1 rounded bg-good px-1 py-px text-[9px] font-bold leading-tight text-ground" title="The smoothest joins of the takes">smoothest</span>}
-                        {t.finishedFrom && <span className="absolute top-1 left-1 rounded bg-accent px-1 py-px text-[9px] font-bold leading-tight text-accent-ink" title={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</span>}
-                      </span>
-                      <span className={cx("text-[11px]", on ? "font-semibold text-accent" : "text-ink-2")}>{on ? "plays" : `take ${i + 1}`}</span>
-                      {(() => {
-                        const j = joinOf(t.id);
-                        if (!j || (j.in === null && j.out === null)) return null;
-                        const bad = (v: number | null) => v !== null && v >= 2.5;
-                        return (
-                          <span className="flex items-center gap-1 font-mono text-[10px] leading-none" title="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
-                            {j.in !== null && <span className={bad(j.in) ? "text-warn-ink" : "text-ink-3"}>in ×{j.in}</span>}
-                            {j.out !== null && <span className={bad(j.out) ? "text-warn-ink" : "text-ink-3"}>out ×{j.out}</span>}
-                          </span>
-                        );
-                      })()}
-                    </button>
-                    <button type="button" aria-label={`Remove take ${i + 1}`} title="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/80 text-ink-2 hover:text-ink">
-                      <X size={11} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-    </div>
-  ) : null;
+  const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} /> : null;
   const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion); the smoothest is marked." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take. The one you pick plays.";
-  const durationInner = still ? (
-    <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <span>Held on screen for</span>
-                <NumberBox label="How long the still is held, in seconds" value={clip.lengthMs / 1000} min={0.5} max={60} step={0.1} unit="s" onCommit={(v) => onPatch({ stillMs: Math.round(v * 1000) })} />
-              </div>
-    </div>
-  ) : take ? (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span>Plays</span>
-        <NumberBox label="How long the clip plays, in seconds" value={clip.lengthMs / 1000} min={0.3} max={Math.max(0.3, (room - take.trimStartMs) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ trimEndMs: Math.max(0, room - take.trimStartMs - Math.round(v * 1000)) })} />
-        <span className="text-ink-2">of {(room / 1000).toFixed(1)} s, from</span>
-        <NumberBox label="How much is trimmed from the start, in seconds" value={take.trimStartMs / 1000} min={0} max={Math.max(0, (room - take.trimEndMs - 300) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ trimStartMs: Math.round(v * 1000) })} />
-        <Help text={`Or drag the clip's edges on the timeline. This trims what plays${recipe ? "; to make the clip itself longer, change Duration in Output and render a new take" : ""}.`} />
-        {(take.trimStartMs > 0 || take.trimEndMs > 0) && <Button size="sm" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Reset trim</Button>}
-      </div>
-    </div>
-  ) : null;
+  const durationInner = still || take ? <Duration clip={clip} take={take} room={room} rendered={Boolean(recipe)} onPatch={onPatch} /> : null;
   const lookInner = take?.measure && !still ? <LookTable timeline={timeline} index={index} take={take} /> : null;
-  const pinnedInner = recipe && !still && (pins.start || pins.end) ? (
-    <div className="flex flex-col gap-2">
-            {[{ where: "start" as const, id: opens, input: pins.start, text: "First frame" }, { where: "end" as const, id: ends, input: pins.end, text: loops ? "Last frame, same as the first: it loops" : "Last frame" }].map((p) =>
-              p.id ? (
-                <PinDrop key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })}>
-                  <img src={thumbUrl(p.id)} alt="" className="h-11 w-11 rounded-md object-cover" />
-                  <span className="grow">{p.text}</span>
-                  <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
-                  <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(p.input))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
-                </PinDrop>
-              ) : null,
-            )}
-            {through && pins.mid && pins.midAt && (
-              <PinDrop className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}>
-                <img src={thumbUrl(through)} alt="" className="h-11 w-11 rounded-md object-cover" />
-                <span className="grow">Keyframe at</span>
-                <NumberBox label="When the clip reaches this keyframe, in seconds" value={Number(stored[pins.midAt] ?? (midSpec?.type === "number" ? midSpec.default : 2.5))} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
-                <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(pins.mid))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
-              </PinDrop>
-            )}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* each takes a picture dropped on it: from the library, or a file from the computer */}
-              {pins.start && !carries && !opens && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.start!]: id })}><Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> First frame</Button></PinDrop>}
-              {pins.mid && !through && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}><Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button></PinDrop>}
-              {pins.end && !ends && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.end!]: id })}><Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button></PinDrop>}
-            </div>
-    </div>
-  ) : null;
+  const pinnedInner = recipe && !still && (pins.start || pins.end) ? <PinnedFrames stored={stored} pins={pins} frames={{ opens, ends, through, loops, carries }} midDefault={midSpec?.type === "number" ? midSpec.default : 2.5} onInputs={onInputs} onPick={setPicking} /> : null;
   const pinHelp = `${carries && pins.start ? `It extends clip ${index}, so it needs no first frame. ` : ""}Or drop an image on the clip: near its start for the first frame, near its end for the last frame${pins.mid ? ", in the middle for a keyframe" : ""}.${take ? " A pinned frame counts from the next take." : ""}`;
   const playing = take ? clip.takes.findIndex((t) => t.id === take.id) + 1 : 0;
   const takesLead = inForm && (takesInner || durationInner) ? {
@@ -407,8 +316,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               const nextJoined = Boolean(after && after.joined === "continue" && after.take);
               // the Join view is for a clip put between two others: something to arrive at, not merely a clip that extends the one before
               const joins = !take && (nextJoined || Boolean(ends));
-              const leftFrame = opens ? thumbUrl(opens) : carries && before ? (before.kind === "still" && before.still ? thumbUrl(before.still.id) : before.take ? `/api/assets/${before.take.asset.id}/peek?at=${Math.max(0, Math.round(before.take.endMs - 20))}&h=160` : null) : null;
-              const rightFrame = ends ? thumbUrl(ends) : nextJoined && after?.take ? `/api/assets/${after.take.asset.id}/peek?at=${Math.round(after.take.startMs)}&h=160` : null;
+              const leftFrame = opens ? thumbUrl(opens) : carries && before ? (before.kind === "still" && before.still ? thumbUrl(before.still.id) : before.take ? `/api/assets/${before.take.asset.id}/peek?at=${Math.max(0, Math.round(before.take.endMs - 20))}&h=160&v=${fileVersion(before.take.asset)}` : null) : null;
+              const rightFrame = ends ? thumbUrl(ends) : nextJoined && after?.take ? `/api/assets/${after.take.asset.id}/peek?at=${Math.round(after.take.startMs)}&h=160&v=${fileVersion(after.take.asset)}` : null;
               const startsHow = carries ? `Extends clip ${index}: its motion carries in` : opens ? `Opens on a picture` : "Starts on its own";
               const endsHow = nextJoined ? `ends where clip ${index + 2} begins` : ends ? "ends on a picture" : "ends free";
               const seconds = secondsInput(form.inputs);
@@ -626,6 +535,136 @@ function PinDrop({ className, onPick, children }: { className?: string; onPick(i
     <div {...drop.props} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} title={drop.wanted ? "Drop the picture here" : undefined}>
       {children}
       {upload.isPending && <span className="ml-1 text-xs text-ink-2">Adding…</span>}
+    </div>
+  );
+}
+
+/** A clip's takes, the one that plays marked: hovered, one is previewed in the player; clicked, it plays. Each says how its joins jump, and can be removed. */
+function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveTake }: {
+  clip: Clip;
+  take: Take | null;
+  joinOf(take: string): { in: number | null; out: number | null } | undefined;
+  /** The take whose joins jump least, once measured. */
+  smoothest: string | null;
+  onPreview(take: Take | null): void;
+  onPatch(patch: ShownPatch): void;
+  onRemoveTake(id: string): void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-start gap-2">
+              {clip.takes.map((t, i) => {
+                const on = t.id === take?.id;
+                return (
+                  <div key={t.id} className="relative" onMouseEnter={() => !on && onPreview(t)} onMouseLeave={() => onPreview(null)}>
+                    <button
+                      type="button"
+                      aria-pressed={on}
+                      aria-label={on ? `Take ${i + 1}, the one that plays` : `Play take ${i + 1} instead`}
+                      onFocus={() => !on && onPreview(t)}
+                      onBlur={() => onPreview(null)}
+                      onClick={() => {
+                        onPreview(null);
+                        if (!on) onPatch({ take: t.id });
+                      }}
+                      className="flex w-[68px] flex-col gap-1 text-left"
+                    >
+                      <span className="relative">
+                        <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
+                        {smoothest === t.id && clip.takes.length > 1 && <span className="absolute bottom-1 left-1 rounded bg-good px-1 py-px text-[9px] font-bold leading-tight text-ground" title="The smoothest joins of the takes">smoothest</span>}
+                        {t.finishedFrom && <span className="absolute top-1 left-1 rounded bg-accent px-1 py-px text-[9px] font-bold leading-tight text-accent-ink" title={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</span>}
+                      </span>
+                      <span className={cx("text-[11px]", on ? "font-semibold text-accent" : "text-ink-2")}>{on ? "plays" : `take ${i + 1}`}</span>
+                      {(() => {
+                        const j = joinOf(t.id);
+                        if (!j || (j.in === null && j.out === null)) return null;
+                        const bad = (v: number | null) => v !== null && v >= 2.5;
+                        return (
+                          <span className="flex items-center gap-1 font-mono text-[10px] leading-none" title="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
+                            {j.in !== null && <span className={bad(j.in) ? "text-warn-ink" : "text-ink-3"}>in ×{j.in}</span>}
+                            {j.out !== null && <span className={bad(j.out) ? "text-warn-ink" : "text-ink-3"}>out ×{j.out}</span>}
+                          </span>
+                        );
+                      })()}
+                    </button>
+                    <button type="button" aria-label={`Remove take ${i + 1}`} title="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/80 text-ink-2 hover:text-ink">
+                      <X size={11} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+    </div>
+  );
+}
+
+/** How long a still is held; how long a take plays and how much is trimmed off its start, with Reset. */
+function Duration({ clip, take, room, rendered, onPatch }: { clip: Clip; take: Take | null; room: number; rendered: boolean; onPatch(patch: ShownPatch): void }) {
+  if (clip.kind === "still") {
+    return (
+    <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <span>Held on screen for</span>
+                <NumberBox label="How long the still is held, in seconds" value={clip.lengthMs / 1000} min={0.5} max={60} step={0.1} unit="s" onCommit={(v) => onPatch({ stillMs: Math.round(v * 1000) })} />
+              </div>
+    </div>
+    );
+  }
+  if (!take) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span>Plays</span>
+        {/* asked by what is seen: the server works out the trim, whatever a landing or a seamless join moves */}
+        <NumberBox label="How long the clip plays, in seconds" value={clip.lengthMs / 1000} min={0.3} max={Math.max(0.3, (take.headMs + room - take.startMs) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ shownToMs: take.startMs + Math.round(v * 1000) })} />
+        <span className="text-ink-2">of {(room / 1000).toFixed(1)} s, from</span>
+        <NumberBox label="How much is trimmed from the start, in seconds" value={take.trimStartMs / 1000} min={0} max={Math.max(0, (room - take.trimEndMs - 300) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ trimStartMs: Math.round(v * 1000) })} />
+        <Help text={`Or drag the clip's edges on the timeline. This trims what plays${rendered ? "; to make the clip itself longer, change Duration in Output and render a new take" : ""}.`} />
+        {(take.trimStartMs > 0 || take.trimEndMs > 0) && <Button size="sm" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Reset trim</Button>}
+      </div>
+    </div>
+  );
+}
+
+/** The pictures pinned on a clip's form: its first and last frame and a keyframe, each changed, dropped on or removed. */
+function PinnedFrames({ stored, pins, frames, midDefault, onInputs, onPick }: {
+  stored: Record<string, unknown>;
+  pins: ReturnType<typeof pinInputs>;
+  /** The pictures pinned now (its opening one only when it does not carry on from the clip before), whether it loops, whether it carries on. */
+  frames: { opens: string | null; ends: string | null; through: string | null; loops: boolean; carries: boolean };
+  midDefault: number;
+  onInputs(next: Record<string, unknown>): void;
+  onPick(where: "start" | "end" | "mid"): void;
+}) {
+  const { opens, ends, through, loops, carries } = frames;
+  const without = (id: string | undefined) => Object.fromEntries(Object.entries(stored).filter(([k]) => k !== id));
+  const setPicking = onPick;
+  return (
+    <div className="flex flex-col gap-2">
+            {[{ where: "start" as const, id: opens, input: pins.start, text: "First frame" }, { where: "end" as const, id: ends, input: pins.end, text: loops ? "Last frame, same as the first: it loops" : "Last frame" }].map((p) =>
+              p.id ? (
+                <PinDrop key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })}>
+                  <img src={thumbUrl(p.id)} alt="" className="h-11 w-11 rounded-md object-cover" />
+                  <span className="grow">{p.text}</span>
+                  <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
+                  <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(p.input))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+                </PinDrop>
+              ) : null,
+            )}
+            {through && pins.mid && pins.midAt && (
+              <PinDrop className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}>
+                <img src={thumbUrl(through)} alt="" className="h-11 w-11 rounded-md object-cover" />
+                <span className="grow">Keyframe at</span>
+                <NumberBox label="When the clip reaches this keyframe, in seconds" value={Number(stored[pins.midAt] ?? midDefault)} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
+                <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(pins.mid))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+              </PinDrop>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* each takes a picture dropped on it: from the library, or a file from the computer */}
+              {pins.start && !carries && !opens && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.start!]: id })}><Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> First frame</Button></PinDrop>}
+              {pins.mid && !through && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}><Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button></PinDrop>}
+              {pins.end && !ends && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.end!]: id })}><Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button></PinDrop>}
+            </div>
     </div>
   );
 }

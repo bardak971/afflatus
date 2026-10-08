@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { api, type Clip } from "../api";
+import { seconds, spell } from "../format";
 
 
 /**
@@ -37,7 +38,9 @@ export function ClipTip({ clip, index, clips, at }: {
     const took = take.renderMs ? ` · rendered in ${spell(take.renderMs)}` : clip.recipe ? "" : " · imported";
     lines.push({ text: `${seconds(clip.lengthMs)}${took}` });
     if (index > 0) {
-      const kind = take.joinKind === "seamless" ? "Seamless latent join" : take.joinKind === "latent" ? "Latent join" : take.joinKind === "hybrid" ? "Frames + latent join" : take.joinKind === "pixels" ? "Pixel join" : clip.joined === "continue" ? `Extends clip ${index}` : "Cut";
+      // a seamless take after another take than the one it was decoded with (or that one trimmed) plays faded, as a latent join;
+      // "hybrid": takes made before 2026-10-08 only
+      const kind = take.joinKind === "seamless" ? (take.seamless ? "Seamless latent join" : "Latent join, faded") : take.joinKind === "latent" ? "Latent join" : take.joinKind === "hybrid" ? "Frames + latent join" : take.joinKind === "pixels" ? "Pixel join" : clip.joined === "continue" ? `Extends clip ${index}` : "Cut";
       const figure = clip.joined === "continue" && jump !== null ? ` · ×${jump.toFixed(1)}` : "";
       // a join made in the latent: how wide its run-up came out against the latent it was guided by (1.00 = the same)
       const width = take.measure?.drift ? ` · run-up ×${take.measure.drift.width.toFixed(2)}` : "";
@@ -82,11 +85,3 @@ export function ClipTip({ clip, index, clips, at }: {
   );
 }
 
-const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
-/** A time that was measured, said plainly: "48 s", "2 min 10 s", "1 h 05 min". */
-function spell(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} s`;
-  if (s < 3600) return s % 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s / 60} min`;
-  return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`;
-}

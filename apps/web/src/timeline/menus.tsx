@@ -1,4 +1,5 @@
-import { Camera, Copy, Eye, Gauge, Link2, Music, Repeat, Scissors, SlidersHorizontal, Split, Trash2, Volume2, VolumeX, Wand2 } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, ArrowRight, ArrowRightToLine, Camera, Copy, Eye, Film, Gauge, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Repeat, Scissors, SlidersHorizontal, Split, Trash2, Volume2, VolumeX, Wand2 } from "lucide-react";
+import type { InputSpec, ReferenceValue } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import type { MenuItem } from "../ContextMenu";
 import { pinInputs } from "./model";
@@ -31,6 +32,8 @@ export interface ClipMenuActions {
   open(asset: Asset): void;
   slow(factor: 2 | 4, inMs: number, outMs: number): void;
   remove(clip: string): void;
+  /** One place earlier (-1) or later (1) on the timeline. */
+  move(clip: string, by: -1 | 1): void;
   /** The clips picked with Ctrl + click: a menu on one of them removes them all. */
   picked: Set<string>;
   removeMany(clips: string[]): void;
@@ -61,6 +64,9 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
     "—" as const,
     { label: "Set range to this clip", key: "I  O", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => act.setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
     { label: "Duplicate clip", icon: <Copy size={14} />, disabled: act.pending.duplicate, note: "a copy right after it, with its takes", run: () => act.duplicate(c.id) },
+    // the same as dragging it along the track, from the keyboard too
+    { label: "Move earlier", key: "Alt + ←", icon: <ArrowLeft size={14} />, disabled: index <= 0, run: () => act.move(c.id, -1) },
+    { label: "Move later", key: "Alt + →", icon: <ArrowRight size={14} />, disabled: index >= act.clips.length - 1, run: () => act.move(c.id, 1) },
     // a clip that plays round: its last frame pinned to its first (the model has to take a last frame)
     ...(c.kind === "video" && recipe && pinInputs(recipe).end ? (() => {
       const pins = pinInputs(recipe);
@@ -140,3 +146,85 @@ export const musicMenuItems = (m: Timeline["music"] | undefined, act: MusicMenuA
       ]
     : []),
 ];
+
+/** What a library item's menu in the timeline's media reaches. */
+export interface PlaceActions {
+  /** The clip selected, if any: its places come first; else the last clip's. */
+  current: Clip | null;
+  clips: Clip[];
+  recipes: RecipeInfo[];
+  /** The timeline has music already. */
+  music: boolean;
+  inputsOf(c: Clip): Record<string, unknown>;
+  editInputs(c: Clip, next: Record<string, unknown>): void;
+  /** A clip selected, its panel open. */
+  select(clip: string): void;
+  patch(clip: string, patch: ClipPatch): void;
+  edit(patch: TimelinePatch): void;
+  /** The music panel. */
+  openMusic(): void;
+  add(v: { asset: string; after?: string | null }): void;
+}
+
+/**
+ * Where a library item can go from the timeline's media library, first in its right-click menu: into the
+ * selected clip's places (the last clip when none is selected, and said so), and onto the timeline. Each
+ * mirrors a drop: the same place, the same effect.
+ */
+export const placeItems = (a: Asset, act: PlaceActions): MenuItem[] => {
+  if (a.inBin) return [];
+  const { current, clips } = act;
+  const target = current ?? clips.at(-1) ?? null;
+  const n = target ? clips.findIndex((c) => c.id === target.id) + 1 : 0;
+  const recipe = target?.recipe ? act.recipes.find((r) => r.id === target.recipe) : undefined;
+  const values = target ? act.inputsOf(target) : {};
+  const put = (input: string, value: unknown) => {
+    if (!target) return;
+    act.editInputs(target, { ...act.inputsOf(target), [input]: value });
+    act.select(target.id);
+  };
+  const groups: MenuItem[][] = [];
+  if (target && recipe) {
+    if (a.kind === "image") {
+      const pins = pinInputs(recipe);
+      const pin = (where: "start" | "mid" | "end", label: string): MenuItem[] => {
+        const input = pins[where];
+        return input ? [{ label, icon: <ImageIcon size={14} />, note: values[input] ? "replaces the one there" : undefined, run: () => put(input, a.id) }] : [];
+      };
+      groups.push([...pin("start", "First frame"), ...pin("mid", "Keyframe"), ...pin("end", "Last frame")]);
+    }
+    const refs = recipe.inputs.filter((i): i is Extract<InputSpec, { type: "references" }> => i.type === "references" && (a.kind === "video" ? i.media === "video" : a.kind === "image" && i.media !== "video"));
+    groups.push(refs.map((r): MenuItem => {
+      const list = (values[r.id] as ReferenceValue[] | undefined) ?? [];
+      const has = list.some((x) => x.asset === a.id);
+      return {
+        label: a.kind === "video" ? "Reference video" : "Reference image", icon: <Images size={14} />,
+        note: has ? "already there" : `${list.length} of ${r.max}`, disabled: has || list.length >= r.max,
+        run: () => put(r.id, [...list, { asset: a.id, role: r.roles[0]! }]),
+      };
+    }));
+    const voice = recipe.inputs.find((i) => i.type === "audio" && i.role === "voice");
+    if (voice && (a.kind === "audio" || (a.kind === "video" && a.hasSound))) {
+      groups.push([{ label: "Voice sample", icon: <Mic size={14} />, note: a.kind === "video" ? "its sound" : values[voice.id] ? "replaces the one there" : undefined, run: () => put(voice.id, a.id) }]);
+    }
+  }
+  if (target && a.kind === "audio") groups.push([{ label: "Clip audio", icon: <Volume2 size={14} />, note: "replaces its sound", run: () => act.patch(target.id, { soundAsset: a.id }) }]);
+  const slots = groups.filter((g) => g.length).flatMap((g, i) => (i ? ["—" as const, ...g] : g));
+  const out: MenuItem[] = [];
+  if (slots.length) out.push({ label: `Use in clip ${n}`, note: current ? undefined : "the last clip", icon: <Film size={14} />, items: slots });
+  if (a.kind === "audio") {
+    out.push({ label: "Music under the whole video", icon: <Music size={14} />, note: act.music ? "replaces the music" : undefined, run: () => { act.edit({ music: { asset: a.id } }); act.openMusic(); } });
+  } else {
+    const at = current ? clips.findIndex((c) => c.id === current.id) : -1;
+    out.push({
+      label: "Place on the timeline", icon: <ListEnd size={14} />, items: [
+        { label: "At the end", note: a.kind === "image" ? "as a still" : undefined, icon: <ListEnd size={14} />, run: () => act.add({ asset: a.id }) },
+        ...(current ? [
+          { label: `Before clip ${at + 1}`, icon: <ArrowLeftToLine size={14} />, run: () => act.add({ asset: a.id, after: at > 0 ? clips[at - 1]!.id : null }) },
+          { label: `After clip ${at + 1}`, icon: <ArrowRightToLine size={14} />, run: () => act.add({ asset: a.id, after: current.id }) },
+        ] : []),
+      ],
+    });
+  }
+  return out.length ? [...out, "—"] : [];
+};

@@ -4,7 +4,7 @@ import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo, type Runn
 import { phaseLabel } from "../../format";
 import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
-import { DRAG_CLIP, otherShape, PAD, pinInputs, playAt, titleOf, type Slot } from "../model";
+import { DRAG_CLIP, fileVersion, otherShape, PAD, pinInputs, playAt, titleOf, type Slot } from "../model";
 import type { TimeRange } from "../Track";
 import { ROW, SOUND } from "./rows";
 import type { Motion } from "./useMotionMarks";
@@ -132,7 +132,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         {cells.length > 0 && (
           <span className="absolute inset-0 flex">
             {cells.map((frame, k) => (
-              <span key={k} className="h-full grow bg-raised" style={{ backgroundImage: `url(${stripUrl(video!.id)})`, backgroundSize: `${STRIP_FRAMES * 100}% 100%`, backgroundPosition: `${(frame / (STRIP_FRAMES - 1)) * 100}% 0` }} />
+              <span key={k} className="h-full grow bg-raised" style={{ backgroundImage: `url(${stripUrl(video!.id)}?v=${fileVersion(video!)})`, backgroundSize: `${STRIP_FRAMES * 100}% 100%`, backgroundPosition: `${(frame / (STRIP_FRAMES - 1)) * 100}% 0` }} />
             ))}
           </span>
         )}

@@ -322,7 +322,7 @@ describe.skipIf(!three)("a timeline", () => {
     expect(two.take.joinKind).toBe("seamless");
     expect(two.take.headMs).toBe(917);
     // no take-over point: it plays from its first own frame (a cut four frames earlier still stepped, see leadOf)
-    expect(two.take.leadMs).toBe(0);
+    expect(two.take.leadMs).toBeUndefined();
     expect(two.take.startMs).toBe(917);
     // ...and the clip before plays all of its own part
     const own = one.take.asset.durationMs - one.take.tailMs - one.take.trimEndMs - (one.take.headMs + one.take.trimStartMs);

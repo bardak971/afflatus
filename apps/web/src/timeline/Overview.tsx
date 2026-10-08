@@ -50,7 +50,8 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   const client = useQueryClient();
   const gather = useMutation({
     mutationFn: () => api.moveAssets(elsewhere.map((a) => a.id), landing),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["assets"] }).then(() => client.invalidateQueries({ queryKey: ["timelines", t.id] })),
+    // the library hears of the move from the server (its library event); the timeline shows where its takes now are
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["timelines", t.id] }),
   });
   const stale = clips.filter((c) => c.join === "stale");
   const failed = clips.filter((c) => c.failed && !c.take);

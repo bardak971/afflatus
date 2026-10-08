@@ -1,11 +1,12 @@
-import { secondsInput, type Recipe } from "@afflatus/core";
+import { latentFrameAtOrBefore, MODEL_FPS, secondsInput, type Recipe } from "@afflatus/core";
 import { CutError, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER } from "./db";
 import { httpError } from "./errors";
 import { extOf } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
-import { readVideo } from "./video";
-import { clockOf, laidOut, landingOnGrid, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
+import { sourceOf } from "./storage";
+import { readVideo, videoFacts } from "./video";
+import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
 
 /**
  * Cuts, on the timeline's clock and in a video's own time: a clip split or duplicated, a range of the
@@ -19,6 +20,22 @@ export interface RangeContext {
   end: "clip" | "frame" | "none";
 }
 
+/** A model that opens on a frame (`start`) or ends on one (`end`). */
+const takesFrame = (r: Recipe<any>, role: "start" | "end") => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === role);
+/** A model that takes the clip before (`previous`) or the clip after (`next`) as context. */
+const carriesClip = (r: Recipe<any>, role: "previous" | "next") => r.output === "video" && r.inputs.some((i) => i.type === "clip" && i.role === role);
+
+/**
+ * How a clip on `r` regenerated between `before` and `after` meets them: a model that takes the clip before as context
+ * extends it (the motion carries across), else it opens on the frame before In; the same at Out with the clip after (a
+ * still is a picture either way). Null when it cannot meet one of them.
+ */
+function rangeContext(r: Recipe<any>, before: Laid | undefined, after: Laid | undefined): RangeContext | null {
+  const start = !before ? "none" : before.p.clip.kind === "video" && carriesClip(r, "previous") ? "clip" : takesFrame(r, "start") ? "frame" : null;
+  const end = !after ? "none" : after.p.clip.kind === "video" && carriesClip(r, "next") ? "clip" : takesFrame(r, "end") ? "frame" : null;
+  return start && end ? { start, end } : null;
+}
+
 export class TimelineRange {
   constructor(private readonly core: TimelineCore) {}
 
@@ -28,11 +45,8 @@ export class TimelineRange {
    * without the range (the source goes to the bin). Each new video remembers its source and its range.
    */
   async cutRange(video: AssetRow, startMs: number, endMs: number, action: "copy" | "split" | "remove", opts: { crf?: number; signal?: AbortSignal } = {}): Promise<AssetRow[]> {
-    const { db, storage, events } = this.core;
-    const bytes = await storage.get(video.file_key);
-    const ext = extOf(video.mime);
-    const read = video.duration_ms && video.fps ? null : await readVideo(bytes, ext);
-    const total = video.duration_ms ?? read?.facts?.durationMs ?? 0;
+    const { db, events } = this.core;
+    const { source, ext, total } = await this.opened(video);
     if (!total) throw new CutError("This video could not be read.");
     const a = Math.max(0, Math.min(startMs, endMs));
     const b = Math.min(total, Math.max(startMs, endMs));
@@ -51,7 +65,7 @@ export class TimelineRange {
     // ffmpeg first, the files put away as they come; then every row at once, with the source binned when it was taken apart
     const rows: AssetRow[] = [];
     for (const piece of pieces) {
-      const out = await rangeKeep(bytes, ext, facts, piece.keep, opts);
+      const out = await rangeKeep(source, ext, facts, piece.keep, opts);
       rows.push(await this.cutRow(video, out, `${base} · ${piece.said}`, piece.range));
     }
     await db.transaction().execute(async (tx) => {
@@ -62,6 +76,14 @@ export class TimelineRange {
     events.emit("library");
     const made = await db.selectFrom("assets").selectAll().where("id", "in", rows.map((r) => r.id)).execute();
     return rows.map((r) => made.find((m) => m.id === r.id)!);
+  }
+
+  /** A stored video as ffmpeg is handed it (its path when it is on the disk here), its length and its speed, read from the file when its row does not say. */
+  private async opened(video: AssetRow) {
+    const source = await sourceOf(this.core.storage, video.file_key);
+    const ext = extOf(video.mime);
+    const read = video.duration_ms && video.fps ? null : typeof source === "string" ? await videoFacts(source) : (await readVideo(source, ext)).facts;
+    return { source, ext, total: video.duration_ms ?? read?.durationMs ?? 0, fps: video.fps ?? read?.fps ?? null };
   }
 
   /**
@@ -86,28 +108,20 @@ export class TimelineRange {
     };
   }
 
-  /** A clip's take that plays, with its video and where the clip stands. */
-  async takeOf(clipId: string): Promise<{ clip: ClipRow; take: TakeRow; asset: AssetRow; index: number; timelineId: string }> {
-    const clip = await this.core.clipRow(clipId);
-    const all = await this.core.placed(clip.timeline_id);
-    const p = all.find((x) => x.clip.id === clipId);
-    if (!p?.active) throw httpError("This clip has no take yet: render it first.");
-    return { clip, take: p.active.take, asset: p.active.asset, index: all.indexOf(p), timelineId: clip.timeline_id };
-  }
-
   /**
-   * One clip becomes two at a moment of its take (in the video's own time): the first plays up to it,
-   * the second from it on, both from the same video; the second takes the clip's model, form, sound and
-   * look along, and starts as a cut. Undo takes it back.
+   * One clip becomes two at a moment of its take (in the video's own time, as its take's `startMs` and `endMs` say: the
+   * frame seen there, whatever a landing or a seamless join moves): the first plays up to it, the second from it on, both
+   * from the same video; the second takes the clip's model, form, sound and look along, and starts as a cut. Undo takes it back.
    */
   async splitClip(clipId: string, atMs: number): Promise<string> {
-    const { take, asset, index, timelineId } = await this.takeOf(clipId);
-    const { start, end } = plays({ take, asset });
+    const clip = await this.core.clipRow(clipId);
+    const p = (await this.core.placed(clip.timeline_id)).find((x) => x.clip.id === clipId);
+    if (!p?.active) throw httpError("This clip has no take yet: render it first.");
+    const { start, end } = visible(p.active);
     if (atMs < start + 40 || atMs > end - 40) throw httpError("Put the playhead inside the part that plays, at least a frame from its ends.");
-    await this.core.remember(timelineId, "the split");
-    const p = (await this.core.placed(timelineId))[index]!;
-    const id = await this.splitAt(timelineId, p, atMs - start);
-    await this.core.touch(timelineId);
+    await this.core.remember(clip.timeline_id, "the split");
+    const id = await this.splitAt(clip.timeline_id, p, atMs - start);
+    await this.core.touch(clip.timeline_id);
     return id;
   }
 
@@ -122,14 +136,21 @@ export class TimelineRange {
     const id = newId();
     const at = now();
     const ids = new Map(takes.map((t) => [t.id, newId()]));
-    await db
-      .insertInto("clips")
-      .values({ ...clip, id, position: index + 1, take_id: clip.take_id ? ids.get(clip.take_id) ?? null : null, joined: "cut", chat: null, created_at: at, updated_at: at })
-      .execute();
-    for (const t of takes) await db.insertInto("takes").values({ ...t, id: ids.get(t.id)!, clip_id: id, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, created_at: at }).execute();
     const order = all.map((p) => p.clip.id);
     order.splice(index + 1, 0, id);
-    await this.core.renumber(clip.timeline_id, order);
+    // the copy, its takes and its place land together, or not at all; a finished take stays the finished version of the copy's
+    // own draft (not of the original's: a redo of its finish then starts from the draft again)
+    await db.transaction().execute(async (tx) => {
+      await tx
+        .insertInto("clips")
+        .values({ ...clip, id, position: index + 1, take_id: clip.take_id ? ids.get(clip.take_id) ?? null : null, joined: "cut", chat: null, created_at: at, updated_at: at })
+        .execute();
+      for (const t of takes) {
+        const finished = t.finished_from ? ids.get(t.finished_from) ?? null : null;
+        await tx.insertInto("takes").values({ ...t, id: ids.get(t.id)!, clip_id: id, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: finished, created_at: at }).execute();
+      }
+      await this.core.renumber(clip.timeline_id, order, tx);
+    });
     await this.core.touch(clip.timeline_id);
     return id;
   }
@@ -169,8 +190,9 @@ export class TimelineRange {
       .insertInto("takes")
       .values({
         id: second, clip_id: id, asset_id: asset.id, head_ms: take.head_ms, tail_ms: take.tail_ms, trim_start_ms: Math.max(0, Math.round(atMs - take.head_ms)), trim_end_ms: take.trim_end_ms,
-        // the second half starts as a cut inside the video: no take-over point
-        prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, lead_ms: 0, created_at: at,
+        // the second half starts as a cut inside the video; it ends where the clip did, so it still lands on the clip after
+        // as the clip did, and it is as finished as the clip was (a finish asked again starts from the draft, not from it)
+        prev_take_id: null, prev_at_ms: null, next_take_id: take.next_take_id, next_at_ms: take.next_at_ms, finished_from: take.finished_from, join_kind: null, created_at: at,
       })
       .execute();
     await db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();
@@ -220,14 +242,17 @@ export class TimelineRange {
    */
   private async cutOut(timelineId: string, a: number, b: number): Promise<void> {
     const EDGE = 100;
-    let laid = laidOut(await this.core.placed(timelineId));
+    let all = await this.core.placed(timelineId);
+    let laid = laidOut(all);
     // the range inside one clip: that clip is split at Out first, so that what is after the range stays a clip
     const both = laid.find((l) => l.atMs < a && l.atMs + l.lengthMs > b);
     if (both) {
       await this.splitAt(timelineId, both.p, b - both.atMs);
-      laid = laidOut(await this.core.placed(timelineId));
+      all = await this.core.placed(timelineId);
+      laid = laidOut(all);
     }
-    const gone: string[] = [];
+    // a clip with nothing to play yet (not laid out: it takes no time) goes with the range when it stands inside it
+    const gone: string[] = unplayedWithin(all, a, b);
     for (const l of laid) {
       const start = l.atMs;
       const end = l.atMs + l.lengthMs;
@@ -269,12 +294,12 @@ export class TimelineRange {
   }
 
   /** The picture at a moment of a clip (`localMs` after it starts playing): a still itself, a frame of a take. */
-  private async pictureAt(l: Laid, localMs: number, edge: "start" | "end"): Promise<AssetRow> {
+  private async pictureAt(l: Laid, localMs: number): Promise<AssetRow> {
     if (l.p.clip.kind === "still") return l.p.still!;
     const x = l.p.active!;
     const { start, end } = visible(x);
-    // the last frame that plays is a little before the moment the clip stops
-    const ms = edge === "end" ? Math.max(start, Math.min(end - 20, start + localMs)) : Math.max(start, Math.min(end - 20, start + localMs));
+    // within what is seen: the last frame that plays is a little before the moment the clip stops
+    const ms = Math.max(start, Math.min(end - 20, start + localMs));
     return this.core.frame(x.asset, ms, true);
   }
 
@@ -289,81 +314,27 @@ export class TimelineRange {
     const { registry } = this.core;
     const w = await this.window(timelineId, inMs, outMs);
     const { laid, total } = w;
-    let a = w.a;
+    let a = this.onLatentGrid(laid, w.a);
     let b = w.b;
-    // the clip before kept its latent (an H3 render): In goes back to a frame of its latent's grid (17k + 5), so the
-    // new clip continues it in the latent, cut there, rather than from its frames (at most 16 frames earlier)
-    const onGrid = (x: number) => {
-      const under = x > 0 ? this.before(laid, x) : undefined;
-      if (!under?.p.active?.asset.latent_frames || under.p.clip.kind !== "video") return x;
-      const assetMs = visible(under.p.active).start + (x - under.atMs);
-      const frame = Math.round((assetMs * 24) / 1000);
-      const grid = Math.floor((frame - 5) / 17) * 17 + 5;
-      const back = ((frame - grid) * 1000) / 24;
-      return grid >= 22 && back > 0 && x - back > under.atMs + 40 ? Math.round(x - back) : x;
-    };
-    a = onGrid(a);
     let before = a > 0 ? this.before(laid, a) : undefined;
     let after = b < total ? this.at(laid, b) : undefined;
     if (!before && !after) throw httpError("The range covers everything: there is no frame to pin the new clip to. Add a clip instead.");
-    const takes = (r: Recipe<any>, role: "start" | "end") => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === role);
-    const carries = (r: Recipe<any>, role: "previous" | "next") => r.output === "video" && r.inputs.some((i) => i.type === "clip" && i.role === role);
-    /**
-     * How the new clip meets each neighbour: a model that takes the clip before as context extends it
-     * (the motion carries across), else it opens on the frame before In; the same at Out with the clip
-     * after (a still is a picture either way).
-     */
-    const startBy = (r: Recipe<any>): "clip" | "frame" | null => (!before ? null : before.p.clip.kind === "video" && carries(r, "previous") ? "clip" : takes(r, "start") ? "frame" : null);
-    const endBy = (r: Recipe<any>): "clip" | "frame" | null => (!after ? null : after.p.clip.kind === "video" && carries(r, "next") ? "clip" : takes(r, "end") ? "frame" : null);
-    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && (!before || startBy(r)) && (!after || endBy(r)));
+    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && rangeContext(r, before, after));
     const source = before ?? after!;
     const own = source.p.clip.recipe_id ? registry.recipe(source.p.clip.recipe_id) : undefined;
     const recipe = fits(own) ? own : registry.recipes().find(fits);
     if (!recipe) {
       throw httpError(before && after ? "None of your video models takes a first and a last frame: nothing can be rendered between the clips." : before ? "None of your video models takes a first frame (i2v)." : "None of your video models takes a last frame.");
     }
-    // the range brought to a length the model makes: at least its least (H3: 4 s). Rendered as asked, a 2 s range came
-    // out 4 s and everything after it moved later by the difference. The extra is taken from the clip under Out, then
-    // from the one under In, keeping a second of each to join to (a guide is up to 22 frames); the clip then
-    // replaces what it plays and the rest of the timeline stays put (within the model's own frame grid: H3 makes
-    // 17k + 5 frames, up to half a second more or a sixth less than asked)
-    let widenedMs = 0;
     const length = secondsInput(recipe.inputs);
-    if (length && b - a >= 40) {
-      const ROOM = 1000;
-      const want = (x: number) => Math.min(length.max * 1000, Math.max(length.min * 1000, x));
-      const deficit = want(b - a) - (b - a);
-      if (deficit > 20) {
-        // within the clips the range already reaches into: a clip it did not touch is not replaced
-        const later = after ? Math.max(0, Math.min(deficit, after.atMs + after.lengthMs - b - ROOM)) : 0;
-        const earlier = before ? Math.max(0, Math.min(deficit - later, a - before.atMs - ROOM)) : 0;
-        const na = earlier > 0 ? onGrid(Math.round(a - earlier)) : a;
-        // back on the grid In can come further back than asked: Out then gives back what it does not need
-        const nb = Math.max(b, Math.min(b + later, na + want(b - na)));
-        const keep = { before, after };
-        before = na > 0 ? this.before(laid, na) : undefined;
-        after = nb < total ? this.at(laid, nb) : undefined;
-        if (fits(recipe) && (nb > b || na < a)) {
-          widenedMs = nb - na - (b - a);
-          a = na;
-          b = nb;
-        } else ({ before, after } = keep);
-      }
-    }
-    // landing on a clip after whose latent was kept: Out goes forward to where one of its latent's 17-frame chunks begins (at
-    // most 16 frames), so that the new clip lands on it in the latent, on time (H3_LANDING); the render lands there anyway
-    const onto = after?.p.clip.kind === "video" && carries(recipe, "next") ? after.p.active : null;
-    if (onto && after) {
-      const from = plays(onto).start + (b - after.atMs);
-      const there = landingOnGrid({ take: { ...onto.take, trim_start_ms: from - onto.take.head_ms }, asset: onto.asset });
-      if (there > from && b + (there - from) < after.atMs + after.lengthMs - 100) {
-        widenedMs += there - from;
-        b += there - from;
-      }
-    }
-    const context: RangeContext = { start: before ? startBy(recipe)! : "none", end: after ? endBy(recipe)! : "none" };
-    const first = context.start === "frame" ? await this.pictureAt(before!, a - before!.atMs, "end") : null;
-    const last = context.end === "frame" ? await this.pictureAt(after!, b - after!.atMs, "start") : null;
+    const wide = this.widenToModelLength(laid, total, recipe, { a, b, before, after });
+    ({ a, b, before, after } = wide);
+    const landing = this.landOnNextChunk(recipe, b, after);
+    b += landing;
+    const widenedMs = wide.widenedMs + landing;
+    const context = rangeContext(recipe, before, after)!;
+    const first = context.start === "frame" ? await this.pictureAt(before!, a - before!.atMs) : null;
+    const last = context.end === "frame" ? await this.pictureAt(after!, b - after!.atMs) : null;
     await this.core.remember(timelineId, b - a >= 40 ? "the regenerated range" : "the clip added between");
     if (b - a >= 40) await this.cutOut(timelineId, a, b);
     // where it goes: after the last clip that stops by In
@@ -381,6 +352,58 @@ export class TimelineRange {
     // still shorter than the model makes (the clips around it too short to take from): what follows moves by that much
     const longerMs = length && b - a >= 40 ? Math.max(0, Math.round(length.min * 1000 - (b - a))) : 0;
     return { clip: id, context, ...(widenedMs ? { widenedMs } : {}), ...(longerMs > 40 ? { longerMs } : {}) };
+  }
+
+  /**
+   * The clip before kept its latent (an H3 render): In goes back to a frame of its latent's grid (17k + 5), so the
+   * new clip continues it in the latent, cut there, rather than from its frames (at most 16 frames earlier).
+   */
+  private onLatentGrid(laid: Laid[], x: number): number {
+    const under = x > 0 ? this.before(laid, x) : undefined;
+    if (!under?.p.active?.asset.latent_frames || under.p.clip.kind !== "video") return x;
+    const assetMs = visible(under.p.active).start + (x - under.atMs);
+    const frame = Math.round((assetMs * MODEL_FPS) / 1000);
+    const grid = latentFrameAtOrBefore(frame);
+    const back = ((frame - grid) * 1000) / MODEL_FPS;
+    return grid >= 22 && back > 0 && x - back > under.atMs + 40 ? Math.round(x - back) : x;
+  }
+
+  /**
+   * The range brought to a length the model makes: at least its least (H3: 4 s). Rendered as asked, a 2 s range came
+   * out 4 s and everything after it moved later by the difference. The extra is taken from the clip under Out, then
+   * from the one under In, keeping a second of each to join to (a guide is up to 22 frames); the clip then
+   * replaces what it plays and the rest of the timeline stays put (within the model's own frame grid: H3 makes
+   * 17k + 5 frames, up to half a second more or a sixth less than asked). Left as it is when the model would then no longer meet its neighbours.
+   */
+  private widenToModelLength(laid: Laid[], total: number, recipe: Recipe<any>, r: { a: number; b: number; before?: Laid; after?: Laid }) {
+    const { a, b, before, after } = r;
+    const length = secondsInput(recipe.inputs);
+    const same = { ...r, widenedMs: 0 };
+    if (!length || b - a < 40) return same;
+    const ROOM = 1000;
+    const want = (x: number) => Math.min(length.max * 1000, Math.max(length.min * 1000, x));
+    const deficit = want(b - a) - (b - a);
+    if (deficit <= 20) return same;
+    // within the clips the range already reaches into: a clip it did not touch is not replaced
+    const later = after ? Math.max(0, Math.min(deficit, after.atMs + after.lengthMs - b - ROOM)) : 0;
+    const earlier = before ? Math.max(0, Math.min(deficit - later, a - before.atMs - ROOM)) : 0;
+    const na = earlier > 0 ? this.onLatentGrid(laid, Math.round(a - earlier)) : a;
+    // back on the grid In can come further back than asked: Out then gives back what it does not need
+    const nb = Math.max(b, Math.min(b + later, na + want(b - na)));
+    const wider = { a: na, b: nb, before: na > 0 ? this.before(laid, na) : undefined, after: nb < total ? this.at(laid, nb) : undefined };
+    return rangeContext(recipe, wider.before, wider.after) && (nb > b || na < a) ? { ...wider, widenedMs: nb - na - (b - a) } : same;
+  }
+
+  /**
+   * Landing on a clip after whose latent was kept: how far Out goes forward, to where one of its latent's 17-frame chunks begins
+   * (at most 16 frames), so that the new clip lands on it in the latent, on time (H3_LANDING); the render lands there anyway.
+   */
+  private landOnNextChunk(recipe: Recipe<any>, b: number, after: Laid | undefined): number {
+    const onto = after?.p.clip.kind === "video" && carriesClip(recipe, "next") ? after.p.active : null;
+    if (!onto || !after) return 0;
+    const from = plays(onto).start + (b - after.atMs);
+    const there = landingOnGrid({ take: { ...onto.take, trim_start_ms: from - onto.take.head_ms }, asset: onto.asset });
+    return there > from && b + (there - from) < after.atMs + after.lengthMs - 100 ? there - from : 0;
   }
 
   /**
@@ -439,16 +462,14 @@ export class TimelineRange {
     if (b - a < 40) throw httpError("Set In and Out apart: a loop needs something to play round.");
     const source = this.before(laid, b)!;
     const target = this.at(laid, a) ?? this.before(laid, a)!;
-    const takes = (r: Recipe<any>, role: "start" | "end") => r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === role);
-    const carries = (r: Recipe<any>) => r.output === "video" && r.inputs.some((i) => i.type === "clip" && i.role === "previous");
-    const startBy = (r: Recipe<any>): "clip" | "frame" | null => (source.p.clip.kind === "video" && carries(r) ? "clip" : takes(r, "start") ? "frame" : null);
-    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && startBy(r) && takes(r, "end"));
+    const startBy = (r: Recipe<any>): "clip" | "frame" | null => (source.p.clip.kind === "video" && carriesClip(r, "previous") ? "clip" : takesFrame(r, "start") ? "frame" : null);
+    const fits = (r: Recipe<any> | undefined): r is Recipe<any> => Boolean(r && startBy(r) && takesFrame(r, "end"));
     const own = source.p.clip.recipe_id ? registry.recipe(source.p.clip.recipe_id) : undefined;
     const recipe = fits(own) ? own : registry.recipes().find(fits);
     if (!recipe) throw httpError("None of your video models takes a last frame: nothing can bring the range back to its start.");
     const context: RangeContext = { start: startBy(recipe)!, end: "frame" };
-    const first = context.start === "frame" ? await this.pictureAt(source, b - source.atMs, "end") : null;
-    const last = await this.pictureAt(target, a - target.atMs, "start");
+    const first = context.start === "frame" ? await this.pictureAt(source, b - source.atMs) : null;
+    const last = await this.pictureAt(target, a - target.atMs);
     await this.core.remember(timelineId, "the loop clip");
     // Out inside a clip: split there, so that the loop clip comes right after what plays in the range
     if (b < source.atMs + source.lengthMs - 40) await this.splitAt(timelineId, source.p, b - source.atMs);
@@ -469,15 +490,11 @@ export class TimelineRange {
 
   /** The range of a video as one small file to hand to ComfyUI: cut to the frame, at its own frame rate. */
   async rangeSlice(video: AssetRow, startMs: number, endMs: number): Promise<{ bytes: Uint8Array; fps: number }> {
-    const bytes = await this.core.storage.get(video.file_key);
-    const ext = extOf(video.mime);
-    const read = video.duration_ms && video.fps ? null : await readVideo(bytes, ext);
-    const total = video.duration_ms ?? read?.facts?.durationMs ?? 0;
-    const fps = video.fps ?? read?.facts?.fps ?? 24;
+    const { source, ext, total, fps } = await this.opened(video);
     if (!total) throw new CutError("This video could not be read.");
     const a = Math.max(0, Math.min(startMs, endMs));
     const b = Math.min(total, Math.max(startMs, endMs));
-    return { bytes: await rangeKeep(bytes, ext, { durationMs: total, hasSound: Boolean(video.has_sound) }, [[a, b]], { crf: 10 }), fps };
+    return { bytes: await rangeKeep(source, ext, { durationMs: total, hasSound: Boolean(video.has_sound) }, [[a, b]], { crf: 10 }), fps: fps ?? 24 };
   }
 
   /** A video made from a range of another, filed in the library next to it with its source and range. */
@@ -497,12 +514,9 @@ export class TimelineRange {
 
   /** The range slowed by ffmpeg (no GPU), filed in the library. */
   async slowRange(video: AssetRow, startMs: number, endMs: number, factor: 2 | 4, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<AssetRow> {
-    const bytes = await this.core.storage.get(video.file_key);
-    const ext = extOf(video.mime);
-    const read = video.duration_ms && video.fps ? null : await readVideo(bytes, ext);
-    const total = video.duration_ms ?? read?.facts?.durationMs ?? 0;
+    const { source, ext, total, fps } = await this.opened(video);
     if (!total) throw new CutError("This video could not be read.");
-    const out = await slowMotion(bytes, ext, { durationMs: total, fps: video.fps ?? read?.facts?.fps ?? null, hasSound: Boolean(video.has_sound) }, startMs, endMs, factor, opts);
+    const out = await slowMotion(source, ext, { durationMs: total, fps, hasSound: Boolean(video.has_sound) }, startMs, endMs, factor, opts);
     return this.keepCut(video, out, this.slowName(video, startMs, endMs, factor), startMs, endMs);
   }
 
@@ -544,4 +558,16 @@ export class TimelineRange {
     await this.core.touch(timelineId);
     return jobs;
   }
+}
+
+/** The clips with nothing to play yet (they take no time on the clock) that stand strictly inside In and Out: they go with the range. */
+export function unplayedWithin(all: Placed[], a: number, b: number): string[] {
+  const out: string[] = [];
+  let at = 0;
+  for (const p of all) {
+    const length = lengthOf(p);
+    if (length <= 0 && at > a && at < b) out.push(p.clip.id);
+    at += length;
+  }
+  return out;
 }

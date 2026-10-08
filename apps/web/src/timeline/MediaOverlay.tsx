@@ -10,7 +10,7 @@ import { LoadMore } from "../LoadMore";
 import { Popover } from "../Popover";
 import { useProject } from "../project";
 import { FolderPanel, Tile } from "../screens/Library";
-import { useStudio } from "../screens/Studio";
+import { useStudio } from "../store";
 import { useTileMenu } from "../TileMenu";
 import type { MenuItem } from "../ContextMenu";
 import { cx, Segmented } from "../ui";

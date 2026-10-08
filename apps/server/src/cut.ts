@@ -12,13 +12,30 @@ import { factsOf, tools, type ProbeInfo, type VideoFacts } from "./video";
 export class CutError extends Error {
   statusCode = 400;
 }
+/** ffmpeg is not there at all: said as it is, never taken for a file it could not read. */
+export class FfmpegMissing extends CutError {}
+
+/**
+ * A video or a sound as ffmpeg is handed it: a file on this machine's disk (its path, read where it is), or its bytes
+ * (written to a temporary file first). A stored file is passed by path when the storage has one (sourceOf, storage.ts):
+ * an export or a join then holds no whole video in memory.
+ */
+export type Media = string | Uint8Array;
+
+/** The file ffmpeg reads `source` from: its own path, or its bytes written into `dir` as `name`. */
+async function onDisk(dir: string, name: string, source: Media): Promise<string> {
+  if (typeof source === "string") return source;
+  const file = join(dir, name);
+  await writeFile(file, source);
+  return file;
+}
 
 function must(tool: string, args: string[], opts: { timeout?: number; signal?: AbortSignal } = {}): Promise<string> {
   return new Promise((done, fail) => {
     execFile(tool, args, { encoding: "utf8", timeout: opts.timeout ?? 120_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal: opts.signal }, (err, stdout, stderr) => {
       if (!err) return done(stdout);
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        return fail(new CutError("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
+        return fail(new FfmpegMissing("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
       }
       if (err.name === "AbortError") return fail(new CutError("stopped by you"));
       const last = String(stderr).trim().split(/\r?\n/).pop() ?? "";
@@ -105,11 +122,10 @@ export async function probeMediaFile(file: string): Promise<ProbedMedia | null> 
  * (a reference is read at every step: a small one costs less), and whether its sound is more than
  * silence, in which case it can stand for the person's voice.
  */
-export async function referenceClip(source: Uint8Array, ext: string, opts: { seconds: number; fps: number; short: number }): Promise<{ bytes: Uint8Array; hasSound: boolean; width: number; height: number; frames: number }> {
+export async function referenceClip(source: Media, ext: string, opts: { seconds: number; fps: number; short: number }): Promise<{ bytes: Uint8Array; hasSound: boolean; width: number; height: number; frames: number }> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "ref.mp4");
-    await writeFile(input, source);
     const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]);
     const audio = /audio/.test(streams);
     await must(tools.ffmpeg, [
@@ -147,7 +163,7 @@ export interface FramesWanted {
  * the clip it carries on from (its last frames) or arrives at (its first ones).
  */
 export async function cutFrames(
-  source: Uint8Array, ext: string, facts: { durationMs: number; hasSound: boolean }, want: FramesWanted,
+  source: Media, ext: string, facts: { durationMs: number; hasSound: boolean }, want: FramesWanted,
 ): Promise<{ bytes: Uint8Array; frames: number }> {
   const { fps, counts } = want;
   const total = Math.floor((facts.durationMs / 1000) * fps + 0.01);
@@ -159,9 +175,8 @@ export async function cutFrames(
   let start = want.side === "before" ? edge - count : edge;
 
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "cut.mp4");
-    await writeFile(input, source);
     // the last frame a length promises is not always there: when the cut comes out short, it is taken one frame earlier
     for (let attempt = 0; ; attempt++) {
       const from = start / fps;
@@ -181,11 +196,10 @@ export async function cutFrames(
 }
 
 /** One frame of a video as a PNG. A moment at or past the end gives the last frame. */
-export async function frameAt(source: Uint8Array, ext: string, atMs: number, durationMs?: number): Promise<Uint8Array> {
+export async function frameAt(source: Media, ext: string, atMs: number, durationMs?: number): Promise<Uint8Array> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "frame.png");
-    await writeFile(input, source);
     const tries = [atMs, ...(durationMs ? [durationMs - 60, durationMs - 150] : []), 0].map((ms) => Math.max(0, ms));
     for (const ms of tries) {
       await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", (ms / 1000).toFixed(3), "-i", input, "-frames:v", "1", out]);
@@ -200,15 +214,14 @@ export async function frameAt(source: Uint8Array, ext: string, atMs: number, dur
 const STRIP = { frames: 12, height: 72 };
 
 /** Frames of a video side by side in one picture (a JPEG), spread evenly over its length: what a clip shows on the timeline. */
-export async function filmStrip(source: Uint8Array, ext: string, durationMs: number, opts: { frames?: number; height?: number; /** Only this part of the video, in milliseconds. */ fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
+export async function filmStrip(source: Media, ext: string, durationMs: number, opts: { frames?: number; height?: number; /** Only this part of the video, in milliseconds. */ fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
   const frames = Math.max(2, Math.min(120, Math.round(opts.frames ?? STRIP.frames)));
   const height = Math.max(24, Math.min(240, Math.round(opts.height ?? STRIP.height)));
   const from = Math.max(0, Math.min(opts.fromMs ?? 0, durationMs));
   const to = Math.max(from + 40, Math.min(opts.toMs ?? durationMs, durationMs));
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "strip.jpg");
-    await writeFile(input, source);
     const every = Math.max(0.01, (to - from) / 1000 / frames);
     await must(tools.ffmpeg, [
       "-y", "-loglevel", "error", ...(from > 0 ? ["-ss", (from / 1000).toFixed(3)] : []), "-to", (to / 1000).toFixed(3), "-i", input,
@@ -220,11 +233,10 @@ export async function filmStrip(source: Uint8Array, ext: string, durationMs: num
 }
 
 /** One small picture of a moment, as a JPEG: what a hover over the trim bar shows. */
-export async function peekAt(source: Uint8Array, ext: string, atMs: number, height = 160): Promise<Uint8Array> {
+export async function peekAt(source: Media, ext: string, atMs: number, height = 160): Promise<Uint8Array> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "peek.jpg");
-    await writeFile(input, source);
     await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", (Math.max(0, atMs) / 1000).toFixed(3), "-i", input, "-frames:v", "1", "-vf", `scale=-2:${Math.max(48, Math.min(480, height))}`, "-q:v", "4", out]);
     const bytes = await readFile(out).catch(() => null);
     if (!bytes?.length) throw new CutError("No picture could be taken from that moment of the video.");
@@ -245,16 +257,15 @@ async function keyframesOf(file: string): Promise<number[]> {
  * else is cut to the frame and encoded again at `crf`. The sound follows the picture.
  */
 export async function rangeKeep(
-  source: Uint8Array, ext: string, facts: { durationMs: number; hasSound: boolean }, keep: Array<[number, number]>,
+  source: Media, ext: string, facts: { durationMs: number; hasSound: boolean }, keep: Array<[number, number]>,
   opts: { crf?: number; signal?: AbortSignal } = {},
 ): Promise<Uint8Array> {
   const parts = keep.map(([a, b]) => [Math.max(0, Math.min(a, b)), Math.min(facts.durationMs, Math.max(a, b))] as [number, number]).filter(([a, b]) => b - a >= 20);
   if (!parts.length) throw new CutError("That range is too short to keep: nothing would be left.");
   const crf = Math.max(0, Math.min(40, Math.round(opts.crf ?? 10)));
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "kept.mp4");
-    await writeFile(input, source);
     const sec = (ms: number) => (ms / 1000).toFixed(3);
     // one part on keyframes: a stream copy
     if (parts.length === 1) {
@@ -282,7 +293,7 @@ export async function rangeKeep(
 /** One thing that plays in an export: a part of a video, or a picture held for a while. */
 export interface ExportPart {
   kind: "video" | "still";
-  bytes: Uint8Array;
+  source: Media;
   ext: string;
   /** The part of a video that plays, in milliseconds. For a picture: 0 and how long it is held. */
   startMs: number;
@@ -291,17 +302,12 @@ export interface ExportPart {
   hasSound: boolean;
   /** What is heard: the video's own sound, nothing, or a sound file (cut or padded to the part's length). */
   sound: "own" | "muted" | "file";
-  soundFile?: { bytes: Uint8Array; ext: string };
+  soundFile?: { source: Media; ext: string };
   /** 0 to 1. */
   volume: number;
   /** Of another shape than the frame: true = fills it (edges cut), false = shown whole, with bars. */
   fill: boolean;
-  /**
-   * Crossfaded in from the part before over this long: the part starts that much earlier than where it
-   * plays, on frames that show the same moments as the end of the part before (a clip that extends the
-   * one before it renders those frames again).
-   */
-  /** This part fades in over this many milliseconds. */
+  /** This part fades in over the part before over this many milliseconds (see blendMode). */
   blendMs?: number;
   /** Where in its video the colour match reads this part: the frames that show the same moments as the part before's end, when it has them (a continuation's shared frames). Left out: its first frames after the fade. */
   matchAtMs?: number;
@@ -318,7 +324,6 @@ export interface ExportPart {
   blendMode?: "hold" | "overlap" | "freeze";
 }
 
-/** How long a blended join crossfades, at most. */
 /** How long a continuation fades in over the clip before, which holds its last frame meanwhile: four frames at 24 a second. */
 export const BLEND_MS = 170;
 /**
@@ -360,10 +365,9 @@ export interface Measure {
  * own part, after the frames it shares with the clip before). For telling whether a run of clips that flow
  * on slides darker, softer, duller or slower clip after clip. Four small ffmpeg passes, under a second each.
  */
-export async function lookOf(source: Uint8Array, ext: string, fromMs = 0): Promise<Measure | null> {
+export async function lookOf(source: Media, ext: string, fromMs = 0): Promise<Measure | null> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
-    await writeFile(input, source);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const run = (args: string[]) => must(tools.ffmpeg, ["-loglevel", "error", "-ss", (Math.max(0, fromMs) / 1000).toFixed(3), "-i", input, ...args, "-f", "null", "-"], { timeout: 5 * 60_000 }).catch(() => "");
     const pick = (said: string, key: string) => [...said.matchAll(new RegExp(`lavfi\\.${key}=(-?[\\d.]+)`, "g"))].map((m) => Number(m[1])).filter((v) => Number.isFinite(v));
     const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
@@ -413,13 +417,51 @@ export function colourNudge(before: Means, after: Means, carry: Means): Means {
   const nudge = (want: number, have: number) => Math.round(Math.max(-MATCH.mostSteps, Math.min(MATCH.mostSteps, want - have)) * 10) / 10;
   return { y: nudge(before.y + carry.y, after.y), u: nudge(before.u + carry.u, after.u), v: nudge(before.v + carry.v, after.v) };
 }
-/** The mean luma and chroma of a stretch of a video, from its bytes (see meansOf). */
-export async function stretchMeans(source: Uint8Array, ext: string, fromMs: number, seconds: number): Promise<Means | null> {
+/** The mean luma and chroma of a stretch of a video (see meansOf). */
+export async function stretchMeans(source: Media, ext: string, fromMs: number, seconds: number): Promise<Means | null> {
+  return inTemp(async (dir) => meansOf(await onDisk(dir, `in.${ext}`, source), fromMs / 1000, seconds));
+}
+
+/** Every frame's mean luma and chroma along a video, with its moment (ms from its first frame): see meansAlong. */
+export interface FrameMeans {
+  t: number[];
+  y: number[];
+  u: number[];
+  v: number[];
+}
+/**
+ * The mean luma and chroma of every frame of a video, measured as meansOf measures a stretch (the same small copy, every
+ * frame), in one pass: the means of any stretch of it are then read off it (meansWithin) rather than run through ffmpeg each.
+ */
+export async function meansAlong(source: Media, ext: string): Promise<FrameMeans> {
   return inTemp(async (dir) => {
-    const file = join(dir, `in.${ext}`);
-    await writeFile(file, source);
-    return meansOf(file, fromMs / 1000, seconds);
+    const file = await onDisk(dir, `in.${ext}`, source);
+    const said = await must(tools.ffmpeg, ["-loglevel", "error", "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"], { timeout: 10 * 60_000 });
+    const out: FrameMeans = { t: [], y: [], u: [], v: [] };
+    for (const block of said.split(/^frame:/m).slice(1)) {
+      const at = Number(/pts_time:\s*(-?[\d.]+)/.exec(block)?.[1]);
+      const pick = (key: string) => Number(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`).exec(block)?.[1]);
+      const [y, u, v] = [pick("YAVG"), pick("UAVG"), pick("VAVG")];
+      if (![at, y, u, v].every(Number.isFinite)) continue;
+      out.t.push(at * 1000);
+      out.y.push(y);
+      out.u.push(u);
+      out.v.push(v);
+    }
+    // from its first frame, as a stretch is asked for, whatever the file's first timestamp
+    const first = out.t[0] ?? 0;
+    out.t = out.t.map((t) => Math.round((t - first) * 10) / 10);
+    return out;
   });
+}
+/** The means of the frames from `fromMs` for `seconds`, read off a video's frame means as meansOf would measure them; null when no frame falls there. */
+export function meansWithin(along: FrameMeans, fromMs: number, seconds: number): Means | null {
+  const from = Math.max(0, fromMs);
+  const to = from + seconds * 1000;
+  const k = along.t.flatMap((t, i) => (t >= from - 0.5 && t < to - 0.5 ? [i] : []));
+  if (!k.length) return null;
+  const mean = (xs: number[]) => k.reduce((sum, i) => sum + xs[i]!, 0) / k.length;
+  return { y: mean(along.y), u: mean(along.u), v: mean(along.v) };
 }
 
 /** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
@@ -434,7 +476,7 @@ async function meansOf(file: string, fromSec: number, seconds: number): Promise<
   return { y: mean(y), u: mean(u), v: mean(v) };
 }
 export interface ExportMusic {
-  bytes: Uint8Array;
+  source: Media;
   ext: string;
   durationMs: number;
   volume: number;
@@ -444,158 +486,182 @@ export interface ExportMusic {
   duck: boolean;
 }
 
+/** What joinVideos is asked besides its parts. */
+export interface JoinOptions {
+  scale?: number;
+  music?: ExportMusic;
+  /** Make it this many pictures a second by working out the pictures in between (slow, done on the processor). */
+  smoothTo?: number;
+  /** Nudge each video part's brightness and tint to the part before it at the join (means over the last and first moments). */
+  match?: boolean;
+  signal?: AbortSignal;
+}
+
 /**
  * Clips and pictures played one after the other, as one MP4: each cut to the part that plays, fitted
  * into the frame, brought to one speed; what has no sound is silent for its length; music, when there is
  * some, lies under all of it. `scale` enlarges every frame at the end (nothing is rendered again).
  */
-export async function joinVideos(
-  parts: ExportPart[], frame: { width: number; height: number }, fps: number,
-  opts: {
-    scale?: number; music?: ExportMusic;
-    /** Make it this many pictures a second by working out the pictures in between (slow, done on the processor). */
-    smoothTo?: number;
-    /** Nudge each video part's brightness and tint to the part before it at the join (means over the last and first moments). */
-    match?: boolean;
-    signal?: AbortSignal;
-  } = {},
-): Promise<Uint8Array> {
+export async function joinVideos(parts: ExportPart[], frame: { width: number; height: number }, fps: number, opts: JoinOptions = {}): Promise<Uint8Array> {
+  return joinVideosInto(parts, frame, fps, opts, async (file) => new Uint8Array(await readFile(file)));
+}
+
+/** The same, the joined file handed to `use` where it lies, before it is cleared away: stored from there, it is never held whole in memory. */
+export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: number; height: number }, fps: number, opts: JoinOptions, use: (file: string) => Promise<T>): Promise<T> {
   if (!parts.length) throw new CutError("There is nothing to export yet.");
   const scale = opts.scale ?? 1;
   const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
-  const W = even(frame.width * scale);
-  const H = even(frame.height * scale);
+  const size = { W: even(frame.width * scale), H: even(frame.height * scale) };
   return inTemp(async (dir) => {
-    const inputs: string[] = [];
-    let n = 0;
-    const addInput = async (name: string, bytes: Uint8Array, before: string[] = []) => {
-      const f = join(dir, name);
-      await writeFile(f, bytes);
-      inputs.push(...before, "-i", f);
-      return n++;
-    };
-    const sec = (ms: number) => (ms / 1000).toFixed(3);
-    const stereo = "aresample=48000,aformat=channel_layouts=stereo";
-    const chains: string[] = [];
-    // colour matching carries along: a part is matched to the part before as it will look, nudge included
-    let carry = { y: 0, u: 0, v: 0 };
-    let prevFile: string | null = null;
-    /** The input of the part before: its sound covers the first ms of a part whose picture took over early. */
-    let prevMain: number | null = null;
-    let prevPart: ExportPart | null = null;
-    for (const [i, p] of parts.entries()) {
-      const length = sec(p.endMs - p.startMs);
-      const file = join(dir, `part${i}.${p.ext}`);
-      const main = await addInput(`part${i}.${p.ext}`, p.bytes, p.kind === "still" ? ["-loop", "1", "-t", length] : []);
-      const fit = p.fill
-        ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
-        : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
-      let tune = "";
-      if (opts.match && p.sameLook && prevPart?.kind === "video") {
-        if (carry.y || carry.u || carry.v) tune = `,lutyuv=y='clip(val+(${carry.y}),0,255)':u='clip(val+(${carry.u}),0,255)':v='clip(val+(${carry.v}),0,255)'`;
-      } else if (opts.match && p.kind === "video" && !p.noMatch && prevPart?.kind === "video" && prevFile) {
-        const look = MATCH.lookSec;
-        const a = await meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look);
-        const b = await meansOf(file, (p.matchAtMs ?? p.startMs + (p.blendMs ?? 0)) / 1000, look);
-        if (a && b) {
-          carry = colourNudge(a, b, carry);
-          if (carry.y || carry.u || carry.v) tune = `,lutyuv=y='clip(val+(${carry.y}),0,255)':u='clip(val+(${carry.u}),0,255)':v='clip(val+(${carry.v}),0,255)'`;
-        } else carry = { y: 0, u: 0, v: 0 };
-      } else carry = { y: 0, u: 0, v: 0 };
-      prevFile = file;
-      prevMain = main;
-      prevPart = p;
-      // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
-      const next = parts[i + 1];
-      const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - 40) : 0;
-      const pad = padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "";
-      const padded = sec(p.endMs - p.startMs + padMs);
-      // the sound is not held with the picture when the part after carries it on (see "freeze")
-      const heard = next?.blendMode === "freeze" ? sec(p.endMs - p.startMs) : padded;
-      chains.push(
-        p.kind === "still"
-          ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS${pad}[v${i}]`
-          // half a frame early, both ends: the frame on screen at startMs is taken. Cut exactly there, a frame that began a
-          // fraction of a millisecond before (a seamless take's in-between frame, 895.8 ms against a 896 ms start) was dropped
-          : `[${main}:v]trim=start=${sec(Math.max(0, p.startMs - 500 / fps))}:end=${sec(Math.max(0, p.endMs - 500 / fps))},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p${tune}${pad}[v${i}]`,
-      );
-      const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
-      if (p.sound === "own" && p.kind === "video" && p.hasSound) {
-        chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${stereo},${loud},apad,atrim=duration=${heard}[a${i}]`);
-      } else if (p.sound === "file" && p.soundFile) {
-        const file = await addInput(`sound${i}.${p.soundFile.ext}`, p.soundFile.bytes);
-        chains.push(`[${file}:a]${stereo},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS[a${i}]`);
-      } else {
-        chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${heard}[a${i}]`);
-      }
-    }
+    const inputs = new Inputs(dir);
+    const chains = await partChains(parts, inputs, size, fps, Boolean(opts.match));
+    const { outs, total } = fadeRuns(parts, fps, chains);
     const music = opts.music;
-    // parts that blend into the one before are crossfaded in runs; the runs are then put one after the other
-    const lenOf = (p: ExportPart) => p.endMs - p.startMs;
-    const runs: number[][] = [];
-    parts.forEach((p, i) => {
-      if (i > 0 && p.blendMs && p.blendMs > 0) runs.at(-1)!.push(i);
-      else runs.push([i]);
-    });
-    const outs: string[] = [];
-    let total = 0;
-    for (const run of runs) {
-      let v = `v${run[0]}`;
-      let a = `a${run[0]}`;
-      let len = lenOf(parts[run[0]!]!);
-      for (const j of run.slice(1)) {
-        const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - 40);
-        if (parts[j]!.blendMode === "overlap") {
-          // the part starts x early, over the part before's last x: the fade is between the same moments, both moving
-          chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - x)}[vx${j}]`);
-          chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
-          len = len - x + lenOf(parts[j]!);
-        } else {
-          // the part before was held for x: the fade runs over that hold, from where the part before really ends. A freeze
-          // starts on that last frame itself (begun a frame later, the still showed for 3 frames; the part after starts a
-          // frame early to make up for it, see timelineExport)
-          const early = parts[j]!.blendMode === "freeze" ? 1000 / fps : 0;
-          chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - early)}[vx${j}]`);
-          // the sound crossfades over the hold, or (freeze) runs straight on: it was not held
-          chains.push(parts[j]!.blendMode === "freeze" ? `[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]` : `[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
-          len = len - early + lenOf(parts[j]!);
-        }
-        v = `vx${j}`;
-        a = `ax${j}`;
-      }
-      outs.push(`[${v}][${a}]`);
-      total += len;
-    }
-    chains.push(`${outs.join("")}concat=n=${runs.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`);
+    chains.push(`${outs.join("")}concat=n=${outs.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`);
     // enlarged frames are sharpened a little: scaling alone leaves them soft
     const smooth = opts.smoothTo && opts.smoothTo > fps ? `minterpolate=fps=${opts.smoothTo}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : "";
     chains.push(`[joined]${[smooth, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean).join(",") || "null"}[v]`);
-    if (music) {
-      const file = await addInput(`music.${music.ext}`, music.bytes);
-      const heard = Math.min(total, music.durationMs || total);
-      const fadeOut = Math.min(music.fadeOutMs, heard);
-      chains.push(
-        `[${file}:a]${stereo},atrim=duration=${sec(heard)},volume=${Math.max(0, music.volume).toFixed(2)}` +
-          (music.fadeInMs ? `,afade=t=in:st=0:d=${sec(Math.min(music.fadeInMs, heard))}` : "") +
-          (fadeOut ? `,afade=t=out:st=${sec(heard - fadeOut)}:d=${sec(fadeOut)}` : "") +
-          "[music]",
-      );
-      if (music.duck) {
-        chains.push("[voices]asplit=2[heard][key]");
-        chains.push("[music][key]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=700[under]");
-        chains.push("[heard][under]amix=inputs=2:duration=first:normalize=0[a]");
-      } else {
-        chains.push("[voices][music]amix=inputs=2:duration=first:normalize=0[a]");
-      }
-    }
+    if (music) chains.push(...musicChain(music, await inputs.add(`music.${music.ext}`, music.source), total));
     const out = join(dir, "export.mp4");
     await must(tools.ffmpeg, [
-      "-y", "-loglevel", "error", ...inputs,
+      "-y", "-loglevel", "error", ...inputs.args,
       "-filter_complex", chains.join(";"), "-map", "[v]", "-map", "[a]",
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out,
     ], { timeout: 3 * 60 * 60_000, signal: opts.signal });
-    return new Uint8Array(await readFile(out));
+    return use(out);
   });
+}
+
+const sec = (ms: number) => (ms / 1000).toFixed(3);
+const STEREO = "aresample=48000,aformat=channel_layouts=stereo";
+
+/** The files an ffmpeg run reads, in order: each added is read where it lies, or written into `dir` first (its bytes). */
+class Inputs {
+  readonly args: string[] = [];
+  private n = 0;
+  constructor(private readonly dir: string) {}
+  /** The input's number and the file it is read from. */
+  async add(name: string, source: Media, before: string[] = []): Promise<{ index: number; file: string }> {
+    const file = await onDisk(this.dir, name, source);
+    this.args.push(...before, "-i", file);
+    return { index: this.n++, file };
+  }
+}
+
+/**
+ * Each part's picture and sound as a chain of its own (`v<i>`, `a<i>`): cut to what plays, fitted into the frame, brought to
+ * one speed, colour-matched to the part before (the nudge carried along), held at its end when the part after fades in with
+ * a hold; its own sound, its sound file, or silence, as long as its picture.
+ */
+async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number; H: number }, fps: number, match: boolean): Promise<string[]> {
+  const { W, H } = size;
+  const chains: string[] = [];
+  // colour matching carries along: a part is matched to the part before as it will look, nudge included
+  let carry = { y: 0, u: 0, v: 0 };
+  let prevFile: string | null = null;
+  let prevPart: ExportPart | null = null;
+  const lut = (c: Means) => (c.y || c.u || c.v ? `,lutyuv=y='clip(val+(${c.y}),0,255)':u='clip(val+(${c.u}),0,255)':v='clip(val+(${c.v}),0,255)'` : "");
+  for (const [i, p] of parts.entries()) {
+    const length = sec(p.endMs - p.startMs);
+    const { index: main, file } = await inputs.add(`part${i}.${p.ext}`, p.source, p.kind === "still" ? ["-loop", "1", "-t", length] : []);
+    const fit = p.fill
+      ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
+      : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
+    let tune = "";
+    if (match && p.sameLook && prevPart?.kind === "video") {
+      tune = lut(carry);
+    } else if (match && p.kind === "video" && !p.noMatch && prevPart?.kind === "video" && prevFile) {
+      const look = MATCH.lookSec;
+      const a = await meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look);
+      const b = await meansOf(file, (p.matchAtMs ?? p.startMs + (p.blendMs ?? 0)) / 1000, look);
+      carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
+      tune = lut(carry);
+    } else carry = { y: 0, u: 0, v: 0 };
+    prevFile = file;
+    prevPart = p;
+    // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
+    const next = parts[i + 1];
+    const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - 40) : 0;
+    const pad = padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "";
+    const padded = sec(p.endMs - p.startMs + padMs);
+    // the sound is not held with the picture when the part after carries it on (see "freeze")
+    const heard = next?.blendMode === "freeze" ? sec(p.endMs - p.startMs) : padded;
+    chains.push(
+      p.kind === "still"
+        ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS${pad}[v${i}]`
+        // half a frame early, both ends: the frame on screen at startMs is taken. Cut exactly there, a frame that began a
+        // fraction of a millisecond before (a seamless take's in-between frame, 895.8 ms against a 896 ms start) was dropped
+        : `[${main}:v]trim=start=${sec(Math.max(0, p.startMs - 500 / fps))}:end=${sec(Math.max(0, p.endMs - 500 / fps))},setpts=PTS-STARTPTS,fps=${fps},${fit},setsar=1,format=yuv420p${tune}${pad}[v${i}]`,
+    );
+    const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
+    if (p.sound === "own" && p.kind === "video" && p.hasSound) {
+      chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}[a${i}]`);
+    } else if (p.sound === "file" && p.soundFile) {
+      const sound = (await inputs.add(`sound${i}.${p.soundFile.ext}`, p.soundFile.source)).index;
+      chains.push(`[${sound}:a]${STEREO},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS[a${i}]`);
+    } else {
+      chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${heard}[a${i}]`);
+    }
+  }
+  return chains;
+}
+
+/**
+ * The parts that fade into the one before, crossfaded in runs (added to `chains`); each run's picture and sound out (`outs`,
+ * to be put one after the other), and how long all of it lasts.
+ */
+function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: string[]; total: number } {
+  const lenOf = (p: ExportPart) => p.endMs - p.startMs;
+  const runs: number[][] = [];
+  parts.forEach((p, i) => {
+    if (i > 0 && p.blendMs && p.blendMs > 0) runs.at(-1)!.push(i);
+    else runs.push([i]);
+  });
+  const outs: string[] = [];
+  let total = 0;
+  for (const run of runs) {
+    let v = `v${run[0]}`;
+    let a = `a${run[0]}`;
+    let len = lenOf(parts[run[0]!]!);
+    for (const j of run.slice(1)) {
+      const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - 40);
+      if (parts[j]!.blendMode === "overlap") {
+        // the part starts x early, over the part before's last x: the fade is between the same moments, both moving
+        chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - x)}[vx${j}]`);
+        chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
+        len = len - x + lenOf(parts[j]!);
+      } else {
+        // the part before was held for x: the fade runs over that hold, from where the part before really ends. A freeze
+        // starts on that last frame itself (begun a frame later, the still showed for 3 frames; the part after starts a
+        // frame early to make up for it, see timelineExport)
+        const early = parts[j]!.blendMode === "freeze" ? 1000 / fps : 0;
+        chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - early)}[vx${j}]`);
+        // the sound crossfades over the hold, or (freeze) runs straight on: it was not held
+        chains.push(parts[j]!.blendMode === "freeze" ? `[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]` : `[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
+        len = len - early + lenOf(parts[j]!);
+      }
+      v = `vx${j}`;
+      a = `ax${j}`;
+    }
+    outs.push(`[${v}][${a}]`);
+    total += len;
+  }
+  return { outs, total };
+}
+
+/** The music under the joined sound (`voices`, made `a`): as long as the video at most, faded in and out, ducked when asked. */
+function musicChain(music: ExportMusic, input: { index: number }, total: number): string[] {
+  const heard = Math.min(total, music.durationMs || total);
+  const fadeOut = Math.min(music.fadeOutMs, heard);
+  return [
+    `[${input.index}:a]${STEREO},atrim=duration=${sec(heard)},volume=${Math.max(0, music.volume).toFixed(2)}` +
+      (music.fadeInMs ? `,afade=t=in:st=0:d=${sec(Math.min(music.fadeInMs, heard))}` : "") +
+      (fadeOut ? `,afade=t=out:st=${sec(heard - fadeOut)}:d=${sec(fadeOut)}` : "") +
+      "[music]",
+    ...(music.duck
+      ? ["[voices]asplit=2[heard][key]", "[music][key]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=700[under]", "[heard][under]amix=inputs=2:duration=first:normalize=0[a]"]
+      : ["[voices][music]amix=inputs=2:duration=first:normalize=0[a]"]),
+  ];
 }
 
 /** How many motion samples a second are measured. */
@@ -608,11 +674,14 @@ export const MOTION_RATE = 10;
  * loud as it gets), null when there is no sound. For the curves under the ruler and the quiet moments
  * In and Out snap to. A sound file gives loudness only.
  */
-export async function measureOf(source: Uint8Array, ext: string): Promise<{ motion: number[]; sound: number[] | null }> {
+export async function measureOf(source: Media, ext: string): Promise<{ motion: number[]; sound: number[] | null }> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
-    await writeFile(input, source);
-    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]).catch(() => "");
+    const input = await onDisk(dir, `in.${ext}`, source);
+    // a file ffprobe cannot read has nothing to measure; ffprobe not there at all is said
+    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]).catch((err: Error) => {
+      if (err instanceof FfmpegMissing) throw err;
+      return "";
+    });
     let motion: number[] = [];
     if (/video/.test(streams)) {
       const said = await must(tools.ffmpeg, [
@@ -670,11 +739,10 @@ export function frozenTailAt(values: number[], rate: number, startMs: number, en
  * anyone notices. The picture is untouched (stream copy).
  */
 const JOIN_AUDIO_HOLE = { beforeMs: 8, afterMs: 28, fadeMs: 6 };
-export async function repairJoinAudio(source: Uint8Array, ext: string, headMs: number): Promise<Uint8Array> {
+export async function repairJoinAudio(source: Media, ext: string, headMs: number): Promise<Uint8Array> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const output = join(dir, "out.mp4");
-    await writeFile(input, source);
     const a = Math.max(0, headMs - JOIN_AUDIO_HOLE.beforeMs) / 1000;
     const b = (headMs + JOIN_AUDIO_HOLE.afterMs) / 1000;
     await must(tools.ffmpeg, [
@@ -700,10 +768,9 @@ export function parseSceneTimes(log: string): number[] {
  * Where a video cuts from one shot to the next: ffmpeg's scene-change score over `threshold` (0.3 is
  * its usual value: hard cuts, not pans), each as a moment in milliseconds. A video of one shot gives [].
  */
-export async function scenesOf(source: Uint8Array, ext: string, threshold = 0.3): Promise<number[]> {
+export async function scenesOf(source: Media, ext: string, threshold = 0.3): Promise<number[]> {
   return inTemp(async (dir) => {
-    const file = join(dir, `in.${ext}`);
-    await writeFile(file, source);
+    const file = await onDisk(dir, `in.${ext}`, source);
     const log = await new Promise<string>((done) => {
       execFile(
         tools.ffmpeg,
@@ -745,15 +812,13 @@ const meanDiff = (a: Uint8Array, b: Uint8Array) => {
  * cannot be read.
  */
 export async function joinJump(
-  a: { bytes: Uint8Array; ext: string; atMs: number },
-  b: { bytes: Uint8Array; ext: string; atMs: number; fps: number },
+  a: { source: Media; ext: string; atMs: number },
+  b: { source: Media; ext: string; atMs: number; fps: number },
   fade?: { ms: number; mode: "hold" | "overlap" } | null,
 ): Promise<number | null> {
   return inTemp(async (dir) => {
-    const fa = join(dir, `a.${a.ext}`);
-    const fb = join(dir, `b.${b.ext}`);
-    await writeFile(fa, a.bytes);
-    await writeFile(fb, b.bytes);
+    const fa = await onDisk(dir, `a.${a.ext}`, a.source);
+    const fb = await onDisk(dir, `b.${b.ext}`, b.source);
     // the last frame a length promises is not always there: a little earlier then
     const last = (await grayAt(fa, a.atMs)) ?? (await grayAt(fa, a.atMs - 100)) ?? (await grayAt(fa, a.atMs - 250));
     const first = (await grayAt(fb, b.atMs)) ?? (await grayAt(fb, b.atMs + 40));
@@ -803,10 +868,9 @@ export async function joinJump(
  * seek lands a few milliseconds early so that a rounded `headMs` still picks the frame meant. null when a
  * frame cannot be read.
  */
-export async function runUpBreak(bytes: Uint8Array, ext: string, headMs: number): Promise<number | null> {
+export async function runUpBreak(bytes: Media, ext: string, headMs: number): Promise<number | null> {
   return inTemp(async (dir) => {
-    const file = join(dir, `in.${ext}`);
-    await writeFile(file, bytes);
+    const file = await onDisk(dir, `in.${ext}`, bytes);
     const step = 1000 / 24;
     const at = (k: number) => grayAt(file, headMs + k * step - 5);
     const before = await at(-1);
@@ -831,15 +895,14 @@ const slowTempo = (factor: number) => Array.from({ length: Math.round(Math.log2(
  * interpolation (the fallback when there is no RIFE on the GPU): the same frame rate, `factor` times as
  * many frames, the sound slowed with its pitch kept. Slow: minutes for a few seconds.
  */
-export async function slowMotion(source: Uint8Array, ext: string, facts: { durationMs: number; fps: number | null; hasSound: boolean }, startMs: number, endMs: number, factor: number, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+export async function slowMotion(source: Media, ext: string, facts: { durationMs: number; fps: number | null; hasSound: boolean }, startMs: number, endMs: number, factor: number, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<Uint8Array> {
   const fps = Math.max(1, Math.round(facts.fps ?? 24));
   const a = Math.max(0, Math.min(startMs, endMs));
   const b = Math.min(facts.durationMs, Math.max(startMs, endMs));
   if (b - a < 40) throw new CutError("That range is too short: pick at least one frame.");
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "slow.mp4");
-    await writeFile(input, source);
     const video = `[0:v]setpts=${factor}*PTS,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,scale=trunc(iw/2)*2:trunc(ih/2)*2[v]`;
     await must(tools.ffmpeg, [
       "-y", "-loglevel", "error", "-ss", (a / 1000).toFixed(3), "-t", ((b - a) / 1000).toFixed(3), "-i", input,
@@ -852,13 +915,12 @@ export async function slowMotion(source: Uint8Array, ext: string, facts: { durat
 }
 
 /** A slowed video (silent, as RIFE hands it back) given the sound of the range it came from, slowed to match with its pitch kept. */
-export async function slowSoundOnto(slowed: Uint8Array, range: Uint8Array, factor: number): Promise<Uint8Array> {
+export async function slowSoundOnto(slowed: Uint8Array, range: Media, factor: number): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const v = join(dir, "slow.mp4");
-    const r = join(dir, "range.mp4");
     const out = join(dir, "with-sound.mp4");
     await writeFile(v, slowed);
-    await writeFile(r, range);
+    const r = await onDisk(dir, "range.mp4", range);
     const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", r]).catch(() => "");
     if (!/audio/.test(streams)) return slowed;
     await must(tools.ffmpeg, [
@@ -870,11 +932,10 @@ export async function slowSoundOnto(slowed: Uint8Array, range: Uint8Array, facto
 }
 
 /** The sound of a video as a sound file of its own (AAC in an .m4a). */
-export async function soundOf(source: Uint8Array, ext: string): Promise<Uint8Array> {
+export async function soundOf(source: Media, ext: string): Promise<Uint8Array> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "sound.m4a");
-    await writeFile(input, source);
     await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-vn", "-c:a", "aac", "-b:a", "192k", out]);
     return new Uint8Array(await readFile(out));
   });
@@ -892,11 +953,10 @@ function partOf(start: number, seconds: number, total: number | null): { start: 
  * The start is where it was asked, as long as two seconds are left after it; the part ends where the
  * sound ends when that comes first.
  */
-export async function soundPart(source: Uint8Array, ext: string, opts: { start: number; seconds: number; durationMs?: number | null }): Promise<Uint8Array> {
+export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
-    const input = join(dir, `in.${ext}`);
+    const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "part.wav");
-    await writeFile(input, source);
     const { start, seconds } = partOf(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
     await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", start.toFixed(3), "-t", seconds.toFixed(3), "-i", input, "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", out]);
     return new Uint8Array(await readFile(out));

@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import type { JoinKind, Recipe } from "@afflatus/core";
+import { chunkAtOrAfter, follows, joinFade as fadeOf, landsOn, MODEL_FPS, type JoinTake, type Recipe } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -13,9 +13,6 @@ export type TimelineRow = Tables["timelines"];
 export type ClipRow = Tables["clips"];
 export type TakeRow = Tables["takes"];
 export type AssetRow = Tables["assets"];
-
-/** Two moments are the same when they are within about a frame of each other. */
-export const near = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 45;
 
 /**
  * What stands for the opening picture of a clip that picks up from the last frame of the clip before it,
@@ -74,8 +71,8 @@ export const LEAD_MS = 167;
 /**
  * A take's own take-over point at its start: none any more. The cut four frames early (inside the shared frames) still
  * stepped, ×2.9 the motion after its fade; the clip before now plays to its end and the continuation dissolves in from its
- * first own frame (DISSOLVE_MS, the export and the player), ×1.2 (2026-10-08). Takes made before keep a stored lead_ms,
- * set aside here; a timeline keeps its length (the clip before gains what the one after gave up). Landings keep LEAD_MS.
+ * first own frame (DISSOLVE_MS, the export and the player), ×1.2 (2026-10-08). The lead takes kept per take is
+ * dropped (0042); a timeline keeps its length (the clip before gains what the one after gave up). Landings keep LEAD_MS.
  */
 export const leadOf = (t: Taken) => (seamless(t) ? seamLead(t.asset) : 0);
 /**
@@ -86,8 +83,6 @@ export const leadOf = (t: Taken) => (seamless(t) ? seamLead(t.asset) : 0);
 const seamLead = (asset: AssetRow) => ((asset.fps ?? 24) > 30 ? Math.round(1000 / (asset.fps ?? 48)) : 0);
 /** A join decoded as one piece with the clip before: a plain cut is the whole chain decoded at once (no fade, no colour step). */
 export const seamless = (t: Taken | null | undefined) => Boolean(t?.seamed) && t?.take.join_kind === "seamless" && t.landed === undefined;
-/** The take-over point a new take gets: none (see leadOf). */
-export const leadFor = (_kind: JoinKind | null, _headMs: number) => 0;
 
 /**
  * The part of a take that plays, in its video's own time: after the frames it shares with the clip before
@@ -99,8 +94,6 @@ export const plays = (t: { take: TakeRow; asset: AssetRow }) => {
   const end = Math.max(start, lengthOnGrid(t.asset) - t.take.tail_ms - t.take.trim_end_ms);
   return { start, end };
 };
-/** H3's frames a second, the grid its latent's frames are on. */
-const MODEL_FPS = 24;
 /**
  * How long a take's video is on the model's own frame grid. A render interpolated ×2 has 2N − 1 frames at twice
  * the rate, one of them short of N frames' time: anchored on the file's length, a continuation's shared frames
@@ -130,21 +123,14 @@ export const landingOnGrid = (t: { take: TakeRow; asset: AssetRow }) => {
   const { start, end } = plays(t);
   if (!t.asset.latent_key || !t.asset.latent_frames) return start;
   const frame = Math.ceil((start * MODEL_FPS) / 1000 - 0.25);
-  const chunk = Math.ceil(frame / 17) * 17;
+  const chunk = chunkAtOrAfter(frame);
   const at = Math.round((chunk * 1000) / MODEL_FPS);
   // the 22 frames landed on in its latent, and half a second of it left to play
   return chunk + 22 <= t.asset.latent_frames && at + 500 <= end ? Math.max(start, at) : start;
 };
-/**
- * How a take fades in over the clip before as it plays, in the export and the player alike: landed on (that clip's
- * guided tail shows the same moments) both moving, 170 ms; a continuation made in the latent, the clip before held on
- * its last frame, 170 ms (DISSOLVE_MS); one made from frames, the same over 170 ms. None for a cut.
- */
-export const joinFade = (x: Taken, joined: boolean): { ms: number; mode: "hold" | "overlap" } | null => {
-  if (x.landed !== undefined) return x.landed >= 80 ? { ms: Math.min(170, x.landed), mode: "overlap" } : null;
-  if (!joined || seamless(x) || x.take.head_ms - x.take.trim_start_ms < 80) return null;
-  return { ms: 170, mode: "hold" };
-};
+/** How a take fades in over the clip before as it plays, in the export and the player alike (see joinFade in @afflatus/core). */
+export const joinFade = (x: Taken, joined: boolean) =>
+  fadeOf({ landedMs: x.landed, joined, seamless: seamless(x), sharedMs: x.take.head_ms - x.take.trim_start_ms });
 /** The part of a take that is seen: `plays`, moved by the take-over points, its own at the start and the clip after's at the end. */
 export const visible = (t: Taken) => {
   const p = plays(t);
@@ -156,6 +142,62 @@ export const visible = (t: Taken) => {
 export const lengthOf = (p: Placed) => (p.clip.kind === "still" ? (p.still ? p.clip.still_ms : 0) : p.active ? visible(p.active).end - visible(p.active).start : 0);
 /** What a take that opens on a still says it carried on from. */
 export const stillRef = (assetId: string) => `still:${assetId}`;
+
+/** A take row as the joins see it (see @afflatus/core's joins). */
+const joinTake = (t: TakeRow): JoinTake => ({ id: t.id, finishedFrom: t.finished_from });
+/** `b` still follows `a`: made from it (or the draft it finishes), from where it now stops, its own start untrimmed. */
+export const takeFollows = (b: TakeRow, a: Taken) => follows({ prevTakeId: b.prev_take_id, prevAtMs: b.prev_at_ms, trimStartMs: b.trim_start_ms }, joinTake(a.take), plays(a).end);
+/** `a` still lands on `b`: made to end where it (or the draft it finishes) now starts, its own end untrimmed. */
+export const takeLandsOn = (a: TakeRow, b: Taken) => landsOn({ nextTakeId: a.next_take_id, nextAtMs: a.next_at_ms, trimEndMs: a.trim_end_ms }, joinTake(b.take), plays(b).start);
+
+/**
+ * How the clips of a timeline meet, marked on their takes. A clip that lands on the clip after (its tail was guided by
+ * that take's frames) plays on into its guided tail, four frames, and the clip after starts as much later: cut where it
+ * is guided, the landing does not step; cut before, in the frames the model drew freely, it did (×5 the motion, measured
+ * 2026-10-07). Only while both ends are where the landing put them: trimmed off its guided tail, or the clip after moved,
+ * it is a plain cut. A seamless take plays as a plain cut only after the take it was decoded with, still ending where it
+ * did; after another take, or that one trimmed, its join is faded like any other. A clip followed by a seamless take
+ * gives it back its take-over point (leadOf). A finished take stands for its draft throughout.
+ */
+export function markJoins(placed: Placed[]): void {
+  for (let i = 0; i < placed.length - 1; i++) {
+    const next = placed[i + 1]!;
+    const mine = placed[i]!.active;
+    if (mine && next.active && mine.take.tail_ms >= 2 * LEAD_MS && takeLandsOn(mine.take, next.active)) {
+      mine.give = -LEAD_MS;
+      next.active.landed = LEAD_MS;
+      continue;
+    }
+    if (mine && next.active && next.clip.joined === "continue" && next.active.take.join_kind === "seamless") next.active.seamed = takeFollows(next.active.take, mine);
+    const give = next.clip.kind === "video" && next.clip.joined === "continue" && next.active ? leadOf(next.active) : 0;
+    if (give > 0) for (const t of placed[i]!.takes) t.give = give;
+  }
+}
+
+/** The least a rendered clip is left to play, trimmed: trimmed to nothing it would show as a clip not rendered yet. */
+export const LEAST_PLAY_MS = 100;
+/**
+ * A take's trims for what is asked: `shownFromMs` the moment of its video its first frame seen is to be, `shownToMs` the moment
+ * it is to stop being seen (as `visible` says: the trims are worked out from what is shown, not from what plays, so that a
+ * landed or seamless clip is cut where it was seen; trimmed, such a join is a plain cut, and what is seen is what plays), or
+ * the trims themselves. What is not asked keeps its trim. At least LEAST_PLAY_MS is left to play: the end gives way first.
+ */
+export function trimsOf(x: Taken, ask: { shownFromMs?: number; shownToMs?: number; trimStartMs?: number; trimEndMs?: number }): { start: number; end: number } {
+  const total = lengthOnGrid(x.asset);
+  const room = Math.max(0, total - x.take.head_ms - x.take.tail_ms);
+  let start = ask.shownFromMs !== undefined ? ask.shownFromMs - x.take.head_ms : ask.trimStartMs ?? x.take.trim_start_ms;
+  let end = ask.shownToMs !== undefined ? total - x.take.tail_ms - ask.shownToMs : ask.trimEndMs ?? x.take.trim_end_ms;
+  start = Math.max(0, Math.round(start));
+  end = Math.max(0, Math.round(end));
+  const over = start + end - Math.max(0, room - LEAST_PLAY_MS);
+  if (over > 0) {
+    const endAsked = ask.shownToMs !== undefined || ask.trimEndMs !== undefined;
+    const fromEnd = endAsked ? Math.min(end, over) : Math.max(0, over - start);
+    end -= fromEnd;
+    start = Math.max(0, start - (over - fromEnd));
+  }
+  return { start, end };
+}
 
 /** The clips that play, on the timeline's clock. */
 export function laidOut(all: Placed[]): Laid[] {
@@ -172,7 +214,7 @@ export function laidOut(all: Placed[]): Laid[] {
 /**
  * The model as the range, media and export modules see it: the database, the files and the events, and
  * the few things only the model does (reading its rows, placing a timeline's clips, keeping a state for
- * Undo, marking a change, numbering clips, a new clip's settings, a frame of a video as a picture).
+ * Undo, marking a change, keeping a file, numbering clips, a new clip's settings, a frame of a video as a picture).
  */
 export interface TimelineCore {
   db: Db;
@@ -184,9 +226,11 @@ export interface TimelineCore {
   assetRow(id: string | null): Promise<AssetRow | undefined>;
   /** The clips of a timeline in order, each with its takes (those whose video still exists). */
   placed(timelineId: string): Promise<Placed[]>;
-  /** Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button. */
-  remember(timelineId: string, label: string): Promise<number>;
+  /** Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button; `added`, a take the change adds. */
+  remember(timelineId: string, label: string, added?: string): Promise<number>;
   touch(timelineId: string): Promise<void>;
+  /** What is on a timeline is wanted: it never goes to the bin on its own. `db`: the transaction this is part of. */
+  keep(assetId: string, db?: Db): Promise<void>;
   renumber(timelineId: string, order: string[], db?: Db): Promise<void>;
   /** What a new clip takes over from the nearest clip before it made with the same recipe: its settings, not its story or its pictures. */
   settingsOf(recipe: Recipe<any>, all: Placed[], index: number): Record<string, unknown>;

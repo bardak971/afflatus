@@ -5,19 +5,22 @@ import type { TimeRange } from "./Track";
 
 /**
  * The editor's keys: Space plays, Ctrl+Z and Ctrl+Shift+Z undo and redo, I and O mark the range, L loops it,
- * the arrows step a frame, Escape clears, Delete removes the selected clip. What changes often is read
- * through refs, so the listener is only put back when an action it calls changes.
+ * the arrows step a frame (with Alt: move the selected clip one place), Escape clears, Delete removes the selected
+ * clip. What changes often is read through refs, so the listener is only put back when an action it calls changes.
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
   toggle(): void;
   undo(): void;
+  /** Something to undo, and no undo or redo on its way (a key held down sends one at a time). */
   canUndo: boolean;
   redo(): void;
   canRedo: boolean;
   remove(clip: string): void;
+  /** One place earlier (-1) or later (1). */
+  move(clip: string, by: -1 | 1): void;
   /** Several clips are picked with Ctrl + click: Delete removes them all; true when it did. */
   removePicked(): boolean;
   rangeRef: RefObject<TimeRange | null>;
@@ -89,6 +92,12 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         setSelected(null);
         return;
       }
+      // Alt + an arrow: the selected clip one place earlier or later
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.altKey && !typing && !e.ctrlKey && !e.metaKey && !open && selectedNow.current) {
+        e.preventDefault();
+        move(selectedNow.current, e.key === "ArrowLeft" ? -1 : 1);
+        return;
+      }
       // one frame back or forward (Shift: ten); , and . do the same
       const step = e.key === "ArrowLeft" || e.key === "," ? -1 : e.key === "ArrowRight" || e.key === "." ? 1 : 0;
       if (step && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !el.closest("[role=listbox], [role=slider][aria-label=In], [role=slider][aria-label=Out]")) {
@@ -108,5 +117,5 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, undo, canUndo, redo, canRedo, remove, removePicked, clock]);
+  }, [toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, clock]);
 }

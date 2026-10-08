@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Minus, Music, Plus } from "lucide-react";
-import type { Clip, ClipPatch, RecipeInfo, RunningJob, Timeline } from "../api";
+import type { Clip, RecipeInfo, RunningJob, Timeline } from "../api";
 import { cx } from "../ui";
-import { layout, NEW_CLIP, PAD, placeOf, ZOOM, type Slot } from "./model";
+import { layout, NEW_CLIP, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
 import type { Clock } from "./clock";
 import { ClipTip } from "./ClipTip";
 import { Playhead } from "./track/Playhead";
@@ -58,7 +58,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onUpload?(file: File): Promise<{ id: string; kind: string } | null>;
   onClipSound(clip: string, asset: string): void;
   onMusic(asset: string): void;
-  onTrim(clip: Clip, patch: ClipPatch): void;
+  onTrim(clip: Clip, patch: ShownPatch): void;
   onNewClip(after: string | undefined): void;
   /** A right-click on a clip: its menu. */
   onMenu?(clip: Clip, e: React.MouseEvent): void;
@@ -129,7 +129,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     e.stopPropagation();
     e.preventDefault();
     const c = s.clip;
-    const most = c.kind === "still" ? 60_000 : c.lengthMs + (side === "start" ? c.take!.trimStartMs : c.take!.trimEndMs);
+    // what is seen can reach back to the first frame it does not share with the clip before, and on to the last one it does not share with the clip after
+    const t = c.take;
+    const most = c.kind === "still" ? 60_000 : Math.max(c.lengthMs, c.lengthMs + (side === "start" ? t!.startMs - t!.headMs : t!.headMs + roomOf(t!) - t!.endMs));
     pull.current = { x: e.clientX, base: c.lengthMs, least: Math.min(c.lengthMs, 400), most };
     e.currentTarget.setPointerCapture(e.pointerId);
     setStretch({ clip: c.id, side, lengthMs: c.lengthMs });
@@ -149,8 +151,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     const cut = p.base - stretch.lengthMs;
     if (c && cut !== 0) {
       if (c.kind === "still") onTrim(c, { stillMs: stretch.lengthMs });
-      else if (stretch.side === "start") onTrim(c, { trimStartMs: Math.max(0, c.take!.trimStartMs + cut) });
-      else onTrim(c, { trimEndMs: Math.max(0, c.take!.trimEndMs + cut) });
+      // asked by what is seen: the server works out the trims, so that the cut lands on the frame that was seen there
+      else if (stretch.side === "start") onTrim(c, { shownFromMs: Math.max(0, c.take!.startMs + cut) });
+      else onTrim(c, { shownToMs: Math.max(0, c.take!.endMs - cut) });
     }
     setStretch(null);
   };

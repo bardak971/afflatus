@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
-import { colourNudge, CutError, MATCH, type Means, stretchMeans, filmStrip, frameAt, joinJump, measureOf, MOTION_RATE, peekAt, scenesOf } from "./cut";
+import { colourNudge, CutError, MATCH, type FrameMeans, type Means, filmStrip, frameAt, joinJump, measureOf, meansAlong, meansWithin, MOTION_RATE, peekAt, scenesOf } from "./cut";
 import { newId, now } from "./db";
 import { notFound } from "./errors";
 import { extOf, newAssetRow, pngSize } from "./media";
+import { sourceOf } from "./storage";
 import { makeThumb, thumbKey } from "./thumbs";
-import { readVideo } from "./video";
+import { readVideo, videoFacts } from "./video";
 import { joinFade, lengthOf, sameMaking, seamless, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
 
 /**
  * What the timelines read out of their videos: a frame as a picture, the film strip, the motion and
- * loudness, the scene cuts, a peek for the trim bar, and how smoothly the takes meet at their joins. Most
- * of it is worked out once and kept beside the video, since its frames do not change.
+ * loudness, the scene cuts, a peek for the trim bar, the colour along a video, and how smoothly the takes meet
+ * at their joins. Most of it is worked out once and kept beside the video, since its frames do not change.
  */
 
 /** Keep an in-process cache to its last `most` entries: the oldest go first (a Map keeps the order they were put in). */
@@ -18,8 +19,27 @@ function capped<K, V>(cache: Map<K, V>, most = 500): void {
   while (cache.size > most) cache.delete(cache.keys().next().value as K);
 }
 
+/** `work` for each item, `most` at a time: ffmpeg runs side by side without one per item at once. In the items' order. */
+async function fewAtATime<T, R>(items: T[], most: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await work(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(most, items.length) }, lane));
+  return out;
+}
+
 export class TimelineMedia {
   constructor(private readonly core: TimelineCore) {}
+
+  /** A stored video as ffmpeg is handed it: its path when it is on the disk here, else its bytes. */
+  private source(asset: AssetRow) {
+    return sourceOf(this.core.storage, asset.file_key);
+  }
 
   /**
    * One frame of a video as a picture in the library. `once`: the same frame asked for again is the same
@@ -33,7 +53,7 @@ export class TimelineMedia {
       if (have.deleted_at) await db.updateTable("assets").set({ deleted_at: null }).where("id", "=", id).execute();
       return have;
     }
-    const bytes = await frameAt(await storage.get(video.file_key), extOf(video.mime), atMs, video.duration_ms ?? undefined);
+    const bytes = await frameAt(await this.source(video), extOf(video.mime), atMs, video.duration_ms ?? undefined);
     const key = `assets/${id.slice(0, 2)}/${id}.png`;
     await storage.put(key, bytes);
     const thumb = await makeThumb(bytes);
@@ -62,10 +82,10 @@ export class TimelineMedia {
     const key = sized ? `strips/${video.id.slice(0, 2)}/${video.id}-${opts.frames ?? 0}x${opts.height ?? 0}.jpg` : `strips/${video.id.slice(0, 2)}/${video.id}.jpg`;
     const have = windowed ? null : await storage.get(key).catch(() => null);
     if (have) return have;
-    const bytes = await storage.get(video.file_key);
-    const length = video.duration_ms ?? (await readVideo(bytes, extOf(video.mime))).facts?.durationMs;
+    const source = await this.source(video);
+    const length = video.duration_ms ?? (typeof source === "string" ? await videoFacts(source) : (await readVideo(source, extOf(video.mime))).facts)?.durationMs;
     if (!length) throw new CutError("This video could not be read.");
-    const strip = await filmStrip(bytes, extOf(video.mime), length, opts);
+    const strip = await filmStrip(source, extOf(video.mime), length, opts);
     // a strip of a part is asked for while zooming: made each time, not kept
     if (!windowed) await storage.put(key, strip);
     return strip;
@@ -82,7 +102,7 @@ export class TimelineMedia {
       const kept = JSON.parse(Buffer.from(have).toString("utf8")) as { rate: number; values: number[]; sound?: number[] | null };
       if (kept.sound !== undefined) return { rate: kept.rate, values: kept.values, sound: kept.sound };
     }
-    const { motion, sound } = await measureOf(await storage.get(asset.file_key), extOf(asset.mime));
+    const { motion, sound } = await measureOf(await this.source(asset), extOf(asset.mime));
     const made = { rate: MOTION_RATE, values: motion.map((v) => Math.round(v * 10) / 10), sound };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
@@ -96,56 +116,81 @@ export class TimelineMedia {
     const key = `scenes/${asset.id.slice(0, 2)}/${asset.id}.json`;
     const have = await storage.get(key).catch(() => null);
     if (have) return JSON.parse(Buffer.from(have).toString("utf8")) as { cuts: number[] };
-    const made = { cuts: await scenesOf(await storage.get(asset.file_key), extOf(asset.mime)) };
+    const made = { cuts: await scenesOf(await this.source(asset), extOf(asset.mime)) };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
+  }
+
+  /** The colour along each video, by video, as it is being read or once read: the files do not change. The last two hundred. */
+  private alongs = new Map<string, Promise<FrameMeans | null>>();
+
+  /**
+   * The mean luma and chroma of every frame of a video (meansAlong), worked out once per video and kept beside it, so that
+   * any stretch of it (a take trimmed anew, another take of the same video) is read off it rather than measured again.
+   */
+  means(asset: AssetRow): Promise<FrameMeans | null> {
+    let got = this.alongs.get(asset.id);
+    if (!got) {
+      const { storage } = this.core;
+      const key = `means/${asset.id.slice(0, 2)}/${asset.id}.json`;
+      got = (async () => {
+        const have = await storage.get(key).catch(() => null);
+        if (have) return JSON.parse(Buffer.from(have).toString("utf8")) as FrameMeans;
+        const made = await meansAlong(await this.source(asset), extOf(asset.mime));
+        if (made.t.length) await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
+        return made;
+      })().catch(() => null);
+      this.alongs.set(asset.id, got);
+      capped(this.alongs, 200);
+    }
+    return got;
   }
 
   /** The jump across a join, per take, kept once worked out (a take and its neighbours' frames do not change). The last five hundred. */
   private joinScores = new Map<string, { in: number | null; out: number | null }>();
 
-  /** The mean colour of stretches of takes already measured, by take, moment and length: the files do not change. The last five hundred. */
-  private stretchMeans = new Map<string, Promise<Means | null>>();
-
-  /** Forget the join scores and colour means of these takes: the file behind them changed (see Timelines.forgetDerived). */
-  forgetTakes(takes: string[]): void {
+  /** Forget what was worked out of a video whose file changed (see Timelines.forgetDerived): its colour, and the join scores of the takes that play it. */
+  forget(assetId: string, takes: string[]): void {
+    this.alongs.delete(assetId);
     // a score names the take on each side of the join: one of them is enough to forget it
-    for (const cache of [this.joinScores, this.stretchMeans]) for (const key of [...cache.keys()]) if (takes.some((id) => key.includes(id))) cache.delete(key);
+    for (const key of [...this.joinScores.keys()]) if (takes.some((id) => key.includes(id))) this.joinScores.delete(key);
   }
 
   /**
    * The colour nudge each clip gets in the player: the same as the export's matching, a clip nudged toward the
    * clip before over the last and first 0.4 s at their join, the clip before taken as it will look (its own
-   * nudge included), within a few steps of 255. Zero for the first clip, for a still, and after one.
+   * nudge included), within a few steps of 255. Zero for the first clip, for a still, and after one. A clip with
+   * nothing to play is not in the export: it is passed over, the nudge carried on to the clip after it.
    */
   async matches(timelineId: string): Promise<Array<{ clip: string } & Means>> {
     const all = await this.core.placed(timelineId);
+    // every video's colour read first, a few at a time
+    const videos = [...new Map(all.flatMap((p) => (p.clip.kind === "video" && p.active && lengthOf(p) > 0 ? [[p.active.asset.id, p.active.asset] as const] : []))).values()];
+    const along = new Map((await fewAtATime(videos, 3, async (a) => [a.id, await this.means(a)] as const)));
     const mean = (t: Taken, fromMs: number) => {
-      const key = `${t.take.id}:${Math.round(fromMs)}`;
-      let got = this.stretchMeans.get(key);
-      if (!got) {
-        got = this.core.storage.get(t.asset.file_key).then((bytes) => stretchMeans(bytes, extOf(t.asset.mime), fromMs, MATCH.lookSec)).catch(() => null);
-        this.stretchMeans.set(key, got);
-        capped(this.stretchMeans);
-      }
-      return got;
+      const got = along.get(t.asset.id);
+      return got ? meansWithin(got, fromMs, MATCH.lookSec) : null;
     };
     const out: Array<{ clip: string } & Means> = [];
     let carry: Means = { y: 0, u: 0, v: 0 };
     let before: Taken | null = null;
     for (const p of all) {
+      if (lengthOf(p) <= 0) {
+        out.push({ clip: p.clip.id, y: 0, u: 0, v: 0 });
+        continue;
+      }
       const x = p.clip.kind === "video" ? p.active : null;
       // decoded as one piece with the clip before: the same nudge as that clip, no step where the chain has none
       if (x && before && p.clip.joined === "continue" && seamless(x)) {
         /* carry stays */
       } else if (x && before && sameMaking(before.asset, x.asset)) {
-        const a = await mean(before, Math.max(0, visible(before).end - MATCH.lookSec * 1000));
+        const a = mean(before, Math.max(0, visible(before).end - MATCH.lookSec * 1000));
         // what is seen: its first frames (its shared frames are a loose copy whose light differs, and they are not shown; see the export)
-        const b = await mean(x, visible(x).start);
+        const b = mean(x, visible(x).start);
         carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
       } else carry = { y: 0, u: 0, v: 0 };
       out.push({ clip: p.clip.id, ...carry });
-      before = x && lengthOf(p) > 0 ? x : null;
+      before = x;
     }
     return out;
   }
@@ -153,7 +198,7 @@ export class TimelineMedia {
   /**
    * How smoothly each take of a clip meets its neighbours: at In, the clip before's last frame against
    * the take's first frame that plays; at Out, the take's last frame against the clip after's first.
-   * ×1 = the join moves like the clip itself, higher = a catch. For picking among takes.
+   * ×1 = the join moves like the clip itself, higher = a catch. For picking among takes. A few takes at a time.
    */
   async joins(clipId: string): Promise<Array<{ take: string; in: number | null; out: number | null }>> {
     const clip = await this.core.clipRow(clipId);
@@ -165,21 +210,17 @@ export class TimelineMedia {
       if (p.clip.kind === "still") return p.still ? { asset: p.still, atMs: 0, key: `still:${p.still.id}` } : null;
       if (!p.active) return null;
       const { start, end } = visible(p.active);
-      return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}`, fade: side === "start" ? joinFade(p.active, p.clip.joined === "continue") : null };
+      return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}`, fade: side === "start" ? joinFade(p.active, p.clip.joined === "continue" && me.clip.kind === "video") : null };
     };
     const prev = edge(all[i - 1], "end");
     const next = edge(all[i + 1], "start");
     if (!prev && !next) return me.takes.map((t) => ({ take: t.take.id, in: null, out: null }));
-    const bytes = new Map<string, Uint8Array>();
-    const load = async (a: AssetRow) => {
-      const have = bytes.get(a.id);
-      if (have) return have;
-      const got = await this.core.storage.get(a.file_key);
-      bytes.set(a.id, got);
-      return got;
+    const sources = new Map<string, Promise<string | Uint8Array>>();
+    const load = (a: AssetRow) => {
+      if (!sources.has(a.id)) sources.set(a.id, this.source(a));
+      return sources.get(a.id)!;
     };
-    const out: Array<{ take: string; in: number | null; out: number | null }> = [];
-    for (const t of me.takes) {
+    return fewAtATime(me.takes, 3, async (t) => {
       const { start, end } = visible(t);
       const key = `${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}`;
       let score = this.joinScores.get(key);
@@ -187,21 +228,20 @@ export class TimelineMedia {
         const fps = t.asset.fps ?? 24;
         score = {
           // as the join plays: with the fade the export and the player put there
-          in: prev ? await joinJump({ bytes: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }, joinFade(t, me.clip.joined === "continue")) : null,
-          out: next ? await joinJump({ bytes: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { bytes: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }, next.fade) : null,
+          in: prev ? await joinJump({ source: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { source: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }, joinFade(t, me.clip.joined === "continue" && all[i - 1]?.clip.kind === "video")) : null,
+          out: next ? await joinJump({ source: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { source: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }, next.fade) : null,
         };
         this.joinScores.set(key, score);
         capped(this.joinScores);
       }
-      out.push({ take: t.take.id, ...score });
-    }
-    return out;
+      return { take: t.take.id, ...score };
+    });
   }
 
   /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */
   async peek(assetId: string, atMs: number, height?: number): Promise<Uint8Array> {
     const video = await this.core.assetRow(assetId);
     if (!video || video.kind !== "video") throw notFound("this video");
-    return peekAt(await this.core.storage.get(video.file_key), extOf(video.mime), atMs, height);
+    return peekAt(await this.source(video), extOf(video.mime), atMs, height);
   }
 }
