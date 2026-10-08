@@ -133,13 +133,14 @@ export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items
           data-tip={a.inBin ? undefined : "Rename (F2): a name of your own, which the library shows and the search goes by"}
           className="group -mx-[9px] flex min-w-0 cursor-text items-baseline gap-2 rounded-lg border border-transparent px-2 py-1 text-left text-[19px] leading-tight font-bold hover:border-line disabled:cursor-default disabled:hover:border-transparent"
         >
-          <span className={cx("min-w-0 break-words", !a.name && "text-ink-3")}>{a.name || title}</span>
+          {/* a name worked out from where it came from (its own says nothing) is dim, as no name is */}
+          <span className={cx("min-w-0 break-words", (a.shownName || !a.name) && "text-ink-3")}>{a.shownName || a.name || title}</span>
           {!a.inBin && <span className="shrink-0 text-[11px] font-medium text-ink-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"><Kbd>F2</Kbd></span>}
         </button>
       )}
       {rename.isError && <span className="text-xs text-warn-ink">{rename.error.message}</span>}
 
-      <span className="text-[12.5px] text-ink-2">{factsOf(a, g, a.name ? title : "")}</span>
+      <span className="text-[12.5px] text-ink-2">{factsOf(a, g, a.shownName || a.name ? title : "")}</span>
 
       <div className="mt-1 flex flex-wrap gap-1.5">
         <PlaceChip a={a} onLeave={onClose} />

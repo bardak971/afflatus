@@ -1,4 +1,5 @@
 import { sql, type Kysely } from "kysely";
+import { clockOf } from "./timelineModel";
 
 /**
  * The names a render is given when it is made, so that the library does not fill with nameless files: a take
@@ -37,11 +38,38 @@ export function takeName(timeline: string, clip: number, take: number): string {
   return `${capName(timeline.trim() || "Timeline", NAME_MAX - suffix.length)}${suffix}`;
 }
 
-/** The finished version of a take: its draft's name, said finished once (a finish of a finish is not "finished · finished"). */
-export function finishedName(of: string): string {
-  const suffix = " · finished";
-  const base = of.trim().replace(/ · finished$/, "") || "video";
+/** A name without the extension of a media file ("harbour.mp4" → "harbour"): what comes after it reads on from the name. */
+const stem = (name: string) => name.trim().replace(/\.(mp4|webm|mov|mkv|m4v|avi|gif|png|jpe?g|webp|m4a|mp3|wav|flac|ogg)$/i, "");
+
+/**
+ * The finished version of a take: its draft's name, said finished once (a finish of a finish is not "finished · finished"),
+ * with how many times bigger it was made when it was ("Big Air · c2 · t5 · finished ×2").
+ */
+export function finishedName(of: string, by?: number | null): string {
+  const suffix = by && by !== 1 ? ` · finished ×${Math.round(by * 10) / 10}` : " · finished";
+  const base = stem(of).replace(/ · finished(?: ×[\d.]+)?(?: \([^)]*\))?$/, "") || "video";
   return `${capName(base, NAME_MAX - suffix.length)}${suffix}`;
+}
+
+/** What was taken out of a named item: its name, cut short before what it is of it ("Big Air · c2 · t5 · 0:01–0:02"). */
+export function fromName(source: string, suffix: string): string {
+  return `${capName(stem(source) || "video", NAME_MAX - suffix.length)}${suffix}`;
+}
+
+/** A frame of a video: "Big Air · c2 · t5 · frame 0:03.2" (without the moment when it is not known). */
+export const frameName = (source: string, atMs?: number) => fromName(source, ` · frame${atMs === undefined ? "" : ` ${clockOf(atMs)}`}`);
+
+/** The sound of a video, as a sound of its own: "Big Air · c2 · t5 · audio". */
+export const soundName = (source: string) => fromName(source, " · audio");
+
+/**
+ * A name that says nothing of what it is named: none, or one that older code gave when the video it came from had no
+ * name ("video · 0:01–0:02", "video · finished ×2 (upscale model)", "Audio extracted from a video"). Such an item is
+ * shown under a name from where it came from (shownNames); its own is never written over.
+ */
+export function saysNothing(name: string | null | undefined): boolean {
+  const n = (name ?? "").trim();
+  return !n || n.startsWith("video · ") || n === "Audio extracted from a video";
 }
 
 /** A recipe id said in words, for when its title is not at hand ("krea2.text-to-picture" → "Text to picture"). */
@@ -320,4 +348,89 @@ export async function backfillLabelNames(db: AnyDb, recipeTitle: (id: string) =>
   }
   await writeNames(db, given);
   return given.size;
+}
+
+/** What an item's name is worked out from when it says nothing (saysNothing): its row, as the assets table holds it. */
+export type NamedRow = { id: string; name: string | null; kind: string; origin: string; generation_id: string | null; source_id: string | null; source_range: string | null };
+
+const NAMED_COLUMNS = ["id", "name", "kind", "origin", "generation_id", "source_id", "source_range"] as const;
+
+/**
+ * The names these items are shown under when their own says nothing (saysNothing), worked out from where they came from,
+ * as they would be named when made today: a take after its timeline, clip and take (a finished one after its draft); what
+ * a draft made after the draft (without its number); a frame, a cut, a sound or a mirrored picture after the item it was
+ * taken from, worked out the same way when that one has no name either. Nothing is written: an item that was named by
+ * older code, or never, keeps its row as it is. Items with nothing to go on are left out. `recipeTitle` says a recipe's title.
+ */
+export async function shownNames(db: AnyDb, rows: NamedRow[], recipeTitle: (id: string) => string | undefined = recipeWords, depth = 0): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const wanted = rows.filter((r) => saysNothing(r.name));
+  if (!wanted.length) return out;
+  const ids = wanted.map((r) => r.id);
+
+  // what each was taken from, by the name it goes by (its own, or worked out a few steps back)
+  const sourceIds = [...new Set(wanted.map((r) => r.source_id).filter((id): id is string => Boolean(id)))];
+  const sources = sourceIds.length ? ((await db.selectFrom("assets").select([...NAMED_COLUMNS]).where("id", "in", sourceIds).execute()) as NamedRow[]) : [];
+  const sourceName = new Map(sources.filter((s) => !saysNothing(s.name)).map((s) => [s.id, s.name!.trim()]));
+  if (depth < 3) for (const [id, name] of await shownNames(db, sources, recipeTitle, depth + 1)) sourceName.set(id, name);
+
+  // the takes: as nameTake names them, a finish after its draft's name when that one says something
+  const takeNames = new Map<string, string>();
+  const takes = (await db.selectFrom("takes").select(["id", "clip_id", "asset_id", "finished_from"]).where("asset_id", "in", ids).orderBy("created_at").execute()) as TakeLine[];
+  if (takes.length) {
+    const { siblings, timelineOf, clipNo } = await contextOf(db, [...new Set(takes.map((t) => t.clip_id))]);
+    const roots = [...new Set([...siblings.values()].flat().map((s) => s.asset_id))];
+    const names = new Map(((await db.selectFrom("assets").select(["id", "name"]).where("id", "in", roots).execute()) as Array<{ id: string; name: string }>).map((a) => [a.id, saysNothing(a.name) ? "" : a.name]));
+    const byTake = namesOfTakes(takes, siblings, clipNo, timelineOf, names);
+    // a video on two clips (a clip copied) goes by the first it was placed on
+    for (const t of takes) if (!takeNames.has(t.asset_id) && byTake.get(t.id)) takeNames.set(t.asset_id, byTake.get(t.id)!);
+  }
+
+  // what was rendered from a draft: the draft's label; from no draft, the label the job was given, else the start of its prompt
+  const genNames = new Map<string, string>();
+  const gens = [...new Set(wanted.map((r) => r.generation_id).filter((id): id is string => Boolean(id)))];
+  if (gens.length) {
+    const found = (await db.selectFrom("generations").leftJoin("drafts", "drafts.id", "generations.draft_id").leftJoin("jobs", "jobs.generation_id", "generations.id")
+      .select(["generations.id as id", "generations.recipe_id as recipe_id", "generations.inputs as inputs", "drafts.id as draft", "drafts.name as draft_name", "drafts.title as title", "jobs.label as label"])
+      .where("generations.id", "in", gens).execute()) as Array<{ id: string; recipe_id: string; inputs: string; draft: string | null; draft_name: string | null; title: string | null; label: string | null }>;
+    const byGen = new Map<string, string>();
+    for (const g of found) {
+      if (byGen.has(g.id)) continue;
+      let prompt = "";
+      try {
+        prompt = promptOf(JSON.parse(g.inputs) as Record<string, unknown>);
+      } catch { /* a record that cannot be read: named without its prompt */ }
+      const title = recipeTitle(g.recipe_id);
+      const label = g.draft ? draftLabel({ name: g.draft_name, title: g.title, prompt, recipe: title ?? recipeWords(g.recipe_id) }) : jobLabel(g.label, { id: g.recipe_id, title }, prompt);
+      if (label) byGen.set(g.id, label);
+    }
+    for (const r of wanted) if (r.generation_id && byGen.has(r.generation_id)) genNames.set(r.id, byGen.get(r.generation_id)!);
+  }
+
+  for (const r of wanted) {
+    const src = r.source_id ? sourceName.get(r.source_id) : undefined;
+    const old = (r.name ?? "").trim();
+    const name =
+      // an older "video · …" name: what it says after "video" holds (the range, the factor), said after the source's name, without the upscale route
+      (src && old.startsWith("video · ") ? fromName(src, ` · ${old.slice("video · ".length).replace(/ \([^)]*\)$/, "")}`) : "")
+      || takeNames.get(r.id) || genNames.get(r.id)
+      || (src ? fromSource(r, src) : "");
+    if (name) out.set(r.id, name);
+  }
+  return out;
+}
+
+/** A nameless item taken out of another, after that one's name: a frame, a sound, a mirrored picture, a range. */
+function fromSource(r: NamedRow, source: string): string {
+  if (r.origin === "frame") return frameName(source);
+  if (r.kind === "audio") return soundName(source);
+  if (r.origin === "edited") return fromName(source, ", mirrored");
+  const [a, b] = (r.source_range ?? "").split("-").map(Number);
+  return r.source_range && Number.isFinite(a) && Number.isFinite(b) ? fromName(source, ` · ${clockOf(a!)}–${clockOf(b!)}`) : "";
+}
+
+/** The name an item goes by, for what is made from it to be named after: its own when it says something, else one worked out from where it came from ("" when there is none). */
+export async function nameOf(db: AnyDb, row: NamedRow): Promise<string> {
+  if (!saysNothing(row.name)) return row.name!.trim();
+  return (await shownNames(db, [row])).get(row.id) ?? "";
 }

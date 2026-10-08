@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { backfillLabelNames, capName, draftLabel, finishedName, givenLabel, numbered, takeName } from "../src/autoName";
+import { backfillLabelNames, capName, draftLabel, finishedName, frameName, fromName, givenLabel, nameOf, numbered, saysNothing, shownNames, soundName, takeName, type NamedRow } from "../src/autoName";
 import { migrate, newId, openSqlite, OWNER, type Db } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { CHECKPOINT, complete, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -29,6 +29,86 @@ describe("the names given", () => {
     expect(draftLabel({ name: null, title: "A quiet harbour at dawn, fog over the water", recipe: "Words to picture" })).toBe("A quiet harbour at dawn");
     expect(draftLabel({ name: null, title: "", prompt: "two gulls on a post", recipe: "Words to picture" })).toBe("two gulls on a post");
     expect(draftLabel({ name: null, title: "", prompt: "", recipe: "Words to picture" })).toBe("Words to picture");
+  });
+
+  it("say what was made from a named item after it: finished and how much bigger, a frame and when, a range, its sound", () => {
+    expect(finishedName("Big Air · c2 · t5", 2)).toBe("Big Air · c2 · t5 · finished ×2");
+    expect(finishedName("Big Air · c2 · t5", 1)).toBe("Big Air · c2 · t5 · finished");
+    expect(finishedName("Big Air · c2 · t5", 1.9999)).toBe("Big Air · c2 · t5 · finished ×2");
+    // a finish of a finish, named by older code with its route: said finished once
+    expect(finishedName("Big Air · c2 · t5 · finished ×2 (SeedVR2)", 2)).toBe("Big Air · c2 · t5 · finished ×2");
+    expect(finishedName("", 2)).toBe("video · finished ×2");
+    expect(frameName("Big Air · c2 · t5", 3_240)).toBe("Big Air · c2 · t5 · frame 0:03.2");
+    expect(frameName("Big Air · c2 · t5")).toBe("Big Air · c2 · t5 · frame");
+    expect(fromName("walk.mp4", " · 0:01–0:02")).toBe("walk · 0:01–0:02");
+    expect(fromName("v0.2 test", " · 0:01–0:02")).toBe("v0.2 test · 0:01–0:02");
+    expect(soundName("walk.mp4")).toBe("walk · audio");
+    expect(fromName("word ".repeat(40), " · frame 0:03.2").length).toBeLessThanOrEqual(80);
+    // what older code wrote after a nameless video says nothing; a name of one's own does
+    expect(saysNothing("")).toBe(true);
+    expect(saysNothing("video · finished ×2 (upscale model)")).toBe(true);
+    expect(saysNothing("Audio extracted from a video")).toBe(true);
+    expect(saysNothing("my video · take two")).toBe(false);
+  });
+});
+
+describe("the name an item is shown under when its own says nothing", () => {
+  const at = (i: number) => new Date(Date.UTC(2026, 9, 1, 12, 0, i)).toISOString();
+
+  it("is worked out from where it came from, as it would be named today; nothing is written", async () => {
+    const db: Db = openSqlite(":memory:");
+    await migrate(db);
+    await db.insertInto("timelines").values({ id: "tl", owner_id: OWNER, name: "Big Air", created_at: at(0), updated_at: at(0) } as never).execute();
+    for (const [id, position] of [["c-a", 0], ["c-b", 1]] as const) {
+      await db.insertInto("clips").values({ id, timeline_id: "tl", position, take_id: null, joined: "cut", recipe_id: "h3.video", inputs: "{}", created_at: at(1), updated_at: at(1) } as never).execute();
+    }
+    const asset = async (id: string, name: string, i: number, over: Record<string, unknown> = {}) => db.insertInto("assets").values({ ...video(name, over), id, created_at: at(i) }).execute();
+    const take = async (id: string, clip: string, assetId: string, i: number, finishedFrom: string | null = null) => db.insertInto("takes").values({
+      id, clip_id: clip, asset_id: assetId, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null,
+      finished_from: finishedFrom, join_kind: null, created_at: at(i),
+    } as never).execute();
+    // two takes of the second clip, both nameless; the first finished, and named by older code after "video"
+    await asset("v1", "", 2);
+    await asset("v2", "", 3);
+    await take("t1", "c-b", "v1", 2);
+    await take("t2", "c-b", "v2", 3);
+    await asset("v3", "video · finished ×2 (upscale model)", 4, { source_id: "v1", source_range: "0-3000" });
+    await take("t3", "c-b", "v3", 4, "t1");
+    // a finish that was never placed: its "×2" is read from the old name
+    await asset("v4", "video · finished ×2 (SeedVR2)", 5, { source_id: "v2", source_range: "0-3000" });
+    // what was taken out of the first take: a range, a frame, its sound, and a picture mirrored from that frame
+    await asset("cut", "video · 0:01–0:02", 6, { origin: "cut", source_id: "v1", source_range: "1000-2000" });
+    await asset("cut2", "", 7, { origin: "cut", source_id: "v2", source_range: "500-1500" });
+    await asset("frame", "", 8, { kind: "image", origin: "frame", source_id: "v1" });
+    await asset("sound", "Audio extracted from a video", 9, { kind: "audio", origin: "imported", source_id: "v1" });
+    await asset("mirror", "", 10, { kind: "image", origin: "edited", source_id: "frame" });
+    // what a draft with no name nor title made, and a render sent from no draft
+    await db.insertInto("drafts").values({ id: "d", owner_id: OWNER, project_id: null, target: "new", recipe_id: "sdxl.text-to-picture", title: "", name: null, forms: "{}", count: 1, chat: null, look: null, created_at: at(0), updated_at: at(0) } as never).execute();
+    for (const [g, d] of [["g1", "d"], ["g2", null]] as const) {
+      await db.insertInto("generations").values({ id: g, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: JSON.stringify({ prompt: "two gulls on a mooring post at noon" }), resolved: "{}", gen_ms: 1, draft_id: d, created_at: at(0) } as never).execute();
+    }
+    await asset("p1", "", 11, { kind: "image", generation_id: "g1" });
+    await asset("p2", "", 12, { kind: "image", generation_id: "g2" });
+    // a name of one's own, and an upload with nothing to go on
+    await asset("own", "my favourite", 13, { source_id: "v1", source_range: "0-1000" });
+    await asset("up", "", 14, { kind: "image", origin: "uploaded" });
+
+    const rows = (await db.selectFrom("assets").select(["id", "name", "kind", "origin", "generation_id", "source_id", "source_range"]).execute()) as NamedRow[];
+    const shown = Object.fromEntries(await shownNames(db, rows));
+    expect(shown).toEqual({
+      v1: "Big Air · c2 · t1", v2: "Big Air · c2 · t2",
+      v3: "Big Air · c2 · t1 · finished ×2", v4: "Big Air · c2 · t2 · finished ×2",
+      cut: "Big Air · c2 · t1 · 0:01–0:02", cut2: "Big Air · c2 · t2 · 0:00.5–0:01.5",
+      frame: "Big Air · c2 · t1 · frame", sound: "Big Air · c2 · t1 · audio", mirror: "Big Air · c2 · t1 · frame, mirrored",
+      p1: "two gulls on a mooring", p2: "two gulls on a mooring",
+    });
+    // what is made next from one goes by the same name; one's own name as it is
+    expect(await nameOf(db, rows.find((r) => r.id === "v1")!)).toBe("Big Air · c2 · t1");
+    expect(await nameOf(db, rows.find((r) => r.id === "own")!)).toBe("my favourite");
+    expect(await nameOf(db, rows.find((r) => r.id === "up")!)).toBe("");
+    // nothing was written
+    expect((await db.selectFrom("assets").select("name").where("id", "in", ["v1", "v3", "frame"]).execute()).map((a) => a.name).sort()).toEqual(["", "", "video · finished ×2 (upscale model)"]);
+    await db.destroy();
   });
 });
 

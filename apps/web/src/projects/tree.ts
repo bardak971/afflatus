@@ -75,7 +75,7 @@ export interface ItemsRead {
 }
 
 /** An item's row: "Image" when it has no name; what it is, how long or how big. */
-export const itemLabel = (a: Asset) => a.name || (a.kind === "image" ? "Image" : a.kind === "video" ? "Video" : "Sound");
+export const itemLabel = (a: Asset) => a.shownName || a.name || (a.kind === "image" ? "Image" : a.kind === "video" ? "Video" : "Sound");
 export const itemMeta = (a: Asset) =>
   [a.kind === "image" ? "image" : a.kind === "video" ? "video" : "sound", a.kind === "image" ? (a.width && a.height ? `${a.width}×${a.height}` : null) : a.durationMs !== null ? clock(a.durationMs) : null].filter(Boolean).join(" · ");
 

@@ -26,6 +26,11 @@ export interface Asset {
   clipOf?: ClipOf | null;
   /** Made in Create: the draft it came from (only in listings). */
   draftOf?: { id: string; name: string } | null;
+  /**
+   * When its own name says nothing (none, or "video · 0:01–0:02" from a nameless video): the name it is shown under, worked
+   * out from where it came from ("Big Air · c2 · t5 · 0:01–0:02"). Absent when its name holds or there is nothing to go on.
+   */
+  shownName?: string;
 }
 /** A library video's place on a timeline. */
 export interface ClipOf {

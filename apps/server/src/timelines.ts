@@ -730,13 +730,6 @@ export class Timelines {
     return typeof seed === "number" ? { recipe: g.recipe_id, inputs: JSON.parse(g.inputs) as Record<string, unknown>, seed } : null;
   }
 
-  /** The name of a video finished by an upscale route, after the video it was made from. */
-  finishName(video: AssetRow, route: string, by: number): string {
-    const base = (video.name || "video").replace(/\.[a-z0-9]+$/i, "").replace(/ · finished ×[\d.]+ \([^)]*\)$/, "");
-    const how = route === "seedvr" ? "SeedVR2" : route === "rtx" ? "RTX VSR" : "upscale model";
-    return `${base} · finished ×${by} (${how})`;
-  }
-
   /**
    * Forget what was worked out of a video, because the file behind it changed (a linked folder's file written
    * again): its film strips, motion, scene cuts and colour along it in storage, and the join scores and colour means

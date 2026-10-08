@@ -294,7 +294,7 @@ describe.skipIf(!clip)("the sound of a video", () => {
     const res = await t.app.inject({ method: "POST", url: "/api/assets?name=walk.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip!) });
     const video = res.json();
     const sound = (await post(t.app, `/api/assets/${video.id}/sound`)).json();
-    expect(sound).toMatchObject({ kind: "audio", mime: "audio/mp4", name: "walk.mp4, audio", hasSound: true, kept: true });
+    expect(sound).toMatchObject({ kind: "audio", mime: "audio/mp4", name: "walk · audio", hasSound: true, kept: true });
     expect(sound.durationMs).toBeGreaterThan(1900);
     // a timeline with two takes of a clip: the one that does not play can be moved to the bin
     const tl = (await post(t.app, "/api/timelines", {})).json();

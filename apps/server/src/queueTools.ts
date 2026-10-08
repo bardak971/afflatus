@@ -3,6 +3,7 @@ import { choicesOf, GraphBuilder, type BuildContext, type Ref } from "@afflatus/
 import { pixelUpscale, saveVideo, UPSCALE } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
+import { finishedName, nameOf } from "./autoName";
 import { now, type Tables } from "./db";
 import { extOf } from "./media";
 import { readVideo } from "./video";
@@ -162,7 +163,8 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
       `route=${routeKey};by=${opts.by ?? 2};frames=${opts.seedvrFrames ?? 0}`, Math.round(source.width * by) * Math.round(source.height * by) * Math.max(1, outFrames));
     const output = await followed(core, comfy, run, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
     const bytes = await comfy.client.view(output);
-    let kept = await clips.range.keepCut(video, bytes, clips.finishName(video, opts.route ?? "seedvr", by), 0, video.duration_ms ?? 0, folder);
+    // named after the take it finishes ("Big Air · c2 · t5 · finished ×2"), worked out from its clip when that video has no name
+    let kept = await clips.range.keepCut(video, bytes, finishedName(await nameOf(core.db, video), by), 0, video.duration_ms ?? 0, folder);
     // the draft's frames, enlarged: its length on the model's frame grid is the draft's (lengthOnGrid), or an interpolated
     // finish plays one frame short and a seamless join skips it. The latent itself stays the draft's (renderedOf)
     if (video.latent_frames && Math.abs((kept.duration_ms ?? 0) - (video.duration_ms ?? 0)) <= 42) {
@@ -196,7 +198,7 @@ async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Ti
     const silent = await comfy.client.view(await followed(core, comfy, run, g, outNode, [`frame_interpolation/${rife}`], note));
     // RIFE hands the picture back without sound: the range's own sound goes on it, slowed to match
     const bytes = await slowSoundOnto(silent, part.bytes, factor);
-    const kept = await clips.range.keepCut(video, bytes, clips.range.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs, folder);
+    const kept = await clips.range.keepCut(video, bytes, await clips.range.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs, folder);
     await noteTool(core, note, "done", kept);
     return kept;
   }));

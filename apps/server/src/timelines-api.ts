@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { RANDOM_SEED, hiddenRunUp, movedSeed, typedSeed } from "@afflatus/core";
+import { nameOf } from "./autoName";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
@@ -302,7 +303,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     if (!video || video.kind !== "video") throw httpError("this video was not found", 404);
     if (body.endMs - body.startMs < 20) throw httpError("That range is too short: pick at least one frame.");
     if (body.action !== "slow" && video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw httpError("That is the whole video: there is nothing to cut.");
-    const name = video.name || "video";
+    // the job says what it is on by the name the video goes by (a nameless take: its timeline, clip and take)
+    const name = (await nameOf(s.db, video)) || "video";
     if (body.action === "slow") {
       const factor = body.factor ?? 2;
       const engine = await slowEngine(s);

@@ -87,6 +87,9 @@ describe("a folder's items", () => {
   });
   it("say what they are", () => {
     expect(itemLabel(asset("x", { kind: "audio" }))).toBe("Sound");
+    // the name worked out from where it came from goes before an own name that says nothing
+    expect(itemLabel(asset("x", { name: "video · 0:01–0:02", shownName: "Big Air · c2 · t5 · 0:01–0:02" }))).toBe("Big Air · c2 · t5 · 0:01–0:02");
+    expect(itemLabel(asset("x", { name: "Harbor walk" }))).toBe("Harbor walk");
     expect(itemMeta(asset("x"))).toBe("image · 832×1216");
     expect(itemMeta(asset("x", { kind: "video", durationMs: 65_000 }))).toBe("video · 1:05");
   });

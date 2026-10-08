@@ -892,7 +892,8 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
       const [draft, done] = c.takes;
       expect(done.finishedFrom).toBe(draft.id);
       expect(c.take.id).toBe(done.id);
-      expect(done.asset.name).toMatch(/finished ×2 \(upscale model\)/);
+      // named after the take it finishes, and how many times bigger
+      expect(done.asset.name).toBe(`${draft.asset.name} · finished ×2`);
     }
     // the second clip was rendered as a cut (see twoRendered): finishing does not make it follow the first, and its takes know no join
     expect(v.clips[1].joined).toBe("cut");

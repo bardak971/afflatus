@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { frameName, nameOf } from "./autoName";
 import { colourNudge, CutError, MATCH, type FrameMeans, type Means, filmStrip, frameAt, joinJump, measureOf, meansAlong, meansWithin, MOTION_RATE, peekAt, scenesOf } from "./cut";
 import { newId, now } from "./db";
 import { notFound } from "./errors";
@@ -62,10 +63,12 @@ export class TimelineMedia {
     if (thumb) await storage.put(thumbKey(id), thumb);
     const size = pngSize(bytes);
     const at = now();
+    // "Big Air · c2 · t5 · frame 0:03.2": after the name the video goes by (worked out from where it came from when it has none)
+    const source = await nameOf(db, video);
     await db
       .insertInto("assets")
       .values(newAssetRow({
-        id, kind: "image", origin: "frame", name: video.name ? `${video.name}, a frame` : "", file_key: key,
+        id, kind: "image", origin: "frame", name: source ? frameName(source, atMs) : "", file_key: key,
         thumb_key: thumb ? thumbKey(id) : null, mime: "image/png", bytes: bytes.length, width: size?.width ?? video.width, height: size?.height ?? video.height,
         duration_ms: null, fps: null, has_sound: 0, folder_id: await folderForMade(db, video, timeline), generation_id: null, source_id: video.id, kept_at: at, created_at: at,
       }))

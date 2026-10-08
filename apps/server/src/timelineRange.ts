@@ -1,4 +1,5 @@
 import { latentFrameAtOrBefore, MODEL_FPS, secondsInput, type Recipe } from "@afflatus/core";
+import { fromName, nameOf } from "./autoName";
 import { CutError, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER } from "./db";
 import { httpError } from "./errors";
@@ -61,12 +62,13 @@ export class TimelineRange {
         { keep: [[a, b]], said: `${clockOf(a)}–${clockOf(b)}`, range: `${a}-${b}` },
         ...(total - b >= 20 ? [{ keep: [[b, total]] as Array<[number, number]>, said: `${clockOf(b)}–${clockOf(total)}`, range: `${b}-${total}` }] : []),
       ];
-    const base = (video.name || "video").replace(/\.[a-z0-9]+$/i, "");
+    // named after the video, worked out from where it came from when it has no name of its own (a take: its timeline, clip and take)
+    const base = await nameOf(db, video);
     // ffmpeg first, the files put away as they come; then every row at once, with the source binned when it was taken apart
     const rows: AssetRow[] = [];
     for (const piece of pieces) {
       const out = await rangeKeep(source, ext, facts, piece.keep, opts);
-      rows.push(await this.cutRow(video, out, `${base} · ${piece.said}`, piece.range, opts.folder));
+      rows.push(await this.cutRow(video, out, fromName(base, ` · ${piece.said}`), piece.range, opts.folder));
     }
     await db.transaction().execute(async (tx) => {
       for (const row of rows) await tx.insertInto("assets").values(row).execute();
@@ -506,10 +508,9 @@ export class TimelineRange {
     return db.selectFrom("assets").selectAll().where("id", "=", row.id).executeTakeFirstOrThrow();
   }
 
-  /** The name a slowed range is filed under. */
-  slowName(video: AssetRow, startMs: number, endMs: number, factor: number): string {
-    const base = (video.name || "video").replace(/\.[a-z0-9]+$/i, "");
-    return `${base} · slow ×${factor} ${clockOf(startMs)}–${clockOf(endMs)}`;
+  /** The name a slowed range is filed under, after the video (as cutRange names a range). */
+  async slowName(video: AssetRow, startMs: number, endMs: number, factor: number): Promise<string> {
+    return fromName(await nameOf(this.core.db, video), ` · slow ×${factor} ${clockOf(startMs)}–${clockOf(endMs)}`);
   }
 
   /** The range slowed by ffmpeg (no GPU), filed in the library. */
@@ -517,7 +518,7 @@ export class TimelineRange {
     const { source, ext, total, fps } = await this.opened(video);
     if (!total) throw new CutError("This video could not be read.");
     const out = await slowMotion(source, ext, { durationMs: total, fps, hasSound: Boolean(video.has_sound) }, startMs, endMs, factor, opts);
-    return this.keepCut(video, out, this.slowName(video, startMs, endMs, factor), startMs, endMs, opts.folder);
+    return this.keepCut(video, out, await this.slowName(video, startMs, endMs, factor), startMs, endMs, opts.folder);
   }
 
   /**

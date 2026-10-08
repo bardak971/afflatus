@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { z } from "zod";
 import { describeRecipe, fuzzyFilter } from "@afflatus/core";
+import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
 import type { Tables } from "./db";
 import { assetView } from "./media";
 import { folderIdsOf } from "./projects";
@@ -170,11 +171,13 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     const drafts = new Map<string, { id: string; name: string }>();
     if (gens.length) {
       const found = await s.db.selectFrom("generations").leftJoin("drafts", "drafts.id", "generations.draft_id")
-        .select(["generations.id as gen", "generations.draft_id as draft", "drafts.name as name", "drafts.title as title"])
+        .select(["generations.id as gen", "generations.draft_id as draft", "generations.recipe_id as recipe", "generations.inputs as inputs", "drafts.name as name", "drafts.title as title"])
         .where("generations.id", "in", gens).where("generations.draft_id", "is not", null).execute();
-      for (const g of found) if (g.draft) drafts.set(g.gen, { id: g.draft, name: g.name || g.title || "A draft" });
+      // a draft with no name nor title is called after the start of the prompt it was sent with, as its results are (autoName.ts)
+      for (const g of found) if (g.draft) drafts.set(g.gen, { id: g.draft, name: draftLabel({ name: g.name, title: g.title, prompt: promptOf(readJson<Record<string, unknown>>(g.inputs, {})), recipe: s.registry.recipe(g.recipe)?.title ?? recipeWords(g.recipe) }) });
     }
-    return rows.map((r) => ({ ...assetView(r), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null }));
+    const shown = await shownNames(s.db, rows, (id) => s.registry.recipe(id)?.title);
+    return rows.map((r) => ({ ...assetView(r), ...(shown.has(r.id) ? { shownName: shown.get(r.id)! } : {}), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null }));
   }
 
   /** The model families things in the library were made with, for the "Any model" filter. */
@@ -218,4 +221,13 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     }
     return modelTally;
   });
+}
+
+/**
+ * The name an item is shown under when its own says nothing (none, or one older code gave after a nameless video): worked
+ * out from where it came from (autoName.ts shownNames). Nothing when its own name holds, or there is nothing to go on.
+ */
+export async function withShownName(s: Services, row: Tables["assets"]): Promise<{ shownName?: string }> {
+  const name = (await shownNames(s.db, [row], (id) => s.registry.recipe(id)?.title)).get(row.id);
+  return name ? { shownName: name } : {};
 }

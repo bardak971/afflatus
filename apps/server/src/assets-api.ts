@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
-import { registerAssetSearch } from "./assetSearch";
+import { nameOf, soundName } from "./autoName";
+import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
@@ -74,10 +75,11 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const at = now();
     // its size read from what was made: a picture taken sideways was turned upright first
     const size = await readPicture(bytes);
+    const source = await nameOf(s.db, a);
     await s.db
       .insertInto("assets")
       .values(newAssetRow({
-        id, kind: "image", origin: "edited", name: a.name ? `${a.name}, mirrored` : "", file_key: key, thumb_key: thumb ? thumbKey(id) : null,
+        id, kind: "image", origin: "edited", name: source ? `${source}, mirrored` : "", file_key: key, thumb_key: thumb ? thumbKey(id) : null,
         mime: "image/png", bytes: bytes.length, width: size?.width ?? a.width, height: size?.height ?? a.height,
         duration_ms: null, fps: null, has_sound: 0, folder_id: a.folder_id, generation_id: null, source_id: a.id, kept_at: at, created_at: at,
       }))
@@ -121,6 +123,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const placed = await s.timelines.clipOf([a.id, ...usedIn.map((u) => u.id)]);
     return {
       ...assetView(a),
+      ...(await withShownName(s, a)),
       clipOf: placed.get(a.id) ?? null,
       // who was in it, as far back as it is known: what is made from it next can start with the same people
       look: castOf(await madeIn(s, a.id)),
@@ -194,10 +197,12 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const key = `assets/${id.slice(0, 2)}/${id}.m4a`;
     await s.storage.put(key, bytes);
     const at = now();
+    // "Big Air · c2 · t5 · audio": after the name the video goes by (worked out from where it came from when it has none)
+    const source = await nameOf(s.db, video);
     await s.db
       .insertInto("assets")
       .values(newAssetRow({
-        id, kind: "audio", origin: "imported", name: video.name ? `${video.name}, audio` : "Audio extracted from a video", file_key: key, thumb_key: null,
+        id, kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", file_key: key, thumb_key: null,
         mime: "audio/mp4", bytes: bytes.length, width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
         folder_id: video.folder_id, generation_id: null, source_id: video.id, kept_at: at, created_at: at,
       }))
