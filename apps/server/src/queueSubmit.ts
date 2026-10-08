@@ -96,9 +96,10 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const built = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
   // a model kept in another sub-folder than the one the graph names is used from where it is
   relocateFiles(built.graph, catalog);
-  const problems = checkGraph(built, catalog, { files: true, uploaded: Object.values(uploads) });
+  const imported = recipe.id.startsWith("workflow.");
+  const problems = checkGraph(built, catalog, { files: true, uploaded: Object.values(uploads), looseInputs: imported });
   if (problems.length) {
-    const fix = recipe.id.startsWith("workflow.") ? " To fix it: Workflows, then Edit on this workflow." : "";
+    const fix = imported ? " To fix it: Workflows, then Edit on this workflow." : "";
     throw new Error(`this cannot run on your ComfyUI: ${problems.slice(0, 3).join("; ")}.${fix}`);
   }
 

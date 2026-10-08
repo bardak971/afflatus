@@ -258,7 +258,7 @@ describe("a workflow imported from the editor's own file", () => {
     const { id } = await importSettings();
     const recipe = (await get(t.app, "/api/recipes")).json().recipes.find((r: { id: string }) => r.id === id);
     expect(recipe.inputs.find((i: { id: string }) => i.id === "sw_3_enabled")).toMatchObject({ type: "toggle", label: "🆙 Upscale 2x", default: false });
-    expect(recipe.inputs.find((i: { id: string }) => i.id === "loras")).toMatchObject({ default: [{ file: "style.safetensors", weight: 0.8 }] });
+    expect(recipe.inputs.find((i: { id: string }) => i.id === "loras")).toMatchObject({ default: [{ file: "style.safetensors", weight: 0.8 }, { file: "unused.safetensors", weight: 0 }] });
     const status = (await get(t.app, "/api/setup")).json().recipes.find((r: { id: string }) => r.id === id);
     expect(status).toMatchObject({ ready: true, missingNodes: [] });
   });

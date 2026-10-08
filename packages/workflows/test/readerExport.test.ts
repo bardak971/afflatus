@@ -103,3 +103,30 @@ describe("values saved by place", () => {
     expect(fromEditor(file, catalog).graph["1"]!.inputs).toEqual({ type: "INT", value: 81 });
   });
 });
+
+describe("a node that changed since the workflow was saved", () => {
+  it("an input saved under the bare name of a member of a group that grows is sent under the group's (KJ's calculator: a → variables.a)", () => {
+    const local: NodeCatalog = {
+      ...catalog,
+      Calc: { ...catalog.KSampler!, input: { required: { expression: ["STRING", {}], variables: ["COMFY_AUTOGROW_V3", { template: { input: { optional: { var: ["INT,FLOAT", {}] } }, names: ["a", "b"], min: 2 } }] } }, output: ["INT"] },
+      Number: { ...catalog.KSampler!, input: { required: { value: ["INT", {}] } }, output: ["INT"] },
+    };
+    const file = {
+      nodes: [
+        { id: 1, type: "Number", pos: [0, 0], mode: 0, inputs: [], outputs: [{ name: "INT", type: "INT", links: [1] }], widgets_values: [3] },
+        { id: 2, type: "Calc", pos: [200, 0], mode: 0, inputs: [{ name: "a", type: "*", link: 1 }, { name: "expression", type: "STRING", link: null, widget: { name: "expression" } }], outputs: [], widgets_values: ["a * 24 + 1"] },
+      ],
+      links: [[1, 1, 0, 2, 0, "INT"]],
+    };
+    expect(fromEditor(file, local).graph["2"]!.inputs).toEqual({ expression: "a * 24 + 1", "variables.a": ["1", 0] });
+  });
+
+  it("a required list it gained since starts on its first entry, as in the editor (IPAdapter's embeds_scaling)", () => {
+    const local: NodeCatalog = {
+      ...catalog,
+      Adapter: { ...catalog.KSampler!, input: { required: { weight: ["FLOAT", { default: 1 }], embeds_scaling: [["V only", "K+V"]] }, optional: { helper: [["CHOOSE"]] } }, output: ["MODEL"] },
+    };
+    const file = { nodes: [{ id: 1, type: "Adapter", pos: [0, 0], mode: 0, inputs: [], outputs: [], widgets_values: [0.7] }], links: [] };
+    expect(fromEditor(file, local).graph["1"]!.inputs).toEqual({ weight: 0.7, embeds_scaling: "V only" });
+  });
+});

@@ -614,9 +614,12 @@ function collectCandidates(
       if (otherModel) c.label = `Model · ${other!.label}`;
       // the mode of the node that holds the prompt (an all-in-one "director": text to video, picture to video…): what people switch first
       const promptMode = c.kind === "choice" && input === "mode" && prompt?.target.node === id;
-      const suggested = isResolution || isDuration || tuned || upscaler || otherModel || promptMode || (editor?.panel.length
+      // a value node its author named ("Steps 2ndSampler", "Upscale by") is a control they set out, panel or not: a
+      // panel on a group node is one front, the named value nodes around it another
+      const namedValue = primitive && names.givenName(id) !== null && c.kind !== "text";
+      const suggested = isResolution || isDuration || tuned || upscaler || otherModel || promptMode || namedValue || (editor?.panel.length
         ? onPanel(editor, c.target) >= 0
-        : (c.kind === "number" && /^(steps(_total)?|cfg|guidance|shift)$/.test(input)) || (primitive && names.givenName(id) !== null && c.kind !== "text"));
+        : c.kind === "number" && /^(steps(_total)?|cfg|guidance|shift)$/.test(input));
       const named = isResolution ? { ...c, front: true, label: names.givenLabel(id, input) ?? "Resolution" }
         : isDuration ? { ...c, front: true, label: names.givenLabel(id, input) ?? "Seconds" }
         : c;

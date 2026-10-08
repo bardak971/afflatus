@@ -115,9 +115,9 @@ describe("reading the file ComfyUI's editor saves", () => {
       expect(found.candidates.find((c) => c.target.input === "scale_by")).toMatchObject({ label: "How much larger", off: true, suggested: true });
     });
 
-    it("takes the workflow's own list of LoRAs as the list, starting with the ones that were on", () => {
+    it("takes the workflow's own list of LoRAs as the list, the ones that were off at 0 (on the list, not loaded)", () => {
       expect(s.loras).toEqual([{ node: "30", output: 0, label: "", power: true }]);
-      expect(recipe.inputs.find((i) => i.id === "loras")).toMatchObject({ type: "loras", label: "LoRAs", default: [{ file: "style.safetensors", weight: 0.8 }] });
+      expect(recipe.inputs.find((i) => i.id === "loras")).toMatchObject({ type: "loras", label: "LoRAs", default: [{ file: "style.safetensors", weight: 0.8 }, { file: "unused.safetensors", weight: 0 }] });
       expect(build().graph["30"]!.inputs).toEqual({ lora_1: { on: true, lora: "style.safetensors", strength: 0.8 }, model: ["4", 0], clip: ["4", 1] });
       // the user's list replaces it: nothing is chained after
       const changed = build({ loras: [{ file: "other.safetensors", weight: 1 }, { file: "third.safetensors", weight: 0.5 }] });

@@ -288,6 +288,15 @@ describe("a recipe made from a workflow", () => {
     expect(wan["57"]!.inputs.seed).toBe(42);
   });
 
+  it("keeps the length it was saved with, when it is not a round number of seconds", () => {
+    for (const [frames, seconds] of [[77, 4.8], [21, 1.3], [113, 7]] as const) {
+      const odd = recipeFromWorkflow(defOf({ ...wan, "50": { ...wan["50"]!, inputs: { ...wan["50"]!.inputs, length: frames } } }, "Wan", "Wan 2.2"));
+      expect(odd.inputs.find((i) => i.id === "seconds")).toMatchObject({ default: seconds });
+      const built = odd.build(parseInput(odd, {}), dryContext({ seed: 7, uploads: { startImage: "a.png", endImage: "b.png" } }));
+      expect(built.graph["50"]!.inputs.length).toBe(frames);
+    }
+  });
+
   it("fills in the form's values, turning seconds into a frame count the model accepts", () => {
     const built = build({ prompt: "She waves.", seconds: 3, size: { width: 480, height: 832 }, ctl_57_steps: 8, ctl_48_shift: 5 });
     expect(built.graph["6"]!.inputs.text).toBe("She waves.");

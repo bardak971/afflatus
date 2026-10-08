@@ -127,11 +127,14 @@ export function fillFileName(text: string, graph: Graph, at: Date = new Date()):
 }
 
 const isLoraEntry = (name: string) => /^lora_\d+$/i.test(name);
-/** The LoRAs a "list of LoRAs" node came with, as Afflatus's list has them. */
+/**
+ * The LoRAs a "list of LoRAs" node came with, as Afflatus's list has them. One its author switched off stays on the
+ * list at 0, so it can be raised again; a LoRA at 0 is not loaded.
+ */
 function listedLoras(node: Graph[string] | undefined): LoraValue[] {
   return Object.entries(node?.inputs ?? {}).flatMap(([name, v]) => {
     const l = v as { on?: unknown; lora?: unknown; strength?: unknown } | null;
-    return isLoraEntry(name) && l && typeof l === "object" && l.on === true && typeof l.lora === "string" ? [{ file: l.lora, weight: Number(l.strength ?? 1) }] : [];
+    return isLoraEntry(name) && l && typeof l === "object" && typeof l.lora === "string" && l.lora !== "None" ? [{ file: l.lora, weight: l.on === true ? Number(l.strength ?? 1) : 0 }] : [];
   });
 }
 
@@ -188,7 +191,7 @@ function formInputs(def: WorkflowDef): Form {
   const loraLabel = (label: string) => (!separate ? "LoRAs" : /lora/i.test(label) ? label : `LoRAs · ${label}`);
   // a list starts with the LoRAs the workflow came with, when it keeps them in a list node
   const loraDefault = (i: number) => (b.loras[i]?.power ? listedLoras(g[b.loras[i]!.node]) : []);
-  (separate ? b.loras : b.loras.slice(0, 1)).forEach((p, i) => inputs.push({ id: loraInput(i), type: "loras", label: loraLabel(p.label), max: 8, default: loraDefault(i) }));
+  (separate ? b.loras : b.loras.slice(0, 1)).forEach((p, i) => inputs.push({ id: loraInput(i), type: "loras", label: loraLabel(p.label), max: Math.max(8, loraDefault(i).length), default: loraDefault(i) }));
   if (b.size) {
     const w = Number(read(g, b.size.width));
     const h = Number(read(g, b.size.height));
@@ -201,8 +204,12 @@ function formInputs(def: WorkflowDef): Form {
     });
   }
   if (b.length) {
-    const seconds = Math.max(1, Math.round((Number(read(g, b.length.target)) / b.length.fps) * 2) / 2);
-    inputs.push({ id: "seconds", type: "number", label: "Length", unit: " s", min: b.length.min, max: Math.max(b.length.max, seconds), step: 0.5, default: seconds });
+    // the roundest number of seconds that gives back the frames it was saved with, so the form left as it came changes
+    // nothing (77 at 16 fps is 4.8 s: 5 s would be 81); one shorter than the usual least (21 frames at 24 fps) stays as short
+    const frames = Number(read(g, b.length.target));
+    const exact = Math.max(0.01, frames / b.length.fps);
+    const seconds = [2, 10, 100].map((k) => Math.max(1 / k, Math.round(exact * k) / k)).find((s) => framesFor(b.length!, s) === frames) ?? Math.round(exact * 100) / 100;
+    inputs.push({ id: "seconds", type: "number", label: "Length", unit: " s", min: Math.min(b.length.min, seconds), max: Math.max(b.length.max, seconds), step: 0.5, default: seconds });
   }
 
   // a workflow that shows its picture at several points can stop at one of them: what comes after is not run

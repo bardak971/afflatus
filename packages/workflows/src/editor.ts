@@ -219,7 +219,12 @@ function literalsOf(node: ENode, info: NodeInfo | undefined, note: (text: string
   }
   // a field the node gained after the workflow was saved starts at its default, as in the editor
   for (const name of fromCatalog) {
-    const preset = defaultOf(all[name]);
+    // a required list without a default starts on its first entry, as in the editor (IPAdapter's embeds_scaling: "V only");
+    // an optional one can be a helper of the editor's (rgthree's "insert_saved") and is left unsent
+    const spec = all[name] as [unknown, { options?: unknown }?] | undefined;
+    const required = Object.hasOwn(info?.input.required ?? {}, name);
+    const list = !required ? undefined : Array.isArray(spec?.[0]) ? spec[0] : spec?.[0] === "COMBO" && Array.isArray(spec[1]?.options) ? spec[1].options : undefined;
+    const preset = defaultOf(all[name]) ?? list?.[0];
     if (!(name in out) && preset !== undefined && preset !== null) {
       out[name] = preset;
       nested(name, all[name], preset);
@@ -616,6 +621,7 @@ function visitNodes(r: Reading, scope: Scope): void {
       if (Object.hasOwn(typed, socket.name)) (wiring.fallback[id] ??= record())[socket.name] = typed[socket.name];
       inputs[socket.name] = from.ref;
     }
+    if (info) grownNames(inputs, info);
     graph[id] = { class_type: node.type, inputs, _meta: { title: node.title ?? info?.display_name ?? node.type } } as GraphNode;
     wiring.slots[id] = { in: (node.inputs ?? []).map((s) => [s.name, typeName(s.type)]), out: (node.outputs ?? []).map((o) => typeName(o.type)) };
     // a linked input the node's kind does not declare required is optional: declared so, or added on the fly (rgthree's Any Switch, its any_01…)
@@ -628,6 +634,25 @@ function visitNodes(r: Reading, scope: Scope): void {
       r.groups[id] = at.group.title!;
       r.frames[frameFor(r, at.scope, at.group)]!.nodes.push(id);
     }
+  }
+}
+
+/**
+ * An input saved under the bare name of a member of a group that grows (KJ's calculator saved "a" before its
+ * variables became "variables.a"): sent under the group's name, as this ComfyUI reads it. ComfyUI's own editor
+ * sends the old name, and the node finds nothing there.
+ */
+function grownNames(inputs: Record<string, unknown>, info: NodeInfo) {
+  const all = { ...info.input.required, ...info.input.optional } as Record<string, [unknown, { template?: { names?: string[]; prefix?: string } }?]>;
+  const groups = Object.entries(all).filter(([, spec]) => spec?.[0] === "COMFY_AUTOGROW_V3");
+  if (!groups.length) return;
+  for (const name of Object.keys(inputs)) {
+    if (Object.hasOwn(all, name) || name.includes(".")) continue;
+    const member = (t: { names?: string[]; prefix?: string } | undefined) => t?.names?.includes(name) || (t?.prefix && name.startsWith(t.prefix) && /^\d+$/.test(name.slice(t.prefix.length)));
+    const group = groups.find(([, spec]) => member(spec[1]?.template));
+    if (!group || `${group[0]}.${name}` in inputs) continue;
+    inputs[`${group[0]}.${name}`] = inputs[name];
+    delete inputs[name];
   }
 }
 

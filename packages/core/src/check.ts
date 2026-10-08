@@ -1,4 +1,5 @@
 import { isRef, type BuiltGraph } from "./graph";
+import { looksLikeFiles } from "./inputs";
 
 /**
  * ComfyUI's node catalog (GET /object_info). An input is [type, options?]; a list of choices is either
@@ -66,8 +67,6 @@ export function relocateFiles(graph: Record<string, { class_type: string; inputs
  * Choices that are files on someone's disk differ per install: never check a graph against them.
  * An empty list is one of those too: the saved reference catalog has its file lists emptied.
  */
-const looksLikeFiles = (choices: string[]) =>
-  !choices.length || choices.some((c) => /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx|png|jpe?g|webp|mp4|wav|mp3)$/i.test(c));
 
 /**
  * Nodes that take inputs their catalog entry does not list: VideoHelperSuite's per-format settings,
@@ -80,7 +79,17 @@ export const takesAnyInput = (classType: string) => /^VHS_/.test(classType) || /
  * inputs, takes no unknown ones, links point at real outputs, and fixed choices are valid.
  * Catches renamed nodes and inputs after a ComfyUI update without spending GPU time.
  */
-export function checkGraph(built: BuiltGraph, catalog: NodeCatalog, opts: { files?: boolean; uploaded?: string[] } = {}): string[] {
+export function checkGraph(
+  built: BuiltGraph,
+  catalog: NodeCatalog,
+  /**
+   * `looseInputs`: an input the node's kind does not declare is let through. ComfyUI never refuses one (it hands a
+   * node only what it declares, and some nodes take more than they declare: Impact's switch its input2…, CRT's
+   * scheduler its prompt_1…), so for someone's own workflow it is no reason to refuse; for Afflatus's recipes it
+   * is how a renamed input is caught.
+   */
+  opts: { files?: boolean; uploaded?: string[]; looseInputs?: boolean } = {},
+): string[] {
   const problems: string[] = [];
   // what the outputs are made from. A graph can hold more (an imported workflow with a second way of
   // saving, or a side branch): ComfyUI skips an output it cannot validate and runs the rest, so a
@@ -131,7 +140,7 @@ export function checkGraph(built: BuiltGraph, catalog: NodeCatalog, opts: { file
       return false;
     };
     for (const [name, value] of Object.entries(node.inputs)) {
-      if (!(name in all) && !grows(name) && !takesAnyInput(node.class_type)) {
+      if (!opts.looseInputs && !(name in all) && !grows(name) && !takesAnyInput(node.class_type)) {
         problems.push(`${id} ${node.class_type}: unknown input "${name}"`);
       }
       if (isRef(value)) {

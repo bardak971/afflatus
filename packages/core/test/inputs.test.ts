@@ -80,3 +80,18 @@ describe("a saved file choice this ComfyUI lists under another folder", () => {
     expect(pickChoice(spec as never, ["LTX23_audio_vae_bf16.safetensors", "Other\\minimax_h3_audio_vae_fp32.safetensors"])).toBe("Other\\minimax_h3_audio_vae_fp32.safetensors");
   });
 });
+
+describe("a saved file this ComfyUI does not have at all", () => {
+  const vae = { id: "vae", type: "choice", label: "VAE", options: { node: "VAELoader", input: "vae_name" }, default: "QwenImage/qwen_image_vae.safetensors" } as const;
+  it("stays, to be said missing, rather than some other model's file taking its place", () => {
+    expect(pickChoice(vae as never, ["LTX23_audio_vae_bf16.safetensors", "ae.safetensors"])).toBe("QwenImage/qwen_image_vae.safetensors");
+    // a list with only a built-in entry on it is a list of files all the same
+    expect(pickChoice(vae as never, ["pixel_space"])).toBe("QwenImage/qwen_image_vae.safetensors");
+  });
+  it("is stood in for when the input says which files will do", () => {
+    expect(pickChoice({ ...vae, prefer: ["nothing-like-it"] } as never, ["ae.safetensors"])).toBe("ae.safetensors");
+  });
+  it("a setting that is not a file still starts on one this ComfyUI has", () => {
+    expect(pickChoice({ id: "s", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "gone" } as never, ["euler", "heun"])).toBe("euler");
+  });
+});

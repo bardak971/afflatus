@@ -275,7 +275,16 @@ export function schemaFor(specs: InputSpec[]) {
   return z.strictObject(Object.fromEntries(specs.map((s) => [s.id, schemaOf(s)])));
 }
 
-/** The value a choice starts with, given what ComfyUI offers for it: its default when that is there, else the best match. */
+/** Whether a list of choices is a list of files (models, pictures, sounds), not of settings. An empty one may be either. */
+export const looksLikeFiles = (choices: string[]) =>
+  !choices.length || choices.some((c) => /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx|png|jpe?g|webp|mp4|wav|mp3)$/i.test(c));
+
+/**
+ * The value a choice starts with, given what ComfyUI offers for it: its default when that is there, else the best
+ * match. A file this ComfyUI lacks is never stood in for by some other file unless the input says which ones will
+ * do (prefer): it stays, and is said to be missing (an imported workflow's VAE swapped for another model's breaks
+ * the render, or quietly changes it: an x2 upscaler for an x1.5 one).
+ */
 export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): string {
   if (Array.isArray(spec.options) || !offered?.length || offered.includes(spec.default)) return spec.default;
   // the same file kept in another folder ("MiniMaxH3/x.safetensors" saved, "x.safetensors" here): that one, before
@@ -287,7 +296,8 @@ export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): st
     const hit = offered.find((o) => new RegExp(source, "i").test(o));
     if (hit) return hit;
   }
-  return offered[0]!;
+  // a list of files is known by its files, or by the default being one (a VAE list with only "pixel_space" on it)
+  return looksLikeFiles([spec.default, ...offered]) && !spec.prefer ? spec.default : offered[0]!;
 }
 
 /** Whether an input is in play, given the values of the others. */

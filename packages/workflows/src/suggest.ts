@@ -154,8 +154,9 @@ function nameFromNodes(graph: Graph, nodes: string[], base: string | null): stri
   if (classes.some((c) => /Upscale|SeedVR/i.test(c))) return nodes.some((id) => id !== base && graph[id] && "steps" in graph[id]!.inputs) ? "Hires fix" : "Upscale";
   if (classes.some((c) => /Refin/i.test(c))) return "Refiner";
   if (nodes.some((id) => graph[id] && "steps" in graph[id]!.inputs)) return nodes.includes(base ?? "") ? "Sampling" : "2nd pass";
+  // a model's loader with its LoRAs is the model's part; LoRAs alone are their own
+  if (classes.some((c) => /Loader|Checkpoint|UNET/i.test(c) && !/Lora/i.test(c))) return "Model";
   if (classes.some((c) => /Lora/i.test(c))) return "LoRAs";
-  if (classes.some((c) => /Loader|Checkpoint|UNET/i.test(c))) return "Model";
   if (classes.some((c) => /TextEncode|Prompt/i.test(c))) return "Prompt";
   if (classes.some((c) => /^Load(Image|Video|Audio)|VHS_Load/i.test(c))) return "Inputs";
   if (classes.some((c) => /Save|Combine|Preview/i.test(c))) return "Output";

@@ -110,3 +110,14 @@ describe("a model kept in another sub-folder than the one a graph names", () => 
     expect(graph["3"].inputs.file).toBe("gone.safetensors");
   });
 });
+
+describe("checkGraph on someone's own workflow", () => {
+  // Impact's switch takes input2, input3… it does not declare; ComfyUI hands a node only what it declares and never refuses the rest
+  const g = () => built((b) => b.add("Sampler", { model: b.out("Loader", { file: "a.safetensors" }), steps: 20, method: "euler", mode: "fast", input2: 1 }));
+  it("lets an input the node does not declare through", () => {
+    expect(checkGraph(g(), catalog, { looseInputs: true })).toEqual([]);
+  });
+  it("Afflatus's own recipes still have it caught (a renamed input)", () => {
+    expect(checkGraph(g(), catalog).join()).toMatch(/unknown input "input2"/);
+  });
+});
