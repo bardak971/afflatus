@@ -80,7 +80,7 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   return (
     <>
       <span className="text-xs">
-        {[project?.name, `${clock(t.durationMs)}`, `${videos} clip${videos === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`, t.width && t.height ? `${t.width} × ${t.height}` : "frame from the first clip"].filter(Boolean).join(" · ")}
+        {[project?.name, `${clock(t.durationMs)}`, `${clips.length} clip${clips.length === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`, t.width && t.height ? `${t.width} × ${t.height}` : "frame from the first clip"].filter(Boolean).join(" · ")}
       </span>
 
       <section className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-3.5 py-3">

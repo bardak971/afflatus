@@ -38,7 +38,7 @@ export function StorageCard() {
             <div key={p.label} className="contents">
               <span className={cx("h-2.5 w-2.5 rounded-sm", p.tone)} />
               <dt className="text-ink-2">{p.label}</dt>
-              <dd className="font-mono">{size(p.bytes)}</dd>
+              <dd className="text-right font-mono">{size(p.bytes)}</dd>
             </div>
           ))}
         </dl>

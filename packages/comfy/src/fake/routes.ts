@@ -7,12 +7,24 @@ import type { FakeRequest, FakeState } from "../testing";
  */
 export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, clientId: string | null): void }): (r: FakeRequest) => boolean {
   let n = 0;
+  // the log's lines are stamped once, when the fake started: read again, they are the same lines
+  const started = new Date().toISOString();
   return ({ method, path, url, headers, raw, json, plain }) => {
     if (method === "GET") {
       if (path === "/system_stats") {
         return json(200, { system: { comfyui_version: "0.0.0-fake" }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
       }
       if (path === "/object_info") return json(200, fake.catalog);
+      if (path === "/internal/logs/raw") {
+        const t = started;
+        return json(200, { entries: [
+          { t, m: "Total VRAM 12288 MB, total RAM 32768 MB" },
+          { t, m: "ComfyUI version: 0.0.0-fake" },
+          { t, m: "Starting server" },
+          { t, m: "To see the GUI go to: http://127.0.0.1:8188" },
+          ...Object.keys(fake.history).map((id) => ({ t, m: `got prompt ${id}` })),
+        ] });
+      }
       if (path === "/models") return json(200, Object.keys(fake.models));
       if (path.startsWith("/models/")) {
         const list = fake.models[decodeURIComponent(path.slice(8))];

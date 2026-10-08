@@ -36,9 +36,9 @@ export function AboutCard() {
             {!c.ok && <div className="text-xs text-ink-2">{c.without} {c.fix}</div>}
           </div>
         ))}
-        {health.isSuccess && !checks.length && <div className="text-xs text-ink-3">Not checked yet: the server started before these checks existed. Check now.</div>}
+        {health.isSuccess && !checks.length && <div className="text-xs text-ink-3">Not checked yet: the server started before these checks existed.</div>}
       </div>
-      <div><Button size="sm" onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? "Checking…" : "Check again"}</Button></div>
+      <div><Button size="sm" onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? "Checking…" : checks.length ? "Check again" : "Check now"}</Button></div>
       {recheck.isError && <ErrorNote>{recheck.error.message}</ErrorNote>}
       <div className="text-xs text-ink-3">Afflatus runs in front of your own ComfyUI. Nothing leaves your computer unless you ask for a download or a lookup.</div>
     </section>

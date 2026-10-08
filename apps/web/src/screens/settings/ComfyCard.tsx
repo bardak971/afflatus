@@ -105,7 +105,7 @@ export function ComfyCard() {
             id="comfy-dir"
             value={dir}
             onChange={(e) => setDir(e.target.value)}
-            placeholder="D:\\ComfyUI  —  empty when ComfyUI runs elsewhere"
+            placeholder="D:\ComfyUI  —  empty when ComfyUI runs elsewhere"
             spellCheck={false}
             className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
           />

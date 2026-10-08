@@ -36,7 +36,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
   return (
     <Dialog label="Export video" onClose={onClose}>
         <span className="text-base font-semibold">Export video</span>
-        <span className="text-ink-2">{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable} clip${playable > 1 ? "s" : ""}`} · one MP4 in your library</span>
+        <span className="text-ink-2">{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable < clips.length ? `${playable} of ${clips.length} clips` : `${playable} clip${playable > 1 ? "s" : ""}`}`} · one MP4 in your library</span>
         {exportDone ? (
           <>
             <span>Done. <span className="font-semibold text-ink">{exportDone.name}</span> is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}{exportDone.durationMs ? `, ${stamp(exportDone.durationMs)}` : ""}.</span>

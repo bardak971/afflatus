@@ -38,7 +38,14 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   app.post("/api/setup/rescan", async () => (await s.comfy()).scan(true));
 
   /** ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds. */
-  app.get("/api/comfy/logs", async () => ({ lines: await (await s.comfy()).client.logs() }));
+  app.get("/api/comfy/logs", async () => {
+    const comfy = await s.comfy();
+    try {
+      return { lines: await comfy.client.logs() };
+    } catch (e) {
+      throw httpError(`it answered: ${e instanceof Error ? e.message : String(e)}`, 502);
+    }
+  });
 
   /**
    * Restart ComfyUI, through ComfyUI-Manager's reboot (it starts itself again with the same command

@@ -5,7 +5,8 @@ import { aboutMs } from "../format";
 import { Button, cx } from "../ui";
 import type { Clock } from "./clock";
 import { Readout } from "./Readout";
-import { stamp, type Slot } from "./model";
+import type { Slot } from "./model";
+import { timelineLength } from "../bar/items";
 
 /**
  * The editor's header: the timeline's name, its length, what is said (a save that failed, an error, a note), Undo and Redo,
@@ -48,7 +49,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         className="h-9 w-56 rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
       />
-      <span className="shrink-0 text-ink-2">{clips.length === 0 ? "Empty" : `${stamp(total)} · ${clips.length} clip${clips.length > 1 ? "s" : ""}`}</span>
+      <span className="shrink-0 text-ink-2">{clips.length === 0 ? "Empty" : `${timelineLength({ durationMs: t.durationMs, plannedMs: total })} · ${clips.length} clip${clips.length > 1 ? "s" : ""}`}</span>
       <span className="grow" />
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again
@@ -59,11 +60,11 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
       ) : (error || note) ? (
         <span className={error ? "max-w-sm truncate text-warn-ink" : "max-w-sm truncate text-ink-2"} data-tip={error?.message}>{error?.message ?? note}</span>
       ) : null}
-      <Button className="px-3" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={redo.run} aria-label="Redo">
-        <Redo2 size={15} />
-      </Button>
-      <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo} (Ctrl+Z)` : "Nothing to undo"} onClick={undo.run}>
+      <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl Z" onClick={undo.run}>
         <Undo2 size={15} /> Undo
+      </Button>
+      <Button className="px-3" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl Shift Z" onClick={redo.run}>
+        <Redo2 size={15} /> Redo
       </Button>
       {missing.length > 0 && (
         <Button tone="primary" disabled={rendering} data-tip="Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order." onClick={onRenderMissing}>

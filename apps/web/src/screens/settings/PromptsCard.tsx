@@ -12,7 +12,8 @@ function Guides({ own, onSave }: { own: Record<string, string>; onSave(id: strin
   return (
     <div className="flex flex-col gap-2">
       {(guides.data?.items ?? []).map((g) => (
-        <GuideEditor key={g.id} guide={g} own={own[g.id] ?? ""} open={open === g.id} onOpen={() => setOpen(open === g.id ? null : g.id)} onSave={(text) => onSave(g.id, text)} />
+        // the guide of your workflows for a model shares its family's name: told apart as on the Models tab
+        <GuideEditor key={g.id} guide={g.id.startsWith("workflow-") ? { ...g, name: `${g.name} (your workflows)` } : g}own={own[g.id] ?? ""} open={open === g.id} onOpen={() => setOpen(open === g.id ? null : g.id)} onSave={(text) => onSave(g.id, text)} />
       ))}
     </div>
   );
@@ -69,8 +70,7 @@ export function PromptsCard() {
   const s = settings.data;
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">Prompts</h2>
-      <h3 className="font-bold">Prompting guides</h3>
+      <h2 className="text-[15px] font-bold">Prompting guides</h2>
       <div className="text-ink-2">
         How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent.
       </div>
@@ -87,7 +87,7 @@ export function WritingCard() {
   const save = useMutation({ mutationFn: api.saveSettings, onSuccess: (saved) => client.setQueryData(["settings"], saved) });
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-      <h2 className="text-[15px] font-bold">Prompts</h2>
+      <h2 className="text-[15px] font-bold">Writing prompts</h2>
       <Toggle on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
       <div className="text-xs text-ink-3">
         For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of Afflatus's: nothing is sent anywhere.

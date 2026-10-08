@@ -83,7 +83,7 @@ export function ComfyLog({ online }: { online: boolean }) {
         <span className="text-ink-3">{shown.length} of {lines.length} lines{paused ? " · paused" : log.isFetching ? " · reading…" : ""} · read-only, straight from ComfyUI</span>
       </div>
       {!online && <ErrorNote>ComfyUI is offline: there is no log to read until it is back.</ErrorNote>}
-      {log.isError && <ErrorNote>{log.error.message}</ErrorNote>}
+      {online && log.isError && <ErrorNote>ComfyUI did not give its log: {log.error.message}</ErrorNote>}
       <div
         ref={box}
         onScroll={(e) => {
@@ -98,7 +98,7 @@ export function ComfyLog({ online }: { online: boolean }) {
             <span>{l.m}</span>
           </div>
         ))}
-        {!shown.length && online && <span className="text-ink-3">{lines.length ? "Nothing matches." : "Waiting for ComfyUI's log…"}</span>}
+        {!shown.length && online && !log.isError && <span className="text-ink-3">{lines.length ? "Nothing matches." : "Waiting for ComfyUI's log…"}</span>}
       </div>
     </div>
   );
