@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, FolderNode, ProjectsTree, TreeGroup } from "../src/api/types/library";
-import { flatten, folderMeta, itemLabel, itemMeta, planBin, planDrop, rangePick, step, type Moving, type Target } from "../src/projects/tree";
+import { flatten, folderMeta, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type Moving, type Target } from "../src/projects/tree";
 
 const folder = (id: string, children: FolderNode[] = [], linked = false): FolderNode => ({ id, name: id, linked, items: 1, totalItems: 1 + children.length, bytes: 2 ** 20, children });
 const group = (id: string | null, over: Partial<TreeGroup> = {}): TreeGroup => ({
@@ -10,7 +10,7 @@ const group = (id: string | null, over: Partial<TreeGroup> = {}): TreeGroup => (
 const tree: ProjectsTree = {
   totalBytes: 10,
   groups: [
-    group(null, { folders: [folder("harbor")], timelines: [{ id: "box", name: "Harbor walk", folderId: null, clips: 4, durationMs: 20_000, bytes: 1, exported: true, updatedAt: "" }] }),
+    group(null, { folders: [folder("harbor")], timelines: [{ id: "box", name: "Harbor walk", folderId: null, clips: 4, durationMs: 20_000, bytes: 1, exported: true, unusedTakes: 0, unusedBytes: 0, createdAt: "", updatedAt: "" }] }),
     group("dev", { rootFolderId: null, folders: [folder("orange"), folder("parrot", [folder("closeups")])], counts: { drafts: 3, timelines: 0, items: 2 } }),
     group("old", { archived: true }),
   ],
@@ -38,8 +38,8 @@ describe("the tree as rows", () => {
       groups: [group("dev", {
         folders: [folder("parrot", [folder("closeups")])],
         timelines: [
-          { id: "in", name: "Parrot cut", folderId: "parrot", clips: 2, durationMs: 9000, bytes: 1, exported: false, updatedAt: "" },
-          { id: "out", name: "Loose cut", folderId: null, clips: 1, durationMs: 4000, bytes: 1, exported: false, updatedAt: "" },
+          { id: "in", name: "Parrot cut", folderId: "parrot", clips: 2, durationMs: 9000, bytes: 1, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: "", updatedAt: "" },
+          { id: "out", name: "Loose cut", folderId: null, clips: 1, durationMs: 4000, bytes: 1, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: "", updatedAt: "" },
         ],
       })],
     };
@@ -240,5 +240,90 @@ describe("one kind of item shown", () => {
     const rows = flatten(kindTree, { isOpen: () => true, drafts: () => undefined, q: "harbor", kind: "image" });
     expect(rows.find((r) => r.key === "f:harbor two")).toMatchObject({ match: true, faded: true });
     expect(rows.find((r) => r.key === "f:other")?.faded).toBe(true);
+  });
+});
+
+describe("the columns", () => {
+  const leaf = (id: string, name: string, createdAt: string, bytes: number, folderId: string | null = null) =>
+    ({ id, name, folderId, clips: 1, durationMs: 4000, bytes, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt, updatedAt: createdAt });
+  const sized = (id: string, bytes: number, children: FolderNode[] = []): FolderNode => ({ id, name: id, linked: false, items: 1, totalItems: 1, bytes, children });
+  const sorted: ProjectsTree = {
+    totalBytes: 1,
+    groups: [group("p", {
+      folders: [sized("beta", 10), sized("Alpha", 30), sized("gamma", 20)],
+      timelines: [leaf("t1", "Harbor walk", "2026-10-01T10:00:00Z", 5), leaf("t2", "pier", "2026-10-03T10:00:00Z", 1), leaf("t3", "Dunes", "2026-10-02T10:00:00Z", 9)],
+      counts: { drafts: 3, timelines: 3, items: 3 },
+    })],
+  };
+  const drafts = [
+    { id: "x", title: "zebra", name: null, recipe: "r", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-05T00:00:00Z" },
+    { id: "y", title: "apple", name: null, recipe: "r", createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" },
+    { id: "z", title: "mango", name: null, recipe: "r", updatedAt: "2026-10-02T00:00:00Z" },
+  ];
+  const order = (sort?: { by: "name" | "created" | "size"; desc: boolean }) =>
+    flatten(sorted, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: () => ({ items: drafts, limit: 50 }), ...(sort ? { sort } : {}) })
+      .filter((r) => r.group === "p" && r.depth > 0)
+      .map((r) => r.label);
+
+  it("sort each level newest first by default, folders first by name", () => {
+    expect(order()).toEqual(["Alpha", "beta", "gamma", "pier", "Dunes", "Harbor walk", "Drafts · 3", "apple", "mango", "zebra"]);
+  });
+  it("sort by name either way, folders too", () => {
+    expect(order({ by: "name", desc: false })).toEqual(["Alpha", "beta", "gamma", "Dunes", "Harbor walk", "pier", "Drafts · 3", "apple", "mango", "zebra"]);
+    expect(order({ by: "name", desc: true })).toEqual(["gamma", "beta", "Alpha", "pier", "Harbor walk", "Dunes", "Drafts · 3", "zebra", "mango", "apple"]);
+  });
+  it("sort by size with the folders by their bytes too; drafts, sizeless, keep their order", () => {
+    expect(order({ by: "size", desc: true })).toEqual(["Alpha", "gamma", "beta", "Dunes", "Harbor walk", "pier", "Drafts · 3", "zebra", "apple", "mango"]);
+    expect(order({ by: "created", desc: false })).toEqual(["Alpha", "beta", "gamma", "Harbor walk", "Dunes", "pier", "Drafts · 3", "zebra", "mango", "apple"]);
+  });
+  it("turn around on a second click; a new column starts A to Z, newest or largest first", () => {
+    expect(nextSort({ by: "created", desc: true }, "created")).toEqual({ by: "created", desc: false });
+    expect(nextSort({ by: "created", desc: true }, "name")).toEqual({ by: "name", desc: false });
+    expect(nextSort({ by: "name", desc: false }, "size")).toEqual({ by: "size", desc: true });
+    expect(itemsOrder({ by: "created", desc: true })).toEqual({ sort: "new" });
+    expect(itemsOrder({ by: "created", desc: false })).toEqual({ sort: "old" });
+    expect(itemsOrder({ by: "size", desc: false })).toEqual({ sort: "size", dir: "asc" });
+  });
+  it("say when it was made, short", () => {
+    const now = new Date(2026, 9, 8, 15, 0);
+    expect(shortDate(new Date(2026, 9, 8, 14, 32).toISOString(), now)).toBe("14:32");
+    expect(shortDate(new Date(2026, 9, 7, 23, 59).toISOString(), now)).toBe("yesterday");
+    expect(shortDate(new Date(2026, 9, 3, 9, 0).toISOString(), now)).toBe("3 Oct");
+    expect(shortDate(new Date(2025, 9, 3, 9, 0).toISOString(), now)).toBe("3 Oct 2025");
+    const rows = flatten(sorted, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: () => ({ items: drafts, limit: 50 }) });
+    expect(rows.find((r) => r.key === "t:t1")?.created).toBe("2026-10-01T10:00:00Z");
+    expect(rows.find((r) => r.key === "dr:x")?.created).toBe("2026-10-01T00:00:00Z");
+    expect(rows.find((r) => r.key === "dr:z")?.created).toBe("2026-10-02T00:00:00Z");
+    expect(rows.find((r) => r.key === "f:beta")?.created).toBeUndefined();
+    expect(rows.find((r) => r.key === "g:p")?.created).toBeUndefined();
+  });
+});
+
+describe("empty rows and unused takes", () => {
+  it("dim a group or folder with nothing in it, and only those", () => {
+    const empty = (id: string): FolderNode => ({ id, name: id, linked: false, items: 0, totalItems: 0, bytes: 0, children: [] });
+    const t: ProjectsTree = {
+      totalBytes: 0,
+      groups: [
+        group(null),
+        group("p", { folders: [empty("bare"), { ...empty("holder"), children: [empty("inner")] }, empty("filed")], timelines: [{ id: "tl", name: "Harbor walk", folderId: "filed", clips: 0, durationMs: 0, bytes: 0, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: "", updatedAt: "" }], counts: { drafts: 0, timelines: 1, items: 0 } }),
+      ],
+    };
+    const rows = flatten(t, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: () => undefined });
+    const dim = (key: string) => Boolean(rows.find((r) => r.key === key)?.dim);
+    expect(rows.find((r) => r.key === "g:inbox")?.meta).toBe("0 timelines · 0 drafts · 0 items");
+    expect(dim("g:inbox")).toBe(true);
+    expect(dim("g:p")).toBe(false);
+    expect(dim("f:bare")).toBe(true);
+    expect(dim("f:inner")).toBe(true);
+    expect(dim("f:holder")).toBe(false);
+    expect(dim("f:filed")).toBe(false);
+  });
+  it("say a timeline's unused takes and their size in its meta", () => {
+    const t: ProjectsTree = { totalBytes: 0, groups: [group("p", { timelines: [{ id: "tl", name: "Harbor walk", folderId: null, clips: 4, durationMs: 20_000, bytes: 1, exported: true, unusedTakes: 31, unusedBytes: 120 * 2 ** 20, createdAt: "", updatedAt: "" }] })] };
+    const row = flatten(t, { isOpen: () => true, drafts: () => undefined }).find((r) => r.key === "t:tl");
+    expect(row?.meta).toBe("4 clips · 0:20 · exported · 31 unused · 120 MB");
+    expect(row?.unused).toEqual({ takes: 31, bytes: 120 * 2 ** 20 });
+    expect(flatten(tree, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: () => undefined }).find((r) => r.key === "t:box")?.unused).toBeUndefined();
   });
 });

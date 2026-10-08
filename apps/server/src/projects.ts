@@ -4,6 +4,7 @@ import { httpError } from "./errors";
 import { newId, now, OWNER, type Db } from "./db";
 import type { Services } from "./services";
 import { NOT_IN_LIBRARY } from "./assetSearch";
+import { unusedSize, unusedTakes } from "./timelineUnused";
 
 /**
  * Projects: what drafts, timelines and folders are grouped under. A project has a root folder, where its
@@ -33,8 +34,9 @@ export async function rootFolderOf(db: Db, project: string | null | undefined): 
 const treeQuery = z.object({ q: z.string().trim().max(100).optional(), kind: z.enum(["image", "video", "audio"]).optional() });
 
 interface FolderNode { id: string; name: string; linked: boolean; items: number; totalItems: number; bytes: number; children: FolderNode[] }
-type TimelineLeaf = { id: string; name: string; folderId: string | null; clips: number; durationMs: number; bytes: number; exported: boolean; updatedAt: string };
-type DraftLeaf = { id: string; title: string; name: string | null; recipe: string; updatedAt: string };
+/** `unusedTakes`, `unusedBytes`: its takes no clip plays and nothing else needs, and the size of their videos (timelineUnused.ts). */
+type TimelineLeaf = { id: string; name: string; folderId: string | null; clips: number; durationMs: number; bytes: number; exported: boolean; unusedTakes: number; unusedBytes: number; createdAt: string; updatedAt: string };
+type DraftLeaf = { id: string; title: string; name: string | null; recipe: string; createdAt: string; updatedAt: string };
 interface TreeGroup {
   id: string | null; kind: "inbox" | "project"; name: string; archived: boolean; rootFolderId: string | null;
   counts: { drafts: number; timelines: number; items: number }; bytes: number; folders: FolderNode[]; timelines: TimelineLeaf[]; drafts?: DraftLeaf[];
@@ -61,8 +63,9 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
   const total = await db.selectFrom("assets").select((eb) => eb.fn.sum<number>("bytes").as("b")).where("deleted_at", "is", null).executeTakeFirst();
   const draftCounts = new Map((await db.selectFrom("drafts").select((eb) => ["project_id", eb.fn.countAll().as("n")]).groupBy("project_id").execute()).map((r) => [r.project_id, Number(r.n)]));
   const leaves = await s.timelines.leaves();
+  const unused = await unusedTakes(db);
   const matching = needle
-    ? (await db.selectFrom("drafts").select(["id", "title", "name", "recipe_id", "updated_at", "project_id"]).orderBy("updated_at", "desc").execute()).filter((d) => hit(d.title) || hit(d.name))
+    ? (await db.selectFrom("drafts").select(["id", "title", "name", "recipe_id", "created_at", "updated_at", "project_id"]).orderBy("updated_at", "desc").execute()).filter((d) => hit(d.title) || hit(d.name))
     : [];
 
   const known = new Set(projects.map((p) => p.id));
@@ -102,7 +105,7 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
       : [...(rootFolderId ? (childrenOf.get(rootFolderId) ?? []).filter((c) => !roots.has(c.id)) : []), ...own.filter((f) => f.parent_id === null && f.id !== rootFolderId)];
     const seen = new Set<string>(rootFolderId ? [rootFolderId] : []);
     let nodes = [...new Map(top.map((f) => [f.id, f])).values()].sort(byFolderName).map((f) => node(f, seen));
-    let timelines: TimelineLeaf[] = leaves.filter((t) => groupOf(t.projectId) === id).map(({ projectId: _, ...t }) => t);
+    let timelines: TimelineLeaf[] = leaves.filter((t) => groupOf(t.projectId) === id).map(({ projectId: _, ...t }) => ({ ...t, ...unusedSize(unused.get(t.id)) }));
     // its items: in its folders, the root among them; the Inbox's, the loose ones too
     const size = sizeOf([...own.map((f) => f.id), ...(id === null ? [null] : [])]);
     const counts = { drafts: draftCounts.get(id) ?? 0, timelines: timelines.length, items: size.n };
@@ -110,7 +113,7 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
     if (!needle) return { id, kind, name, archived, rootFolderId, counts, bytes: size.b, folders: nodes, timelines };
     nodes = prune(nodes);
     timelines = timelines.filter((t) => hit(t.name));
-    const drafts = matching.filter((d) => groupOf(d.project_id) === id).slice(0, TREE_DRAFTS).map((d) => ({ id: d.id, title: d.title, name: d.name, recipe: d.recipe_id, updatedAt: d.updated_at }));
+    const drafts = matching.filter((d) => groupOf(d.project_id) === id).slice(0, TREE_DRAFTS).map((d) => ({ id: d.id, title: d.title, name: d.name, recipe: d.recipe_id, createdAt: d.created_at, updatedAt: d.updated_at }));
     if (!nodes.length && !timelines.length && !drafts.length && !hit(name)) return null;
     return { id, kind, name, archived, rootFolderId, counts, bytes: size.b, folders: nodes, timelines, drafts };
   };

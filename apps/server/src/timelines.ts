@@ -17,6 +17,7 @@ import { TimelineRange, type RangeContext } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
+import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, FROM_PREVIOUS, laidOut, lengthOf, markJoins, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
 
 /**
@@ -295,7 +296,7 @@ export class Timelines {
       if (exported) sizes.set(t.export_asset_id!, live.get(t.export_asset_id!)!);
       return {
         id: t.id, name: t.name, projectId: t.project_id, folderId: t.folder_id, clips: all.length, durationMs: all.reduce((sum, p) => sum + lengthOf(p), 0),
-        bytes: [...sizes.values()].reduce((a, b) => a + b, 0), exported, updatedAt: t.updated_at,
+        bytes: [...sizes.values()].reduce((a, b) => a + b, 0), exported, createdAt: t.created_at, updatedAt: t.updated_at,
       };
     });
   }
@@ -646,6 +647,27 @@ export class Timelines {
       await this.db.updateTable("clips").set({ take_id: left?.id ?? null }).where("id", "=", clip.id).execute();
     }
     await this.touch(clip.timeline_id);
+  }
+
+  /**
+   * The timeline's unused takes go (see timelineUnused.ts), their videos to the bin with them: one step, which Undo takes
+   * back (the takes return and their videos leave the bin), and the bin keeps them a week. `binned`: the takes that went.
+   */
+  async binUnusedTakes(id: string): Promise<{ binned: number; bytes: number }> {
+    await this.row(id);
+    const u = (await unusedTakes(this.db, id)).get(id);
+    if (!u?.takes.length) return { binned: 0, bytes: 0 };
+    await this.remember(id, "the unused takes binned");
+    const at = now();
+    await this.db.transaction().execute(async (tx) => {
+      const takes = u.takes;
+      const assets = [...u.assets.keys()];
+      for (let i = 0; i < takes.length; i += 500) await tx.deleteFrom("takes").where("id", "in", takes.slice(i, i + 500)).execute();
+      for (let i = 0; i < assets.length; i += 500) await tx.updateTable("assets").set({ deleted_at: at }).where("id", "in", assets.slice(i, i + 500)).where("deleted_at", "is", null).execute();
+    });
+    this.events.emit("library");
+    await this.touch(id);
+    return { binned: u.takes.length, bytes: unusedSize(u).unusedBytes };
   }
 
   // ---------------------------------------------------------------- for the queue

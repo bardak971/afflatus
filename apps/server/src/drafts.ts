@@ -74,7 +74,7 @@ export async function sweepIdleDrafts(db: Db, at = Date.now()): Promise<number> 
   return idle.length;
 }
 
-const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
+const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, createdAt: d.created_at, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
 const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],

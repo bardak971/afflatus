@@ -3,20 +3,11 @@ import type { Kysely } from "kysely";
 import { now, type Tables } from "./db";
 import type { Services } from "./services";
 import { ERASED, eraseAsset, inUse } from "./sweep";
+import { unusedTakes } from "./timelineUnused";
 
-/**
- * Takes that are not the one that plays in their clip, whose video nothing else needs: not playing elsewhere,
- * not a draft a finished take was made from or a take another carries on from (see inUse), and not kept.
- */
+/** The unused takes of every timeline (see timelineUnused), as the storage card counts and bins them. */
 export async function idleTakes(db: Kysely<Tables>): Promise<Array<{ id: string; asset_id: string }>> {
-  const takes = await db
-    .selectFrom("takes")
-    .innerJoin("clips", "clips.id", "takes.clip_id")
-    .innerJoin("assets", "assets.id", "takes.asset_id")
-    .select(["takes.id", "takes.asset_id", "clips.take_id as playing", "assets.kept_at"])
-    .execute();
-  const used = await inUse(db);
-  return takes.filter((t) => t.id !== t.playing && !used.has(t.asset_id) && t.kept_at === null).map((t) => ({ id: t.id, asset_id: t.asset_id }));
+  return [...(await unusedTakes(db)).values()].flatMap((u) => [...u.videoOf].map(([id, asset_id]) => ({ id, asset_id })));
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { z } from "zod";
 import { describeRecipe, fuzzyFilter } from "@afflatus/core";
 import type { Tables } from "./db";
@@ -34,6 +35,12 @@ const listQuery = z.object({
   draft: z.string().max(64).optional(),
   /** Only what was made since this moment (ISO). */
   since: z.string().max(40).optional(),
+  /**
+   * The order: newest first (the default), oldest first, by name (A to Z), by size (largest first); `dir` turns name and size
+   * around. Newest and oldest page by cursor; name and size by offset (`next` and `prev` are then positions). Not with words.
+   */
+  sort: z.enum(["new", "old", "name", "size"]).optional(),
+  dir: z.enum(["asc", "desc"]).optional(),
 });
 
 /** What is kept but not shown in the library: a painted mask, a picture uploaded for the Prompt kit. */
@@ -118,22 +125,36 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
       const to = end ?? from + q.limit;
       return { items: await placedViews(found.slice(from, to)), next: to < found.length ? String(to) : null, prev: from > 0 ? String(from) : null };
     }
+    if (q.sort === "name" || q.sort === "size") {
+      // by name or size: by offset, the id settling ties
+      const dir = q.dir ?? (q.sort === "name" ? "asc" : "desc");
+      const end = q.before !== undefined ? Math.max(0, Number(q.before) || 0) : undefined;
+      const from = end !== undefined ? Math.max(0, end - q.limit) : Number(q.after) || 0;
+      const count = end !== undefined ? end - from : q.limit;
+      const sorted = q.sort === "name" ? query.orderBy(sql`lower(name)`, dir).orderBy("id", dir) : query.orderBy("bytes", dir).orderBy("id", dir);
+      const rows = await sorted.limit(count + 1).offset(from).execute();
+      const page = rows.slice(0, count);
+      return { items: await placedViews(page), next: rows.length > count || end !== undefined ? String(from + page.length) : null, prev: from > 0 ? String(from) : null };
+    }
     const cursor = (r: Tables["assets"]) => `${r.created_at}|${r.id}`;
+    // oldest first: the same cursors, read the other way
+    const old = q.sort === "old";
+    const [down, up, ahead, back] = old ? (["asc", "desc", ">", "<"] as const) : (["desc", "asc", "<", ">"] as const);
     if (q.before) {
       // the page just above: read upwards from the cursor, then put back in the list's order
       const [at = "", id = ""] = q.before.split("|");
       const rows = await query
-        .where((eb) => eb.or([eb("created_at", ">", at), eb.and([eb("created_at", "=", at), eb("id", ">", id)])]))
-        .orderBy("created_at", "asc").orderBy("id", "asc").limit(q.limit + 1).execute();
+        .where((eb) => eb.or([eb("created_at", back, at), eb.and([eb("created_at", "=", at), eb("id", back, id)])]))
+        .orderBy("created_at", up).orderBy("id", up).limit(q.limit + 1).execute();
       const page = rows.slice(0, q.limit).reverse();
       // the cursor's own item is below it, so there is more below whenever the page has anything
       return { items: await placedViews(page), next: page.length ? cursor(page.at(-1)!) : null, prev: rows.length > q.limit ? cursor(page[0]!) : null };
     }
     if (q.after) {
       const [at = "", id = ""] = q.after.split("|");
-      query = query.where((eb) => eb.or([eb("created_at", "<", at), eb.and([eb("created_at", "=", at), eb("id", "<", id)])]));
+      query = query.where((eb) => eb.or([eb("created_at", ahead, at), eb.and([eb("created_at", "=", at), eb("id", ahead, id)])]));
     }
-    const rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(q.limit + 1).execute();
+    const rows = await query.orderBy("created_at", down).orderBy("id", down).limit(q.limit + 1).execute();
     const page = rows.slice(0, q.limit);
     const tail = page.at(-1);
     // a page after a cursor has that cursor's item (and what is above it) above

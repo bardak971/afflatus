@@ -14,9 +14,10 @@ const ID_IN_JSON = /"([0-9a-f]{32})"/g;
  * a take another take was finished from or carries on from, a clip's still, its sound and the pictures its
  * form names, a timeline's music, the pictures and voices of people, places, styles and presets, and the
  * inputs of a job that is still to run. Unkept, binned or erased, any of these would leave a clip, a
- * person or a job pointing at nothing: the sweep, the bin and the library leave them alone.
+ * person or a job pointing at nothing: the sweep, the bin and the library leave them alone. `takes: false`: all of
+ * it but the takes, for what works out on its own which takes are needed (timelineUnused.ts).
  */
-export async function inUse(db: Kysely<Tables>): Promise<Map<string, string>> {
+export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean } = {}): Promise<Map<string, string>> {
   const used = new Map<string, string>();
   const add = (ids: Array<string | null>, what: string) => {
     for (const id of ids) if (id && !used.has(id)) used.set(id, what);
@@ -24,16 +25,18 @@ export async function inUse(db: Kysely<Tables>): Promise<Map<string, string>> {
   const scan = (texts: Array<string | null>, what: string) => {
     for (const text of texts) for (const m of (text ?? "").matchAll(ID_IN_JSON)) if (!used.has(m[1]!)) used.set(m[1]!, what);
   };
-  add((await db.selectFrom("clips").innerJoin("takes", "takes.id", "clips.take_id").select("takes.asset_id").execute()).map((r) => r.asset_id), "a timeline");
-  const named = await db
-    .selectFrom("takes")
-    .select("asset_id")
-    .where((eb) => eb.or([
-      eb("id", "in", eb.selectFrom("takes as t").select("t.finished_from").where("t.finished_from", "is not", null)),
-      eb("id", "in", eb.selectFrom("takes as t").select("t.prev_take_id").where("t.prev_take_id", "is not", null)),
-    ]))
-    .execute();
-  add(named.map((r) => r.asset_id), "a timeline");
+  if (opts.takes !== false) {
+    add((await db.selectFrom("clips").innerJoin("takes", "takes.id", "clips.take_id").select("takes.asset_id").execute()).map((r) => r.asset_id), "a timeline");
+    const named = await db
+      .selectFrom("takes")
+      .select("asset_id")
+      .where((eb) => eb.or([
+        eb("id", "in", eb.selectFrom("takes as t").select("t.finished_from").where("t.finished_from", "is not", null)),
+        eb("id", "in", eb.selectFrom("takes as t").select("t.prev_take_id").where("t.prev_take_id", "is not", null)),
+      ]))
+      .execute();
+    add(named.map((r) => r.asset_id), "a timeline");
+  }
   const clips = await db.selectFrom("clips").select(["still_asset_id", "sound_asset_id", "inputs"]).execute();
   add(clips.flatMap((c) => [c.still_asset_id, c.sound_asset_id]), "a timeline");
   scan(clips.map((c) => c.inputs), "a timeline");

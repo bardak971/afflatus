@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, 
 import { createPortal } from "react-dom";
 import { keepPreviousData, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Archive, ArchiveRestore, Check, ChevronRight, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, FolderSymlink, Globe, Inbox, Link2, List, Music, RefreshCw, Unlink, PenLine, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, ChevronRight, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, FolderSymlink, Globe, Inbox, Link2, List, Music, RefreshCw, Unlink, PenLine, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, thumbUrl, type Asset, type DraftLeaf } from "../api";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { DRAFT_LIST, useFolders, useProjects, useProjectsTree, useRecipes, useStorage } from "../data";
@@ -10,7 +10,7 @@ import { recipeLabel, size, when } from "../format";
 import { useProject } from "../project";
 import { useHandover, useOpenDraft, useStudio } from "../store";
 import { cx, ErrorNote, Help, Segmented } from "../ui";
-import { draftsKey, flatten, groupKey, planBin, planDrop, rangePick, step, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Target } from "./tree";
+import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
 import { useItemMenu } from "./useItemMenu";
 import { useTreeActions } from "./useTreeActions";
 
@@ -27,6 +27,18 @@ const readKind = (): ItemKind | null => {
     return null;
   }
 };
+/** The column the rows are sorted by, and which way, kept per browser. */
+const SORT = "afflatus.projects.sort";
+const readSort = (): Sort => {
+  try {
+    const v = JSON.parse(localStorage.getItem(SORT) ?? "null") as Partial<Sort> | null;
+    return v && (v.by === "name" || v.by === "created" || v.by === "size") ? { by: v.by, desc: Boolean(v.desc) } : DEFAULT_SORT;
+  } catch {
+    return DEFAULT_SORT;
+  }
+};
+/** The columns of a row: the name (and what it holds, at its right), when it was made, its size. */
+const COLUMNS = "grid-cols-[minmax(0,1fr)_minmax(0,270px)_76px_64px]";
 const readFolds = (): Record<string, boolean> => {
   try {
     const v = JSON.parse(localStorage.getItem(FOLDS) ?? "{}") as unknown;
@@ -41,7 +53,7 @@ const ITEMS_PAGE = 50;
 /** Something open over the panel that keeps its own keys and clicks: a menu, a dialog. */
 const OVER = "[role=menu], [role=dialog][aria-modal=true]";
 const HELP =
-  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click All, the Inbox or a project to work in it (the library, the drafts and the timelines then show its own); click a folder, a timeline or a draft to open it. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open.";
+  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click All, the Inbox or a project to work in it (the library, the drafts and the timelines then show its own); click a folder, a timeline or a draft to open it. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click a column header to sort each level by it, again to reverse it: folders stay first.";
 
 const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
   all: { icon: <Globe size={16} />, tone: "text-ink-2" },
@@ -161,6 +173,16 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
     }
   };
   const tree = useProjectsTree(q, kind);
+  const [sort, setSortState] = useState<Sort>(readSort);
+  const sortBy = (by: Sort["by"]) => {
+    const next = nextSort(sort, by);
+    setSortState(next);
+    try {
+      localStorage.setItem(SORT, JSON.stringify(next));
+    } catch {
+      // not kept: newest first next time
+    }
+  };
 
   // unfolded rows: kept per browser; while searching every branch is open unless folded then
   const [folds, setFolds] = useState(readFolds);
@@ -218,12 +240,12 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
     queries: openFolders.map((f) => {
       const pages = itemPages[f.key] ?? 1;
       return {
-        queryKey: ["assets", "tree", f.id, kind, pages],
+        queryKey: ["assets", "tree", f.id, kind, pages, sort.by, sort.desc],
         queryFn: async ({ signal }: { signal: AbortSignal }) => {
           const items: Asset[] = [];
           let after: string | undefined;
           for (let i = 0; i < pages; i++) {
-            const page = await api.assets({ folder: f.id!, limit: ITEMS_PAGE, after, ...(kind ? { kind } : {}) }, { signal });
+            const page = await api.assets({ folder: f.id!, limit: ITEMS_PAGE, after, ...itemsOrder(sort), ...(kind ? { kind } : {}) }, { signal });
             items.push(...page.items);
             after = page.next ?? undefined;
             if (!after) break;
@@ -236,9 +258,9 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
   });
   const items = new Map<string, ItemsRead>(openFolders.map((f, i) => [f.key, { items: itemReads[i]?.data?.items ?? null, more: itemReads[i]?.data?.more ?? false }]));
   const rows = useMemo(
-    () => (tree.data ? flatten(tree.data, { isOpen, drafts: (k) => drafts.get(k), items: (k) => items.get(k), bin: storage.data?.bin ?? null, q, kind, draftMeta }) : []),
+    () => (tree.data ? flatten(tree.data, { isOpen, drafts: (k) => drafts.get(k), items: (k) => items.get(k), bin: storage.data?.bin ?? null, q, kind, draftMeta, sort }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree.data, folds, searchFolded, q, kind, JSON.stringify([...drafts]), JSON.stringify([...items].map(([k, v]) => [k, v.more, v.items?.map((a) => `${a.id}:${a.name}:${a.folderId}`)])), recipes.data, current, storage.data?.bin.count, storage.data?.bin.bytes],
+    [tree.data, folds, searchFolded, q, kind, sort, JSON.stringify([...drafts]), JSON.stringify([...items].map(([k, v]) => [k, v.more, v.items?.map((a) => `${a.id}:${a.name}:${a.folderId}`)])), recipes.data, current, storage.data?.bin.count, storage.data?.bin.bytes],
   );
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
   const found = q ? rows.filter((r) => r.match).length : 0;
@@ -426,7 +448,14 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
           del,
         ];
       case "timeline":
-        return [{ label: "Open", key: "Enter", icon: <Film size={14} />, run: () => activate(r) }, rename, moveTo, "—", del];
+        return [
+          { label: "Open", key: "Enter", icon: <Film size={14} />, run: () => activate(r) },
+          rename,
+          moveTo,
+          "—",
+          { label: "Bin unused takes…", icon: <Trash2 size={14} />, disabled: !r.unused, note: r.unused ? size(r.unused.bytes) : "none", run: () => void actions.binUnused(r) },
+          del,
+        ];
       case "draft":
         return [{ label: "Open", key: "Enter", icon: <PenLine size={14} />, run: () => activate(r) }, moveTo, "—", del];
       case "item": {
@@ -526,7 +555,35 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
   const dragEnd = () => {
     dragged.current = null;
     setOver(null);
+    setOverBadge(null);
     stopOpening();
+  };
+  // the "no root folder" badge: one folder of that project, not of the disk, dropped on it becomes its root
+  const [overBadge, setOverBadge] = useState<string | null>(null);
+  const rootFrom = (r: Row): Row | null => {
+    const d = dragged.current;
+    const f = d?.length === 1 ? d[0]! : null;
+    return f && f.kind === "folder" && f.id && f.group === r.id && !f.linked ? f : null;
+  };
+  const badgeOver = (r: Row, e: DragEvent) => {
+    // never the row's own drop (a move into the project) while over the badge
+    e.stopPropagation();
+    if (over) setOver(null);
+    if (!rootFrom(r)) {
+      e.dataTransfer.dropEffect = "none";
+      if (overBadge) setOverBadge(null);
+      return;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (overBadge !== r.key) setOverBadge(r.key);
+  };
+  const badgeDrop = (r: Row, e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const f = rootFrom(r);
+    dragEnd();
+    if (f && r.id) void actions.setRoot({ id: r.id, name: r.label }, { id: f.id!, name: f.label });
   };
   useEffect(() => stopOpening, []);
 
@@ -720,6 +777,34 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
         style={{ outline: "none" }}
         className="min-h-0 grow overflow-y-auto border-t border-line px-2 py-1"
       >
+        {/* the columns: a click sorts each level by it, again turns it around */}
+        <div className={cx("sticky top-0 z-10 -mx-2 -mt-1 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", COLUMNS)}>
+          {(
+            [
+              { by: "name", label: "Name", align: "justify-start" },
+              null,
+              { by: "created", label: "Created", align: "justify-end" },
+              { by: "size", label: "Size", align: "justify-end" },
+            ] as const
+          ).map((c, i) =>
+            c ? (
+              <button
+                key={c.by}
+                type="button"
+                tabIndex={-1}
+                aria-label={`Sort by ${c.label.toLowerCase()}${sort.by === c.by ? (sort.desc ? ", descending" : ", ascending") : ""}`}
+                onClick={() => sortBy(c.by)}
+                onMouseDown={(e) => e.preventDefault()}
+                className={cx("flex items-center gap-0.5 uppercase hover:text-ink", c.align, sort.by === c.by && "text-ink-2")}
+              >
+                {c.label}
+                {sort.by === c.by && (sort.desc ? <ArrowDown size={11} strokeWidth={2.6} /> : <ArrowUp size={11} strokeWidth={2.6} />)}
+              </button>
+            ) : (
+              <span key={i} />
+            ),
+          )}
+        </div>
         {tree.isError && <div className="p-3"><ErrorNote>{tree.error.message}</ErrorNote></div>}
         {tree.isPending && <div className="p-4 text-ink-2">Reading your projects…</div>}
         {tree.isSuccess && q && !groups.length && <div className="py-10 text-center text-ink-2">Nothing called “{q}”. The search looks at projects, folders, timelines and drafts.</div>}
@@ -754,7 +839,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
                 rowMenu(r, e);
               }}
               className={cx(
-                "grid cursor-pointer grid-cols-[minmax(0,1fr)_200px_72px] items-center gap-2.5 rounded-lg px-2.5 select-none",
+                "grid cursor-pointer items-center gap-2.5 rounded-lg px-2.5 select-none",
+                COLUMNS,
                 top ? "h-10" : "h-[33px]",
                 r.kind === "archive" && "mt-2 rounded-t-none border-t border-line",
                 // the Bin stays in sight at the foot of the list, however far the tree scrolls: always there to drop on
@@ -793,7 +879,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
                 )}
                 {r.kind === "item" && r.asset && r.asset.kind !== "audio" ? (
                   <img src={thumbUrl(r.asset.id)} alt="" loading="lazy" draggable={false} className="mr-0.5 h-7 w-10 shrink-0 rounded object-cover" />
-                ) : icon.icon && <span className={cx("flex w-[22px] shrink-0 items-center justify-center", r.archived && r.kind === "project" ? "text-ink-3" : icon.tone)}>{icon.icon}</span>}
+                ) : icon.icon && <span className={cx("flex w-[22px] shrink-0 items-center justify-center", r.archived && r.kind === "project" ? "text-ink-3" : icon.tone, r.dim && "opacity-50")}>{icon.icon}</span>}
                 {isRenaming ? (
                   <input
                     autoFocus
@@ -817,7 +903,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
                     className={cx(
                       "ml-1.5 min-w-0 truncate",
                       top ? "text-sm font-bold" : r.kind === "folder" || r.kind === "project" ? "text-[13px] font-semibold" : "text-[13px] font-medium",
-                      r.kind === "archive" || r.archived ? "text-ink-3" : r.kind === "more" ? "text-ink-2 italic" : "text-ink",
+                      r.kind === "archive" || r.archived || r.dim ? "text-ink-3" : r.kind === "more" ? "text-ink-2 italic" : "text-ink",
                     )}
                   >
                     <Lit text={r.label} q={r.match ? q : ""} />
@@ -829,12 +915,28 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden }: {
                   </span>
                 )}
                 {r.noRoot && !r.archived && (
-                  <span title="What is made while working in it lands in no folder. Right-click: Make a root folder." className="ml-2 shrink-0 rounded-full bg-warn-wash px-2 py-px text-[11px] font-semibold whitespace-nowrap text-warn-ink">
-                    no root folder
-                  </span>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    title={`What is made while working in it lands in no folder. Click: a root folder named ${r.label} is made. Or drop one of its folders here: it becomes the root.`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (r.id) void actions.setRoot({ id: r.id, name: r.label });
+                    }}
+                    onDragOver={(e) => badgeOver(r, e)}
+                    onDragLeave={() => overBadge === r.key && setOverBadge(null)}
+                    onDrop={(e) => badgeDrop(r, e)}
+                    className={cx(
+                      "ml-2 shrink-0 rounded-full bg-warn-wash px-2 py-px text-[11px] font-semibold whitespace-nowrap text-warn-ink hover:shadow-[inset_0_0_0_1px_var(--color-warn-ink)]",
+                      overBadge === r.key && "bg-accent text-accent-ink shadow-[0_0_0_2px_var(--color-accent)]",
+                    )}
+                  >
+                    {overBadge === r.key ? "make it the root" : "no root folder"}
+                  </button>
                 )}
               </span>
-              <span className="min-w-0 truncate text-right text-xs text-ink-2">{r.meta}</span>
+              <span className={cx("min-w-0 truncate text-right text-xs", r.dim ? "text-ink-3" : "text-ink-2")}>{r.meta}</span>
+              <span title={r.created ? new Date(r.created).toLocaleString() : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
               <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">{r.bytes !== null ? size(r.bytes) : ""}</span>
             </div>
           );

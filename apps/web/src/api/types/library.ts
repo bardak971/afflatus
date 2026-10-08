@@ -130,5 +130,10 @@ export interface FolderNode {
   bytes: number;
   children: FolderNode[];
 }
-export interface TimelineLeaf { id: string; name: string; folderId: string | null; clips: number; durationMs: number; bytes: number; exported: boolean; updatedAt: string }
-export interface DraftLeaf { id: string; title: string; name: string | null; recipe: string; updatedAt: string }
+export interface TimelineLeaf {
+  id: string; name: string; folderId: string | null; clips: number; durationMs: number; bytes: number; exported: boolean;
+  /** Its takes no clip plays and nothing else needs, and the size of their videos: what "Bin unused takes" sends to the bin. */
+  unusedTakes: number; unusedBytes: number;
+  createdAt: string; updatedAt: string;
+}
+export interface DraftLeaf { id: string; title: string; name: string | null; recipe: string; createdAt?: string; updatedAt: string }

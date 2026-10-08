@@ -146,7 +146,7 @@ export const api = {
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number }, o?: Asked) => {
+  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" }, o?: Asked) => {
     const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
     // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
     if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
@@ -162,6 +162,8 @@ export const api = {
     if (opts.model) q.set("model", opts.model);
     if (opts.lora) q.set("lora", opts.lora);
     if (opts.draft) q.set("draft", opts.draft);
+    if (opts.sort) q.set("sort", opts.sort);
+    if (opts.dir) q.set("dir", opts.dir);
     return call<{ items: Asset[]; next: string | null; prev: string | null }>("GET", `/assets?${q}`, undefined, o?.signal);
   },
   asset: (id: string, o?: Asked) => call<AssetDetail>("GET", `/assets/${id}`, undefined, o?.signal),
@@ -277,6 +279,8 @@ export const api = {
   /** A copy of the clip right after it, with its takes. */
   duplicateClip: (id: string) => call<{ clip: string }>("POST", `/clips/${id}/duplicate`),
   deleteTimeline: (id: string) => call<{ ok: true }>("DELETE", `/timelines/${id}`),
+  /** The timeline's takes no clip plays and nothing else needs go, their videos to the bin. */
+  binUnusedTakes: (id: string) => call<{ binned: number; bytes: number }>("POST", `/timelines/${id}/unused-takes/bin`),
   /** A new clip: empty, or from a video or a picture of the library. After `after`, first when null, last when left out. */
   addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip"; stopAtMs?: number }) => call<{ clip: string; timeline: Timeline }>("POST", `/timelines/${timeline}/clips`, body),
   editClip: (id: string, patch: ClipPatch) => call<{ ok: true }>("PATCH", `/clips/${id}`, patch),

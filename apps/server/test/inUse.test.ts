@@ -51,7 +51,7 @@ async function take(clipId: string, assetId: string, over: { finished_from?: str
 }
 
 describe("moving the takes that never play to the bin", () => {
-  it("leaves the draft a finished take was made from, a take another carries on from, and what was kept", async () => {
+  it("leaves the draft a finished take was made from and a take another carries on from; a kept take goes too (every placed take is kept)", async () => {
     const c = await clip(await timeline());
     const draftAsset = await add();
     const draft = await take(c, draftAsset);
@@ -67,9 +67,10 @@ describe("moving the takes that never play to the bin", () => {
     const idle = await add();
     const idleTake = await take(c, idle);
 
-    expect((await post(t.app, "/api/storage/bin-idle-takes")).json()).toEqual({ moved: 1 });
+    expect((await post(t.app, "/api/storage/bin-idle-takes")).json()).toEqual({ moved: 2 });
     expect((await asset(idle))!.deleted_at).not.toBeNull();
-    for (const id of [draftAsset, before, kept]) expect((await asset(id))!.deleted_at).toBeNull();
+    expect((await asset(kept))!.deleted_at).not.toBeNull();
+    for (const id of [draftAsset, before]) expect((await asset(id))!.deleted_at).toBeNull();
     const left = (await t.db.selectFrom("takes").select("id").where("clip_id", "=", c).execute()).map((r) => r.id);
     expect(left).toContain(draft);
     expect(left).not.toContain(idleTake);

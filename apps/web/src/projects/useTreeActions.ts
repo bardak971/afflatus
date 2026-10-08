@@ -2,6 +2,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
 import { ask, askAboutDisk, askText } from "../Confirm";
 import { DRAFT_LIST } from "../data";
+import { size } from "../format";
 import { pathOf, useFolderImport } from "../folderImport";
 import { useProject } from "../project";
 import { useBanners, useOpenDraft } from "../store";
@@ -231,6 +232,25 @@ export function useTreeActions() {
       if (!id || !r.linkedRoot) return;
       if (!(await ask({ title: `Unlink ${r.label}?`, text: "Afflatus stops showing it and its sub-folders. Nothing on your disk is touched: its files stay where they are. It can be linked again later.", yes: "Unlink" }))) return;
       await run(`${r.label} could not be unlinked`, () => api.deleteFolder(id));
+    },
+    /**
+     * A timeline's unused takes (no clip plays them, nothing else needs them) sent to the bin, once asked: the takes go, their
+     * videos wait in the bin a week, and Undo in the timeline brings them back.
+     */
+    async binUnused(r: Row) {
+      const id = r.id;
+      const u = r.unused;
+      if (!id || r.kind !== "timeline" || !u) return;
+      const many = u.takes === 1 ? "take" : "takes";
+      const text = `The ${many} no clip plays and nothing else needs go, and ${u.takes === 1 ? "its video goes" : "their videos go"} to the bin (${size(u.bytes)}): for a week they can be restored from it, and Undo in the timeline brings them back. The take each clip plays, and what it was made from, stay.`;
+      if (!(await ask({ title: `Bin ${u.takes} unused ${many} of ${r.label}?`, text, yes: "Move to bin" }))) return;
+      let done = { binned: 0, bytes: 0 };
+      if (await run(`The unused takes of ${r.label} could not go to the bin`, async () => { done = await api.binUnusedTakes(id); })) {
+        say({
+          id: `tree-unused:${Date.now()}`, tone: "good", title: done.binned ? `${done.binned} unused take${done.binned === 1 ? "" : "s"} of ${r.label} moved to the bin` : `${r.label} has no unused takes left`,
+          text: done.binned ? `${size(done.bytes)}: for a week they can be restored from the bin, or Undo in the timeline.` : undefined, href: `/timelines/${id}`, go: "Open the timeline",
+        });
+      }
     },
     /** A project's root folder: that folder, or a new one named after it. */
     async setRoot(project: { id: string; name: string }, folder?: { id: string; name: string }) {

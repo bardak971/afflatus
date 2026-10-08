@@ -62,7 +62,7 @@ describe("the projects tree", () => {
     expect(a.folders.map((f: { name: string }) => f.name)).toEqual(["boards", "shots"]);
     expect(a.folders[1]).toMatchObject({ id: shots.id, items: 1, totalItems: 2, bytes: 23, children: [{ id: close.id, items: 1, totalItems: 1, bytes: 3, children: [] }] });
     expect(a.folders[0]).toMatchObject({ id: boards.id, items: 0, totalItems: 0, bytes: 0 });
-    expect(a.timelines).toEqual([{ id: tl.id, name: "Cut one", folderId: alpha.folderId, clips: 0, durationMs: 0, bytes: 0, exported: false, updatedAt: expect.any(String) }]);
+    expect(a.timelines).toEqual([{ id: tl.id, name: "Cut one", folderId: alpha.folderId, clips: 0, durationMs: 0, bytes: 0, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: expect.any(String), updatedAt: expect.any(String) }]);
     expect(z).toMatchObject({ rootFolderId: zed.folderId, folders: [], counts: { items: 0 } });
     expect(o).toMatchObject({ archived: true });
   });
@@ -128,7 +128,7 @@ describe("the projects tree", () => {
     expect(g.folders).toHaveLength(1);
     expect(g.folders[0]).toMatchObject({ id: shots.id, totalItems: 1, children: [{ id: sunset.id, name: "Sunset takes", bytes: 11 }] });
     expect(g.timelines.map((x: { name: string }) => x.name)).toEqual(["SUNSET cut"]);
-    expect(g.drafts).toEqual([{ id: d.id, title: "", name: "sunset look", recipe: "sdxl.txt2img", updatedAt: expect.any(String) }]);
+    expect(g.drafts).toEqual([{ id: d.id, title: "", name: "sunset look", recipe: "sdxl.txt2img", createdAt: expect.any(String), updatedAt: expect.any(String) }]);
     // the counts stay the group's own
     expect(g.counts).toMatchObject({ drafts: 2, timelines: 2, items: 1 });
     // a group whose own name matches stays, with nothing else
@@ -176,5 +176,131 @@ describe("the projects tree, one kind of item", () => {
   });
   it("refuses a kind that is not one", async () => {
     expect((await get(t.app, "/api/projects/tree?kind=mask")).statusCode).toBe(400);
+  });
+});
+
+/** A video straight in the table: rendered here unless said, its size, linked or in the bin. */
+async function video(bytes: number, opts: { origin?: "generated" | "uploaded"; linked?: boolean; binned?: boolean } = {}) {
+  const id = newId();
+  await t.db.insertInto("assets").values(newAssetRow({
+    id, kind: "video", origin: opts.origin ?? "generated", name: "take.mp4", file_key: opts.linked ? `linked:C:/clips/${id}.mp4` : `assets/${id}.mp4`, thumb_key: null, mime: "video/mp4", bytes,
+    width: 8, height: 8, duration_ms: 4000, fps: 24, has_sound: 0, folder_id: null, generation_id: null, source_id: null, deleted_at: opts.binned ? "2026-10-08T00:00:00.000Z" : null,
+  })).execute();
+  return id;
+}
+async function clip(timeline: string, over: Record<string, unknown> = {}) {
+  const id = newId();
+  const at = new Date().toISOString();
+  await t.db.insertInto("clips").values({ id, timeline_id: timeline, position: 0, take_id: null, joined: "cut", recipe_id: null, inputs: "{}", created_at: at, updated_at: at, ...over } as never).execute();
+  return id;
+}
+async function take(clipId: string, asset: string, over: { finished_from?: string; prev_take_id?: string; playing?: boolean } = {}) {
+  const id = newId();
+  await t.db.insertInto("takes").values({
+    id, clip_id: clipId, asset_id: asset, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: over.prev_take_id ?? null, prev_at_ms: null, next_take_id: null, next_at_ms: null,
+    finished_from: over.finished_from ?? null, created_at: new Date().toISOString(),
+  } as never).execute();
+  if (over.playing) await t.db.updateTable("clips").set({ take_id: id }).where("id", "=", clipId).execute();
+  return id;
+}
+
+describe("unused takes", () => {
+  /** "Harbor walk" with two unused takes (10 + 20 bytes) among takes that are needed; "Pier" shares a video with it. */
+  async function scene() {
+    const p = await call("POST", "/api/projects", { name: "Harbor" });
+    const walk = await call("POST", "/api/timelines", { name: "Harbor walk", project: p.id });
+    const pier = await call("POST", "/api/timelines", { name: "Pier", project: p.id });
+    const one = await clip(walk.id);
+    const playing = await take(one, await video(100), { playing: true });
+    const u1 = await video(10);
+    const u2 = await video(20);
+    const t1 = await take(one, u1);
+    const t2 = await take(one, u2);
+    // a video brought in by hand is binned like a rendered one
+    const upload = await video(50, { origin: "uploaded" });
+    await take(one, upload);
+    // needed: one another timeline plays too, one of a linked folder, one in the bin already
+    const shared = await video(40);
+    await take(one, shared);
+    await take(await clip(pier.id), shared);
+    await take(one, await video(60, { linked: true }));
+    await take(one, await video(70, { binned: true }));
+    // the clip's sound is the video of one of its takes
+    const heard = await video(80);
+    await take(one, heard);
+    await t.db.updateTable("clips").set({ sound: "file", sound_asset_id: heard }).where("id", "=", one).execute();
+    // the draft a playing finish was made from, and the take the clip after carries on from (and what that one was made from)
+    const two = await clip(walk.id, { position: 1 });
+    const draft = await take(two, await video(90));
+    await take(two, await video(110), { finished_from: draft, playing: true });
+    const root = await take(one, await video(120));
+    const before = await take(one, await video(130), { prev_take_id: root });
+    await take(await clip(walk.id, { position: 2 }), await video(140), { prev_take_id: before, playing: true });
+    return { p, walk, pier, one, playing, t1, t2, u1, u2, upload, shared };
+  }
+
+  it("counts per timeline the takes no clip plays and nothing else needs, and their size", async () => {
+    const s = await scene();
+    const g = (await tree()).groups.find((x: { id: string }) => x.id === s.p.id);
+    const leaf = (id: string) => g.timelines.find((x: { id: string }) => x.id === id);
+    expect(leaf(s.walk.id)).toMatchObject({ unusedTakes: 3, unusedBytes: 80, createdAt: expect.any(String) });
+    expect(leaf(s.pier.id)).toMatchObject({ unusedTakes: 0, unusedBytes: 0 });
+  });
+
+  it("bins only those: their takes go, their videos to the bin, and Undo brings them back", async () => {
+    const s = await scene();
+    expect(await call("POST", `/api/timelines/${s.walk.id}/unused-takes/bin`)).toEqual({ binned: 3, bytes: 80 });
+    const asset = async (id: string) => (await t.db.selectFrom("assets").select("deleted_at").where("id", "=", id).executeTakeFirst())!.deleted_at;
+    expect(await asset(s.u1)).not.toBeNull();
+    expect(await asset(s.u2)).not.toBeNull();
+    expect(await asset(s.upload)).not.toBeNull();
+    expect(await asset(s.shared)).toBeNull();
+    const left = (await t.db.selectFrom("takes").select("id").where("clip_id", "=", s.one).execute()).map((r) => r.id);
+    expect(left).toContain(s.playing);
+    expect(left).not.toContain(s.t1);
+    expect(left).not.toContain(s.t2);
+    expect(left).toHaveLength(10 - 3);
+    expect((await t.db.selectFrom("clips").select("take_id").where("id", "=", s.one).executeTakeFirst())!.take_id).toBe(s.playing);
+    const g = (await tree()).groups.find((x: { id: string }) => x.id === s.p.id);
+    expect(g.timelines.find((x: { id: string }) => x.id === s.walk.id)).toMatchObject({ unusedTakes: 0, unusedBytes: 0 });
+    // nothing left: nothing happens
+    expect(await call("POST", `/api/timelines/${s.walk.id}/unused-takes/bin`)).toEqual({ binned: 0, bytes: 0 });
+
+    await call("POST", `/api/timelines/${s.walk.id}/undo`);
+    expect(await asset(s.u1)).toBeNull();
+    expect((await t.db.selectFrom("takes").select("id").where("clip_id", "=", s.one).execute()).map((r) => r.id)).toEqual(expect.arrayContaining([s.t1, s.t2]));
+  });
+
+  it("answers 404 for a timeline that is not there", async () => {
+    const res = await t.app.inject({ method: "POST", url: "/api/timelines/nope/unused-takes/bin" });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("a folder's items in order", () => {
+  it("pages newest or oldest first by cursor, and by name or size by offset", async () => {
+    const f = await call("POST", "/api/folders", { name: "shots", parentId: null });
+    const ids: string[] = [];
+    for (const [i, name, bytes] of [[0, "beta", 30], [1, "Alpha", 10], [2, "delta", 40], [3, "gamma", 20], [4, "Echo", 50]] as const) {
+      const id = await item(f.id, bytes);
+      await t.db.updateTable("assets").set({ name, created_at: `2026-10-0${i + 1}T00:00:00.000Z` }).where("id", "=", id).execute();
+      ids.push(id);
+    }
+    const walk = async (query: string) => {
+      const names: string[] = [];
+      let after: string | null = "";
+      for (let i = 0; i < 5 && after !== null; i++) {
+        const page: { items: Array<{ name: string }>; next: string | null } = (await get(t.app, `/api/assets?folder=${f.id}&limit=2${query}${after ? `&after=${encodeURIComponent(after)}` : ""}`)).json();
+        names.push(...page.items.map((a) => a.name));
+        after = page.next;
+      }
+      return names;
+    };
+    expect(await walk("")).toEqual(["Echo", "gamma", "delta", "Alpha", "beta"]);
+    expect(await walk("&sort=old")).toEqual(["beta", "Alpha", "delta", "gamma", "Echo"]);
+    expect(await walk("&sort=name")).toEqual(["Alpha", "beta", "delta", "Echo", "gamma"]);
+    expect(await walk("&sort=name&dir=desc")).toEqual(["gamma", "Echo", "delta", "beta", "Alpha"]);
+    expect(await walk("&sort=size")).toEqual(["Echo", "delta", "beta", "gamma", "Alpha"]);
+    expect(await walk("&sort=size&dir=asc")).toEqual(["Alpha", "gamma", "beta", "delta", "Echo"]);
   });
 });

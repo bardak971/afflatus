@@ -164,6 +164,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     await t.removeTake(req.params.id);
     return { ok: true };
   });
+  /** The takes no clip plays and nothing else needs go, their videos to the bin (Timelines.binUnusedTakes). */
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/unused-takes/bin", async (req) => t.binUnusedTakes(req.params.id));
 
   /**
    * Render clips of a timeline, in the order they play. A clip that carries on from the one before it

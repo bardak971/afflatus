@@ -1,4 +1,5 @@
 import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../api/types/library";
+import { size } from "../format";
 
 /**
  * The Projects panel's tree as the rows it draws: what is unfolded, in order, each with its `tree`
@@ -49,6 +50,12 @@ export interface Row {
   faded?: boolean;
   /** With a kind: a folder that holds none of it. */
   empty?: boolean;
+  /** A group or a folder with nothing in it: no folder, timeline, draft or item. */
+  dim?: boolean;
+  /** When an item, a timeline or a draft was made (ISO): the Created column. */
+  created?: string;
+  /** A timeline: its takes no clip plays and nothing else needs. */
+  unused?: { takes: number; bytes: number };
   moving?: Moving;
   target?: Target;
   /** An item of a folder: the item. */
@@ -84,6 +91,45 @@ export function folderMeta(f: { items: number; totalItems: number; linked: boole
   return `${counted}${f.linked ? " · on your disk" : ""}`;
 }
 
+/** The order of the rows of each level, set by the column headers: by name, by when it was made, by size; `desc` turns it around. */
+export interface Sort {
+  by: "name" | "created" | "size";
+  desc: boolean;
+}
+export const DEFAULT_SORT: Sort = { by: "created", desc: true };
+/** A header clicked: its column, turned around when it was the one sorted by already. Name starts A to Z, Created and Size newest and largest first. */
+export const nextSort = (s: Sort, by: Sort["by"]): Sort => (s.by === by ? { by, desc: !s.desc } : { by, desc: by !== "name" });
+/** A folder's items in that order, as the library listing is asked for them (it sorts them, a page at a time). */
+export const itemsOrder = (s: Sort): { sort: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" } =>
+  s.by === "created" ? { sort: s.desc ? "new" : "old" } : { sort: s.by, dir: s.desc ? "desc" : "asc" };
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+/** Timelines and drafts of a level in that order (drafts have no size: sorting by size, they keep theirs). */
+function sortLeaves<T>(list: T[], s: Sort, of: (x: T) => { name: string; created: string; bytes?: number }): T[] {
+  const sign = s.desc ? -1 : 1;
+  return [...list].sort((x, y) => {
+    const a = of(x);
+    const b = of(y);
+    if (s.by === "name") return sign * byName(a, b);
+    if (s.by === "created") return sign * a.created.localeCompare(b.created) || byName(a, b);
+    return a.bytes === undefined || b.bytes === undefined ? 0 : sign * (a.bytes - b.bytes) || byName(a, b);
+  });
+}
+/** Folders come first, by name; by size when the rows are sorted by size. */
+const sortFolders = (list: FolderNode[], s: Sort) =>
+  [...list].sort((a, b) => (s.by === "size" ? (s.desc ? b.bytes - a.bytes : a.bytes - b.bytes) || byName(a, b) : s.by === "name" && s.desc ? byName(b, a) : byName(a, b)));
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The Created column: "14:32" today, "yesterday", "3 Oct" this year, "3 Oct 2025" before. */
+export function shortDate(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const ago = Math.round((day(now) - day(d)) / 86_400_000);
+  if (ago === 0) return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (ago === 1) return "yesterday";
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}${d.getFullYear() === now.getFullYear() ? "" : ` ${d.getFullYear()}`}`;
+}
+
 export const groupKey = (g: { id: string | null }) => `g:${g.id ?? "inbox"}`;
 export const draftsKey = (group: string | null) => `d:${group ?? "inbox"}`;
 
@@ -111,19 +157,25 @@ export function flatten(tree: ProjectsTree, s: {
   bin?: { count: number; bytes: number } | null;
   /** "3 h ago", "Krea 2": how a draft row says when and with what. */
   draftMeta?(d: DraftLeaf): string;
+  /** The order of each level's folders, timelines and drafts (the items come in order from the server). Newest first when not said. */
+  sort?: Sort;
 }): Row[] {
   const q = (s.q ?? "").trim().toLowerCase();
+  const order = s.sort ?? DEFAULT_SORT;
+  const timelinesIn = (list: TreeGroup["timelines"]) => sortLeaves(list, order, (t) => ({ name: t.name, created: t.createdAt ?? t.updatedAt, bytes: t.bytes }));
+  const draftsIn = (list: DraftLeaf[]) => sortLeaves(list, order, (d) => ({ name: draftLabel(d), created: d.createdAt ?? d.updatedAt }));
   const has = (text: string) => Boolean(q) && text.toLowerCase().includes(q);
   const rows: Row[] = [];
   type Node = { row: Omit<Row, "depth" | "prefix" | "parent" | "open" | "foldable">; kids: () => Node[]; count: number };
 
   // a folder of the disk under another of the disk is one of its sub-folders: it never moves on its own
   const folderNodes = (g: TreeGroup, list: FolderNode[], parent: string | null, ancestors: string[], parentLinked = false, filed: Map<string, TreeGroup["timelines"]> = new Map()): Node[] =>
-    list.map((f) => ({
+    sortFolders(list, order).map((f) => ({
       row: {
         key: `f:${f.id}`, kind: "folder", id: f.id, label: f.name, bytes: f.bytes, group: g.id, linked: f.linked, linkedRoot: f.linked && !parentLinked, archived: g.archived,
         meta: folderMeta(f, s.kind),
         ...(s.kind && !f.totalItems ? { empty: true } : {}),
+        ...(!f.totalItems && !f.children.length && !filed.get(f.id)?.length ? { dim: true } : {}),
         match: has(f.name),
         ...(f.linked && parentLinked ? {} : { moving: { kind: "folder" as const, id: f.id, group: g.id, parent, name: f.name, ...(f.linked ? { linkedRoot: true } : {}) } }),
         target: { kind: "folder", id: f.id, group: g.id, linked: f.linked, ancestors, name: f.name },
@@ -131,7 +183,7 @@ export function flatten(tree: ProjectsTree, s: {
       // its items show when it is unfolded, not while searching
       count: f.children.length + (filed.get(f.id)?.length ?? 0) + (q ? 0 : f.items),
       // its sub-folders, the timelines filed in it, then its items
-      kids: () => [...folderNodes(g, f.children, f.id, [...ancestors, f.id], f.linked, filed), ...(filed.get(f.id) ?? []).map((t) => timelineNode(g, t)), ...(q ? [] : itemNodes(g, f))],
+      kids: () => [...folderNodes(g, f.children, f.id, [...ancestors, f.id], f.linked, filed), ...timelinesIn(filed.get(f.id) ?? []).map((t) => timelineNode(g, t)), ...(q ? [] : itemNodes(g, f))],
     }));
   const itemNodes = (g: TreeGroup, f: FolderNode): Node[] => {
     if (!f.items) return [];
@@ -140,7 +192,7 @@ export function flatten(tree: ProjectsTree, s: {
     if (!read?.items) return [{ row: { key: `more:${key}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id }, count: 0, kids: () => [] }];
     return [
       ...read.items.map((a): Node => ({
-        row: { key: `a:${a.id}`, kind: "item", id: a.id, label: itemLabel(a), meta: itemMeta(a), bytes: a.bytes, group: g.id, archived: g.archived, asset: a, moving: { kind: "asset", id: a.id, folder: f.id, name: itemLabel(a), ...(a.path ? { onDisk: true } : {}) } },
+        row: { key: `a:${a.id}`, kind: "item", id: a.id, label: itemLabel(a), meta: itemMeta(a), bytes: a.bytes, created: a.createdAt, group: g.id, archived: g.archived, asset: a, moving: { kind: "asset", id: a.id, folder: f.id, name: itemLabel(a), ...(a.path ? { onDisk: true } : {}) } },
         count: 0,
         kids: () => [],
       })),
@@ -154,10 +206,10 @@ export function flatten(tree: ProjectsTree, s: {
     const searched = q ? g.drafts ?? [] : null;
     const draftCount = searched ? searched.length : g.counts.drafts;
     const draftRows = (): Node[] => {
-      if (searched) return searched.map((d) => draftNode(g, d));
+      if (searched) return draftsIn(searched).map((d) => draftNode(g, d));
       const read = s.drafts(dk);
       if (!read?.items) return [{ row: { key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id }, count: 0, kids: () => [] }];
-      const shown = read.items.slice(0, read.limit).map((d) => draftNode(g, d));
+      const shown = draftsIn(read.items).slice(0, read.limit).map((d) => draftNode(g, d));
       const left = read.items.length - read.limit;
       return left > 0 ? [...shown, { row: { key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Show more", meta: `${left} more`, bytes: null, group: g.id, more: dk }, count: 0, kids: () => [] }] : shown;
     };
@@ -173,13 +225,14 @@ export function flatten(tree: ProjectsTree, s: {
     }
     const kids = (): Node[] => [
       ...folderNodes(g, g.folders, null, [], false, filed),
-      ...loose.map((t) => timelineNode(g, t)),
+      ...timelinesIn(loose).map((t) => timelineNode(g, t)),
       ...(draftCount ? [{ row: { key: dk, kind: "drafts" as const, id: null, label: `Drafts · ${draftCount}`, meta: "", bytes: null, group: g.id, archived: g.archived }, count: draftCount, kids: draftRows }] : []),
     ];
     const count = g.folders.length + loose.length + (draftCount ? 1 : 0);
     return {
       row: {
         key, kind: g.kind, id: g.id, label: g.name, meta: groupMeta(g), bytes: g.bytes, group: g.id, archived: g.archived, noRoot: g.kind === "project" && !g.rootFolderId,
+        ...(!g.counts.items && !g.counts.timelines && !g.counts.drafts && !g.folders.length && !g.timelines.length ? { dim: true } : {}),
         match: has(g.name),
         target: { kind: "group", group: g.id, root: g.rootFolderId, name: g.kind === "inbox" ? "the Inbox" : g.name },
       },
@@ -189,8 +242,9 @@ export function flatten(tree: ProjectsTree, s: {
   };
   const timelineNode = (g: TreeGroup, t: TreeGroup["timelines"][number]): Node => ({
     row: {
-      key: `t:${t.id}`, kind: "timeline", id: t.id, label: t.name, bytes: t.bytes, group: g.id, archived: g.archived,
-      meta: [plural(t.clips, "clip"), clock(t.durationMs), ...(t.exported ? ["exported"] : [])].join(" · "),
+      key: `t:${t.id}`, kind: "timeline", id: t.id, label: t.name, bytes: t.bytes, group: g.id, archived: g.archived, created: t.createdAt ?? t.updatedAt,
+      meta: [plural(t.clips, "clip"), clock(t.durationMs), ...(t.exported ? ["exported"] : []), ...(t.unusedTakes > 0 ? [`${t.unusedTakes} unused`, size(t.unusedBytes)] : [])].join(" · "),
+      ...(t.unusedTakes > 0 ? { unused: { takes: t.unusedTakes, bytes: t.unusedBytes } } : {}),
       match: has(t.name),
       moving: { kind: "timeline", id: t.id, group: g.id, folder: t.folderId, name: t.name },
     },
@@ -198,7 +252,7 @@ export function flatten(tree: ProjectsTree, s: {
     kids: () => [],
   });
   const draftNode = (g: TreeGroup, d: DraftLeaf): Node => ({
-    row: { key: `dr:${d.id}`, kind: "draft", id: d.id, label: draftLabel(d), meta: s.draftMeta?.(d) ?? "", bytes: null, group: g.id, archived: g.archived, match: has(draftLabel(d)), moving: { kind: "draft", id: d.id, group: g.id, name: draftLabel(d) } },
+    row: { key: `dr:${d.id}`, kind: "draft", id: d.id, label: draftLabel(d), meta: s.draftMeta?.(d) ?? "", bytes: null, created: d.createdAt ?? d.updatedAt, group: g.id, archived: g.archived, match: has(draftLabel(d)), moving: { kind: "draft", id: d.id, group: g.id, name: draftLabel(d) } },
     count: 0,
     kids: () => [],
   });
