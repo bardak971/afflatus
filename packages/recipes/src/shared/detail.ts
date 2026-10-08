@@ -15,9 +15,9 @@ export interface DetailSettings {
   detailEnd: number;
 }
 
-export const DETAIL_AUTO = "Auto";
-export const DETAIL_DAEMON = "Lying sigma (Detail Daemon)";
-export const DETAIL_SHARPEN = "Sharpen while sampling (built in)";
+const DETAIL_AUTO = "Auto";
+const DETAIL_DAEMON = "Lying sigma (Detail Daemon)";
+const DETAIL_SHARPEN = "Sharpen while sampling (built in)";
 /** Detail Daemon's node (the ComfyUI-Detail-Daemon pack). */
 export const LYING_SIGMA = "LyingSigmaSampler";
 export const DAEMON_NEEDED = `"${DETAIL_DAEMON}" needs the ComfyUI-Detail-Daemon pack (its ${LYING_SIGMA} node). Install it with ComfyUI-Manager, or pick Auto or "${DETAIL_SHARPEN}".`;
@@ -59,7 +59,7 @@ export function detailSampler(g: GraphBuilder, sampler: Ref, input: DetailSettin
 }
 
 /** What a KSampler takes. */
-export interface KSamplerArgs {
+interface KSamplerArgs {
   model: Ref;
   positive: Ref;
   negative: Ref;

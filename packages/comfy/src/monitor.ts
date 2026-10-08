@@ -81,6 +81,8 @@ interface Tracked extends Tracking {
 }
 
 const SAMPLER_PHASES: ReadonlyArray<string> = ["sampling", "refining", "restoring", "detailing"];
+/** How long a dropped socket waits before it is opened again: doubling from the first wait to the longest. */
+const RETRY = { firstMs: 500, mostMs: 15_000 };
 
 /**
  * Listens to one ComfyUI's websocket and keeps the progress and the latest live preview of the prompts
@@ -92,6 +94,8 @@ export class Monitor {
   private readonly tracked = new Map<string, Tracked>();
   /** Sockets opened under another client id, to follow a prompt queued before this process started. */
   private readonly borrowed = new Map<string, WebSocket>();
+  /** Sockets to open again after they dropped (a ComfyUI restart, a network blip): "own", or a borrowed socket's prompt id. */
+  private readonly retries = new Map<string, { waitMs: number; timer: ReturnType<typeof setTimeout> | null }>();
   /** The prompt ComfyUI is executing. Previews carry no prompt id: they belong to this one. */
   private current: Tracked | null = null;
   /** Called whenever a tracked prompt's progress or preview changed. */
@@ -102,16 +106,22 @@ export class Monitor {
   /** Called when the socket opens; `again` after the first time, which is how a ComfyUI restart shows (what it had may have changed). */
   onOpen: (again: boolean) => void = () => {};
   private opened = 0;
+  private readonly now: () => number;
 
-  constructor(private readonly client: ComfyClient) {}
+  /** @param opts.now the clock phases and steps are timed by (a test's own) */
+  constructor(private readonly client: ComfyClient, opts: { now?: () => number } = {}) {
+    this.now = opts.now ?? Date.now;
+  }
 
   /** Open the socket if it isn't. Call before submitting, so the first messages aren't missed. */
   ensure(): void {
     if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) return;
+    this.cancelRetry("own");
     try {
       const ws = new WebSocket(`${this.client.baseUrl.replace(/^http/i, "ws")}/ws?clientId=${this.client.clientId}`);
       ws.binaryType = "arraybuffer";
       ws.onopen = () => {
+        this.retries.delete("own");
         try {
           this.onOpen(this.opened++ > 0);
         } catch {
@@ -120,7 +130,10 @@ export class Monitor {
       };
       ws.onmessage = (ev) => this.onMessage(ev.data);
       ws.onclose = () => {
-        if (this.ws === ws) this.ws = null;
+        if (this.ws !== ws) return;
+        this.ws = null;
+        // dropped while prompts are followed: opened again, so their progress does not wait for the next submit
+        if (this.tracked.size) this.retry("own", () => this.ensure());
       };
       ws.onerror = () => {};
       this.ws = ws;
@@ -142,7 +155,9 @@ export class Monitor {
   }
 
   close(): void {
-    for (const promptId of [...this.borrowed.keys()]) this.release(promptId);
+    for (const promptId of new Set([...this.borrowed.keys(), ...this.retries.keys()])) if (promptId !== "own") this.release(promptId);
+    this.cancelRetry("own");
+    this.retries.delete("own");
     const ws = this.ws;
     this.ws = null;
     try {
@@ -152,12 +167,31 @@ export class Monitor {
     }
   }
 
+  /** Open a dropped socket again later, waiting twice as long after each failed try, up to RETRY.mostMs. */
+  private retry(key: string, open: () => void): void {
+    const r = this.retries.get(key) ?? { waitMs: 0, timer: null };
+    if (r.timer) return;
+    r.waitMs = Math.min(RETRY.mostMs, r.waitMs ? r.waitMs * 2 : RETRY.firstMs);
+    r.timer = setTimeout(() => {
+      r.timer = null;
+      open();
+    }, r.waitMs);
+    r.timer.unref?.();
+    this.retries.set(key, r);
+  }
+
+  private cancelRetry(key: string): void {
+    const r = this.retries.get(key);
+    if (r?.timer) clearTimeout(r.timer);
+    if (r) r.timer = null;
+  }
+
   track(t: Tracking): void {
     if (this.tracked.has(t.promptId)) return;
     this.tracked.set(t.promptId, {
       ...t, totalSteps: Math.max(1, t.totalSteps), done: 0, node: null, value: 0, max: 0, phase: "waiting",
       executing: null, samplingAt: null, stepsAtStart: 0, preview: { seq: 0 }, stages: [],
-      clock: { phase: "waiting", at: Date.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null,
+      clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null,
     });
     if (t.clientId && t.clientId !== this.client.clientId) this.listenAs(t.clientId, t.promptId);
   }
@@ -178,9 +212,13 @@ export class Monitor {
       ws.binaryType = "arraybuffer";
       // what arrives here without a prompt id (the "you are on this node" greeting, previews) is about that prompt
       ws.onmessage = (ev) => this.onMessage(ev.data, promptId);
+      ws.onopen = () => this.retries.delete(promptId);
       ws.onerror = () => {};
       ws.onclose = () => {
-        if (this.borrowed.get(promptId) === ws) this.borrowed.delete(promptId);
+        if (this.borrowed.get(promptId) !== ws) return;
+        this.borrowed.delete(promptId);
+        // dropped while the prompt is still followed: listened to again under the same id
+        if (this.tracked.has(promptId)) this.retry(promptId, () => { if (this.tracked.has(promptId) && !this.borrowed.has(promptId)) this.listenAs(clientId, promptId); });
       };
       this.borrowed.set(promptId, ws);
     } catch {
@@ -189,6 +227,8 @@ export class Monitor {
   }
 
   private release(promptId: string): void {
+    this.cancelRetry(promptId);
+    this.retries.delete(promptId);
     const ws = this.borrowed.get(promptId);
     this.borrowed.delete(promptId);
     try {
@@ -210,8 +250,8 @@ export class Monitor {
   }
 
   /** Count the time since the last message for the phase it was spent in. Called before a message changes the phase. */
-  private static tick(r: Tracked): void {
-    const at = Date.now();
+  private tick(r: Tracked): void {
+    const at = this.now();
     r.spent[r.clock.phase] = (r.spent[r.clock.phase] ?? 0) + (at - r.clock.at);
     r.clock.at = at;
   }
@@ -223,7 +263,7 @@ export class Monitor {
     // the time left comes from the sampling rate alone: a cold model load would inflate it wildly
     let eta = 0;
     if (r.samplingAt && steps > r.stepsAtStart) {
-      const perStep = (Date.now() - r.samplingAt) / 1000 / (steps - r.stepsAtStart);
+      const perStep = (this.now() - r.samplingAt) / 1000 / (steps - r.stepsAtStart);
       const finish = (r.expect?.finishMs ?? 2000) / 1000;
       const first = r.passes?.[0];
       // a second pass does not go at the pace of the first: what it usually takes is known from past renders
@@ -240,7 +280,7 @@ export class Monitor {
   measured(promptId: string): Measured | null {
     const r = this.tracked.get(promptId);
     if (!r) return null;
-    Monitor.tick(r);
+    this.tick(r);
     const phases = { ...r.spent };
     const p = r.firstPass;
     const stepMs = p && p.lastValue > p.firstValue ? (p.lastAt - p.firstAt) / (p.lastValue - p.firstValue) : null;
@@ -294,7 +334,7 @@ export class Monitor {
       : msg.type === "kj_preview_override" ? this.current
       : about ? this.tracked.get(about) : undefined;
     if (!r) return;
-    Monitor.tick(r);
+    this.tick(r);
     if (msg.type === "kj_preview_override") {
       if (typeof d.image !== "string" || !d.image) return;
       // before its first step, each sampling pass sends what it starts from: noise, and on a pass that is
@@ -308,6 +348,10 @@ export class Monitor {
     } else if (msg.type === "execution_start") {
       r.phase = "loading";
       this.current = r;
+    } else if (msg.type === "execution_cached" && Array.isArray(d.nodes)) {
+      // the passes ComfyUI still had from the prompt before (the same seed, the same settings) do not run: their steps are done
+      const cached = new Set(d.nodes.map(String));
+      if (!r.node) r.done += (r.passes ?? []).filter((p) => cached.has(p.node)).reduce((sum, p) => sum + p.steps, 0);
     } else if (msg.type === "executed" && typeof d.node === "string") {
       // a node that puts pictures out: a preview on the way, or a save. Kept in order, for the strip under the live preview
       const out = (d.output ?? {}) as { images?: unknown; gifs?: unknown };
@@ -337,19 +381,24 @@ export class Monitor {
         return;
       }
       this.catchUp(r, node);
+      const value = Number(d.value ?? 0);
       // a new node reporting steps means the previous sampler is finished
       if (r.node && node !== r.node && r.max > 0 && r.value >= r.max) r.done += r.max;
+      // the same node counting from the start again: a node that samples piece by piece (H3's latent re-sample,
+      // tile after tile; a face detailer, face after face) finished one piece, and its steps stay counted
+      else if (node === r.node && r.max > 0 && value < r.value) r.done += r.max;
       if (node !== r.node) r.value = 0;
       r.node = node;
-      r.value = Number(d.value ?? 0);
+      r.value = value;
       r.max = Number(d.max ?? 0);
+      const at = this.now();
       if (!r.samplingAt) {
-        r.samplingAt = Date.now();
+        r.samplingAt = at;
         r.stepsAtStart = r.done + r.value;
       }
       if (r.phases[node]) r.phase = r.phases[node];
-      if (!r.firstPass) r.firstPass = { node, phase: r.phase, firstAt: Date.now(), firstValue: r.value, lastAt: Date.now(), lastValue: r.value };
-      else if (r.firstPass.node === node && r.value > r.firstPass.lastValue) Object.assign(r.firstPass, { lastAt: Date.now(), lastValue: r.value });
+      if (!r.firstPass) r.firstPass = { node, phase: r.phase, firstAt: at, firstValue: r.value, lastAt: at, lastValue: r.value };
+      else if (r.firstPass.node === node && r.value > r.firstPass.lastValue) Object.assign(r.firstPass, { lastAt: at, lastValue: r.value });
       this.current = r;
     } else return;
     r.clock.phase = Monitor.phaseOf(r);

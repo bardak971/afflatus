@@ -116,7 +116,7 @@ export const fluxFixFace = made.fixFace;
 
 // ---------------------------------------------------------------- edit (Kontext)
 
-export interface FluxEdit extends FlowBase {
+interface FluxEdit extends FlowBase {
   source: string;
   prompt: string;
 }

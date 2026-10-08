@@ -3,7 +3,7 @@ import { schemaFor, type InputSpec } from "./inputs";
 import { folderOfFileInput } from "./models";
 
 /** A file a family needs, wherever the user keeps it: found by pattern, overridable on the setup page. */
-export interface ModelSlot {
+interface ModelSlot {
   id: string;
   label: string;
   /** ComfyUI model folder ("diffusion_models", "text_encoders", "vae", …). */
@@ -153,14 +153,6 @@ export interface Preset {
   values: Record<string, unknown>;
   /** Said under the form the first time: where the values come from. */
   note?: string;
-}
-
-/** A word about one choice: it is slow, or probably too much, on this card. */
-export interface Advice {
-  /** The input it is about. */
-  input: string;
-  level: "slow" | "heavy";
-  text: string;
 }
 
 export const defineFamily = (f: Family): Family => f;

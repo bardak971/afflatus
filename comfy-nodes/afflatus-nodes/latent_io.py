@@ -9,7 +9,6 @@ File layout: safetensors with tensors "video" [1, 24, T, H, W] and "audio" [1, 3
 metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}.
 """
 
-import json
 import os
 
 import comfy.utils
@@ -39,7 +38,11 @@ FORMAT = "afflatus-h3-av-latent/1"
 
 
 class AfflatusSaveH3Latent(io.ComfyNode):
-    """Write an H3 video+audio latent to ComfyUI's output folder, both streams, with the frame count."""
+    """Write an H3 video+audio latent to ComfyUI's temp folder, both streams, with the frame count.
+
+    Afflatus downloads it as soon as the prompt is done and keeps it itself: in the temp folder, which ComfyUI
+    clears when it starts, one is not left behind for every render the way the output folder would keep them.
+    """
 
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -47,10 +50,10 @@ class AfflatusSaveH3Latent(io.ComfyNode):
             node_id="AfflatusSaveH3Latent",
             display_name="Afflatus: Save H3 Latent",
             category="Afflatus",
-            description="Saves a MiniMax H3 video+audio latent as one safetensors file (both streams), so that the clip can be continued later from its own latent.",
+            description="Saves a MiniMax H3 video+audio latent as one safetensors file (both streams) in ComfyUI's temp folder, so that the clip can be continued later from its own latent. Fetch it when the prompt is done: ComfyUI clears the folder when it starts.",
             inputs=[
                 io.Latent.Input("samples", tooltip="The sampled MiniMax H3 latent (video and audio)."),
-                io.String.Input("filename_prefix", default="Afflatus/h3", tooltip="Where under the output folder, and how the file is named."),
+                io.String.Input("filename_prefix", default="Afflatus/h3", tooltip="Where under the temp folder, and how the file is named."),
             ],
             outputs=[],
             is_output_node=True,
@@ -59,8 +62,9 @@ class AfflatusSaveH3Latent(io.ComfyNode):
     @classmethod
     def execute(cls, samples, filename_prefix: str = "Afflatus/h3") -> io.NodeOutput:
         video, audio = _extract_h3_av_streams(samples, name="samples")
-        output_dir = folder_paths.get_output_directory()
-        full_output_folder, filename, counter, subfolder, _prefix = folder_paths.get_save_image_path(filename_prefix, output_dir)
+        temp_dir = folder_paths.get_temp_directory()
+        full_output_folder, filename, counter, subfolder, _prefix = folder_paths.get_save_image_path(filename_prefix, temp_dir)
+        os.makedirs(full_output_folder, exist_ok=True)
         name = f"{filename}_{counter:05}_.safetensors"
         path = os.path.join(full_output_folder, name)
         frames = frame_count_from_video_latent_t(int(video.shape[2]))
@@ -70,7 +74,7 @@ class AfflatusSaveH3Latent(io.ComfyNode):
             path,
             metadata=metadata,
         )
-        results = [{"filename": name, "subfolder": subfolder, "type": "output"}]
+        results = [{"filename": name, "subfolder": subfolder, "type": "temp"}]
         return io.NodeOutput(ui={"latents": results})
 
 
@@ -92,7 +96,9 @@ class AfflatusLoadH3Latent(io.ComfyNode):
 
     @classmethod
     def fingerprint_inputs(cls, latent: str = ""):
-        path = folder_paths.get_annotated_filepath(latent)
+        path = latent_path(latent)
+        if path is None:
+            return latent
         try:
             return f"{path}:{os.path.getmtime(path)}:{os.path.getsize(path)}"
         except OSError:
@@ -100,13 +106,15 @@ class AfflatusLoadH3Latent(io.ComfyNode):
 
     @classmethod
     def validate_inputs(cls, latent: str = ""):
-        if not latent or not folder_paths.exists_annotated_filepath(latent):
+        if not latent or latent_path(latent) is None or not folder_paths.exists_annotated_filepath(latent):
             return f"H3 latent file not found: {latent!r}"
         return True
 
     @classmethod
     def execute(cls, latent: str = "") -> io.NodeOutput:
-        path = folder_paths.get_annotated_filepath(latent)
+        path = latent_path(latent)
+        if path is None:
+            raise ValueError(f"H3 latent file not found: {latent!r}")
         tensors = safetensors.torch.load_file(path, device="cpu")
         if "video" not in tensors or "audio" not in tensors:
             raise ValueError(f"{os.path.basename(path)} is not an Afflatus H3 latent (no video/audio streams)")
@@ -117,13 +125,27 @@ class AfflatusLoadH3Latent(io.ComfyNode):
         return io.NodeOutput({"samples": NestedTensor((video, audio))}, frames)
 
 
-def read_frames(path: str) -> int:
-    """The frame count of a saved latent, from its header alone (no tensors read)."""
-    with open(path, "rb") as f:
-        n = int.from_bytes(f.read(8), "little")
-        header = json.loads(f.read(n))
-    meta = header.get("__metadata__") or {}
-    return int(meta.get("frames", 0))
+def latent_path(name: str):
+    """Where a latent named as an upload answers it is ("x.safetensors [temp]"): only a .safetensors file inside ComfyUI's input or temp folder, else None.
+
+    The name comes from the prompt: ComfyUI resolves it against the folder its annotation names, so a name that
+    climbs out of it ("../") or a link that points elsewhere is refused here, once the path is resolved for real.
+    """
+    if not name:
+        return None
+    path = os.path.realpath(folder_paths.get_annotated_filepath(name))
+    if not path.lower().endswith(".safetensors"):
+        return None
+    for root in (folder_paths.get_input_directory(), folder_paths.get_temp_directory()):
+        root = os.path.realpath(root)
+        try:
+            inside = os.path.commonpath([root, path]) == root and path != root
+        except ValueError:
+            # another drive
+            inside = False
+        if inside:
+            return path
+    return None
 
 
 class AfflatusNormalizeH3Latent(io.ComfyNode):
@@ -182,6 +204,60 @@ class AfflatusTrimH3Latent(io.ComfyNode):
         return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))}, frames)
 
 
+def guide_frames_of(keyframe) -> int:
+    """How many frames a guide already on the conditioning spans; 0 when it holds no video latent."""
+    latent = keyframe.get("latent")
+    if latent is None:
+        return 0
+    tokens = int(latent.shape[2])
+    try:
+        return frame_count_from_video_latent_t(tokens)
+    except ValueError:
+        # off the 5k + 2 grid (a picture's guide is one token): one frame for the first token, four for each after
+        return 1 + 4 * (tokens - 1) if tokens > 0 else 0
+
+
+def land_guide(positive, next_av_latent, target_av_latent, guide_frames: int, start_t: int, start_frame: int, what: str):
+    """The clip after's frames from `start_frame` (its video tokens from `start_t`) pinned at the end of the window: the conditioning with that guide added.
+
+    The Head Guide starts at a frame of the 17k + 5 grid, the Landing where a chunk begins; the rest is the same.
+    `what` names the guide in the error when another guide already holds the window's last frames.
+    """
+    _require_native_arbitrary_guides()
+    next_video, next_audio = _extract_h3_av_streams(next_av_latent, name="next_av_latent")
+    target_video, _target_audio, target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
+    if guide_frames % 17 != 5:
+        raise ValueError("guide_frames must be 5, 22, 39… (17k + 5)")
+    guide_t = video_latent_t(guide_frames)
+    if start_t + guide_t > int(next_video.shape[2]):
+        raise ValueError(f"the clip after's latent has {int(next_video.shape[2])} video tokens: not enough for {guide_frames} guide frames from its frame {start_frame}")
+    start_a = audio_t_at_frame_boundary(start_frame)
+    guide_a = audio_t_at_frame_boundary(start_frame + guide_frames) - start_a
+    have_a = int(next_audio.shape[-1])
+    if start_a >= have_a:
+        raise ValueError(f"the clip after's audio latent is shorter than its frame {start_frame}")
+    guide_a = min(guide_a, have_a - start_a)
+    at = target_frames - guide_frames
+    if at < 0:
+        raise ValueError(f"a {guide_frames}-frame guide does not fit in a {target_frames}-frame window")
+    if next_video.dtype != target_video.dtype:
+        next_video = next_video.to(target_video.dtype)
+        next_audio = next_audio.to(target_video.dtype)
+    keyframes = _existing_keyframes(positive)
+    for k in keyframes:
+        if float(k["resolved_frame_index"]) + guide_frames_of(k) > at:
+            raise ValueError(f"another guide reaches into the window's last frames: {what} needs them")
+    keyframes.append(
+        {
+            "resolved_frame_index": at,
+            "latent": next_video[:, :, start_t : start_t + guide_t].clone(),
+            "audio_latent": next_audio[..., start_a : start_a + guide_a].clone(),
+        }
+    )
+    keyframes.sort(key=lambda keyframe: float(keyframe["resolved_frame_index"]))
+    return node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes})
+
+
 class AfflatusH3LatentHeadGuide(io.ComfyNode):
     """Anchor the first tokens of the clip after at the end of a continuation window: the clip arrives at it."""
 
@@ -205,43 +281,10 @@ class AfflatusH3LatentHeadGuide(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, next_av_latent, target_av_latent, guide_frames: int = 22, skip_frames: int = 0) -> io.NodeOutput:
-        _require_native_arbitrary_guides()
-        next_video, next_audio = _extract_h3_av_streams(next_av_latent, name="next_av_latent")
-        target_video, _target_audio, target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
-        if guide_frames % 17 != 5:
-            raise ValueError("guide_frames must be 5, 22, 39… (17k + 5)")
         if skip_frames != 0 and skip_frames % 17 != 5:
             raise ValueError("skip_frames must be 0 or 17k + 5")
         skip_t = 0 if skip_frames == 0 else video_latent_t(skip_frames)
-        guide_t = video_latent_t(guide_frames)
-        if skip_t + guide_t > int(next_video.shape[2]):
-            raise ValueError(f"the clip after's latent has {int(next_video.shape[2])} video tokens: not enough for {skip_frames} skipped + {guide_frames} guide frames")
-        skip_a = audio_t_at_frame_boundary(skip_frames)
-        guide_a = audio_t_at_frame_boundary(skip_frames + guide_frames) - skip_a
-        have_a = int(next_audio.shape[-1])
-        if skip_a >= have_a:
-            raise ValueError("the clip after's audio latent is shorter than the frames to skip")
-        guide_a = min(guide_a, have_a - skip_a)
-        at = target_frames - guide_frames
-        if at < 0:
-            raise ValueError(f"a {guide_frames}-frame guide does not fit in a {target_frames}-frame window")
-        if next_video.dtype != target_video.dtype:
-            next_video = next_video.to(target_video.dtype)
-            next_audio = next_audio.to(target_video.dtype)
-        keyframes = _existing_keyframes(positive)
-        for k in keyframes:
-            end = float(k["resolved_frame_index"]) + int(k["latent"].shape[2]) * 17 / 5
-            if end > at:
-                raise ValueError("another guide reaches into the window's last frames: the head guide needs them")
-        keyframes.append(
-            {
-                "resolved_frame_index": at,
-                "latent": next_video[:, :, skip_t : skip_t + guide_t].clone(),
-                "audio_latent": next_audio[..., skip_a : skip_a + guide_a].clone(),
-            }
-        )
-        keyframes.sort(key=lambda keyframe: float(keyframe["resolved_frame_index"]))
-        return io.NodeOutput(node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes}))
+        return io.NodeOutput(land_guide(positive, next_av_latent, target_av_latent, guide_frames, skip_t, skip_frames, "the head guide"))
 
 
 class AfflatusH3LatentLanding(io.ComfyNode):
@@ -274,43 +317,10 @@ class AfflatusH3LatentLanding(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, next_av_latent, target_av_latent, guide_frames: int = 22, land_at: int = 0) -> io.NodeOutput:
-        _require_native_arbitrary_guides()
-        next_video, next_audio = _extract_h3_av_streams(next_av_latent, name="next_av_latent")
-        target_video, _target_audio, target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
-        if guide_frames % 17 != 5:
-            raise ValueError("guide_frames must be 5, 22, 39… (17k + 5)")
         if land_at % 17 != 0:
             raise ValueError("land_at must be where a chunk begins: 0, 17, 34… (17j)")
         start_t = (land_at // 17) * 5
-        guide_t = video_latent_t(guide_frames)
-        if start_t + guide_t > int(next_video.shape[2]):
-            raise ValueError(f"the clip after's latent has {int(next_video.shape[2])} video tokens: not enough to land {guide_frames} frames at frame {land_at}")
-        start_a = audio_t_at_frame_boundary(land_at)
-        guide_a = audio_t_at_frame_boundary(land_at + guide_frames) - start_a
-        have_a = int(next_audio.shape[-1])
-        if start_a >= have_a:
-            raise ValueError("the clip after's audio latent is shorter than the moment to land on")
-        guide_a = min(guide_a, have_a - start_a)
-        at = target_frames - guide_frames
-        if at < 0:
-            raise ValueError(f"a {guide_frames}-frame guide does not fit in a {target_frames}-frame window")
-        if next_video.dtype != target_video.dtype:
-            next_video = next_video.to(target_video.dtype)
-            next_audio = next_audio.to(target_video.dtype)
-        keyframes = _existing_keyframes(positive)
-        for k in keyframes:
-            end = float(k["resolved_frame_index"]) + int(k["latent"].shape[2]) * 17 / 5
-            if end > at:
-                raise ValueError("another guide reaches into the window's last frames: the landing needs them")
-        keyframes.append(
-            {
-                "resolved_frame_index": at,
-                "latent": next_video[:, :, start_t : start_t + guide_t].clone(),
-                "audio_latent": next_audio[..., start_a : start_a + guide_a].clone(),
-            }
-        )
-        keyframes.sort(key=lambda keyframe: float(keyframe["resolved_frame_index"]))
-        return io.NodeOutput(node_helpers.conditioning_set_values(positive, {"minimax_keyframes": keyframes}))
+        return io.NodeOutput(land_guide(positive, next_av_latent, target_av_latent, guide_frames, start_t, land_at, "the landing"))
 
 
 class AfflatusH3SeamLatent(io.ComfyNode):
@@ -354,9 +364,9 @@ class AfflatusH3SeamLatent(io.ComfyNode):
         if prev_video.shape[:2] != win_video.shape[:2] or prev_video.shape[3:] != win_video.shape[3:]:
             raise ValueError("the clip before's latent and the window are not the same size")
         # both counts are 5k + 2: the clip before's last overlap_t tokens start on a chunk boundary
-        lead = prev_video[:, :, prev_t - overlap_t:].to(win_video.dtype)
+        lead = prev_video[:, :, prev_t - overlap_t:].to(device=win_video.device, dtype=win_video.dtype)
         video = torch.cat([lead, win_video[:, :, overlap_t:]], dim=2)
-        lead_audio = prev_audio[..., audio_t_at_frame_boundary(prev_frames - overlap_frames):].to(win_audio.dtype)
+        lead_audio = prev_audio[..., audio_t_at_frame_boundary(prev_frames - overlap_frames):].to(device=win_audio.device, dtype=win_audio.dtype)
         audio = torch.cat([lead_audio, win_audio[..., audio_t_at_frame_boundary(overlap_frames):]], dim=-1)
         return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))})
 

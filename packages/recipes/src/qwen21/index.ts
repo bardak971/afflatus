@@ -1,4 +1,4 @@
-import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, type InputSpec, type LoraValue, type Ref, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { loadUnet, unetNodes } from "../shared/unet";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
@@ -61,8 +61,8 @@ interface Qwen21Base {
   cacheDtype: string;
   seed: number;
 }
-export interface Qwen21Picture extends Qwen21Base { prompt: string; size: SizeValue }
-export interface Qwen21Edit extends Qwen21Base { source: string; prompt: string; references: ReferenceValue[]; resolution: number }
+interface Qwen21Picture extends Qwen21Base { prompt: string; size: SizeValue }
+interface Qwen21Edit extends Qwen21Base { source: string; prompt: string; references: ReferenceValue[]; resolution: number }
 
 const model: InputSpec = { id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["qwen.?image.?2[._]1(?!.*vae)"], note: "Qwen Image 2.1, or a fine-tune of it" };
 /** How it samples: the values of ComfyUI's template (25 steps) raised to what Qwen's authors give (about 40 with euler), each kept per model once saved. */
@@ -83,7 +83,6 @@ const sampling: InputSpec[] = [
   },
   { id: "seed", type: "seed", label: "Seed" },
 ];
-const r32 = (n: number) => Math.max(32, Math.round(n / 32) * 32);
 
 /** The model with its LoRAs and its cache, the text encoder and the VAE. */
 function load(g: GraphBuilder, input: Qwen21Base, ctx: Parameters<typeof loadUnet>[1]) {
@@ -127,7 +126,7 @@ export const qwen21Picture = defineRecipe<Qwen21Picture>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = load(g, input, ctx);
-    const size = { width: r32(input.size.width), height: r32(input.size.height) };
+    const size = { width: roundTo(input.size.width, 32), height: roundTo(input.size.height, 32) };
     const read = g.add("TextEncodeQwenImage21", { clip: k.clip, prompt: input.prompt, negative_prompt: input.negative, resolution: 1024, vae: k.vae });
     g.phase("sampling");
     const sampled = g.out("KSampler", {

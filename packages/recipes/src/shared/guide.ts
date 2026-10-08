@@ -18,10 +18,10 @@ export interface GuideSettings {
   guideModel: string;
 }
 
-export const FOLLOW_EDGES = "Edges";
-export const FOLLOW_DEPTH = "Depth";
-export const FOLLOW_POSE = "Pose";
-export const FOLLOW_MAP = "Already a guide map";
+const FOLLOW_EDGES = "Edges";
+const FOLLOW_DEPTH = "Depth";
+const FOLLOW_POSE = "Pose";
+const FOLLOW_MAP = "Already a guide map";
 /** What each kind is called by SetUnionControlNetType. */
 const UNION_TYPE: Record<string, string> = {
   [FOLLOW_EDGES]: "canny/lineart/anime_lineart/mlsd",
@@ -32,10 +32,10 @@ const UNION_TYPE: Record<string, string> = {
 /** comfyui_controlnet_aux's one node for all its preprocessors, and the one it runs for each kind. */
 export const AUX_NODE = "AIO_Preprocessor";
 const AUX_PREPROCESSOR: Record<string, string> = { [FOLLOW_DEPTH]: "DepthAnythingV2Preprocessor", [FOLLOW_POSE]: "DWPreprocessor" };
-export const AUX_NEEDED = (what: string) => `Following the ${what.toLowerCase()} of a picture needs the comfyui_controlnet_aux pack, which finds it. Install it with ComfyUI-Manager, follow its edges instead, or give a picture that is already a ${what.toLowerCase()} map.`;
-export const GUIDE_NO_MODEL = "A guide picture needs a ControlNet: put one in ComfyUI's models/controlnet folder (xinsir's ControlNet Union SDXL promax does edges, depth and pose; it can be downloaded from Settings).";
+const AUX_NEEDED = (what: string) => `Following the ${what.toLowerCase()} of a picture needs the comfyui_controlnet_aux pack, which finds it. Install it with ComfyUI-Manager, follow its edges instead, or give a picture that is already a ${what.toLowerCase()} map.`;
+const GUIDE_NO_MODEL = "A guide picture needs a ControlNet: put one in ComfyUI's models/controlnet folder (xinsir's ControlNet Union SDXL promax does edges, depth and pose; it can be downloaded from Settings).";
 /** Which ControlNet a guide starts on: a union one first. */
-export const GUIDE_PREFER = ["union.*promax", "union", "xinsir", "."];
+const GUIDE_PREFER = ["union.*promax", "union", "xinsir", "."];
 
 export const guideInputs = (union: string): InputSpec[] => [
   { id: "guide", type: "image", role: "guide", label: "Guide picture", optional: true, note: "the new picture follows its edges, depth or pose (ControlNet)" },

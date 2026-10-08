@@ -23,4 +23,33 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # the node pack: every file compiles, and its frame and token arithmetic holds (on stand-ins for torch and ComfyUI)
+      - run: python3 -m py_compile comfy-nodes/afflatus-nodes/*.py
+      - run: pipx run --spec "pytest==9.1.1" pytest -q comfy-nodes/afflatus-nodes/tests
       - run: node scripts/release/stage.mjs
+
+  # the migrations on a real Postgres (DATABASE_URL is documented): the rest of the tests run on SQLite
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: afflatus
+          POSTGRES_PASSWORD: afflatus
+          POSTGRES_DB: afflatus
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U afflatus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://afflatus:afflatus@localhost:5432/afflatus
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run apps/server/test/postgres.test.ts

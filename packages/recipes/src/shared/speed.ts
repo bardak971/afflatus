@@ -13,7 +13,7 @@ export interface SpeedSettings {
 }
 
 export const SAGE_NODE = "PathchSageAttentionKJ";
-export const COMPILE_NODE = "TorchCompileModel";
+const COMPILE_NODE = "TorchCompileModel";
 export const SAGE_NEEDED = `SageAttention needs KJNodes (its ${SAGE_NODE} node) and the sageattention package in ComfyUI's Python. Install them, or turn "Faster attention" off.`;
 
 export const SPEED_INPUTS: InputSpec[] = [

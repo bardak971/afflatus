@@ -1,7 +1,7 @@
-import { defineRecipe, GraphBuilder, type Ref } from "@afflatus/core";
-import { redrawInTiles, tileInputs, TILE_NODES, useTiles, type TileSettings } from "../shared/tiles";
+import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
+import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, round8, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -10,7 +10,7 @@ const picture = { width: 832, height: 1216 };
 
 // ---------------------------------------------------------------- redraw a picture
 
-export interface SdxlRedraw extends SdxlBase {
+interface SdxlRedraw extends SdxlBase {
   source: string;
   prompt: string;
   strength: number;
@@ -61,7 +61,7 @@ export const sdxlRedraw = defineRecipe<SdxlRedraw>({
 
 // ---------------------------------------------------------------- paint over a part
 
-export interface SdxlPaintOver extends SdxlBase, MaskSettings {
+interface SdxlPaintOver extends SdxlBase, MaskSettings {
   source: string;
   mask: string;
   prompt: string;
@@ -130,7 +130,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
 
 // ---------------------------------------------------------------- outpaint
 
-export interface SdxlOutpaint extends SdxlBase, OutpaintSettings {
+interface SdxlOutpaint extends SdxlBase, OutpaintSettings {
   source: string;
   prompt: string;
 }
@@ -179,7 +179,7 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
 
 // ---------------------------------------------------------------- twice as large
 
-export interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings {
+interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings {
   source: string;
   prompt: string;
   upscaler: string;
@@ -187,8 +187,8 @@ export interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings {
   strength: number;
 }
 
-/** Past this many pixels an SDXL pass over the whole picture is slow and falls apart: the pass is made in tiles (or, asked to be whole, skipped). */
-const REFINE_MAX_PIXELS = 4.2e6;
+/** Past this many pixels an SDXL pass over the whole picture is slow and falls apart: Auto makes it in tiles. Asked whole, it is made whole: never skipped for its size. */
+const REFINE_WHOLE_PIXELS = 4.2e6;
 const REFINE_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "LoraLoader", "CLIPSetLastLayer", "VAEEncode", "KSampler", "VAEDecode"];
 
 export const sdxlSharper = defineRecipe<SdxlSharper>({
@@ -216,16 +216,16 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const W = round8(from.width * input.factor);
-    const H = round8(from.height * input.factor);
+    const W = roundTo(from.width * input.factor, 8, 64);
+    const H = roundTo(from.height * input.factor, 8, 64);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     g.phase("upscaling");
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
     // upscale models enlarge by their own factor (usually 4×): scaled to exactly twice the picture
     const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W, height: H, crop: "disabled" });
     const loads = [`upscale_models/${input.upscaler}`];
-    const tiled = input.refine && useTiles(input, { width: W, height: H }, REFINE_MAX_PIXELS / 4) && TILE_NODES.every((n) => ctx.has(n));
-    if (!input.refine || (W * H > REFINE_MAX_PIXELS && !tiled)) {
+    const tiled = input.refine && useTiles(input, { width: W, height: H }, REFINE_WHOLE_PIXELS / 4);
+    if (!input.refine) {
       const out = g.add("PreviewImage", { images: sized });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
     }
@@ -246,22 +246,24 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     }
     g.phase("decoding");
     const out = g.add("PreviewImage", { images: picture });
+    // in tiles, the pass runs once for each tile
+    const rounds = tiled ? tilesOf({ width: W, height: H }, input).count : 1;
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: steps, passes: [{ node: sampled[0], steps }], loads: [...loads, `checkpoints/${input.checkpoint}`],
+      totalSteps: steps * rounds, passes: [{ node: sampled[0], steps: steps * rounds }], loads: [...loads, `checkpoints/${input.checkpoint}`],
     };
   },
   variants: [
     { name: "enlarged and gone over", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth" }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "only enlarged", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", refine: false }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "too large to go over whole: in tiles", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", clipSkip: 2 }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
-    { name: "too large, asked whole: only enlarged", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tiles: "Whole picture" }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
+    { name: "too large, asked whole: gone over whole", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tiles: "Whole picture" }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
   ],
 });
 
 // ---------------------------------------------------------------- fix the faces
 
-export interface SdxlFixFace extends SdxlBase, FaceSettings {
+interface SdxlFixFace extends SdxlBase, FaceSettings {
   source: string;
   prompt: string;
   detector: string;

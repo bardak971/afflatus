@@ -1,9 +1,11 @@
-import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type BuildContext, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
-import { pixelUpscale, UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
-import { CORE_VIDEO_OUT, saveVideo, VHS } from "../shared/out";
+import { CORE_VIDEO_OUT, VHS } from "../shared/out";
+import { finishFrames } from "../shared/finish";
+import { applyLoras, livePreview, loraLoads } from "../shared/model";
 
 const SMOOTH_AUTO = "Auto";
 const SMOOTH_RIFE = "RIFE (pixels)";
@@ -20,7 +22,7 @@ const REFINE_SHAPE = LTX_REFINE_SIGMAS.split(",").map((x) => Number(x) / 0.85);
  * comes down to nothing in `steps` steps. At 0.85 in 3 steps it is LTX's own, to the digit; other
  * figures follow the same curve.
  */
-export function refineSigmas(from: number, steps: number): string {
+function refineSigmas(from: number, steps: number): string {
   const shares = steps === 3 ? REFINE_SHAPE : Array.from({ length: steps + 1 }, (_x, i) => 1 - (i / steps) ** 1.75);
   return shares.map((x, i) => (i === shares.length - 1 ? "0.0" : String(Number((from * x).toFixed(4))))).join(", ");
 }
@@ -91,6 +93,146 @@ const modelOf = (input: LtxVideo, slots: Record<string, string>) => {
  * pass at full size, its pictures given as guides: the way ComfyUI's own first-and-last-frame template does it.
  */
 const uses = (input: LtxVideo, slots: Record<string, string>) => ({ twoPass: input.twoPass && Boolean(slots.upscaler) && !input.end });
+
+/** A picture as the model likes it: at the clip's size, and roughened like a frame of video. */
+function ltxFrame(g: GraphBuilder, input: LtxVideo, upload: string | undefined, w: number, h: number): Ref {
+  const sized = g.out("ImageScale", { image: g.out("LoadImage", { image: upload }), upscale_method: "lanczos", width: w, height: h, crop: "center" });
+  return g.out("LTXVPreprocess", { image: sized, img_compression: input.compression });
+}
+
+/**
+ * The model, its text encoder and its two VAEs: from files of their own or from the one checkpoint, the LoRAs and the
+ * speed-ups on it, then the distilled LoRA and the live preview. `model` samples every pass; `first` the first one.
+ */
+function ltxLoad(g: GraphBuilder, ctx: BuildContext, input: LtxVideo, picked: ReturnType<typeof modelOf>) {
+  const { slots } = ctx;
+  let model: Ref;
+  let clip: Ref;
+  let vae: Ref;
+  let audioVae: Ref;
+  if (picked.unet) {
+    model = loadUnet(g, ctx, picked.unet);
+    clip = g.out("DualCLIPLoader", { clip_name1: slots.clip, clip_name2: slots.projection, type: "ltxv", device: "default" });
+    vae = g.out("VAELoader", { vae_name: slots.videoVae });
+    audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
+  } else {
+    const loaded = g.add("CheckpointLoaderSimple", { ckpt_name: picked.checkpoint });
+    model = [loaded, 0];
+    vae = [loaded, 2];
+    audioVae = g.out("LTXVAudioVAELoader", { ckpt_name: picked.checkpoint });
+    clip = g.out("LTXAVTextEncoderLoader", { text_encoder: slots.clip, ckpt_name: picked.checkpoint, device: "default" });
+  }
+  model = faster(g, applyLoras(g, model, input.loras), input, ctx);
+  const byHand = input.schedule !== BY_STEPS;
+  // the live preview, without sound: the node plays it for H3 alone (seen on a real render: an audio VAE given here is not used)
+  const previewed = (m: Ref): Ref => livePreview(g, ctx, m, input.livePreview);
+  // the full model: with LTX's own 8 steps the distilled LoRA goes on the whole render at half strength, as
+  // ComfyUI's template has it; with By steps the dev model samples on its own schedule and the LoRA refines only
+  const lora = !picked.distilled && slots.turbo ? slots.turbo : undefined;
+  // the model without the LoRA is only sampled with when there is no LoRA, or By steps is off (the first pass runs on it)
+  const plain = lora && byHand ? null : previewed(model);
+  const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength })) : plain!;
+  return { model: boosted, first: byHand ? boosted : plain!, clip, vae, audioVae, lora };
+}
+
+/** What every pass of a render takes: the model, the conditioning, the sampler, the empty sound, the schedule of the first pass, and the passes so far. */
+interface LtxRun {
+  g: GraphBuilder;
+  ctx: BuildContext;
+  input: LtxVideo;
+  loaded: ReturnType<typeof ltxLoad>;
+  cond: string;
+  sampler: Ref;
+  sound: Ref;
+  sigmas: (latent: Ref) => Ref;
+  steps: number;
+  frame: { width: number; height: number; frames: number };
+  passes: Array<{ node: string; steps: number }>;
+}
+
+/**
+ * Two passes: the first at half the size, where the whole clip is decided, picture and sound; then the clip
+ * enlarged ×2 in latent space and refined in a few steps, the sound of the first pass kept.
+ */
+function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
+  const { g, ctx, input, loaded, cond, sampler, sound, frame, passes } = run;
+  const { vae } = loaded;
+  const { width, height, frames } = frame;
+  const w = width / 2;
+  const h = height / 2;
+  let latent: Ref = g.out("EmptyLTXVLatentVideo", { width: w, height: h, length: frames, batch_size: 1 });
+  if (input.start) latent = g.out("LTXVImgToVideoInplace", { vae, image: ltxFrame(g, input, ctx.uploads.start, w, h), latent, strength: input.startStrength, bypass: false });
+  g.phase("sampling");
+  const first = g.add("SamplerCustomAdvanced", {
+    noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
+    guider: g.out("CFGGuider", { model: loaded.first, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
+    sampler, sigmas: run.sigmas(latent),
+    latent_image: g.out("LTXVConcatAVLatent", { video_latent: latent, audio_latent: sound }),
+  });
+  passes.push({ node: first, steps: run.steps });
+  const made = g.add("LTXVSeparateAVLatent", { av_latent: [first, 0] });
+
+  g.phase("upscaling");
+  let large: Ref = g.out("LTXVLatentUpsampler", { samples: [made, 0], upscale_model: g.out("LatentUpscaleModelLoader", { model_name: ctx.slots.upscaler }), vae });
+  // the opening picture again, at full size and at full strength: the first frame is the picture itself
+  if (input.start) large = g.out("LTXVImgToVideoInplace", { vae, image: ltxFrame(g, input, ctx.uploads.start, width, height), latent: large, strength: 1, bypass: false });
+  g.phase("refining");
+  const refine = input.refineSteps;
+  const second = g.add("SamplerCustomAdvanced", {
+    noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
+    guider: g.out("CFGGuider", { model: loaded.model, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
+    sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(input.refineStrength, refine) }),
+    latent_image: g.out("LTXVConcatAVLatent", { video_latent: large, audio_latent: [made, 1] }),
+  });
+  passes.push({ node: second, steps: refine });
+  const done = g.add("LTXVSeparateAVLatent", { av_latent: [second, 0] });
+  return { video: [done, 0], audio: [done, 1] };
+}
+
+/** One pass at full size, the pictures given as guides at the first and the last frame. */
+function ltxOnePass(run: LtxRun): { video: Ref; audio: Ref } {
+  const { g, ctx, input, loaded, cond, sampler, sound, frame, passes } = run;
+  const { width, height, frames } = frame;
+  let positive: Ref = [cond, 0];
+  let negative: Ref = [cond, 1];
+  let latent: Ref = g.out("EmptyLTXVLatentVideo", { width, height, length: frames, batch_size: 1 });
+  const guide = (upload: string | undefined, at: number, strength: number) => {
+    const added = g.add("LTXVAddGuide", { positive, negative, vae: loaded.vae, latent, image: ltxFrame(g, input, upload, width, height), frame_idx: at, strength });
+    positive = [added, 0];
+    negative = [added, 1];
+    latent = [added, 2];
+  };
+  if (input.start) guide(ctx.uploads.start, 0, input.startStrength);
+  if (input.end) guide(ctx.uploads.end, -1, input.endStrength);
+  const guided = Boolean(input.start || input.end);
+  g.phase("sampling");
+  const only = g.add("SamplerCustomAdvanced", {
+    noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
+    guider: g.out("CFGGuider", { model: loaded.model, positive, negative, cfg: input.cfg }),
+    sampler, sigmas: run.sigmas(latent),
+    latent_image: g.out("LTXVConcatAVLatent", { video_latent: latent, audio_latent: sound }),
+  });
+  passes.push({ node: only, steps: run.steps });
+  const done = g.add("LTXVSeparateAVLatent", { av_latent: [only, 0] });
+  // the guides are frames added to the clip: they are taken out again before it is decoded
+  return { video: guided ? [g.add("LTXVCropGuides", { positive, negative, latent: [done, 0] }), 2] : [done, 0], audio: [done, 1] };
+}
+
+/** Twice the frames with LTX's temporal upscaler: the latent's frames doubled (the sound untouched), then a short pass settles them. */
+function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Ref; audio: Ref } {
+  const { g, ctx, input, loaded, cond, sampler, passes } = run;
+  g.phase("interpolating");
+  const doubled = g.out("LTXVLatentUpsampler", { samples: made.video, upscale_model: g.out("LatentUpscaleModelLoader", { model_name: ctx.slots.temporal }), vae: loaded.vae });
+  const settled = g.add("SamplerCustomAdvanced", {
+    noise: g.out("RandomNoise", { noise_seed: ctx.seed + 2 }),
+    guider: g.out("CFGGuider", { model: loaded.model, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
+    sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(0.5, 2) }),
+    latent_image: g.out("LTXVConcatAVLatent", { video_latent: doubled, audio_latent: made.audio }),
+  });
+  passes.push({ node: settled, steps: 2 });
+  const apart = g.add("LTXVSeparateAVLatent", { av_latent: [settled, 0] });
+  return { video: [apart, 0], audio: [apart, 1] };
+}
 
 export const ltxVideo = defineRecipe<LtxVideo>({
   id: "ltx.video",
@@ -205,7 +347,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
   ],
 
   build(input, ctx) {
-    const { slots, uploads, media } = ctx;
+    const { slots, media } = ctx;
     const picked = modelOf(input, slots);
     const how = uses(input, slots);
     if (!picked.unet && !picked.checkpoint) throw new Error("LTX 2.3 was not found: put its checkpoint in ComfyUI's models/checkpoints folder, or a diffusion model in models/diffusion_models with its two VAEs and its text projection.");
@@ -223,177 +365,49 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     const frames = ltxFrames(input.seconds);
 
     const g = new GraphBuilder();
-    let model: Ref;
-    let clip: Ref;
-    let vae: Ref;
-    let audioVae: Ref;
-    if (picked.unet) {
-      model = loadUnet(g, ctx, picked.unet);
-      clip = g.out("DualCLIPLoader", { clip_name1: slots.clip, clip_name2: slots.projection, type: "ltxv", device: "default" });
-      vae = g.out("VAELoader", { vae_name: slots.videoVae });
-      audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
-    } else {
-      const loaded = g.add("CheckpointLoaderSimple", { ckpt_name: picked.checkpoint });
-      model = [loaded, 0];
-      vae = [loaded, 2];
-      audioVae = g.out("LTXVAudioVAELoader", { ckpt_name: picked.checkpoint });
-      clip = g.out("LTXAVTextEncoderLoader", { text_encoder: slots.clip, ckpt_name: picked.checkpoint, device: "default" });
-    }
-    for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
-    model = faster(g, model, input, ctx);
+    const loaded = ltxLoad(g, ctx, input, picked);
     const byHand = input.schedule !== BY_STEPS;
-    // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is
-    // there), sent as a short clip. ComfyUI's own preview is the first frame alone. No sound: the node
-    // plays it for H3 alone (seen on a real render: an audio VAE given here is not used)
-    const previewed = (m: Ref): Ref => (input.livePreview && ctx.has("ModelPreviewOverrideKJ")
-      ? g.out("ModelPreviewOverrideKJ", { model: m, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12, tiny_vae: slots.tinyVae ?? "none" })
-      : m);
-    // the full model: with LTX's own 8 steps the distilled LoRA goes on the whole render at half strength, as
-    // ComfyUI's template has it; with By steps the dev model samples on its own schedule and the LoRA refines only
-    const lora = !picked.distilled && slots.turbo ? slots.turbo : undefined;
-    // the model without the LoRA is only sampled with when there is no LoRA, or By steps is off (the first pass runs on it)
-    const plain = lora && byHand ? null : previewed(model);
-    const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength })) : plain!;
-    const firstModel = byHand ? boosted : plain!;
-    model = boosted;
     const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
-    // By steps: LTX's own scheduler, shifted by the size of the latent it is given
-    const sigmas = (latent: Ref) => (byHand ? g.out("ManualSigmas", { sigmas: LTX_SIGMAS }) : g.out("LTXVScheduler", { steps, max_shift: input.maxShift, base_shift: input.baseShift, stretch: input.stretch, terminal: input.terminal, latent }));
-
     const cond = g.add("LTXVConditioning", {
-      positive: g.out("CLIPTextEncode", { clip, text: input.prompt }),
-      negative: g.out("CLIPTextEncode", { clip, text: input.negative }),
+      positive: g.out("CLIPTextEncode", { clip: loaded.clip, text: input.prompt }),
+      negative: g.out("CLIPTextEncode", { clip: loaded.clip, text: input.negative }),
       frame_rate: LTX_FPS,
     });
-    // a picture as the model likes it: at the clip's size, and roughened like a frame of video
-    const frame = (upload: string | undefined, w: number, h: number): Ref => {
-      const sized = g.out("ImageScale", { image: g.out("LoadImage", { image: upload }), upscale_method: "lanczos", width: w, height: h, crop: "center" });
-      return g.out("LTXVPreprocess", { image: sized, img_compression: input.compression });
+    const run: LtxRun = {
+      g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [],
+      sampler: g.out("KSamplerSelect", { sampler_name: input.sampler }),
+      sound: g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: LTX_FPS, batch_size: 1, audio_vae: loaded.audioVae }),
+      // By steps: LTX's own scheduler, shifted by the size of the latent it is given
+      sigmas: (latent) => (byHand ? g.out("ManualSigmas", { sigmas: LTX_SIGMAS }) : g.out("LTXVScheduler", { steps, max_shift: input.maxShift, base_shift: input.baseShift, stretch: input.stretch, terminal: input.terminal, latent })),
     };
-    const sampler = g.out("KSamplerSelect", { sampler_name: input.sampler });
-    const sound = g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: LTX_FPS, batch_size: 1, audio_vae: audioVae });
+    let made = how.twoPass ? ltxTwoPass(run) : ltxOnePass(run);
 
-    let video: Ref;
-    let audio: Ref;
-    const passes: Array<{ node: string; steps: number }> = [];
-    if (how.twoPass) {
-      // ---- first pass at half the size: the whole clip is decided here, picture and sound
-      const w = width / 2;
-      const h = height / 2;
-      let latent: Ref = g.out("EmptyLTXVLatentVideo", { width: w, height: h, length: frames, batch_size: 1 });
-      if (input.start) latent = g.out("LTXVImgToVideoInplace", { vae, image: frame(uploads.start, w, h), latent, strength: input.startStrength, bypass: false });
-      g.phase("sampling");
-      const first = g.add("SamplerCustomAdvanced", {
-        noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
-        guider: g.out("CFGGuider", { model: firstModel, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
-        sampler, sigmas: sigmas(latent),
-        latent_image: g.out("LTXVConcatAVLatent", { video_latent: latent, audio_latent: sound }),
-      });
-      passes.push({ node: first, steps });
-      const made = g.add("LTXVSeparateAVLatent", { av_latent: [first, 0] });
-
-      // ---- enlarged ×2 in latent space, then 3 steps that refine it; the sound of the first pass is kept
-      g.phase("upscaling");
-      let large: Ref = g.out("LTXVLatentUpsampler", { samples: [made, 0], upscale_model: g.out("LatentUpscaleModelLoader", { model_name: slots.upscaler }), vae });
-      // the opening picture again, at full size and at full strength: the first frame is the picture itself
-      if (input.start) large = g.out("LTXVImgToVideoInplace", { vae, image: frame(uploads.start, width, height), latent: large, strength: 1, bypass: false });
-      g.phase("refining");
-      const refine = input.refineSteps;
-      const second = g.add("SamplerCustomAdvanced", {
-        noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
-        guider: g.out("CFGGuider", { model, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
-        sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(input.refineStrength, refine) }),
-        latent_image: g.out("LTXVConcatAVLatent", { video_latent: large, audio_latent: [made, 1] }),
-      });
-      passes.push({ node: second, steps: refine });
-      const done = g.add("LTXVSeparateAVLatent", { av_latent: [second, 0] });
-      video = [done, 0];
-      audio = [done, 1];
-    } else {
-      // ---- one pass at full size, the pictures given as guides at the first and the last frame
-      let positive: Ref = [cond, 0];
-      let negative: Ref = [cond, 1];
-      let latent: Ref = g.out("EmptyLTXVLatentVideo", { width, height, length: frames, batch_size: 1 });
-      const guide = (upload: string | undefined, at: number, strength: number) => {
-        const added = g.add("LTXVAddGuide", { positive, negative, vae, latent, image: frame(upload, width, height), frame_idx: at, strength });
-        positive = [added, 0];
-        negative = [added, 1];
-        latent = [added, 2];
-      };
-      if (input.start) guide(uploads.start, 0, input.startStrength);
-      if (input.end) guide(uploads.end, -1, input.endStrength);
-      const guided = Boolean(input.start || input.end);
-      g.phase("sampling");
-      const only = g.add("SamplerCustomAdvanced", {
-        noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
-        guider: g.out("CFGGuider", { model, positive, negative, cfg: input.cfg }),
-        sampler, sigmas: sigmas(latent),
-        latent_image: g.out("LTXVConcatAVLatent", { video_latent: latent, audio_latent: sound }),
-      });
-      passes.push({ node: only, steps });
-      const done = g.add("LTXVSeparateAVLatent", { av_latent: [only, 0] });
-      // the guides are frames added to the clip: they are taken out again before it is decoded
-      video = guided ? [g.add("LTXVCropGuides", { positive, negative, latent: [done, 0] }), 2] : [done, 0];
-      audio = [done, 1];
-    }
-
-    // twice the frames: LTX's temporal upscaler doubles the latent's frames (the sound is untouched), then a
-    // short pass settles them; else RIFE on the decoded pictures
+    // twice the frames: LTX's temporal upscaler doubles the latent's frames; else RIFE on the decoded pictures
     const canTemporal = Boolean(slots.temporal) && ctx.has("LTXVLatentUpsampler") && ctx.has("LatentUpscaleModelLoader");
     if (input.smooth && input.smoothWith === SMOOTH_LTX && !canTemporal) throw new Error("LTX's temporal upscaler was not found: put ltx-2.3-temporal-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder (one click in Settings → Models), or interpolate with RIFE.");
     // Auto with SeedVR2: RIFE after it, not the latent doubling before it (SeedVR2 would restore twice the frames); asked for, as asked
     const temporal = input.smooth && input.smoothWith !== SMOOTH_RIFE && canTemporal && !(input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr);
-    if (temporal) {
-      g.phase("interpolating");
-      const doubled = g.out("LTXVLatentUpsampler", { samples: video, upscale_model: g.out("LatentUpscaleModelLoader", { model_name: slots.temporal }), vae });
-      const settled = g.add("SamplerCustomAdvanced", {
-        noise: g.out("RandomNoise", { noise_seed: ctx.seed + 2 }),
-        guider: g.out("CFGGuider", { model, positive: [cond, 0], negative: [cond, 1], cfg: input.cfg }),
-        sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(0.5, 2) }),
-        latent_image: g.out("LTXVConcatAVLatent", { video_latent: doubled, audio_latent: audio }),
-      });
-      passes.push({ node: settled, steps: 2 });
-      const apart = g.add("LTXVSeparateAVLatent", { av_latent: [settled, 0] });
-      video = [apart, 0];
-      audio = [apart, 1];
-    }
+    if (temporal) made = ltxTemporal(run, made);
     g.phase("decoding");
-    let images = g.out("VAEDecodeTiled", { samples: video, vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: 4 });
-    const heard = g.out("LTXVAudioVAEDecode", { samples: audio, audio_vae: audioVae });
-    // SeedVR2 goes before the frame interpolation (its cost grows with the frame count; RIFE's is small); the
-    // other pixel routes after it, on the final frames
-    // (and an upscale model: frame by frame, its cost grows with the frames, and it would enlarge RIFE's made-up frames too)
-    const early = input.upscale === UPSCALE.seedvr || input.upscale === UPSCALE.model;
-    const pixel = early ? pixelUpscale(g, images, input, { width, height }, ctx) : null;
-    if (pixel) images = pixel.images;
-    const rife = input.smooth && !temporal && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
-    if (rife) {
-      g.phase("interpolating");
-      images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
-    }
-    const smooth = temporal || rife;
-    const late = pixel ?? pixelUpscale(g, images, input, { width, height }, ctx);
-    // the route ran before the interpolation already: its frames were interpolated above (taken again here, the interpolation was
-    // lost and the file, saved at twice the rate, played twice as fast)
-    if (!pixel) images = late.images;
-    g.phase("encoding");
-    const out = saveVideo(g, ctx, { images, audio: heard, fps: smooth ? LTX_FPS * 2 : LTX_FPS, crf: input.crf });
+    const images = g.out("VAEDecodeTiled", { samples: made.video, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: 4 });
+    const heard = g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
+    const done = finishFrames(g, ctx, images, input, { frame: { width, height }, rife: input.smooth && !temporal, fps: LTX_FPS, audio: heard, doubled: temporal });
 
     return {
       graph: g.graph,
       phases: g.phases,
-      outputs: [{ node: out, kind: "video", role: "result" }],
-      totalSteps: passes.reduce((n, p) => n + p.steps, 0),
-      passes,
+      outputs: [{ node: done.out, kind: "video", role: "result" }],
+      totalSteps: run.passes.reduce((n, p) => n + p.steps, 0),
+      passes: run.passes,
       loads: [
-        ...late.loads,
+        ...done.loads,
         ...(picked.unet
           ? [`diffusion_models/${picked.unet}`, `text_encoders/${slots.clip}`, `text_encoders/${slots.projection}`, `vae/${slots.videoVae}`, `vae/${slots.audioVae}`]
           : [`checkpoints/${picked.checkpoint}`, `text_encoders/${slots.clip}`]),
         ...(how.twoPass ? [`latent_upscale_models/${slots.upscaler}`] : []),
         ...(temporal ? [`latent_upscale_models/${slots.temporal}`] : []),
-        ...(lora ? [`loras/${lora}`] : []),
-        ...input.loras.filter((l) => l.weight !== 0).map((l) => `loras/${l.file}`),
+        ...(loaded.lora ? [`loras/${loaded.lora}`] : []),
+        ...loraLoads(input.loras),
       ],
     };
   },

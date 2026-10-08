@@ -1,4 +1,5 @@
 import { type BuildContext, type GraphBuilder, type Ref } from "@afflatus/core";
+import { applyLoras, livePreview } from "../shared/model";
 import { loadUnet } from "../shared/unet";
 import type { H3Video } from "./inputs";
 
@@ -6,7 +7,7 @@ import type { H3Video } from "./inputs";
 export const AUTO_SAMPLER = "Auto";
 
 /** What a model other than the usual one is, as far as its file name says: fine-tunes are named for it ("…HybridTurboV3"). */
-export const namedFor = { turbo: /turbo|distill|lightning|(^|[^a-z0-9])\d+[ _-]?steps?/i, hybrid: /hybrid/i };
+const namedFor = { turbo: /turbo|distill|lightning|(^|[^a-z0-9])\d+[ _-]?steps?/i, hybrid: /hybrid/i };
 
 /**
  * The model the clip is made with, and what it is. The usual files are MiniMax's own: one model for
@@ -20,7 +21,7 @@ export const modelOf = (input: H3Video, slots: Record<string, string>) => {
   const is = (said: string, named: RegExp) => said === "Yes" || (said !== "No" && named.test(name));
   return { file, turbo: is(input.turboIn, namedFor.turbo), hybrid: is(input.hybrid, namedFor.hybrid) };
 };
-export type H3Model = ReturnType<typeof modelOf>;
+type H3Model = ReturnType<typeof modelOf>;
 
 /**
  * Which way the clip is made. With reference pictures or a voice, the reference model is used: the
@@ -66,19 +67,11 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
   if (ctx.has("ModelPatchTorchSettings")) model = g.out("ModelPatchTorchSettings", { model, enable_fp16_accumulation: true });
   if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: 1 });
-  for (const l of input.loras) {
-    if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
-  }
+  model = applyLoras(g, model, input.loras);
   // the shifts typed in, else the ones that suit the steps: the turbo LoRAs were trained at 12/3 (8 steps) and 6/3 (4 steps)
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo > 0 ? input.shiftVideo : turbo ? (turboSteps <= 4 ? 6 : 12) : 11, shift_audio: input.shiftAudio > 0 ? input.shiftAudio : turbo ? 3 : 4 });
-  // the live preview: each step, a few frames of the latent decoded small (with the tiny VAE when it is there)
-  // and the sound so far, sent as a short clip to whoever queued the prompt: what ComfyUI itself shows
-  if (input.livePreview && ctx.has("ModelPreviewOverrideKJ")) {
-    model = g.out("ModelPreviewOverrideKJ", {
-      model, max_resolution: 512, jpeg_quality: 75, suppress_default_preview: true, preview_frames: 16, preview_fps: 12,
-      tiny_vae: slots.tinyVae ?? "none", audio_vae: audioVae,
-    });
-  }
+  // the live preview, with the sound so far, sent to whoever queued the prompt: what ComfyUI itself shows
+  model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
   const steps = lora || (distilled && input.fast) ? turboSteps : input.steps;
   return { model, turbo, steps, lora, distilled, unet };

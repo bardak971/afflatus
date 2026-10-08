@@ -6,7 +6,7 @@ import { z } from "zod";
  */
 
 /** Show this input only when another one is on (a toggle) or has one of these values. */
-export type ShowWhen = string | { input: string; in: unknown[] };
+type ShowWhen = string | { input: string; in: unknown[] };
 
 interface Base {
   id: string;
@@ -31,7 +31,7 @@ interface Base {
   chapter?: string;
 }
 
-export interface PromptInput extends Base {
+interface PromptInput extends Base {
   type: "prompt";
   /** How this family reads text: comma-separated tags, or plain sentences. */
   style: "tags" | "sentences";
@@ -54,7 +54,7 @@ export interface PromptInput extends Base {
    */
   weights?: boolean;
 }
-export interface ModelInput extends Base {
+interface ModelInput extends Base {
   type: "model";
   /** ComfyUI model folder the file is picked from ("checkpoints", "diffusion_models", …). */
   folder: string;
@@ -71,13 +71,13 @@ export interface ModelInput extends Base {
   /** The file to start on, when there is no slot: an imported workflow's own. Left out, it means this file. */
   default?: string;
 }
-export interface LorasInput extends Base {
+interface LorasInput extends Base {
   type: "loras";
   max: number;
   /** The LoRAs the list starts with (the ones an imported workflow came with). */
   default?: LoraValue[];
 }
-export interface SizeInput extends Base {
+interface SizeInput extends Base {
   type: "size";
   shapes: Array<{ id: string; label: string; width: number; height: number }>;
   default: string;
@@ -98,7 +98,7 @@ export interface SizeInput extends Base {
   /** A pass that enlarges what comes out: the toggle that turns it on and the number it multiplies by, so the form can say the final frame. */
   scaledBy?: { on: string; by: string };
 }
-export interface NumberInput extends Base {
+interface NumberInput extends Base {
   type: "number";
   min: number;
   max: number;
@@ -108,7 +108,7 @@ export interface NumberInput extends Base {
   /** Values offered as one click under the slider (the usual resolutions), the number staying typeable. */
   picks?: number[];
 }
-export interface ToggleInput extends Base {
+interface ToggleInput extends Base {
   type: "toggle";
   default: boolean;
   /** When the switch is a choice between two named things rather than on and off. */
@@ -129,10 +129,10 @@ export interface ChoiceInput extends Base {
    */
   prefer?: string[];
 }
-export interface SeedInput extends Base {
+interface SeedInput extends Base {
   type: "seed";
 }
-export interface ImageInput extends Base {
+interface ImageInput extends Base {
   type: "image";
   /** "mid": a picture the clip passes through, at the moment the number input named by `at` says. "guide": one the result follows the shapes of (a ControlNet's), not one it is made from. */
   role: "source" | "start" | "end" | "mid" | "mask" | "guide";
@@ -150,7 +150,7 @@ export interface ImageInput extends Base {
  * a few frames at `fps`, with their sound. For "previous" they are the last ones before the chosen moment
  * (the new clip carries on from there); for "next" the first ones from it (the new clip arrives there).
  */
-export interface ClipInput extends Base {
+interface ClipInput extends Base {
   type: "clip";
   /** "source": a video the recipe works on (an upscale, a video-to-video), taken whole: no moment, no join. */
   role: "previous" | "next" | "source";
@@ -176,7 +176,7 @@ export type ReferenceRole = (typeof REFERENCE_ROLES)[number];
  * Several pictures the result has to follow without them being frames of it: who is in it, where it
  * is, what is worn. Each says what it shows; the recipe says which of those it can use.
  */
-export interface ReferencesInput extends Base {
+interface ReferencesInput extends Base {
   type: "references";
   max: number;
   roles: ReferenceRole[];
@@ -190,7 +190,7 @@ export interface ReferenceValue {
 }
 
 /** A sound from the library (or a video that has sound): a voice to speak with, a sound to follow. */
-export interface AudioInput extends Base {
+interface AudioInput extends Base {
   type: "audio";
   role: "voice" | "sound";
   optional?: boolean;
@@ -243,8 +243,11 @@ function schemaOf(spec: InputSpec): z.ZodType {
       const edge = z.number().min(spec.min).max(spec.max).transform((n) => multipleOf(n, spec.grid));
       return z.object({ width: edge, height: edge }).default({ width: shape.width, height: shape.height });
     }
-    case "number":
-      return z.number().min(spec.min).max(spec.max).default(spec.default);
+    case "number": {
+      // a whole step from a whole start (steps, frames, a resolution): what takes it is an INT, which refuses 7.5
+      const whole = [spec.step, spec.min, spec.default].every(Number.isInteger);
+      return (whole ? z.number().int() : z.number()).min(spec.min).max(spec.max).default(spec.default);
+    }
     case "toggle":
       return z.boolean().default(spec.default);
     case "choice":

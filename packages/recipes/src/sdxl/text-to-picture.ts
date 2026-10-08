@@ -1,9 +1,9 @@
-import { defineRecipe, GraphBuilder, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
-import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, PREDICTION_INPUTS, PREDICTION_NODES, round8, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
+import { defineRecipe, GraphBuilder, roundTo, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
+import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, PREDICTION_INPUTS, PREDICTION_NODES, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
 import { DEFAULT_NEGATIVE, SDXL_UNION } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, guideInputs, guideNodes, type GuideSettings } from "../shared/guide";
-import { redrawInTiles, tileInputs, tileNodes, TILES_ON, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
 
 export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings {
@@ -32,7 +32,7 @@ export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSe
 }
 
 /** The hi-res pass can enlarge in latent space (no extra model) or through an upscale model. */
-export const LATENT_UPSCALE = "latent";
+const LATENT_UPSCALE = "latent";
 
 export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
   id: "sdxl.text-to-picture",
@@ -84,8 +84,8 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
   optionalNodes: DETAIL_OPTIONAL,
 
   nodes(input) {
-    const W2 = round8(round8(input.size.width) * input.hiresScale);
-    const H2 = round8(round8(input.size.height) * input.hiresScale);
+    const W2 = roundTo(roundTo(input.size.width, 8, 64) * input.hiresScale, 8, 64);
+    const H2 = roundTo(roundTo(input.size.height, 8, 64) * input.hiresScale, 8, 64);
     const tiled = input.hires && useTiles(input, { width: W2, height: H2 }, SDXL_AREA);
     return [
       ...detailNodes(input),
@@ -108,8 +108,8 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     const g = new GraphBuilder();
     const loaded = loadSdxl(g, input, input.prompt);
     const { model, vae } = loaded;
-    const W = round8(input.size.width);
-    const H = round8(input.size.height);
+    const W = roundTo(input.size.width, 8, 64);
+    const H = roundTo(input.size.height, 8, 64);
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
     // a guide picture holds the shapes of the picture drawn whole; tiles are pieces, redrawn from the text alone
     const guided = applyGuide(g, ctx, { positive: loaded.positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
@@ -120,8 +120,8 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     let totalSteps = input.steps;
     const passes = [{ node: latent[0], steps: input.steps }];
 
-    const W2 = round8(W * input.hiresScale);
-    const H2 = round8(H * input.hiresScale);
+    const W2 = roundTo(W * input.hiresScale, 8, 64);
+    const H2 = roundTo(H * input.hiresScale, 8, 64);
     let image: Ref | null = null;
     if (input.hires && useTiles(input, { width: W2, height: H2 }, SDXL_AREA)) {
       g.phase("upscaling");
@@ -136,8 +136,10 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
         tileSampler = out[0];
         return out;
       });
-      totalSteps += input.hiresSteps;
-      passes.push({ node: tileSampler, steps: input.hiresSteps });
+      // the pass runs once for each tile
+      const rounds = input.hiresSteps * tilesOf({ width: W2, height: H2 }, input).count;
+      totalSteps += rounds;
+      passes.push({ node: tileSampler, steps: rounds });
     } else if (input.hires) {
       g.phase("upscaling");
       let enlarged: Ref;

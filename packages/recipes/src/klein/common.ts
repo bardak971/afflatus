@@ -1,6 +1,5 @@
-import type { BuildContext, GraphBuilder, InputSpec, LoraValue, Phase, ReferenceValue, Ref } from "@afflatus/core";
+import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type ReferenceValue, type Ref } from "@afflatus/core";
 import { detailModel, detailSampler, sharpenRange, usesDaemon, type DetailSettings } from "../shared/detail";
-import { roundTo } from "../shared/round";
 import { loadUnet, unetNodes } from "../shared/unet";
 
 /** What every Klein recipe asks for besides its own inputs. */

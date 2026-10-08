@@ -1,9 +1,13 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
-import { crc32, deflateSync } from "node:zlib";
-import { WebSocketServer } from "ws";
 import type { Graph, NodeCatalog } from "@afflatus/core";
 import type { HistoryEntry } from "./client";
+import { fakeManager } from "./fake/manager";
+import { fakeRoutes } from "./fake/routes";
+import { fakeSimulate } from "./fake/simulate";
+import { fakeSockets } from "./fake/sockets";
+
+export { makePng } from "./fake/png";
 
 /**
  * A stand-in for ComfyUI's HTTP API, for tests: enough of it to exercise the client, the capabilities
@@ -27,12 +31,14 @@ export interface FakeComfy {
   uploads: string[];
   /** The bytes of each uploaded file, by the name it was uploaded under. */
   uploaded: Record<string, Uint8Array>;
-  /** The bodies of the node pack's input-folder cleanups asked for (POST /afflatus/clean-input). */
+  /** The bodies of the node pack's cleanups asked for (POST /afflatus/clean-input): the input folder's, or with `folder: "output"` the output folder's. */
   cleaned: unknown[];
   /** What model files say about themselves, by "<folder>/<file>". A file not listed has no header. */
   metadata: Record<string, Record<string, unknown>>;
   /** Whole headers (metadata and tensors) by "<folder>/<file>", served by the node pack's route when the pack is pretended to be there (`headers` set at all). */
   headers: Record<string, Record<string, unknown>> | null;
+  /** The version the pretend Afflatus node pack answers on GET /afflatus/version; null: no pack loaded (404). */
+  packVersion: string | null;
   /** Client ids of the websockets that connected, in order. */
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */
@@ -43,59 +49,34 @@ export interface FakeComfy {
   reboots: number;
   /** Files written into ComfyUI's user data, by path ("workflows/afflatus/x.json"). */
   userdata: Record<string, unknown>;
-  /** Broadcast a websocket message to every connected client, as ComfyUI does. */
-  send(type: string, data: unknown): void;
-  /** Broadcast a binary frame (a live preview). */
+  /**
+   * Send a websocket message as ComfyUI does: one about a prompt goes only to the client that queued it (every
+   * client when it was queued without a client id, or is not known here); a preview without a prompt id goes to
+   * the client of the prompt running; anything else (a load snapshot, a status) to everyone. `to` sends it to that client id alone.
+   */
+  send(type: string, data: unknown, to?: string): void;
+  /** A binary frame (a live preview): to the client of the prompt running, as ComfyUI does. */
   sendBinary(bytes: Uint8Array): void;
+  /** Cut every websocket, as a ComfyUI restart or a network blip does; the clients may connect again. */
+  dropSockets(): void;
   close(): Promise<void>;
 }
 
-const body = async (req: IncomingMessage) => {
-  const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  return Buffer.concat(chunks);
-};
+/** What the parts of the fake share: everything but its address and its own methods. */
+export type FakeState = Omit<FakeComfy, "url" | "close" | "send" | "sendBinary" | "dropSockets">;
 
-/** A real PNG, a soft vertical blend between two colours: something to look at without a GPU. */
-export function makePng(width: number, height: number, top: [number, number, number], bottom: [number, number, number]): Uint8Array {
-  const raw = Buffer.alloc((width * 3 + 1) * height);
-  for (let y = 0; y < height; y++) {
-    const t = height > 1 ? y / (height - 1) : 0;
-    const rgb = [0, 1, 2].map((i) => Math.round(top[i]! + (bottom[i]! - top[i]!) * t));
-    const row = y * (width * 3 + 1);
-    for (let x = 0; x < width; x++) {
-      // a faint diagonal band so that it does not read as a flat fill
-      const band = (x + y) % 96 < 48 ? 6 : 0;
-      raw[row + 1 + x * 3] = Math.min(255, rgb[0]! + band);
-      raw[row + 2 + x * 3] = Math.min(255, rgb[1]! + band);
-      raw[row + 3 + x * 3] = Math.min(255, rgb[2]! + band);
-    }
-  }
-  const chunk = (type: string, data: Buffer) => {
-    const out = Buffer.alloc(12 + data.length);
-    out.writeUInt32BE(data.length, 0);
-    out.write(type, 4, "latin1");
-    data.copy(out, 8);
-    out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
-    return out;
-  };
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
-  header.set([8, 2, 0, 0, 0], 8); // 8 bits per channel, RGB
-  return new Uint8Array(Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", header), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0)),
-  ]));
-}
-
-/** A colour from a seed, so that different seeds give visibly different pictures. */
-function tint(seed: number, shift: number): [number, number, number] {
-  const h = ((seed * 0.618033988749895 + shift) % 1) * 6;
-  const c = 90, m = 40;
-  const x = c * (1 - Math.abs((h % 2) - 1));
-  const [r, g, b] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
-  return [Math.round(r + m), Math.round(g + m), Math.round(b + m)];
+/** One request as the fake's parts see it: a part answers it and says true, or leaves it to the next. */
+export interface FakeRequest {
+  method: string;
+  path: string;
+  url: URL;
+  headers: IncomingMessage["headers"];
+  /** The body, read whole. */
+  raw: Buffer;
+  /** Answer it (true: the request is answered). */
+  json(status: number, value: unknown): true;
+  /** A plain answer: a status and an optional text. */
+  plain(status: number, text?: string | Uint8Array, type?: string): true;
 }
 
 export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">> {
@@ -123,298 +104,58 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">>
   };
 }
 
+const body = async (req: IncomingMessage) => {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  return Buffer.concat(chunks);
+};
+
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
-  const fake: Omit<FakeComfy, "url" | "close" | "send" | "sendBinary"> = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploaded: {}, cleaned: [], metadata: {}, headers: null, sockets: [], installed: [], packs: [], reboots: 0, userdata: {},
+  const fake: FakeState = {
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], packs: [], reboots: 0, userdata: {},
     catalog: init.catalog ?? {},
     models: init.models ?? {},
   };
-  let n = 0;
-  // ---- pretend ComfyUI-Manager (init.manager)
-  const MANAGER_FOLDER: Record<string, string> = {
-    checkpoints: "checkpoints", checkpoint: "checkpoints", lora: "loras", vae: "vae", clip: "text_encoders", text_encoders: "text_encoders",
-    unet: "diffusion_models", diffusion_model: "diffusion_models", upscale: "upscale_models", controlnet: "controlnet", clip_vision: "clip_vision", embedding: "embeddings",
-  };
-  let installs: Array<{ type: string; save_path: string; url: string; filename: string }> = [];
-  type Task = { ui_id: string; client_id: string; kind: string; params: { id: string; version: string; repository?: string } };
-  let tasks: Task[] = [];
-  const history: Record<string, { ui_id: string; client_id: string; kind: string; timestamp: string; result: string; status: { status_str: string; completed: boolean; messages: string[] } }> = {};
-  const runTask = (t: Task) => {
-    const failed = init.packsFail?.includes(t.params.id);
-    if (!failed) fake.packs.push(t.params);
-    history[t.ui_id] = {
-      ui_id: t.ui_id, client_id: t.client_id, kind: t.kind, timestamp: new Date().toISOString(),
-      result: failed ? `Cannot resolve install target: '${t.params.id}@${t.params.version}'` : "success",
-      status: { status_str: failed ? "failed" : "success", completed: true, messages: [] },
-    };
-  };
-  const install = async (task: (typeof installs)[number]) => {
-    const got = await fetch(task.url).catch(() => null);
-    if (!got?.ok) return;
-    // a download cut off half way leaves nothing: the real one only writes a file it has all of
-    const whole = await got.arrayBuffer().catch(() => null);
-    if (!whole) return;
-    const bytes = whole.byteLength;
-    const [folder, ...sub] = task.save_path === "default" ? [MANAGER_FOLDER[task.type.toLowerCase()] ?? "etc"] : task.save_path.split("/");
-    const file = [...sub, task.filename].join("\\");
-    (fake.models[folder!] ??= []).push(file);
-    fake.installed.push({ folder: folder!, file, bytes });
-    // the loaders of that folder offer it from now on, when they list files at all
-    const loader = ({ checkpoints: ["CheckpointLoaderSimple", "ckpt_name"], diffusion_models: ["UNETLoader", "unet_name"], loras: ["LoraLoader", "lora_name"], vae: ["VAELoader", "vae_name"], text_encoders: ["CLIPLoader", "clip_name"] } as Record<string, [string, string]>)[folder!];
-    const spec = loader && (fake.catalog[loader[0]]?.input.required?.[loader[1]] as unknown[] | undefined);
-    const list = Array.isArray(spec?.[0]) ? (spec![0] as string[]) : (spec?.[1] as { options?: string[] } | undefined)?.options;
-    if (list?.length) list.push(file);
-  };
-  const server: Server = createServer(async (req, res) => {
+  // the parts answer in turn: Manager's routes, then ComfyUI's own and the node pack's
+  let simulate: ReturnType<typeof fakeSimulate> | null = null;
+  const parts = [
+    fakeManager(fake, init),
+    fakeRoutes(fake, { queued: (id, clientId) => { sockets.own(id, clientId); simulate?.start(id); } }),
+  ];
+  const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake");
-    const path = url.pathname;
-    fake.calls.push(`${req.method} ${path}`);
-    const json = (status: number, value: unknown) => {
-      res.writeHead(status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(value));
+    const method = req.method ?? "GET";
+    fake.calls.push(`${method} ${url.pathname}`);
+    const r: FakeRequest = {
+      method, path: url.pathname, url, headers: req.headers, raw: await body(req),
+      json: (status, value) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(value));
+        return true;
+      },
+      plain: (status, text, type) => {
+        res.writeHead(status, type ? { "Content-Type": type } : {});
+        res.end(text);
+        return true;
+      },
     };
-    if (req.method === "GET") {
-      if (path === "/system_stats") {
-        return json(200, { system: { comfyui_version: "0.0.0-fake" }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
-      }
-      if (path === "/v2/customnode/getmappings" && init.manager) return json(200, init.mappings ?? {});
-      if (path === "/v2/manager/queue/history" && init.manager) {
-        const client = url.searchParams.get("client_id");
-        return json(200, { history: Object.fromEntries(Object.entries(history).filter(([, h]) => !client || h.client_id === client)) });
-      }
-      if (path === "/v2/manager/queue/status" && init.manager) {
-        return json(200, { total_count: tasks.length + installs.length, done_count: Object.keys(history).length, in_progress_count: 0, pending_count: tasks.length + installs.length, is_processing: false });
-      }
-      if (path === "/v2/manager/version" && init.manager) {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        return res.end("V0.0.0-fake");
-      }
-      if (path === "/object_info") return json(200, fake.catalog);
-      if (path === "/models") return json(200, Object.keys(fake.models));
-      if (path.startsWith("/models/")) {
-        const list = fake.models[decodeURIComponent(path.slice(8))];
-        return list ? json(200, list) : json(404, { error: "unknown folder" });
-      }
-      if (path === "/afflatus/header") {
-        if (!fake.headers) return json(404, {});
-        const header = fake.headers[`${url.searchParams.get("folder") ?? ""}/${url.searchParams.get("filename") ?? ""}`];
-        return header ? json(200, header) : json(404, {});
-      }
-      if (path.startsWith("/view_metadata/")) {
-        const header = fake.metadata[`${decodeURIComponent(path.slice(15))}/${url.searchParams.get("filename") ?? ""}`];
-        return header ? json(200, header) : json(404, {});
-      }
-      if (path.startsWith("/history/")) {
-        const id = decodeURIComponent(path.slice(9));
-        return json(200, fake.history[id] ? { [id]: fake.history[id] } : {});
-      }
-      if (path === "/queue") {
-        return json(200, { queue_running: fake.running.map((id) => [0, id]), queue_pending: fake.pending.map((id) => [0, id]) });
-      }
-      if (path === "/view") {
-        const file = fake.files[url.searchParams.get("filename") ?? ""];
-        if (!file) return json(404, { error: "no such file" });
-        res.writeHead(200, { "Content-Type": "application/octet-stream" });
-        return res.end(file);
-      }
-    }
-    if (req.method === "HEAD") {
-      // no custom node pack serves example workflows in the pretend ComfyUI
-      res.writeHead(404);
-      return res.end();
-    }
-    if (req.method === "POST") {
-      const raw = await body(req);
-      if (path === "/prompt") {
-        if (fake.rejectWith) return json(400, fake.rejectWith);
-        const id = `prompt-${++n}`;
-        fake.prompts.set(id, (JSON.parse(raw.toString("utf-8")) as { prompt: Graph }).prompt);
-        fake.pending.push(id);
-        if (init.simulate) void simulate(id);
-        return json(200, { prompt_id: id });
-      }
-      if (path === "/queue") {
-        const ids = (JSON.parse(raw.toString("utf-8")) as { delete?: string[] }).delete ?? [];
-        fake.pending = fake.pending.filter((id) => !ids.includes(id));
-        return json(200, {});
-      }
-      if (path === "/interrupt") {
-        const id = (JSON.parse(raw.toString("utf-8")) as { prompt_id?: string }).prompt_id;
-        fake.running = fake.running.filter((r) => r !== id);
-        return json(200, {});
-      }
-      if (path === "/free") return json(200, {});
-      if (path.startsWith("/userdata/")) {
-        const file = decodeURIComponent(path.slice("/userdata/".length));
-        fake.userdata[file] = JSON.parse(raw.toString("utf-8"));
-        return json(200, { path: file, size: raw.length, modified: Date.now() });
-      }
-      if (path === "/v2/manager/queue/install_model" && init.manager) {
-        const task = JSON.parse(raw.toString("utf-8")) as (typeof installs)[number] & { client_id?: string; ui_id?: string };
-        if (!task.client_id || !task.ui_id || /[\\/:]/.test(task.filename)) {
-          res.writeHead(400);
-          return res.end("Invalid model data");
-        }
-        installs.push(task);
-        res.writeHead(200);
-        return res.end();
-      }
-      if (path === "/v2/manager/reboot" && init.manager) {
-        if (/^(application\/x-www-form-urlencoded|multipart\/form-data|text\/plain)/.test(req.headers["content-type"] ?? "")) {
-          res.writeHead(400);
-          return res.end("simple form posts are refused");
-        }
-        fake.reboots++;
-        if (fake.packs.length) Object.assign(fake.catalog, init.afterReboot ?? {});
-        res.writeHead(200);
-        return res.end();
-      }
-      if (path === "/v2/manager/queue/task" && init.manager) {
-        const task = JSON.parse(raw.toString("utf-8")) as Task;
-        if (!task.ui_id || !task.client_id || task.kind !== "install" || !task.params?.id) {
-          res.writeHead(400);
-          return res.end("Invalid task data");
-        }
-        tasks.push(task);
-        res.writeHead(200);
-        return res.end();
-      }
-      if (path === "/v2/manager/queue/start" && init.manager) {
-        const todo = installs;
-        installs = [];
-        const queued = tasks;
-        tasks = [];
-        if (init.manager !== "refuses") for (const task of todo) void install(task);
-        if (init.manager !== "refuses") for (const task of queued) runTask(task);
-        res.writeHead(200);
-        return res.end();
-      }
-      if (path === "/upload/image") {
-        const name = /filename="([^"]+)"/.exec(raw.toString("latin1"))?.[1] ?? "upload.bin";
-        fake.uploads.push(name);
-        // the file part of the form: from after its headers to the next boundary
-        const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(String(req.headers["content-type"] ?? ""));
-        const head = raw.indexOf(`filename="${name}"`);
-        const from = head < 0 ? -1 : raw.indexOf("\r\n\r\n", head) + 4;
-        const to = boundary && from > 3 ? raw.indexOf(`\r\n--${boundary[1] ?? boundary[2]}`, from) : -1;
-        if (to > from) fake.uploaded[name] = new Uint8Array(raw.subarray(from, to));
-        // the folder asked for (temp, or input with a subfolder), as ComfyUI answers it
-        const field = (key: string) => new RegExp(`name="${key}"\\r\\n\\r\\n([^\\r]*)`).exec(raw.toString("latin1"))?.[1] ?? "";
-        return json(200, { name, subfolder: field("subfolder"), type: field("type") || "temp" });
-      }
-      if (path === "/afflatus/clean-input") {
-        fake.cleaned.push(JSON.parse(raw.toString("utf8") || "{}"));
-        return json(200, { removed: 0 });
-      }
-    }
-    json(404, { error: `fake ComfyUI has no ${req.method} ${path}` });
+    for (const part of parts) if (await part(r)) return;
+    r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });
   });
-  const wss = new WebSocketServer({ server, path: "/ws" });
-  wss.on("connection", (_socket, req) => {
-    fake.sockets.push(new URL(req.url ?? "/", "http://fake").searchParams.get("clientId") ?? "");
-  });
-  const send = (type: string, data: unknown) => wss.clients.forEach((c) => c.send(JSON.stringify({ type, data })));
-  const sendBinary = (bytes: Uint8Array) => wss.clients.forEach((c) => c.send(bytes));
-
-  // ---- pretend rendering (init.simulate)
-  let closed = false;
-  let chain: Promise<void> = Promise.resolve();
-  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  const stillWanted = (id: string) => !closed && (fake.pending.includes(id) || fake.running.includes(id));
-  /** One prompt at a time, in the order they came, like ComfyUI. */
-  const simulate = (id: string) =>
-    (chain = chain.then(async () => {
-      const stepMs = init.simulate!.stepMs;
-      const graph = fake.prompts.get(id)!;
-      if (!stillWanted(id)) return;
-      fake.pending = fake.pending.filter((p) => p !== id);
-      fake.running.push(id);
-      const nodes = Object.entries(graph);
-      // a sampler has its steps on itself, or (the custom sampler) on the scheduler it takes its sigmas from
-      const samples = (node: Graph[string]) => /KSampler$|KSamplerAdvanced|SamplerCustom/.test(node.class_type);
-      const stepsOf = (node: Graph[string]) => {
-        const sigmas = node.inputs.sigmas as [string, number] | undefined;
-        return Number(node.inputs.steps ?? (sigmas ? graph[sigmas[0]]?.inputs.steps : undefined) ?? 20);
-      };
-      const first = nodes.find(([, node]) => samples(node));
-      const noise = nodes.find(([, node]) => node.class_type === "RandomNoise");
-      const seed = Number(first?.[1].inputs.seed ?? first?.[1].inputs.noise_seed ?? noise?.[1].inputs.noise_seed ?? 1);
-      send("execution_start", { prompt_id: id });
-      await pause(stepMs * 3); // "loading the model"
-      // a tiled decode and an upscale model report their tiles as progress too, as the real ones do
-      const tiles = (node: Graph[string]) => /^VAEDecodeTiled$|^ImageUpscaleWithModel$/.test(node.class_type);
-      for (const [nodeId, node] of nodes) {
-        if (!stillWanted(id)) break;
-        send("executing", { prompt_id: id, node: nodeId });
-        if (tiles(node)) {
-          for (let tile = 1; tile <= 4 && stillWanted(id); tile++) {
-            await pause(stepMs / 2);
-            send("progress", { prompt_id: id, node: nodeId, value: tile, max: 4 });
-          }
-          continue;
-        }
-        if (!samples(node)) continue;
-        const steps = stepsOf(node);
-        for (let step = 1; step <= steps && stillWanted(id); step++) {
-          await pause(stepMs);
-          send("progress", { prompt_id: id, node: nodeId, value: step, max: steps });
-          // a small preview that sharpens from grey towards the final colours
-          const k = step / steps;
-          const mix = (c: [number, number, number]) => c.map((v) => Math.round(96 + (v - 96) * k)) as [number, number, number];
-          const head = Buffer.from([0, 0, 0, 1, 0, 0, 0, 2]);
-          sendBinary(Buffer.concat([head, makePng(96, 128, mix(tint(seed, 0)), mix(tint(seed, 0.35)))]));
-        }
-      }
-      if (!fake.running.includes(id)) {
-        fake.history[id] = { status: { status_str: "error", completed: false, messages: [["execution_interrupted", {}]] } };
-        return;
-      }
-      const sized = [...nodes].reverse().find(([, node]) => typeof node.inputs.width === "number" && typeof node.inputs.height === "number");
-      const width = Number(sized?.[1].inputs.width ?? 832);
-      const height = Number(sized?.[1].inputs.height ?? 1216);
-      fake.running = fake.running.filter((r) => r !== id);
-      const videoOut = nodes.find(([, node]) => /VideoCombine|SaveVideo|SaveAnimated/i.test(node.class_type))?.[0];
-      if (videoOut) {
-        // a pretend clip: the same short video whatever was asked, when the caller supplied one
-        const source = init.simulate!.video;
-        const clip = typeof source === "function" ? source(graph, seed) : source;
-        if (!clip) {
-          fake.history[id] = { status: { status_str: "error", completed: false, messages: [["execution_error", { exception_message: "the pretend ComfyUI has no video to return" }]] } };
-          return;
-        }
-        fake.files[`${id}.mp4`] = clip;
-        fake.history[id] = { status: { status_str: "success", completed: true }, outputs: { [videoOut]: { gifs: [{ filename: `${id}.mp4`, subfolder: "", type: "temp" }] } } };
-        return;
-      }
-      const out = nodes.find(([, node]) => node.class_type === "PreviewImage" || node.class_type === "SaveImage")?.[0] ?? "0";
-      const filename = `${id}.png`;
-      fake.files[filename] = makePng(width, height, tint(seed, 0), tint(seed, 0.35));
-      fake.history[id] = { status: { status_str: "success", completed: true }, outputs: { [out]: { images: [{ filename, subfolder: "", type: "temp" }] } } };
-    }));
-  const load = init.simulate
-    ? setInterval(() => {
-        const busy = fake.running.length > 0;
-        send("dasiwa.system_monitor", {
-          cpu_percent: busy ? 22 : 6, cpu_count: 16,
-          ram: { used: 19e9, total: 32e9, percent: 59 }, swap: { used: 1e9, total: 40e9, percent: 2 },
-          disks: [{ path: "/", percent: 61, read_mb_s: 0, write_mb_s: busy ? 1.2 : 0 }],
-          gpus: [{ name: "Pretend GPU", utilization: busy ? 97 : 2, memory_used: (busy ? 9.4 : 1.3) * 2 ** 30, memory_total: 12 * 2 ** 30, memory_percent: busy ? 78 : 11, temperature: busy ? 74 : 41 }],
-        });
-      }, 1000)
-    : null;
+  const sockets = fakeSockets(server, fake);
+  if (init.simulate) simulate = fakeSimulate(fake, init.simulate, sockets);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   return Object.assign(fake, {
     url: `http://127.0.0.1:${port}`,
-    send,
-    sendBinary,
+    send: sockets.send,
+    sendBinary: sockets.sendBinary,
+    dropSockets: sockets.drop,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        closed = true;
-        if (load) clearInterval(load);
-        for (const c of wss.clients) c.terminate();
-        wss.close();
+        simulate?.stop();
+        sockets.close();
         server.close((err) => (err ? reject(err) : resolve()));
       }),
   });

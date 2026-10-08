@@ -14,7 +14,7 @@ export const PHASES = [
 export type Phase = (typeof PHASES)[number];
 
 /** A node whose files the queue fetches when the prompt is done. */
-export interface GraphOutput {
+interface GraphOutput {
   node: string;
   kind: "image" | "video" | "audio";
   /**

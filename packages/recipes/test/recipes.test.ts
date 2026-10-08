@@ -81,6 +81,50 @@ describe("every recipe", () => {
   });
 });
 
+describe("every recipe, its inputs as parsed", () => {
+  const ctxOf = (v: (typeof recipes)[number]["variants"][number], has?: (n: string) => boolean) =>
+    dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(has ?? v.has ? { has: has ?? v.has } : {}) });
+
+  it("are the form's inputs and nothing else: what build() and nodes() read is an input the form has", () => {
+    // the parsed values are cast to the recipe's own interface: a field the interface has and the form does not is always undefined
+    for (const r of recipes) {
+      const ids = new Set(r.inputs.map((i) => i.id));
+      for (const v of r.variants) {
+        const parsed = parseInput(r, v.input) as Record<string, unknown>;
+        expect(Object.keys(parsed).filter((k) => !ids.has(k)), `${r.id} · ${v.name}: parsed`).toEqual([]);
+        // every input comes out of the parse, unless it may be left out (a picture not given, a model left to its slot)
+        const absent = [...ids].filter((id) => !(id in parsed));
+        for (const id of absent) expect(schemaFor(r.inputs.filter((i) => i.id === id)).safeParse({}).success, `${r.id}.${id} is required and missing`).toBe(true);
+        const read = new Set<string>();
+        const watched = new Proxy(parsed, { get: (o, k) => (typeof k === "string" && read.add(k), Reflect.get(o, k)), has: (o, k) => (typeof k === "string" && read.add(k), Reflect.has(o, k)) });
+        r.nodes(watched);
+        r.build(watched, ctxOf(v));
+        expect([...read].filter((k) => !ids.has(k)), `${r.id} · ${v.name}: read`).toEqual([]);
+      }
+    }
+  });
+
+  it("list in optionalNodes only what some variant does without, or what this ComfyUI may lack", () => {
+    // an optional node every variant uses, and that stays when ComfyUI does not have it, is a node the recipe needs:
+    // it belongs in nodes(), where it is checked before queueing (listed as optional, nothing checked it)
+    for (const r of recipes) {
+      const built = r.variants.map((v) => ({ v, classes: new Set(Object.values(r.build(parseInput(r, v.input), ctxOf(v)).graph).map((n) => n.class_type)) }));
+      for (const node of r.optionalNodes ?? []) {
+        if (!built.every((b) => b.classes.has(node))) continue;
+        const { v } = built[0]!;
+        const base = v.has ?? (() => true);
+        let stays = false;
+        try {
+          stays = Object.values(r.build(parseInput(r, v.input), ctxOf(v, (n) => n !== node && base(n))).graph).some((n) => n.class_type === node);
+        } catch {
+          /* refused in words without it: optional is right */
+        }
+        expect(stays, `${r.id}: ${node} is used by every variant, with or without it in ComfyUI`).toBe(false);
+      }
+    }
+  });
+});
+
 describe("sdxl.text-to-picture", () => {
   const build = (over: Record<string, unknown> = {}) => {
     const input = parseInput(sdxlTextToPicture, { prompt: "a cat", checkpoint: "x.safetensors", ...over });
@@ -450,9 +494,11 @@ describe("things done to a picture", () => {
     // each tile keeps its own piece as its reference
     const reference = Object.values(large.graph).find((n) => n.class_type === "ImageScaleToTotalPixels")!;
     expect(large.graph[(reference.inputs.image as [string, number])[0]]!.class_type).toBe("SplitImageToTileList");
+    // asked whole: gone over whole, whatever its size (never skipped for it)
     const whole = build(1536, 2048, { tiles: "Whole picture" });
-    expect(Object.values(whole.graph).some((n) => n.class_type === "SamplerCustomAdvanced")).toBe(false);
-    expect(whole.loads).toEqual(["upscale_models/u.pth"]);
+    expect(Object.values(whole.graph).some((n) => n.class_type === "SamplerCustomAdvanced")).toBe(true);
+    expect(Object.values(whole.graph).some((n) => n.class_type === "SplitImageToTileList")).toBe(false);
+    expect(whole.loads).toContain("diffusion_models/k.safetensors");
   });
 });
 
@@ -1164,7 +1210,10 @@ describe("H3's upscale pass", () => {
     const guide = b.graph[(upscale.inputs.conditioning as [string, number])[0]]!;
     expect(guide.class_type).toBe("MiniMaxH3ImageToVideo");
     expect(guide.inputs.first_frame).toBeUndefined();
+    // no pass named (what loads ahead is its loaders), but the bar counts the re-sample's steps once for every piece:
+    // 576 × 1024 made 864 × 1536, in 512-pixel tiles overlapping by 128 (2 × 4), and 124 frames in stretches of 85 overlapping by 17 (2)
     expect(b.passes).toEqual([]);
+    expect(b.totalSteps).toBe(3 * 2 * 4 * 2);
     expect(checkGraph(b, catalog)).toEqual([]);
   });
 

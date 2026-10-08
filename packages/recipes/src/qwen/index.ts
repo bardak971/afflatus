@@ -75,7 +75,7 @@ An instruction: Replace the chalkboard's text "Qwen Coffee $2 per cup" with "CLO
 const lightning = /lightning|turbo|distill|(^|[^a-z0-9])\d+[ _-]?steps?/i;
 
 /** Qwen Image's own negative prompt, as its authors and ComfyUI's template give it (low resolution, deformed hands, waxy skin, an "AI look", muddled composition, blurred text). */
-export const QWEN_NEGATIVE = "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲";
+const QWEN_NEGATIVE = "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲";
 
 const spec: FlowSpec = {
   family: "qwen",
@@ -125,7 +125,7 @@ export const qwenFixFace = made.fixFace;
 
 // ---------------------------------------------------------------- edit (Qwen Image Edit)
 
-export interface QwenEdit {
+interface QwenEdit {
   model?: string;
   precision?: string;
   source: string;

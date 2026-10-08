@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type Ref, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, latentUpscaleSize, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleNodes } from "../video/upscale";
 import { unetNodes } from "../shared/unet";
@@ -7,7 +7,7 @@ import { conditionFor } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { h3Inputs, type H3Video } from "./inputs";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
-import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass, latentUpscaleSize } from "./latent-upscale";
+import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass, latentUpscaleRounds } from "./latent-upscale";
 import { AUTO_SAMPLER, loadH3Model, modelOf, uses } from "./model";
 
 // the recipe's parts live beside it; every name this file used to export is still had from here
@@ -101,7 +101,7 @@ export const h3Video = defineRecipe<H3Video>({
       // clip's first frames hazy and soft (2026-10-08)
       fine = latentUpscalePass(g, ctx, input, { model, positive: plain, latent: finished, turbo, width, height });
       finished = fine;
-      const big = latentUpscaleSize(input, width, height);
+      const big = latentUpscaleSize({ width, height }, input.upscaleBy);
       const before = media.previous?.fine;
       const prevFine = seamed && before && before.width === big.width && before.height === big.height ? ctx.uploads["previous.fine"] : undefined;
       if (prevFine) {
@@ -115,12 +115,15 @@ export const h3Video = defineRecipe<H3Video>({
 
     const { head, tail, latentJoin } = join;
     const ms = (n: number) => Math.round((n / H3_FPS) * 1000);
+    // the re-sample counts as a pass of its own: its steps again for every piece, after the clip's sampling. A finish is
+    // the re-sample alone, and names no pass: what loads its models ahead is its loaders, not a step of the re-sample
+    const resampled = fine ? input.upscaleSteps * latentUpscaleRounds(input, { width, height }, join.frames) : 0;
     return {
       graph: g.graph,
       phases: g.phases,
       outputs: made.outputs,
-      totalSteps: own ? input.upscaleSteps : steps,
-      passes: own ? [] : [{ node: sampled, steps }],
+      totalSteps: own ? resampled : steps + resampled,
+      passes: own ? [] : [{ node: sampled, steps }, ...(fine ? [{ node: fine[0], steps: resampled }] : [])],
       loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...made.loads],
       ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}), ...(seam ? { seam: true } : {}) } } : {}),
     };

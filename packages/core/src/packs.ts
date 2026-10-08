@@ -3,7 +3,7 @@
  * pack to install, and how, rather than as a node type's name. Read from a ComfyUI that has them all (2026-10-08). A form
  * only needs a pack for what it does: most of these serve an option (a detailer, an upscale route, a speed-up).
  */
-export interface NodePack {
+interface NodePack {
   /** The pack's name in ComfyUI-Manager's list (and its registry id). */
   name: string;
   repo: string;
@@ -12,7 +12,7 @@ export interface NodePack {
   nodes: string[];
 }
 
-export const NODE_PACKS: NodePack[] = [
+const NODE_PACKS: NodePack[] = [
   {
     name: "afflatus-nodes", repo: "https://github.com/bardak971/afflatus/tree/main/comfy-nodes/afflatus-nodes", own: true,
     nodes: ["AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3TailGuide", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide"],

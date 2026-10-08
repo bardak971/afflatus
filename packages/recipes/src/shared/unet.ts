@@ -1,10 +1,10 @@
 import type { BuildContext, GraphBuilder, Ref } from "@afflatus/core";
 
 /** A diffusion model quantized to GGUF: another loader (the ComfyUI-GGUF pack's), the same model afterwards. */
-export const isGguf = (file: string | undefined) => /\.gguf$/i.test(file ?? "");
+const isGguf = (file: string | undefined) => /\.gguf$/i.test(file ?? "");
 
 export const GGUF_LOADER = "UnetLoaderGGUF";
-export const GGUF_NEEDED = "A .gguf model needs the ComfyUI-GGUF node pack (its UnetLoaderGGUF node). Install it in ComfyUI (ComfyUI-Manager has it), or pick a .safetensors file.";
+const GGUF_NEEDED = "A .gguf model needs the ComfyUI-GGUF node pack (its UnetLoaderGGUF node). Install it in ComfyUI (ComfyUI-Manager has it), or pick a .safetensors file.";
 
 /**
  * The diffusion model loaded: ComfyUI's own loader with the precision asked for, or the GGUF loader for

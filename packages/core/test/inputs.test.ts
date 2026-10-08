@@ -27,6 +27,15 @@ describe("schemaFor", () => {
     });
   });
 
+  it("takes whole numbers only where the step is whole, as the INT behind it does", () => {
+    const parse = (extra: Record<string, unknown>) => schemaFor(specs).safeParse({ prompt: "a", checkpoint: "x", ...extra }).success;
+    expect(parse({ steps: 30 })).toBe(true);
+    expect(parse({ steps: 28.5 })).toBe(false);
+    expect(parse({ scale: 1.37 })).toBe(true);
+    // a whole step from a fractional start is not an INT
+    expect(schemaFor([{ id: "x", type: "number", label: "X", min: 0.5, max: 10, step: 1, default: 1.5 }]).safeParse({ x: 2.5 }).success).toBe(true);
+  });
+
   it("requires the prompt and the model", () => {
     expect(schemaFor(specs).safeParse({ checkpoint: "x" }).success).toBe(false);
     expect(schemaFor(specs).safeParse({ prompt: "", checkpoint: "x" }).success).toBe(false);

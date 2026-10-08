@@ -2,6 +2,7 @@ import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
+import { httpError } from "./errors";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 import { zipOf } from "./zip";
@@ -14,14 +15,26 @@ import { zipOf } from "./zip";
  */
 
 export const NODE_PACK = "afflatus-nodes";
-/** The node that says the pack is loaded in a running ComfyUI: its newest one, so an older copy still loaded says "restart ComfyUI". */
-const NODE_PACK_PROBE = "AfflatusH3TailGuide";
 const exists = (p: string) => access(p).then(() => true, () => false);
 
 /** Where the pack's source is: the repository's folder, or NODE_PACK_DIR. */
 export function nodePackSource(): string {
   return process.env.NODE_PACK_DIR?.trim() || fileURLToPath(new URL("../../../comfy-nodes/afflatus-nodes", import.meta.url));
 }
+
+/** The pack's version, written once in its pyproject.toml: the pack reads it there too, and says it on GET /afflatus/version. */
+async function nodePackVersion(): Promise<string | null> {
+  const toml = await readFile(join(nodePackSource(), "pyproject.toml"), "utf-8").catch(() => "");
+  return /^version\s*=\s*"([^"]+)"/m.exec(toml)?.[1] ?? null;
+}
+
+/** Whether version `a` comes before `b`, part by part as numbers ("0.9.0" before "0.10.0"). */
+const olderThan = (a: string, b: string): boolean => {
+  const x = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const y = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
+  return false;
+};
 
 /** Copy the pack into `<comfyDir>/custom_nodes/afflatus-nodes/`; says whether anything was written. */
 export async function installNodePack(comfyDir: string): Promise<{ written: boolean; changed: boolean; path: string }> {
@@ -44,24 +57,26 @@ export async function installNodePack(comfyDir: string): Promise<{ written: bool
 }
 
 export function registerNodePack(app: FastifyInstance, s: Services): void {
-  /** When the node list was last read again because the pack was not in it: the list is large, so at most every half minute. */
-  let lookedAgainAt = 0;
-  /** Whether the pack is in ComfyUI's folder, and whether the running ComfyUI has loaded it (else: restart it). */
+  /** The version the running ComfyUI said last time: when it changes, ComfyUI was restarted with another pack. */
+  let saidBefore: string | null | undefined;
+  /**
+   * Whether the pack is in ComfyUI's folder, and whether the running ComfyUI has loaded it (else: restart it).
+   * Loaded means the pack ComfyUI runs says this version or a newer one: an older one still loaded (written
+   * since, ComfyUI not restarted) lacks the newest nodes, and the joins that need them quietly fall back to plain ones.
+   */
   app.get("/api/comfy/node-pack", async () => {
     const { comfyDir } = await readSettings(s.db);
     const path = comfyDir.trim() ? join(comfyDir.trim(), "custom_nodes", NODE_PACK) : "";
     const written = path ? await exists(join(path, "__init__.py")) : false;
     const comfy = await s.comfy();
-    let loaded = await comfy.catalog().then((catalog) => NODE_PACK_PROBE in catalog).catch(() => false);
-    // the node list is kept for a while: when the pack is not in the kept one, ComfyUI may have been restarted since. Read it again
-    if (!loaded && Date.now() - lookedAgainAt > 30_000) {
-      lookedAgainAt = Date.now();
-      comfy.forgetCatalog();
-      loaded = await comfy.catalog().then((catalog) => NODE_PACK_PROBE in catalog).catch(() => false);
-    }
+    const [running, version] = await Promise.all([comfy.client.packVersion().catch(() => null), nodePackVersion()]);
+    // the node list is kept for a while: a pack loaded since it was read brings nodes it does not have yet
+    if (saidBefore !== undefined && running !== saidBefore) comfy.forgetCatalog();
+    saidBefore = running;
+    const loaded = running !== null && (!version || !olderThan(running, version));
     // whether this Afflatus can write it at all: ComfyUI's folder is known and is here
     const canWrite = Boolean(comfyDir.trim()) && (await exists(join(comfyDir.trim(), "custom_nodes")));
-    return { pack: NODE_PACK, path, written, loaded, canWrite };
+    return { pack: NODE_PACK, path, written, loaded, canWrite, version, running };
   });
 
   /** The pack as a zip, to unpack into ComfyUI's custom_nodes by hand when Afflatus cannot write there (ComfyUI on another machine). */
@@ -72,7 +87,7 @@ export function registerNodePack(app: FastifyInstance, s: Services): void {
       if (!/\.(py|md|toml)$|^LICENSE/.test(name)) continue;
       entries.push({ name: `${NODE_PACK}/${name}`, data: new Uint8Array(await readFile(join(source, name))) });
     }
-    if (!entries.length) throw Object.assign(new Error("the node pack's files were not found beside this server"), { statusCode: 404 });
+    if (!entries.length) throw httpError("the node pack's files were not found beside this server", 404);
     return reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${NODE_PACK}.zip"`).send(zipOf(entries));
   });
 }

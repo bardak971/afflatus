@@ -65,6 +65,19 @@ describe("ComfyClient, jobs", () => {
     expect(await client.queuePosition(id)).toBe("absent");
   });
 
+  it("queues a graph under the prompt id it was given", async () => {
+    const id = await client.submit(graph, { promptId: "chosen-1" });
+    expect(id).toBe("chosen-1");
+    expect(fake.prompts.get("chosen-1")).toEqual(graph);
+    expect(await client.queuePosition("chosen-1")).toBe("pending");
+  });
+
+  it("asks the node pack to clean the output folder, and says null without it", async () => {
+    expect(await client.cleanOutput(24)).toBe(0);
+    expect(fake.cleaned).toEqual([{ folder: "output", older_than_hours: 24 }]);
+    expect(await new ComfyClient("http://127.0.0.1:9").cleanOutput()).toBeNull();
+  });
+
   it("reports why ComfyUI refused a graph", async () => {
     fake.rejectWith = {
       error: { message: "Prompt outputs failed validation", details: "" },

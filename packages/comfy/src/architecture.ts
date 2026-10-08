@@ -23,7 +23,7 @@ const PREFIXES = [
 const SUFFIXES = /\.(lora_down|lora_up|lora_A|lora_B|alpha|diff|diff_b|dora_scale|hada_w1_a|hada_w1_b|hada_w2_a|hada_w2_b|lokr_w1|lokr_w2|lokr_w1_a|lokr_w1_b|lokr_w2_a|lokr_w2_b|weight|bias|scale)(\.weight)?$/;
 
 /** A layer's name as the model knows it: wrappers off, LoRA suffixes off, lower case. */
-export function layerOf(key: string): string {
+function layerOf(key: string): string {
   let k = key;
   for (let again = true; again; ) {
     again = false;
@@ -35,7 +35,7 @@ export function layerOf(key: string): string {
 /** A pattern over layer names where "." and "_" are the same separator (kohya writes "_" for both). */
 const matcher = (pattern: string) => new RegExp("^" + pattern.replace(/[._]/g, "[._]").replace(/\*/g, "[^.]*"));
 
-export interface Architecture {
+interface Architecture {
   /** The family, named as `baseLabel` names it ("FLUX.1", "Wan 2.2", "SDXL", "Krea 2"). */
   base: string;
   /** A word more, when the weights say it: "Klein", "I2V", "refiner", "AV"... */

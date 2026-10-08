@@ -164,14 +164,18 @@ export class ComfyClient {
 
   // ---------------------------------------------------------------- these use the GPU or change ComfyUI's state
 
-  /** Queue a graph. `preview`: stream cheap latent previews for this prompt only. */
-  async submit(graph: Graph, opts: { preview?: "latent2rgb" | "taesd" } = {}): Promise<string> {
+  /**
+   * Queue a graph. `preview`: stream cheap latent previews for this prompt only. `promptId`: the id to queue it under, chosen
+   * (and saved) beforehand, so that one sent without an answer can be asked for; the id ComfyUI gave is returned all the same.
+   */
+  async submit(graph: Graph, opts: { preview?: "latent2rgb" | "taesd"; promptId?: string } = {}): Promise<string> {
     const res = await this.fetcher(`${this.baseUrl}/prompt`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: graph,
         client_id: this.clientId,
+        ...(opts.promptId ? { prompt_id: opts.promptId } : {}),
         ...(opts.preview ? { extra_data: { preview_method: opts.preview } } : {}),
       }),
       signal: AbortSignal.timeout(META_TIMEOUT),
@@ -219,12 +223,31 @@ export class ComfyClient {
 
   /**
    * Remove the files Afflatus put in ComfyUI's input folder (`upload` with `into: "input"`) older than this many
-   * hours, through the Afflatus node pack (0.8.0). How many went; null when the pack is older or not loaded.
+   * hours, through the Afflatus node pack (0.8.0 and later). How many went; null when the pack is older or not loaded.
    */
   async cleanInput(olderThanHours = 24): Promise<number | null> {
     const res = await this.fetcher(`${this.baseUrl}/afflatus/clean-input`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ older_than_hours: olderThanHours }), signal: AbortSignal.timeout(META_TIMEOUT) }).catch(() => null);
     if (!res?.ok) return null;
     return Number(((await res.json().catch(() => ({}))) as { removed?: unknown }).removed ?? 0);
+  }
+
+  /**
+   * Remove the videos Afflatus had ComfyUI's own SaveVideo write into its output folder (under Afflatus/), older than this
+   * many hours, through the Afflatus node pack (0.10.0 and later). How many went; null when the pack is not loaded. An older
+   * pack takes the request for an input-folder cleanup, which is as harmless.
+   */
+  async cleanOutput(olderThanHours = 24): Promise<number | null> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/clean-input`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder: "output", older_than_hours: olderThanHours }), signal: AbortSignal.timeout(META_TIMEOUT) }).catch(() => null);
+    if (!res?.ok) return null;
+    return Number(((await res.json().catch(() => ({}))) as { removed?: unknown }).removed ?? 0);
+  }
+
+  /** The version of the Afflatus node pack the running ComfyUI loaded; null when it has none loaded (or one too old to say). */
+  async packVersion(): Promise<string | null> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/version`, { signal: AbortSignal.timeout(META_TIMEOUT) }).catch(() => null);
+    if (!res?.ok) return null;
+    const version = ((await res.json().catch(() => ({}))) as { version?: unknown }).version;
+    return typeof version === "string" ? version : null;
   }
 
   /**

@@ -1,5 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
-import { roundTo } from "../shared/round";
+import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
 
 /**
@@ -19,9 +18,9 @@ export const UPSCALE = {
 } as const;
 
 /** The nodes that drive RTX VSR: NVIDIA's own pack, or the RTX Upscaler & Refiner pack. Either does. */
-export const RTX_NVIDIA = "RTXVideoSuperResolution";
-export const RTX_NODE = "DaSiWa_RTX_UpscalerRefiner";
-export const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
+const RTX_NVIDIA = "RTXVideoSuperResolution";
+const RTX_NODE = "DaSiWa_RTX_UpscalerRefiner";
+const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
 /** SeedVR2 in ComfyUI's own nodes (0.37): a one-step video restoration model, sampled in temporal chunks. */
 /**
  * Frames SeedVR2 restores together (4n + 1). Its own "auto" asked the free memory and, at 1.7 Mpx a frame (a 576 × 736 clip
@@ -31,7 +30,7 @@ export const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
  * memory (the card spilled into system memory at a third of its power). The tiled decode takes 16 frames at a time (64 ran out of
  * memory); the encode keeps 64 (at 16 the same clip took 18 minutes).
  */
-export const SEEDVR_CHUNK = 9;
+const SEEDVR_CHUNK = 9;
 /** The frame size SEEDVR_CHUNK was measured at (576 × 736 doubled), in megapixels: larger frames take proportionally fewer. */
 const SEEDVR_CHUNK_AT_MPX = 1.7;
 /**

@@ -11,7 +11,7 @@ import { H3_FPS, h3Frames } from "./family";
  */
 export type H3Mode = "start" | "both" | "land" | "free";
 
-export interface H3Fields {
+interface H3Fields {
   /** What happens, the camera, who says what. */
   description: string;
   /** Sounds of the scene. */
@@ -29,7 +29,7 @@ export const isH3Layout = (text: string) => /integrated_multimodal_description:|
  * chain it kept a little more detail (+9 %) on top of the exact latent. Not shown in the form: it is the same for every
  * continuation, and a text already in H3's layout is sent as written.
  */
-export function continuationPreamble(c: { overlap: number; seconds: number; lands: boolean }): string {
+function continuationPreamble(c: { overlap: number; seconds: number; lands: boolean }): string {
   const s = (n: number) => n.toFixed(2);
   return [
     `This clip carries on the previous shot without a break. Its first ${s(c.overlap)} seconds replay the end of that shot as hidden context: match it there exactly, the same people, place, light, motion, camera and sound, and carry its pace and camera movement on without freezing them.`,
@@ -57,7 +57,7 @@ export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields, continuing?
 }
 
 /** What the reference model is given besides the words, so that the layout can name each thing. */
-export interface H3References {
+interface H3References {
   /** What each reference picture shows, in the order they are given. */
   roles: string[];
   /** Videos of the person, given after the pictures: for each, whether its sound comes with it (it is then the person's voice). */

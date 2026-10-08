@@ -19,7 +19,7 @@ export const tools = defineFamily({
   loraMatch: [],
 });
 
-export interface SeedvrPicture {
+interface SeedvrPicture {
   source: string;
   upscaleBy: number;
   upscaleColour: string;
@@ -43,7 +43,7 @@ export const seedvrPicture = defineRecipe<SeedvrPicture>({
   build(input, ctx) {
     const g = new GraphBuilder();
     const source = g.out("LoadImage", { image: ctx.uploads.source });
-    const done = seedvrUpscale(g, source, input, ctx);
+    const done = seedvrUpscale(g, source, { upscaleBy: input.upscaleBy, upscaleColour: input.upscaleColour }, ctx);
     const out = g.add("PreviewImage", { images: done.images });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads: done.loads };
   },

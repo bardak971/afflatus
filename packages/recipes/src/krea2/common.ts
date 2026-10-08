@@ -1,29 +1,14 @@
-import type { BuildContext, GraphBuilder, InputSpec, LoraValue, Ref } from "@afflatus/core";
-import { kSample, type DetailSettings } from "../shared/detail";
-import { roundTo } from "../shared/round";
-import { loadUnet, unetNodes } from "../shared/unet";
-
-/** What every Krea 2 recipe asks for besides its own inputs. */
-export interface Krea2Base {
-  model?: string;
-  negative: string;
-  loras: LoraValue[];
-  steps: number;
-  cfg: number;
-  sampler: string;
-  scheduler: string;
-  shift: number;
-  seed: number;
-}
+import type { InputSpec } from "@afflatus/core";
+import { flowKit, type FlowSpec } from "../flow/kit";
 
 /** Which Krea 2 model: Turbo, or a fine-tune of it. The form starts on the one found by name. */
-export const krea2Model: InputSpec = {
+const krea2Model: InputSpec = {
   id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["krea.?2", "(^|[^a-z0-9])k2([^a-z0-9]|$)"],
   note: "Krea 2 Turbo, or a fine-tune of it",
 };
 
 /** How it samples: the values of ComfyUI's own Krea 2 Turbo template to begin with, each kept per model once saved. */
-export const krea2Inputs: InputSpec[] = [
+const krea2Inputs: InputSpec[] = [
   { id: "loras", type: "loras", label: "LoRAs", max: 6 },
   { id: "negative", type: "prompt", label: "Negative prompt", note: "only acts with a CFG scale above 1", style: "sentences", optional: true, default: "", advanced: true, perModel: true },
   { id: "steps", type: "number", label: "Steps", note: "8 for Turbo and its fine-tunes", min: 1, max: 60, step: 1, default: 8, advanced: true, perModel: true },
@@ -34,67 +19,33 @@ export const krea2Inputs: InputSpec[] = [
   { id: "seed", type: "seed", label: "Seed" },
 ];
 
-/** The size a picture (or a part of one) is worked on at: its own shape, both edges multiples of 16, at most about `megapixels`. */
-export function krea2Size(of: { width: number; height: number } | undefined, megapixels = 1.6, least = 0.6) {
-  if (!of?.width || !of.height) return { width: 1024, height: 1024 };
-  const mp = (of.width * of.height) / (1024 * 1024);
-  // large pictures are brought down to what the model draws well; small parts are brought up to where it has room to draw
-  const k = mp > megapixels ? Math.sqrt(megapixels / mp) : mp < least ? Math.sqrt(least / mp) : 1;
-  return { width: roundTo(of.width * k, 16), height: roundTo(of.height * k, 16) };
-}
-
-export interface Krea2 {
-  /** The model with its LoRAs, before any shift. */
-  model: Ref;
-  clip: Ref;
-  vae: Ref;
-  input: Krea2Base;
-  seed: number;
-  loads: string[];
-}
-
-export const LOAD_NODES = (input: Krea2Base) => [
-  ...unetNodes(input.model), "CLIPLoader", "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "PreviewImage",
-  ...(input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
-  ...(input.negative.trim() ? [] : ["ConditioningZeroOut"]),
-  ...(input.shift > 0 ? ["ModelSamplingAuraFlow"] : []),
-];
-
-/** The model with its LoRAs, the text encoder and the VAE. */
-export function loadKrea2(g: GraphBuilder, input: Krea2Base, ctx: BuildContext): Krea2 {
-  const unet = input.model ?? ctx.slots.unet;
-  let model = loadUnet(g, ctx, unet);
-  for (const l of input.loras) {
-    if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
-  }
-  return {
-    model,
-    clip: g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "krea2", device: "default" }),
-    vae: g.out("VAELoader", { vae_name: ctx.slots.vae }),
-    input,
-    seed: ctx.seed,
-    loads: [`diffusion_models/${unet}`, `text_encoders/${ctx.slots.clip}`, `vae/${ctx.slots.vae}`],
-  };
-}
-
-/** The model as it is sampled with: the shift typed in, or the model's own when it is 0. */
-export const shifted = (g: GraphBuilder, model: Ref, input: Krea2Base) => (input.shift > 0 ? g.out("ModelSamplingAuraFlow", { model, shift: input.shift }) : model);
-
 /**
- * The two texts. Turbo has no use for a negative prompt (it runs at CFG 1): without one, the negative
- * side is the positive one emptied, as in ComfyUI's template.
+ * Krea 2, said the way the other picture models are (see FlowSpec): built as ComfyUI's own Krea 2 Turbo template
+ * builds it. Turbo has no use for a negative prompt (it runs at CFG 1): without one, the negative side is the
+ * positive one emptied. A pass at a size of its own takes the shift that suits that size unless one is typed.
  */
-export function krea2Cond(g: GraphBuilder, k: Krea2, positive: Ref) {
-  return { positive, negative: k.input.negative.trim() ? g.out("CLIPTextEncode", { text: k.input.negative, clip: k.clip }) : g.out("ConditioningZeroOut", { conditioning: positive }) };
-}
+export const krea2Spec: FlowSpec = {
+  family: "krea2",
+  model: krea2Model,
+  encoder: {
+    nodes: ["CLIPLoader"],
+    load: (g, slots) => g.out("CLIPLoader", { clip_name: slots.clip, type: "krea2", device: "default" }),
+    files: (slots) => [`text_encoders/${slots.clip}`],
+  },
+  shift: { node: "ModelSamplingAuraFlow", default: 0, note: "0 leaves the model's own. Some fine-tunes ask for another (4, for example)", sized: true },
+  negative: { default: "", note: "only acts with a CFG scale above 1", empty: "zero" },
+  sampling: { steps: 8, stepsNote: "8 for Turbo and its fine-tunes", cfg: 1, cfgNote: "1 for Turbo", sampler: "euler", scheduler: "simple" },
+  inputs: krea2Inputs,
+  hardInpaint: true,
+  shapes: [
+    { id: "tall", label: "Portrait", width: 896, height: 1152 },
+    { id: "square", label: "Square", width: 1024, height: 1024 },
+    { id: "wide", label: "Landscape", width: 1152, height: 896 },
+  ],
+  megapixels: 1.6,
+  placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up.",
+  files: { unet: "krea2_turbo_fp8_scaled.safetensors", clip: "qwen3vl_4b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" },
+  fineTune: "someone_krea2.safetensors",
+};
 
-/** One pass of sampling. */
-export function krea2Sample(g: GraphBuilder, k: Krea2, model: Ref, cond: { positive: Ref; negative: Ref }, latent: Ref, opts: { steps?: number; denoise?: number; sampler_name?: string; scheduler?: string; detail?: { input: DetailSettings; ctx: BuildContext } } = {}) {
-  const steps = opts.steps ?? k.input.steps;
-  const args = {
-    model, positive: cond.positive, negative: cond.negative, latent_image: latent, seed: k.seed,
-    steps, cfg: k.input.cfg, sampler_name: opts.sampler_name ?? k.input.sampler, scheduler: opts.scheduler ?? k.input.scheduler, denoise: opts.denoise ?? 1,
-  };
-  const sampled = opts.detail ? kSample(g, args, opts.detail.input, opts.detail.ctx) : g.out("KSampler", args);
-  return { latent: sampled, pass: { node: sampled[0], steps } };
-}
+export const krea2Kit = flowKit(krea2Spec);

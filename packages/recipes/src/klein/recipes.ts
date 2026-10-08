@@ -1,11 +1,10 @@
-import { defineRecipe, GraphBuilder, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { roundTo } from "../shared/round";
-import { redrawInTiles, tileInputs, TILE_NODES, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
 import {
   introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
@@ -17,7 +16,7 @@ const ALL_ROLES = ["person", "place", "clothing", "object", "style"] as const;
 
 // ---------------------------------------------------------------- a new picture
 
-export interface KleinPicture extends KleinBase, DetailSettings {
+interface KleinPicture extends KleinBase, DetailSettings {
   prompt: string;
   references: ReferenceValue[];
   size: SizeValue;
@@ -75,7 +74,7 @@ export const kleinPicture = defineRecipe<KleinPicture>({
 
 // ---------------------------------------------------------------- change a picture with words
 
-export interface KleinEdit extends KleinBase {
+interface KleinEdit extends KleinBase {
   source: string;
   prompt: string;
   references: ReferenceValue[];
@@ -125,7 +124,7 @@ export const kleinEdit = defineRecipe<KleinEdit>({
 
 // ---------------------------------------------------------------- paint over a part
 
-export interface KleinPaintOver extends KleinBase, MaskSettings {
+interface KleinPaintOver extends KleinBase, MaskSettings {
   source: string;
   mask: string;
   prompt: string;
@@ -217,7 +216,7 @@ export function padsFor(width: number, height: number, shape: string) {
   return { left: 0, right: 0, top: Math.floor(add / 2), bottom: Math.ceil(add / 2), width, height: height + add };
 }
 
-export interface KleinReshape extends KleinBase {
+interface KleinReshape extends KleinBase {
   source: string;
   shape: string;
   prompt: string;
@@ -277,14 +276,14 @@ export const kleinReshape = defineRecipe<KleinReshape>({
 
 // ---------------------------------------------------------------- twice as large
 
-export interface KleinSharper extends KleinBase, UpscaleSettings, TileSettings {
+interface KleinSharper extends KleinBase, UpscaleSettings, TileSettings {
   source: string;
   upscaler: string;
   refine: boolean;
 }
 
-/** Past this many pixels the result is only enlarged by the upscale model. */
-const REFINE_MAX_PIXELS = 2.6e6;
+/** Past this many pixels, Auto makes the light pass in tiles: a picture that large is past what the model draws whole. It is never skipped for its size. */
+const REFINE_WHOLE_PIXELS = 2.6e6;
 
 export const kleinSharper = defineRecipe<KleinSharper>({
   id: "klein.sharper",
@@ -314,8 +313,8 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
     const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
     const loads = [`upscale_models/${input.upscaler}`];
-    const tiled = input.refine && useTiles(input, size, REFINE_MAX_PIXELS / 4) && TILE_NODES.every((n) => ctx.has(n));
-    if (!input.refine || (size.width * size.height > REFINE_MAX_PIXELS && !tiled)) {
+    const tiled = input.refine && useTiles(input, size, REFINE_WHOLE_PIXELS / 4);
+    if (!input.refine) {
       const out = g.add("PreviewImage", { images: sized });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
     }
@@ -329,7 +328,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
       // each tile is shown its own piece of the picture as the reference it keeps
       image = redrawInTiles(g, ctx, sized, k.vae, size, input, (latent, tiles, tile) => {
         const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { steps: 20, strength: 0.25, phase: "refining" });
-        pass = done.pass;
+        pass = { ...done.pass, steps: done.pass.steps * tilesOf(size, input).count };
         return done.sampled;
       });
     } else {
@@ -347,13 +346,13 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "only enlarged", input: { source: "p", upscaler: "u.pth", refine: false }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
-    { name: "too large, asked whole: only enlarged", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+    { name: "too large, asked whole: gone over whole", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
   ],
 });
 
 // ---------------------------------------------------------------- fix the face
 
-export interface KleinFixFace extends KleinBase, FaceSettings {
+interface KleinFixFace extends KleinBase, FaceSettings {
   source: string;
   references: ReferenceValue[];
   /** With two people in the picture: pictures of the one on the right (`references` is then the one on the left). */
@@ -457,7 +456,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
 
 // ---------------------------------------------------------------- a variation
 
-export interface KleinVariation extends KleinBase {
+interface KleinVariation extends KleinBase {
   source: string;
   prompt: string;
   photo: boolean;

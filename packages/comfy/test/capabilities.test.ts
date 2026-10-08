@@ -72,6 +72,14 @@ describe("scan", () => {
     });
   });
 
+  it("marks a recipe that cannot say what it needs not ready, with its error, and still scans the others", async () => {
+    const broken = defineRecipe<ToyInput>({ ...recipe, id: "toy.broken", nodes: () => { throw new Error("an unknown Director version"); } });
+    fake = await startFakeComfy({ catalog, models: { vae: ["toy_vae.safetensors"], loras: [], checkpoints: ["m.safetensors"] } });
+    const s = await scan(new ComfyClient(fake.url), [family], [broken, recipe]);
+    expect(s.recipes.map((r) => [r.id, r.ready])).toEqual([["toy.broken", false], ["toy.make", true]]);
+    expect(s.recipes[0]!.problems).toEqual(["an unknown Director version"]);
+  });
+
   it("says what is missing: a required file, a model to pick, a node", async () => {
     const { Sampler: _gone, ...without } = catalog;
     const s = await run({ catalog: without, models: { vae: [], loras: [], checkpoints: [] } });

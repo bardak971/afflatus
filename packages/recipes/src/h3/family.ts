@@ -96,7 +96,7 @@ export const H3_FPS = 24;
 /** The longest clip the model was trained on: 362 frames (15 s at 24), joins included. */
 export const H3_MAX_FRAMES = 362;
 /** H3's largest canvas in one pass as it was trained: 768 × 1344 pixels. Both edges are multiples of 32. */
-export const H3_MAX_PIXELS = 768 * 1344;
+const H3_MAX_PIXELS = 768 * 1344;
 /** What a form may ask for: up to 1080p, past what the model was trained for, for cards that have the room. */
 export const H3_FORM_PIXELS = 1088 * 1920;
 

@@ -27,7 +27,7 @@ export interface PresetFile {
 }
 
 /** The part of a preset that says where it comes from and under what terms. */
-export interface PresetProvenance {
+interface PresetProvenance {
   author?: string;
   note?: string;
   /** The page that explains it (the author's). */

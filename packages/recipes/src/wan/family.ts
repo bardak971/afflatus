@@ -100,7 +100,7 @@ An elderly fisherman in a grey wool sweater and a flat cap mends a net on a ston
 
 export const WAN_FPS = 16;
 /** The 14B models' largest canvas as they were trained: 720p. Both edges are multiples of 16. */
-export const WAN_MAX_PIXELS = 1280 * 720;
+const WAN_MAX_PIXELS = 1280 * 720;
 /** What a form may ask for: up to 1080p, past what the model was trained for, for cards that have the room. */
 export const WAN_FORM_PIXELS = 1088 * 1920;
 

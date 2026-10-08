@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, LoraValue, MediaFacts, Ref } from "@afflatus/core";
+import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type MediaFacts, type Ref } from "@afflatus/core";
 import { DEFAULT_NEGATIVE } from "./family";
 
 /** What every SDXL recipe that works on a picture asks for besides its own inputs. */
@@ -18,10 +18,8 @@ export interface SdxlBase {
   seed: number;
 }
 
-export const round8 = (n: number) => Math.max(64, Math.round(n / 8) * 8);
-
-export const PREDICTION_AUTO = "Auto";
-export const V_PRED = "v-prediction (zsnr)";
+const PREDICTION_AUTO = "Auto";
+const V_PRED = "v-prediction (zsnr)";
 /** Whether a checkpoint is a v-prediction one: said on the form, else read from its name (NoobAI's v-pred files say so). */
 export const isVPred = (input: Pick<SdxlBase, "checkpoint" | "prediction">) => input.prediction === V_PRED || (input.prediction === PREDICTION_AUTO && /v.?pred/i.test(input.checkpoint.split(/[\\/]/).pop() ?? ""));
 /** The nodes a v-prediction checkpoint is sampled through. */
@@ -31,7 +29,7 @@ export const PREDICTION_NODES = ["ModelSamplingDiscrete", "RescaleCFG"];
  * file says so in its metadata, and many merges do not, which comes out as a grey, washed picture. The
  * CFG is rescaled as those checkpoints' authors recommend.
  */
-export function withPrediction(g: GraphBuilder, model: Ref, input: Pick<SdxlBase, "checkpoint" | "prediction" | "rescale">): Ref {
+function withPrediction(g: GraphBuilder, model: Ref, input: Pick<SdxlBase, "checkpoint" | "prediction" | "rescale">): Ref {
   if (!isVPred(input)) return model;
   model = g.out("ModelSamplingDiscrete", { model, sampling: "v_prediction", zsnr: true });
   return input.rescale > 0 ? g.out("RescaleCFG", { model, multiplier: input.rescale }) : model;
@@ -109,7 +107,7 @@ export function workSize(of: { width: number; height: number } | undefined, area
   const ideal = Math.min(maxScale, Math.max(0.25, Math.sqrt(area / (of.width * of.height))));
   // already about that size: left as it is, a resize of a few percent only softens it
   const s = ideal > 0.9 && ideal < 1.12 ? 1 : ideal;
-  return { width: round8(of.width * s), height: round8(of.height * s) };
+  return { width: roundTo(of.width * s, 8, 64), height: roundTo(of.height * s, 8, 64) };
 }
 
 /**
@@ -180,10 +178,10 @@ export const FACE_INPUTS: InputSpec[] = [
 export interface UpscaleSettings {
   factor: number;
 }
-export const FACTOR_INPUT: InputSpec = { id: "factor", type: "number", label: "Upscale by", note: "2 doubles each edge. The light pass after it is skipped when the result is too large for it", min: 1.5, max: 4, step: 0.5, default: 2, unit: "×", section: "out" };
+export const FACTOR_INPUT: InputSpec = { id: "factor", type: "number", label: "Upscale by", note: "2 doubles each edge. The light pass after it is made in tiles when the result is large", min: 1.5, max: 4, step: 0.5, default: 2, unit: "×", section: "out" };
 
 /** A hires second pass with the sampler and the scheduler of the first, unless others are picked. */
-export const SAME_PASS = "As the first pass";
+const SAME_PASS = "As the first pass";
 export interface HiresPass {
   hiresSampler: string;
   hiresScheduler: string;

@@ -104,51 +104,72 @@ describe("Monitor", () => {
   });
 
   it("measures a render: the time of each phase, of a step, and the GPU's peaks", async () => {
-    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const gpu = (percent: number, temperature: number) => fake.send("dasiwa.system_monitor", { gpus: [{ name: "GPU", memory_used: percent, memory_total: 100, memory_percent: percent, temperature }] });
-    monitor.track(tracking);
-    fake.send("execution_start", { prompt_id: "p1" });
-    fake.send("executing", { prompt_id: "p1", node: "5" });
-    await until(() => monitor.progress("p1").phase === "loading");
-    gpu(60, 61);
-    await pause(200);
-    // three steps, 40 ms apart: the first one is reported once it is done
-    for (const value of [1, 2, 3]) {
-      fake.send("progress", { prompt_id: "p1", node: "5", value, max: 3 });
-      await until(() => monitor.progress("p1").step === value);
-      if (value < 3) await pause(40);
-    }
-    gpu(93, 74);
-    gpu(88, 70);
-    fake.send("executing", { prompt_id: "p1", node: "9" });
-    await until(() => monitor.progress("p1").phase === "decoding");
-    await pause(50);
+    // timed by a clock of the test's own: each message is handled before the clock moves on, so the figures are exact
+    const clock = { now: 1_000 };
+    const timed = new Monitor(new ComfyClient(fake.url), { now: () => clock.now });
+    await timed.ready();
+    try {
+      const gpu = (percent: number, temperature: number) => fake.send("dasiwa.system_monitor", { gpus: [{ name: "GPU", memory_used: percent, memory_total: 100, memory_percent: percent, temperature }] });
+      timed.track(tracking);
+      fake.send("execution_start", { prompt_id: "p1" });
+      fake.send("executing", { prompt_id: "p1", node: "5" });
+      await until(() => timed.progress("p1").phase === "loading");
+      gpu(60, 61);
+      clock.now += 200;
+      // three steps, 40 ms apart: the first one is reported once it is done
+      for (const value of [1, 2, 3]) {
+        fake.send("progress", { prompt_id: "p1", node: "5", value, max: 3 });
+        await until(() => timed.progress("p1").step === value);
+        if (value < 3) clock.now += 40;
+      }
+      gpu(93, 74);
+      gpu(88, 70);
+      fake.send("executing", { prompt_id: "p1", node: "9" });
+      await until(() => timed.progress("p1").phase === "decoding");
+      clock.now += 50;
 
-    const m = monitor.measured("p1")!;
-    expect(m.stepMs).toBeGreaterThan(30);
-    expect(m.stepMs).toBeLessThan(90);
-    // the step that was under way while "loading" is counted as a step, not as loading
-    expect(m.phases.loading).toBeGreaterThan(100);
-    expect(m.phases.loading).toBeLessThan(200);
-    expect(m.phases.sampling).toBeGreaterThan(2 * 30);
-    expect(m.phases.decoding).toBeGreaterThanOrEqual(45);
-    expect(m.vramPeak).toBe(93);
-    expect(m.heatPeak).toBe(74);
-    monitor.untrack("p1");
-    expect(monitor.measured("p1")).toBeNull();
+      const m = timed.measured("p1")!;
+      expect(m.stepMs).toBe(40);
+      // the step that was under way while "loading" (the first 40 of its 200 ms) is counted as a step, not as loading
+      expect(m.phases).toEqual({ waiting: 0, loading: 160, sampling: 120, decoding: 50 });
+      expect(m.vramPeak).toBe(93);
+      expect(m.heatPeak).toBe(74);
+      timed.untrack("p1");
+      expect(timed.measured("p1")).toBeNull();
+    } finally {
+      timed.close();
+    }
   });
 
   it("counts what follows the first pass in the time left, when past renders say how long that takes", async () => {
-    monitor.track({ ...tracking, passes: [{ node: "5", steps: 20 }, { node: "8", steps: 10 }], expect: { laterMs: 60_000, finishMs: 30_000 } });
+    const clock = { now: 1_000 };
+    const timed = new Monitor(new ComfyClient(fake.url), { now: () => clock.now });
+    await timed.ready();
+    try {
+      timed.track({ ...tracking, passes: [{ node: "5", steps: 20 }, { node: "8", steps: 10 }], expect: { laterMs: 60_000, finishMs: 30_000 } });
+      fake.send("execution_start", { prompt_id: "p1" });
+      fake.send("progress", { prompt_id: "p1", node: "5", value: 1, max: 20 });
+      await until(() => timed.progress("p1").step === 1);
+      clock.now += 300;
+      fake.send("progress", { prompt_id: "p1", node: "5", value: 11, max: 20 });
+      await until(() => timed.progress("p1").step === 11);
+      // ten steps in 300 ms: nine more of 30 ms, then the minute of the second pass and the half minute of finishing
+      expect(timed.progress("p1").eta).toBeCloseTo(0.27 + 60 + 30, 6);
+    } finally {
+      timed.close();
+    }
+  });
+
+  it("counts a node that samples piece by piece round after round, and the passes ComfyUI had cached", async () => {
+    // H3's latent re-sample: one node, the same steps again for each tile and stretch of frames
+    monitor.track({ promptId: "p1", totalSteps: 8 + 3 * 4, phases: { "5": "sampling", "8": "refining" }, passes: [{ node: "5", steps: 8 }, { node: "8", steps: 3 * 4 }] });
     fake.send("execution_start", { prompt_id: "p1" });
-    fake.send("progress", { prompt_id: "p1", node: "5", value: 1, max: 20 });
-    await until(() => monitor.progress("p1").step === 1);
-    await new Promise((r) => setTimeout(r, 30));
-    fake.send("progress", { prompt_id: "p1", node: "5", value: 11, max: 20 });
-    await until(() => monitor.progress("p1").step === 11);
-    // nine steps of a few milliseconds, then the minute of the second pass and the half minute of finishing
-    expect(monitor.progress("p1").eta).toBeGreaterThan(90);
-    expect(monitor.progress("p1").eta).toBeLessThan(92);
+    // the first pass came from the cache: the same seed and settings as the prompt before
+    fake.send("execution_cached", { nodes: ["1", "5"], prompt_id: "p1" });
+    fake.send("executing", { prompt_id: "p1", node: "8" });
+    for (let round = 0; round < 3; round++) for (const value of [1, 2, 3, 4]) fake.send("progress", { prompt_id: "p1", node: "8", value, max: 4 });
+    await until(() => monitor.progress("p1").step === 20);
+    expect(monitor.progress("p1")).toMatchObject({ step: 20, steps: 20, phase: "refining", progress: 0.99 });
   });
 
   it("does not count the tiles of a decode or an upscale model as steps, but shows their phase", async () => {

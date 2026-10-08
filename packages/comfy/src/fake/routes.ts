@@ -1,0 +1,94 @@
+import type { Graph } from "@afflatus/core";
+import type { FakeRequest, FakeState } from "../testing";
+
+/**
+ * ComfyUI's own routes, and the Afflatus node pack's: the node list, the model folders, the queue and the
+ * history, uploads and downloads. `queued` hears of each prompt taken, with the client id it was queued under.
+ */
+export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, clientId: string | null): void }): (r: FakeRequest) => boolean {
+  let n = 0;
+  return ({ method, path, url, headers, raw, json, plain }) => {
+    if (method === "GET") {
+      if (path === "/system_stats") {
+        return json(200, { system: { comfyui_version: "0.0.0-fake" }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
+      }
+      if (path === "/object_info") return json(200, fake.catalog);
+      if (path === "/models") return json(200, Object.keys(fake.models));
+      if (path.startsWith("/models/")) {
+        const list = fake.models[decodeURIComponent(path.slice(8))];
+        return list ? json(200, list) : json(404, { error: "unknown folder" });
+      }
+      if (path === "/afflatus/header") {
+        if (!fake.headers) return json(404, {});
+        const header = fake.headers[`${url.searchParams.get("folder") ?? ""}/${url.searchParams.get("filename") ?? ""}`];
+        return header ? json(200, header) : json(404, {});
+      }
+      if (path === "/afflatus/version") return fake.packVersion ? json(200, { pack: "afflatus-nodes", version: fake.packVersion }) : json(404, {});
+      if (path.startsWith("/view_metadata/")) {
+        const header = fake.metadata[`${decodeURIComponent(path.slice(15))}/${url.searchParams.get("filename") ?? ""}`];
+        return header ? json(200, header) : json(404, {});
+      }
+      if (path.startsWith("/history/")) {
+        const id = decodeURIComponent(path.slice(9));
+        return json(200, fake.history[id] ? { [id]: fake.history[id] } : {});
+      }
+      if (path === "/queue") {
+        return json(200, { queue_running: fake.running.map((id) => [0, id]), queue_pending: fake.pending.map((id) => [0, id]) });
+      }
+      if (path === "/view") {
+        const file = fake.files[url.searchParams.get("filename") ?? ""];
+        return file ? plain(200, file, "application/octet-stream") : json(404, { error: "no such file" });
+      }
+      return false;
+    }
+    // no custom node pack serves example workflows in the pretend ComfyUI
+    if (method === "HEAD") return plain(404);
+    if (method !== "POST") return false;
+    if (path === "/prompt") {
+      if (fake.rejectWith) return json(400, fake.rejectWith);
+      const sent = JSON.parse(raw.toString("utf-8")) as { prompt: Graph; client_id?: string; prompt_id?: string };
+      // the id the client chose, as ComfyUI takes it; else one of its own
+      const id = typeof sent.prompt_id === "string" && sent.prompt_id ? sent.prompt_id : `prompt-${++n}`;
+      fake.prompts.set(id, sent.prompt);
+      fake.pending.push(id);
+      hooks.queued(id, typeof sent.client_id === "string" ? sent.client_id : null);
+      return json(200, { prompt_id: id });
+    }
+    if (path === "/queue") {
+      const ids = (JSON.parse(raw.toString("utf-8")) as { delete?: string[] }).delete ?? [];
+      fake.pending = fake.pending.filter((id) => !ids.includes(id));
+      return json(200, {});
+    }
+    if (path === "/interrupt") {
+      const id = (JSON.parse(raw.toString("utf-8")) as { prompt_id?: string }).prompt_id;
+      fake.running = fake.running.filter((r) => r !== id);
+      return json(200, {});
+    }
+    if (path === "/free") return json(200, {});
+    if (path.startsWith("/userdata/")) {
+      const file = decodeURIComponent(path.slice("/userdata/".length));
+      fake.userdata[file] = JSON.parse(raw.toString("utf-8"));
+      return json(200, { path: file, size: raw.length, modified: Date.now() });
+    }
+    if (path === "/upload/image") {
+      const name = /filename="([^"]+)"/.exec(raw.toString("latin1"))?.[1] ?? "upload.bin";
+      fake.uploads.push(name);
+      // the file part of the form: from after its headers to the next boundary
+      const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(String(headers["content-type"] ?? ""));
+      const head = raw.indexOf(`filename="${name}"`);
+      const from = head < 0 ? -1 : raw.indexOf("\r\n\r\n", head) + 4;
+      const to = boundary && from > 3 ? raw.indexOf(`\r\n--${boundary[1] ?? boundary[2]}`, from) : -1;
+      if (to > from) fake.uploaded[name] = new Uint8Array(raw.subarray(from, to));
+      // the folder asked for (temp, or input with a subfolder), as ComfyUI answers it
+      const field = (key: string) => new RegExp(`name="${key}"\\r\\n\\r\\n([^\\r]*)`).exec(raw.toString("latin1"))?.[1] ?? "";
+      return json(200, { name, subfolder: field("subfolder"), type: field("type") || "temp" });
+    }
+    if (path === "/afflatus/clean-input") {
+      // as the pack does: only a JSON body, which a page of another site cannot send without asking first
+      if (!/^application\/json\b/.test(String(headers["content-type"] ?? ""))) return json(415, { error: "a JSON body is expected" });
+      fake.cleaned.push(JSON.parse(raw.toString("utf8") || "{}"));
+      return json(200, { removed: 0 });
+    }
+    return false;
+  };
+}

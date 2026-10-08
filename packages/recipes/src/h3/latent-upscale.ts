@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, Ref } from "@afflatus/core";
+import { latentUpscaleSize, type BuildContext, type GraphBuilder, type Ref } from "@afflatus/core";
 import { UPSCALE } from "../video/upscale";
 import type { H3Video } from "./inputs";
 import { AUTO_SAMPLER } from "./model";
@@ -11,10 +11,17 @@ export const H3_LATENT_UPSCALE_NODES = ["MMH3UltimateUpscale", "MMH3SpatialSplit
 export const H3_LATENT_ENLARGE_NODES = ["MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams"];
 const NO_PACK = `The "Latent: re-sampled" upscale runs on the MiniMax H3 upscale nodes of the Comfyui-MMH3-UltimateUpscale pack (bbaudio-2025), which this ComfyUI does not have. Install the pack, or pick another upscale route.`;
 
-/** The frame the latent re-sample makes, on the latent's 32-pixel grid. */
-export function latentUpscaleSize(input: Pick<H3Video, "upscaleBy">, width: number, height: number): { width: number; height: number } {
-  const r32 = (n: number) => Math.max(64, Math.round(n / 32) * 32);
-  return { width: r32(width * input.upscaleBy), height: r32(height * input.upscaleBy) };
+/**
+ * How many pieces the re-sample samples one after another, each with its own steps: the stretches of frames
+ * (upscaleChunk long, overlapping by 17) times the tiles of the enlarged frame (upscaleTile wide, overlapping by
+ * upscaleOverlap). The node reports each piece's steps from 1 again: this is what the progress bar counts them
+ * against. Worked out the way the node's settings say to split; a piece more or less only moves when the bar ends.
+ */
+export function latentUpscaleRounds(input: Pick<H3Video, "upscaleBy" | "upscaleTile" | "upscaleOverlap" | "upscaleChunk">, frame: { width: number; height: number }, frames: number): number {
+  const big = latentUpscaleSize(frame, input.upscaleBy);
+  const along = (n: number) => Math.max(1, Math.ceil((n - input.upscaleOverlap) / Math.max(1, input.upscaleTile - input.upscaleOverlap)));
+  const stretches = Math.max(1, Math.ceil((frames - 17) / Math.max(1, input.upscaleChunk - 17)));
+  return along(big.width) * along(big.height) * stretches;
 }
 
 /**
@@ -29,7 +36,7 @@ export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3V
   if (input.upscale !== UPSCALE.latent) return latent;
   // the queue refuses up front on nodes(); this is for a build that reaches here with the pack gone
   if (H3_LATENT_UPSCALE_NODES.some((n) => !ctx.has(n))) throw new Error(NO_PACK);
-  const big = latentUpscaleSize(input, width, height);
+  const big = latentUpscaleSize({ width, height }, input.upscaleBy);
   const withModel = input.upscaleWith !== "Plain resize" && Boolean(slots.latentUpscaler) && ctx.has("MMH3LatentUpscaleWithModelParams");
   if (input.upscaleWith === "H3's latent upscaler" && !withModel) throw new Error("H3's latent upscaler was not found: put minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, or set the upscale pass to a plain resize.");
   if (!withModel && !ctx.has("MMH3LatentUpscaleParams")) throw new Error(NO_PACK);

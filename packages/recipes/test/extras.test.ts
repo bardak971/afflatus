@@ -48,7 +48,8 @@ describe("a pass in tiles", () => {
     expect(sampled.class_type).toBe("KSampler");
     expect(sampled.inputs.denoise).toBe(0.45);
     expect(from(b, from(b, sampled.inputs.latent_image).inputs.pixels).class_type).toBe("SplitImageToTileList");
-    expect(b.totalSteps).toBe(28 + 15);
+    // the hires pass runs once for each of the 3 × 4 tiles: its steps count that many times
+    expect(b.totalSteps).toBe(28 + 15 * 12);
   });
   it("Auto keeps a usual hires fix whole, and a ComfyUI without the tile nodes is told to update", () => {
     expect(of(sdxl({ hires: true, hiresScale: 1.5, hiresUpscaler: "u.pth" }), "SplitImageToTileList")).toHaveLength(0);
@@ -59,6 +60,11 @@ describe("a pass in tiles", () => {
     const b = sharper.build(parseInput(sharper, { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth" }), dryContext({ uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } }));
     expect(of(b, "SplitImageToTileList")).toHaveLength(1);
     expect(of(b, "KSampler")).toHaveLength(1);
+    // asked whole, it is gone over whole at any size; where the tile nodes are missing, it says so rather than skip the pass
+    const whole = sharper.build(parseInput(sharper, { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tiles: "Whole picture" }), dryContext({ uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } }));
+    expect(of(whole, "SplitImageToTileList")).toHaveLength(0);
+    expect(of(whole, "KSampler")).toHaveLength(1);
+    expect(() => sharper.build(parseInput(sharper, { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth" }), dryContext({ uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } }, has: without("SplitImageToTileList") }))).toThrow(/update ComfyUI/);
   });
 });
 

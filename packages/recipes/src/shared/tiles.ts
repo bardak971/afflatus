@@ -13,8 +13,8 @@ export interface TileSettings {
   tileOverlap: number;
 }
 
-export const TILES_AUTO = "Auto";
-export const TILES_WHOLE = "Whole picture";
+const TILES_AUTO = "Auto";
+const TILES_WHOLE = "Whole picture";
 export const TILES_ON = "Tiles";
 export const TILE_NODES = ["SplitImageToTileList", "ImageMergeTileList"];
 export const TILES_NEEDED = "Redrawing in tiles needs ComfyUI's SplitImageToTileList and ImageMergeTileList nodes, which came with a recent ComfyUI: update ComfyUI, or pick Whole picture.";
@@ -39,14 +39,22 @@ export function useTiles(input: TileSettings, size: { width: number; height: num
 /** The nodes tiles bring in. */
 export const tileNodes = (on: boolean) => (on ? [...TILE_NODES, "VAEEncode", "VAEDecode"] : []);
 
+/** The tiles a picture this size is cut in: their size, how far they overlap, and how many there are (along each side, (side − overlap) / (tile − overlap), rounded up). */
+export function tilesOf(size: { width: number; height: number }, input: TileSettings): { tile: number; overlap: number; count: number } {
+  const tile = Math.min(input.tileSize, Math.max(size.width, size.height));
+  const overlap = Math.min(input.tileOverlap, Math.floor(tile / 4));
+  const along = (side: number) => (side <= tile ? 1 : Math.ceil((side - overlap) / (tile - overlap)));
+  return { tile, overlap, count: along(size.width) * along(size.height) };
+}
+
 /**
  * A picture redrawn in tiles: cut, each tile encoded, sampled by `sample` (the pass's sampler, at its light
- * denoise), decoded, and put back at the picture's size. ComfyUI runs the nodes between once per tile.
+ * denoise), decoded, and put back at the picture's size. ComfyUI runs the nodes between once per tile, so the
+ * pass's steps come round once per tile (`tilesOf(...).count`): what its progress counts.
  */
 export function redrawInTiles(g: GraphBuilder, ctx: BuildContext, picture: Ref, vae: Ref, size: { width: number; height: number }, input: TileSettings, sample: (latent: Ref, tiles: Ref, tile: number) => Ref): Ref {
   if (!TILE_NODES.every((n) => ctx.has(n))) throw new Error(TILES_NEEDED);
-  const tile = Math.min(input.tileSize, Math.max(size.width, size.height));
-  const overlap = Math.min(input.tileOverlap, Math.floor(tile / 4));
+  const { tile, overlap } = tilesOf(size, input);
   const pieces = g.out("SplitImageToTileList", { image: picture, tile_width: tile, tile_height: tile, overlap });
   const latents = g.out("VAEEncode", { pixels: pieces, vae });
   // the sampler a family brings may set its own phase (Klein's says "sampling"): the decode and the merge are the tile pass's
