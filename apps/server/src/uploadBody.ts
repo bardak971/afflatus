@@ -5,4 +5,14 @@ export interface UploadBody {
   dir: string;
   bytes: number;
 }
-export const isUpload = (body: unknown): body is UploadBody => Boolean(body && typeof body === "object" && "path" in body && "dir" in body);
+
+// the bodies the upload parser made: a JSON body of the same shape is not in here, so it can never name a file to read or a folder to remove
+const uploads = new WeakSet<object>();
+
+/** Marks a body as one the upload parser wrote (only the content-type parser in app.ts calls this). */
+export function uploadBody(body: UploadBody): UploadBody {
+  uploads.add(body);
+  return body;
+}
+
+export const isUpload = (body: unknown): body is UploadBody => typeof body === "object" && body !== null && uploads.has(body);

@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { migrate } from "../src/db";
 import { allowedHosts, hostAllowed } from "../src/hostCheck";
-import { CHECKPOINT, get, makeApp, makeFake, NOWHERE, post, type TestApp } from "./helpers";
+import { CHECKPOINT, get, makeApp, makeFake, NOWHERE, png, post, type TestApp } from "./helpers";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -81,7 +84,7 @@ describe("the Host header", () => {
     expect((await get(t.app, "/api/health", { host: "localhost:8720" })).statusCode).toBe(200);
     expect((await get(t.app, "/api/health", { host: "127.0.0.1" })).statusCode).toBe(200);
     expect((await get(t.app, "/api/health", { host: "[::1]:8720" })).statusCode).toBe(200);
-    const foreign = await get(t.app, "/api/health", { host: "evil.example.com:8720" });
+    const foreign = await get(t.app, "/api/settings", { host: "evil.example.com:8720" });
     expect(foreign.statusCode).toBe(403);
     expect(foreign.json().error).toContain("evil.example.com");
   });
@@ -95,6 +98,76 @@ describe("the Host header", () => {
     expect(hostAllowed("other.lan", allowed)).toBe(false);
     expect(hostAllowed(undefined, allowed)).toBe(true);
     expect(hostAllowed("192.168.1.30:8720", allowedHosts({ HOST: "192.168.1.30" }))).toBe(true);
+  });
+});
+
+describe("a request from another site's page", () => {
+  const send = (method: "GET" | "POST", headers: Record<string, string>) => t.app.inject({ method, url: method === "GET" ? "/api/health" : "/api/health/check", headers });
+
+  it("is refused when the browser says it is cross-site or same-site", async () => {
+    expect((await send("POST", { "sec-fetch-site": "cross-site" })).statusCode).toBe(403);
+    expect((await send("POST", { "sec-fetch-site": "same-site" })).statusCode).toBe(403);
+    expect((await send("POST", { "sec-fetch-site": "same-origin" })).statusCode).toBe(200);
+  });
+
+  it("is refused when its Origin is not one of the server's names", async () => {
+    expect((await send("POST", { origin: "https://evil.example" })).statusCode).toBe(403);
+    expect((await send("POST", { origin: "null" })).statusCode).toBe(403);
+    expect((await send("POST", { origin: "http://localhost:8720" })).statusCode).toBe(200);
+  });
+
+  it("passes with neither header (curl, a script), and reading is never refused for it", async () => {
+    expect((await send("POST", {})).statusCode).toBe(200);
+    expect((await send("GET", { origin: "https://evil.example", "sec-fetch-site": "cross-site" })).statusCode).toBe(200);
+  });
+});
+
+describe("a change that is not JSON, a file, or marked", () => {
+  // the helpers' inject adds "x-afflatus: 1": undefined takes it off, as a plain form's request would be
+  const send = (headers: Record<string, string | undefined>, payload?: string) => t.app.inject({ method: "POST", url: "/api/health/check", headers: { "x-afflatus": undefined, ...headers }, payload });
+
+  it("is refused without a body: a page elsewhere sends one without asking the browser first", async () => {
+    const res = await send({});
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toContain("X-Afflatus");
+  });
+
+  it("is refused as text/plain or a form, the bodies a page elsewhere can send", async () => {
+    expect((await send({ "content-type": "text/plain" }, "{}")).statusCode).toBe(403);
+    expect((await send({ "content-type": "application/x-www-form-urlencoded" }, "a=1")).statusCode).toBe(403);
+  });
+
+  it("passes with the header, as JSON, or as a file; reading needs neither", async () => {
+    expect((await send({ "x-afflatus": "1" })).statusCode).toBe(200);
+    expect((await send({ "content-type": "application/json; charset=utf-8" }, "{}")).statusCode).toBe(200);
+    expect((await t.app.inject({ method: "GET", url: "/api/health", headers: { "x-afflatus": undefined } })).statusCode).toBe(200);
+    // a file is taken (and judged by the route), not refused here
+    expect((await t.app.inject({ method: "POST", url: "/api/embedded", headers: { "x-afflatus": undefined, "content-type": "image/png" }, payload: Buffer.from(png(8, 8)) })).statusCode).not.toBe(403);
+  });
+});
+
+describe("a scraper or a probe", () => {
+  it("is answered on /metrics and /api/health whatever name it uses, and nowhere else", async () => {
+    expect((await get(t.app, "/api/health", { host: "10.1.2.3:8720" })).statusCode).toBe(200);
+    expect((await get(t.app, "/metrics", { host: "10.1.2.3:8720" })).statusCode).toBe(200);
+    expect((await get(t.app, "/api/settings", { host: "10.1.2.3:8720" })).statusCode).toBe(403);
+    expect((await t.app.inject({ method: "POST", url: "/api/health/check", headers: { host: "10.1.2.3:8720" } })).statusCode).toBe(403);
+  });
+});
+
+describe("a JSON body shaped like an upload", () => {
+  it("names no file to read and no folder to remove", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "afflatus-not-upload-"));
+    try {
+      await writeFile(join(dir, "secret.txt"), "keep me");
+      const res = await post(t.app, "/api/embedded", { path: join(dir, "secret.txt"), dir });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("send the file itself");
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { path: join(dir, "secret.txt"), dir } });
+      expect(await readFile(join(dir, "secret.txt"), "utf8")).toBe("keep me");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

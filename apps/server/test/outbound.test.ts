@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { assertPublicUrl, isPrivateAddress, isPrivateHost } from "../src/outbound";
+import { createServer, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { civitaiGet } from "../src/civitai";
+import { findOnHuggingFace, forgetHuggingFace } from "../src/huggingface";
+import { assertPublicUrl, fetchPublic, isPrivateAddress, isPrivateHost } from "../src/outbound";
 
 describe("where the server may fetch from", () => {
   it("knows the addresses of this machine and its network", () => {
@@ -24,5 +28,112 @@ describe("where the server may fetch from", () => {
     expect(assertPublicUrl("https://civitai.com/api/download/models/1").hostname).toBe("civitai.com");
     expect(assertPublicUrl("http://127.0.0.1:8188/x", ["127.0.0.1"]).port).toBe("8188");
     expect(assertPublicUrl("http://[::1]:9/x", ["::1"]).hostname).toBe("[::1]");
+  });
+});
+
+describe("following a redirect", () => {
+  let a: Server;
+  let b: Server;
+  let aUrl = "";
+  let bUrl = "";
+  let seen: Array<{ at: string; url: string; auth?: string }> = [];
+  const serve = (name: string, route: (url: string, res: ServerResponse) => void) => {
+    const s = createServer((req, res) => {
+      seen.push({ at: name, url: req.url ?? "", auth: req.headers.authorization });
+      route(req.url ?? "", res);
+    });
+    return new Promise<Server>((r) => s.listen(0, "127.0.0.1", () => r(s)));
+  };
+  const to = (res: ServerResponse, where: string) => {
+    res.writeHead(302, { location: where });
+    res.end();
+  };
+  beforeEach(async () => {
+    seen = [];
+    b = await serve("b", (_url, res) => res.end("file"));
+    bUrl = `http://127.0.0.1:${(b.address() as AddressInfo).port}`;
+    a = await serve("a", (url, res) => {
+      if (url === "/elsewhere") return to(res, `${bUrl}/file`);
+      if (url === "/same") return to(res, "/file");
+      if (url === "/inside") return to(res, "http://169.254.169.254/latest/meta-data/");
+      if (url.startsWith("/loop")) return to(res, `/loop${url.length}`);
+      res.end("file");
+    });
+    aUrl = `http://127.0.0.1:${(a.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    await new Promise((r) => a.close(r));
+    await new Promise((r) => b.close(r));
+  });
+  const headers = { "User-Agent": "afflatus", Authorization: "Bearer k-123" };
+
+  it("judges each address it is sent on to, as the first one was", async () => {
+    await expect(fetchPublic(`${aUrl}/inside`, { headers }, ["127.0.0.1"])).rejects.toThrow(/inside your own network/);
+    expect(seen.map((s) => s.url)).toEqual(["/inside"]);
+  });
+
+  it("keeps the key for the host first asked: another host gets none", async () => {
+    expect(await (await fetchPublic(`${aUrl}/elsewhere`, { headers }, ["127.0.0.1"])).text()).toBe("file");
+    expect(seen).toEqual([{ at: "a", url: "/elsewhere", auth: "Bearer k-123" }, { at: "b", url: "/file", auth: undefined }]);
+    seen = [];
+    await fetchPublic(`${aUrl}/same`, { headers }, ["127.0.0.1"]);
+    expect(seen.map((s) => s.auth)).toEqual(["Bearer k-123", "Bearer k-123"]);
+  });
+
+  it("gives up after five redirects", async () => {
+    await expect(fetchPublic(`${aUrl}/loop`, { headers }, ["127.0.0.1"])).rejects.toThrow(/more than 5 times/);
+    expect(seen.length).toBe(6);
+  });
+});
+
+describe("Civitai's and Hugging Face's APIs, sent on elsewhere", () => {
+  let a: Server;
+  let b: Server;
+  let aUrl = "";
+  let seen: Array<{ at: string; url: string; auth?: string }> = [];
+  const was = { civitai: process.env.CIVITAI_URL, hf: process.env.HUGGINGFACE_URL };
+  const serve = (name: string, route: (url: string, res: ServerResponse) => void) => {
+    const s = createServer((req, res) => {
+      seen.push({ at: name, url: req.url ?? "", auth: req.headers.authorization });
+      route(req.url ?? "", res);
+    });
+    return new Promise<Server>((r) => s.listen(0, "127.0.0.1", () => r(s)));
+  };
+  const to = (res: ServerResponse, where: string) => {
+    res.writeHead(302, { location: where });
+    res.end();
+  };
+  beforeEach(async () => {
+    seen = [];
+    b = await serve("b", (_url, res) => res.end(JSON.stringify({ id: 1 })));
+    const bUrl = `http://127.0.0.1:${(b.address() as AddressInfo).port}`;
+    a = await serve("a", (url, res) => {
+      if (url === "/api/v1/model-versions/1") return to(res, `${bUrl}/v`);
+      to(res, "http://169.254.169.254/latest/meta-data/");
+    });
+    aUrl = `http://127.0.0.1:${(a.address() as AddressInfo).port}`;
+    process.env.CIVITAI_URL = aUrl;
+    process.env.HUGGINGFACE_URL = aUrl;
+    forgetHuggingFace();
+  });
+  afterEach(async () => {
+    for (const [k, v] of [["CIVITAI_URL", was.civitai], ["HUGGINGFACE_URL", was.hf]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    forgetHuggingFace();
+    await new Promise((r) => a.close(r));
+    await new Promise((r) => b.close(r));
+  });
+
+  it("Civitai's key stays with Civitai: the host it is sent on to gets none", async () => {
+    expect(await civitaiGet<{ id: number }>("/api/v1/model-versions/1", "k-123")).toEqual({ id: 1 });
+    expect(seen).toEqual([{ at: "a", url: "/api/v1/model-versions/1", auth: "Bearer k-123" }, { at: "b", url: "/v", auth: undefined }]);
+  });
+
+  it("an answer sent on into the network is not followed, from either", async () => {
+    await expect(civitaiGet("/api/v1/model-versions/2", "k-123")).rejects.toThrow(/inside your own network/);
+    expect(await findOnHuggingFace("some_model_fp8.safetensors")).toEqual({ items: [], answered: false });
+    expect(seen.every((s) => s.at === "a")).toBe(true);
   });
 });

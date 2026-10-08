@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join, parse, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import type { EventEmitter } from "node:events";
+import { loadConfig } from "./config";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
+import { httpError } from "./errors";
 import { extOf, mimeOfFile, newAssetRow } from "./media";
 import type { Storage } from "./storage";
 
@@ -27,12 +29,14 @@ const under = (path: string, root: string) => path === root || path.startsWith(r
 /**
  * Whether a directory may be linked at all, and why not when it may not. Linking serves everything under
  * the directory and writes into it, so the system's own directories are never linked: Windows, the program
- * folders, a user's AppData and its three stores, the root of a drive, the home directory itself (what is
+ * folders, everything under a user's AppData, the root of a drive, the home directory itself (what is
  * in it is fine, folder by folder); on Linux and macOS the root, /etc, /usr, /bin, /sbin, /var and its
- * first level, /System and /Library. LINK_ROOTS, when set (directories separated as PATH is), narrows
- * linking to those directories and what is under them: for a server other machines can reach.
+ * first level, /System and /Library. Nor Afflatus's own data folder (DATA_DIR) or ComfyUI's custom_nodes
+ * (when ComfyUI's folder is known), or a folder around them. LINK_ROOTS, when set (directories separated
+ * as PATH is), narrows linking to those directories and what is under them; a server that listens on more
+ * than loopback (HOST) links nothing until it is set.
  */
-export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = homedir()): string | null {
+export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = homedir(), comfyDir = ""): string | null {
   const windows = platform === "win32";
   const norm = (p: string) => (windows ? p.toLowerCase() : p);
   const d = norm(resolve(dir));
@@ -43,19 +47,24 @@ export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = process.env
   if (windows) {
     const rest = d.slice(root.length).replace(/^[\\/]+/, "");
     if (/^(windows|program files|program files \(x86\)|programdata)(\\|$)/.test(rest)) return "Windows's own folders and the program folders cannot be linked.";
-    if (/^users\\[^\\]+\\appdata(\\[^\\]+)?$/.test(rest)) return "AppData holds the settings of your programs: link a folder inside it, not the store itself.";
+    // a folder inside the temporary folder is scratch space, the one part of AppData no program runs or reads its settings from
+    if (/^users\\[^\\]+\\appdata(\\|$)/.test(rest) && !/^users\\[^\\]+\\appdata\\local\\temp\\./.test(rest)) return "AppData holds your programs' settings and code: nothing in it can be linked.";
   } else {
     if (["/etc", "/usr", "/bin", "/sbin", "/System", "/Library"].some((top) => inside(d, top))) return "The system's own directories cannot be linked.";
     if (/^\/var(\/[^/]+)?$/.test(d)) return "/var holds the system's own files: link a folder further inside it, not /var itself.";
   }
+  // linking either would let a file be written among Afflatus's own files or ComfyUI's code, or bin one of them
+  const data = norm(loadConfig(env).dataDir);
+  if (inside(d, data) || inside(data, d)) return "Afflatus's own data folder cannot be linked, nor a folder around it.";
+  const nodes = comfyDir.trim() ? norm(resolve(comfyDir.trim(), "custom_nodes")) : "";
+  if (nodes && (inside(d, nodes) || inside(nodes, d))) return "ComfyUI's custom_nodes folder holds code: it cannot be linked, nor a folder around it.";
   const roots = (env.LINK_ROOTS ?? "").split(delimiter).map((r) => r.trim()).filter(Boolean).map((r) => norm(resolve(r)));
+  const host = loadConfig(env).host.toLowerCase();
+  if (!roots.length && !LOOPBACK.has(host) && !host.startsWith("127.")) return "Afflatus listens on the network (HOST): set LINK_ROOTS to the folders that may be linked before linking one.";
   if (roots.length && !roots.some((r) => inside(d, r))) return `Linking is limited to the folders named in LINK_ROOTS (${roots.join(", ")}) and what is inside them.`;
   return null;
 }
-
-export class LinkedError extends Error {
-  statusCode = 400;
-}
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 /** The files of Afflatus's own storage, and the files of linked folders, behind one door. */
 export class RoutedStorage implements Storage {
@@ -66,20 +75,24 @@ export class RoutedStorage implements Storage {
 
   private file(key: string): string {
     const p = resolve(diskPath(key));
-    if (!this.roots.some((r) => under(p, r))) throw new LinkedError("This file is in a folder that is not linked any more.");
+    if (!this.roots.some((r) => under(p, r))) throw httpError("This file is in a folder that is not linked any more.");
     return p;
   }
   // nothing is ever stored under a "linked:" key: a file goes into a linked directory by name, through Linked.into
   async put(key: string, bytes: Uint8Array): Promise<void> {
-    if (isLinked(key)) throw new LinkedError("A file is put into a linked folder by name, not by key.");
+    if (isLinked(key)) throw httpError("A file is put into a linked folder by name, not by key.");
     return this.own.put(key, bytes);
   }
   async putFile(key: string, path: string): Promise<void> {
-    if (isLinked(key)) throw new LinkedError("A file is put into a linked folder by name, not by key.");
+    if (isLinked(key)) throw httpError("A file is put into a linked folder by name, not by key.");
     return this.own.putFile(key, path);
   }
   async get(key: string): Promise<Uint8Array> {
     return isLinked(key) ? new Uint8Array(await readFile(this.file(key))) : this.own.get(key);
+  }
+  /** Where the file lies on disk, for ffmpeg to read it there rather than from memory. */
+  localPath(key: string): string | null {
+    return isLinked(key) ? this.file(key) : (this.own.localPath?.(key) ?? null);
   }
   async size(key: string): Promise<number> {
     return isLinked(key) ? (await stat(this.file(key))).size : this.own.size(key);
@@ -133,15 +146,15 @@ export class Linked {
   }
 
   /** Link a directory: it becomes a folder at the top of the tree, and is read at once. */
-  async link(path: string, name?: string): Promise<Folder> {
+  async link(path: string, name?: string, comfyDir = ""): Promise<Folder> {
     const dir = resolve(path.trim());
     const there = await stat(dir).catch(() => null);
-    if (!there?.isDirectory()) throw new LinkedError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
-    const refused = whyNotLinkable(dir);
-    if (refused) throw new LinkedError(refused);
+    if (!there?.isDirectory()) throw httpError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
+    const refused = whyNotLinkable(dir, process.env, process.platform, homedir(), comfyDir);
+    if (refused) throw httpError(refused);
     for (const f of await this.roots()) {
       const other = resolve(f.path!);
-      if (under(dir, other) || under(other, dir)) throw new LinkedError(`This folder is already linked, or is inside or around "${f.name}", which is.`);
+      if (under(dir, other) || under(other, dir)) throw httpError(`This folder is already linked, or is inside or around "${f.name}", which is.`);
     }
     const row: Folder = { id: newId(), owner_id: OWNER, parent_id: null, name: (name?.trim() || basename(dir) || dir).slice(0, 120), path: dir, project_id: null, created_at: now() };
     await this.db.insertInto("folders").values(row).execute();
@@ -153,25 +166,33 @@ export class Linked {
   /** Stop showing a linked folder. Nothing on the disk is touched: only what Afflatus knew about it goes. */
   async unlink(rootId: string): Promise<void> {
     const root = await this.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst();
-    if (!root?.path) throw new LinkedError("This folder is not linked to the disk.");
+    if (!root?.path) throw httpError("This folder is not linked to the disk.");
     const dir = resolve(root.path);
     const folders = (await this.db.selectFrom("folders").selectAll().where("path", "is not", null).execute()).filter((f) => under(resolve(f.path!), dir));
     const ids = folders.map((f) => f.id);
     const files = await this.db.selectFrom("assets").select(["id", "file_key", "thumb_key"]).where("folder_id", "in", ids).execute();
-    for (const a of files) {
-      if (isLinked(a.file_key)) await this.forget(a);
-      // a result that was waiting there to be kept stays in the library, in no folder
-      else await this.db.updateTable("assets").set({ folder_id: null }).where("id", "=", a.id).execute();
-    }
-    await this.db.deleteFrom("folders").where("id", "in", ids).execute();
+    // all of it or none: a stop halfway would leave folders without their files, or files in folders that are gone
+    await this.db.transaction().execute(async (tx) => {
+      for (const a of files) {
+        if (isLinked(a.file_key)) await this.forgetRow(a.id, tx);
+        // a result that was waiting there to be kept stays in the library, in no folder
+        else await tx.updateTable("assets").set({ folder_id: null }).where("id", "=", a.id).execute();
+      }
+      await tx.deleteFrom("folders").where("id", "in", ids).execute();
+    });
+    // the small pictures are Afflatus's own files: dropped once the rows are gone
+    for (const a of files) if (isLinked(a.file_key) && a.thumb_key) await this.storage.delete(a.thumb_key).catch(() => {});
     await this.load();
     this.events.emit("library");
   }
 
   private async forget(a: Pick<Asset, "id" | "thumb_key">): Promise<void> {
     if (a.thumb_key) await this.storage.delete(a.thumb_key).catch(() => {});
-    await this.db.deleteFrom("generation_inputs").where("asset_id", "=", a.id).execute().catch(() => {});
-    await this.db.deleteFrom("assets").where("id", "=", a.id).execute();
+    await this.forgetRow(a.id, this.db);
+  }
+  private async forgetRow(id: string, db: Db): Promise<void> {
+    await db.deleteFrom("generation_inputs").where("asset_id", "=", id).execute();
+    await db.deleteFrom("assets").where("id", "=", id).execute();
   }
 
   /** Read a linked folder's directory again: what is new appears, what is gone disappears. One reading at a time per folder. */
@@ -185,10 +206,10 @@ export class Linked {
 
   private async read(folderId: string): Promise<{ files: number; folders: number }> {
     const start = await this.db.selectFrom("folders").selectAll().where("id", "=", folderId).executeTakeFirst();
-    if (!start?.path) throw new LinkedError("This folder is not linked to the disk.");
+    if (!start?.path) throw httpError("This folder is not linked to the disk.");
     const root = await this.rootOf(start);
     const dir = resolve(root.path!);
-    if (!(await stat(dir).catch(() => null))?.isDirectory()) throw new LinkedError(`"${dir}" cannot be read: it was moved or deleted, or its disk is not there.`);
+    if (!(await stat(dir).catch(() => null))?.isDirectory()) throw httpError(`"${dir}" cannot be read: it was moved or deleted, or its disk is not there.`);
 
     const knownFolders = (await this.db.selectFrom("folders").selectAll().where("path", "is not", null).execute()).filter((f) => under(resolve(f.path!), dir));
     const byPath = new Map(knownFolders.map((f) => [resolve(f.path!), f]));
@@ -270,9 +291,9 @@ export class Linked {
   /** A new folder inside a linked one is a new directory. */
   async makeFolder(parent: Folder, name: string): Promise<string> {
     const safe = diskSafe(name);
-    if (!safe) throw new LinkedError("This name cannot be a folder's name on a disk.");
+    if (!safe) throw httpError("This name cannot be a folder's name on a disk.");
     const full = join(resolve(parent.path!), safe);
-    if (await stat(full).catch(() => null)) throw new LinkedError(`There is already something called "${safe}" in that folder.`);
+    if (await stat(full).catch(() => null)) throw httpError(`There is already something called "${safe}" in that folder.`);
     await mkdir(full);
     await this.load();
     return full;
@@ -286,16 +307,15 @@ export class Linked {
       const full = join(dir, n === 1 ? `${stem}${ext}` : `${stem}_${String(n).padStart(2, "0")}${ext}`);
       if (!(await stat(full).catch(() => null))) return full;
     }
-    throw new LinkedError("No free name was found for this file.");
+    throw httpError("No free name was found for this file.");
   }
 
   /** What an item is called as a file: its own name when it has one, else the day it was made and the start of what was written to make it. */
   private async nameFor(a: Asset): Promise<string> {
     const ext = extOf(a.mime);
-    if (a.name.trim()) {
-      const safe = diskSafe(a.name);
-      return /\.[A-Za-z0-9]{2,5}$/.test(safe) ? safe : `${safe}.${ext}`;
-    }
+    // the extension is the file's real type, whatever the name ends with: a picture is never written as a ".exe"
+    const stem = diskSafe(a.name).replace(/\.[A-Za-z0-9]{1,8}$/, "");
+    if (stem) return `${stem}.${ext}`;
     const g = a.generation_id ? await this.db.selectFrom("generations").select("inputs").where("id", "=", a.generation_id).executeTakeFirst() : undefined;
     const texts = g ? Object.values(JSON.parse(g.inputs) as Record<string, unknown>).filter((v): v is string => typeof v === "string" && /\s/.test(v.trim())) : [];
     const words = slug(texts[0] ?? "");

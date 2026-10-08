@@ -1,13 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebStream } from "node:stream/web";
 import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertPublicUrl, hostnameOf } from "./outbound";
+import { assertPublicUrl, fetchPublic, hostnameOf } from "./outbound";
 
 /**
  * Model files fetched straight into ComfyUI's model folders, through ComfyUI-Manager.
@@ -17,7 +17,8 @@ import { assertPublicUrl, hostnameOf } from "./outbound";
  * that is the progress bar. Nothing of the file is stored by Afflatus, and a Civitai key never leaves it
  * (Manager only ever sees the one-time address). The list itself is written to a small file in the data
  * folder at each change: a download cut short by Afflatus stopping or restarting is then listed as
- * interrupted at the next start, instead of vanishing without a word.
+ * interrupted at the next start, instead of vanishing without a word (one already handed whole to Manager is done:
+ * Manager saves it on its own).
  */
 
 export interface DownloadView {
@@ -89,7 +90,9 @@ export class Downloads {
       const now = Date.now();
       this.past = kept
         .filter((k) => k && typeof k.id === "string")
-        .map((k) => (k.status === "starting" || k.status === "downloading" || k.status === "saving" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined } : k))
+        // "saving": every byte was handed to ComfyUI-Manager, which saves it on its own whether Afflatus runs or not
+        .map((k) => (k.status === "saving" ? { ...k, status: "done" as const, finishedAt: now } : k))
+        .map((k) => (k.status === "starting" || k.status === "downloading" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined } : k))
         .filter((k) => !k.finishedAt || now - k.finishedAt < KEEP_MS);
       if (this.past.some((k) => k.error === INTERRUPTED)) this.tell(true);
     } catch {
@@ -102,7 +105,13 @@ export class Downloads {
     if (!this.stateFile) return;
     const kept: Kept[] = [...this.past, ...[...this.all.values()].map(({ token: _t, source: _s, headers: _h, comfy: _c, abort: _a, ...view }) => view)];
     const file = this.stateFile;
-    this.writing = this.writing.then(() => writeFile(file, JSON.stringify(kept))).catch(() => {});
+    // written beside it, then put in its place: a stop in the middle of a write leaves the last whole list, never half of one
+    this.writing = this.writing
+      .then(async () => {
+        await writeFile(`${file}.tmp`, JSON.stringify(kept));
+        await rename(`${file}.tmp`, file);
+      })
+      .catch((err) => console.warn(`[downloads] the list could not be saved: ${(err as Error).message}`));
   }
 
   private tell(now = false): void {
@@ -250,7 +259,8 @@ export class Downloads {
     this.tell(true);
     let res: Response;
     try {
-      res = await fetch(d.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...d.headers }, redirect: "follow", signal: d.abort.signal });
+      // each redirect judged as the source was (but never on to ComfyUI's machine), and the Civitai key kept for the host first asked
+      res = await fetchPublic(d.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...d.headers }, signal: d.abort.signal }, civitaiSites().map(hostnameOf));
     } catch (err) {
       this.fail(d, `The download did not start: ${(err as Error).message}`);
       return { error: d.error! };

@@ -1,6 +1,6 @@
 import { civitaiGet, civitaiSites } from "./civitai";
 import { httpError } from "./errors";
-import { assertPublicUrl, hostnameOf } from "./outbound";
+import { assertPublicUrl, fetchPublic, hostnameOf } from "./outbound";
 
 /**
  * A model from a link: the address of a model's page on Civitai, of one of its versions, or of a file
@@ -75,7 +75,7 @@ async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
   if (!versionId && !modelId) throw bad("That Civitai address does not name a model. Open the model's page and copy its address.");
   let model: ApiModel | null = modelId ? await civitaiGet<ApiModel>(`/api/v1/models/${modelId}`, key) : null;
   let version: ApiVersion | null | undefined = versionId ? model?.modelVersions?.find((v) => v.id === versionId) ?? (await civitaiGet<ApiVersion>(`/api/v1/model-versions/${versionId}`, key)) : model?.modelVersions?.[0];
-  if (!version) throw Object.assign(new Error("Civitai does not show that model (it may be removed, or need an account: a Civitai key in Settings helps)."), { statusCode: 404 });
+  if (!version) throw httpError("Civitai does not show that model (it may be removed, or need an account: a Civitai key in Settings helps).", 404);
   // an address of a version alone: its model says what the other versions are
   if (!model && version.modelId) model = await civitaiGet<ApiModel>(`/api/v1/models/${version.modelId}`, key).catch(() => null);
   const kind = model?.type ?? version.model?.type ?? "";
@@ -85,7 +85,7 @@ async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
     name: f.name!, bytes: Math.round((f.sizeKB ?? 0) * 1024),
     note: [f.metadata?.fp, f.metadata?.size, f.metadata?.format && f.metadata.format !== "SafeTensor" ? f.metadata.format : ""].filter(Boolean).join(" · "),
   }));
-  if (!files.length) throw Object.assign(new Error("That version has no model file to download."), { statusCode: 404 });
+  if (!files.length) throw httpError("That version has no model file to download.", 404);
   const alone = kind === "Checkpoint" && ALONE.test(`${base} ${name}`);
   return {
     source: "civitai", title: [name, version.name].filter(Boolean).join(" · "), about: [kind, base].filter(Boolean).join(" · "),
@@ -115,7 +115,7 @@ async function sizeOf(url: string): Promise<number> {
   // where a pretend Civitai stands in (the tests, the demo), no other site is asked either
   if (process.env.CIVITAI_URL) return 0;
   try {
-    const res = await fetch(url, { method: "HEAD", redirect: "follow", headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(15_000) });
+    const res = await fetchPublic(url, { method: "HEAD", headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(15_000) });
     return Number(res.headers.get("x-linked-size") ?? res.headers.get("content-length") ?? 0) || 0;
   } catch {
     return 0;

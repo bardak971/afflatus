@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -37,6 +37,19 @@ describe("the downloads' state file", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(JSON.parse(readFileSync(file, "utf8")).map((d: { id: string }) => d.id)).toEqual(["b"]);
     expect(downloads.stop("nothing")).toBe(false);
+  });
+
+  it("lists one ComfyUI-Manager was saving as done, and writes the file whole, through a file beside it", async () => {
+    const file = join(dir, "downloads.json");
+    writeFileSync(file, JSON.stringify([{ id: "s", file: "sent.safetensors", folder: "loras", title: "Sent", bytes: 10, total: 10, status: "saving" }]));
+    const downloads = new Downloads(new EventEmitter(), file);
+    await downloads.restored;
+    expect(downloads.list()).toMatchObject([{ id: "s", status: "done" }]);
+    expect(downloads.list()[0]!.error).toBeUndefined();
+    expect(downloads.stop("s")).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual([]);
+    expect(readdirSync(dir)).toEqual(["downloads.json"]);
   });
 
   it("is nothing without a state file, and does not mind one it cannot read", async () => {

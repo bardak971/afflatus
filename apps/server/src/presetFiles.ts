@@ -20,12 +20,14 @@ import { readSettings, writeSettings } from "./settings";
  * missing ones through the download path — only under a licence the user accepted.
  */
 
+/** An address shown as a link or fetched: http or https only (a javascript: or file: address is refused). */
+const webUrl = z.string().url().max(2000).refine((u) => /^https?:\/\//i.test(u), "only http and https addresses");
 export const presetFileSchema = z.strictObject({
   file: z.string().min(1).max(400),
   folder: z.string().min(1).max(120),
-  url: z.string().url().max(2000).optional(),
-  civitai: z.strictObject({ version: z.number().int().positive(), pick: z.string().max(400).optional(), page: z.string().url().max(2000).optional() }).optional(),
-  page: z.string().url().max(2000).optional(),
+  url: webUrl.optional(),
+  civitai: z.strictObject({ version: z.number().int().positive(), pick: z.string().max(400).optional(), page: webUrl.optional() }).optional(),
+  page: webUrl.optional(),
   size: z.number().int().nonnegative().optional(),
   note: z.string().max(400).optional(),
   optional: z.boolean().optional(),
@@ -33,8 +35,8 @@ export const presetFileSchema = z.strictObject({
 export const provenanceSchema = {
   author: z.string().max(80).optional(),
   note: z.string().max(1000).optional(),
-  homepage: z.string().url().max(2000).optional(),
-  licence: z.strictObject({ name: z.string().min(1).max(120), url: z.string().url().max(2000).optional(), note: z.string().max(600).optional() }).optional(),
+  homepage: webUrl.optional(),
+  licence: z.strictObject({ name: z.string().min(1).max(120), url: webUrl.optional(), note: z.string().max(600).optional() }).optional(),
 };
 const shippedSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{1,60}$/, "an id is lower-case letters, digits and dashes"),

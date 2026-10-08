@@ -1,3 +1,6 @@
+import { httpError } from "./errors";
+import { fetchPublic, hostnameOf } from "./outbound";
+
 /**
  * Asking Civitai where a model file can be had. Two sites answer the same way: civitai.com, and
  * civitai.red, which also shows the models the first one hides. Both are asked, and what they find is
@@ -58,7 +61,9 @@ export const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 /** The words of a file's name: "qwen3vl_4b_fp8_scaled" → qwen3vl, 4b, fp8, scaled. */
 export const wordsOf = (file: string) => [...new Set((file.split(/[\\/]/).pop() ?? file).replace(STEM, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2))];
 
-const headers = (key: string) => ({ Accept: "application/json", "User-Agent": "afflatus", ...(key ? { Authorization: `Bearer ${key}` } : {}) });
+const headers = (key: string): Record<string, string> => ({ Accept: "application/json", "User-Agent": "afflatus", ...(key ? { Authorization: `Bearer ${key}` } : {}) });
+/** Civitai's API asked: a redirect is judged hop by hop, and the key goes to the site asked only (outbound.ts). */
+const ask = (url: string, key: string) => fetchPublic(url, { headers: headers(key), signal: AbortSignal.timeout(20_000) }, civitaiSites().map(hostnameOf));
 
 /**
  * The models both sites find for a file's name, the likeliest first: the one that has a file of exactly
@@ -76,7 +81,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
         // The kind is asked for too, so that workflows and LoRAs that only mention the model do not fill the answer.
         const params = new URLSearchParams({ query, limit: "20", nsfw: "true" });
         for (const kind of wanted ?? []) params.append("types", kind);
-        const res = await fetch(`${site}/api/v1/models?${params}`, { headers: headers(key), signal: AbortSignal.timeout(20_000) });
+        const res = await ask(`${site}/api/v1/models?${params}`, key);
         if (!res.ok) return { site, models: null as ApiModel[] | null };
         return { site, models: (((await res.json().catch(() => ({}))) as { items?: ApiModel[] }).items ?? []) };
       } catch {
@@ -86,7 +91,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
     return answers;
   };
   let answers = await search(words.join(" ") || name);
-  if (answers.every((a) => a.models === null)) throw Object.assign(new Error("Civitai did not answer."), { statusCode: 502 });
+  if (answers.every((a) => a.models === null)) throw httpError("Civitai did not answer.", 502);
   const fitsOf = (m: ApiModel) => !wanted || wanted.includes(m.type ?? "");
   // a file's name says more than a model's: the model is found by its first words, then told apart by the rest
   for (const fewer of [3, 2, 1]) {
@@ -142,15 +147,15 @@ export async function civitaiGet<T>(path: string, key: string): Promise<T | null
   let failed: Error | null = null;
   for (const site of civitaiSites()) {
     try {
-      const res = await fetch(`${site}${path}`, { headers: headers(key), signal: AbortSignal.timeout(20_000) });
+      const res = await ask(`${site}${path}`, key);
       if (res.status === 404) continue;
       if (!res.ok) {
-        failed = Object.assign(new Error(`Civitai refused (${res.status}).`), { statusCode: 502 });
+        failed = httpError(`Civitai refused (${res.status}).`, 502);
         continue;
       }
       return (await res.json()) as T;
     } catch (err) {
-      failed = Object.assign(new Error(`Civitai did not answer: ${(err as Error).message}`), { statusCode: 502 });
+      failed = httpError(`Civitai did not answer: ${(err as Error).message}`, 502);
     }
   }
   if (failed) throw failed;
@@ -163,14 +168,14 @@ export async function civitaiVersion(id: number, wanted: string, key: string): P
   for (const site of civitaiSites()) {
     let res: Response;
     try {
-      res = await fetch(`${site}/api/v1/model-versions/${id}`, { headers: headers(key), signal: AbortSignal.timeout(20_000) });
+      res = await ask(`${site}/api/v1/model-versions/${id}`, key);
     } catch (err) {
-      failed = Object.assign(new Error(`Civitai did not answer: ${(err as Error).message}`), { statusCode: 502 });
+      failed = httpError(`Civitai did not answer: ${(err as Error).message}`, 502);
       continue;
     }
     if (res.status === 404) continue;
     if (!res.ok) {
-      failed = Object.assign(new Error(`Civitai refused (${res.status}).`), { statusCode: 502 });
+      failed = httpError(`Civitai refused (${res.status}).`, 502);
       continue;
     }
     const v = (await res.json()) as ApiVersion;

@@ -61,6 +61,14 @@ describe("presets with files", () => {
     expect(copy.json().source).toBeUndefined();
   });
 
+  it("takes only http and https addresses for a homepage, a licence, a page or a file", async () => {
+    const preset = (def: Record<string, unknown>) => post(t.app, "/api/entities", { kind: "preset", name: "Links", def: { inputs: {}, ...def } });
+    expect((await preset({ homepage: "javascript:alert(1)" })).statusCode).toBe(400);
+    expect((await preset({ licence: { name: "L", url: "data:text/html,x" } })).statusCode).toBe(400);
+    expect((await preset({ recipe: "h3.video", files: [{ file: "a.safetensors", folder: "loras", url: "file:///etc/passwd" }] })).statusCode).toBe(400);
+    expect((await preset({ homepage: "https://example.com/", licence: { name: "L", url: "http://example.com/licence" } })).statusCode).toBe(200);
+  });
+
   it("says which files ComfyUI has, and what the family itself still misses", async () => {
     const { online, items } = await files();
     expect(online).toBe(true);

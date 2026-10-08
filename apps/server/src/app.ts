@@ -15,7 +15,7 @@ import { registerEntities } from "./entities";
 import { httpError } from "./errors";
 import { registerEvents } from "./events";
 import { registerFolders } from "./folders";
-import { allowedHosts, hostAllowed } from "./hostCheck";
+import { allowedHosts, ANY_HOST, crossSite, hostAllowed, marked, UPLOAD_TYPE } from "./hostCheck";
 import { registerJobs } from "./jobs-api";
 import { registerLookup } from "./lookup-api";
 import { registerMetrics } from "./metrics";
@@ -31,7 +31,7 @@ import type { Services } from "./services";
 import { registerSetup } from "./setup-api";
 import { registerTags } from "./tags";
 import { registerTimelines } from "./timelines-api";
-import { isUpload, type UploadBody } from "./uploadBody";
+import { isUpload, uploadBody } from "./uploadBody";
 import { registerUsage } from "./usage";
 import { registerWorkflows } from "./workflows";
 
@@ -45,13 +45,19 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   // only the server's own names are answered to (hostCheck.ts): a page from elsewhere cannot drive the API by pointing a name of its own at this machine
   const hosts = allowedHosts();
   app.addHook("onRequest", async (req, reply) => {
-    if (hostAllowed(req.headers.host, hosts)) return;
-    return reply.status(403).send({ error: `Afflatus does not answer to the name "${req.headers.host}". Open it as localhost or by the address it listens on, or name this one in ALLOWED_HOSTS.` });
+    const reads = req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS";
+    // nor can a page elsewhere change anything here through the browser of someone who has Afflatus open (a no-cors POST needs no preflight)
+    if (!reads && crossSite(req.headers, hosts)) return reply.status(403).send({ error: "Afflatus takes changes only from its own page, not from another site's." });
+    if (!hostAllowed(req.headers.host, hosts) && !(req.method === "GET" && ANY_HOST.has(req.url.split("?")[0] ?? ""))) {
+      return reply.status(403).send({ error: `Afflatus does not answer to the name "${req.headers.host}". Open it as localhost or by the address it listens on, or name this one in ALLOWED_HOSTS.` });
+    }
+    // and a change must say it is not a plain form's (hostCheck.ts marked): a body-less POST from elsewhere needs no preflight either
+    if (!reads && !marked(req.headers)) return reply.status(403).send({ error: "Afflatus takes changes only as JSON, a file, or with the header \"X-Afflatus: 1\" (a script: add it to the request)." });
   });
 
   /** Files from the computer are sent as the request body itself: written to a temporary file as they arrive, never held in memory. */
   const UPLOAD_LIMIT = 512 * 1024 * 1024;
-  app.addContentTypeParser(/^(image|video|audio)\/|^application\/octet-stream$/, (_req, payload, done) => {
+  app.addContentTypeParser(UPLOAD_TYPE, (_req, payload, done) => {
     void (async () => {
       const dir = await mkdtemp(join(tmpdir(), "afflatus-upload-"));
       const path = join(dir, "body.bin");
@@ -64,7 +70,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
           },
         });
         await pipeline(payload, limit, createWriteStream(path));
-        done(null, { path, dir, bytes } satisfies UploadBody);
+        done(null, uploadBody({ path, dir, bytes }));
       } catch (err) {
         await rm(dir, { recursive: true, force: true }).catch(() => {});
         done(err as Error);

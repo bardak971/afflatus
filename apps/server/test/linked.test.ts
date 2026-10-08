@@ -82,6 +82,36 @@ describe("a folder linked to a directory of the disk", () => {
     }
   });
 
+  it("never links what is under AppData, Afflatus's own data, ComfyUI's custom_nodes or a folder around them, and needs LINK_ROOTS on the network", () => {
+    if (process.platform === "win32") expect(whyNotLinkable(join(homedir(), "AppData", "Local", "Programs", "x"))).toContain("AppData");
+    const env = { DATA_DIR: join(dir, "data") };
+    expect(whyNotLinkable(join(dir, "data", "files"), env)).toContain("data folder");
+    expect(whyNotLinkable(dir, env)).toContain("data folder");
+    const comfy = join(dir, "comfy");
+    expect(whyNotLinkable(join(comfy, "custom_nodes", "pack"), {}, process.platform, homedir(), comfy)).toContain("custom_nodes");
+    expect(whyNotLinkable(comfy, {}, process.platform, homedir(), comfy)).toContain("custom_nodes");
+    expect(whyNotLinkable(join(comfy, "output"), {}, process.platform, homedir(), comfy)).toBeNull();
+    expect(whyNotLinkable(dir, { HOST: "0.0.0.0" })).toContain("set LINK_ROOTS");
+    expect(whyNotLinkable(dir, { HOST: "0.0.0.0", LINK_ROOTS: dir })).toBeNull();
+    expect(whyNotLinkable(dir, { HOST: "localhost" })).toBeNull();
+  });
+
+  it("never reads or removes a linked: key outside the linked directories, nor stores under one", async () => {
+    await link();
+    const storage = t.services.storage;
+    await expect(storage.get(`linked:${join(dir, "one.png")}`)).resolves.toBeInstanceOf(Uint8Array);
+    await expect(storage.get(`linked:${join(dir, "..", "elsewhere.png")}`)).rejects.toThrow(/not linked any more/);
+    await expect(storage.delete(`linked:${join(tmpdir(), "x.png")}`)).rejects.toThrow(/not linked any more/);
+    await expect(storage.put(`linked:${join(dir, "new.png")}`, new Uint8Array(1))).rejects.toThrow(/by name/);
+  });
+
+  it("writes a file into the directory with the extension of what it really is, whatever its name ends with", async () => {
+    const root = await link();
+    const up = (await t.app.inject({ method: "POST", url: `/api/assets?name=${encodeURIComponent("run me.exe")}&folder=${root.id}`, headers: { "content-type": "image/png" }, payload: picture() })).json();
+    expect(up.path).toBe(join(dir, "run_me.png"));
+    expect(existsSync(join(dir, "run_me.exe"))).toBe(false);
+  });
+
   it("is read again on request: what was added appears, what was removed is gone", async () => {
     const root = await link();
     writeFileSync(join(dir, "three.png"), picture());

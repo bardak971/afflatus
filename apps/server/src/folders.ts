@@ -4,6 +4,7 @@ import { httpError } from "./errors";
 import { newId, now, OWNER } from "./db";
 import { isLinked } from "./linked";
 import type { Services } from "./services";
+import { readSettings } from "./settings";
 
 /** Folders, nested like directories. An item is in one folder or in none. */
 
@@ -46,7 +47,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
   /** Link a directory of the disk the server runs on: it becomes a folder, with its sub-directories as sub-folders. */
   app.post("/api/folders/link", async (req) => {
     const body = z.strictObject({ path: z.string().trim().min(1).max(1000), name: z.string().trim().max(120).optional() }).parse(req.body);
-    const row = await s.linked.link(body.path, body.name);
+    const row = await s.linked.link(body.path, body.name, (await readSettings(s.db)).comfyDir);
     return { id: row.id, parentId: null, name: row.name, count: 0, path: row.path, root: true };
   });
 

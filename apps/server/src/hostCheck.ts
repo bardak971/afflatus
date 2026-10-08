@@ -45,3 +45,38 @@ export function hostAllowed(header: string | undefined, allowed: Set<string>): b
   if (header === undefined) return true;
   return allowed.has(hostOnly(header));
 }
+
+/** Read-only addresses a scraper or a probe asks for by a name of its own (a pod's address): answered to whatever the Host. */
+export const ANY_HOST = new Set(["/metrics", "/api/health"]);
+
+/**
+ * Whether a request that changes something came from another site's page. The Host check does not see
+ * this: a form or a no-cors fetch from any page carries this server's own Host. A browser says where
+ * a request came from (Sec-Fetch-Site, Origin); a request with neither (curl, a script) is no page's.
+ */
+export function crossSite(headers: { origin?: string; "sec-fetch-site"?: string | string[] }, allowed: Set<string>): boolean {
+  const site = headers["sec-fetch-site"];
+  if (site === "cross-site" || site === "same-site") return true;
+  if (headers.origin === undefined) return false;
+  try {
+    return !allowed.has(hostOnly(new URL(headers.origin).host));
+  } catch {
+    // "null" (a sandboxed page, a file) or garbage: not one of ours
+    return true;
+  }
+}
+
+/** The body types the server reads: JSON, and a file sent as it is (app.ts's upload parser). */
+export const UPLOAD_TYPE = /^(image|video|audio)\/|^application\/octet-stream$/;
+
+/**
+ * Whether a request that changes something says it is not a plain form's. A page elsewhere can send a
+ * "simple" request (no body, or a text/plain or form body) without the browser asking first, and an
+ * older browser sends neither Sec-Fetch-Site nor Origin with it. JSON, a file type, or the header
+ * `X-Afflatus: 1` (the web app's own requests carry it) each need a preflight from another site.
+ */
+export function marked(headers: { "content-type"?: string; "x-afflatus"?: string | string[] }): boolean {
+  if (headers["x-afflatus"] === "1") return true;
+  const type = (headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+  return type === "application/json" || UPLOAD_TYPE.test(type);
+}

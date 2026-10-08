@@ -6,7 +6,8 @@ import { httpError } from "./errors";
  * server itself can reach what a browser on the LAN cannot (the router's page, a database with no
  * password, the cloud's metadata address), so an address that points inside the network is refused,
  * unless it is one of the few the server is meant to talk to (ComfyUI, a pretend Civitai in the tests).
- * Only the address as written is judged: a public name that resolves to a private address is not caught.
+ * The address as written is judged, and each address a redirect sends on to (fetchPublic): a public name
+ * that resolves to a private address is not caught.
  */
 
 /** Whether an IP address literal is one of the machine's own, of the LAN, or of the link (RFC 1918, loopback, link-local, and their IPv6 kin). */
@@ -64,4 +65,27 @@ export function assertPublicUrl(url: string, allow: Array<string | null | undefi
     throw httpError(`Afflatus does not fetch from addresses inside your own network (${at.hostname}): only from the internet.`);
   }
   return at;
+}
+
+/** The headers that may go on to another host than the one first asked: none that carries a key. */
+const PLAIN = new Set(["user-agent", "accept"]);
+
+/**
+ * fetch() for an address already judged by assertPublicUrl: redirects are followed here, at most `hops`
+ * of them, each new address judged the same way (a public link may send on into the network, or to the
+ * cloud's metadata address). The headers given (a Civitai key) go to the host first asked only.
+ */
+export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect" | "headers"> & { headers?: Record<string, string> }, allow: Array<string | null | undefined> = [], hops = 5): Promise<Response> {
+  const first = new URL(url).host;
+  const all = init.headers ?? {};
+  const plain = Object.fromEntries(Object.entries(all).filter(([k]) => PLAIN.has(k.toLowerCase())));
+  let at = url;
+  for (let n = 0; ; n++) {
+    const res = await fetch(at, { ...init, headers: new URL(at).host === first ? all : plain, redirect: "manual" });
+    const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!next) return res;
+    await res.body?.cancel().catch(() => {});
+    if (n >= hops) throw httpError(`${new URL(url).hostname} sent the request on more than ${hops} times.`, 502);
+    at = assertPublicUrl(new URL(next, at).href, allow).href;
+  }
 }
