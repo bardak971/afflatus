@@ -1,5 +1,4 @@
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { api, type Clip, type Timeline } from "../api";
 import { AudioPlayer } from "../AudioPlayer";
@@ -11,31 +10,37 @@ import { lookWords } from "../LookBar";
 import { aboutMs } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
-import { Button, Chip, cx, Segmented } from "../ui";
+import { Button, Chip, cx, Help, Segmented } from "../ui";
+import { attention, fixAll, type Act, type Fix, type JoinFigures, type Row } from "./attention";
 import { otherShape } from "./model";
 
 /** A quiet action in a card's head or row: accent words, no box. */
 const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabled:opacity-40";
 
+/** A render estimate as a button says it: "~7 min". */
+const about = (ms: number) => aboutMs(ms).replace(/^about /, "~");
+
 /**
  * The timeline as a whole, shown while no clip is selected: what it is, what needs attention (each line
- * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
- * missing, export.
+ * with its clips, which select the clip, and the action that mends it; Fix all runs them all), its music,
+ * its cast and mood.
  */
-export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
+export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
   aspect: { value: string; options: Array<{ value: string; label: string; note?: string; detail?: string }>; onChange(value: string): void };
   timeline: Timeline;
   clips: Clip[];
-  missing: Clip[];
-  misfits: number;
-  allMs: number;
+  /** A video clip with its form filled, not already in the queue. */
+  renderable(c: Clip): boolean;
+  /** About how long a clip takes to render; null when nothing was learned yet. */
+  msOf(c: Clip): number | null;
   onPick(clip: string): void;
   onMusic(): void;
   onCast(): void;
   /** Where its renders and exports land; null = the project's root (the Inbox when it has no project). */
   onFolder(folder: string | null): void;
-  onRenderAll(): void;
+  /** Patches, then one render: a row's action, or all of them. */
+  onFix(fix: Omit<Fix, "ms">): void;
   rendering: boolean;
   /** The clips picked with Ctrl + click on the track, rendered together. */
   picked: Set<string>;
@@ -63,22 +68,22 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
     // the library hears of the move from the server (its library event); the timeline shows where its takes now are
     onSuccess: () => void client.invalidateQueries({ queryKey: ["timelines", t.id] }),
   });
-  const stale = clips.filter((c) => c.join === "stale");
-  const failed = clips.filter((c) => c.failed && !c.take);
   // the joins' figures, one request per clip that flows on and has a take (cached a minute, as the tooltip's)
   const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
   const joinQueries = useQueries({
     queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => api.joins(c.id), staleTime: 60_000 })),
   });
-  const joinsOf = new Map<string, number | null | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data ? (joinQueries[k]!.data!.items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined]));
+  const joinItems = new Map<string, JoinFigures | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data?.items]));
+  const joinsOf = new Map<string, number | null | undefined>(joined.map((c) => {
+    const items = joinItems.get(c.id);
+    return [c.id, items ? (items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined];
+  }));
   const measured = clips.filter((c) => c.take?.renderMs);
   const renderMs = measured.reduce((sum, c) => sum + (c.take!.renderMs ?? 0), 0);
   const rendered = measured.length;
-  const wrong = clips.filter((c) => otherShape(c, t) && !c.fill);
   const stills = clips.filter((c) => c.kind === "still").length;
   const videos = clips.length - stills;
   const cast = lookWords(t.look, entities.data?.items ?? []);
-  const unrendered = missing.filter((c) => !c.take);
   const number = (id: string) => clips.findIndex((c) => c.id === id) + 1;
 
   // a join holds when its figure and the run-up's end both stay at ×3 or under (past ×3 it shows)
@@ -92,17 +97,10 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   const loading = joined.some((c) => joinsOf.get(c.id) === undefined);
   const worst = figured.reduce<Clip | null>((w, c) => (!w || joinsOf.get(c.id)! > joinsOf.get(w.id)! ? c : w), null);
 
-  // what needs attention, one row each; the one action the panel has (render what is missing) goes on the first row it mends
-  const renderAct = missing.length > 0 && (
-    <Button size="sm" disabled={rendering} onClick={onRenderAll} data-tip={`Renders the ${missing.length} clip${missing.length === 1 ? "" : "s"} with no take yet or a join that no longer holds, in order${allMs ? `: ${aboutMs(allMs)}` : ""}`}>
-      Render {missing.length}
-    </Button>
-  );
-  const problems: Array<{ key: string; text: string; ids: string[]; warn?: boolean; act?: ReactNode }> = [];
-  if (unrendered.length > 0) problems.push({ key: "missing", text: `${unrendered.length} not rendered yet`, ids: unrendered.map((c) => c.id), act: renderAct });
-  if (stale.length > 0) problems.push({ key: "stale", text: `${stale.length} join${stale.length === 1 ? "" : "s"} no longer hold${stale.length === 1 ? "s" : ""}: the clip before changed`, ids: stale.map((c) => c.id), warn: true, act: unrendered.length === 0 ? renderAct : undefined });
-  if (failed.length > 0) problems.push({ key: "failed", text: `${failed.length} failed to render`, ids: failed.map((c) => c.id), warn: true });
-  if (wrong.length > 0) problems.push({ key: "shape", text: `${misfits} in another aspect ratio, shown with bars`, ids: wrong.map((c) => c.id) });
+  // what needs attention, one row each with the action that mends it; Fix all once two rows or more have one
+  const rows = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill });
+  const fix = fixAll(rows, clips, msOf);
+  const run = (a: Act) => onFix(a.do === "render" ? { patches: [], render: a.clips } : a.do === "take" ? { patches: [{ clip: a.clip, patch: { take: a.take } }], render: [] } : { patches: a.clips.map((clip) => ({ clip, patch: { fill: true } })), render: [] });
   const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
   const shapeWords = aspect.value === "first" ? "Shape from the first clip" : aspect.options.find((o) => o.value === aspect.value)?.label;
   const castWords = [cast, t.mood].filter(Boolean).join(" · ");
@@ -120,16 +118,28 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
         )}
       </div>
 
-      {problems.length > 0 ? (
+      {rows.length > 0 ? (
         <section className="flex flex-col rounded-xl border border-warn/35 bg-warn-wash/60 pb-1.5">
-          <span className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-warn-ink uppercase">Needs attention · {problems.length}</span>
-          {problems.map((p) => (
-            <div key={p.key} className="flex min-h-[34px] flex-wrap items-center gap-1.5 px-3 py-1">
-              <span className={cx("min-w-0 grow text-sm", p.warn ? "text-warn-ink" : "text-ink")}>{p.text}</span>
-              {p.ids.slice(0, 8).map((id) => (
-                <button key={id} type="button" onClick={() => onPick(id)} data-tip={`Clip ${number(id)}`} className="flex h-[22px] min-w-[22px] items-center justify-center rounded-[7px] border border-line-strong px-1.5 font-mono text-[11.5px] text-ink-2 hover:border-accent hover:text-ink">{number(id)}</button>
+          <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+            <span className="grow text-[11px] font-bold tracking-[0.08em] text-warn-ink uppercase">Needs attention · {rows.length}</span>
+            {fix && (
+              <Button size="sm" tone="primary" disabled={rendering} onClick={() => onFix(fix)} data-tip={[fix.patches.length && `${fix.patches.length} clip change${fix.patches.length === 1 ? "" : "s"} (each its own Undo step)`, fix.render.length && `then ${fix.render.length} clip${fix.render.length === 1 ? "" : "s"} rendered, in order`].filter(Boolean).join(", ")}>
+                Fix all{fix.ms > 0 && <Estimate ms={fix.ms} />}
+              </Button>
+            )}
+          </div>
+          {rows.map((r) => (
+            <div key={r.key} className="flex min-h-[34px] flex-wrap items-center gap-1.5 px-3 py-1">
+              <span className={cx("flex min-w-0 grow items-center gap-1.5 text-sm", r.warn ? "text-warn-ink" : "text-ink")}>
+                {LABEL[r.kind]}
+                {r.reasons && <Help title={r.reasons.length === 1 ? "Why it failed" : "Why they failed"} text={r.reasons.map((x) => (r.reasons!.length === 1 ? x.why : `Clip ${number(x.clip)}: ${x.why}`)).join("\n")} />}
+              </span>
+              {r.ids.slice(0, 8).map((id) => (
+                <button key={id} type="button" onClick={() => onPick(id)} data-tip={`Clip ${number(id)}`} className="flex h-[22px] min-w-[22px] items-center justify-center rounded-[7px] border border-line-strong px-1.5 font-mono text-[11.5px] text-ink-2 hover:border-accent hover:text-ink">
+                  {number(id)}{r.figure !== undefined && ` ×${r.figure.toFixed(1)}`}
+                </button>
               ))}
-              {p.act}
+              {r.act && <ActButton act={r.act} kind={r.kind} disabled={rendering} onClick={() => run(r.act!)} />}
             </div>
           ))}
         </section>
@@ -248,5 +258,38 @@ function Fact({ label, value, warn }: { label: string; value: string; warn?: boo
       <span className="text-[11.5px] text-ink-3">{label}</span>
       <span className={cx("truncate font-mono", warn ? "text-warn-ink" : "text-ink")}>{value}</span>
     </span>
+  );
+}
+
+/** What each row of Needs attention says. */
+const LABEL: Record<Row["kind"], string> = {
+  missing: "Not rendered yet",
+  stale: "Clip before changed",
+  failed: "Failed",
+  join: "Join shows",
+  shape: "Another aspect ratio",
+};
+
+/** A render estimate inside a button, dimmed. */
+function Estimate({ ms }: { ms: number }) {
+  return <span className="font-mono text-[11px] font-medium opacity-75">{about(ms)}</span>;
+}
+
+/** A row's action: quiet, or warn-washed where something went wrong (the clip before changed, a failed render). */
+function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind"]; disabled: boolean; onClick(): void }) {
+  const warn = kind === "stale" || kind === "failed";
+  const n = act.do === "render" ? act.clips.length : 0;
+  const [words, tip] =
+    act.do === "take" ? [`Use take ${act.number}`, `Take ${act.number} comes in at ×${act.figure.toFixed(1)}: it plays instead (Undo puts the other back)`]
+    : act.do === "fill" ? ["Fill the frame", `Crop ${act.clips.length === 1 ? "the clip" : `the ${act.clips.length} clips`} to the video's aspect ratio instead of bars (one Undo step each)`]
+    : kind === "missing" ? [`Render ${n}`, `Renders the ${n} clip${n === 1 ? "" : "s"} with no take yet, in order`]
+    : kind === "stale" ? ["Re-render", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
+    : kind === "failed" ? ["Retry", `Queues ${n === 1 ? "the clip" : `the ${n} clips`} again`]
+    : ["New take", "No other take comes in under ×3: render another"];
+  return (
+    <Button size="sm" tone={warn ? "danger" : "quiet"} disabled={disabled} onClick={onClick} data-tip={tip}>
+      {words}
+      {act.do === "take" ? <span className="font-mono text-[11px] font-medium opacity-75">×{act.figure.toFixed(1)}</span> : act.do === "render" && act.ms > 0 && kind !== "failed" && <Estimate ms={act.ms} />}
+    </Button>
   );
 }

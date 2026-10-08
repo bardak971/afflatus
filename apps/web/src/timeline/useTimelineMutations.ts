@@ -2,6 +2,7 @@ import { useCallback, type RefObject } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Asset, type Clip, type RecipeInfo, type Timeline, type TimelinePatch } from "../api";
 import { movingSeed, seedAfter, useSeedMode } from "../seedMode";
+import type { Fix } from "./attention";
 import type { ExportOptions } from "./ExportDialog";
 import { pinInputs, type ShownPatch } from "./model";
 import type { useClipEdits } from "./useClipEdits";
@@ -53,6 +54,15 @@ export function useTimelineMutations(id: string, o: {
     onSuccess: after,
   });
   const patch = useMutation({ mutationFn: (v: { clip: string; patch: ShownPatch }) => api.editClip(v.clip, v.patch), onSuccess: after });
+  // what Needs attention mends: the patches one after the other (each its own Undo step), then one render of the clips left
+  const fix = useMutation({
+    mutationFn: async (v: Omit<Fix, "ms">) => {
+      for (const p of v.patches) await api.editClip(p.clip, p.patch);
+      const clips = (o.clipsNow.current ?? []).filter((c) => v.render.includes(c.id));
+      if (clips.length) await render.mutateAsync({ clips });
+    },
+    onSuccess: after,
+  });
   const edit = useMutation({ mutationFn: (p: TimelinePatch) => api.editTimeline(id, p), onSuccess: after });
   const add = useMutation({
     mutationFn: (v: NewClip) => api.addClip(id, v),
@@ -152,6 +162,6 @@ export function useTimelineMutations(id: string, o: {
       after();
     },
   });
-  const error = plan.error ?? loop.error ?? render.error ?? patch.error ?? edit.error ?? add.error ?? remove.error ?? removeTake.error ?? stop.error ?? undo.error ?? redo.error ?? exportIt.error ?? frame.error ?? split.error ?? duplicate.error;
-  return { after, render, patch, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error };
+  const error = plan.error ?? loop.error ?? render.error ?? fix.error ?? patch.error ?? edit.error ?? add.error ?? remove.error ?? removeTake.error ?? stop.error ?? undo.error ?? redo.error ?? exportIt.error ?? frame.error ?? split.error ?? duplicate.error;
+  return { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error };
 }

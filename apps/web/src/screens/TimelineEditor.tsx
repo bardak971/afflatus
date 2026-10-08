@@ -120,7 +120,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, ready, inputsOf, editInputs, dropEdits }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
   });
-  const { after, render, patch, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   const removePicked = useCallback(() => {
@@ -546,17 +546,16 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                   ],
                 }}
                 clips={clips}
-                missing={missing}
-                misfits={misfits}
-                allMs={allMs}
+                renderable={(c) => c.kind === "video" && !c.job && Boolean(ready(c).input)}
+                msOf={takes}
                 onPick={(id) => select(id)}
                 onMusic={() => setMusicOpen(true)}
                 onCast={() => setCasting(true)}
                 onFolder={(folder) => edit.mutate({ folder })}
-                onRenderAll={() => render.mutate({ clips: missing })}
+                onFix={(f) => fix.mutate(f)}
                 picked={picked}
                 onRenderPicked={() => { render.mutate({ clips: clips.filter(renderable) }); setPicked(new Set()); }}
-                rendering={render.isPending}
+                rendering={render.isPending || fix.isPending}
               />
             ) : (
               <StartPanel busy={add.isPending} planning={plan.isPending} onPickImage={() => setPicking(true)} onPlan={(idea, count) => plan.mutate({ idea, clips: count })} onNewClip={() => newClip()} />
