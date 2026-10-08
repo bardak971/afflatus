@@ -1,5 +1,5 @@
 import { Check, Moon, Sun } from "lucide-react";
-import { useExplain } from "../store";
+import { useExplain, useHoverPlay } from "../store";
 import { cx, Segmented, Toggle } from "../ui";
 import { themeInUse, useThemeChoice } from "./store";
 import { FAMILIES, THEMES, tokensOf, type Theme } from "./themes";
@@ -65,6 +65,7 @@ function Accents({ theme, picked, onPick }: { theme: Theme; picked: string | und
 export function AppearanceCard() {
   const choice = useThemeChoice();
   const explain = useExplain();
+  const hover = useHoverPlay();
   const inUse = themeInUse(choice);
   const night = THEMES.filter((t) => !t.light);
   const day = THEMES.filter((t) => t.light);
@@ -94,6 +95,8 @@ export function AppearanceCard() {
       {families.map((t) => <Accents key={t.family} theme={t.family === inUse.family ? inUse : t} picked={choice.accents[t.family]} onPick={(name) => pickAccent(t.family, name)} />)}
       <div className="border-t border-line pt-3">
         <Toggle on={explain.on} onChange={explain.set} label="Explain every setting in the forms" note="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting." />
+        <Toggle on={hover.video} onChange={(video) => hover.set({ video })} label="Play videos when the mouse rests on a card" note="Off: a video card shows its frame until you open it." />
+        <Toggle on={hover.sound} onChange={(sound) => hover.set({ sound })} label="Play sound on hover" note="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened." />
       </div>
       <span className="text-xs text-ink-2">Kept in this browser. The palettes are Catppuccin's and Rosé Pine's own.</span>
     </section>

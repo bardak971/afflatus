@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Music } from "lucide-react";
 import { fileUrl, thumbUrl } from "./api";
+import { useHoverPlay } from "./store";
 
 /**
  * A sound's tile: it plays while the mouse rests on it, with a bar that fills as it goes, and stops and
  * rewinds when the mouse leaves. Fills its box, like HoverVideo.
  */
 export function HoverAudio({ asset, delay = 250 }: { asset: string; delay?: number }) {
+  // sounds on hover turned off in Settings → Appearance: the card only shows
+  const allowed = useHoverPlay((s) => s.sound);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const timer = useRef<number | null>(null);
@@ -27,7 +30,7 @@ export function HoverAudio({ asset, delay = 250 }: { asset: string; delay?: numb
     <span
       className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-ink-2"
       onPointerEnter={(e) => {
-        if (e.pointerType !== "mouse") return;
+        if (!allowed || e.pointerType !== "mouse") return;
         if (timer.current !== null) window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => setPlaying(true), delay);
       }}
@@ -59,6 +62,8 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, onNoFrame }: {
   /** The preview frame could not be shown (a video the server could not read a frame from). */
   onNoFrame?(): void;
 }) {
+  // Settings → Appearance: whether a video plays on hover, and with its sound
+  const hover = useHoverPlay();
   const [playing, setPlaying] = useState(false);
   const timer = useRef<number | null>(null);
   const el = useRef<HTMLVideoElement>(null);
@@ -71,18 +76,18 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, onNoFrame }: {
   useEffect(() => {
     const v = el.current;
     if (!playing || !v) return;
-    v.muted = false;
+    v.muted = !hover.sound;
     v.play().catch(() => {
       // no sound allowed yet: it plays silent rather than not at all
       v.muted = true;
       v.play().catch(() => {});
     });
-  }, [playing]);
+  }, [playing, hover.sound]);
   return (
     <span
       className="absolute inset-0 block"
       onPointerEnter={(e) => {
-        if (!video || e.pointerType !== "mouse") return;
+        if (!video || !hover.video || e.pointerType !== "mouse") return;
         if (timer.current !== null) window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => setPlaying(true), delay);
       }}

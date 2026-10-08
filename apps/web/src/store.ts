@@ -17,6 +17,14 @@ export const useNotify = create<{ whenEmpty: boolean; eachRender: boolean; set(p
   persist((set) => ({ whenEmpty: false, eachRender: false, set: (patch) => set(patch) }), { name: "afflatus.notify" }),
 );
 
+/**
+ * Whether a card plays as the mouse rests on it: a video's own frames, and the sound of a video or a sound card. Kept per
+ * browser, like the theme. Off, a video card shows its frame and a sound card its icon; the viewer still plays everything.
+ */
+export const useHoverPlay = create<{ video: boolean; sound: boolean; set(patch: { video?: boolean; sound?: boolean }): void }>()(
+  persist((set) => ({ video: true, sound: true, set: (patch) => set(patch) }), { name: "afflatus.hover-play" }),
+);
+
 /** Ask the browser for the right to show notifications. False when it was refused, or cannot. */
 export async function allowNotifications(): Promise<boolean> {
   if (typeof Notification === "undefined") return false;
