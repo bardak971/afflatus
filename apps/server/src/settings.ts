@@ -41,6 +41,19 @@ export const finishSchema = z.object({
 });
 export type FinishSettings = z.infer<typeof finishSchema>;
 
+/** The command bar (docs/command-bar.md): its shortcut, and its optional parts, each off until turned on. */
+export const barSchema = z.object({
+  /** Written as the keys are named: "Ctrl+K", "Ctrl+Shift+P", "Alt+Space". */
+  shortcut: z.string().trim().regex(/^(?:(?:Ctrl|Alt|Shift|Meta)\+){0,4}(?:[A-Za-z0-9]{1,12}|[^\sA-Za-z0-9+])$/, "a shortcut is written like Ctrl+K or Alt+Space").default("Ctrl+K"),
+  /** Prompt snippets: `;name` in a prompt field expands to the Prompt kit snippet of that name. */
+  snippets: z.boolean().default(false),
+  /** Prompt history: `"` in the bar searches the prompts that were rendered. */
+  history: z.boolean().default(false),
+  /** Cast: `@` in the bar adds a person of the Prompt kit. */
+  cast: z.boolean().default(false),
+});
+
+
 export const settingsSchema = z.object({
   comfyUrl: httpUrl.default("http://127.0.0.1:8188"),
   /**
@@ -85,6 +98,8 @@ export const settingsSchema = z.object({
   slotFiles: z.record(z.string().max(120), z.record(z.string().max(80), z.string().max(400))).default({}),
   /** The presets whose files' licence was accepted (by preset id): fetched without asking again. */
   acceptedPresets: z.array(z.string().max(120)).max(500).default([]),
+  /** The command bar's shortcut and its optional parts. */
+  bar: barSchema.prefault({}),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -197,5 +212,6 @@ export function publicSettings(s: Settings) {
     updateChecks: s.updateChecks,
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,
+    bar: s.bar,
   };
 }

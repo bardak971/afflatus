@@ -9,6 +9,7 @@ import { pipeline } from "node:stream/promises";
 import { ZodError } from "zod";
 import { registerAssets } from "./assets-api";
 import { registerBackup, type BackupPlaces } from "./backup";
+import { registerCommandBar } from "./commandIndex";
 import { registerDesigner } from "./designer";
 import { registerDrafts } from "./drafts";
 import { registerEntities } from "./entities";
@@ -124,6 +125,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerBackup(app, s, opts.backup);
   registerFolders(app, s);
   registerProjects(app, s);
+  registerCommandBar(app, s);
   registerWorkflows(app, s);
   registerTimelines(app, s);
   registerUsage(app, s);

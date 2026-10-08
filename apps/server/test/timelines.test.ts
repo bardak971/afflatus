@@ -174,6 +174,23 @@ describe("a timeline, without rendering anything", () => {
     expect(await call("PATCH", `/api/timelines/${tl.id}`, { width: null, height: null })).toMatchObject({ width: null, height: null });
   });
 
+  it("answers a render with the jobs it queued, in the order the clips play, which the queue can then put first", async () => {
+    await post(t.app, "/api/queue/pause");
+    const before = await call("POST", "/api/timelines", { name: "Before" });
+    const early = (await call("POST", `/api/timelines/${before.id}/clips`, { recipe: "h3.video" })).clip as string;
+    const [waitingFirst] = (await render(before.id, [{ id: early }])).ids as string[];
+    const tl = await call("POST", "/api/timelines", { name: "Harbor walk" });
+    const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    const b = (await call("POST", `/api/timelines/${tl.id}/clips`, {})).clip as string;
+    const { ids } = await render(tl.id, [{ id: b }, { id: a }]);
+    expect(ids).toHaveLength(2);
+    const queued = async () => (await get(t.app, "/api/queue")).json().waiting as Array<{ id: string; clipId: string | null }>;
+    expect((await queued()).map((w) => [w.id, w.clipId])).toEqual([[waitingFirst, early], [ids[0], a], [ids[1], b]]);
+    // to the top, in their own order: what the command bar's Ctrl+Enter does with them
+    const ordered = (await post(t.app, "/api/queue/order", { ids })).json();
+    expect(ordered.waiting.map((w: { id: string }) => w.id)).toEqual([...ids, waitingFirst]);
+  });
+
   it("takes what Redo remembered with it when it goes", async () => {
     const tl = await call("POST", "/api/timelines", { name: "Gone" });
     await call("PATCH", `/api/timelines/${tl.id}`, { name: "Renamed" });
