@@ -24,6 +24,7 @@ const timelinePatch = z.strictObject({
       fadeInMs: z.number().min(0).optional(),
       fadeOutMs: z.number().min(0).optional(),
       duck: z.boolean().optional(),
+      duckDb: z.number().min(3).max(30).optional(),
     })
     .optional(),
   /** Who is in the video and how it looks, for every clip that has no cast of its own. */
@@ -130,6 +131,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return t.create(body.name, body.project ?? null, await rootFolderOf(s.db, body.project));
   });
   app.get<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.view(req.params.id));
+  /** The music ducked under speech: its gain along the timeline (duck.ts), for the player; null when there is no music or it is not ducked. */
+  app.get<{ Params: { id: string } }>("/api/timelines/:id/duck", async (req) => ({ curve: await t.duck(req.params.id) }));
   app.patch<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.edit(req.params.id, timelinePatch.parse(req.body)));
   app.delete<{ Params: { id: string } }>("/api/timelines/:id", async (req) => {
     await t.remove(req.params.id);

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { duckWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { factsOf, tools, type ProbeInfo, type VideoFacts } from "./video";
@@ -482,8 +483,8 @@ export interface ExportMusic {
   volume: number;
   fadeInMs: number;
   fadeOutMs: number;
-  /** Quieter while the clips' own sound is heard. */
-  duck: boolean;
+  /** Quieter where people speak in the clips: the music multiplied by this curve (duck.ts), the same the player follows. */
+  duck: DuckCurve | null;
 }
 
 /** What joinVideos is asked besides its parts. */
@@ -521,7 +522,10 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
     // enlarged frames are sharpened a little: scaling alone leaves them soft
     const smooth = opts.smoothTo && opts.smoothTo > fps ? `minterpolate=fps=${opts.smoothTo}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : "";
     chains.push(`[joined]${[smooth, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean).join(",") || "null"}[v]`);
-    if (music) chains.push(...musicChain(music, await inputs.add(`music.${music.ext}`, music.source), total));
+    if (music) {
+      const track = await inputs.add(`music.${music.ext}`, music.source);
+      chains.push(...musicChain(music, track, total, music.duck ? await inputs.add("duck.wav", duckWav(music.duck, total)) : undefined));
+    }
     const out = join(dir, "export.mp4");
     await must(tools.ffmpeg, [
       "-y", "-loglevel", "error", ...inputs.args,
@@ -650,7 +654,7 @@ function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: s
 }
 
 /** The music under the joined sound (`voices`, made `a`): as long as the video at most, faded in and out, ducked when asked. */
-function musicChain(music: ExportMusic, input: { index: number }, total: number): string[] {
+function musicChain(music: ExportMusic, input: { index: number }, total: number, duckInput?: { index: number }): string[] {
   const heard = Math.min(total, music.durationMs || total);
   const fadeOut = Math.min(music.fadeOutMs, heard);
   return [
@@ -658,8 +662,8 @@ function musicChain(music: ExportMusic, input: { index: number }, total: number)
       (music.fadeInMs ? `,afade=t=in:st=0:d=${sec(Math.min(music.fadeInMs, heard))}` : "") +
       (fadeOut ? `,afade=t=out:st=${sec(heard - fadeOut)}:d=${sec(fadeOut)}` : "") +
       "[music]",
-    ...(music.duck
-      ? ["[voices]asplit=2[heard][key]", "[music][key]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=700[under]", "[heard][under]amix=inputs=2:duration=first:normalize=0[a]"]
+    ...(duckInput
+      ? [`[${duckInput.index}:a]aresample=48000,${STEREO}[gain]`, "[music][gain]amultiply[under]", "[voices][under]amix=inputs=2:duration=first:normalize=0[a]"]
       : ["[voices][music]amix=inputs=2:duration=first:normalize=0[a]"]),
   ];
 }
@@ -674,7 +678,7 @@ export const MOTION_RATE = 10;
  * loud as it gets), null when there is no sound. For the curves under the ruler and the quiet moments
  * In and Out snap to. A sound file gives loudness only.
  */
-export async function measureOf(source: Media, ext: string): Promise<{ motion: number[]; sound: number[] | null }> {
+export async function measureOf(source: Media, ext: string): Promise<{ motion: number[]; sound: number[] | null; speech: number[] | null }> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     // a file ffprobe cannot read has nothing to measure; ffprobe not there at all is said
@@ -704,7 +708,18 @@ export async function measureOf(source: Media, ext: string): Promise<{ motion: n
       sound = levels.map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90));
       if (!sound.length) sound = null;
     }
-    return { motion, sound };
+    // the same in the band of a voice (300–3400 Hz, twice filtered): where people speak, for the music's ducking (duck.ts)
+    let speech: number[] | null = null;
+    if (sound) {
+      const said = await must(tools.ffmpeg, [
+        "-loglevel", "error", "-i", input, "-vn",
+        "-af", `highpass=f=300,highpass=f=300,lowpass=f=3400,lowpass=f=3400,aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
+        "-f", "null", "-",
+      ], { timeout: 10 * 60_000 }).catch(() => "");
+      const levels = [...said.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf|inf|nan)/g)].map((m) => Number(m[1]));
+      speech = levels.length ? levels.map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90)) : null;
+    }
+    return { motion, sound, speech };
   });
 }
 

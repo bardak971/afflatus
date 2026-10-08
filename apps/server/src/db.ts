@@ -201,6 +201,8 @@ export interface Tables {
     music_fade_in_ms: number;
     music_fade_out_ms: number;
     music_duck: number;
+    /** How far the music goes down under speech, in dB. */
+    music_duck_db: number;
     /** The last video it was exported as. */
     export_asset_id: string | null;
     /** Its cast, places and style (JSON), used by every clip that has none of its own. */

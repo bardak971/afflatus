@@ -99,7 +99,7 @@ export interface Timeline {
   /** The look and mood of the whole video, in words: added to what happens in every clip. */
   mood: string;
   /** The sound under the whole video. */
-  music: { asset: Asset; volume: number; fadeInMs: number; fadeOutMs: number; duck: boolean } | null;
+  music: { asset: Asset; volume: number; fadeInMs: number; fadeOutMs: number; duck: boolean; duckDb: number } | null;
   /** What Undo would take back, in a few words; and what Redo would do again. */
   undo: string | null;
   redo: string | null;
@@ -155,7 +155,7 @@ export interface TimelinePatch {
   name?: string;
   width?: number | null;
   height?: number | null;
-  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean };
+  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean; duckDb?: number };
   look?: Look | null;
   mood?: string;
   /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */

@@ -1,0 +1,85 @@
+import { visible, type Laid } from "./timelineModel";
+
+/**
+ * The music ducked under speech: one gain curve for a timeline, worked out on the server from where people speak in each
+ * clip's own sound, and used alike by the player (the music's volume follows it) and the export (the music is multiplied by
+ * it). Speech is told by its band: a clip's sound filtered to 300–3400 Hz (measureOf's `speech`). Measured 2026-10-08:
+ * a voice reads -11 to -27 dB there, restaurant chatter -41 to -47, wind -51 to -62; over the whole band the wind was
+ * loud enough (-28 to -37) to hold the music down all along, which a sidechain on the whole sound did.
+ */
+
+/** Gains a second in the curve. */
+export const DUCK_RATE = 20;
+/** Speech-band level over which a clip is taken to speak, in dB (its volume taken into account). */
+export const SPEECH_DB = -32;
+/** How long the music stays down after the last word, how fast it goes down, how slowly it comes back (ms). */
+const HOLD_MS = 300;
+const ATTACK_MS = 80;
+const RELEASE_MS = 500;
+
+export interface DuckCurve { rate: number; gains: number[] }
+
+/** A sound's speech-band levels, in dB, `rate` a second (null: it has no sound). */
+export type SpeechOf = (assetId: string) => Promise<{ rate: number; speech: number[] | null }>;
+
+/** Where speech is heard along the timeline, then the music's gain there: down by `depthDb` under speech, eased in and out. */
+export async function duckCurve(laid: Laid[], speechOf: SpeechOf, depthDb: number): Promise<DuckCurve> {
+  const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
+  const n = Math.ceil((total / 1000) * DUCK_RATE);
+  const talking = new Array<boolean>(n).fill(false);
+  for (const l of laid) {
+    const p = l.p;
+    if (p.clip.kind !== "video" || p.clip.sound === "muted" || p.clip.volume <= 0) continue;
+    // what is heard: the clip's own sound from where it is seen, or the sound file put on it, from its start
+    const own = p.clip.sound !== "file";
+    const assetId = own ? p.active?.asset.id : p.sound?.id;
+    if (!assetId) continue;
+    const from = own && p.active ? visible(p.active).start : 0;
+    const s = await speechOf(assetId).catch(() => null);
+    if (!s?.speech?.length) continue;
+    const gainDb = 20 * Math.log10(p.clip.volume / 100);
+    const first = Math.floor((l.atMs / 1000) * DUCK_RATE);
+    const last = Math.min(n, Math.ceil(((l.atMs + l.lengthMs) / 1000) * DUCK_RATE));
+    for (let k = first; k < last; k++) {
+      const at = from + (k * 1000) / DUCK_RATE - l.atMs;
+      const v = s.speech[Math.floor((at / 1000) * s.rate)];
+      if (v !== undefined && v + gainDb > SPEECH_DB) talking[k] = true;
+    }
+  }
+  return { rate: DUCK_RATE, gains: eased(talking, depthDb) };
+}
+
+/** Down by `depthDb` while talking (held a little after), eased: quick down, slow up. Exported for the tests. */
+export function eased(talking: boolean[], depthDb: number): number[] {
+  const low = 10 ** (-Math.max(0, depthDb) / 20);
+  const step = 1000 / DUCK_RATE;
+  const hold = Math.round(HOLD_MS / step);
+  const down = 1 - Math.exp(-step / ATTACK_MS);
+  const up = 1 - Math.exp(-step / RELEASE_MS);
+  let since = Infinity;
+  let g = 1;
+  return talking.map((t) => {
+    since = t ? 0 : since + 1;
+    const target = since <= hold ? low : 1;
+    g += (target - g) * (target < g ? down : up);
+    return Math.round(g * 1000) / 1000;
+  });
+}
+
+/** The curve as a mono 32-bit float WAV at `rate` Hz, held between its points: the export multiplies the music by it. */
+export function duckWav(curve: DuckCurve, totalMs: number, rate = 8000): Uint8Array {
+  const samples = Math.max(1, Math.ceil((totalMs / 1000) * rate));
+  const data = Buffer.alloc(samples * 4);
+  for (let i = 0; i < samples; i++) {
+    const at = (i / rate) * curve.rate;
+    const a = curve.gains[Math.min(curve.gains.length - 1, Math.floor(at))] ?? 1;
+    const b = curve.gains[Math.min(curve.gains.length - 1, Math.floor(at) + 1)] ?? a;
+    data.writeFloatLE(a + (b - a) * (at - Math.floor(at)), i * 4);
+  }
+  const head = Buffer.alloc(44);
+  head.write("RIFF", 0); head.writeUInt32LE(36 + data.length, 4); head.write("WAVE", 8);
+  head.write("fmt ", 12); head.writeUInt32LE(16, 16); head.writeUInt16LE(3, 20); head.writeUInt16LE(1, 22);
+  head.writeUInt32LE(rate, 24); head.writeUInt32LE(rate * 4, 28); head.writeUInt16LE(4, 32); head.writeUInt16LE(32, 34);
+  head.write("data", 36); head.writeUInt32LE(data.length, 40);
+  return new Uint8Array(Buffer.concat([head, data]));
+}

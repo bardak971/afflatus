@@ -43,6 +43,7 @@ import m0041 from "./0041-generation-measure";
 import m0042 from "./0042-drop-take-lead";
 import m0043 from "./0043-lost-root-folders";
 import m0044 from "./0044-timelines-follow-folders";
+import m0045 from "./0045-music-duck-db";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -94,4 +95,5 @@ export const migrations: Record<string, Migration> = {
   "0042_drop_take_lead": m0042,
   "0043_lost_root_folders": m0043,
   "0044_timelines_follow_folders": m0044,
+  "0045_music_duck_db": m0045,
 };

@@ -490,6 +490,13 @@ describe.skipIf(!three)("a timeline", () => {
     expect(v.clips[0]).toMatchObject({ sound: "file", soundAsset: { id: sound.id }, volume: 50 });
     expect(v.clips[1]).toMatchObject({ sound: "muted", fill: true });
     expect(v.music).toMatchObject({ asset: { id: sound.id }, volume: 40, fadeInMs: 500, duck: true });
+    // the music dips under the sound of the first clip (a tone in the voice band) by the depth asked, the curve the player follows
+    await call("PATCH", `/api/timelines/${id}`, { music: { duckDb: 12 } });
+    expect((await view(id)).music).toMatchObject({ duck: true, duckDb: 12 });
+    const { curve } = (await get(t.app, `/api/timelines/${id}/duck`)).json() as { curve: { rate: number; gains: number[] } };
+    expect(curve.rate).toBe(20);
+    expect(Math.min(...curve.gains.slice(0, 20))).toBeCloseTo(10 ** (-12 / 20), 1);
+    expect(curve.gains.at(-1)).toBeGreaterThan(0.9);
     const out = await exported(id);
     expect(out).toMatchObject({ hasSound: true });
     expect(Math.abs(out.durationMs - (6000 - 917))).toBeLessThan(120);

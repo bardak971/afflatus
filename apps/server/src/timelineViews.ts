@@ -57,7 +57,7 @@ export class TimelineViews {
       projectId: t.project_id, folderId: t.folder_id, folderChosen: Boolean(t.folder_chosen),
       look: t.look ? (JSON.parse(t.look) as Look) : null,
       mood: t.mood ?? "",
-      music: music ? { asset: assetView(music), volume: t.music_volume, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck) } : null,
+      music: music ? { asset: assetView(music), volume: t.music_volume, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck), duckDb: t.music_duck_db } : null,
       /** What Undo would take back, in a few words; null when there is nothing to undo. The same for Redo. */
       undo: undo?.label ?? null,
       redo: redo?.label ?? null,

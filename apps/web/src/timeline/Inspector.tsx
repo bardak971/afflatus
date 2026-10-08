@@ -57,7 +57,8 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
         <Slide label="Volume" value={m.volume} max={100} show={(v) => `${v}%`} onCommit={(volume) => onEdit({ music: { volume } })} />
         <Slide label="Fade in" value={m.fadeInMs} max={10_000} step={500} show={(v) => `${(v / 1000).toFixed(1)} s`} onCommit={(fadeInMs) => onEdit({ music: { fadeInMs } })} />
         <Slide label="Fade out" value={m.fadeOutMs} max={10_000} step={500} show={(v) => `${(v / 1000).toFixed(1)} s`} onCommit={(fadeOutMs) => onEdit({ music: { fadeOutMs } })} />
-        <Toggle on={m.duck} onChange={(duck) => onEdit({ music: { duck } })} label="Duck under speech" note="quieter while people talk; heard in the exported video" />
+        <Toggle on={m.duck} onChange={(duck) => onEdit({ music: { duck } })} label="Duck under speech" note="the music dips where people speak in the clips, in the player and the export alike" />
+        {m.duck && <Slide label="Duck by" value={m.duckDb} min={3} max={30} step={1} show={(v) => `−${v} dB`} onCommit={(duckDb) => onEdit({ music: { duckDb } })} />}
         {m.asset.durationMs && m.asset.durationMs < timeline.durationMs ? <span className="text-xs text-ink-2">It is shorter than the video: it stops at {clock(m.asset.durationMs)}.</span> : null}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => setPicking(true)}>Choose another audio file</Button>

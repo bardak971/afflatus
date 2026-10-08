@@ -112,7 +112,7 @@ export class TimelineHistory {
         .updateTable("timelines")
         .set({
           name: w.name, width: w.width, height: w.height, music_asset_id: w.music_asset_id, music_volume: w.music_volume,
-          music_fade_in_ms: w.music_fade_in_ms, music_fade_out_ms: w.music_fade_out_ms, music_duck: w.music_duck, look: w.look ?? null, mood: w.mood ?? null,
+          music_fade_in_ms: w.music_fade_in_ms, music_fade_out_ms: w.music_fade_out_ms, music_duck: w.music_duck, music_duck_db: w.music_duck_db ?? 10, look: w.look ?? null, mood: w.mood ?? null,
           project_id: project, folder_id: folder, folder_chosen: w.folder_chosen ?? 0, updated_at: now(),
         })
         .where("id", "=", timelineId)

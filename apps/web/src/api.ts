@@ -306,7 +306,9 @@ export const api = {
   /** How much moves along a video and how loud it is, `rate` samples a second (motion 0 = still; sound in dB, about -60 = silence): the curves on the track, the quiet moments and pauses a range snaps to. */
   /** Where a video cuts between shots, as moments in milliseconds (ffmpeg's scene change; one shot gives none). */
   scenes: (asset: string) => call<{ cuts: number[] }>("GET", `/assets/${asset}/scenes`),
-  motion: (asset: string) => call<{ rate: number; values: number[]; sound: number[] | null }>("GET", `/assets/${asset}/motion`),
+  motion: (asset: string) => call<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }>("GET", `/assets/${asset}/motion`),
+  /** The music ducked under speech: its gain along the timeline, as the export applies it (null: no music, or not ducked). */
+  duck: (timeline: string) => call<{ curve: { rate: number; gains: number[] } | null }>("GET", `/timelines/${timeline}/duck`),
   /** How smoothly each take of a clip meets its neighbours: ×1 = like the clip's own motion, higher = a catch; null where there is no neighbour. */
   joins: (clip: string) => call<{ items: Array<{ take: string; in: number | null; out: number | null }> }>("GET", `/clips/${clip}/joins`),
   /** The colour nudge each clip gets in the player (luma and chroma steps of 255), the same the export applies at the joins. */

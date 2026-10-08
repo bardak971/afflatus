@@ -1,5 +1,6 @@
 import { chatJson } from "./designer";
 import type { EventEmitter } from "node:events";
+import { duckCurve, type DuckCurve } from "./duck";
 import type { InputSpec } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import { httpError, notFound } from "./errors";
@@ -16,7 +17,7 @@ import { TimelineRange, type RangeContext } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
-import { clockOf, FROM_PREVIOUS, lengthOf, markJoins, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
+import { clockOf, FROM_PREVIOUS, laidOut, lengthOf, markJoins, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -134,7 +135,7 @@ export interface TimelinePatch {
   name?: string;
   width?: number | null;
   height?: number | null;
-  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean };
+  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean; duckDb?: number };
   /** Who is in the video and how it looks: used by every clip that has no cast of its own. */
   look?: Look | null;
   /** The look and mood of the whole video, in words. */
@@ -179,7 +180,7 @@ export class Timelines {
       db, storage, registry, events,
       row: (id) => this.row(id), clipRow: (id) => this.clipRow(id), assetRow: (id) => this.assetRow(id), placed: (id) => this.placed(id),
       remember: (id, label, added) => this.remember(id, label, added), touch: (id) => this.touch(id), keep: (id, db) => this.keep(id, db), renumber: (id, order, db) => this.renumber(id, order, db),
-      settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline),
+      settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline), motion: (id) => this.media.motion(id),
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
@@ -370,7 +371,7 @@ export class Timelines {
       .insertInto("timelines")
       .values({
         id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: 0,
-        music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, export_asset_id: null, look: null, mood: null,
+        music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, music_duck_db: 10, export_asset_id: null, look: null, mood: null,
         created_at: at, updated_at: at,
       })
       .execute();
@@ -412,6 +413,7 @@ export class Timelines {
           ...(m?.fadeInMs !== undefined ? { music_fade_in_ms: within(m.fadeInMs, 0, 20_000) } : {}),
           ...(m?.fadeOutMs !== undefined ? { music_fade_out_ms: within(m.fadeOutMs, 0, 20_000) } : {}),
           ...(m?.duck !== undefined ? { music_duck: m.duck ? 1 : 0 } : {}),
+          ...(m?.duckDb !== undefined ? { music_duck_db: within(m.duckDb, 3, 30) } : {}),
           ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
           ...(patch.mood !== undefined ? { mood: patch.mood.trim() || null } : {}),
           updated_at: now(),
@@ -720,6 +722,13 @@ export class Timelines {
     for (const key of derivedKeys(asset ?? { id: assetId, duration_ms: null })) await this.storage.delete(key).catch(() => {});
     const takes = (await this.db.selectFrom("takes").select("id").where("asset_id", "=", assetId).execute()).map((t) => t.id);
     this.media.forget(assetId, takes);
+  }
+
+  /** The music ducked under speech, the curve the export uses too: null when there is no music or it is not ducked. */
+  async duck(timelineId: string): Promise<DuckCurve | null> {
+    const t = await this.row(timelineId);
+    if (!t.music_asset_id || !t.music_duck) return null;
+    return duckCurve(laidOut(await this.placed(timelineId)), (id) => this.media.motion(id), t.music_duck_db);
   }
 
   /** A clip's timeline as it is on screen, and the clip's place in it. */

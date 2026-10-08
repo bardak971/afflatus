@@ -1,5 +1,6 @@
 import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./cut";
 import { newId, now } from "./db";
+import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
 import { folderOfTimeline } from "./timelineFolder";
@@ -49,7 +50,8 @@ export class TimelineExport {
     const music: ExportMusic | undefined = track
       ? {
           source: await sourceOf(this.core.storage, track.file_key), ext: extOf(track.mime), durationMs: track.duration_ms ?? 0,
-          volume: t.music_volume / 100, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck),
+          volume: t.music_volume / 100, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms,
+          duck: t.music_duck ? await duckCurve(laid, (asset) => this.core.motion(asset), t.music_duck_db) : null,
         }
       : undefined;
     const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, signal: opts.signal };

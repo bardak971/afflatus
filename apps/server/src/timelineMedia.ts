@@ -94,18 +94,19 @@ export class TimelineMedia {
   }
 
   /** How much moves along a video and how loud it is, ten samples a second (see measureOf). Measured once, then kept. A sound file gives loudness only. */
-  async motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null }> {
+  async motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
     const { storage } = this.core;
     const asset = await this.core.assetRow(assetId);
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) throw notFound("this video");
     const key = `motion/${asset.id.slice(0, 2)}/${asset.id}.json`;
     const have = await storage.get(key).catch(() => null);
     if (have) {
-      const kept = JSON.parse(Buffer.from(have).toString("utf8")) as { rate: number; values: number[]; sound?: number[] | null };
-      if (kept.sound !== undefined) return { rate: kept.rate, values: kept.values, sound: kept.sound };
+      const kept = JSON.parse(Buffer.from(have).toString("utf8")) as { rate: number; values: number[]; sound?: number[] | null; speech?: number[] | null };
+      // measured before the speech band was: measured again, once
+      if (kept.sound !== undefined && kept.speech !== undefined) return { rate: kept.rate, values: kept.values, sound: kept.sound, speech: kept.speech };
     }
-    const { motion, sound } = await measureOf(await this.source(asset), extOf(asset.mime));
-    const made = { rate: MOTION_RATE, values: motion.map((v) => Math.round(v * 10) / 10), sound };
+    const { motion, sound, speech } = await measureOf(await this.source(asset), extOf(asset.mime));
+    const made = { rate: MOTION_RATE, values: motion.map((v) => Math.round(v * 10) / 10), sound, speech };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
   }

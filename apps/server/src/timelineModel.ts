@@ -226,6 +226,8 @@ export interface TimelineCore {
   assetRow(id: string | null): Promise<AssetRow | undefined>;
   /** The clips of a timeline in order, each with its takes (those whose video still exists). */
   placed(timelineId: string): Promise<Placed[]>;
+  /** How much moves along a video and how loud it is, and where people speak in it (timelineMedia.motion). */
+  motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }>;
   /** Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button; `added`, a take the change adds. */
   remember(timelineId: string, label: string, added?: string): Promise<number>;
   touch(timelineId: string): Promise<void>;

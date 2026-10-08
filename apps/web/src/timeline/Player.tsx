@@ -91,7 +91,15 @@ export const Player = forwardRef<PlayerHandle, {
   /** The fade of the clip after has begun (from then on it is not moved: a jump would show). */
   const fadedIn = useRef(false);
 
-  /** The music follows the playhead: at the same moment, as loud as its fades say. */
+  // the music ducked under speech, the curve the export applies too (asked again when what plays or the music changes)
+  const duck = useQuery({
+    queryKey: ["duck", timeline, music?.asset.id, music?.duck, music?.duckDb, clips.map((c) => `${c.id}:${c.take?.id}:${c.atMs}:${c.lengthMs}:${c.volume}:${c.sound}`).join(",")],
+    queryFn: () => api.duck(timeline!),
+    enabled: Boolean(timeline && music?.duck),
+  });
+  const curve = music?.duck ? duck.data?.curve ?? null : null;
+
+  /** The music follows the playhead: at the same moment, as loud as its fades say, and ducked under speech. */
   const tuneMusic = useCallback(
     (global: number, force = false) => {
       const el = musicEl.current;
@@ -100,11 +108,12 @@ export const Player = forwardRef<PlayerHandle, {
       const heard = Math.min(total, length);
       const fadeIn = music.fadeInMs ? Math.min(1, global / music.fadeInMs) : 1;
       const fadeOut = music.fadeOutMs ? Math.min(1, Math.max(0, heard - global) / music.fadeOutMs) : 1;
-      el.volume = Math.max(0, Math.min(1, (music.volume / 100) * fadeIn * fadeOut * masterRef.current));
+      const ducked = curve ? curve.gains[Math.min(curve.gains.length - 1, Math.max(0, Math.floor((global / 1000) * curve.rate)))] ?? 1 : 1;
+      el.volume = Math.max(0, Math.min(1, (music.volume / 100) * fadeIn * fadeOut * ducked * masterRef.current));
       if (global >= length - 30) return void el.pause();
       if (force || Math.abs(el.currentTime * 1000 - global) > 280) el.currentTime = global / 1000;
     },
-    [music, total],
+    [music, total, curve],
   );
 
   const place = useCallback(
