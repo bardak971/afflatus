@@ -75,9 +75,9 @@ export function ComfyLog({ online }: { online: boolean }) {
         <button type="button" aria-pressed={onlyTrouble} onClick={() => setOnlyTrouble((v) => !v)} className={cx("h-8 rounded-lg border px-2.5 font-semibold", onlyTrouble ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>
           Errors and warnings{trouble ? ` · ${trouble}` : ""}
         </button>
-        <Button size="sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)} title={paused ? "Read the log again every two seconds" : "Stop reading: what is here stays put"}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? "Resume" : "Pause"}</Button>
-        <Button size="sm" onClick={() => { setLines([]); seen.current.clear(); }} title="Empty this view. ComfyUI keeps its own log."><Eraser size={13} /> Clear view</Button>
-        <Button size="sm" onClick={() => void copyText(shown.map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} title="Copy the lines shown"><Copy size={13} /> Copy</Button>
+        <Button size="sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)} data-tip={paused ? "Read the log again every two seconds" : "Stop reading: what is here stays put"}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? "Resume" : "Pause"}</Button>
+        <Button size="sm" onClick={() => { setLines([]); seen.current.clear(); }} data-tip="Empty this view. ComfyUI keeps its own log."><Eraser size={13} /> Clear view</Button>
+        <Button size="sm" onClick={() => void copyText(shown.map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} data-tip="Copy the lines shown"><Copy size={13} /> Copy</Button>
         {!stuck && <Button size="sm" tone="primary" onClick={() => { setStuck(true); if (box.current) box.current.scrollTop = box.current.scrollHeight; }}><ArrowDownToLine size={13} /> Follow the end</Button>}
         <span className="grow" />
         <span className="text-ink-3">{shown.length} of {lines.length} lines{paused ? " · paused" : log.isFetching ? " · reading…" : ""} · read-only, straight from ComfyUI</span>

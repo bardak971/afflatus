@@ -41,11 +41,11 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
       {listed.map((r) => (
         <div key={r.id} id={`render-${r.id}`} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-[10px] border border-line bg-panel px-3 py-2 target:border-accent">
           {r.assetId
-            ? <button type="button" onClick={() => onOpen(r.assetId!)} title="Open what it made"><img src={thumbUrl(r.assetId)} alt="" loading="lazy" className="h-11 w-11 rounded-md object-cover" /></button>
-            : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" title={r.status === "done" ? "Its output is no longer in the library" : "No output"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
+            ? <button type="button" onClick={() => onOpen(r.assetId!)} aria-label="Open what it made" data-tip="Open what it made"><img src={thumbUrl(r.assetId)} alt="" loading="lazy" className="h-11 w-11 rounded-md object-cover" /></button>
+            : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" data-tip={r.status === "done" ? "Its output is no longer in the library" : "No output"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
           <div className="flex min-w-0 flex-col">
             <span className="truncate font-medium">{r.name}</span>
-            <span className="truncate text-xs text-ink-2" title={r.model}>
+            <span className="truncate text-xs text-ink-2" data-tip={r.model}>
               {[r.model, r.width && r.height ? `${r.width} × ${r.height}` : "", r.seconds ? `${r.seconds} s` : "", `${r.steps} step${r.steps === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
             </span>
           </div>

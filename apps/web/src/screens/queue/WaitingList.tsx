@@ -1,15 +1,21 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpToLine, GripVertical, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpToLine, X } from "lucide-react";
 import type { Job } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, when } from "../../format";
-import { cx, SectionTitle } from "../../ui";
-import { dropped, modelSwitches, moved } from "./order";
+import { cx } from "../../ui";
+import { useModelName } from "./modelName";
+import { dropped, moved } from "./order";
 
-/** What comes next: dragged up and down, or moved and removed from its menu. */
+/** How many waiting jobs show before the rest fold into "and N more". */
+export const SHOWN = 3;
+
+/** What comes next, as compact numbered rows: dragged up and down, or moved and removed from its menu. The first few show; the rest unfold. */
 export function WaitingList({ waiting, onOrder, onRemove }: { waiting: Job[]; onOrder(ids: string[]): void; onRemove(id: string): void }) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
+  const [all, setAll] = useState(false);
+  const modelOf = useModelName();
   /** The right-click menu of a waiting job: what its drag and its X do. */
   const menu = useMenu<{ id: string; label: string; index: number }>();
   const ids = waiting.map((w) => w.id);
@@ -26,20 +32,13 @@ export function WaitingList({ waiting, onOrder, onRemove }: { waiting: Job[]; on
     setDragged(null);
     setOver(null);
   };
-  const waitingMs = waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0);
-  const switches = modelSwitches(waiting);
+  const shown = all ? waiting : waiting.slice(0, SHOWN);
+  const more = waiting.length - shown.length;
 
+  if (!waiting.length) return null;
   return (
-    <section className="flex flex-col gap-2" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
-      <div className="flex items-baseline justify-between gap-2">
-        <SectionTitle>Next · {waiting.length}</SectionTitle>
-        {waiting.length > 0 && (
-          <span className="truncate text-xs text-ink-2">
-            {waitingMs ? `${aboutMs(waitingMs)} in all` : ""}{switches ? ` · ${switches} model switch${switches > 1 ? "es" : ""}` : ""}
-          </span>
-        )}
-      </div>
-      {waiting.map((w, i) => (
+    <div className="flex flex-col" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
+      {shown.map((w, i) => (
         <div
           key={w.id}
           onContextMenu={(e) => menu.open(e, { id: w.id, label: w.label, index: i })}
@@ -58,27 +57,29 @@ export function WaitingList({ waiting, onOrder, onRemove }: { waiting: Job[]; on
             const r = e.currentTarget.getBoundingClientRect();
             setOver(e.clientY < r.top + r.height / 2 ? i : i + 1);
           }}
+          data-tip={w.kind === "export" || w.kind === "cut" ? `${w.kind} · no GPU needed` : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}
           className={cx(
-            "flex items-center gap-2 rounded-[10px] border border-line bg-panel py-2 pr-1.5 pl-1.5",
+            "group flex cursor-grab items-center gap-3.5 rounded-[10px] border-y-2 border-transparent py-px pr-1 pl-3 text-[13px] hover:bg-hover",
             dragged === w.id && "opacity-50",
             dragged && over === i && "border-t-accent",
-            dragged && over === i + 1 && i === waiting.length - 1 && "border-b-accent",
+            dragged && over === i + 1 && i === shown.length - 1 && "border-b-accent",
           )}
         >
-          <GripVertical size={15} className="shrink-0 cursor-grab text-ink-3" />
-          <span className="min-w-0 grow">
-            <span className="block truncate text-sm font-semibold">{w.label}</span>
-            <span className="block text-xs text-ink-2">{w.kind === "export" || w.kind === "cut" ? `${w.kind} · no GPU needed` : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}</span>
-          </span>
-          {w.estimateMs ? <span className="shrink-0 text-xs text-ink-2">{aboutMs(w.estimateMs)}</span> : null}
-          <button type="button" aria-label={`Remove ${w.label} from the queue`} onClick={() => onRemove(w.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover">
-            <X size={15} />
+          <span className="w-[18px] shrink-0 font-mono text-ink-3">{i + 1}</span>
+          <span className="min-w-0 grow truncate font-semibold">{w.label}</span>
+          <span className="max-w-[40%] shrink-0 truncate text-ink-2">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
+          <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{w.estimateMs ? `~${aboutMs(w.estimateMs).replace(/^about /, "")}` : "—"}</span>
+          <button type="button" aria-label={`Remove ${w.label} from the queue`} data-tip="Remove from the queue" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
+            <X size={14} />
           </button>
         </div>
       ))}
-      {!waiting.length && <div className="rounded-xl border border-line px-3.5 py-3 text-sm text-ink-2">Nothing queued.</div>}
+      <div className="flex items-center gap-1 px-3 pt-1 text-xs text-ink-3">
+        {more > 0 && <button type="button" onClick={() => setAll(true)} className="underline-offset-2 hover:text-ink hover:underline">and {more} more</button>}
+        {all && waiting.length > SHOWN && <button type="button" onClick={() => setAll(false)} className="underline-offset-2 hover:text-ink hover:underline">show the first {SHOWN} only</button>}
+        {waiting.length > 1 && <span data-tip="Images go before videos unless you move them.">{more > 0 || (all && waiting.length > SHOWN) ? " · " : ""}drag a row to reorder</span>}
+      </div>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${menu.menu.subject.label}`} items={itemsOf(menu.menu.subject)} onClose={menu.close} />}
-      {waiting.length > 1 && <span className="text-xs text-ink-3">Drag to reorder. Images go before videos unless you move them.</span>}
-    </section>
+    </div>
   );
 }

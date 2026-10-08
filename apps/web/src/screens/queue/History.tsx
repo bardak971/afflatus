@@ -1,17 +1,17 @@
 import { lazy, Suspense, useMemo, useState } from "react";
-import { useLocation } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Eye, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
+import { Clipboard, Eye, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
-import { api, type HistoryJob } from "../../api";
+import type { HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
-import { HISTORY, useAsset, useJobs, useRecipes } from "../../data";
-import { clock, fileLabel, took, when } from "../../format";
+import { useAsset, useJobs } from "../../data";
+import { fileLabel, took, when } from "../../format";
 import { Select } from "../../Select";
 import { useSettled } from "../../hooks";
-import { useBanners, useOpenDraft } from "../../store";
 import { Button, cx, Empty, Segmented } from "../../ui";
-import { lighter, memoryThatRanOut, shorterStretch } from "./retry";
+import { FailedRow } from "./FailedRow";
+import { rowFacts, rowName } from "./historyText";
+import { ROW, useJobActions } from "./jobActions";
+import { useModelName } from "./modelName";
 
 // the viewer is fetched the first time a result is opened here
 const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewer })));
@@ -19,10 +19,10 @@ const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewe
 type Status = "all" | "done" | "failed" | "cancelled";
 
 /**
- * What the queue has done: every finished job as a card with what it made (the result itself, not a
- * word), the model, the size, how long it took, the seed; failed ones first with their error and a
- * retry; cancelled ones folded away. Jobs asked for together ("Make 4") are one card. A click on a
- * result opens it as the library does.
+ * What the queue has done, as a list: each finished job a row with a thumbnail of what it made, its name,
+ * the model, how long it took and when; failed ones first, tinted, with their error and a retry; cancelled
+ * ones folded away. Jobs asked for together ("Make 4") are one row. A click on a thumbnail opens the
+ * result as the library does.
  */
 export function History() {
   const [status, setStatus] = useState<Status>("all");
@@ -45,14 +45,14 @@ export function History() {
 
   // failed first; cancelled jobs, and done ones whose result was deleted since, folded away unless asked for
   const gone = (j: HistoryJob) => j.status === "done" && j.kind === "render" && j.made.length === 0;
-  const failed = status === "all" ? items.filter((j) => j.status === "failed") : [];
+  const failed = status === "all" || status === "failed" ? items.filter((j) => j.status === "failed") : [];
   const folded = status === "all" || status === "done" ? items.filter((j) => (status === "all" && j.status === "cancelled") || gone(j)) : [];
-  const listed = items.filter((j) => (status !== "all" || j.status !== "failed") && (showCancelled || !folded.includes(j)));
+  const listed = items.filter((j) => j.status !== "failed" && (showCancelled || !folded.includes(j)));
   const foldedSaid = [
     folded.filter((j) => j.status === "cancelled").length ? `${folded.filter((j) => j.status === "cancelled").length} cancelled` : "",
     folded.filter(gone).length ? `${folded.filter(gone).length} whose result was deleted` : "",
   ].filter(Boolean).join(", ");
-  // jobs asked for together make one card
+  // jobs asked for together make one row
   const groups: HistoryJob[][] = [];
   for (const j of listed) {
     const last = groups[groups.length - 1];
@@ -78,7 +78,7 @@ export function History() {
         </div>
         <label className="flex h-9 w-60 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
           <Search size={14} className="shrink-0 text-ink-3" />
-          <input data-search aria-label="Search the history" placeholder="Search prompts and labels" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
+          <input data-search aria-label="Search the history" placeholder="Search names and prompts" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
           {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
         </label>
         {models.length > 0 && (
@@ -90,27 +90,24 @@ export function History() {
         {jobs.isFetching && <Loader2 size={14} className="animate-spin text-ink-3" />}
       </div>
 
-      <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto pr-1 pb-4">
-        {failed.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {failed.map((j) => <Failed key={j.id} job={j} />)}
+      <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto pr-1 pb-4">
+        {(failed.length > 0 || groups.length > 0) && (
+          <div aria-hidden className={cx(ROW, "sticky top-0 z-10 bg-ground py-1 text-[11px] tracking-[0.06em] text-ink-3 uppercase")}>
+            <span /><span>Name</span><span>Model</span><span className="text-right">Took</span><span className="text-right">When</span>
           </div>
         )}
-        {groups.length === 0 && !jobs.isLoading && (
+        {failed.map((j) => <FailedRow key={j.id} job={j} />)}
+        {groups.length === 0 && failed.length === 0 && !jobs.isLoading && (
           <Empty title={q || model || status !== "all" ? "Nothing matches" : "Nothing finished yet"} />
         )}
-        {groups.length > 0 && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))" }}>
-            {groups.map((g) => <Card key={g[0]!.id} jobs={g} onOpen={setOpen} />)}
-          </div>
-        )}
+        {groups.map((g) => <Row key={g[0]!.id} jobs={g} onOpen={setOpen} />)}
         {folded.length > 0 && (
-          <button type="button" onClick={() => setShowCancelled(!showCancelled)} className="self-start text-xs text-ink-2 underline underline-offset-2 hover:text-ink">
+          <button type="button" onClick={() => setShowCancelled(!showCancelled)} className="mt-1 self-start px-3 text-xs text-ink-2 underline underline-offset-2 hover:text-ink">
             {showCancelled ? `Hide ${foldedSaid}` : `${foldedSaid} · show`}
           </button>
         )}
         {jobs.hasNextPage && (
-          <div>
+          <div className="px-3 pt-1">
             <Button size="sm" onClick={() => void jobs.fetchNextPage()} disabled={jobs.isFetchingNextPage}>{jobs.isFetchingNextPage ? "Loading…" : "Load more"}</Button>
           </div>
         )}
@@ -121,119 +118,69 @@ export function History() {
   );
 }
 
-/** What is done with a finished job: again, back to its draft, out of the list. What fails is said in a banner. */
-function useJobActions() {
-  const client = useQueryClient();
-  const say = useBanners((b) => b.push);
-  const failed = (title: string) => (err: Error) => say({ id: `history:${Date.now()}`, tone: "bad", title, text: err.message, href: "/queue", go: "Open queue" });
-  const again = useMutation({ mutationFn: (v: { id: string; input?: Record<string, unknown> }) => api.retryJob(v.id, v.input), onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }), onError: failed("Could not queue it again") });
-  const dismiss = useMutation({ mutationFn: api.dismissJob, onSuccess: () => client.invalidateQueries({ queryKey: HISTORY }), onError: failed("Could not remove it from the history") });
-  const openDraft = useOpenDraft((s) => s.open);
-  const [, go] = useLocation();
-  const toDraft = (id: string) => {
-    openDraft(id);
-    go("/create");
-  };
-  return { again, dismiss, toDraft };
+/** A row's thumbnail: what it made (a picture, or a video that plays on hover); neutral for a cut, an export or nothing made. */
+function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): void }) {
+  const head = jobs[0]!;
+  const made = jobs.flatMap((j) => j.made);
+  const first = made[0];
+  const box = "relative flex h-9 w-16 items-center justify-center overflow-hidden rounded-[7px] bg-raised text-ink-3";
+  if (!first || head.kind === "cut" || head.kind === "export" || first.kind === "audio") {
+    const icon = head.kind === "export" ? <FileOutput size={15} /> : head.kind === "cut" ? <Scissors size={15} /> : head.kind === "load" ? <Loader2 size={15} /> : first?.kind === "audio" ? <Music size={15} /> : head.status === "cancelled" ? <X size={15} /> : <Play size={15} />;
+    return first ? <button type="button" aria-label={`Open ${first.name || first.kind}`} onClick={() => onOpen(first.id)} className={cx(box, "hover:text-ink")}>{icon}</button> : <span className={box}>{icon}</span>;
+  }
+  return (
+    <button type="button" data-stage aria-label={`Open ${first.name || first.kind}`} onClick={() => onOpen(first.id)} className={cx(box, "hover:ring-2 hover:ring-accent/50", first.inBin && "opacity-40")}>
+      <HoverVideo asset={first.id} video={first.kind === "video"} />
+      {made.length > 1 && <span className="absolute right-0.5 bottom-0.5 rounded bg-ground/80 px-1 text-[10px] leading-tight font-bold text-ink">×{made.length}</span>}
+    </button>
+  );
 }
 
-/** One finished job, or several asked for together: what came out, and the facts of how. */
-function Card({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): void }) {
+/** One finished job, or several asked for together: what it made, under its name, and the facts of how. */
+function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): void }) {
   const head = jobs[0]!;
   const { again, dismiss, toDraft } = useJobActions();
+  const modelOf = useModelName();
   const made = jobs.flatMap((j) => j.made);
-  const shown = made.slice(0, 4);
   const first = made[0];
-  const facts = [
-    first?.kind === "video" && first.durationMs ? clock(first.durationMs) : first?.width && first.height ? `${first.width} × ${first.height}` : "",
-    head.tookMs !== null && head.status === "done" ? took(head.tookMs) : "",
-  ].filter(Boolean);
-  const dim = head.status === "cancelled";
-  const title = head.prompt || head.label;
-  // right-click: what the card's buttons do, and opening what it made
+  const name = rowName(jobs);
+  // right-click: what the row's buttons do, opening what it made, and its seed
   const menu = useMenu<true>();
   const items: MenuItem[] = [
     ...(first ? [{ label: made.length > 1 ? "Open the first result" : "Open the result", icon: <Eye size={14} />, run: () => onOpen(first.id) }] : []),
     ...(head.draftId ? [{ label: "Open its draft in Studio", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
     ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
+    ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => void navigator.clipboard?.writeText(String(head.seed)).catch(() => {}) }] : []),
     "—",
     { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => jobs.forEach((j) => dismiss.mutate(j.id)) },
   ];
+  const tip = [head.prompt, name !== head.label ? head.label : "", head.seed !== null && jobs.length === 1 ? `seed ${head.seed}` : ""].filter(Boolean).join("\n");
   return (
-    <div className={cx("group flex flex-col overflow-hidden rounded-[10px] border border-line bg-panel transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md", dim && "opacity-60 hover:opacity-100")} title={title} onContextMenu={(e) => menu.open(e, true)}>
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${head.label}`} items={items} onClose={menu.close} />}
-      <div data-stage className={cx("relative grid aspect-square gap-px bg-raised", shown.length > 1 ? "grid-cols-2" : "grid-cols-1", shown.length > 2 ? "grid-rows-2" : "grid-rows-1")}>
-        {shown.length === 0 ? (
-          <span className="flex h-full flex-col items-center justify-center gap-1.5 text-ink-2">
-            {head.kind === "export" ? <FileOutput size={22} /> : head.kind === "cut" ? <Scissors size={22} /> : head.kind === "load" ? <Loader2 size={22} /> : head.status === "cancelled" ? <X size={22} /> : <Play size={22} />}
-            <span className="text-xs">{head.kind === "export" ? "Export" : head.kind === "cut" ? "Cut" : head.kind === "load" ? "Model loaded" : head.status === "cancelled" ? "Cancelled" : "No result"}</span>
+    <div className={cx(ROW, "group rounded-xl py-1.5 hover:bg-hover", head.status === "cancelled" && "opacity-60 hover:opacity-100")} onContextMenu={(e) => menu.open(e, true)}>
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${name}`} items={items} onClose={menu.close} />}
+      <Thumb jobs={jobs} onOpen={onOpen} />
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 grow flex-col gap-0.5" data-tip={tip || undefined}>
+          <span className="truncate text-[13.5px] font-semibold">{name}</span>
+          <span className="truncate text-xs text-ink-2">
+            {rowFacts(jobs)}
+            {head.warning && <span className="text-warn-ink" data-tip={head.warning}> · {head.warning}</span>}
           </span>
-        ) : (
-          shown.map((m) => (
-            <button key={m.id} type="button" aria-label={`Open ${m.name || m.kind}`} onClick={() => onOpen(m.id)} className={cx("relative h-full w-full min-h-0 min-w-0 overflow-hidden", shown.length === 3 && m === shown[0] && "row-span-2", m.inBin && "opacity-40")}>
-              {m.kind === "audio" ? (
-                <span className="absolute inset-0 flex items-center justify-center text-ink-2"><Music size={20} /></span>
-              ) : (
-                <HoverVideo asset={m.id} video={m.kind === "video"} />
-              )}
-              {m.kind === "video" && (
-                <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">
-                  <Play size={10} fill="currentColor" />{m.durationMs ? clock(m.durationMs) : ""}
-                </span>
-              )}
-            </button>
-          ))
-        )}
-        {made.length > 4 && <span className="absolute right-1.5 bottom-1.5 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">+{made.length - 4}</span>}
-        {jobs.length > 1 && <span className="absolute top-1.5 right-1.5 rounded-full bg-ground/80 px-2 py-0.5 text-[11px] font-bold">×{jobs.length}</span>}
-        {head.status === "cancelled" && <span className="absolute top-1.5 left-1.5 rounded-full bg-ground/80 px-2 py-0.5 text-[11px] font-bold text-ink-2">Cancelled</span>}
-      </div>
-      <div className="flex flex-col gap-0.5 px-2.5 py-2">
-        {/* what was asked first; then the model and the figures; then when, and the seed to copy */}
-        <span className="truncate text-[13px] font-semibold">{head.prompt || head.label}</span>
-        <span className="truncate text-xs text-ink-2">{[head.prompt ? head.label : "", head.model ? fileLabel(head.model) : "", ...facts].filter(Boolean).join(" · ")}</span>
-        {head.warning && <span className="text-xs text-warn-ink" title={head.warning}>{head.warning}</span>}
-        {head.seed !== null && jobs.length === 1 && <span className="truncate font-mono text-[11px] text-ink-3" title={`seed ${head.seed}`}>seed {head.seed}</span>}
-        <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
-          <span className="min-w-0 grow truncate">{head.finishedAt ? when(head.finishedAt) : ""}</span>
-          <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-            {head.kind === "render" && (
-              <button type="button" title={jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue: the same job again"} aria-label="Requeue" disabled={again.isPending} onClick={() => jobs.forEach((j) => again.mutate({ id: j.id }))} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-ink"><RotateCcw size={13} /></button>
-            )}
-            {head.draftId && (
-              <button type="button" title="Open its draft in Studio" aria-label="Open the draft" onClick={() => toDraft(head.draftId!)} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
-            )}
-            <button type="button" title="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => jobs.forEach((j) => dismiss.mutate(j.id))} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-ink"><X size={13} /></button>
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** A job that failed: the error, and the ways to run it again. */
-function Failed({ job }: { job: HistoryJob }) {
-  const recipes = useRecipes();
-  const { again, dismiss, toDraft } = useJobActions();
-  const recipe = recipes.data?.recipes.find((x) => x.id === job.recipe);
-  const memory = memoryThatRanOut(job.error);
-  const fix = memory ? lighter(recipe, job.input) : null;
-  const stretch = memory ? shorterStretch(recipe, job.input) : null;
-  return (
-    <div className="flex flex-col gap-1.5 rounded-[10px] border border-warn/50 bg-warn-wash px-3.5 py-2.5">
-      <div className="flex items-baseline gap-2">
-        <span className="font-semibold">{job.label}{job.model ? <span className="font-normal text-ink-2"> · {fileLabel(job.model)}</span> : ""}</span>
-        <span className="grow truncate text-xs text-ink-2">{job.prompt}</span>
-        <span className="shrink-0 text-xs text-ink-2">{job.finishedAt ? when(job.finishedAt) : ""}</span>
-      </div>
-      <div className="text-sm text-warn-ink">{job.error}{memory === "ram" ? " Out of the machine's memory (RAM), not the card's: the work had fallen back to the processor." : memory === "vram" ? " Out of VRAM." : ""}</div>
-      <div className="flex flex-wrap gap-1.5">
-        {stretch && <Button size="sm" tone="danger" disabled={again.isPending} title="The latent upscale re-samples the clip in stretches of frames; shorter stretches need less memory." onClick={() => again.mutate({ id: job.id, input: stretch.change }, { onSuccess: () => dismiss.mutate(job.id) })}>{stretch.label}</Button>}
-        {fix && <Button size="sm" tone={stretch ? undefined : "danger"} disabled={again.isPending} onClick={() => again.mutate({ id: job.id, input: fix.change }, { onSuccess: () => dismiss.mutate(job.id) })}>{fix.label}</Button>}
-        <Button size="sm" disabled={again.isPending} onClick={() => again.mutate({ id: job.id }, { onSuccess: () => dismiss.mutate(job.id) })}>Retry unchanged</Button>
-        {job.draftId && <Button size="sm" onClick={() => toDraft(job.draftId!)}>Open the draft</Button>}
-        <Button size="sm" tone="quiet" onClick={() => dismiss.mutate(job.id)}>Dismiss</Button>
-      </div>
+        </span>
+        {/* what the menu does, at hand on hover or focus */}
+        <span className="flex shrink-0 items-center gap-0.5 text-ink-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+          {head.kind === "render" && (
+            <button type="button" data-tip={jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue: the same job again"} aria-label="Requeue" disabled={again.isPending} onClick={() => jobs.forEach((j) => again.mutate({ id: j.id }))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
+          )}
+          {head.draftId && (
+            <button type="button" data-tip="Open its draft in Studio" aria-label="Open the draft" onClick={() => toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>
+          )}
+          <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => jobs.forEach((j) => dismiss.mutate(j.id))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
+        </span>
+      </span>
+      <span className="truncate text-[12.5px] text-ink-2" data-tip={head.model ? fileLabel(head.model) : undefined}>{modelOf(head)}</span>
+      <span className="text-right font-mono text-xs text-ink-2">{head.tookMs !== null && head.status === "done" ? took(head.tookMs) : "—"}</span>
+      <span className="text-right text-xs text-ink-2">{head.finishedAt ? when(head.finishedAt) : ""}</span>
     </div>
   );
 }

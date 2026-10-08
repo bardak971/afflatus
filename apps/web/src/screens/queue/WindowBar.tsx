@@ -28,8 +28,8 @@ export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom }: {
         <input type="datetime-local" aria-label="From" value={bounds.from} onChange={(e) => onTyped({ ...bounds, from: e.target.value })} className="h-8 rounded-lg border border-line bg-raised px-2 font-mono text-xs text-ink" />
         <span className="text-ink-3">→</span>
         <input type="datetime-local" aria-label="To" value={bounds.to} onChange={(e) => onTyped({ ...bounds, to: e.target.value })} className="h-8 rounded-lg border border-line bg-raised px-2 font-mono text-xs text-ink" />
-        <Button size="sm" tone={asked ? "primary" : "plain"} disabled={!asked} title={typed && !asked ? "The end has to come after the start" : "Look at the window typed in the two boxes"} onClick={() => asked && onZoom(asked.from, asked.to)}>Apply</Button>
-        <Button size="sm" title="Twice the window, around the same middle" onClick={() => { const mid = (shown.from + shown.to) / 2; onZoom(mid - spanMs, Math.min(Date.now(), mid + spanMs)); }}>Wider</Button>
+        <Button size="sm" tone={asked ? "primary" : "plain"} disabled={!asked} data-tip={typed && !asked ? "The end has to come after the start" : "Look at the window typed in the two boxes"} onClick={() => asked && onZoom(asked.from, asked.to)}>Apply</Button>
+        <Button size="sm" data-tip="Twice the window, around the same middle" onClick={() => { const mid = (shown.from + shown.to) / 2; onZoom(mid - spanMs, Math.min(Date.now(), mid + spanMs)); }}>Wider</Button>
       </div>
     </>
   );

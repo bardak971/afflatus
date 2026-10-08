@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type QueueStatus } from "../api";
+import { api, type Job, type QueueStatus } from "../api";
 import { useQueue } from "../data";
 import { NotifyToggle, notifyNote } from "../NotifyToggle";
-import { Button, cx, ErrorNote, Segmented } from "../ui";
+import { aboutMs } from "../format";
+import { Button, cx, ErrorNote, SectionTitle, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { ComfyLog } from "./queue/Log";
 import { MachineMeters } from "./queue/MachineMeters";
+import { modelSwitches } from "./queue/order";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 
@@ -19,14 +21,14 @@ function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: {
         <Button
           className="h-10 px-4"
           disabled={free.isPending || Boolean(q.running && q.running.kind === "render")}
-          title="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
+          data-tip="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
           onClick={() => free.mutate()}
         >
           {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : "Unload models (free VRAM)"}
         </Button>
       )}
       {q && (
-        <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" title={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => pause.mutate(!q.paused)}>
+        <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" data-tip={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => pause.mutate(!q.paused)}>
           {q.paused ? "Resume queue" : "Pause queue"}
         </Button>
       )}
@@ -34,10 +36,17 @@ function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: {
   );
 }
 
+/** What the waiting jobs come to: about how long in all, and how many times the model changes on the way. */
+function waitingSaid(waiting: Job[]): string {
+  const ms = waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0);
+  const switches = modelSwitches(waiting);
+  return [ms ? `${aboutMs(ms)} in all` : "", switches ? `${switches} model switch${switches > 1 ? "es" : ""}` : ""].filter(Boolean).join(" · ");
+}
+
 /**
- * The queue: what runs now, what comes next and when it will all be done, on the left; what was done,
- * as the results themselves, on the right (History). The machine's meters sit under the queue, small:
- * the footer has the ones that matter at every moment.
+ * The queue: what runs now and the next few, in one block at the top; under it what was done and what
+ * failed, as a list (History). The notify switch and the machine's meters sit in a side column, small:
+ * the footer has the meters that matter at every moment.
  */
 export function Queue() {
   const queue = useQueue();
@@ -75,23 +84,31 @@ export function Queue() {
       {tab === "log" && <ComfyLog online={Boolean(q?.online)} />}
 
       {tab === "queue" && q && (
-        <div className="grid min-h-0 grow grid-cols-[400px_minmax(0,1fr)] gap-6">
-          <div className="flex min-h-0 flex-col gap-5 overflow-y-auto pr-1 pb-4">
+        <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_280px] gap-8">
+          <div className="flex min-h-0 flex-col gap-5">
             {q.paused && (
-              <div className="rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
+              <div className="shrink-0 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
                 Paused. The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: no GPU.
               </div>
             )}
-            <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />
-            <WaitingList waiting={q.waiting} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} />
+            <section aria-label="Now" className="flex max-h-[55%] shrink-0 flex-col gap-1.5 overflow-y-auto">
+              <div className="flex items-baseline justify-between gap-2">
+                <SectionTitle>{[q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running", q.waiting.length ? `next ${q.waiting.length}` : ""].filter(Boolean).join(" · ")}</SectionTitle>
+                {q.waiting.length > 0 && <span className="truncate text-xs text-ink-2">{waitingSaid(q.waiting)}</span>}
+              </div>
+              <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />
+              <WaitingList waiting={q.waiting} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} />
+            </section>
+            <History />
+          </div>
+
+          <div className="flex min-h-0 flex-col gap-5 overflow-y-auto pb-4">
             <div className="flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
               <NotifyToggle what="whenEmpty" onRefused={setRefused} />
               <span className="text-xs text-ink-2">{notifyNote(refused)}</span>
             </div>
             <MachineMeters />
           </div>
-
-          <History />
         </div>
       )}
     </div>

@@ -178,7 +178,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
             <button
               key={s.name}
               type="button"
-              title={solo === s.name ? "Show them all again" : "Look at this one alone"}
+              data-tip={solo === s.name ? "Show them all again" : "Look at this one alone"}
               onClick={() => setSolo(solo === s.name ? null : s.name)}
               className={cx("flex items-center gap-1.5 rounded px-1 text-xs hover:bg-hover", solo && solo !== s.name ? "text-ink-3 opacity-60" : "text-ink-2")}
             >

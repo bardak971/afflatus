@@ -104,7 +104,7 @@ function ModelDetail({ model: m, times, timeLabel, stretch }: { model: TimesSumm
           <div className="flex flex-col gap-1 text-xs">
             <SectionTitle>By model file</SectionTitle>
             {m.files.map((f) => (
-              <div key={f.file} className="flex items-baseline justify-between gap-3"><span className="truncate text-ink-2" title={f.name}>{f.name}</span><span className="shrink-0 font-mono">{f.renders} render{f.renders === 1 ? "" : "s"} · {pace(f.stepMs)} s/it</span></div>
+              <div key={f.file} className="flex items-baseline justify-between gap-3"><span className="truncate text-ink-2" data-tip={f.name}>{f.name}</span><span className="shrink-0 font-mono">{f.renders} render{f.renders === 1 ? "" : "s"} · {pace(f.stepMs)} s/it</span></div>
             ))}
           </div>
         )}

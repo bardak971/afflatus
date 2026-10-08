@@ -17,7 +17,7 @@ export function PhaseBar({ phases, scale = 1, className }: { phases: TimeParts; 
   const total = Math.max(1, sum(PHASES.map((p) => phases[p.id])));
   return (
     <div className={cx("flex h-2.5 overflow-hidden rounded-full bg-line", className)} style={{ width: `${Math.max(4, Math.min(1, scale) * 100)}%` }}>
-      {PHASES.map((p) => phases[p.id] > 0 && <div key={p.id} className={p.tone} title={`${p.label}: ${took(phases[p.id])}`} style={{ width: `${(phases[p.id] / total) * 100}%` }} />)}
+      {PHASES.map((p) => phases[p.id] > 0 && <div key={p.id} className={p.tone} data-tip={`${p.label}: ${took(phases[p.id])}`} style={{ width: `${(phases[p.id] / total) * 100}%` }} />)}
     </div>
   );
 }
