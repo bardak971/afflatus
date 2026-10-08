@@ -65,7 +65,7 @@ export function UpdatesCard() {
             </Row>
           )}
           {open && (
-            <Dialog label="Newer versions on Civitai" onClose={() => setOpen(false)} className={cx(DIALOG, "max-h-[85vh] max-w-4xl")}>
+            <Dialog label="Newer versions on Civitai" onClose={() => setOpen(false)} className={cx(DIALOG.replace("max-w-md", ""), "max-h-[88vh] w-[min(1180px,94vw)]")}>
               <DialogHead icon={<RefreshCw size={16} />} title="Newer versions on Civitai" sub={`${newer.length} of your models · ${r?.checkedAt ? `checked ${new Date(r.checkedAt).toLocaleString("en-GB")}` : "not checked yet"}`} onClose={() => setOpen(false)} />
               <div className="flex flex-wrap items-center gap-2">
                 <Segmented label="Kind" value={kind} onChange={(v) => setKind(v as typeof kind)} options={[{ value: "all", label: `All ${newer.length}` }, ...KINDS.map((k) => ({ value: k.id, label: `${k.label} ${newer.filter((u) => u.folder === k.id).length}` })).filter((o) => !o.label.endsWith(" 0"))]} />
