@@ -86,7 +86,9 @@ export function useLiveEvents(): void {
       const now = endedSince(seen, q);
       seen = now.seen;
       const working = Boolean(q.running) || q.waiting.length > 0;
-      if (now.ended.length) refetch(client, [HISTORY, ...RENDER_KEYS]);
+      // and the timelines: a clip's new take arrives with its job's end, even when the "timeline" event that says
+      // so was missed (a dropped connection) or read before the take was in
+      if (now.ended.length) refetch(client, [HISTORY, ...RENDER_KEYS, ["timelines"]]);
       if (!first && notifier.current) {
         const { whenEmpty, eachRender } = useNotify.getState();
         for (const j of now.ended) if (eachRender && j.status !== "cancelled" && j.kind !== "load") say(j.status === "done" ? "Finished" : "Failed", j.label, notifyTag(j.id));
