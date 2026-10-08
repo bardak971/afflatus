@@ -5,22 +5,38 @@ import { ChevronDown, Copy, Film, FolderPlus, Plus, Star, Trash2, Undo2, Wand2 }
 import { isShown, RANDOM_SEED, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
-import { useAssetAction, useFamilies, useFolders, useRecipes, useSetup, useTimelines, type useAsset } from "../data";
+import { useAssetAction, useEntities, useFamilies, useFolders, useRecipes, useSetup, useTimelines, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
 import { clock, fileLabel, notReady, recipeLabel, took, when } from "../format";
 import { Select } from "../Select";
 import { Button, cx, fieldClass, SectionTitle } from "../ui";
+import { FieldRow } from "../fields";
 import { ModelLink } from "../ModelLink";
 import { FORMATS, mb, OPS } from "./shared";
 import { ViewerHeader } from "./ViewerHeader";
 import type { ViewerActions } from "./useViewerActions";
 import { copyText } from "../secureContext";
 
-const ROLES: Record<string, string> = { start: "First frame", end: "Last frame", source: "Source image", previous: "Previous clip", next: "Next clip",
-  mid: "Keyframe", mask: "Mask", person: "Reference: person", place: "Reference: place", clothing: "Reference: clothing", object: "Reference: object", style: "Reference: style", voice: "Voice sample", sound: "Audio",
+// what a source was to the render: the quiet line under its name
+const ROLES: Record<string, string> = { start: "first frame", end: "last frame", source: "source image", previous: "previous clip", next: "next clip",
+  mid: "keyframe", mask: "mask", person: "person", place: "place", clothing: "clothing", object: "object", style: "style", voice: "voice sample", sound: "audio",
 };
+
+/** Whose picture it is in the prompt kit (a person, one of their outfits, a place), by the picture's id. */
+function useKitNames(): Map<string, { name: string; what: string }> {
+  const entities = useEntities();
+  const names = new Map<string, { name: string; what: string }>();
+  for (const e of entities.data?.items ?? []) {
+    if (e.kind === "person") {
+      for (const id of e.def.pictures) names.set(id, { name: e.name, what: "person" });
+      for (const o of e.def.outfits) if (o.picture) names.set(o.picture, { name: e.name, what: `outfit · ${o.name}` });
+    }
+    if (e.kind === "place") for (const id of e.def.pictures) names.set(id, { name: e.name, what: "place" });
+  }
+  return names;
+}
 
 /** One setting as it was when the item was made, written out for a person. */
 function valueOf(spec: InputSpec, value: unknown): ReactNode {
@@ -225,16 +241,20 @@ function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>;
   );
 }
 
-/** A row of small pictures that open the item they show. */
-function Strip({ items, onOpen }: { items: Array<{ asset: Asset; caption?: string }>; onOpen(asset: Asset): void }) {
+/**
+ * A row of small pictures that open the item they show: under each its name (whose it is, in accent, when it is
+ * a prompt-kit picture) and what it was to the render. No name: what it was, alone.
+ */
+function Strip({ items, onOpen }: { items: Array<{ asset: Asset; name?: string; kit?: boolean; caption?: string }>; onOpen(asset: Asset): void }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {items.map(({ asset, caption }) => (
-        <button key={`${asset.id}${caption}`} type="button" onClick={() => onOpen(asset)} aria-label={caption ? `Open: ${caption.toLowerCase()}` : "Open"} className="flex w-[76px] flex-col gap-1 text-left">
+      {items.map(({ asset, name, kit, caption }) => (
+        <button key={`${asset.id}${caption}`} type="button" onClick={() => onOpen(asset)} aria-label={`Open: ${[name, caption].filter(Boolean).join(", ") || "item"}`} data-tip={name && caption ? `${name} · ${caption}` : undefined} className="flex w-[76px] flex-col gap-0.5 text-left">
           {asset.kind === "audio"
-            ? <span className="flex h-[76px] w-[76px] items-center justify-center rounded-md border border-line bg-raised text-ink-2">Audio</span>
-            : <img src={thumbUrl(asset.id)} alt="" loading="lazy" className="h-[76px] w-[76px] rounded-md border border-line object-cover hover:border-accent" />}
-          {caption && <span className="text-[11px] leading-tight text-ink-2">{caption}</span>}
+            ? <span className="flex h-[76px] w-[76px] items-center justify-center rounded-lg border border-line bg-raised text-ink-2">Audio</span>
+            : <img src={thumbUrl(asset.id)} alt="" loading="lazy" className={cx("h-[76px] w-[76px] rounded-lg border object-cover hover:border-accent", kit ? "border-accent/70" : "border-line")} />}
+          {name && <span className={cx("mt-0.5 truncate text-xs font-semibold", kit && "text-accent")}>{name}</span>}
+          {caption && <span className={cx("truncate text-[11px] leading-tight", name ? "text-ink-3" : "mt-0.5 text-ink-2")}>{caption}</span>}
         </button>
       ))}
     </div>
@@ -260,8 +280,7 @@ function FolderPicker({ asset }: { asset: Asset }) {
     return f ? [pathOf(f.parentId), f.name].filter(Boolean).join(" / ") : "";
   };
   return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-xs text-ink-2">Folder{asset.folderId ? "" : " (moving it to a folder keeps it)"}</span>
+    <FieldRow label="Folder" note="Where it is filed. Moving it out of the Inbox into a folder keeps it: it no longer goes to the bin after a day.">
       <Select
         label="Folder"
         value={asset.folderId ?? ""}
@@ -292,7 +311,7 @@ function FolderPicker({ asset }: { asset: Asset }) {
         )}
       />
       {(move.isError || create.isError) && <span className="text-warn-ink">{(move.error ?? create.error)?.message}</span>}
-    </div>
+    </FieldRow>
   );
 }
 
@@ -304,17 +323,20 @@ function TimelinePicker({ asset }: { asset: Asset }) {
   const last = useLast();
   const start = useStartTimeline({ onSuccess: (target) => go(`/timelines/${target.id}`) });
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="grid grid-cols-2 gap-1.5">
-        {last && <Button size="sm" disabled={add.isPending} data-tip={`At the end of ${last.name}, the timeline you last added to`} onClick={() => add.mutate(last.id)}><span className="truncate">Add to {last.name}</span> <Kbd>A</Kbd></Button>}
-        <Button size="sm" disabled={start.isPending} data-tip={asset.kind === "image" ? "A new timeline whose clip 1 opens on this picture, its form open" : "A new timeline whose clip 1 is this video"} onClick={() => start.mutate(asset)}>Start a timeline from it <Kbd>N</Kbd></Button>
-      </div>
-      <Select
-        dashed
-        icon={<Film size={15} className="shrink-0" />}
-        label="Add to timeline"
-        placeholder={add.isPending ? "Adding…" : "Add to timeline"}
-        value=""
+    <FieldRow label="Timeline">
+      <div className="flex min-w-0 gap-1.5">
+        {last && (
+          <Button size="sm" className="min-w-0 grow justify-start" disabled={add.isPending} data-tip={`At the end of ${last.name}, the timeline you last added to`} onClick={() => add.mutate(last.id)}>
+            <span className="truncate"><span className="font-normal text-ink-2">Add to</span> {last.name}</span> <Kbd>A</Kbd>
+          </Button>
+        )}
+        {/* the other timelines, and a new one: behind the chevron when there is a last one, the whole field otherwise */}
+        <Select
+          icon={last ? undefined : <Film size={15} className="shrink-0" />}
+          label="Add to timeline"
+          placeholder={add.isPending ? "Adding…" : last ? "" : "Add to…"}
+          className={last ? "w-10 shrink-0 justify-center px-0" : "min-w-0 grow"}
+          value=""
         onChange={(id) => add.mutate(id)}
         options={(timelines.data?.items ?? []).map((t) => ({ value: t.id, label: t.name, note: t.clips ? `${t.clips} clip${t.clips > 1 ? "s" : ""}` : "empty" }))}
         footer={(close) => (
@@ -322,9 +344,11 @@ function TimelinePicker({ asset }: { asset: Asset }) {
             <Plus size={14} className="text-ink-2" /> New timeline
           </button>
         )}
-      />
+        />
+        <Button size="sm" className="shrink-0" disabled={start.isPending} data-tip={asset.kind === "image" ? "Start a timeline from it: clip 1 opens on this picture, its form open" : "Start a timeline from it: this video is clip 1"} onClick={() => start.mutate(asset)}>New <Kbd>N</Kbd></Button>
+      </div>
       {add.isError && <span className="text-warn-ink">{add.error.message}</span>}
-    </div>
+    </FieldRow>
   );
 }
 
@@ -348,12 +372,11 @@ function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
   });
   if (!ways.length) return null;
   return (
-    <div className="flex flex-col gap-1.5">
+    <FieldRow label="Reference" note="Use it as a reference image: a new draft of the model picked, this picture in its references. Only the models and workflows that take reference images are listed.">
       <Select
-        dashed
-        icon={<Star size={15} className="shrink-0" />}
+        icon={<Star size={15} className="shrink-0 text-ink-2" />}
         label="Use as reference image"
-        placeholder={start.isPending ? "Opening…" : "Use as reference image"}
+        placeholder={start.isPending ? "Opening…" : "Pick a model…"}
         searchHint="Search models"
         value=""
         onChange={(id) => start.mutate(id)}
@@ -362,9 +385,8 @@ function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
           return { value: r.id, label: r.title, detail: r.summary, group: r.id.startsWith("workflow.") ? "Your workflows" : family?.name, search: family?.name };
         })}
       />
-      <span className="text-xs text-ink-3">Only models and workflows that take reference images are listed.</span>
       {start.isError && <span className="text-warn-ink">{start.error.message}</span>}
-    </div>
+    </FieldRow>
   );
 }
 
@@ -445,6 +467,7 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
   const made = new Date(a.createdAt);
   const sources = detail.data?.id === a.id ? detail.data.sources : [];
   const usedIn = detail.data?.id === a.id ? detail.data.usedIn : [];
+  const kitNames = useKitNames();
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
       <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />
@@ -491,8 +514,12 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
             <SectionTitle>Source</SectionTitle>
             <Strip
               items={[
-                ...(detail.data?.source ? [{ asset: detail.data.source.asset, caption: detail.data.source.range ? `${clock(detail.data.source.range.startMs)}–${clock(detail.data.source.range.endMs)} of it` : a.origin === "edited" ? "Mirrored from it" : a.kind === "image" ? "Frame of it" : "Cut from it" }] : []),
-                ...sources.map((s) => ({ asset: s.asset, caption: ROLES[s.role] ?? s.role })),
+                ...(detail.data?.source ? [{ asset: detail.data.source.asset, name: detail.data.source.asset.name ?? undefined, caption: detail.data.source.range ? `${clock(detail.data.source.range.startMs)}–${clock(detail.data.source.range.endMs)} of it` : a.origin === "edited" ? "mirrored from it" : a.kind === "image" ? "frame of it" : "cut from it" }] : []),
+                ...sources.map((s) => {
+                  // a prompt-kit picture says whose it is; any other, its own name
+                  const kit = kitNames.get(s.asset.id);
+                  return kit ? { asset: s.asset, name: kit.name, kit: true, caption: kit.what } : { asset: s.asset, name: s.asset.name ?? undefined, caption: ROLES[s.role] ?? s.role };
+                }),
               ]}
               onOpen={(next) => setTrail([...trail, next])}
             />
@@ -523,6 +550,7 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
         {!a.inBin && (
           <div className="flex flex-col gap-2">
             <SectionTitle>Put it in</SectionTitle>
+            {/* one row each, the name left and one control right, as in the forms */}
             {a.kind !== "audio" && <TimelinePicker asset={a} />}
             {a.kind === "image" && <ReferencePicker asset={a} onDone={leave} />}
             <FolderPicker asset={a} />
