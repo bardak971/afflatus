@@ -930,7 +930,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                   <button
                     type="button"
                     tabIndex={-1}
-                    title={`What is made while working in it lands in no folder. Click: a root folder named ${r.label} is made. Or drop one of its folders here: it becomes the root.`}
+                    data-tip={`What is made while working in it lands in no folder. Click: a root folder named ${r.label} is made. Or drop one of its folders here: it becomes the root.`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (r.id) void actions.setRoot({ id: r.id, name: r.label });
@@ -947,8 +947,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                   </button>
                 )}
               </span>
-              <span title={r.path} className={cx("min-w-0 truncate text-right text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>
-              <span title={r.created ? new Date(r.created).toLocaleString() : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
+              <span data-tip={r.path} className={cx("min-w-0 truncate text-right text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>
+              <span data-tip={r.created ? new Date(r.created).toLocaleString() : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
               <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">{r.bytes !== null ? size(r.bytes) : ""}</span>
             </div>
           );

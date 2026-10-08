@@ -222,10 +222,10 @@ export function Workflows() {
                 </div>
                 {problem && <div className="text-warn-ink">{problem}</div>}
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} title="Opens the form with this workflow picked, on a new draft.">Try it</Button>
+                  <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip="Opens the form with this workflow picked, on a new draft.">Try it</Button>
                   <Button size="sm" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>
                   <Button size="sm" onClick={() => shareIt.mutate(w)}>Export</Button>
-                  <Button size="sm" onClick={() => openInComfy.mutate(w)} disabled={openInComfy.isPending || !comfyOnline} title={comfyOnline ? "Writes the workflow into ComfyUI's workflows folder and opens ComfyUI: pick it in the Workflows sidebar." : "ComfyUI is not running."}>Open in ComfyUI</Button>
+                  <Button size="sm" onClick={() => openInComfy.mutate(w)} disabled={openInComfy.isPending || !comfyOnline} data-tip={comfyOnline ? "Writes the workflow into ComfyUI's workflows folder and opens ComfyUI: pick it in the Workflows sidebar." : "ComfyUI is not running."}>Open in ComfyUI</Button>
                   <TwoStep label="Remove" title={`Remove ${w.title}`} note="What you generated with it stays in your library." yes="Remove" onYes={() => remove.mutate(w.id)} />
                 </div>
                 {opened?.id === w.id && !opened.direct && (

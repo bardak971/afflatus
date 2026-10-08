@@ -130,7 +130,7 @@ export function People() {
           {newButton}
           {tab === "preset" && (
             <>
-              <Button size="sm" onClick={() => fileInput.current?.click()} disabled={doImport.isPending} title="A preset file: one saved from Afflatus, or one of the shipped shape" className="flex h-9 shrink-0 items-center gap-1.5"><Upload size={13} /> Import</Button>
+              <Button size="sm" onClick={() => fileInput.current?.click()} disabled={doImport.isPending} data-tip="A preset file: one saved from Afflatus, or one of the shipped shape" className="flex h-9 shrink-0 items-center gap-1.5"><Upload size={13} /> Import</Button>
               <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) doImport.mutate(f); e.target.value = ""; }} />
             </>
           )}

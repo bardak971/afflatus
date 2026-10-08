@@ -52,16 +52,16 @@ export function ModelSwitches() {
                 <span className="shrink-0 text-xs text-ink-3">{imported ? `${mine.length} workflow${mine.length > 1 ? "s" : ""}` : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
                 <span className="grow" />
                 {!found && (slots.length ? (
-                  <button type="button" aria-expanded={open} title="The model files it needs, and where to get them" onClick={() => setNeeds(open ? null : f.id)} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warn-ink hover:underline">
+                  <button type="button" aria-expanded={open} data-tip="The model files it needs, and where to get them" onClick={() => setNeeds(open ? null : f.id)} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warn-ink hover:underline">
                     {slots.length} model file{slots.length > 1 ? "s" : ""} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
                   </button>
                 ) : (
-                  <span className="shrink-0 text-xs text-warn-ink" title="No model of this family was found in ComfyUI. Put one in its models folder (an SDXL checkpoint goes in models/checkpoints); it is listed as soon as ComfyUI sees it.">no model file yet</span>
+                  <span className="shrink-0 text-xs text-warn-ink" data-tip="No model of this family was found in ComfyUI. Put one in its models folder (an SDXL checkpoint goes in models/checkpoints); it is listed as soon as ComfyUI sees it.">no model file yet</span>
                 ))}
                 {byHand && (
                   <button
                     type="button"
-                    title="Set manually. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."
+                    data-tip="Set manually. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."
                     onClick={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
                     className="shrink-0 rounded-md border border-line-strong px-1.5 py-0.5 text-[11px] font-semibold text-ink-2 hover:text-ink"
                   >

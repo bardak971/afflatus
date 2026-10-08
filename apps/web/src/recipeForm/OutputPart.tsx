@@ -32,7 +32,7 @@ export function OutputPart({ out, upscaling, encoding, summary, estimate, q, ren
       {encoding.length > 0 && <Heading title="Encode" note="frame rate, frame interpolation, compression" />}
       {encoding.map(setting)}
       {estimate && (
-        <span className={cx("text-xs", estimate.pace === "over" ? "font-semibold text-warn-ink" : "text-ink-2")} title="Learned from your own renders with this model on this machine: how long a step took at each size, and where the card stopped keeping its pace.">
+        <span className={cx("text-xs", estimate.pace === "over" ? "font-semibold text-warn-ink" : "text-ink-2")} data-tip="Learned from your own renders with this model on this machine: how long a step took at each size, and where the card stopped keeping its pace.">
           {estimate.text}
         </span>
       )}

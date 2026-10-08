@@ -44,7 +44,7 @@ export function ModelDefaults({ recipe, file, hasSaved, values, defaults, onClea
             : `No defaults saved for ${model} yet: these are the recipe's.`}
       </span>
       <span className="flex flex-wrap gap-1.5">
-        {differs.length > 0 && <Button size="sm" tone="quiet" onClick={() => save.mutate()} disabled={save.isPending} title={`Save these as the defaults of ${model}`}>Save as this model's defaults</Button>}
+        {differs.length > 0 && <Button size="sm" tone="quiet" onClick={() => save.mutate()} disabled={save.isPending} data-tip={`Save these as the defaults of ${model}`}>Save as this model's defaults</Button>}
         {differs.length > 0 && <Button size="sm" onClick={() => onClear(differs.map((i) => i.id))}>Reset all</Button>}
         {hasSaved && !differs.length && <Button size="sm" onClick={() => forget.mutate()} disabled={forget.isPending}>Forget saved defaults</Button>}
       </span>

@@ -141,7 +141,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
                   {can.tags && m.lora && !m.trigger.trim() && (() => {
                     const known = words.of(m.lora);
                     return known.words && known.from !== "training" ? (
-                      <button type="button" onClick={() => set({ trigger: known.words.slice(0, 200) })} className="col-span-2 truncate text-left text-xs text-accent hover:underline" title={known.words}>
+                      <button type="button" onClick={() => set({ trigger: known.words.slice(0, 200) })} className="col-span-2 truncate text-left text-xs text-accent hover:underline" data-tip={known.words}>
                         Use its trigger words: {known.words}
                       </button>
                     ) : null;
@@ -171,7 +171,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
           </div>
         ))}
         {/* as many as a person holds: the server refuses more, and the person would no longer save */}
-        <span><Button size="sm" disabled={def.outfits.length >= LIMITS.outfits} title={def.outfits.length >= LIMITS.outfits ? `${LIMITS.outfits} outfits is the most a person holds` : undefined} onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: localId(), name: "", tags: "", sentence: "", picture: null }] })}><Plus size={13} /> New outfit</Button></span>
+        <span><Button size="sm" disabled={def.outfits.length >= LIMITS.outfits} data-tip={def.outfits.length >= LIMITS.outfits ? `${LIMITS.outfits} outfits is the most a person holds` : undefined} onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: localId(), name: "", tags: "", sentence: "", picture: null }] })}><Plus size={13} /> New outfit</Button></span>
         <span className="text-xs text-ink-3">Without an outfit, {name} is "as in the reference images": nothing about clothes is added to the prompt.</span>
       </div>
     </>

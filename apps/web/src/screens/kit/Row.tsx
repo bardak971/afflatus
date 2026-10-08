@@ -3,7 +3,7 @@ import { cx } from "../../ui";
 
 /** A small mark at the start of a row: the family a preset is for, an icon for a style. */
 export function Mark({ children, title }: { children: ReactNode; title?: string }) {
-  return <span title={title} className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-raised px-1.5 text-[10px] font-bold tracking-wide text-ink-2 uppercase">{children}</span>;
+  return <span data-tip={title} className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-raised px-1.5 text-[10px] font-bold tracking-wide text-ink-2 uppercase">{children}</span>;
 }
 export function Badge({ tone = "plain", children }: { tone?: "plain" | "warn" | "good"; children: ReactNode }) {
   return <span className={cx("shrink-0 rounded px-1.5 py-px text-[10px] font-bold tracking-wide uppercase", tone === "warn" ? "bg-warn-wash text-warn-ink" : tone === "good" ? "bg-good/15 text-good" : "bg-raised text-ink-3")}>{children}</span>;

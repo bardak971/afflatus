@@ -67,6 +67,25 @@ input[data-search]:focus-visible {
 input[type="range"] {
   accent-color: var(--color-accent);
 }
+/* a hover card over the track rises into place; with motion reduced it only fades in */
+/* the app's tooltip (Tip.tsx): it grows into place from a touch smaller; with motion reduced it only fades in */
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes peek-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes peek-fade {
+  from {
+    opacity: 0;
+  }
+}
 @keyframes sweep {
   from {
     transform: translateX(-100%);

@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { Dialog } from "./Dialog";
 import { typing } from "./Keys";
+import { useSettings } from "./data";
 import { cx } from "./ui";
+
+/** Where the list says the command bar's shortcut: the one set in Settings › Command bar is written there. */
+const BAR_KEY = "Ctrl + K";
 
 /** Keys held together are written with " + " between them; keys that do the two halves of one thing with two spaces. */
 const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> }> = [
@@ -10,16 +14,16 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     where: "Command bar",
     note: "Everything Afflatus holds and does, from any screen. The shortcut can be changed in Settings › Command bar.",
     keys: [
-      ["Ctrl + K", "Open or close the bar, a text box included"], ["↑  ↓", "Move through the results"], ["Enter", "The result's first action (open, run, switch)"], ["Ctrl + Enter", "Its second action"],
-      ["Tab", "The result's whole list of actions; Tab or Esc goes back"], ["Shift", "Show or hide the preview"], ["Esc", "Clear what is typed, then close"],
-      [">  #  /", "Commands · projects and folders · settings"], ["=  !", "The calculator · the queue"],
+      [BAR_KEY, "Open or close the bar, a text box included"], ["↑  ↓", "Move through the results"], ["PgUp  PgDn", "Eight results up or down"], ["Enter", "The result's first action (open, run, switch)"], ["Ctrl + Enter", "Its second action"],
+      ["Tab", "The result's whole list of actions (a command still missing its figures: written in the bar); Tab or Esc goes back"], ["Shift", "Show or hide the preview"], ["Esc", "Clear what is typed, then close"],
+      [">  #  /", "Commands · projects and folders · settings"], ["=  !", "The calculator · the queue"], ['"  @', "Prompt history · the cast (each when turned on in Settings › Command bar)"],
     ],
   },
   {
     where: "Viewer (any item)",
     note: "An image, a video or an audio file: opened from the grid, or shown large under \"This draft\".",
     keys: [
-      ["←  →", "Previous item, next item"], ["X", "Compare: pin this one, the arrow keys change the other"], ["N", "Start a timeline from it"], ["A", "Add to the timeline last added to"], ["S", "Keep / unkeep"], ["Del", "Move to the bin, and go to the next one"], ["D", "Download the file"],
+      ["←  →", "Previous item, next item"], ["X", "Compare: pin this one, the arrow keys change the other"], ["N", "Start a timeline from it"], ["A", "Add to the timeline last added to"], ["S", "Keep / unkeep"], ["Del", "Move to the bin, and go to the next one"], ["D", "Download the file"], ["F2", "Rename it"],
       ["L", "Reuse parameters: open the form with the same generation parameters"], ["V", "Variation: same parameters, new seed, queued at once"],
       ["Esc", "Close"],
     ],
@@ -51,11 +55,19 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     where: "Timelines, in Studio",
     keys: [["Click", "Open the timeline"], ["Ctrl + Click", "Select it (Shift + Click: the range)"], ["F2", "Rename the selected timeline"], ["Del", "Delete the selected timelines (the videos stay)"], ["Esc", "Clear selection"], ["Drag", "Onto a folder on the left: the timeline is listed there, its renders land there"], ["Right-click", "Open, rename, put in a folder, move to a project, delete"]],
   },
+  {
+    where: "Projects panel",
+    note: "The projects with their folders, timelines and drafts, as a tree: opened from the project button on the rail.",
+    keys: [
+      ["↑  ↓", "Walk the tree"], ["→  ←", "Open a folder; fold it, or go up to the one it is in"], ["Home  End", "First row, last row"], ["Enter", "Open the row"], ["Space", "Pick it too (as Ctrl + Click)"],
+      ["F2", "Rename the row"], ["S", "Keep / unkeep an item"], ["Del", "An item to the bin; anything else asks first"], ["Shift + F10", "The row's menu"], ["Ctrl + F", "Search the tree (or just type)"], ["Esc", "Clear the search, then the picks, then close"],
+    ],
+  },
   { where: "Folders, in Studio", keys: [["Drag", "Items or timelines onto a folder to move them there"], ["Right-click", "Open, a folder inside, rename, rescan (a folder of the disk), delete or unlink"]] },
   { where: "Form, in Studio", keys: [["N", "Open the form, or fold it away to its rail"], ["Ctrl + Enter", "Generate"]] },
   {
     where: "Prompt",
-    keys: [["Ctrl + ↑  ↓", "The weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"]],
+    keys: [["Ctrl + ↑  ↓", "The weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"], [";", "A snippet of the Prompt kit by name (when turned on in Settings › Command bar): ↑ ↓, then Tab or Enter puts it in"]],
   },
   { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it, stopping at Out"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead; they snap to cuts, the playhead and quiet moments"], ["Shift + drag", "On the ruler: In and Out in one go"], ["Shift + Click", "On a clip: the range reaches to it"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z  Ctrl + Y", "Redo"], ["Ctrl + Click", "On a clip: pick it too; Del removes the picked clips"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "The menu of the clip under the pointer, of the range, of a clip's audio or of the music"]] },
   {
@@ -92,6 +104,8 @@ function Caps({ keys }: { keys: string }) {
 export function KeysHelp() {
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
+  // "Ctrl+K" as the list writes keys: "Ctrl + K"
+  const barKey = (useSettings().data?.bar?.shortcut ?? "Ctrl+K").split("+").join(" + ");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // "?" is Shift with another key on most keyboards: the character is what counts
@@ -147,7 +161,7 @@ export function KeysHelp() {
               <dl>
                 {group.keys.map(([key, what]) => (
                   <div key={key} className="grid grid-cols-[12rem_minmax(0,1fr)] items-center gap-x-4 border-t border-line/70 py-2 first:border-0">
-                    <dt><Caps keys={key} /></dt>
+                    <dt><Caps keys={key === BAR_KEY ? barKey : key} /></dt>
                     <dd className="text-[13px] leading-snug text-ink">{what}</dd>
                   </div>
                 ))}

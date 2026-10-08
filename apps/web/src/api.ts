@@ -161,7 +161,7 @@ export const api = {
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" }, o?: Asked) => {
+  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" }, o?: Asked) => {
     const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
     // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
     if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
@@ -174,6 +174,7 @@ export const api = {
     if (opts.q?.trim()) q.set("q", opts.q.trim());
     if (opts.family) q.set("family", opts.family);
     if (opts.kept) q.set("kept", "1");
+    else if (opts.unkept) q.set("kept", "0");
     if (opts.model) q.set("model", opts.model);
     if (opts.lora) q.set("lora", opts.lora);
     if (opts.draft) q.set("draft", opts.draft);

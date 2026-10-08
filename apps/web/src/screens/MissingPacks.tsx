@@ -110,7 +110,7 @@ export function MissingPacks({ missing, packs, graph, wiring, editor, onInspecte
                 <a key={n} className={link} href={`https://github.com/search?q=${encodeURIComponent(`"${n}" comfyui`)}&type=code`} target="_blank" rel="noreferrer">search GitHub for {n}</a>
               ))}
               {s && (
-                <span className={cx("font-semibold", s.state === "done" ? "text-good" : "")} title={"message" in s ? s.message : undefined}>
+                <span className={cx("font-semibold", s.state === "done" ? "text-good" : "")} data-tip={"message" in s ? s.message : undefined}>
                   {s.state === "pending" ? "installing…" : s.state === "done" ? "installed" : s.state === "failed" ? `failed: ${"message" in s ? s.message : ""}` : "not installable from here"}
                 </span>
               )}

@@ -74,13 +74,13 @@ export function UpdatesCard() {
                     <tr key={`${u.folder}/${u.file}`} className="border-t border-line align-top">
                       <td className="max-w-[360px] px-3 py-2">
                         <span className="block truncate font-semibold">{u.modelName || fileLabel(u.file)}</span>
-                        <span className="block truncate text-xs text-ink-3" title={`${u.folder}/${u.file}`}>{u.folder}/{u.file}</span>
+                        <span className="block truncate text-xs text-ink-3" data-tip={`${u.folder}/${u.file}`}>{u.folder}/{u.file}</span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-ink-2">{u.versionName || "an older version"}</td>
                       <td className="px-3 py-2 whitespace-nowrap"><span className="font-semibold">{u.newer!.name}</span>{u.newer!.publishedAt && <span className="text-ink-2"> · {day(u.newer!.publishedAt)}</span>}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         <a href={u.newer!.page} target="_blank" rel="noreferrer" className="mr-2 text-xs font-semibold underline">Open</a>
-                        {fetching && <Button size="sm" onClick={() => get.mutate(u)} disabled={get.isPending} title="Fetch the newer version into the same folder. The file you have stays until you remove it.">Get it</Button>}
+                        {fetching && <Button size="sm" onClick={() => get.mutate(u)} disabled={get.isPending} data-tip="Fetch the newer version into the same folder. The file you have stays until you remove it.">Get it</Button>}
                       </td>
                     </tr>
                   ))}

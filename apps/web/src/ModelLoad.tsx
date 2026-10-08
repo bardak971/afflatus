@@ -77,7 +77,7 @@ export function StripPlace() {
   return (
     <span
       className="flex min-w-0 items-center gap-1.5 text-ink-2"
-      title={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in this folder. Kept outputs become files in ${place.path}` : "Outputs land in this folder: the one that is open, or the project's root."}
+      data-tip={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in this folder. Kept outputs become files in ${place.path}` : "Outputs land in this folder: the one that is open, or the project's root."}
     >
       <Folder size={13} className="shrink-0" />
       {place === "unfiled" ? <span>Output: <span className="font-semibold text-ink">Inbox</span></span> : <span className="max-w-64 truncate">Output: <span className="font-semibold text-ink">{place.name}</span></span>}
@@ -103,14 +103,14 @@ function Held({ name, sure = true }: { name: string | null; sure?: boolean }) {
   if (!name) return null;
   if (!sure) {
     return (
-      <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model ComfyUI has loaded. Whether this form renders with it cannot be told until the form is complete (a picture where one is needed).`}>
+      <span className="flex min-w-0 items-center gap-1.5 text-ink-2" data-tip={`${name}: the model ComfyUI has loaded. Whether this form renders with it cannot be told until the form is complete (a picture where one is needed).`}>
         <MemoryStick size={13} className="shrink-0" />
         <span className="max-w-72 truncate">{name}</span>
       </span>
     );
   }
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-ink-2" title={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
+    <span className="flex min-w-0 items-center gap-1.5 text-ink-2" data-tip={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
       <MemoryStick size={13} className="shrink-0 text-good" />
       <span className="max-w-72 truncate">{name}</span>
     </span>
@@ -151,7 +151,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
   if (!running && !waiting && (state === undefined || state === null) && !load.isError) return <Held name={held} sure={false} />;
   if (!running && !waiting && state) {
     return held ? <Held name={held} /> : (
-      <span className="flex items-center gap-1.5 text-ink-2" title="This form's model is what ComfyUI has loaded: the render starts sampling at once.">
+      <span className="flex items-center gap-1.5 text-ink-2" data-tip="This form's model is what ComfyUI has loaded: the render starts sampling at once.">
         <MemoryStick size={13} className="shrink-0 text-good" /> Model loaded
       </span>
     );
@@ -166,13 +166,13 @@ function OfForm({ recipe, input, look }: OpenForm) {
         </>
       ) : (
         <>
-          <span className="flex min-w-0 items-center gap-1" title={held ? `${held} is the model ComfyUI has loaded. This form renders with another model.` : "ComfyUI has no model loaded by Afflatus."}>
+          <span className="flex min-w-0 items-center gap-1" data-tip={held ? `${held} is the model ComfyUI has loaded. This form renders with another model.` : "ComfyUI has no model loaded by Afflatus."}>
             {held ? <><span className="max-w-56 truncate">{held}</span><span className="shrink-0">loaded, not this form's model</span></> : "Model not loaded"}
           </span>
           <button
             type="button"
             className={cx("shrink-0 font-semibold text-ink underline disabled:text-ink-3 disabled:no-underline")}
-            title="Load this form's checkpoint (or diffusion model, text encoder and VAE) into VRAM now, while you write. One step is run and nothing is saved; the render then starts at once."
+            data-tip="Load this form's checkpoint (or diffusion model, text encoder and VAE) into VRAM now, while you write. One step is run and nothing is saved; the render then starts at once."
             disabled={load.isPending}
             onClick={() => load.mutate()}
           >
@@ -180,7 +180,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
           </button>
         </>
       )}
-      {load.isError && <span className="max-w-64 truncate text-warn-ink" title={load.error.message}>{load.error.message}</span>}
+      {load.isError && <span className="max-w-64 truncate text-warn-ink" data-tip={load.error.message}>{load.error.message}</span>}
     </span>
   );
 }

@@ -16,6 +16,7 @@ import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
 import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
 import { LoadMore } from "./LoadMore";
+import { AudioPlayer } from "./AudioPlayer";
 
 /** Send a picture from this computer to the library, then hand it over. */
 function useUpload(onDone: (asset: Asset) => void, kit = false) {
@@ -57,7 +58,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
             <input autoFocus data-search="picker" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className="min-w-0 grow bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
           </label>
           {project !== null && (
-            <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-9 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")} title={all ? "Showing every project. Click for the one the switcher looks at." : "Showing what the switcher looks at. Click for every project."}>
+            <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-9 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")} data-tip={all ? "Showing every project. Click for the one the switcher looks at." : "Showing what the switcher looks at. Click for every project."}>
               {all ? "Everything" : project === "none" ? "Inbox" : "This project"}
             </button>
           )}
@@ -335,7 +336,7 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
         </div>
       ))}
       {cast.map((c) => (
-        <div key={`cast:${c.asset}`} className="flex items-center gap-2.5 rounded-lg border border-dashed border-line-strong p-1.5" title={`Added from the cast when the form is sent. Take ${c.from} out of the cast to leave it out; your own images come first.`}>
+        <div key={`cast:${c.asset}`} className="flex items-center gap-2.5 rounded-lg border border-dashed border-line-strong p-1.5" data-tip={`Added from the cast when the form is sent. Take ${c.from} out of the cast to leave it out; your own images come first.`}>
           <button type="button" aria-label={`Show ${c.from}'s reference large`} onClick={() => setOpen(c.asset)} className="shrink-0 cursor-zoom-in rounded-md">
             <img src={thumbUrl(c.asset)} alt="" className="h-12 w-12 rounded-md object-cover opacity-90" />
           </button>
@@ -399,23 +400,23 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
       </div>
       {value ? (
         <div {...drop.props} className={cx("flex flex-col gap-2 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
-          <div className="flex items-center gap-2">
-            <Music size={14} className="shrink-0 text-ink-2" />
-            <span className="min-w-0 grow truncate">{asset.data?.name || "Audio"}{asset.data?.durationMs ? ` · ${clock(asset.data.durationMs)}` : ""}</span>
-            <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
-            {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
-          </div>
-          {/* with a part set, the player plays that part: the address says from where to where */}
-          <audio key={part ? `${value}:${from}:${lasts}` : value} src={part ? `${fileUrl(value)}#t=${from},${from + lasts}` : fileUrl(value)} controls preload="none" className="h-8 w-full" />
-          {part && (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
+          {/* with a part set, the player plays that part */}
+          <AudioPlayer asset={value} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
+            {part && (
+              <>
               <span>Use it from</span>
               <NumberBox label={`${label}: the part used starts at, in seconds`} value={part.start} min={0} max={total ? Math.max(0, Math.floor((total - 2) * 2) / 2) : 600} step={0.5} unit="s" onCommit={part.onStart} />
               <span>for</span>
               <NumberBox label={`${label}: the part used lasts, in seconds`} value={part.seconds} min={2} max={15} step={0.5} unit="s" onCommit={part.onSeconds} />
               {total !== null && lasts < part.seconds && <span>(the audio ends at {total.toFixed(1)} s: {lasts.toFixed(1)} s are used)</span>}
-            </div>
-          )}
+              </>
+            )}
+            <span className="ml-auto flex gap-1.5">
+              <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
+              {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
+            </span>
+          </div>
         </div>
       ) : (
         <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>

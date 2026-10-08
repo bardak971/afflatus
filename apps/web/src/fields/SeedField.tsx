@@ -36,7 +36,7 @@ export function SeedField({ id, label, value, onChange }: { id: string; label: s
           min={0}
           max={4294967295}
           value={value}
-          title={mode === "fixed" ? "This seed, every render" : mode === "up" ? "This seed, then one up after each render (a batch takes them in a row)" : "This seed, then one down after each render (a batch takes them in a row)"}
+          data-tip={mode === "fixed" ? "This seed, every render" : mode === "up" ? "This seed, then one up after each render (a batch takes them in a row)" : "This seed, then one down after each render (a batch takes them in a row)"}
           onChange={(e) => onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
           className={cx(field, "h-9 w-full font-mono")}
         />

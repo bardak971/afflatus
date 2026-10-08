@@ -42,7 +42,7 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
         <button
           type="button"
           aria-label={running ? `Cancel the download of ${fileLabel(d.file)}` : "Dismiss"}
-          title={running ? "Cancel it. Nothing is kept of a cancelled download." : "Dismiss"}
+          data-tip={running ? "Cancel it. Nothing is kept of a cancelled download." : "Dismiss"}
           disabled={stop.isPending}
           onClick={() => stop.mutate()}
           className="absolute top-1 right-1 flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"
@@ -114,17 +114,17 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto }: {
     <span className="flex flex-col gap-1.5 pt-1">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {fetching && url && (
-          <button type="button" disabled={Boolean(busy) || noManager} title={why} onClick={() => start.mutate({ url })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
+          <button type="button" disabled={Boolean(busy) || noManager} data-tip={why} onClick={() => start.mutate({ url })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
             <DownloadIcon size={13} /> Download into ComfyUI
           </button>
         )}
         {fetching && civitai && !url && (
-          <button type="button" disabled={Boolean(busy) || noManager} title={why} onClick={() => start.mutate({ civitai })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
+          <button type="button" disabled={Boolean(busy) || noManager} data-tip={why} onClick={() => start.mutate({ civitai })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
             <DownloadIcon size={13} /> Download into ComfyUI
           </button>
         )}
         {lookups && (
-          <button type="button" onClick={() => find.mutate()} disabled={find.isPending} className={link} title="Asks Hugging Face for a file of exactly this name, and Civitai for models with a close name.">{find.isPending ? "Searching…" : "Search"}</button>
+          <button type="button" onClick={() => find.mutate()} disabled={find.isPending} className={link} data-tip="Asks Hugging Face for a file of exactly this name, and Civitai for models with a close name.">{find.isPending ? "Searching…" : "Search"}</button>
         )}
       </span>
       {start.isError && <span>{start.error.message}</span>}
@@ -180,7 +180,7 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto }: {
             <button
               type="button"
               disabled={Boolean(busy)}
-              title={m.exact ? "Downloads that file into ComfyUI." : `Downloads this model's file into ComfyUI and saves it as ${fileLabel(file)}. Only do this if it is the same model.`}
+              data-tip={m.exact ? "Downloads that file into ComfyUI." : `Downloads this model's file into ComfyUI and saves it as ${fileLabel(file)}. Only do this if it is the same model.`}
               onClick={() => start.mutate({ civitai: m.versionId! })}
               className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-line-strong px-2.5 font-semibold hover:bg-hover disabled:opacity-60"
             >

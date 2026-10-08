@@ -93,7 +93,7 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
       <button
         type="button"
         disabled={!words}
-        title={words && from ? `${FROM[from]}: ${words}\nClick to copy them.` : undefined}
+        data-tip={words && from ? `${FROM[from]}: ${words}\nClick to copy them.` : undefined}
         onClick={() => void copyText(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {})}
         className="flex min-w-0 grow items-center gap-1.5 text-left enabled:hover:text-ink"
       >
@@ -102,11 +102,11 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
       </button>
       {main && words && from !== "training" && (
         <span className="flex shrink-0 items-center rounded border border-line">
-          <button type="button" disabled={there.all} aria-label={`Put the trigger words of ${fileLabel(file)} in the prompt`} title={there.all ? "They are in the prompt" : "Put these words in the prompt"} onClick={() => main.set(appendTo(main.text, words, main.style))} className={small}><Plus size={12} /></button>
-          <button type="button" disabled={!there.any} aria-label={`Take the trigger words of ${fileLabel(file)} out of the prompt`} title={there.any ? "Take these words out of the prompt" : "They are not in the prompt"} onClick={() => main.set(removeFrom(main.text, words, main.style))} className={small}><Minus size={12} /></button>
+          <button type="button" disabled={there.all} aria-label={`Put the trigger words of ${fileLabel(file)} in the prompt`} data-tip={there.all ? "They are in the prompt" : "Put these words in the prompt"} onClick={() => main.set(appendTo(main.text, words, main.style))} className={small}><Plus size={12} /></button>
+          <button type="button" disabled={!there.any} aria-label={`Take the trigger words of ${fileLabel(file)} out of the prompt`} data-tip={there.any ? "Take these words out of the prompt" : "They are not in the prompt"} onClick={() => main.set(removeFrom(main.text, words, main.style))} className={small}><Minus size={12} /></button>
         </span>
       )}
-      <button type="button" aria-label={`Your own trigger words for ${fileLabel(file)}`} title="Write your own words for this LoRA: they replace the ones shown" onClick={() => setTyping(more?.own ?? "")} className={small}><Pencil size={11} /></button>
+      <button type="button" aria-label={`Your own trigger words for ${fileLabel(file)}`} data-tip="Write your own words for this LoRA: they replace the ones shown" onClick={() => setTyping(more?.own ?? "")} className={small}><Pencil size={11} /></button>
     </div>
   );
 }

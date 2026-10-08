@@ -216,7 +216,7 @@ export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: 
         return (
           <section key={c || "none"} className="flex flex-col gap-0.5">
             <div className="flex items-center gap-1.5 border-b border-line pb-1">
-              <label className="flex h-7 w-7 items-center justify-center pl-1.5" title={`Tick every snippet of ${c || "no category"}`}>
+              <label className="flex h-7 w-7 items-center justify-center pl-1.5" data-tip={`Tick every snippet of ${c || "no category"}`}>
                 <input type="checkbox" aria-label={`Tick every snippet of ${c || "no category"}`} checked={all} onChange={(e) => tick(rows.map((s) => s.id), e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
               </label>
               <button type="button" aria-expanded={open} disabled={narrow} onClick={() => fold(c, !open)} className="flex grow items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs font-bold tracking-[0.06em] text-ink-2 uppercase enabled:hover:text-ink">

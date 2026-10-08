@@ -41,7 +41,7 @@ export function SizeField({ spec, value: size, values, onChange }: { spec: Extra
   const picked = others.find((r) => r.width === size.width && r.height === size.height);
   const said = (w: number, h: number) => `${w} × ${h} · ${megapixels(w, h)}`;
   return (
-    <div className={cx("flex flex-col gap-1.5", deciderLabel && "opacity-60")} title={deciderLabel ? `${deciderLabel[0]!.toUpperCase()}${deciderLabel.slice(1)} decides the shape: this does nothing now.` : undefined}>
+    <div className={cx("flex flex-col gap-1.5", deciderLabel && "opacity-60")} data-tip={deciderLabel ? `${deciderLabel[0]!.toUpperCase()}${deciderLabel.slice(1)} decides the shape: this does nothing now.` : undefined}>
       <Label note={spec.note} aside={deciderLabel ? `set by ${deciderLabel}${spec.ratioOnly ? ": only the resolution counts" : ""}` : spec.ratioOnly ? undefined : said(size.width, size.height)}>{spec.label}</Label>
       <div className="flex flex-wrap items-center gap-2">
         <Segmented label={spec.label} value={shape?.id ?? ""} options={spec.shapes.map((s) => ({ value: s.id, label: s.label }))} onChange={(shapeId) => {
@@ -75,7 +75,7 @@ export function SizeField({ spec, value: size, values, onChange }: { spec: Extra
       {!spec.ratioOnly && (
         <div className="flex items-center gap-2 text-ink-2">
           <NumberBox label="Width, in pixels" value={size.width} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(width) => onChange({ width: snap(width), height: size.height })} />
-          <button type="button" aria-label="Swap width and height" title="Swap width and height" onClick={() => onChange({ width: size.height, height: size.width })} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover">
+          <button type="button" aria-label="Swap width and height" data-tip="Swap width and height" onClick={() => onChange({ width: size.height, height: size.width })} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover">
             <ArrowLeftRight size={14} />
           </button>
           <NumberBox label="Height, in pixels" value={size.height} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(height) => onChange({ width: size.width, height: snap(height) })} />

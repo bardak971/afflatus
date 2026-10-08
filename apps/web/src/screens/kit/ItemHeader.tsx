@@ -22,14 +22,14 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
   return (
     <div className="flex items-center gap-3">
       <input aria-label="Name" value={item.name} onChange={(e) => onRename(e.target.value)} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
-      <span title={saved === "failed" ? failure ?? undefined : undefined} className={cx("flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+      <span data-tip={saved === "failed" ? failure ?? undefined : undefined} className={cx("flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
         {saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : `Could not save${failure ? `: ${failure}` : ""}`}
         {saved === "failed" && <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>}
       </span>
       {item.kind === "preset" && (
         <>
           <Button size="sm" tone="primary" onClick={onApply} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
-          <Button size="sm" onClick={() => savePresetFile(item)} title="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
+          <Button size="sm" onClick={() => savePresetFile(item)} data-tip="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
         </>
       )}
       <TwoStep title={`Delete ${item.name}`} icon={<Trash2 size={15} />} note={noteOfDelete(item)} yes="Delete" cancel="Keep" onYes={onDelete} className="h-9 w-9 rounded-lg" />

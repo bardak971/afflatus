@@ -12,7 +12,7 @@ function ThemeTile({ theme, accent, on, onPick }: { theme: Theme; accent: string
       type="button"
       aria-pressed={on}
       onClick={onPick}
-      title={theme.name}
+      data-tip={theme.name}
       className={cx("flex w-[132px] flex-col gap-1.5 rounded-xl border-2 p-1.5 text-left", on ? "border-accent" : "border-transparent hover:border-line-strong")}
     >
       <span className="flex h-[70px] w-full gap-1.5 overflow-hidden rounded-lg p-1.5" style={{ background: t.ground, border: `1px solid ${t.line}` }}>
@@ -45,7 +45,7 @@ function Accents({ theme, picked, onPick }: { theme: Theme; picked: string | und
             type="button"
             aria-label={`Accent: ${name}`}
             aria-pressed={name === current}
-            title={name}
+            data-tip={name}
             onClick={() => onPick(name)}
             className={cx("flex h-7 w-7 items-center justify-center rounded-full border-2", name === current ? "border-ink-strong" : "border-transparent")}
             style={{ background: theme.accents[name] }}
@@ -111,7 +111,7 @@ export function ThemeFlip() {
     <button
       type="button"
       aria-label={light ? "Switch to the dark theme" : "Switch to the light theme"}
-      title={light ? "Dark theme" : "Light theme"}
+      data-tip={light ? "Dark theme" : "Light theme"}
       onClick={() => choice.set({ mode: light ? "dark" : "light" })}
       className="flex h-10 w-10 items-center justify-center rounded-[10px] text-ink-2 hover:bg-hover hover:text-ink"
     >

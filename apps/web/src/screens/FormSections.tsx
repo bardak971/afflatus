@@ -195,7 +195,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       }}
     >
       <div className="flex items-center gap-1.5">
-        <span draggable onDragStart={startSection(ADVANCED)} title="Drag to put the Advanced chapter before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
+        <span draggable onDragStart={startSection(ADVANCED)} data-tip="Drag to put the Advanced chapter before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
         <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Advanced · {loose.length}</span>
         <span className="text-xs text-ink-2">folded in the form, holds what is in no section</span>
       </div>
@@ -226,7 +226,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
         reorder(d.section, PROMPT);
       }}
     >
-      <span draggable onDragStart={startSection(PROMPT)} title="Drag to put the prompt before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
+      <span draggable onDragStart={startSection(PROMPT)} data-tip="Drag to put the prompt before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
       <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Prompt</span>
       <span className="text-xs text-ink-2">the main text, with Designer and Snippets; its negative under it unless placed</span>
     </div>
@@ -245,12 +245,12 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
           onDrop={dropAt({ section: s.id, group: null, index: s.items.length })}
         >
           <div className="flex items-center gap-1.5 border-b border-line px-1.5 py-1.5">
-            <span draggable onDragStart={startSection(s.id)} title="Drag to move the section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
+            <span draggable onDragStart={startSection(s.id)} data-tip="Drag to move the section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
             <input
               aria-label="Name of the section" value={s.label} onChange={(e) => update(s.id, { label: e.target.value })}
               className="h-7 min-w-0 grow rounded-md border border-transparent bg-transparent px-1.5 text-sm font-bold hover:border-line focus:border-line-strong focus:outline-none"
             />
-            <button type="button" onClick={() => onMakeSwitch(s)} className="h-7 shrink-0 rounded-md border border-line px-2 text-xs hover:bg-hover" title="A switch in this section: on, it shows the settings put under it; off, they fold away and the nodes you pick are bypassed">+ Switch</button>
+            <button type="button" onClick={() => onMakeSwitch(s)} className="h-7 shrink-0 rounded-md border border-line px-2 text-xs hover:bg-hover" data-tip="A switch in this section: on, it shows the settings put under it; off, they fold away and the nodes you pick are bypassed">+ Switch</button>
             <button type="button" aria-label={`Remove the section ${s.label}`} onClick={() => remove(s)} className="h-7 w-7 shrink-0 rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} className="mx-auto" /></button>
           </div>
           <div className="flex flex-col p-1.5">
@@ -274,7 +274,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
                     <span className="min-w-0 grow truncate font-semibold">{name}</span>
                     {sw ? (
                       <>
-                        <span className="shrink-0 text-ink-3" title={`Off, ${nodes} node${nodes === 1 ? "" : "s"} are bypassed`}>switch · {nodes} node{nodes === 1 ? "" : "s"}</span>
+                        <span className="shrink-0 text-ink-3" data-tip={`Off, ${nodes} node${nodes === 1 ? "" : "s"} are bypassed`}>switch · {nodes} node{nodes === 1 ? "" : "s"}</span>
                         <Switch bare label={`${name} starts on`} on={sw.default} onChange={(v) => onSwitchDefault(sw.id, v)} />
                         {sw.made && <button type="button" onClick={() => onMakeSwitch(s, sw.id)} className="h-6 shrink-0 rounded border border-line px-1.5 text-[11px] hover:bg-hover">Edit</button>}
                       </>
@@ -297,7 +297,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       {!sections.some((s) => s.id === ADVANCED) && real.length > 0 && advancedCard}
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={add}><Plus size={14} /> Section</Button>
-        <Button size="sm" onClick={onSuggest} disabled={!canSuggest} title={canSuggest ? "Sections from the frames the author drew, in their order; a switch for each pass the output can do without. A proposal: edit it as you like." : "This workflow has no frames to go by."}>Suggest from the author's frames</Button>
+        <Button size="sm" onClick={onSuggest} disabled={!canSuggest} data-tip={canSuggest ? "Sections from the frames the author drew, in their order; a switch for each pass the output can do without. A proposal: edit it as you like." : "This workflow has no frames to go by."}>Suggest from the author's frames</Button>
         <span className="text-xs text-ink-2">{real.length ? "Drag a setting into a section, or under a switch; drag the Prompt and Advanced cards to move those." : "The form is the prompt, your sections in order, and Advanced with everything else."}</span>
       </div>
     </div>

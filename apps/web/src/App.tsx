@@ -18,6 +18,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { FolderImportNote } from "./folderImport";
 import { useSystem, useBanners } from "./store";
 import { BarHost } from "./bar/BarHost";
+import { Tips } from "./Tip";
 
 // every screen but the Studio is a chunk of its own, fetched the first time its address is opened
 const People = lazy(() => import("./screens/People").then((m) => ({ default: m.People })));
@@ -67,12 +68,12 @@ function Strip() {
       {run ? (
         <>
           <span className="font-semibold">{run.label}</span>
-          {run.join && <span className="rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent" title={run.join === "seamless" ? "This clip continues the clip before's exact latent and is decoded as one piece with it: the join plays as a plain cut, the same as the whole chain decoded at once." : run.join === "latent" ? "This clip continues the clip before's exact latent (decoded on its own: the join is faded)." : run.join === "hybrid" ? "This clip continues the clip before in the latent: its sound and run-up from its own latent, its picture guide from its re-encoded last frames (so a chain stays anchored to real pixels)." : "This clip starts beside pinned frames of the clip before (that model has no latent to continue from, or Frames was asked for)."}>{run.join === "seamless" ? "seamless join" : run.join === "latent" ? "latent join" : run.join === "hybrid" ? "frames + latent join" : "pixel join"}</span>}
+          {run.join && <span className="rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent" data-tip={run.join === "seamless" ? "This clip continues the clip before's exact latent and is decoded as one piece with it: the join plays as a plain cut, the same as the whole chain decoded at once." : run.join === "latent" ? "This clip continues the clip before's exact latent (decoded on its own: the join is faded)." : run.join === "hybrid" ? "This clip continues the clip before in the latent: its sound and run-up from its own latent, its picture guide from its re-encoded last frames (so a chain stays anchored to real pixels)." : "This clip starts beside pinned frames of the clip before (that model has no latent to continue from, or Frames was asked for)."}>{run.join === "seamless" ? "seamless join" : run.join === "latent" ? "latent join" : run.join === "hybrid" ? "frames + latent join" : "pixel join"}</span>}
           <span className="text-ink-2">{phaseLabel(run.phase)}{run.steps ? ` · step ${run.step} of ${run.steps}` : ""}</span>
-          {run.spilling && <span className="font-semibold text-warn-ink" title="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together.">spilling out of VRAM · much slower</span>}
-          <span className="font-mono text-ink-2" title="How long this render has been running">{elapsed(elapsedMs)}</span>
+          {run.spilling && <span className="font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together.">spilling out of VRAM · much slower</span>}
+          <span className="font-mono text-ink-2" data-tip="How long this render has been running">{elapsed(elapsedMs)}</span>
           <span className="text-ink-2">{run.eta ? about(run.eta) : run.progress > 0 ? `${Math.round(run.progress * 100)} %` : "working…"}</span>
-          <span className={cx("w-44", !run.progress && "animate-pulse")} title={run.progress > 0 ? `${Math.round(run.progress * 100)} % of this render` : "No step count from this phase yet"}><Bar value={run.progress * 100} /></span>
+          <span className={cx("w-44", !run.progress && "animate-pulse")} data-tip={run.progress > 0 ? `${Math.round(run.progress * 100)} % of this render` : "No step count from this phase yet"}><Bar value={run.progress * 100} /></span>
         </>
       ) : (
         <span className="text-ink-2">
@@ -82,7 +83,7 @@ function Strip() {
       {queue.data && queue.data.waiting.length > 0 && <span className="shrink-0 text-ink-2">{queue.data.waiting.length} queued</span>}
       <span className="grow" />
       {fetching.length > 0 && (
-        <Link href="/settings/models" className="flex items-center gap-2 text-ink-2 hover:text-ink" title="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
+        <Link href="/settings/models" className="flex items-center gap-2 text-ink-2 hover:text-ink" data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
           {fetching.length === 1 ? `Downloading ${fetching[0]!.file.split(/[\\/]/).pop()}` : `Downloading ${fetching.length} files`}
           {fetching.length === 1 && fetching[0]!.total > 0 && ` · ${Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100)}%`}
         </Link>
@@ -97,7 +98,7 @@ function Strip() {
           {gpu.temperature !== undefined && <> · <span className={cx(gpu.temperature >= 80 && "text-warn-ink")}>{Math.round(gpu.temperature)}°</span></>}
         </span>
       )}
-      <button type="button" title="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Shortcuts <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
+      <button type="button" data-tip="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="inline-flex h-7 items-center rounded-md px-2 text-ink-2 hover:text-ink">Shortcuts <span className="ml-1.5 rounded border border-line-strong px-1 font-mono text-[10px]">?</span></button>
     </footer>
   );
 }
@@ -185,6 +186,7 @@ export function App() {
       <ConfirmHost />
       <Suspense fallback={null}><KeysHelp /></Suspense>
       <TabProgress />
+      <Tips />
     </div>
   );
 }

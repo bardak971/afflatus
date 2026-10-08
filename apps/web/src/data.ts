@@ -112,7 +112,7 @@ export type AssetsPageParam = { after?: string; before?: string };
  * change reads those again rather than every page scrolled through; the list then pages both ways and
  * shows the pages above again (fetchPreviousPage) when scrolled back up. Uncapped for a list with no way up.
  */
-export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, enabled = true, capped = false) {
+export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, enabled = true, capped = false) {
   const project = useProject((s) => s.id);
   return useInfiniteQuery({
     // the cap in the key: a capped and an uncapped list of the same filter do not share pages

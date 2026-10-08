@@ -62,7 +62,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
               {outfits.length > 0 && (
                 <button
                   type="button"
-                  title={`Outfit: ${worn?.name ?? "as in the reference images"}. Click for the next one.`}
+                  data-tip={`Outfit: ${worn?.name ?? "as in the reference images"}. Click for the next one.`}
                   aria-label={`Outfit of ${e.name}: ${worn?.name ?? "as in the reference images"}. Click for the next one.`}
                   onClick={() => {
                     const order = [null, ...outfits.map((o) => o.id)];
@@ -148,7 +148,7 @@ function Marked({ text, added }: { text: string; added: Array<{ from: string; te
       break;
     }
   }
-  return <>{parts.map((p, i) => (p.from ? <span key={i} title={`from ${p.from}`} className="text-accent">{p.text}</span> : <span key={i}>{p.text}</span>))}</>;
+  return <>{parts.map((p, i) => (p.from ? <span key={i} data-tip={`from ${p.from}`} className="text-accent">{p.text}</span> : <span key={i}>{p.text}</span>))}</>;
 }
 
 /** The names of a look, for a line of text: "Her, The terrace · Film look". */

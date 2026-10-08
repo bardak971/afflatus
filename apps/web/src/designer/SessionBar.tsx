@@ -43,7 +43,7 @@ export function SessionBar({ settings, using, choose, canRestart, onRestart, sho
         tone="quiet"
         className="shrink-0"
         disabled={!canRestart}
-        title="Clear this conversation and start again. What is in your form stays."
+        data-tip="Clear this conversation and start again. What is in your form stays."
         onClick={onRestart}
       >
         <RotateCcw size={13} /> Start over
@@ -52,7 +52,7 @@ export function SessionBar({ settings, using, choose, canRestart, onRestart, sho
         type="button"
         aria-pressed={showingSystem}
         aria-label="Show the system prompt"
-        title="What the designer is told for this form, word for word: the model's prompting guide, your system prompt, what it knows of the clip, the cast and the LoRAs, and the reply format."
+        data-tip="What the designer is told for this form, word for word: the model's prompting guide, your system prompt, what it knows of the clip, the cast and the LoRAs, and the reply format."
         onClick={onShowSystem}
         className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-hover", showingSystem ? "bg-accent-wash text-accent" : "text-ink-2 hover:text-ink")}
       >

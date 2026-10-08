@@ -62,7 +62,7 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
               <div className="flex items-center gap-2">
                 <span className="flex min-w-0 flex-col">
                   <span className="flex items-center gap-1.5">
-                    <span className="truncate font-mono text-[11px]" title={x.file}>{x.file}</span>
+                    <span className="truncate font-mono text-[11px]" data-tip={x.file}>{x.file}</span>
                     {x.optional && <span className="shrink-0 rounded bg-raised px-1.5 py-px text-[10px] font-bold tracking-wide text-ink-3 uppercase">optional</span>}
                   </span>
                   {x.note && <span className="text-ink-3">{x.note}</span>}
@@ -70,7 +70,7 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
                 <span className="grow" />
                 <span className="shrink-0 text-ink-3">models/{x.folder}{x.size ? ` · ${gb(x.size)}` : ""}</span>
                 <span className={cx("shrink-0 font-semibold", x.have ? "text-good" : "text-warn-ink")}>{x.have ? "in ComfyUI" : "missing"}</span>
-                {page && <a href={page} target="_blank" rel="noreferrer" title="Its page" className="shrink-0 text-ink-2 hover:text-ink"><ExternalLink size={12} /></a>}
+                {page && <a href={page} target="_blank" rel="noreferrer" aria-label="Its page" data-tip="Its page" className="shrink-0 text-ink-2 hover:text-ink"><ExternalLink size={12} /></a>}
               </div>
               {!x.have && fetching && accepted && (x.url || x.civitai) && (
                 <GetFile file={x.file} folder={x.folder} url={x.url} civitai={x.civitai?.version} pick={x.civitai?.pick} hints={[]} />

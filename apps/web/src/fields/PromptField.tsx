@@ -50,7 +50,7 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        title="Anime models learned danbooru's tags: another word does little, a typo nothing"
+        data-tip="Anime models learned danbooru's tags: another word does little, a typo nothing"
         className="flex items-center gap-1 self-start rounded-md text-xs text-warn-ink hover:underline"
       >
         {issues.length} tag{issues.length > 1 ? "s are" : " is"} not on danbooru's list{fixable.length ? ` · ${fixable.length} to fix` : ""}
@@ -71,7 +71,7 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
                   <button
                     key={i.tag}
                     type="button"
-                    title={i.status === "alias" ? `"${i.tag}" is another name of the tag "${i.suggestion}"` : `Did you mean "${i.suggestion}"?`}
+                    data-tip={i.status === "alias" ? `"${i.tag}" is another name of the tag "${i.suggestion}"` : `Did you mean "${i.suggestion}"?`}
                     onClick={() => onChange(replaceTag(text, i.tag, i.suggestion!))}
                     className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-hover"
                   >
@@ -119,7 +119,7 @@ export function PromptField({ spec, id, value, values, onChange }: { spec: Extra
         rows={spec.optional && !spec.example ? 2 : 4}
         value={value}
         placeholder={spec.placeholder}
-        title={weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. {a|b|c}: one is picked for each result.` : "{a|b|c}: one is picked for each result."}
+        data-tip={weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. {a|b|c}: one is picked for each result.` : "{a|b|c}: one is picked for each result."}
         onChange={(e) => onChange(e.target.value)}
         onSelect={snippetKeys.onSelect}
         onKeyDown={(e) => {

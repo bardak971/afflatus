@@ -55,7 +55,7 @@ export function ProjectSwitch() {
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((o) => !o)}
-        title={`Working in: ${label}. The library, the drafts and the timelines are those of ${current === null ? "every project" : current === "none" ? "the Inbox" : "this project"}. Click for your projects.`}
+        data-tip={`Working in: ${label}. The library, the drafts and the timelines are those of ${current === null ? "every project" : current === "none" ? "the Inbox" : "this project"}. Click for your projects.`}
         className={cx("mb-1 flex h-9 w-[64px] flex-col items-center justify-center gap-0.5 rounded-[10px] px-1 text-[10px] font-semibold", open ? "bg-accent-wash text-accent shadow-[inset_0_0_0_1px_var(--color-accent)]" : current ? "bg-accent-wash text-accent" : "text-ink-2 hover:text-ink")}
       >
         <FolderKanban size={14} />

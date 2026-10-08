@@ -80,7 +80,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
         type="button"
         aria-pressed={on}
         disabled={!on && full}
-        title={!on && full ? `${LIMITS.snippets} snippets are ticked: the most one image or clip takes` : s.def.text}
+        data-tip={!on && full ? `${LIMITS.snippets} snippets are ticked: the most one image or clip takes` : s.def.text}
         onClick={() => toggle(s.id)}
         className={cx("max-w-full truncate rounded-full border px-2.5 py-1 text-xs", on ? "border-accent bg-accent-wash font-semibold text-ink" : "border-line-strong text-ink-2 enabled:hover:text-ink disabled:opacity-45")}
       >
@@ -119,7 +119,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
         <Bookmark size={13} className="shrink-0" /> Snippets{tickedHere.length ? ` · ${tickedHere.length}` : ""}
       </button>
       {rollable > 0 && (
-        <button type="button" title="Tick one snippet of each category at random, in place of the ones ticked now" onClick={() => set(rollSnippets(mine))} className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink" aria-label="Roll: one snippet of each category at random">
+        <button type="button" data-tip="Tick one snippet of each category at random, in place of the ones ticked now" onClick={() => set(rollSnippets(mine))} className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink" aria-label="Roll: one snippet of each category at random">
           <Dices size={14} />
         </button>
       )}
@@ -131,7 +131,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
               <input data-search autoFocus aria-label="Search your snippets" placeholder={`Search ${all.length} snippet${all.length === 1 ? "" : "s"}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
               {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-2 hover:text-ink"><X size={13} /></button>}
             </span>
-            <Button size="sm" disabled={!rollable} title={rollable ? "Tick one snippet of each category at random, in place of the ones ticked now" : "Give your snippets categories: a roll ticks one of each"} onClick={() => set(rollSnippets(mine))}>
+            <Button size="sm" disabled={!rollable} data-tip={rollable ? "Tick one snippet of each category at random, in place of the ones ticked now" : "Give your snippets categories: a roll ticks one of each"} onClick={() => set(rollSnippets(mine))}>
               <Dices size={13} /> Roll
             </Button>
             <Button size="sm" tone={adding ? "quiet" : "plain"} onClick={() => setAdding(!adding)}><Plus size={13} /> New</Button>
@@ -150,7 +150,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
               <>
                 <button
                   type="button"
-                  title="Insert their text into the prompt and untick them: for when you want to edit the words"
+                  data-tip="Insert their text into the prompt and untick them: for when you want to edit the words"
                   className="text-accent hover:underline"
                   onClick={() => {
                     onInsert(tickedHere.map((s) => s.def.text.trim()).filter(Boolean).join(style === "tags" ? ", " : " "));
@@ -182,7 +182,7 @@ export function TickedSnippets({ look, onLook }: { look: Look | null; onLook(loo
         const s = all.find((e) => e.id === id);
         if (!s || s.kind !== "snippet") return null;
         return (
-          <span key={id} title={s.def.text} className="flex h-7 items-center gap-1 rounded-full border border-accent bg-accent-wash pr-1 pl-2.5 text-xs font-semibold">
+          <span key={id} data-tip={s.def.text} className="flex h-7 items-center gap-1 rounded-full border border-accent bg-accent-wash pr-1 pl-2.5 text-xs font-semibold">
             <span className="max-w-40 truncate">{s.name}</span>
             <button type="button" aria-label={`Untick ${s.name}`} onClick={() => onLook({ ...(look ?? none), snippets: ticked.filter((x) => x !== id) })} className="flex h-5 w-5 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={11} /></button>
           </span>

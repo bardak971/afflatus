@@ -42,8 +42,8 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
         </button>
         {test.isSuccess && !dirty && <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-good"><span className="h-2 w-2 rounded-full bg-good" /> Answering</span>}
         {!only && (inUse
-          ? <span className="shrink-0 rounded-full bg-accent-wash px-2 py-0.5 text-xs font-semibold text-accent" title="A new conversation with the designer starts with this one. Each conversation keeps the one it was given.">New conversations</span>
-          : <Button size="sm" disabled={fresh} onClick={onUse} title="New conversations with the designer start with this one">Start with this one</Button>)}
+          ? <span className="shrink-0 rounded-full bg-accent-wash px-2 py-0.5 text-xs font-semibold text-accent" data-tip="A new conversation with the designer starts with this one. Each conversation keeps the one it was given.">New conversations</span>
+          : <Button size="sm" disabled={fresh} onClick={onUse} data-tip="New conversations with the designer start with this one">Start with this one</Button>)}
         <Button size="sm" tone="quiet" onClick={() => setOpen(!open)}>{open ? "Close" : "Change"}</Button>
       </div>
       {open && (
@@ -57,8 +57,8 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
               <span className="flex items-baseline justify-between text-xs text-ink-2">
                 <span>Base URL</span>
                 <span className="flex gap-1.5">
-                  <button type="button" title="Ollama serves the OpenAI format at this address on the computer it runs on. Then the model name as `ollama list` shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:11434/v1", name: form.name || "Ollama" })} className="rounded border border-line-strong px-1.5 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">Ollama</button>
-                  <button type="button" title="LM Studio's local server, at its usual address. Then the model name as its server page shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:1234/v1", name: form.name || "LM Studio" })} className="rounded border border-line-strong px-1.5 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">LM Studio</button>
+                  <button type="button" data-tip="Ollama serves the OpenAI format at this address on the computer it runs on. Then the model name as `ollama list` shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:11434/v1", name: form.name || "Ollama" })} className="rounded border border-line-strong px-1.5 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">Ollama</button>
+                  <button type="button" data-tip="LM Studio's local server, at its usual address. Then the model name as its server page shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:1234/v1", name: form.name || "LM Studio" })} className="rounded border border-line-strong px-1.5 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">LM Studio</button>
                 </span>
               </span>
               <input value={form.baseUrl} placeholder="http://127.0.0.1:1234/v1" spellCheck={false} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className={field} />

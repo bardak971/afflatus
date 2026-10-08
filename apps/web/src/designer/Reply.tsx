@@ -92,13 +92,13 @@ export function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, on
           {changes.length > 0 && (t.used ? (
             <>
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-good"><Check size={13} /> Applied</span>
-              {t.was && <Button size="sm" tone="quiet" title="Put back what the form held before" onClick={onUndo}><Undo2 size={13} /> Undo</Button>}
+              {t.was && <Button size="sm" tone="quiet" data-tip="Put back what the form held before" onClick={onUndo}><Undo2 size={13} /> Undo</Button>}
             </>
           ) : (
             <Button size="sm" tone="primary" onClick={onUse}>{short.length || r?.repeats ? "Apply anyway" : "Apply"}</Button>
           ))}
-          {changes.length > 0 && last && <Button size="sm" disabled={busy} title="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Regenerate</Button>}
-          {(r?.empty || r?.repeats || short.length > 0) && last && <Button size="sm" disabled={busy} title="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Retry</Button>}
+          {changes.length > 0 && last && <Button size="sm" disabled={busy} data-tip="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Regenerate</Button>}
+          {(r?.empty || r?.repeats || short.length > 0) && last && <Button size="sm" disabled={busy} data-tip="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Retry</Button>}
           {r?.raw && <button type="button" className="text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide raw response" : "Raw response"}</button>}
         </span>
       )}

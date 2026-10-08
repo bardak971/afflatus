@@ -98,16 +98,17 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
 }
 
 /** `bare`: the switch alone, where what it switches is already written beside it; the label is still what a screen reader says. */
-export function Toggle({ on, onChange, label, note, bare }: { on: boolean; onChange(on: boolean): void; label: string; note?: string; bare?: boolean }) {
+export function Toggle({ on, onChange, label, note, bare, disabled }: { on: boolean; onChange(on: boolean): void; label: string; note?: string; bare?: boolean; disabled?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className={cx("flex items-center gap-2.5", disabled && "opacity-50")}>
       <button
         type="button"
         role="switch"
         aria-checked={on}
         aria-label={label}
+        disabled={disabled}
         onClick={() => onChange(!on)}
-        className={cx("h-[22px] w-[38px] shrink-0 rounded-full p-[3px]", on ? "bg-accent" : "bg-line-strong")}
+        className={cx("h-[22px] w-[38px] shrink-0 rounded-full p-[3px]", on ? "bg-accent" : "bg-line-strong", disabled && "cursor-not-allowed")}
       >
         <span className={cx("block h-4 w-4 rounded-full transition-[margin]", on ? "ml-4 bg-knob" : "bg-white")} />
       </button>
@@ -169,7 +170,7 @@ export function PanelEdge({ side }: { side: "left" | "right" }) {
       role="separator"
       aria-orientation="vertical"
       aria-label="Drag to make the panel wider or narrower"
-      title="Drag to make the panel wider or narrower"
+      data-tip="Drag to make the panel wider or narrower"
       onPointerDown={(e) => {
         const startX = e.clientX;
         const startWidth = usePanelWidth.getState().width;
@@ -253,7 +254,7 @@ export function ScrollColumn({ className, children }: { className?: string; chil
         <button
           type="button"
           aria-label="There is more below: go down"
-          title="There is more below"
+          data-tip="There is more below"
           onClick={() => box.current?.scrollBy({ top: box.current.clientHeight * 0.8, behavior: "smooth" })}
           style={{ background: "linear-gradient(to top, var(--color-panel) 35%, transparent)" }}
           className="absolute inset-x-0 bottom-0 flex h-12 items-end justify-center pb-1 text-ink-2 hover:text-ink"
@@ -345,13 +346,13 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
   };
   if (label === undefined) {
     return (
-      <button type="button" aria-label={title} title={title} disabled={disabled} onClick={ask} className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40", className)}>
+      <button type="button" aria-label={title} data-tip={title} disabled={disabled} onClick={ask} className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40", className)}>
         {icon ?? <Trash2 size={14} />}
       </button>
     );
   }
   return (
-    <Button size="sm" title={title} disabled={disabled} onClick={ask} className={className}>
+    <Button size="sm" data-tip={title} disabled={disabled} onClick={ask} className={className}>
       {icon}
       {label}
     </Button>

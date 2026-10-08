@@ -89,7 +89,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
       <button
         ref={button}
         type="button"
-        title={`${file}\nClick for its model page on Civitai or Hugging Face`}
+        data-tip={`${file}\nClick for its model page on Civitai or Hugging Face`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${label}: model page`}

@@ -31,12 +31,12 @@ export function PainterToolbar({ tool, onTool, brush, onBrush, canUndo, onUndo, 
         <input type="range" min={8} max={300} step={2} value={brush} aria-label="Size of the brush" onChange={(e) => onBrush(Number(e.target.value))} className="w-36 accent-accent" />
         <NumberBox label="Size of the brush" value={brush} min={8} max={300} step={2} unit="px" onCommit={onBrush} />
       </label>
-      <Button size="sm" onClick={onUndo} disabled={!canUndo} title="Undo the last stroke (Ctrl+Z)"><Undo2 size={14} /> Undo</Button>
+      <Button size="sm" onClick={onUndo} disabled={!canUndo} data-tip="Undo the last stroke (Ctrl+Z)"><Undo2 size={14} /> Undo</Button>
       <Button size="sm" onClick={onClear} disabled={!canClear}><Eraser size={14} /> Start over</Button>
       <span className="flex items-center gap-1">
-        <button type="button" aria-label="Further away" title="Further away" disabled={zoom <= 1} onClick={() => onZoom(zoom / 1.5)} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover disabled:opacity-40"><Minus size={14} /></button>
+        <button type="button" aria-label="Further away" data-tip="Further away" disabled={zoom <= 1} onClick={() => onZoom(zoom / 1.5)} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover disabled:opacity-40"><Minus size={14} /></button>
         <span className="w-12 text-center text-xs text-ink-2 tabular-nums">{Math.round(zoom * 100)}%</span>
-        <button type="button" aria-label="Closer" title="Closer" disabled={zoom >= maxZoom} onClick={() => onZoom(zoom * 1.5)} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover disabled:opacity-40"><Plus size={14} /></button>
+        <button type="button" aria-label="Closer" data-tip="Closer" disabled={zoom >= maxZoom} onClick={() => onZoom(zoom * 1.5)} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover disabled:opacity-40"><Plus size={14} /></button>
         <Button size="sm" onClick={onWhole} disabled={zoom === 1}>Whole picture</Button>
       </span>
       <span className="grow" />

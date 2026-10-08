@@ -115,7 +115,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
               type="button"
               aria-haspopup="menu"
               aria-label={`${hidden.length} more part${hidden.length === 1 ? "" : "s"}`}
-              title={hidden.map((p) => p.label).join(", ")}
+              data-tip={hidden.map((p) => p.label).join(", ")}
               onClick={(e) => more.open(e, true)}
               className={cx("flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", hidden.some((p) => p.id === current) ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
             >
@@ -133,7 +133,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
           data-search-opener
           onClick={() => setSearching(true)}
           aria-label="Find a setting"
-          title="Find a setting by its name"
+          data-tip="Find a setting by its name"
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"
         >
           <Search size={14} />

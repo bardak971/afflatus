@@ -63,7 +63,7 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
         <header className="flex shrink-0 items-center gap-3 border-b border-line py-3 pr-3 pl-5">
           <div className="flex min-w-0 grow flex-col">
             <h2 className="text-base font-semibold">PNG info</h2>
-            <span className="truncate text-xs text-ink-2" title={name}>{name}</span>
+            <span className="truncate text-xs text-ink-2" data-tip={name}>{name}</span>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={16} /></button>
         </header>
