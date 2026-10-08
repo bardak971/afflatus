@@ -75,7 +75,16 @@ export interface Inspection {
   /** The mapping Afflatus would use if the user changed nothing. Null when the workflow has no output node. */
   suggested: Bindings | null;
   /** Every other setting that could be a control; `suggested` ones are ticked to begin with. `off`: its node is switched off as saved. */
-  candidates: Array<Control & { classType: string; title: string; suggested: boolean; off?: boolean; /** What ComfyUI offers for a choice, for showing it before it is saved. */ offers?: string[] }>;
+  candidates: Array<Control & {
+    classType: string;
+    title: string;
+    suggested: boolean;
+    /** Put forward by the workflow's author: on the front of a group node, named by them, or a value node they renamed. */
+    byAuthor?: boolean;
+    off?: boolean;
+    /** What ComfyUI offers for a choice, for showing it before it is saved. */
+    offers?: string[];
+  }>;
   /** The places the workflow can stop at, when it shows its picture at several points on the way (see Bindings.stages). */
   stages: Array<{ node: string; label: string }>;
   /** What could not be read with certainty, for the person importing. */
@@ -561,6 +570,14 @@ function findAbout(r: Reading): { about: Record<string, string>; toggles: Toggle
   return { about, toggles };
 }
 
+/** A picture, a clip or a sound by its file name. */
+const MEDIA_FILE = /\.(png|jpe?g|webp|gif|bmp|mp4|webm|mov|mkv|wav|mp3|flac|ogg)$/i;
+/** Slider nodes that keep an int and a float: the inputs that are the value they give. */
+const SLIDERS: Record<string, (inputs: Record<string, unknown>) => string[]> = {
+  mxSlider: (i) => [i.isfloatX ? "Xf" : "Xi"],
+  mxSlider2D: (i) => [i.isfloatX ? "Xf" : "Xi", i.isfloatY ? "Yf" : "Yi"],
+};
+
 // ---- everything else that could be a control
 function collectCandidates(
   r: Reading,
@@ -583,6 +600,12 @@ function collectCandidates(
     // a kind this ComfyUI lacks is read by the file's socket types, when the file is the editor's
     if ((!hasKind(catalog, n.class_type) && !editor?.slots[id]) || id === result?.node || n.class_type === POWER_LORAS) continue;
     const primitive = isPrimitive(source, catalog, id);
+    // a node that only holds settings for others (a value node, rgthree's KSampler Config): renamed, it is the author's
+    // panel. Not a loader: a model file is the Model picker's or a widget of its own, a picture or a clip is an input
+    const holdsSettings = primitive || (!MEDIA_LOADERS[n.class_type] && !/^Load(Image|Video|Audio)|^VHS_Load|LoadImage/i.test(n.class_type)
+      && Object.values(n.inputs).every((v) => !isRef(v) && !(typeof v === "string" && (MODEL_FILE.test(v) || MEDIA_FILE.test(v)))));
+    // a slider (mxToolkit's) keeps an int, a float and which of them it gives: only the one it gives is its value
+    const slider = SLIDERS[n.class_type]?.(n.inputs);
     for (const input of Object.keys(n.inputs)) {
       const isModel = model?.target.node === id && model.target.input === input;
       if (bound.has(`${id}.${input}`) && !isModel) continue;
@@ -602,30 +625,26 @@ function collectCandidates(
       if (isModel) continue;
       const isResolution = resolution?.node === id && resolution.input === input;
       const isDuration = duration?.node === id && duration.input === input;
-      // ticked to begin with: the author's panel when there is one; otherwise what people change most on a
-      // sampler and the controls the author named. And the size preset, when the size is not typed in.
-      // … and, panel or not, what every pass of sampling and every enlarging is tuned with
-      const tuned = c.kind === "number" && (/^(steps(_total)?|scale_by|upscale_by)$/.test(input) || (input === "denoise" && Number(c.default) < 1));
-      const upscaler = c.kind === "choice" && input === "model_name" && /upscale/i.test(n.class_type);
-      // another model loader's file (a low-noise model beside the high, a refiner): what people swap, so ticked
-      // (not when the author made a panel: what they put on it is what they meant to be changed)
+      // another model loader's file (a low-noise model beside the high, a refiner): named so
       const other = loaders.find((l) => l.node === id);
-      const otherModel = Boolean(c.file) && Boolean(other) && folderOfFileInput(n.class_type, input) !== null && !editor?.panel.length;
-      if (otherModel) c.label = `Model · ${other!.label}`;
-      // the mode of the node that holds the prompt (an all-in-one "director": text to video, picture to video…): what people switch first
+      if (Boolean(c.file) && other && folderOfFileInput(n.class_type, input) !== null) c.label = `Model · ${other.label}`;
+      // ticked to begin with: what the author put forward (it is their workflow), and what every form has (the size
+      // and the length when a node sets them, the mode of an all-in-one node that holds the prompt). Afflatus adds
+      // nothing of its own, except, when the author put nothing forward at all, the sampler's steps and cfg
+      // (guidance where that is the cfg): see the end
       const promptMode = c.kind === "choice" && input === "mode" && prompt?.target.node === id;
-      // a value node its author named ("Steps 2ndSampler", "Upscale by") is a control they set out, panel or not: a
-      // panel on a group node is one front, the named value nodes around it another
-      const namedValue = primitive && names.givenName(id) !== null && c.kind !== "text";
-      const suggested = isResolution || isDuration || tuned || upscaler || otherModel || promptMode || namedValue || (editor?.panel.length
-        ? onPanel(editor, c.target) >= 0
-        : c.kind === "number" && /^(steps(_total)?|cfg|guidance|shift)$/.test(input));
+      const byAuthor = onPanel(editor, c.target) >= 0 || names.givenLabel(id, input) !== null || (holdsSettings && names.givenName(id) !== null && c.kind !== "text" && (!slider || slider.includes(input)));
+      const suggested = isResolution || isDuration || promptMode || byAuthor;
       const named = isResolution ? { ...c, front: true, label: names.givenLabel(id, input) ?? "Resolution" }
         : isDuration ? { ...c, front: true, label: names.givenLabel(id, input) ?? "Seconds" }
         : c;
       const offers = c.kind === "choice" ? choicesOf(specOf(catalog, n.class_type, input)) ?? undefined : undefined;
-      candidates.push({ ...tame(named, isDuration ? "seconds" : primitive ? (names.givenName(id) ?? "") : ""), classType: n.class_type, title: names.titleOf(id), suggested, ...(graph[id] ? {} : { off: true }), ...(offers?.length ? { offers } : {}) });
+      candidates.push({ ...tame(named, isDuration ? "seconds" : primitive ? (names.givenName(id) ?? "") : ""), classType: n.class_type, title: names.titleOf(id), suggested, ...(byAuthor ? { byAuthor: true, front: true } : {}), ...(graph[id] ? {} : { off: true }), ...(offers?.length ? { offers } : {}) });
     }
+  }
+  // the author put nothing forward: the sampler's steps and cfg (guidance where that is the cfg), in a part that runs
+  if (!candidates.some((c) => c.byAuthor)) {
+    for (const c of candidates) if (c.kind === "number" && !c.off && /^(steps(_total)?|cfg|guidance)$/.test(c.target.input)) c.suggested = true;
   }
   return { candidates, missingFiles, relocated };
 }
@@ -928,7 +947,7 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
   const stages = findStages(r, { result, outputs, candidates, samplerIds, size });
   const missingChoices = findMissingChoices(r);
 
-  const ticked = candidates.filter((c) => c.suggested).map(({ classType: _c, title: _t, suggested: _s, off: _o, offers: _f, ...c }) => c);
+  const ticked = candidates.filter((c) => c.suggested).map(({ classType: _c, title: _t, suggested: _s, byAuthor: _a, off: _o, offers: _f, ...c }) => c);
   const place = (c: Control) => (onPanel(editor, c.target) < 0 ? Number.MAX_SAFE_INTEGER : onPanel(editor, c.target));
   ticked.sort((a, b) => place(a) - place(b));
 

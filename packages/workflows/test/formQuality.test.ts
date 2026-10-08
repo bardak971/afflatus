@@ -11,7 +11,7 @@ import { catalog as fixtures } from "./fixtures";
  * - the author's front: the settings on the front of their group nodes, the single settings they named, and the
  *   value nodes they renamed ("Steps", "Seed"). How many of them are on the form, and how many up front (not in
  *   Advanced, not left out of every section);
- * - the clutter: what else is up front, where the author made a front;
+ * - what Afflatus ticks of its own, not the author's;
  * - the author's frames: two settings of one frame put in different sections (split), two of different frames put
  *   in one section (mixed); and how many sections carry a frame's title.
  * Printed, with the workflows that score worst, for the next rule to write. Skipped without the corpus.
@@ -66,7 +66,7 @@ const frameOf = (frames: Wiring["frames"], node: string | undefined) => (node ? 
 
 describe.skipIf(!files.length)("the suggested forms against what their authors set up", () => {
   it("keep the author's front up front, and their frames together", () => {
-    const t = { front: 0, onForm: 0, upFront: 0, clutterUp: 0, upWithFront: 0, pairsInFrame: 0, split: 0, pairsInSection: 0, mixed: 0, sections: 0, titled: 0, framed: 0 };
+    const t = { front: 0, onForm: 0, upFront: 0, ticked: 0, ours: 0, pairsInFrame: 0, split: 0, pairsInSection: 0, mixed: 0, sections: 0, titled: 0, framed: 0 };
     const lost = new Map<string, number>();
     const clutter = new Map<string, number>();
     const worst: Array<{ file: string; score: number; why: string }> = [];
@@ -115,21 +115,14 @@ describe.skipIf(!files.length)("the suggested forms against what their authors s
         t.onForm++;
         if (!buried(id)) { t.upFront++; fileUp++; upIds.add(id); }
       }
-      // the clutter: up front, not the author's, where the author made a front
-      if (front.size) {
-        // the settings the suggester added (a widget of a node, a switch), not what every form has (model, size, seed, length, pictures, LoRAs)
-        // (the author's own switches are theirs: not clutter)
-        const up = inputs.filter((i) => !buried(i.id) && /^ctl_/.test(i.id));
-        t.upWithFront += up.length;
-        for (const i of up.filter((i) => !upIds.has(i.id))) {
-          t.clutterUp++;
-          const node = inputNode(b, i.id);
-          const c = b.controls.find((x) => x.id === i.id);
-          const kind = i.id.startsWith("sw_") ? "(switch)" : `${node ? read.graph[node]?.class_type : "?"}.${c?.target.input ?? "?"}`;
-          clutter.set(kind, (clutter.get(kind) ?? 0) + 1);
-        }
+      // what Afflatus ticks of its own: not the author's, ticked all the same (the steps and cfg when the author put nothing forward, the size, the length)
+      for (const c of found.candidates.filter((c) => c.suggested)) {
+        t.ticked++;
+        if (c.byAuthor) continue;
+        t.ours++;
+        const kind = `${c.classType}.${c.target.input}`;
+        clutter.set(kind, (clutter.get(kind) ?? 0) + 1);
       }
-
       // the author's frames against the sections
       const framedItems = placeables.map((p) => ({ id: p.id, frame: frameOf(frames, p.node ?? inputNode(b, p.id)), section: chapterOf(p.id) })).filter((x) => x.frame >= 0 && x.section !== undefined);
       for (let i = 0; i < framedItems.length; i++) {
@@ -155,11 +148,11 @@ describe.skipIf(!files.length)("the suggested forms against what their authors s
     const pc = (a: number, b: number) => `${b ? Math.round((a / b) * 1000) / 10 : 0} %`;
     const report = [
       `author's front: ${t.front} settings; on the form ${pc(t.onForm, t.front)}, up front ${pc(t.upFront, t.front)}`,
-      `clutter: of ${t.upWithFront} widgets up front where the author made a front, ${pc(t.clutterUp, t.upWithFront)} are not on it`,
+      `ticked widgets: ${t.ticked}, of which Afflatus's own (not the author's) ${t.ours} (${pc(t.ours, t.ticked)})`,
       `frames: a frame's settings split over sections ${pc(t.split, t.pairsInFrame)} of pairs; a section mixing frames ${pc(t.mixed, t.pairsInSection)} of pairs`,
       `section names: ${pc(t.titled, t.sections)} of ${t.sections} sections (in ${t.framed} framed workflows) carry a frame's title`,
       `the author's front not on the form, by node:\n  ${[...lost].sort((a, z) => z[1] - a[1]).slice(0, 15).map(([k, n]) => `${n} ${k}`).join("\n  ")}`,
-      `up front but not on the author's front, by node:\n  ${[...clutter].sort((a, z) => z[1] - a[1]).slice(0, 15).map(([k, n]) => `${n} ${k}`).join("\n  ")}`,
+      `ticked by Afflatus, not the author, by node:\n  ${[...clutter].sort((a, z) => z[1] - a[1]).slice(0, 15).map(([k, n]) => `${n} ${k}`).join("\n  ")}`,
       `lowest share of the author's front up front:\n  ${worst.sort((a, z) => a.score - z.score).slice(0, 12).map((w) => `${w.why}  ${w.file}`).join("\n  ")}`,
     ].join("\n");
     writeFileSync(join(dir, "_form-quality.txt"), report);

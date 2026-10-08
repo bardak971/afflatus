@@ -62,7 +62,8 @@ describe("inspect: a video workflow with a first and a last picture", () => {
       loras: [{ node: "37", output: 0 }],
     });
     expect(found.texts.map((t) => [t.title, t.role])).toEqual([["What happens", "positive"], ["CLIPTextEncode", "negative"]]);
-    expect(found.suggested!.controls.map((c) => c.target.input).sort()).toEqual(["cfg", "shift", "steps"]);
+    // its author put nothing forward: the sampler's steps and cfg, nothing else of Afflatus's own
+    expect(found.suggested!.controls.map((c) => c.target.input).sort()).toEqual(["cfg", "steps"]);
   });
 });
 
@@ -112,15 +113,17 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
     expect(s.length).toBeUndefined();
   });
 
-  it("offers the author's own controls under the names the author gave them, ticked", () => {
+  it("offers the author's own controls under the names the author gave them, ticked, and nothing else", () => {
     const labels = s.controls.map((c) => c.label).sort();
-    // the main model is the first pass's (the high one); the low one is offered beside it. KSampler Config is no pass (W-4)
+    // the main model is the first pass's (the high one). KSampler Config is no pass (W-4), but renamed it is the author's panel: all of it
     expect(s.model?.target).toEqual({ node: "1502", input: "unet_name" });
-    expect(labels).toEqual(["FPS", "Model · Wan22_I2V_Low", "Resolution", "Sampling · cfg", "Sampling · steps total", "Seconds", "Sigma Shift High · shift", "Sigma Shift Low · shift"]);
+    expect(labels).toEqual(["FPS", "Resolution", "Sampling · cfg", "Sampling · refiner step", "Sampling · sampler name", "Sampling · scheduler", "Sampling · steps total", "Seconds"]);
+    // what the author did not put forward is offered, not ticked: the low model, the sigma shifts
+    expect(found.candidates.filter((c) => !c.suggested).map((c) => c.label)).toEqual(expect.arrayContaining(["Model · Wan22_I2V_Low", "Sigma Shift High · shift"]));
     // "Seconds" is the author's own control: up front, with a range a person would use
     expect(s.controls.find((c) => c.label === "Seconds")).toMatchObject({ kind: "number", default: 5, min: 1, max: 30, front: true, target: { node: "1668", input: "value" } });
     expect(s.controls.find((c) => c.label === "FPS")).toMatchObject({ min: 1, max: 60, front: true });
-    expect(s.controls.find((c) => c.label === "Sampling · cfg")!.front).toBeUndefined();
+    expect(s.controls.find((c) => c.label === "Sampling · cfg")!.front).toBe(true);
     // the size is worked out by another node: its preset is the control for it, up front, as a choice read from ComfyUI
     expect(found.candidates.find((c) => c.target.input === "resolution_preset")).toMatchObject({ kind: "choice", label: "Resolution", suggested: true, front: true, choices: { node: "DaSiWa_ResolutionScaleCalculator", input: "resolution_preset" } });
     // the rest is offered unticked
@@ -149,8 +152,8 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
 
     it("has a form with the author's controls and two LoRA lists", () => {
       expect(recipe.inputs.map((i) => i.label)).toEqual([
-        "Model", "Prompt", "Negative prompt", "Start image", "End image", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High", "Model · Wan22_I2V_Low",
-        "Seconds", "FPS", "Sampling · steps total", "Sampling · cfg", "Sigma Shift High · shift", "Sigma Shift Low · shift", "Resolution", "Seed",
+        "Model", "Prompt", "Negative prompt", "Start image", "End image", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High",
+        "Seconds", "FPS", "Sampling · steps total", "Sampling · refiner step", "Sampling · cfg", "Sampling · sampler name", "Sampling · scheduler", "Resolution", "Seed",
       ]);
     });
 
@@ -269,7 +272,7 @@ describe("a recipe made from a workflow", () => {
   it("has a form made from the mapping", () => {
     expect(recipe).toMatchObject({ id: "workflow.wan-2-2-picture-to-video", family: "workflow-wan-2-2", output: "video" });
     expect(recipe.inputs.map((i) => i.id)).toEqual([
-      "model", "prompt", "negative", "startImage", "endImage", "loras", "size", "seconds", "ctl_48_shift", "ctl_57_steps", "ctl_57_cfg", "seed",
+      "model", "prompt", "negative", "startImage", "endImage", "loras", "size", "seconds", "ctl_57_steps", "ctl_57_cfg", "seed",
     ]);
     expect(recipe.inputs.find((i) => i.id === "seconds")).toMatchObject({ type: "number", default: 5, unit: " s" });
     expect(recipe.traits).toMatchObject({ startFrame: true, endFrame: true, continues: "frame", sound: false, fps: 16, frameGrid: { step: 4, offset: 1 } });
@@ -298,11 +301,10 @@ describe("a recipe made from a workflow", () => {
   });
 
   it("fills in the form's values, turning seconds into a frame count the model accepts", () => {
-    const built = build({ prompt: "She waves.", seconds: 3, size: { width: 480, height: 832 }, ctl_57_steps: 8, ctl_48_shift: 5 });
+    const built = build({ prompt: "She waves.", seconds: 3, size: { width: 480, height: 832 }, ctl_57_steps: 8 });
     expect(built.graph["6"]!.inputs.text).toBe("She waves.");
     expect(built.graph["50"]!.inputs).toMatchObject({ width: 480, height: 832, length: 49 });
     expect(built.graph["57"]!.inputs.steps).toBe(8);
-    expect(built.graph["48"]!.inputs.shift).toBe(5);
     expect(checkGraph(built, catalog)).toEqual([]);
   });
 
@@ -361,9 +363,34 @@ const twoPass: Graph = {
   "34": { class_type: "SaveImage", inputs: { filename_prefix: "x", images: ["33", 0] } },
 };
 
+/** The bindings with these candidates ticked too, as a person ticks them on the import screen. */
+function ticking(found: ReturnType<typeof inspect>, pick: (c: ReturnType<typeof inspect>["candidates"][number]) => boolean) {
+  const more = found.candidates.filter((c) => !c.suggested && pick(c)).map(({ classType: _c, title: _t, suggested: _s, byAuthor: _a, off: _o, offers: _f, ...c }) => c);
+  return { ...found.suggested!, controls: [...found.suggested!.controls, ...more] };
+}
+
+describe("what the form starts with: what the author put forward", () => {
+  it("is the author's alone when they put something forward: a node of settings they renamed, and not Afflatus's steps and cfg", () => {
+    const named: Graph = { ...twoPass, "5": { ...twoPass["5"]!, _meta: { title: "Canvas" } } as Graph[string] };
+    const found = inspect(named, catalog);
+    const ticked = found.candidates.filter((c) => c.suggested);
+    expect(ticked.map((c) => `${c.target.node}.${c.target.input}`)).toEqual(["5.batch_size"]);
+    expect(ticked[0]!.byAuthor).toBe(true);
+    // the rest is there to tick
+    expect(found.candidates.some((c) => c.target.node === "3" && c.target.input === "steps" && !c.suggested)).toBe(true);
+  });
+
+  it("a picture loader its author renamed stays a picture, not a list of files", () => {
+    const named: Graph = { ...twoPass, "9": { class_type: "LoadImage", inputs: { image: "pose.png" }, _meta: { title: "Pose" } } as Graph[string] };
+    expect(inspect(named, catalog).candidates.find((c) => c.target.node === "9")?.suggested ?? false).toBe(false);
+  });
+});
+
 describe("a workflow that shows its picture on the way", () => {
   const found = inspect(twoPass, catalog);
-  const def = workflowDef.parse({ id: "workflow.two-pass", title: "Two pass", model: "X", source: "t.json", graph: twoPass, bindings: found.suggested });
+  // nothing is put forward by its author: the steps and cfg are ticked; the hires denoise, the scale and the upscaler are ticked here by hand
+  const tuned = ticking(found, (c) => (c.target.node === "31" && c.target.input === "denoise") || c.target.node === "22" || c.target.node === "20");
+  const def = workflowDef.parse({ id: "workflow.two-pass", title: "Two pass", model: "X", source: "t.json", graph: twoPass, bindings: tuned });
   const recipe = recipeFromWorkflow(def);
   const build = (input: Record<string, unknown>) => recipe.build(parseInput(recipe, input), dryContext());
   const classes = (input: Record<string, unknown>) => Object.values(build(input).graph).map((n) => n.class_type);
@@ -387,8 +414,10 @@ describe("a workflow that shows its picture on the way", () => {
     expect(whole.loads).toEqual(["4x.pth", "model.safetensors"]);
   });
 
-  it("names its settings as A1111 does, ticks what each pass is tuned with, and hides those of hires fix while it is off", () => {
-    const labels = found.suggested!.controls.map((c) => c.label);
+  it("names its settings as A1111 does, and hides those of hires fix while it is off", () => {
+    // ticked of itself: the steps and cfg of each pass, nothing else
+    expect(found.suggested!.controls.map((c) => c.target.input).sort()).toEqual(["cfg", "cfg", "steps", "steps"]);
+    const labels = tuned.controls.map((c) => c.label);
     expect(labels).toEqual(expect.arrayContaining(["steps", "Hires steps", "Denoising strength (hires)", "Upscale by", "Upscaler"]));
     // the first pass redraws everything: how much it redraws is not a thing to tune
     expect(labels).not.toContain("denoise");
@@ -420,8 +449,8 @@ describe("a workflow that shows its picture on the way", () => {
   it("says so when the upscale model's factor is not in its name: the setting is then the node's own", () => {
     const unnamed: Graph = { ...twoPass, "20": { class_type: "UpscaleModelLoader", inputs: { model_name: "BSRGAN.pth" } } };
     const seen = inspect(unnamed, catalog);
-    expect(seen.suggested!.controls.map((c) => c.label)).toContain("Scale after the upscaler");
-    const r = recipeFromWorkflow(workflowDef.parse({ id: "workflow.unnamed", title: "U", model: "X", source: "t.json", graph: unnamed, bindings: seen.suggested }));
+    expect(seen.candidates.map((c) => c.label)).toContain("Scale after the upscaler");
+    const r = recipeFromWorkflow(workflowDef.parse({ id: "workflow.unnamed", title: "U", model: "X", source: "t.json", graph: unnamed, bindings: ticking(seen, (c) => c.target.node === "22") }));
     expect(r.inputs.find((i) => i.id === "ctl_22_scale_by")).toMatchObject({ label: "Scale after the upscaler", default: 0.3 });
     expect(r.build(parseInput(r, {}), dryContext()).graph["22"]).toMatchObject({ class_type: "ImageScaleBy", inputs: { scale_by: 0.3 } });
   });

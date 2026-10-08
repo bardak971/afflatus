@@ -10,7 +10,7 @@ export function ShowPanel({ m }: { m: Mapping }) {
   const { found, filter, setFilter } = m;
   return (
     <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
-      <Step n={2} title="What the form shows" hint="Tick a switch or a widget to get a control for it. Everything else stays as it is in the file." />
+      <Step n={2} title="What the form shows" hint="Ticked to begin with: what the workflow's author put forward. Tick a switch or a widget to get a control for it. Everything else stays as it is in the file." />
       <input data-search
         aria-label="Search switches and widgets"
         placeholder={`Search ${found.toggles.length ? `${found.toggles.length} switches and ` : ""}${found.candidates.length} widgets`}
@@ -125,6 +125,7 @@ function WidgetList({ m }: { m: Mapping }) {
                   ) : (
                     <span className="min-w-0 grow truncate font-semibold">{c.label}</span>
                   )}
+                  <Origin c={c} />
                   {!ticked && <span className="shrink-0 text-xs text-ink-2">{used ? "already in step 1" : `${rangeOf(c)}${c.off ? " · in a part that is off" : ""}`}</span>}
                 </div>
               );
@@ -135,4 +136,11 @@ function WidgetList({ m }: { m: Mapping }) {
       {!groups.length && <div className="text-ink-2">{filter ? "No widget matches." : "This workflow has no other widget that can be exposed."}</div>}
     </>
   );
+}
+
+/** Who chose a widget: its author put it forward (a group node's front, a name they gave it), or Afflatus ticked it because the author put nothing forward. */
+function Origin({ c }: { c: Mapping["found"]["candidates"][number] }) {
+  if (c.byAuthor) return <span title="The workflow's author put this forward: on the front of a group node, or named by them" className="shrink-0 rounded-full border border-accent/40 px-1.5 text-[11px] font-semibold text-accent">author</span>;
+  if (c.suggested) return <span title="The author put nothing forward, so Afflatus ticked the sampler's steps and cfg" className="shrink-0 rounded-full border border-line px-1.5 text-[11px] font-semibold text-ink-2">Afflatus pick</span>;
+  return null;
 }
