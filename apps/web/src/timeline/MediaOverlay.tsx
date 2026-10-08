@@ -108,8 +108,18 @@ export function MediaOverlay({ timeline, placeItems }: {
     const role = (a: Asset, r: Role) => { out.set(a.id, a); if (!roles.has(a.id)) roles.set(a.id, r); };
     timeline.clips.forEach((c, i) => {
       const n = i + 1;
-      if (c.take) role(c.take.asset, { words: `Clip ${n}`, plays: true, length: len(c.take.asset), order: n });
-      for (const t of c.takes) role(t.asset, { words: `Clip ${n} · take`, plays: false, length: len(t.asset), order: n });
+      // a take says its clip and take on its tile, as in the library's own listing (where the server says it): a copy, the
+      // timeline's own objects left as they are
+      const asTake = (t: (typeof c.takes)[number], k: number): Asset => {
+        if (t.asset.clipOf) return t.asset;
+        const from = t.finishedFrom ? c.takes.find((x) => x.id === t.finishedFrom)?.asset : undefined;
+        const upscaledBy = t.finishedFrom ? (from?.width && t.asset.width ? Math.round((t.asset.width / from.width) * 10) / 10 : 1) : null;
+        return { ...t.asset, clipOf: { timeline: timeline.id, timelineName: timeline.name, clip: n, take: k + 1, takes: c.takes.length, playing: c.take?.id === t.id, upscaledBy } };
+      };
+      const takes = c.takes.map(asTake);
+      const playing = c.take ? takes.find((a) => a.id === c.take!.asset.id) ?? c.take.asset : null;
+      if (playing) role(playing, { words: `Clip ${n}`, plays: true, length: len(playing), order: n });
+      for (const a of takes) role(a, { words: `Clip ${n} · take`, plays: false, length: len(a), order: n });
       if (c.still) role(c.still, { words: `Clip ${n}`, plays: true, length: len(c.still, c.lengthMs), order: n });
       for (const p of c.pictures) { out.set(p.asset.id, p.asset); if (!pinned.has(p.asset.id)) pinned.set(p.asset.id, n); }
       if (c.soundAsset) role(c.soundAsset, { words: `Clip ${n} · sound`, plays: false, length: len(c.soundAsset), order: n });
