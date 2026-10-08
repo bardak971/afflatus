@@ -5,7 +5,7 @@ import { api, type TagIssue } from "../api";
 import { useSettings } from "../data";
 import { Popover } from "../Popover";
 import { nudgeWeight, replaceTag } from "../promptText";
-import { AutoText, cx } from "../ui";
+import { AutoText, cx, Help } from "../ui";
 import { field, Label } from "./Label";
 import { useLoraWords } from "./Loras";
 import { useSnippetKeys } from "../bar/SnippetKeys";
@@ -110,17 +110,18 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
   const weighs = spec.weights !== false;
   // `;name` puts a snippet of the Prompt kit in (Settings › Command bar)
   const snippetKeys = useSnippetKeys({ value, onChange });
+  // the keys it takes, in its ? rather than over the text on every hover
+  const keys = `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}: one is picked for each result.`;
   return (
     <div className="flex flex-col gap-1.5">
       {/* bare: the head over it already names it (the Create panel's Prompt row) */}
-      {bare ? <label htmlFor={id} className="sr-only">{spec.label}</label> : <Label htmlFor={id} note={spec.note}>{spec.label}</Label>}
+      {bare ? <label htmlFor={id} className="sr-only">{spec.label}</label> : <Label htmlFor={id} note={[spec.note, keys].filter(Boolean).join(" ")}>{spec.label}</Label>}
       <div data-snippet-box className="relative flex flex-col">
       <AutoText
         id={id}
         rows={spec.optional && !spec.example ? 2 : 4}
         value={value}
         placeholder={spec.placeholder}
-        data-tip={weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. {a|b|c}: one is picked for each result.` : "{a|b|c}: one is picked for each result."}
         onChange={(e) => onChange(e.target.value)}
         onSelect={snippetKeys.onSelect}
         onKeyDown={(e) => {
@@ -137,6 +138,8 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
         className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-[13px]" : "text-sm")}
       />
       {snippetKeys.list}
+      {/* bare, its head has no ?: the keys it takes in a corner of its own, out of the way of the text */}
+      {bare && <Help title={spec.label} text={keys} className="absolute right-2 bottom-2 opacity-60 hover:opacity-100" />}
       </div>
       {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
     </div>
