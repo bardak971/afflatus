@@ -197,6 +197,37 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     // once per timeline, when its length is known
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeline.id, totalMs]);
+  // a clip added (New clip, a drop, a continuation): the whole timeline in view again, the new clip with it
+  // (kept asked for until it has run: the new clip's length may settle a render later)
+  // the new clip's panel opens beside the track as it is added and narrows it: a fit just made is made again for the new width
+  const fittedAt = useRef(0);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    const seen = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      if (performance.now() - fittedAt.current < 1500) fitAll();
+    });
+    seen.observe(el);
+    return () => seen.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalMs]);
+  const counted = useRef(clips.length);
+  const fitAsked = useRef(false);
+  useEffect(() => {
+    if (clips.length > counted.current) fitAsked.current = true;
+    counted.current = clips.length;
+    if (!fitAsked.current || totalMs <= 0) return;
+    const id = requestAnimationFrame(() => {
+      fitAsked.current = false;
+      fitAll();
+      fittedAt.current = performance.now();
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clips.length, totalMs]);
 
   return (
     <div data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">

@@ -7,7 +7,8 @@ import { clock } from "../format";
 export const DRAG_CLIP = "application/x-afflatus-clip";
 
 /** The track is drawn to scale: this many pixels a second, within these limits. */
-export const ZOOM = { least: 12, most: 110, start: 40 };
+// pixels a second: down to 2 so that a long video (ten minutes on a wide screen) still fits whole (Fit all, a clip added)
+export const ZOOM = { least: 2, most: 110, start: 40 };
 /** Space before the first clip, and the width of the "New clip" button after the last one. */
 export const PAD = 10;
 export const NEW_CLIP = 116;
