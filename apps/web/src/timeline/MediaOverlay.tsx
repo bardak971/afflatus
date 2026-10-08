@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Folder as FolderIcon, PanelLeftClose, PanelLeftOpen, Play, Search, Star, Trash2, X } from "lucide-react";
+import { ChevronDown, Folder as FolderIcon, PanelLeftClose, PanelLeftOpen, Search, Star, Trash2, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Asset, Timeline } from "../api";
@@ -27,7 +27,6 @@ const useMediaOpen = create<{ open: boolean; set(open: boolean): void }>()(
 );
 /** The rows' height: the Studio's justified rows, a little lower (the stage's room). The caption under a tile of this timeline. */
 const ROW = 150;
-const CAPTION = 38;
 
 type Scope = "timeline" | "folder" | "recent";
 type Kind = "all" | "image" | "video" | "audio";
@@ -168,30 +167,15 @@ export function MediaOverlay({ timeline, placeItems }: {
   const scopes: Array<{ value: Scope; label: string }> = [{ value: "timeline", label: "This timeline" }, { value: "folder", label: "Folder" }, { value: "recent", label: "Recent" }];
   const kinds: Array<{ value: Kind; label: string }> = [{ value: "all", label: "All" }, { value: "image", label: "Images" }, { value: "video", label: "Videos" }, { value: "audio", label: "Audio" }];
 
-  // on this timeline: the picture with nothing over it but the ▶ of what plays; its role and length under it
+  // on this timeline: the library's own tile (its length, its clip and take, its name and card on hover); what plays is ringed
   const onTile = (a: Asset): Placed => ({
     key: a.id,
     aspect: aspectOf(a),
-    render: () => {
-      const r = used.roles.get(a.id)!;
-      return (
-        <div className="flex h-full flex-col gap-1.5">
-          <div className={cx("relative min-h-0 grow rounded-xl", r.plays && "ring-2 ring-accent/60")}>
-            <Tile fill plain asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
-            {r.plays && (
-              <span aria-label="Plays on the timeline" className="pointer-events-none absolute top-1.5 left-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-accent-ink">
-                <Play size={9} fill="currentColor" strokeWidth={0} className="ml-px" />
-              </span>
-            )}
-          </div>
-          {/* two short lines, so a portrait tile's caption is not cut: which clip (the ▶ dot says it plays), then its length */}
-          <div className="flex shrink-0 flex-col gap-px px-0.5 text-[11px] leading-[16px]">
-            <span className={cx("truncate", r.plays ? "font-bold text-accent" : "text-ink-3")}>{r.words}</span>
-            <span className="truncate font-mono text-ink-2">{r.length}</span>
-          </div>
-        </div>
-      );
-    },
+    render: () => (
+      <div className={cx("h-full rounded-xl", used.roles.get(a.id)?.plays && "ring-2 ring-accent/60")}>
+        <Tile fill asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
+      </div>
+    ),
   });
   // the rest: the library's tile, a pinned picture tagged with its clip
   const offTile = (a: Asset): Placed => ({
@@ -207,12 +191,7 @@ export function MediaOverlay({ timeline, placeItems }: {
       );
     },
   });
-  const head = (words: string, hint: string) => (
-    <div className="mb-2 flex items-baseline gap-2">
-      <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{words}</span>
-      <span className="truncate text-xs text-ink-3">{hint}</span>
-    </div>
-  );
+  const head = (words: string) => <div className="mb-2 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{words}</div>;
   if (!open) return <>{tab}{viewer}</>;
   return (
     <>
@@ -256,13 +235,13 @@ export function MediaOverlay({ timeline, placeItems }: {
           )}
           {on.length > 0 && (
             <section aria-label="On this timeline" className="mb-5">
-              {head(`On this timeline · ${on.length}`, "drag one onto the track to use it again")}
-              <JustifiedRows rowHeight={ROW} under={CAPTION} places={on.map(onTile)} />
+              {head(`On this timeline · ${on.length}`)}
+              <JustifiedRows rowHeight={ROW} places={on.map(onTile)} />
             </section>
           )}
           {off.length > 0 && (
             <section aria-label="Not on it">
-              {head(`Not on it · ${off.length}`, "drag onto the track to add it")}
+              {head(`Not on it · ${off.length}`)}
               <JustifiedRows rowHeight={ROW} places={off.map(offTile)} />
             </section>
           )}
