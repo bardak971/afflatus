@@ -16,7 +16,8 @@ import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
 import { chipsOf, factsOf, stripOf } from "./timelineCard";
 
-const CARD = { S: "minmax(190px,1fr)", M: "minmax(250px,1fr)", L: "minmax(360px,1fr)" } as const;
+// M: four to a row beside the form, five without it; S and L one more and one fewer
+const CARD = { S: "minmax(250px,1fr)", M: "minmax(320px,1fr)", L: "minmax(440px,1fr)" } as const;
 /** How tall a card's film strip is, by the cards' size. */
 const STRIP_H = { S: "h-[72px]", M: "h-24", L: "h-32" } as const;
 /** A clip with nothing rendered yet, in the strip. */
