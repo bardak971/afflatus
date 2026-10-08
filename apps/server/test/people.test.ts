@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { now } from "../src/db";
-import { CHECKPOINT, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
 let t: TestApp;
@@ -66,6 +66,16 @@ describe("people, places and styles", () => {
     expect((await get(t.app, "/api/entities")).json().items.filter((e: { source?: string }) => !e.source)).toHaveLength(2);
   });
 
+  it("keep a made picture they are given from the start, not only when changed", async () => {
+    const at = now();
+    await t.db
+      .insertInto("assets")
+      .values({ id: "made", owner_id: "local", kind: "image", origin: "generated", name: "made", file_key: "assets/made.png", thumb_key: null, mime: "image/png", bytes: 4, width: 64, height: 96, duration_ms: null, fps: null, has_sound: 0, folder_id: null, generation_id: null, kept_at: null, deleted_at: null, created_at: at })
+      .execute();
+    await post(t.app, "/api/entities", { kind: "place", name: "The bay", def: { pictures: ["made"], tags: "bay", sentence: "A bay." } });
+    expect((await t.db.selectFrom("assets").select("kept_at").where("id", "=", "made").executeTakeFirstOrThrow()).kept_at).not.toBeNull();
+  });
+
   it("become tags and LoRAs for a model that reads tags", async () => {
     const c = await cast();
     const look = { cast: [{ id: c.her, outfit: "dress" }, { id: c.place }], style: c.style };
@@ -80,6 +90,40 @@ describe("people, places and styles", () => {
     const graph = [...fake.prompts.values()][0]!;
     expect(Object.values(graph).filter((n) => n.class_type === "LoraLoader").map((n) => n.inputs.lora_name)).toEqual(["her_illustrious.safetensors", "film.safetensors"]);
     expect(Object.values(graph).some((n) => String(n.inputs.text ?? "").startsWith("her_character, brown hair"))).toBe(true);
+  });
+
+  it("are worked into the job, while what was typed is kept beside what it became, for a tool to carry on with", async () => {
+    const c = await cast();
+    const look = { cast: [{ id: c.her, outfit: "dress" }], style: c.style };
+    const { ids } = (await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "{holding|drinking from} a cup", checkpoint: CHECKPOINT }, look, count: 2 })).json();
+    // one at a time: each is finished as it comes
+    for (const n of [1, 2]) {
+      await until(() => fake.prompts.size === n);
+      complete(fake, [...fake.prompts.keys()][n - 1]!);
+    }
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "in", ids).execute()).every((j) => j.status === "done"));
+    const jobs = await t.db.selectFrom("jobs").select(["id", "inputs", "asked"]).where("id", "in", ids).execute();
+    for (const j of jobs) {
+      const inputs = JSON.parse(j.inputs);
+      const asked = JSON.parse(j.asked!);
+      // each copy's choice is settled once: what was asked and what renders pick the same
+      expect(["holding a cup", "drinking from a cup"]).toContain(asked.prompt);
+      expect(inputs.prompt).toBe(`her_character, brown hair, green eyes, white summer dress, ${asked.prompt}, film grain`);
+      expect(inputs.loras).toHaveLength(2);
+      expect(asked.loras ?? []).toEqual([]);
+      expect(asked.checkpoint).toBe(CHECKPOINT);
+    }
+    // filed with what it made: the asset's generation says both
+    const { items } = (await get(t.app, "/api/assets")).json();
+    const detail = (await get(t.app, `/api/assets/${items[0].id}`)).json();
+    expect(detail.generation.inputs.prompt).toContain("her_character");
+    expect(detail.generation.asked.prompt).toMatch(/^(holding|drinking from) a cup$/);
+    expect(detail.look).toMatchObject({ cast: [{ id: c.her }] });
+
+    // without a cast nothing is kept beside it
+    await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "a dog", checkpoint: CHECKPOINT } });
+    await until(() => fake.prompts.size === 3);
+    expect((await t.db.selectFrom("jobs").select("asked").orderBy("created_at", "desc").limit(1).executeTakeFirstOrThrow()).asked).toBeNull();
   });
 
   it("become reference pictures, a voice and sentences for a model that follows references", async () => {
@@ -113,7 +157,9 @@ describe("people, places and styles", () => {
 
   it("say what did not fit, and leave out what is gone", async () => {
     const c = await cast();
-    await t.app.inject({ method: "DELETE", url: `/api/assets/${c.side}` });
+    // the library refuses to bin a picture a person still names (409); one gone all the same (a database from before) is left out
+    expect((await t.app.inject({ method: "DELETE", url: `/api/assets/${c.side}` })).statusCode).toBe(409);
+    await t.db.updateTable("assets").set({ deleted_at: new Date().toISOString() }).where("id", "=", c.side).execute();
     const made = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "x", voice: "mine" }, look: { cast: [{ id: c.her }], style: c.style } })).json();
     expect(made.input.references).toEqual([{ asset: c.front, role: "person" }]);
     // a voice that was chosen by hand stays
@@ -188,5 +234,37 @@ describe("presets", () => {
     expect(some.json().def).toMatchObject({ recipe: "sdxl.text-to-picture", inputs: { steps: 32, cfg: 4.5 } });
     const changed = await put(`/api/entities/${some.json().id}`, { def: { recipe: "sdxl.text-to-picture", inputs: { steps: 32 } } });
     expect(changed.def.inputs).toEqual({ steps: 32 });
+  });
+
+  it("hold a look of the shape a draft holds, or none: any other is refused, so that applying one never breaks the draft", async () => {
+    const bad = async (look: unknown) => (await post(t.app, "/api/entities", { kind: "preset", name: "Bad", def: { inputs: {}, look } })).statusCode;
+    expect(await bad({ cast: "her" })).toBe(400);
+    expect(await bad({ cast: [], style: null, snippets: [], extra: 1 })).toBe(400);
+    expect(await bad({ cast: Array.from({ length: 9 }, (_, i) => ({ id: `p${i}` })) })).toBe(400);
+    expect(await bad(null)).toBe(200);
+  });
+});
+
+describe("a form composed twice", () => {
+  it("gets its cast's words once: a tool opened on a picture made with them keeps them as they are", async () => {
+    const c = await cast();
+    const look = { cast: [{ id: c.her, outfit: "dress" }, { id: c.place }], style: c.style };
+    const once = (await post(t.app, "/api/compose", { recipe: "sdxl.text-to-picture", input: { prompt: "holding a cup", checkpoint: CHECKPOINT }, look })).json();
+    const twice = (await post(t.app, "/api/compose", { recipe: "sdxl.text-to-picture", input: once.input, look })).json();
+    expect(twice.input.prompt).toBe(once.input.prompt);
+    expect(twice.input.loras).toEqual(once.input.loras);
+    // in sentences, and in the subject a reference model keeps for how the people look
+    const first = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "She waves at a boat." }, look })).json();
+    const again = (await post(t.app, "/api/compose", { recipe: "h3.video", input: first.input, look })).json();
+    expect(again.input.description).toBe(first.input.description);
+    expect(again.input.subject).toBe(first.input.subject);
+    expect(again.input.references).toEqual(first.input.references);
+  });
+});
+
+describe("the kinds listed", () => {
+  it("are the kinds there are: another is refused", async () => {
+    expect((await get(t.app, "/api/entities?kind=person")).statusCode).toBe(200);
+    expect((await get(t.app, "/api/entities?kind=robot")).statusCode).toBe(400);
   });
 });

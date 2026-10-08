@@ -1,0 +1,96 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import type { AssetLookup } from "./assets-api";
+import { now } from "./db";
+import { httpError } from "./errors";
+import { isLinked } from "./linked";
+import { assetView, resetCountdown } from "./media";
+import type { Services } from "./services";
+import { inUse } from "./sweep";
+
+/**
+ * Kept or not, to the bin and back, one item or several. What something still needs (a take on a timeline,
+ * a clip's still or sound, the music, a person's picture, a job's input: see inUse) is neither unkept nor
+ * binned: the sweep would erase it in the end and leave that pointing at nothing.
+ */
+
+/** A 409 naming what still uses the item, when something does. */
+async function refuseUsed(s: Services, id: string, then: string): Promise<void> {
+  const what = (await inUse(s.db)).get(id);
+  if (what) throw httpError(`This is still used by ${what}: ${then}.`, 409);
+}
+
+export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fileInLinked }: AssetLookup): void {
+  app.post<{ Params: { id: string } }>("/api/assets/:id/keep", async (req) => {
+    const { kept } = z.strictObject({ kept: z.boolean() }).parse(req.body);
+    const a = await asset(req.params.id);
+    // a file of a linked folder is the user's own file: it is kept, whatever is asked
+    if (isLinked(a.file_key)) return assetView(a);
+    if (!kept) await refuseUsed(s, a.id, "it stays kept while it is");
+    await s.db.updateTable("assets").set({ kept_at: kept ? now() : null }).where("id", "=", req.params.id).execute();
+    // kept while it sits in a linked folder: it is written there as a file
+    if (kept) await fileInLinked(a.id);
+    // unkept: its day starts now, not the day it was made
+    else await resetCountdown(s.db, [a.id]);
+    return assetView(await asset(req.params.id));
+  });
+
+  /** To the bin. Nothing is erased here: the bin is emptied later. */
+  app.delete<{ Params: { id: string } }>("/api/assets/:id", async (req) => {
+    const a = await asset(req.params.id);
+    await refuseUsed(s, a.id, "take it out of there first");
+    // a file of a linked folder leaves its directory, and waits in the bin like the rest
+    if (isLinked(a.file_key)) await s.linked.toBin(a);
+    else await s.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", req.params.id).execute();
+    s.queue.events.emit("library");
+    return { ok: true };
+  });
+
+  /** The same for several items at once: kept or not, to the bin, or back from it. */
+  app.post("/api/assets/bulk", async (req) => {
+    const b = z.strictObject({ ids: z.array(z.string().min(1)).min(1).max(500), action: z.enum(["keep", "unkeep", "bin", "restore"]) }).parse(req.body);
+    // what something still needs is left as it is (and counted, for saying so)
+    let spared = 0;
+    if (b.action === "unkeep" || b.action === "bin") {
+      const used = await inUse(s.db);
+      const free = b.ids.filter((id) => !used.has(id));
+      spared = b.ids.length - free.length;
+      b.ids = free;
+    }
+    const said = (changed: number) => ({ changed, ...(spared ? { inUse: spared } : {}) });
+    // the files of linked folders among them: to the bin and back they move on the disk; they are never "not kept"
+    const rows = b.ids.length ? await s.db.selectFrom("assets").selectAll().where("id", "in", b.ids).where("origin", "!=", "mask").execute() : [];
+    const onDisk = rows.filter((a) => isLinked(a.file_key));
+    const back = rows.filter((a) => a.linked_path && a.deleted_at);
+    let special = 0;
+    if (b.action === "bin") for (const a of onDisk) { await s.linked.toBin(a); special++; }
+    if (b.action === "restore") for (const a of back) { await s.linked.restore(a); special++; }
+    const handled = new Set([...(b.action === "bin" || b.action === "unkeep" || b.action === "keep" ? onDisk : []), ...(b.action === "restore" ? back : [])].map((a) => a.id));
+    b.ids = b.ids.filter((id) => !handled.has(id));
+    if (!b.ids.length) {
+      s.queue.events.emit("library");
+      return said(special);
+    }
+    const set = b.action === "keep" ? { kept_at: now() } : b.action === "unkeep" ? { kept_at: null } : b.action === "bin" ? { deleted_at: now() } : { deleted_at: null };
+    let query = s.db.updateTable("assets").set(set).where("id", "in", b.ids).where("origin", "!=", "mask");
+    // what is kept already keeps the day it was kept
+    if (b.action === "keep") query = query.where("kept_at", "is", null);
+    const done = await query.executeTakeFirst();
+    if (b.action === "keep") for (const id of b.ids) await fileInLinked(id);
+    // unkept, or back from the bin: the day before the bin starts now
+    if (b.action === "unkeep" || b.action === "restore") await resetCountdown(s.db, b.ids);
+    s.queue.events.emit("library");
+    return said(Number(done.numUpdatedRows) + special);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/assets/:id/restore", async (req) => {
+    const a = await asset(req.params.id);
+    // a file that was taken out of a linked folder goes back into its directory
+    if (a.linked_path) await s.linked.restore(a);
+    else await s.db.updateTable("assets").set({ deleted_at: null }).where("id", "=", req.params.id).execute();
+    // back in the library unkept: its day starts now
+    await resetCountdown(s.db, [a.id]);
+    s.queue.events.emit("library");
+    return assetView(await asset(req.params.id));
+  });
+}

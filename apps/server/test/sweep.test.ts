@@ -51,11 +51,11 @@ describe("sweep", () => {
     expect((await row(restarted))!.deleted_at).toBeNull();
   });
 
-  it("erases what the timeline worked out of a video along with it: its film strips, motion and scene cuts", async () => {
+  it("erases what the timeline worked out of a video along with it: its film strips, motion, scene cuts and colour along it", async () => {
     const old = await add({ madeAgo: 0, kept: true, binnedAgo: BIN_MS + HOUR, durationMs: 30_000 });
     const keys = derivedKeys({ id: old, duration_ms: 30_000 });
     const dir = old.slice(0, 2);
-    expect(keys).toEqual([`strips/${dir}/${old}.jpg`, `strips/${dir}/${old}-30x48.jpg`, `motion/${dir}/${old}.json`, `scenes/${dir}/${old}.json`]);
+    expect(keys).toEqual([`strips/${dir}/${old}.jpg`, `strips/${dir}/${old}-30x48.jpg`, `motion/${dir}/${old}.json`, `scenes/${dir}/${old}.json`, `means/${dir}/${old}.json`]);
     for (const key of keys) await t.services.storage.put(key, new Uint8Array([1]));
 
     expect(await sweep(t.db, t.services.storage)).toEqual({ binned: 0, erased: 1 });

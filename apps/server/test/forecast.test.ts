@@ -29,6 +29,21 @@ describe("what a render will take, learned from the renders before it", () => {
     expect(steady.pace).toBe("untested");
   });
 
+  it("takes one slow render for no cliff: two are needed, both larger than the largest at the usual pace", () => {
+    const usual = points.slice(0, 4);
+    // one render that was slow for some other reason (the machine busy, a cold disk): larger forms keep the usual pace
+    const once = [...usual, { work: 140e6, stepMs: 60_000 }];
+    expect(forecastFrom(once, 150e6, 15, 0)!.pace).toBe("untested");
+    expect(forecastFrom(once, 200e6, 15, 0)!.pace).toBe("untested");
+    // a slow render among usual ones of its size says nothing of the card either
+    const among = [...usual, { work: 110e6, stepMs: 40_000 }, { work: 112e6, stepMs: 40_000 }];
+    expect(forecastFrom(among, 150e6, 15, 0)!.pace).toBe("untested");
+    // two past the largest usual one: that is where the card slows down
+    const twice = [...once, { work: 150e6, stepMs: 60_000 }];
+    expect(forecastFrom(twice, 145e6, 15, 0)!.pace).toBe("over");
+    expect(forecastFrom(twice, 135e6, 15, 0)!.pace).not.toBe("over");
+  });
+
   it("is said as a line, with the setting's word only past the cliff", () => {
     const shape = { pixels: 768 * 1344, frames: 158 };
     const over = said({ ms: 14 * 60_000, pace: "over", fitsUpTo: 768 * 1344 * 141, samples: 6 }, shape);

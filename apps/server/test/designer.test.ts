@@ -84,6 +84,10 @@ describe("the designer's language model", () => {
     // a given one is tested without being put in use
     expect((await post(t.app, "/api/designer/test", { id: "big" })).json()).toMatchObject({ model: "big-model" });
     expect(llm.asked.at(-1)).toMatchObject({ model: "big-model", auth: "Bearer other" });
+    // one Settings does not have: not found, and nothing is asked of any model
+    const asked = llm.asked.length;
+    expect((await post(t.app, "/api/designer/test", { id: "gone" })).statusCode).toBe(404);
+    expect(llm.asked.length).toBe(asked);
 
     // the one in use writes, with the longest answer it was given
     await put("/api/settings", { designerLlm: "big" });
@@ -317,7 +321,8 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     // nothing at all is still an error
     llm.answers.push("   ");
     const none = await post(t.app, "/api/designer", { recipe: "sdxl.text-to-picture", values: { prompt: "x" }, messages: [{ role: "user", content: "hm" }] });
-    expect(none.statusCode).toBe(400);
+    // the language model's fault, not the asker's: a bad gateway
+    expect(none.statusCode).toBe(502);
     expect(none.json().error).toMatch(/nothing usable/);
   });
 

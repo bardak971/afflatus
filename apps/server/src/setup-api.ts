@@ -2,7 +2,7 @@ import { httpError } from "./errors";
 import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
 import { z } from "zod";
-import {describeRecipe, type Advice } from "@afflatus/core";
+import { describeRecipe } from "@afflatus/core";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
 import type { Services } from "./services";
@@ -63,17 +63,14 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   /**
    * What a form will take, learned from this machine's own renders with the same model (see forecast.ts): a
-   * line for the form, and, past where the card slowed down before, a word next to the setting that drives
-   * the size. Nothing is assumed about the card; a model never rendered here says nothing.
+   * line for the form's Output part, and whether it is past where the card slowed down before (the part's
+   * header says so then). Nothing is assumed about the card; a model never rendered here says nothing.
    */
   app.post("/api/advice", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()) }).parse(req.body);
     const recipe = s.registry.recipe(b.recipe);
     const got = recipe ? await s.queue.forecast(b.recipe, b.input).catch(() => null) : null;
-    if (!recipe || !got) return { items: [], estimate: null };
-    // said once, as a line at the end of the Output part; the form puts a few words in the part's header when it is past the cliff
-    const { text } = said(got.forecast, got.shape);
-    const items: Advice[] = [];
-    return { items, estimate: { text, pace: got.forecast.pace } };
+    if (!recipe || !got) return { estimate: null };
+    return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace } };
   });
 }

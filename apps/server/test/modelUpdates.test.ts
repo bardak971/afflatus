@@ -92,3 +92,32 @@ describe("newer versions on Civitai", () => {
     expect((await get(t.app, "/api/models/updates")).json().items).toEqual([]);
   });
 });
+
+describe("a check that does not go through", () => {
+  it("is said on the report until one does, and logged when it was the daily one; a folder that holds no versions is refused", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true, updateChecks: true } });
+    const comfy = t.services.comfy;
+    t.services.comfy = async () => {
+      throw new Error("ComfyUI is away");
+    };
+    await t.services.updates.daily();
+    expect((await get(t.app, "/api/models/updates")).json().error).toBe("ComfyUI is away");
+    t.services.comfy = comfy;
+    expect((await post(t.app, "/api/models/updates/check", {})).json().error).toBeNull();
+    expect((await get(t.app, "/api/models/updates")).json().error).toBeNull();
+    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/x%20y?file=x.safetensors" })).statusCode).toBe(400);
+    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/vae?file=x.safetensors" })).statusCode).toBe(400);
+  });
+});
+
+describe("what was read off the model files", () => {
+  it("is parsed once for the scan, and read again once something wrote to it", async () => {
+    const lookup = async () => (await (await t.services.comfy()).infoOf!())("loras", "soft_light.safetensors");
+    expect(await lookup()).toBeUndefined();
+    await t.services.db.insertInto("model_info").values({ folder: "loras", file: "soft_light.safetensors", info: JSON.stringify({ fingerprint: "ABC", v: 4 }), read_at: "2026-10-05T00:00:00Z" }).execute();
+    // kept: nothing said the table changed
+    expect(await lookup()).toBeUndefined();
+    t.services.queue.events.emit("models");
+    expect(await lookup()).toMatchObject({ fingerprint: "ABC" });
+  });
+});

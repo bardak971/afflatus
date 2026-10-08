@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { Cell } from "./renders";
-import { BUCKETS } from "./renders";
+import { BUCKETS, tallyByRecipe, type RecipeSum } from "./renders";
 import type { Services } from "./services";
 
 /**
@@ -16,45 +15,19 @@ const labels = (l: Record<string, string>) => {
   return parts.length ? `{${parts.join(",")}}` : "";
 };
 
-interface Sum { done: number; failed: number; cancelled: number; cold: number; total: number; doneTotal: number; load: number; sample: number; refine: number; finish: number; waited: number; video: number; hist: number[] }
-
 export function registerMetrics(app: FastifyInstance, s: Services): void {
   /**
    * The record summed up by recipe, kept between scrapes: the whole table is only read again when it
    * changed (a render landed, the hourly fold moved rows into days, the record was forgotten). A scraper
    * asks every few seconds; the sums are the same nearly every time.
    */
-  let summed: { mark: string; by: Map<string, Sum> } | null = null;
-  const tally = async (): Promise<Map<string, Sum>> => {
+  let summed: { mark: string; by: Map<string, RecipeSum> } | null = null;
+  const tally = async (): Promise<Map<string, RecipeSum>> => {
     const stats = await s.db.selectFrom("render_stats").select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("created_at").as("at"), eb.fn.sum<number>("total_ms").as("ms")]).executeTakeFirstOrThrow();
     const folded = await s.db.selectFrom("render_days").select((eb) => eb.fn.countAll<number>().as("n")).executeTakeFirstOrThrow();
     const mark = `${stats.n}|${stats.at ?? ""}|${stats.ms ?? 0}|${folded.n}`;
     if (summed?.mark === mark) return summed.by;
-    const rows = await s.db.selectFrom("render_stats").select(["recipe_id", "status", "kind", "total_ms", "load_ms", "sample_ms", "refine_ms", "finish_ms", "waited_ms", "duration_ms", "cold"]).execute();
-    const days = await s.db.selectFrom("render_days").select(["recipe_id", "figures"]).where("recipe_id", "!=", "*").execute();
-    const by = new Map<string, Sum>();
-    const of = (recipe: string) => {
-      let v = by.get(recipe);
-      if (!v) by.set(recipe, (v = { done: 0, failed: 0, cancelled: 0, cold: 0, total: 0, doneTotal: 0, load: 0, sample: 0, refine: 0, finish: 0, waited: 0, video: 0, hist: BUCKETS.map(() => 0) }));
-      return v;
-    };
-    for (const r of rows) {
-      const v = of(r.recipe_id);
-      v[r.status]++;
-      v.cold += r.cold;
-      v.total += r.total_ms; v.load += r.load_ms; v.sample += r.sample_ms; v.refine += r.refine_ms; v.finish += r.finish_ms; v.waited += r.waited_ms;
-      if (r.status === "done") v.doneTotal += r.total_ms;
-      if (r.status === "done" && r.kind === "video") v.video += r.duration_ms ?? 0;
-      if (r.status === "done") BUCKETS.forEach((le, i) => { if (r.total_ms / 1000 <= le) v.hist[i]!++; });
-    }
-    for (const d of days) {
-      const c = JSON.parse(d.figures) as Cell;
-      const v = of(d.recipe_id);
-      v.done += c.done; v.failed += c.failed; v.cancelled += c.cancelled; v.cold += c.cold;
-      v.total += c.totalMs; v.doneTotal += c.totalMs - c.lostMs; v.load += c.loadMs; v.sample += c.sampleMs; v.refine += c.refineMs; v.finish += c.finishMs; v.video += c.videoMs;
-      v.waited += (c.waitedUsualMs ?? 0) * c.renders;
-      (c.hist ?? []).forEach((n, i) => { if (v.hist[i] !== undefined) v.hist[i] += n; });
-    }
+    const by = await tallyByRecipe(s.db);
     summed = { mark, by };
     return by;
   };

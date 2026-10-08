@@ -1,10 +1,12 @@
-import { createReadStream } from "node:fs";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, open, readdir, rm, stat, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import { httpError } from "./errors";
 import type { Services } from "./services";
 import { ZipStream } from "./zipStream";
 
@@ -42,8 +44,9 @@ async function* walk(dir: string, base = dir): AsyncGenerator<{ path: string; re
     const p = join(dir, e.name);
     if (e.isDirectory()) yield* walk(p, base);
     else if (e.isFile()) {
-      const info = await stat(p);
-      yield { path: p, rel: relative(base, p).replace(/\\/g, "/"), mtime: info.mtime, size: info.size };
+      // gone since the folder was read (the sweep erased it meanwhile): not part of the backup
+      const info = await stat(p).catch(() => null);
+      if (info) yield { path: p, rel: relative(base, p).replace(/\\/g, "/"), mtime: info.mtime, size: info.size };
     }
   }
 }
@@ -64,7 +67,7 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
 
   /** The backup itself, as a download. */
   app.get("/api/backup.zip", async (req, reply) => {
-    if (!places) throw Object.assign(new Error("This server was started without a data folder to back up."), { statusCode: 404 });
+    if (!places) throw httpError("This server was started without a data folder to back up.", 404);
     const zip = new ZipStream();
     const name = `afflatus-backup-${stamp()}.zip`;
     reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${name}"`).header("Cache-Control", "no-store");
@@ -96,7 +99,10 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
         }
         for await (const f of walk(places.filesDir)) {
           if (req.raw.destroyed) break;
-          await zip.add(`files/${f.rel}`, createReadStream(f.path), f.mtime, f.size);
+          // opened before its entry is begun: a file erased since it was listed is left out, not a backup given up half way
+          const file = await open(f.path).catch(() => null);
+          if (!file) continue;
+          await zip.add(`files/${f.rel}`, file.createReadStream(), f.mtime, (await file.stat()).size);
         }
         await zip.finish();
       } catch (err) {
@@ -109,4 +115,91 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
     })();
     return reply.send(zip.out);
   });
+}
+
+/**
+ * A backup unpacked into an empty data folder (Afflatus stopped): afflatus.db and files/ at its top, as the
+ * zip holds them. Read through the zip's central directory a file at a time, so that a backup of many
+ * gigabytes is never in memory. Refuses a folder that holds anything, and an entry that would land outside
+ * it. Returns how many files were written.
+ */
+export async function restoreBackup(zipPath: string, dataDir: string): Promise<number> {
+  const target = resolve(dataDir);
+  await mkdir(target, { recursive: true });
+  if ((await readdir(target)).length) throw new Error(`${target} is not empty: a backup is restored into an empty data folder`);
+  const zip = await open(zipPath);
+  try {
+    let written = 0;
+    for (const e of await centralOf(zip)) {
+      if (e.name.endsWith("/")) continue;
+      const to = resolve(target, e.name);
+      if (!to.startsWith(target + sep)) throw new Error(`the backup names a file outside the data folder: ${e.name}`);
+      if (e.method !== 0) throw new Error(`${e.name} is compressed: this is not a backup Afflatus made`);
+      // the local header has name and extra lengths of its own: the bytes start after them
+      const local = Buffer.alloc(30);
+      await zip.read(local, 0, 30, e.offset);
+      if (local.readUInt32LE(0) !== 0x04034b50) throw new Error(`the backup is damaged at ${e.name}`);
+      const start = e.offset + 30 + local.readUInt16LE(26) + local.readUInt16LE(28);
+      await mkdir(dirname(to), { recursive: true });
+      if (e.size) await pipeline(zip.createReadStream({ start, end: start + e.size - 1, autoClose: false }), createWriteStream(to));
+      else await (await open(to, "w")).close();
+      written++;
+    }
+    return written;
+  } finally {
+    await zip.close();
+  }
+}
+
+interface CentralEntry { name: string; method: number; size: number; offset: number }
+
+/** The entries a zip's central directory lists, zip64 included (zipStream.ts writes it past 4 GB): name, method, size and where each starts. */
+async function centralOf(zip: FileHandle): Promise<CentralEntry[]> {
+  const { size } = await zip.stat();
+  const tailLength = Math.min(size, 22 + 0xffff + 20);
+  const tail = Buffer.alloc(tailLength);
+  await zip.read(tail, 0, tailLength, size - tailLength);
+  const endAt = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (endAt < 0) throw new Error("this is not a zip file");
+  let count = tail.readUInt16LE(endAt + 10);
+  let dirSize = tail.readUInt32LE(endAt + 12);
+  let dirAt = tail.readUInt32LE(endAt + 16);
+  // a zip64 locator sits just before the end record; the zip64 end record it names has the real figures
+  const locatorAt = endAt - 20;
+  if (locatorAt >= 0 && tail.readUInt32LE(locatorAt) === 0x07064b50) {
+    const z64 = Buffer.alloc(56);
+    await zip.read(z64, 0, 56, Number(tail.readBigUInt64LE(locatorAt + 8)));
+    if (z64.readUInt32LE(0) === 0x06064b50) {
+      count = Number(z64.readBigUInt64LE(32));
+      dirSize = Number(z64.readBigUInt64LE(40));
+      dirAt = Number(z64.readBigUInt64LE(48));
+    }
+  }
+  const dir = Buffer.alloc(dirSize);
+  await zip.read(dir, 0, dirSize, dirAt);
+  const out: CentralEntry[] = [];
+  let at = 0;
+  for (let i = 0; i < count; i++) {
+    if (dir.readUInt32LE(at) !== 0x02014b50) throw new Error("the zip's directory is damaged");
+    const nameLen = dir.readUInt16LE(at + 28);
+    const extraLen = dir.readUInt16LE(at + 30);
+    const packed = dir.readUInt32LE(at + 20);
+    let entrySize = dir.readUInt32LE(at + 24);
+    let offset = dir.readUInt32LE(at + 42);
+    // the zip64 extra holds, in this order, the sizes and the offset that did not fit their 4 bytes
+    const extra = dir.subarray(at + 46 + nameLen, at + 46 + nameLen + extraLen);
+    for (let x = 0; x + 4 <= extra.length; x += 4 + extra.readUInt16LE(x + 2)) {
+      if (extra.readUInt16LE(x) !== 0x0001) continue;
+      let f = x + 4;
+      if (entrySize === 0xffffffff) {
+        entrySize = Number(extra.readBigUInt64LE(f));
+        f += 8;
+      }
+      if (packed === 0xffffffff) f += 8;
+      if (offset === 0xffffffff) offset = Number(extra.readBigUInt64LE(f));
+    }
+    out.push({ name: dir.subarray(at + 46, at + 46 + nameLen).toString("utf8"), method: dir.readUInt16LE(at + 10), size: entrySize, offset });
+    at += 46 + nameLen + extraLen + dir.readUInt16LE(at + 32);
+  }
+  return out;
 }

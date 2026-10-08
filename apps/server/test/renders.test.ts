@@ -107,6 +107,14 @@ describe("figures of several renders", () => {
 });
 
 describe("renders older than they are kept become figures per model and day", () => {
+  it("folds in one go: two folds at the same moment count no row twice", async () => {
+    await put([row({ ago: 100 * DAY, total_ms: 30_000 }), row({ ago: 100 * DAY + 3_600_000, total_ms: 34_000 }), row({ ago: 95 * DAY })]);
+    const [a, b] = await Promise.all([fold(t.db, 90, NOW), fold(t.db, 90, NOW)]);
+    expect(a + b).toBe(3);
+    const days = await t.db.selectFrom("render_days").selectAll().where("recipe_id", "=", "*").orderBy("day").execute();
+    expect(days.map((d) => JSON.parse(d.figures).renders)).toEqual([2, 1]);
+  });
+
   it("only whole days go; the day's figures, and the day as a whole, stay for good", async () => {
     await put([
       row({ ago: 100 * DAY, total_ms: 30_000 }), row({ ago: 100 * DAY + 3_600_000, total_ms: 34_000 }),

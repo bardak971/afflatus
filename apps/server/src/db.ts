@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, renameSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Kysely, PostgresDialect, SqliteDialect, sql, type SqliteDatabase } from "kysely";
-import { Migrator, type Migration } from "kysely/migration";
+import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type DialectAdapter, type SqliteDatabase } from "kysely";
+import { Migrator } from "kysely/migration";
 import pg from "pg";
 import type { Config } from "./config";
+import { migrations } from "./migrations";
 
 /**
  * One schema for both databases. To keep it that way: ids and timestamps are text (ISO 8601),
@@ -80,6 +81,10 @@ export interface Tables {
     gen_ms: number;
     /** The draft it was made from, when it was made from one: "this draft" in Studio shows what its drafts made. */
     draft_id: string | null;
+    /** The form as it was sent, before the cast was worked into it (JSON); null when no cast was, or from before it was kept. */
+    asked?: string | null;
+    /** How a rendered video's own part looks (JSON, see lookOf); null for a picture, or a video not measured. Also in resolved. */
+    measure?: string | null;
     created_at: string;
   };
   /** Which assets a generation used, and as what: the lineage. */
@@ -166,6 +171,10 @@ export interface Tables {
     clip_fit: number;
     /** A finish job: the take whose finished version its result is. */
     finished_from: string | null;
+    /** What went less well than asked in a job that still finished (its take not placed, a latent join made on frames); null when nothing did. */
+    warning?: string | null;
+    /** The form as it was sent, before the cast was worked into it (JSON): kept with what it makes. Null when no cast was. */
+    asked?: string | null;
     /** The draft it was sent from, and the folder its results go to: the one that was open when it was sent. */
     draft_id: string | null;
     folder_id: string | null;
@@ -260,12 +269,6 @@ export interface Tables {
     finished_from: string | null;
     /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
     join_kind: "seamless" | "latent" | "hybrid" | "pixels" | null;
-    /**
-     * The take-over point: this many ms before its shared frames end, the take starts to play and the clip
-     * before stops. Inside the shared frames both show the same moments, so the hand-over is invisible; at the
-     * first own frame the model steps away from its guide (measured: a three-fold jump). 0 = at the first own frame.
-     */
-    lead_ms: number;
     created_at: string;
   };
   /** Imported ComfyUI workflows: the workflow and its mapping, as one JSON document each. */
@@ -332,7 +335,9 @@ export const now = () => new Date().toISOString();
 
 export function openDb(config: Config): { db: Db; kind: DbKind } {
   if (config.databaseUrl) {
-    const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 5 });
+    // a bigint column (a file's size, a render's work) comes back as a number, as SQLite's does, not as a string
+    const types = { getTypeParser: ((oid: number, format?: "text" | "binary") => (oid === pg.types.builtins.INT8 ? (v: string) => Number(v) : pg.types.getTypeParser(oid, format as "text"))) as typeof pg.types.getTypeParser };
+    const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 5, types });
     return { db: new Kysely<Tables>({ dialect: new PostgresDialect({ pool }) }), kind: "postgres" };
   }
   mkdirSync(config.dataDir, { recursive: true });
@@ -353,7 +358,23 @@ export function openSqlite(file: string): Db {
   const sqlite = new DatabaseSync(file);
   sqlite.exec("PRAGMA journal_mode = WAL");
   sqlite.exec("PRAGMA foreign_keys = ON");
-  return new Kysely<Tables>({ dialect: new SqliteDialect({ database: forKysely(sqlite) }) });
+  return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }) });
+}
+
+/**
+ * SQLite takes schema changes inside a transaction as well as Postgres does; Kysely's adapter only says it
+ * does not. Saying it does makes the migrator run the pending migrations and their record in one
+ * transaction, as on Postgres: one that fails half way leaves nothing behind, instead of a column added
+ * and not recorded that the next start trips over.
+ */
+class TransactionalSqlite extends SqliteDialect {
+  override createAdapter(): DialectAdapter {
+    return new (class extends SqliteAdapter {
+      override get supportsTransactionalDdl(): boolean {
+        return true;
+      }
+    })();
+  }
 }
 
 /**
@@ -378,666 +399,29 @@ function forKysely(sqlite: DatabaseSync): SqliteDatabase {
   };
 }
 
-/** Migrations live in code (one list, both databases), written with Kysely's schema builder only. */
-const migrations: Record<string, Migration> = {
-  "0001_settings": {
-    async up(db) {
-      await db.schema
-        .createTable("settings")
-        .addColumn("key", "text", (c) => c.primaryKey())
-        .addColumn("value", "text", (c) => c.notNull())
-        .addColumn("updated_at", "text", (c) => c.notNull())
-        .execute();
-    },
-    async down(db) {
-      await db.schema.dropTable("settings").execute();
-    },
-  },
-  "0002_library_and_queue": {
-    async up(db) {
-      await db.schema
-        .createTable("folders")
-        .addColumn("id", "text", (c) => c.primaryKey())
-        .addColumn("owner_id", "text", (c) => c.notNull())
-        .addColumn("parent_id", "text")
-        .addColumn("name", "text", (c) => c.notNull())
-        .addColumn("created_at", "text", (c) => c.notNull())
-        .execute();
-      await db.schema
-        .createTable("generations")
-        .addColumn("id", "text", (c) => c.primaryKey())
-        .addColumn("owner_id", "text", (c) => c.notNull())
-        .addColumn("recipe_id", "text", (c) => c.notNull())
-        .addColumn("recipe_version", "integer", (c) => c.notNull())
-        .addColumn("family", "text", (c) => c.notNull())
-        .addColumn("inputs", "text", (c) => c.notNull())
-        .addColumn("resolved", "text", (c) => c.notNull())
-        .addColumn("gen_ms", "integer", (c) => c.notNull())
-        .addColumn("created_at", "text", (c) => c.notNull())
-        .execute();
-      await db.schema
-        .createTable("assets")
-        .addColumn("id", "text", (c) => c.primaryKey())
-        .addColumn("owner_id", "text", (c) => c.notNull())
-        .addColumn("kind", "text", (c) => c.notNull())
-        .addColumn("origin", "text", (c) => c.notNull())
-        .addColumn("name", "text", (c) => c.notNull())
-        .addColumn("file_key", "text", (c) => c.notNull())
-        .addColumn("thumb_key", "text")
-        .addColumn("mime", "text", (c) => c.notNull())
-        .addColumn("bytes", "integer", (c) => c.notNull())
-        .addColumn("width", "integer")
-        .addColumn("height", "integer")
-        .addColumn("duration_ms", "integer")
-        .addColumn("fps", "real")
-        .addColumn("has_sound", "integer", (c) => c.notNull().defaultTo(0))
-        .addColumn("folder_id", "text", (c) => c.references("folders.id").onDelete("set null"))
-        .addColumn("generation_id", "text", (c) => c.references("generations.id").onDelete("set null"))
-        .addColumn("kept_at", "text")
-        .addColumn("deleted_at", "text")
-        .addColumn("created_at", "text", (c) => c.notNull())
-        .execute();
-      await db.schema.createIndex("assets_by_time").on("assets").columns(["owner_id", "created_at"]).execute();
-      await db.schema.createIndex("assets_by_folder").on("assets").column("folder_id").execute();
-      await db.schema
-        .createTable("generation_inputs")
-        .addColumn("generation_id", "text", (c) => c.notNull().references("generations.id").onDelete("cascade"))
-        .addColumn("asset_id", "text", (c) => c.notNull().references("assets.id").onDelete("cascade"))
-        .addColumn("role", "text", (c) => c.notNull())
-        .addPrimaryKeyConstraint("generation_inputs_pk", ["generation_id", "asset_id", "role"])
-        .execute();
-      await db.schema
-        .createTable("jobs")
-        .addColumn("id", "text", (c) => c.primaryKey())
-        .addColumn("owner_id", "text", (c) => c.notNull())
-        .addColumn("recipe_id", "text", (c) => c.notNull())
-        .addColumn("label", "text", (c) => c.notNull())
-        .addColumn("inputs", "text", (c) => c.notNull())
-        .addColumn("status", "text", (c) => c.notNull())
-        .addColumn("priority", "integer", (c) => c.notNull())
-        .addColumn("depends_on", "text")
-        .addColumn("attempts", "integer", (c) => c.notNull().defaultTo(0))
-        .addColumn("resume", "text")
-        .addColumn("error", "text")
-        .addColumn("generation_id", "text")
-        .addColumn("created_at", "text", (c) => c.notNull())
-        .addColumn("started_at", "text")
-        .addColumn("finished_at", "text")
-        .addColumn("updated_at", "text", (c) => c.notNull())
-        .execute();
-      await db.schema.createIndex("jobs_by_status").on("jobs").columns(["status", "priority", "created_at"]).execute();
-    },
-    async down(db) {
-      for (const t of ["jobs", "generation_inputs", "assets", "generations", "folders"]) await db.schema.dropTable(t).execute();
-    },
-  },
-  "0003_drafts": {
-    async up(db) {
-      await db.schema
-        .createTable("drafts")
-        .addColumn("id", "text", (c) => c.primaryKey())
-        .addColumn("owner_id", "text", (c) => c.notNull())
-        .addColumn("target", "text", (c) => c.notNull())
-        .addColumn("recipe_id", "text", (c) => c.notNull())
-        .addColumn("title", "text", (c) => c.notNull())
-        .addColumn("forms", "text", (c) => c.notNull())
-        .addColumn("count", "integer", (c) => c.notNull())
-        .addColumn("chat", "text")
-        .addColumn("created_at", "text", (c) => c.notNull())
-        .addColumn("updated_at", "text", (c) => c.notNull())
-        .execute();
-      await db.schema.createIndex("drafts_by_time").on("drafts").columns(["owner_id", "updated_at"]).execute();
-    },
-    async down(db) {
-      await db.schema.dropTable("drafts").execute();
-    },
-  },
-  "0004_model_settings": {
-    async up(db) {
-      await db.schema
-        .createTable("model_settings")
-        .addColumn("owner_id", "text", (c) => c.notNull())
-        .addColumn("family", "text", (c) => c.notNull())
-        .addColumn("file", "text", (c) => c.notNull())
-        .addColumn("values", "text", (c) => c.notNull())
-        .addColumn("updated_at", "text", (c) => c.notNull())
-        .addPrimaryKeyConstraint("model_settings_pk", ["owner_id", "family", "file"])
-        .execute();
-    },
-    async down(db) {
-      await db.schema.dropTable("model_settings").execute();
-    },
-  },
-  "0005_workflows": {
-    async up(db) {
-      await db.schema
-        .createTable("workflows")
-        .addColumn("id", "text", (c) => c.primaryKey())
-        .addColumn("owner_id", "text", (c) => c.notNull())
-        .addColumn("def", "text", (c) => c.notNull())
-        .addColumn("created_at", "text", (c) => c.notNull())
-        .addColumn("updated_at", "text", (c) => c.notNull())
-        .execute();
-    },
-    async down(db) {
-      await db.schema.dropTable("workflows").execute();
-    },
-  },
-};
-
-migrations["0006_model_info"] = {
-  async up(db) {
-    await db.schema
-      .createTable("model_info")
-      .addColumn("folder", "text", (c) => c.notNull())
-      .addColumn("file", "text", (c) => c.notNull())
-      .addColumn("info", "text", (c) => c.notNull())
-      .addColumn("read_at", "text", (c) => c.notNull())
-      .addPrimaryKeyConstraint("model_info_pk", ["folder", "file"])
-      .execute();
-  },
-  async down(db) {
-    await db.schema.dropTable("model_info").execute();
-  },
-};
-
-migrations["0007_timelines"] = {
-  async up(db) {
-    await db.schema
-      .createTable("timelines")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("owner_id", "text", (c) => c.notNull())
-      .addColumn("name", "text", (c) => c.notNull())
-      .addColumn("width", "integer")
-      .addColumn("height", "integer")
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .addColumn("updated_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema
-      .createTable("clips")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("timeline_id", "text", (c) => c.notNull().references("timelines.id").onDelete("cascade"))
-      .addColumn("position", "integer", (c) => c.notNull())
-      .addColumn("take_id", "text")
-      .addColumn("joined", "text", (c) => c.notNull())
-      .addColumn("recipe_id", "text")
-      .addColumn("inputs", "text", (c) => c.notNull())
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .addColumn("updated_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema.createIndex("clips_by_timeline").on("clips").columns(["timeline_id", "position"]).execute();
-    await db.schema
-      .createTable("takes")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("clip_id", "text", (c) => c.notNull().references("clips.id").onDelete("cascade"))
-      .addColumn("asset_id", "text", (c) => c.notNull().references("assets.id").onDelete("cascade"))
-      .addColumn("head_ms", "integer", (c) => c.notNull().defaultTo(0))
-      .addColumn("tail_ms", "integer", (c) => c.notNull().defaultTo(0))
-      .addColumn("trim_start_ms", "integer", (c) => c.notNull().defaultTo(0))
-      .addColumn("trim_end_ms", "integer", (c) => c.notNull().defaultTo(0))
-      .addColumn("prev_take_id", "text")
-      .addColumn("prev_at_ms", "integer")
-      .addColumn("next_take_id", "text")
-      .addColumn("next_at_ms", "integer")
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema.createIndex("takes_by_clip").on("takes").column("clip_id").execute();
-    await db.schema.alterTable("jobs").addColumn("clip_id", "text").execute();
-    await db.schema.alterTable("jobs").addColumn("clip_fit", "integer", (c) => c.notNull().defaultTo(0)).execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("jobs").dropColumn("clip_fit").execute();
-    await db.schema.alterTable("jobs").dropColumn("clip_id").execute();
-    for (const t of ["takes", "clips", "timelines"]) await db.schema.dropTable(t).execute();
-  },
-};
-
-migrations["0008_timeline_editor"] = {
-  async up(db) {
-    const add = (table: "timelines" | "clips", name: string, type: "text" | "integer", fallback?: string | number) =>
-      db.schema.alterTable(table).addColumn(name, type, (c) => (fallback === undefined ? c : c.notNull().defaultTo(fallback))).execute();
-    await add("timelines", "music_asset_id", "text");
-    await add("timelines", "music_volume", "integer", 60);
-    await add("timelines", "music_fade_in_ms", "integer", 1000);
-    await add("timelines", "music_fade_out_ms", "integer", 3000);
-    await add("timelines", "music_duck", "integer", 1);
-    await add("timelines", "export_asset_id", "text");
-    await add("clips", "kind", "text", "video");
-    await add("clips", "still_asset_id", "text");
-    await add("clips", "still_ms", "integer", 3000);
-    await add("clips", "sound", "text", "own");
-    await add("clips", "sound_asset_id", "text");
-    await add("clips", "volume", "integer", 100);
-    await add("clips", "fill", "integer", 0);
-    await db.schema
-      .createTable("timeline_history")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("timeline_id", "text", (c) => c.notNull().references("timelines.id").onDelete("cascade"))
-      .addColumn("seq", "integer", (c) => c.notNull())
-      .addColumn("label", "text", (c) => c.notNull())
-      .addColumn("snapshot", "text", (c) => c.notNull())
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema.createIndex("timeline_history_by_timeline").on("timeline_history").columns(["timeline_id", "seq"]).execute();
-  },
-  async down(db) {
-    await db.schema.dropTable("timeline_history").execute();
-    for (const c of ["fill", "volume", "sound_asset_id", "sound", "still_ms", "still_asset_id", "kind"]) await db.schema.alterTable("clips").dropColumn(c).execute();
-    for (const c of ["export_asset_id", "music_duck", "music_fade_out_ms", "music_fade_in_ms", "music_volume", "music_asset_id"]) await db.schema.alterTable("timelines").dropColumn(c).execute();
-  },
-};
-
-migrations["0009_people"] = {
-  async up(db) {
-    await db.schema
-      .createTable("entities")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("owner_id", "text", (c) => c.notNull())
-      .addColumn("kind", "text", (c) => c.notNull())
-      .addColumn("name", "text", (c) => c.notNull())
-      .addColumn("def", "text", (c) => c.notNull())
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .addColumn("updated_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema.createIndex("entities_by_kind").on("entities").columns(["owner_id", "kind"]).execute();
-    for (const table of ["timelines", "clips", "drafts"] as const) await db.schema.alterTable(table).addColumn("look", "text").execute();
-  },
-  async down(db) {
-    for (const table of ["timelines", "clips", "drafts"] as const) await db.schema.alterTable(table).dropColumn("look").execute();
-    await db.schema.dropTable("entities").execute();
-  },
-};
-
-migrations["0010_mood"] = {
-  async up(db) {
-    await db.schema.alterTable("timelines").addColumn("mood", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("timelines").dropColumn("mood").execute();
-  },
-};
-
-migrations["0014_designer_session"] = {
-  async up(db) {
-    await db.schema.alterTable("drafts").addColumn("designer", "text").execute();
-    await db.schema.alterTable("clips").addColumn("designer", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("drafts").dropColumn("designer").execute();
-    await db.schema.alterTable("clips").dropColumn("designer").execute();
-  },
-};
-
-migrations["0013_model_pages"] = {
-  async up(db) {
-    await db.schema
-      .createTable("model_pages")
-      .addColumn("folder", "text", (c) => c.notNull())
-      .addColumn("name", "text", (c) => c.notNull())
-      .addColumn("url", "text", (c) => c.notNull())
-      .addColumn("title", "text", (c) => c.notNull())
-      .addColumn("found_at", "text", (c) => c.notNull())
-      .addPrimaryKeyConstraint("model_pages_pk", ["folder", "name"])
-      .execute();
-  },
-  async down(db) {
-    await db.schema.dropTable("model_pages").execute();
-  },
-};
-
-migrations["0036_fine_latent"] = {
-  async up(db) {
-    await db.schema.alterTable("assets").addColumn("fine_latent_key", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("assets").dropColumn("fine_latent_key").execute();
-  },
-};
-
-migrations["0035_finished_grid"] = {
-  async up(db) {
-    // a finished take has its draft's frames, enlarged: its length on the model's frame grid is the draft's (lengthOnGrid).
-    // Without it an interpolated finish played one frame short of its draft and a seamless join skipped that frame
-    await sql`update assets set latent_frames = (select d.latent_frames from takes f join takes dt on dt.id = f.finished_from join assets d on d.id = dt.asset_id where f.asset_id = assets.id and d.latent_frames is not null and abs(coalesce(d.duration_ms, 0) - coalesce(assets.duration_ms, 0)) <= 42 limit 1) where latent_frames is null and id in (select asset_id from takes where finished_from is not null)`.execute(db);
-  },
-  async down() {},
-};
-
-migrations["0034_render_work"] = {
-  async up(db) {
-    // what a render sampled per step, for forecasting the next from the renders before it (see forecast.ts). The
-    // rows from before are filled in roughly: the result's size, times 24 frames a second of its length for a
-    // video, where nothing was enlarged after the sampling; new rows carry the exact figure from the graph
-    await db.schema.alterTable("render_stats").addColumn("work", "integer").execute();
-    await sql`update render_stats set work = width * height * max(1, cast(round(duration_ms / 1000.0 * 24) as integer)) where kind = 'video' and width is not null and height is not null and duration_ms is not null and (time_key like '%upscale=Off%' or time_key not like '%upscale=%')`.execute(db);
-    await sql`update render_stats set work = width * height where kind = 'image' and width is not null and height is not null and time_key not like '%hires=true%' and time_key not like '%upscale=%'`.execute(db);
-  },
-  async down(db) {
-    await db.schema.alterTable("render_stats").dropColumn("work").execute();
-  },
-};
-
-migrations["0033_countdown_from"] = {
-  async up(db) {
-    // a result nobody kept counts its day from here when it is set (unkept again, or back from the bin), else from its making
-    await db.schema.alterTable("assets").addColumn("countdown_from", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("assets").dropColumn("countdown_from").execute();
-  },
-};
-
-migrations["0032_job_timeline"] = {
-  async up(db) {
-    await db.schema.alterTable("jobs").addColumn("timeline_id", "text").execute();
-    await db.schema.createIndex("jobs_by_timeline").on("jobs").columns(["timeline_id", "created_at"]).execute();
-    // the exports and cuts there are: an export names its timeline in its inputs, a cut names a clip of one
-    const rows = await db.selectFrom("jobs").select(["id", "recipe_id", "inputs"]).where("recipe_id", "in", ["afflatus.export", "afflatus.cut"]).execute();
-    for (const r of rows) {
-      let inputs: { timeline?: unknown; clip?: unknown };
-      try {
-        inputs = JSON.parse(r.inputs) as { timeline?: unknown; clip?: unknown };
-      } catch {
-        continue;
-      }
-      let timeline = typeof inputs.timeline === "string" ? inputs.timeline : null;
-      if (!timeline && typeof inputs.clip === "string") {
-        timeline = (await db.selectFrom("clips").select("timeline_id").where("id", "=", inputs.clip).executeTakeFirst())?.timeline_id ?? null;
-      }
-      if (timeline) await db.updateTable("jobs").set({ timeline_id: timeline }).where("id", "=", r.id).execute();
-    }
-  },
-  async down(db) {
-    await db.schema.dropIndex("jobs_by_timeline").execute();
-    await db.schema.alterTable("jobs").dropColumn("timeline_id").execute();
-  },
-};
-
-// the app's earlier name, in the kind of an export job
-// a video cut out of another remembers the range
-migrations["0031_take_lead"] = {
-  async up(db) {
-    await db.schema.alterTable("takes").addColumn("lead_ms", "integer", (c) => c.notNull().defaultTo(0)).execute();
-    // the joins made in the latent so far hand over four frames early too (167 ms at 24 a second), when their shared part has room
-    await db.updateTable("takes").set({ lead_ms: 167 }).where("join_kind", "in", ["latent", "hybrid"]).where("head_ms", ">=", 334).execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("takes").dropColumn("lead_ms").execute();
-  },
-};
-
-migrations["0030_model_updates"] = {
-  async up(db) {
-    await db.schema
-      .createTable("model_updates")
-      .addColumn("folder", "text", (c) => c.notNull())
-      .addColumn("name", "text", (c) => c.notNull())
-      .addColumn("file", "text", (c) => c.notNull())
-      .addColumn("model_id", "integer", (c) => c.notNull())
-      .addColumn("model_name", "text", (c) => c.notNull())
-      .addColumn("version_id", "integer", (c) => c.notNull())
-      .addColumn("version_name", "text", (c) => c.notNull())
-      .addColumn("latest_id", "integer")
-      .addColumn("latest_name", "text")
-      .addColumn("latest_at", "text")
-      .addColumn("latest_file", "text")
-      .addColumn("checked_at", "text", (c) => c.notNull())
-      .addPrimaryKeyConstraint("model_updates_pk", ["folder", "name"])
-      .execute();
-  },
-  async down(db) {
-    await db.schema.dropTable("model_updates").execute();
-  },
-};
-
-migrations["0029_folder_chosen"] = {
-  async up(db) {
-    await db.schema.alterTable("timelines").addColumn("folder_chosen", "integer", (c) => c.notNull().defaultTo(0)).execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("timelines").dropColumn("folder_chosen").execute();
-  },
-};
-
-migrations["0028_join_kind"] = {
-  async up(db) {
-    await db.schema.alterTable("takes").addColumn("join_kind", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("takes").dropColumn("join_kind").execute();
-  },
-};
-
-migrations["0027_latent"] = {
-  async up(db) {
-    await db.schema.alterTable("assets").addColumn("latent_key", "text").execute();
-    await db.schema.alterTable("assets").addColumn("latent_frames", "integer").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("assets").dropColumn("latent_key").execute();
-    await db.schema.alterTable("assets").dropColumn("latent_frames").execute();
-  },
-};
-
-migrations["0026_raw"] = {
-  async up(db) {
-    await db.schema.alterTable("assets").addColumn("raw_key", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("assets").dropColumn("raw_key").execute();
-  },
-};
-
-migrations["0025_finish"] = {
-  async up(db) {
-    await db.schema.alterTable("takes").addColumn("finished_from", "text").execute();
-    await db.schema.alterTable("jobs").addColumn("finished_from", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("takes").dropColumn("finished_from").execute();
-    await db.schema.alterTable("jobs").dropColumn("finished_from").execute();
-  },
-};
-
-migrations["0024_redo"] = {
-  async up(db) {
-    await db.schema
-      .createTable("timeline_future")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("timeline_id", "text", (c) => c.notNull())
-      .addColumn("seq", "integer", (c) => c.notNull())
-      .addColumn("label", "text", (c) => c.notNull())
-      .addColumn("snapshot", "text", (c) => c.notNull())
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema.createIndex("timeline_future_by_timeline").on("timeline_future").columns(["timeline_id", "seq"]).execute();
-  },
-  async down(db) {
-    await db.schema.dropTable("timeline_future").execute();
-  },
-};
-
-migrations["0023_projects"] = {
-  async up(db) {
-    await db.schema
-      .createTable("projects")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("owner_id", "text", (c) => c.notNull())
-      .addColumn("name", "text", (c) => c.notNull())
-      .addColumn("folder_id", "text")
-      .addColumn("archived_at", "text")
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .addColumn("updated_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema.alterTable("folders").addColumn("project_id", "text").execute();
-    await db.schema.alterTable("drafts").addColumn("project_id", "text").execute();
-    await db.schema.alterTable("timelines").addColumn("project_id", "text").execute();
-    await db.schema.alterTable("timelines").addColumn("folder_id", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("timelines").dropColumn("folder_id").execute();
-    await db.schema.alterTable("timelines").dropColumn("project_id").execute();
-    await db.schema.alterTable("drafts").dropColumn("project_id").execute();
-    await db.schema.alterTable("folders").dropColumn("project_id").execute();
-    await db.schema.dropTable("projects").execute();
-  },
-};
-
-migrations["0022_source_range"] = {
-  async up(db) {
-    await db.schema.alterTable("assets").addColumn("source_range", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("assets").dropColumn("source_range").execute();
-  },
-};
-
-migrations["0021_afflatus"] = {
-  async up(db) {
-    await db.updateTable("jobs").set({ recipe_id: "afflatus.export" }).where("recipe_id", "=", "studai.export").execute();
-  },
-  async down(db) {
-    await db.updateTable("jobs").set({ recipe_id: "studai.export" }).where("recipe_id", "=", "afflatus.export").execute();
-  },
-};
-
-migrations["0020_render_times"] = {
-  async up(db) {
-    await db.schema
-      .createTable("render_stats")
-      .addColumn("id", "text", (c) => c.primaryKey())
-      .addColumn("owner_id", "text", (c) => c.notNull())
-      .addColumn("recipe_id", "text", (c) => c.notNull())
-      .addColumn("family", "text", (c) => c.notNull())
-      .addColumn("model", "text", (c) => c.notNull())
-      .addColumn("model_file", "text", (c) => c.notNull())
-      .addColumn("time_key", "text", (c) => c.notNull())
-      .addColumn("kind", "text")
-      .addColumn("width", "integer")
-      .addColumn("height", "integer")
-      .addColumn("duration_ms", "integer")
-      .addColumn("steps", "integer", (c) => c.notNull())
-      .addColumn("status", "text", (c) => c.notNull())
-      .addColumn("whole", "integer", (c) => c.notNull())
-      .addColumn("cold", "integer", (c) => c.notNull())
-      .addColumn("waited_ms", "integer", (c) => c.notNull())
-      .addColumn("total_ms", "integer", (c) => c.notNull())
-      .addColumn("load_ms", "integer", (c) => c.notNull())
-      .addColumn("sample_ms", "integer", (c) => c.notNull())
-      .addColumn("refine_ms", "integer", (c) => c.notNull())
-      .addColumn("finish_ms", "integer", (c) => c.notNull())
-      .addColumn("step_ms", "real")
-      .addColumn("expected_ms", "integer")
-      .addColumn("vram_peak", "real")
-      .addColumn("heat_peak", "real")
-      .addColumn("asset_id", "text")
-      .addColumn("created_at", "text", (c) => c.notNull())
-      .execute();
-    await db.schema.createIndex("render_stats_at").on("render_stats").column("created_at").execute();
-    await db.schema.createIndex("render_stats_recipe").on("render_stats").columns(["recipe_id", "created_at"]).execute();
-    await db.schema
-      .createTable("render_days")
-      .addColumn("day", "text", (c) => c.notNull())
-      .addColumn("recipe_id", "text", (c) => c.notNull())
-      .addColumn("model_file", "text", (c) => c.notNull())
-      .addColumn("model", "text", (c) => c.notNull())
-      .addColumn("family", "text", (c) => c.notNull())
-      .addColumn("figures", "text", (c) => c.notNull())
-      .addPrimaryKeyConstraint("render_days_pk", ["day", "recipe_id", "model_file"])
-      .execute();
-  },
-  async down(db) {
-    await db.schema.dropTable("render_days").execute();
-    await db.schema.dropTable("render_stats").execute();
-  },
-};
-
-migrations["0019_trails"] = {
-  async up(db) {
-    // what a frame or a sound was taken out of: its story is that one's
-    await db.schema.alterTable("assets").addColumn("source_id", "text").execute();
-    // who was in it and how it looked, as the job was sent: kept with what it makes
-    await db.schema.alterTable("jobs").addColumn("look", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("assets").dropColumn("source_id").execute();
-    await db.schema.alterTable("jobs").dropColumn("look").execute();
-  },
-};
-
-migrations["0018_job_warm"] = {
-  async up(db) {
-    // a job that only loads the models of a render, and makes nothing
-    await db.schema.alterTable("jobs").addColumn("warm", "integer", (c) => c.notNull().defaultTo(0)).execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("jobs").dropColumn("warm").execute();
-  },
-};
-
-migrations["0017_linked_folders"] = {
-  async up(db) {
-    await db.schema.alterTable("folders").addColumn("path", "text").execute();
-    await db.schema.alterTable("assets").addColumn("linked_path", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("folders").dropColumn("path").execute();
-    await db.schema.alterTable("assets").dropColumn("linked_path").execute();
-  },
-};
-
-migrations["0016_job_draft_folder"] = {
-  async up(db) {
-    await db.schema.alterTable("jobs").addColumn("draft_id", "text").execute();
-    await db.schema.alterTable("jobs").addColumn("folder_id", "text").execute();
-    await db.schema.alterTable("generations").addColumn("draft_id", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("jobs").dropColumn("draft_id").execute();
-    await db.schema.alterTable("jobs").dropColumn("folder_id").execute();
-    await db.schema.alterTable("generations").dropColumn("draft_id").execute();
-  },
-};
-
-migrations["0015_model_words"] = {
-  async up(db) {
-    await db.schema
-      .createTable("model_words")
-      .addColumn("folder", "text", (c) => c.notNull())
-      .addColumn("name", "text", (c) => c.notNull())
-      .addColumn("own", "text")
-      .addColumn("found", "text")
-      .addColumn("asked_at", "text")
-      .addPrimaryKeyConstraint("model_words_pk", ["folder", "name"])
-      .execute();
-  },
-  async down(db) {
-    await db.schema.dropTable("model_words").execute();
-  },
-};
-
-migrations["0012_draft_name"] = {
-  async up(db) {
-    await db.schema.alterTable("drafts").addColumn("name", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("drafts").dropColumn("name").execute();
-  },
-};
-
-migrations["0011_clip_chat"] = {
-  async up(db) {
-    await db.schema.alterTable("clips").addColumn("chat", "text").execute();
-  },
-  async down(db) {
-    await db.schema.alterTable("clips").dropColumn("chat").execute();
-  },
-};
-
-/** Bring the schema up to date. `upTo`: stop at that migration instead (tests, to seed a database as an older version left it). */
+/**
+ * Bring the schema up to date. `upTo`: stop at that migration instead (tests, to seed a database as an older
+ * version left it). On SQLite a copy of the database is made first when a migration is pending
+ * (afflatus.db.pre-<first pending>, beside it; only the copy before the latest update is kept).
+ */
 export async function migrate(db: Db, upTo?: string): Promise<string[]> {
   const migrator = new Migrator({ db, provider: { getMigrations: async () => migrations } });
+  await copyBefore(db, migrator);
   const { error, results } = upTo ? await migrator.migrateTo(upTo) : await migrator.migrateToLatest();
   if (error) throw error instanceof Error ? error : new Error(String(error));
   return (results ?? []).filter((r) => r.status === "Success").map((r) => r.migrationName);
+}
+
+/** A copy of a SQLite database file before its migrations run, made by SQLite itself; none for a new database or one in memory. */
+async function copyBefore(db: Db, migrator: Migrator): Promise<void> {
+  if (!(db.getExecutor().adapter instanceof SqliteAdapter)) return;
+  const all = await migrator.getMigrations();
+  const pending = all.find((m) => !m.executedAt);
+  if (!pending || !all.some((m) => m.executedAt)) return;
+  const main = (await sql<{ name: string; file: string }>`pragma database_list`.execute(db)).rows.find((r) => r.name === "main");
+  if (!main?.file || !existsSync(main.file)) return;
+  const dir = dirname(main.file);
+  const stem = `${basename(main.file)}.pre-`;
+  for (const old of readdirSync(dir).filter((f) => f.startsWith(stem))) rmSync(join(dir, old), { force: true });
+  await sql`vacuum into ${join(dir, `${stem}${pending.name}`)}`.execute(db);
 }

@@ -332,6 +332,67 @@ describe("when ComfyUI goes away", () => {
   });
 });
 
+describe("a prompt sent just before the process died", () => {
+  /** A job submitted by a first process, whose row is then made to look as it does when that process died between sending its prompt and hearing back. */
+  async function diedWhileSending(): Promise<{ db: ReturnType<typeof openSqlite>; dir: string; id: string; promptId: string }> {
+    const db = openSqlite(":memory:");
+    const first = await makeApp({ db, comfyUrl: fake.url });
+    await first.services.queue.start();
+    const id = (await post(first.app, "/api/jobs", job())).json().ids[0] as string;
+    await until(() => submitted().length === 1);
+    first.services.queue.stop();
+    await first.services.queue.idle();
+    await first.app.close();
+    const row = await db.selectFrom("jobs").select("resume").where("id", "=", id).executeTakeFirstOrThrow();
+    const resume = JSON.parse(row.resume!);
+    await db.updateTable("jobs").set({ resume: JSON.stringify({ ...resume, unsent: true }) }).where("id", "=", id).execute();
+    return { db, dir: first.dir, id, promptId: resume.promptId };
+  }
+
+  it("is sent under the id saved on the job before it went", async () => {
+    const id = await enqueue();
+    await until(() => submitted().length === 1);
+    // the mark "not sent yet" is cleared once ComfyUI has answered, a moment after it has the prompt
+    await until(async () => !JSON.parse((await statusOf(id)).resume ?? "{}").unsent);
+    const saved = JSON.parse((await statusOf(id)).resume!);
+    expect(submitted()[0]).toBe(saved.promptId);
+    expect(saved.promptId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(saved.unsent).toBeUndefined();
+    // refused by ComfyUI: what was saved before it went is what the job holds, the id it was sent with
+    fake.rejectWith = { error: "no" };
+    const refused = await enqueue({ prompt: "a dog" });
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(refused)).status === "failed");
+    expect(JSON.parse((await statusOf(refused)).resume!)).toMatchObject({ unsent: true, promptId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+  });
+
+  it("is followed after a restart when ComfyUI has it, not sent twice", async () => {
+    const { db, dir, id, promptId } = await diedWhileSending();
+    const second = await makeApp({ db, dir, comfyUrl: fake.url });
+    await second.services.queue.start();
+    await until(() => fake.calls.filter((c) => c === "GET /queue").length > 0);
+    complete(fake, promptId);
+    await until(async () => (await db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
+    expect(submitted()).toEqual([promptId]);
+    expect(JSON.parse((await db.selectFrom("jobs").select("resume").where("id", "=", id).executeTakeFirstOrThrow()).resume!).unsent).toBeUndefined();
+    await second.close();
+  });
+
+  it("is sent again after a restart when ComfyUI never had it", async () => {
+    const { db, dir, id, promptId } = await diedWhileSending();
+    // it never reached ComfyUI
+    fake.prompts.delete(promptId);
+    fake.pending = [];
+    const second = await makeApp({ db, dir, comfyUrl: fake.url });
+    await second.services.queue.start();
+    await until(() => submitted().length === 1);
+    expect(submitted()[0]).not.toBe(promptId);
+    complete(fake, submitted()[0]!);
+    await until(async () => (await db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
+    await second.close();
+  });
+});
+
 describe("the library", () => {
   const make = async (n: number) => {
     await post(t.app, "/api/jobs", { ...job(), count: n });

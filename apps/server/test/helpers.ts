@@ -46,6 +46,14 @@ export async function makeApp(opts: { db?: Db; dir?: string; comfyUrl?: string }
   const dir = opts.dir ?? mkdtempSync(join(tmpdir(), "afflatus-test-"));
   const services = await createServices(db, "sqlite", new LocalStorage(dir), FAST);
   const app = buildApp(services, { backup: { dataDir: dir, filesDir: dir } });
+  // every request carries the web app's own header (app.ts refuses a change without it, JSON or a file); a test that wants it gone sets it to undefined
+  const inject = app.inject.bind(app) as (o: unknown) => unknown;
+  (app as { inject: unknown }).inject = (o?: unknown) => {
+    if (typeof o !== "object" || o === null) return inject(o);
+    const given = o as { headers?: Record<string, string | undefined> };
+    const headers = Object.fromEntries(Object.entries({ "x-afflatus": "1", ...given.headers }).filter(([, v]) => v !== undefined));
+    return inject({ ...given, headers });
+  };
   return {
     app, services, db, dir,
     async close() {

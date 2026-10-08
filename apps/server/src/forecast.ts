@@ -59,12 +59,15 @@ export function forecastFrom(points: Point[], work: number, steps: number, extra
   const over = pts.filter((p) => cost(p) > OVER * usual);
   const fine = pts.filter((p) => cost(p) <= OVER * usual);
   const fitsUpTo = fine.length ? fine[fine.length - 1]!.work : 0;
-  const cliffAt = over.length ? over[0]!.work : null;
+  // a cliff is two slow renders or more, all larger than the largest at the usual pace: one slow render (the machine busy
+  // with something else, a model loaded from a cold disk) or slow ones among usual ones of their size say nothing of the card
+  const past = over.filter((p) => p.work > fitsUpTo);
+  const cliffAt = past.length >= 2 ? past[0]!.work : null;
   let pace: Forecast["pace"];
   let stepMs: number;
   if (cliffAt !== null && work >= cliffAt) {
     pace = "over";
-    stepMs = work * median(over.map(cost));
+    stepMs = work * median(past.map(cost));
   } else {
     // the cost of the nearest usual renders by size, blended between the one below and the one above; past the largest, that one's
     const below = [...fine].reverse().find((p) => p.work <= work);

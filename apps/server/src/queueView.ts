@@ -1,10 +1,17 @@
 import { sql } from "kysely";
 import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
+import type { Comfy } from "./comfy";
 import { CUT_JOB, EXPORT_JOB } from "./timelines";
-import type { JobRow, QueueCore, Resume } from "./queueModel";
+import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 
 /** What the queue screen shows: the line as it stands with the running job's progress, the history of finished jobs, and a live preview. */
 
+/** What a job is, as the queue screen tells them apart. */
+const kindOf = (r: Pick<JobRow, "recipe_id" | "warm">) => (r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const));
+/** A job's inputs as the screen reads them: a render's form (a tool job's options are not one); empty when the row cannot be read. */
+const inputsOf = (r: Pick<JobRow, "recipe_id" | "inputs">) => (r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB ? {} : readJson<Record<string, unknown>>(r.inputs, {}));
+
+/** Spilling out of video memory: the memory full and twice what was expected already gone (see renders.spilled). */
 async function spillingNow(core: QueueCore): Promise<boolean> {
   const r = core.running;
   if (!r?.gpu || !r.expectedMs || !r.startedAt || Date.now() - r.startedAt < 2 * r.expectedMs) return false;
@@ -33,7 +40,7 @@ export async function status(core: QueueCore) {
   const brief = (r: JobRow) => {
     const recipe = core.registry.recipe(r.recipe_id);
     if (r.status !== "queued" || !recipe || r.warm) return { ...plain(r), estimateMs: null };
-    const input = JSON.parse(r.inputs) as Record<string, unknown>;
+    const input = inputsOf(r);
     const model = modelOf(recipe.inputs, input);
     const cold = Boolean(model && held && !held.has(model));
     if (model) held = new Set([model]);
@@ -42,31 +49,21 @@ export async function status(core: QueueCore) {
   /** How a clip render joins the clip before, once its graph is built: in the latent, or on pinned frames; null when it starts on its own or is not a clip. */
   const joinOf = (r: JobRow): JoinKind | null => {
     if (!r.clip_id || !r.resume) return null;
-    return joinKindOf((JSON.parse(r.resume) as Resume).overlap);
+    return joinKindOf(readJson<Partial<Resume>>(r.resume, {}).overlap);
   };
   const plain = (r: JobRow) => ({
-    id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
-    kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const),
+    id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
+    kind: kindOf(r),
     // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
-    input: r.status === "failed" && r.recipe_id !== EXPORT_JOB && r.recipe_id !== CUT_JOB ? (JSON.parse(r.inputs) as Record<string, unknown>) : null,
+    input: r.status === "failed" && kindOf(r) !== "export" && kindOf(r) !== "cut" ? inputsOf(r) : null,
     createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at,
   });
   const run = rows.find((r) => r.status === "running");
   let running = null;
   if (run) {
-    const promptId = core.running?.id === run.id ? core.running.promptId : undefined;
+    const own = core.running?.id === run.id ? core.running : null;
     const monitor = (await core.comfy()).monitor;
-    running = {
-      ...brief(run),
-      // a tool on ComfyUI (a finish, a slow motion): which step runs, not a step count (its one-step passes would read 99 % at once)
-      ...(promptId && run.recipe_id === CUT_JOB ? { ...monitor.progress(promptId), progress: 0, eta: 0, step: 0, steps: 0 } : promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: run.recipe_id === EXPORT_JOB ? ("exporting" as const) : run.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const), step: 0, steps: 0 }),
-      previewSeq: promptId ? monitor.preview(promptId).seq : 0,
-      previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
-      // what the workflow showed on the way (its Preview nodes), oldest first; the title comes from the graph it was built with
-      stages: (promptId ? monitor.stages(promptId) : []).map((st, n) => ({ n, node: st.node, title: core.running?.titles?.[st.node] ?? null, count: st.files.length })),
-      // spilling out of video memory: the memory full and twice what was expected already gone (see renders.spilled)
-      spilling: await spillingNow(core),
-    };
+    running = { ...brief(run), ...figures(monitor, own, own?.promptId, run.recipe_id === EXPORT_JOB ? "exporting" : run.recipe_id === CUT_JOB ? "cutting" : "waiting"), spilling: await spillingNow(core) };
   }
   return {
     paused: core.paused,
@@ -80,9 +77,31 @@ export async function status(core: QueueCore) {
   };
 }
 
+/** The running job's progress, its preview and what it showed on the way: from the monitor, by its prompt; `idle` names its phase while it has none. */
+function figures(monitor: Comfy["monitor"], running: QueueCore["running"], promptId: string | undefined, idle: "exporting" | "cutting" | "waiting") {
+  return {
+    // a tool on ComfyUI (a finish, a slow motion): which step runs, not a step count (its one-step passes would read 99 % at once)
+    ...(promptId && idle === "cutting" ? { ...monitor.progress(promptId), progress: 0, eta: 0, step: 0, steps: 0 } : promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: idle, step: 0, steps: 0 }),
+    previewSeq: promptId ? monitor.preview(promptId).seq : 0,
+    previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
+    // what the workflow showed on the way (its Preview nodes), oldest first; the title comes from the graph it was built with
+    stages: (promptId ? monitor.stages(promptId) : []).map((st, n) => ({ n, node: st.node, title: running?.titles?.[st.node] ?? null, count: st.files.length })),
+  };
+}
+
+/**
+ * The running job's figures alone, read from memory and the monitor (no query): what each progress event
+ * carries, up to four times a second. Null when nothing runs.
+ */
+export async function progress(core: QueueCore) {
+  const run = core.running;
+  if (!run) return null;
+  return { id: run.id, ...figures((await core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), spilling: await spillingNow(core) };
+}
+
 /** One picture a node of the running job showed on the way (stage `n`, its first file), fetched from ComfyUI. */
 export async function stage(core: QueueCore, jobId: string, n: number) {
-  if (core.running?.id !== jobId || !core.running.promptId) return null;
+  if (core.running?.id !== jobId || !core.running.promptId || !Number.isInteger(n) || n < 0) return null;
   const comfy = await core.comfy();
   const file = comfy.monitor.stages(core.running.promptId)[n]?.files[0];
   if (!file) return null;
@@ -114,12 +133,13 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
   if (opts.status) query = query.where("status", "=", opts.status);
   // the text looked for, as a LIKE pattern: its own %, _ and \ made literal with a backslash, which the clause then names as
   // the escape character (SQLite has none by default; the clause reads the same on Postgres). Model files are full of underscores.
-  const like = (text: string) => `%${text.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  // Both sides in lower case: SQLite's LIKE ignores case, Postgres's does not, and the search is the same on both
+  const like = (text: string) => `%${text.trim().toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   if (opts.q?.trim()) {
     const pattern = like(opts.q);
-    query = query.where(sql<boolean>`(label like ${pattern} escape '\\' or inputs like ${pattern} escape '\\')`);
+    query = query.where(sql<boolean>`(lower(label) like ${pattern} escape '\\' or lower(inputs) like ${pattern} escape '\\')`);
   }
-  if (opts.model?.trim()) query = query.where(sql<boolean>`inputs like ${like(opts.model)} escape '\\'`);
+  if (opts.model?.trim()) query = query.where(sql<boolean>`lower(inputs) like ${like(opts.model)} escape '\\'`);
   const rows = await query.orderBy("finished_at", "desc").orderBy("created_at", "desc").limit(limit + 1).offset(offset).execute();
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
@@ -132,15 +152,16 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
   const counts = Object.fromEntries((await db.selectFrom("jobs").select(["status", (eb) => eb.fn.countAll<number>().as("n")]).where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0).groupBy("status").execute()).map((c) => [c.status, Number(c.n)])) as Partial<Record<"done" | "failed" | "cancelled", number>>;
   const items = page.map((r) => {
     const recipe = core.registry.recipe(r.recipe_id);
-    const input = r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB ? {} : (JSON.parse(r.inputs) as Record<string, unknown>);
+    const input = inputsOf(r);
     const promptSpec = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
     const prompt = promptSpec && typeof input[promptSpec.id] === "string" ? (input[promptSpec.id] as string).trim().slice(0, 240) : "";
-    const resolved = r.generation_id ? (JSON.parse(gens.find((g) => g.id === r.generation_id)?.resolved ?? "{}") as { seed?: number }) : {};
+    const resolved = r.generation_id ? readJson<{ seed?: number }>(gens.find((g) => g.id === r.generation_id)?.resolved, {}) : {};
     const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
+    const kind = kindOf(r);
     return {
-      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
-      kind: r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const),
-      input: r.status === "failed" && r.recipe_id !== EXPORT_JOB && r.recipe_id !== CUT_JOB ? input : null,
+      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
+      kind,
+      input: r.status === "failed" && kind !== "export" && kind !== "cut" ? input : null,
       createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, tookMs,
       model: recipe ? modelOf(recipe.inputs, input) : null,
       prompt,

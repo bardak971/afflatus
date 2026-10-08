@@ -11,12 +11,25 @@ import type { TakeLinks, Timelines } from "./timelines";
 /** What the queue's parts share: the job row, the job under way, what is kept to wait for a prompt again, and the door to the queue's state. */
 
 export type JobRow = Tables["jobs"];
+
+/** A JSON column read back: what it holds, or `fallback` when it is empty or cannot be read (one damaged row never breaks a whole list). */
+export function readJson<T>(text: string | null | undefined, fallback: T): T {
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 /** The job under way: its abort switch, the prompt ComfyUI knows it by once it has one, and whether it holds the GPU. */
 export interface Running {
   id: string;
   abort: AbortController;
   promptId?: string;
   gpu: boolean;
+  /** A job that needs no model: what it is doing, as the queue screen says it while it has no prompt to follow. */
+  tool?: "exporting" | "cutting";
   /** The nodes' titles in the graph that was sent, for naming what a preview node shows on the way. */
   titles?: Record<string, string>;
   /** What it was expected to take, and when it started on the GPU: a run at twice that with the memory full is spilling. */
@@ -46,6 +59,13 @@ export interface Resume {
   sources?: Array<{ asset: string; role: string }>;
   /** For the record of render times: what it is filed under, whether its model had to load, and what was expected of it. */
   timing?: { model: string; modelFile: string; timeKey: string; cold: boolean; expectedMs: number | null; expect: { laterMs?: number; finishMs?: number }; work?: number };
+  /** What was sent otherwise than asked (a latent join made on frames, a whole sound for its part): said on the job. */
+  warnings?: string[];
+  /**
+   * Saved just before the prompt went to ComfyUI, under the id it is sent with: a process that stops before
+   * hearing back asks ComfyUI for that id when it starts again, and follows the prompt instead of sending it twice.
+   */
+  unsent?: true;
 }
 
 export interface QueueOptions {

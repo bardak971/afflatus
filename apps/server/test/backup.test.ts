@@ -1,10 +1,12 @@
-import { readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
+import { restoreBackup } from "../src/backup";
+import { migrate, openSqlite } from "../src/db";
 import { crc32, zipNames } from "../src/zip";
 import { ZipStream } from "../src/zipStream";
 import { get, makeApp, makeFake, until, type TestApp } from "./helpers";
@@ -58,6 +60,52 @@ describe("a backup", () => {
     abort.abort();
     // the producer ends by itself (a write fails once the reader is gone) and the temporary copy of the database is removed
     await until(() => copies().length <= before.length, 5000);
+  });
+});
+
+describe("a backup restored", () => {
+  it("unpacks into an empty data folder: the database and every file come back as they were", async () => {
+    const picture = (await t.app.inject({ method: "POST", url: "/api/assets?name=keep.png", headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(64, 96, [200, 120, 40], [40, 60, 160])) })).json() as { id: string };
+    const row = await t.db.selectFrom("assets").selectAll().where("id", "=", picture.id).executeTakeFirstOrThrow();
+    const zip = join(tmpdir(), `afflatus-restore-${picture.id}.zip`);
+    writeFileSync(zip, (await get(t.app, "/api/backup.zip")).rawPayload);
+    const into = mkdtempSync(join(tmpdir(), "afflatus-restored-"));
+    try {
+      const written = await restoreBackup(zip, into);
+      expect(written).toBe(zipNames(readFileSync(zip)).length);
+      // the database opens, and has the library
+      const db = openSqlite(join(into, "afflatus.db"));
+      await migrate(db);
+      expect((await db.selectFrom("assets").select(["id", "file_key"]).execute())).toEqual([{ id: picture.id, file_key: row.file_key }]);
+      await db.destroy();
+      // the file is where its key says, under files/, byte for byte
+      expect(readFileSync(join(into, "files", row.file_key)).equals(Buffer.from(await t.services.storage.get(row.file_key)))).toBe(true);
+      // a folder that holds anything already is left alone
+      await expect(restoreBackup(zip, into)).rejects.toThrow(/not empty/);
+    } finally {
+      rmSync(into, { recursive: true, force: true });
+      rmSync(zip, { force: true });
+    }
+  });
+
+  it("is made all the same when a file goes while it is being made", async () => {
+    // a file listed, then erased before its turn (the sweep at work): the backup goes on without it
+    writeFileSync(join(t.dir, "a-first.bin"), Buffer.alloc(8 * 1024 * 1024, 1));
+    writeFileSync(join(t.dir, "b-gone.bin"), Buffer.alloc(16, 2));
+    await t.app.listen({ host: "127.0.0.1", port: 0 });
+    const port = (t.app.server.address() as AddressInfo).port;
+    const res = await fetch(`http://127.0.0.1:${port}/api/backup.zip`);
+    const reader = res.body!.getReader();
+    const chunks: Uint8Array[] = [(await reader.read()).value!];
+    rmSync(join(t.dir, "b-gone.bin"));
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const names = zipNames(Buffer.concat(chunks));
+    expect(names).toContain("files/a-first.bin");
+    expect(names).not.toContain("files/b-gone.bin");
   });
 });
 

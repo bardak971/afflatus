@@ -45,6 +45,8 @@ export interface UpdateReport {
   hashesLeft: number;
   checkedAt: string | null;
   lookups: boolean;
+  /** Why the last check did not finish (ComfyUI away, the database): null once one has. */
+  error: string | null;
 }
 
 type ApiVersionBrief = { id: number; name?: string; modelId?: number; createdAt?: string; publishedAt?: string; model?: { name?: string }; files?: Array<{ name?: string; primary?: boolean }> };
@@ -70,6 +72,8 @@ function sha256Of(path: string): Promise<string> {
 export class Updates {
   /** The last full check, in memory: the table has the rows, this has the counts. */
   last: UpdateReport | null = null;
+  /** Why the last check did not finish, for the report; null once one has. */
+  private failed: string | null = null;
   private running: Promise<UpdateReport> | null = null;
 
   constructor(private readonly s: Services) {}
@@ -83,15 +87,24 @@ export class Updates {
       hashesLeft: this.last?.hashesLeft ?? 0,
       checkedAt: rows.map((r) => r.checked_at).sort().at(-1) ?? null,
       lookups: settings.civitaiLookups,
+      error: this.failed,
     };
   }
 
-  /** One check; a second ask while one runs gets the same one. */
+  /** One check; a second ask while one runs gets the same one. Its failure is kept for the report as well as thrown. */
   check(): Promise<UpdateReport> {
     if (!this.running) {
-      this.running = this.run().finally(() => {
-        this.running = null;
-      });
+      this.running = this.run()
+        .then((r) => {
+          this.failed = null;
+          return { ...r, error: null };
+        }, (err: Error) => {
+          this.failed = err.message.slice(0, 300);
+          throw err;
+        })
+        .finally(() => {
+          this.running = null;
+        });
     }
     return this.running;
   }
@@ -102,37 +115,50 @@ export class Updates {
     if (!settings.civitaiLookups || !settings.updateChecks) return;
     const last = (await this.s.db.selectFrom("model_updates").select("checked_at").orderBy("checked_at", "desc").limit(1).executeTakeFirst())?.checked_at;
     if (last && Date.now() - Date.parse(last) < 24 * 60 * 60_000) return;
-    await this.check().catch((err) => console.warn("[updates]", (err as Error).message));
+    // logged here, and said on the report (`error`) until a check goes through
+    await this.check().catch((err) => console.warn("[updates] the daily check failed:", (err as Error).message));
   }
 
+  /** A check: each file matched to its Civitai version, then the newest version of each model fetched and written beside its files. */
   private async run(): Promise<UpdateReport> {
     const db = this.s.db;
     const settings = await readSettings(db);
-    if (!settings.civitaiLookups) return { items: [], unmatched: 0, hashesLeft: 0, checkedAt: null, lookups: false };
+    if (!settings.civitaiLookups) return { items: [], unmatched: 0, hashesLeft: 0, checkedAt: null, lookups: false, error: null };
+    const at = now();
+    const { unmatched, hashesLeft } = await this.match(settings, at);
+    // one model page per model: its newest version against each file's
+    const rows = await db.selectFrom("model_updates").selectAll().execute();
+    for (const modelId of new Set(rows.map((r) => r.model_id))) {
+      const m = await civitaiGet<ApiModelBrief>(`/api/v1/models/${modelId}`, settings.civitaiKey).catch(() => null);
+      if (m?.modelVersions?.length) await this.writeNewest(m, rows.filter((x) => x.model_id === modelId), at);
+    }
+    const report = await this.report();
+    this.last = { ...report, unmatched, hashesLeft };
+    return this.last;
+  }
+
+  /**
+   * Each model file of this ComfyUI matched to the Civitai version it is, once: by the page tied to it, else by its
+   * hash (the trainer's fingerprint, else the SHA-256 of the file, computed for a few files on this disk per check).
+   */
+  private async match(settings: Awaited<ReturnType<typeof readSettings>>, at: string): Promise<{ unmatched: number; hashesLeft: number }> {
+    const db = this.s.db;
     const comfy = await this.s.comfy();
     const key = settings.civitaiKey;
-    const at = now();
     let unmatched = 0;
     let hashesLeft = 0;
     let hashed = 0;
-    /** version id → the files that are it */
-    const byVersion = new Map<number, Array<{ folder: string; file: string }>>();
-
     for (const folder of UPDATE_FOLDERS) {
       const files = (await comfy.client.models(folder).catch(() => [] as string[])).filter((f) => /\.safetensors$/i.test(f));
       if (!files.length) continue;
       const infoRows = await db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
-      const known = await db.selectFrom("model_updates").select(["name", "version_id"]).where("folder", "=", folder).execute();
+      const known = await db.selectFrom("model_updates").select(["name"]).where("folder", "=", folder).execute();
       const pages = await db.selectFrom("model_pages").select(["name", "url"]).where("folder", "=", folder).execute();
       const dirs = await modelDirs(settings.comfyDir, folder);
       for (const file of files) {
         const name = fileName(file);
         // already matched once: its version does not change
-        const was = known.find((k) => k.name === name);
-        if (was) {
-          byVersion.set(was.version_id, [...(byVersion.get(was.version_id) ?? []), { folder, file }]);
-          continue;
-        }
+        if (known.some((k) => k.name === name)) continue;
         const infoRow = infoRows.find((r) => r.file === file) ?? infoRows.find((r) => fileName(r.file) === name);
         const info: ModelInfo & { sha256?: string } = infoRow ? JSON.parse(infoRow.info) : {};
         // the page the user or a lookup already tied to the file names the version
@@ -152,6 +178,8 @@ export class Updates {
                 hash = await sha256Of(path).catch(() => undefined);
                 if (hash && infoRow) {
                   await db.updateTable("model_info").set({ info: JSON.stringify({ ...info, sha256: hash }) }).where("folder", "=", folder).where("file", "=", infoRow.file).execute();
+                  // what was read off the files changed: whoever keeps it reads it again
+                  this.s.queue.events.emit("models");
                 }
               }
             }
@@ -170,40 +198,33 @@ export class Updates {
           })
           .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ file, model_id: version!.modelId!, version_id: version!.id, version_name: version!.name ?? "", checked_at: at }))
           .execute();
-        byVersion.set(version.id, [...(byVersion.get(version.id) ?? []), { folder, file }]);
       }
     }
+    return { unmatched, hashesLeft };
+  }
 
-    // one model page per model: its newest version against each file's
-    const rows = await db.selectFrom("model_updates").selectAll().execute();
-    const models = [...new Set(rows.map((r) => r.model_id))];
-    for (const modelId of models) {
-      const m = await civitaiGet<ApiModelBrief>(`/api/v1/models/${modelId}`, key).catch(() => null);
-      if (!m?.modelVersions?.length) continue;
-      // Civitai lists versions newest first
-      const versions = [...m.modelVersions].sort((a, b) => Date.parse(b.publishedAt ?? b.createdAt ?? "0") - Date.parse(a.publishedAt ?? a.createdAt ?? "0"));
-      for (const r of rows.filter((x) => x.model_id === modelId)) {
-        const mine = versions.findIndex((v) => v.id === r.version_id);
-        // the versions published after the one here; among them, the one of the same precision when there is one (an
-        // int8 file is told about the next int8, not about an int4 sibling); a sibling that only differs by precision is no update
-        const after = versions.slice(0, mine < 0 ? versions.length : mine).filter((v) => v.id !== r.version_id);
-        const latest = after.find((v) => precisionOf(v.name ?? "") === precisionOf(r.version_name)) ?? after[0];
-        const newer = Boolean(latest) && sansPrecision(latest!.name ?? "") !== sansPrecision(r.version_name);
-        const primary = latest?.files?.find((f) => f.primary) ?? latest?.files?.[0];
-        await db
-          .updateTable("model_updates")
-          .set({
-            model_name: m.name, checked_at: at,
-            latest_id: newer ? latest!.id : null, latest_name: newer ? (latest!.name ?? "") : null,
-            latest_at: newer ? (latest!.publishedAt ?? latest!.createdAt ?? null) : null, latest_file: newer ? (primary?.name ?? null) : null,
-          })
-          .where("folder", "=", r.folder).where("name", "=", r.name)
-          .execute();
-      }
+  /** A model's newest version, written on each of its files' rows when it is newer than the file (and not only another precision of it). */
+  private async writeNewest(m: ApiModelBrief, rows: Array<{ folder: string; name: string; version_id: number; version_name: string }>, at: string): Promise<void> {
+    // Civitai lists versions newest first
+    const versions = [...(m.modelVersions ?? [])].sort((a, b) => Date.parse(b.publishedAt ?? b.createdAt ?? "0") - Date.parse(a.publishedAt ?? a.createdAt ?? "0"));
+    for (const r of rows) {
+      const mine = versions.findIndex((v) => v.id === r.version_id);
+      // the versions published after the one here; among them, the one of the same precision when there is one (an
+      // int8 file is told about the next int8, not about an int4 sibling); a sibling that only differs by precision is no update
+      const after = versions.slice(0, mine < 0 ? versions.length : mine).filter((v) => v.id !== r.version_id);
+      const latest = after.find((v) => precisionOf(v.name ?? "") === precisionOf(r.version_name)) ?? after[0];
+      const newer = Boolean(latest) && sansPrecision(latest!.name ?? "") !== sansPrecision(r.version_name);
+      const primary = latest?.files?.find((f) => f.primary) ?? latest?.files?.[0];
+      await this.s.db
+        .updateTable("model_updates")
+        .set({
+          model_name: m.name, checked_at: at,
+          latest_id: newer ? latest!.id : null, latest_name: newer ? (latest!.name ?? "") : null,
+          latest_at: newer ? (latest!.publishedAt ?? latest!.createdAt ?? null) : null, latest_file: newer ? (primary?.name ?? null) : null,
+        })
+        .where("folder", "=", r.folder).where("name", "=", r.name)
+        .execute();
     }
-    const report = await this.report();
-    this.last = { ...report, unmatched, hashesLeft };
-    return this.last;
   }
 }
 
@@ -235,9 +256,10 @@ export function registerModelUpdates(app: FastifyInstance, s: Services, updates:
   /** Check now. Hashes a few more files each time; asks Civitai once per model. */
   app.post("/api/models/updates/check", async () => updates.check());
   /** A file's row forgotten: it is matched again at the next check (after the user replaced it, say). */
-  app.delete<{ Params: { folder: string } }>("/api/models/updates/:folder", async (req) => {
+  app.delete("/api/models/updates/:folder", async (req) => {
+    const { folder } = z.object({ folder: z.enum(UPDATE_FOLDERS) }).parse(req.params);
     const { file } = z.object({ file: z.string().min(1).max(400) }).parse(req.query);
-    await s.db.deleteFrom("model_updates").where("folder", "=", req.params.folder).where("name", "=", fileName(file)).execute();
+    await s.db.deleteFrom("model_updates").where("folder", "=", folder).where("name", "=", fileName(file)).execute();
     return { ok: true };
   });
 }

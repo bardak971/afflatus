@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { hasWildcards, modelOf, secondsOf, type Family, type InputSpec, type LoraValue, type Recipe } from "@afflatus/core";
-import { emptyLook, lookSchema, type Look } from "./entities";
+import { hasWildcards, type Family, type InputSpec, type Recipe } from "@afflatus/core";
+import { lookSchema } from "./entities";
+import { httpError } from "./errors";
 import type { Services } from "./services";
-import { madeIn, type Step } from "./provenance";
+import { designerContext } from "./designerContext";
 import { instructionsInUse, llmInUse, readSettings, type Llm } from "./settings";
 import { cleanTags } from "./tags";
 import { checkOutput, type OutputCheck } from "./outputChecks";
@@ -39,6 +40,11 @@ function whyNoAnswer(err: unknown): string {
 
 export class DesignerError extends Error {
   statusCode = 400;
+}
+
+/** The language model failed us (no answer, a refusal, nothing usable): the server in front of it answers 502, not the asker's 400. */
+export class UpstreamError extends DesignerError {
+  override statusCode = 502;
 }
 
 /**
@@ -104,9 +110,9 @@ export async function ask(cfg: Llm | undefined, messages: Message[], opts: { tem
       res = await send();
     }
   } catch (err) {
-    throw new DesignerError(`The language model did not answer at ${cfg.baseUrl}: ${whyNoAnswer(err)}`);
+    throw new UpstreamError(`The language model did not answer at ${cfg.baseUrl}: ${whyNoAnswer(err)}`);
   }
-  if (!res.ok) throw new DesignerError(`The language model refused (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}`);
+  if (!res.ok) throw new UpstreamError(`The language model refused (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}`);
   const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string; reasoning?: string }; finish_reason?: string }> };
   const message = data.choices?.[0]?.message;
   const raw = message?.content ?? "";
@@ -114,7 +120,7 @@ export async function ask(cfg: Llm | undefined, messages: Message[], opts: { tem
   // a model that thinks before it answers may leave its thinking in the answer: it is not part of it
   const said = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*<\/think>/i, "").trim();
   if (!said && data.choices?.[0]?.finish_reason === "length") {
-    throw new DesignerError(`The language model used its whole answer (${opts.maxTokens ?? cfg.maxOutputTokens} tokens) before it wrote anything, as a model that thinks first can. Raise "Max output tokens" for it in Settings.`);
+    throw new UpstreamError(`The language model used its whole answer (${opts.maxTokens ?? cfg.maxOutputTokens} tokens) before it wrote anything, as a model that thinks first can. Raise "Max output tokens" for it in Settings.`);
   }
   return { said, thought, ms: Date.now() - started };
 }
@@ -144,7 +150,7 @@ export function guidedFamily(family: Family | undefined, settings: { designerGui
 }
 
 /** The text boxes of a recipe: what the designer may write in. */
-const boxesOf = (recipe: Recipe<any>) => (recipe.inputs as InputSpec[]).filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt");
+export const boxesOf = (recipe: Recipe<any>) => (recipe.inputs as InputSpec[]).filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt");
 
 export interface DesignerContext {
   /** What each text box holds now (input id → text). */
@@ -335,7 +341,7 @@ export function parseReply(raw: string, recipe: Recipe<any>, values: Record<stri
     // it only talked: said so, or wrote plain sentences without the labels
     if (/answer/.test(kindLine) && note) return { kind: "answer", note, changes: {}, question: "", options, clips: [] };
     if (!Object.keys(l).length && raw.trim()) return { kind: "answer", note: raw.trim().slice(0, 4000), changes: {}, question: "", options: [], clips: [] };
-    if (!note) throw new DesignerError("The language model returned nothing usable. Try saying it another way.");
+    if (!note) throw new UpstreamError("The language model returned nothing usable. Try saying it another way.");
   }
   return { kind: "proposal", note, changes, question: "", options, clips: [] };
 }
@@ -410,6 +416,32 @@ const body = z.strictObject({
   instruction: z.string().max(40).optional(),
 });
 
+/**
+ * The language model's reply to one turn, held against what it says it did. A claim with no text, or a
+ * fragment in place of the whole text, is asked for again once: models that slip usually put it right
+ * when told. What is still wrong after that is marked on the reply (empty, short, a repeat of the clip
+ * before), with the raw answer to look at.
+ */
+async function checkedReply(llm: Llm | undefined, sent: Message[], recipe: Recipe<any>, values: Record<string, string>, said: string, previous: string | undefined): Promise<DesignerReply> {
+  const raw = await chat(llm, sent);
+  let reply = parseReply(raw, recipe, values);
+  const first = troubleWith(reply, values, said, previous);
+  if (first) {
+    const again = await chat(llm, [...sent, { role: "assistant", content: raw }, { role: "user", content: nudge(first, recipe) }])
+      .then((r) => parseReply(r, recipe, values))
+      .catch(() => null);
+    const second = again && troubleWith(again, values, said, previous);
+    if (again && !second) reply = { ...again, retried: true };
+    else if (again && second?.kind === "repeat") reply = { ...again, retried: true, repeats: true, raw: raw.slice(0, 6000) };
+    else if (first.kind === "repeat" && (!again || second?.kind === "empty")) reply = { ...reply, repeats: true, raw: raw.slice(0, 6000) };
+    else if (again && second?.kind === "short") reply = { ...again, retried: true, short: second.parts, raw: raw.slice(0, 6000) };
+    else if (first.kind === "short") reply = { ...reply, short: first.parts, raw: raw.slice(0, 6000) };
+    // twice nothing: it is shown as what it is, talk with no text behind it
+    else reply = { ...reply, kind: "answer", note: again?.note || reply.note, options: again?.options.length ? again.options : reply.options, empty: true, raw: raw.slice(0, 6000) };
+  }
+  return reply;
+}
+
 export function registerDesigner(app: FastifyInstance, s: Services): void {
   const recipeOf = (id: string) => {
     const recipe = s.registry.recipe(id);
@@ -417,115 +449,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     return recipe;
   };
 
-  /** Who is in it, with their words in the form the recipe's main text is written in. */
-  async function castOf(recipe: Recipe<any>, look: Look | null | undefined) {
-    if (emptyLook(look)) return [];
-    const rows = await s.db.selectFrom("entities").selectAll().where("id", "in", look!.cast.map((c) => c.id)).execute();
-    const tags = boxesOf(recipe).find((b) => !b.optional)?.style === "tags";
-    return look!.cast.flatMap((member) => {
-      const row = rows.find((r) => r.id === member.id);
-      if (!row) return [];
-      const d = JSON.parse(row.def) as { tags?: string; sentence?: string; outfits?: Array<{ id: string; tags: string; sentence: string }> };
-      const worn = d.outfits?.find((o) => o.id === member.outfit);
-      return [{ name: row.name, words: [tags ? d.tags : d.sentence, tags ? worn?.tags : worn?.sentence].filter(Boolean).join(tags ? ", " : " ") }];
-    });
-  }
-
-  /** The picture a form opens on, small, as something a language model that reads pictures can be shown. */
-  async function pictureOf(recipe: Recipe<any>, values: Record<string, unknown>): Promise<string | null> {
-    const spec = (recipe.inputs as InputSpec[]).find((i) => i.type === "image" && (i.role === "start" || i.role === "source"));
-    const id = spec ? values[spec.id] : undefined;
-    if (typeof id !== "string") return null;
-    const asset = await s.db.selectFrom("assets").select(["thumb_key", "file_key", "mime", "kind"]).where("id", "=", id).executeTakeFirst();
-    if (!asset || asset.kind !== "image") return null;
-    const bytes = await s.storage.get(asset.thumb_key ?? asset.file_key).catch(() => null);
-    return bytes ? `data:${asset.thumb_key ? "image/webp" : asset.mime};base64,${Buffer.from(bytes).toString("base64")}` : null;
-  }
-
-  /** What a LoRA is called up by: the user's own words for it, else what its file says, else what its page gave. */
-  async function triggersOf(files: string[]): Promise<(file: string) => string | undefined> {
-    if (!files.length) return () => undefined;
-    const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
-    const info = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", "loras").where("file", "in", files).execute();
-    const words = await s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", "loras").where("name", "in", files.map(nameOf)).execute();
-    return (file) =>
-      words.find((w) => w.name === nameOf(file))?.own || (JSON.parse(info.find((x) => x.file === file)?.info ?? "{}") as { trigger?: string }).trigger || words.find((w) => w.name === nameOf(file))?.found || undefined;
-  }
-
-  /** The pictures of a form that have a story: the one it opens on, ends on or starts from. */
-  const PICTURES: Record<string, string> = { start: "The picture that is the first frame", end: "The picture that is the last frame", source: "The picture it starts from" };
-
-  /**
-   * How the pictures of a form were made: for each picture the form starts from, opens on or ends on
-   * that Afflatus made itself, every step back to its first prompt.
-   */
-  async function madeFrom(recipe: Recipe<any>, values: Record<string, unknown>): Promise<NonNullable<DesignerContext["madeFrom"]>> {
-    const out: NonNullable<DesignerContext["madeFrom"]> = [];
-    const told = async (what: string, id: string) => {
-      const steps = await madeIn(s, id);
-      // a trail with no text anywhere says nothing about what it shows
-      if (!steps.some((x) => x.text)) return;
-      const trigger = await triggersOf(steps.flatMap((x) => x.loras.map((l) => l.file)));
-      out.push({
-        what,
-        steps: steps.map((x) => ({
-          title: x.title, with: x.family, text: x.text, more: x.more,
-          loras: x.loras.map((l) => ({ name: (l.file.split(/[\\/]/).pop() ?? l.file).replace(/\.[a-z]+$/i, ""), trigger: trigger(l.file) })),
-        })),
-      });
-    };
-    for (const spec of recipe.inputs as InputSpec[]) {
-      const value = values[spec.id];
-      if (spec.type === "image" && spec.role && spec.role in PICTURES && typeof value === "string") await told(PICTURES[spec.role]!, value);
-      // the clip it carries on from: its whole story, the clips before it and the picture it opened on included
-      const from = spec.type === "clip" && spec.role === "previous" ? (value as { asset?: string } | undefined)?.asset : undefined;
-      if (typeof from === "string") await told("The clip this one carries on from", from);
-    }
-    return out;
-  }
-
-  /** What the clip a form carries on from says happens, when Afflatus made that clip: its own text, the latest step of its story. */
-  async function carriedOn(recipe: Recipe<any>, values: Record<string, unknown>): Promise<string | undefined> {
-    const spec = (recipe.inputs as InputSpec[]).find((i) => i.type === "clip" && i.role === "previous");
-    const from = spec ? (values[spec.id] as { asset?: string } | undefined)?.asset : undefined;
-    if (typeof from !== "string") return undefined;
-    const steps = await madeIn(s, from);
-    return [...steps].reverse().find((x) => x.kind === "video" && x.text)?.text;
-  }
-
-  async function context(recipe: Recipe<any>, values: Record<string, unknown>, extra: { previous?: string; story?: DesignerContext["story"]; look?: Look | null; mood?: string }, sees: boolean): Promise<DesignerContext> {
-    const specs = recipe.inputs as InputSpec[];
-    const text: Record<string, string> = {};
-    for (const b of boxesOf(recipe)) text[b.id] = typeof values[b.id] === "string" ? (values[b.id] as string) : "";
-    const has = (role: "start" | "end") => specs.some((i) => i.type === "image" && i.role === role && typeof values[i.id] === "string");
-    const loraSpec = specs.find((i) => i.type === "loras");
-    const loras = loraSpec && Array.isArray(values[loraSpec.id]) ? (values[loraSpec.id] as LoraValue[]) : [];
-    const info = loras.length ? await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", "loras").where("file", "in", loras.map((l) => l.file)).execute() : [];
-    // the user's own words for a LoRA come first, then what its file says, then what its page gave
-    const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
-    const words = loras.length ? await s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", "loras").where("name", "in", loras.map((l) => nameOf(l.file))).execute() : [];
-    const ticked = extra.look?.snippets?.length ? await s.db.selectFrom("entities").select(["id", "name", "def"]).where("kind", "=", "snippet").where("id", "in", extra.look.snippets).execute() : [];
-    return {
-      values: text,
-      seconds: secondsOf(specs, values),
-      // on a timeline the clip before is told by the page; in Studio, a clip that carries on from a video Afflatus made knows that video's text
-      previous: extra.previous ?? (await carriedOn(recipe, values)),
-      story: extra.story,
-      opensOnPicture: has("start"),
-      endsOnPicture: has("end"),
-      madeFrom: await madeFrom(recipe, values),
-      cast: await castOf(recipe, extra.look),
-      mood: extra.mood,
-      loras: loras.filter((l) => l.weight !== 0).map((l) => ({
-        name: (l.file.split(/[\\/]/).pop() ?? l.file).replace(/\.[a-z]+$/i, ""), weight: l.weight,
-        trigger: words.find((w) => w.name === nameOf(l.file))?.own || (JSON.parse(info.find((x) => x.file === l.file)?.info ?? "{}") as { trigger?: string }).trigger || words.find((w) => w.name === nameOf(l.file))?.found || undefined,
-      })),
-      snippets: ticked.map((r) => ({ name: r.name, text: String((JSON.parse(r.def) as { text?: string }).text ?? "") })).filter((x) => x.text.trim()),
-      speaks: Boolean(recipe.traits?.sound),
-      seesPicture: sees,
-      model: modelOf(specs, values),
-    };
-  }
+  const { pictureOf, madeFrom, carriedOn, context } = designerContext(s);
 
   /** One turn of the conversation about a form. */
   app.post("/api/designer", async (req) => {
@@ -545,25 +469,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     if (picture) history[history.length - 1] = { role: "user", content: [{ type: "text", text: b.messages.at(-1)!.content }, { type: "image_url", image_url: { url: picture } }] };
     // as much of the conversation as the model can read, the latest first
     const sent: Message[] = [{ role: "system", content: system }, ...(llm ? fitting(llm, system, history) : history)];
-    const raw = await chat(llm, sent);
-    let reply = parseReply(raw, recipe, ctx.values);
-    // What it says it did is held against what it sent. A claim with no text, or a fragment in place of
-    // the whole text, is asked for again once: models that slip usually put it right when told.
-    const said = b.messages.at(-1)!.content;
-    const first = troubleWith(reply, ctx.values, said, ctx.previous);
-    if (first) {
-      const again = await chat(llm, [...sent, { role: "assistant", content: raw }, { role: "user", content: nudge(first, recipe) }])
-        .then((r) => parseReply(r, recipe, ctx.values))
-        .catch(() => null);
-      const second = again && troubleWith(again, ctx.values, said, ctx.previous);
-      if (again && !second) reply = { ...again, retried: true };
-      else if (again && second?.kind === "repeat") reply = { ...again, retried: true, repeats: true, raw: raw.slice(0, 6000) };
-      else if (first.kind === "repeat" && (!again || second?.kind === "empty")) reply = { ...reply, repeats: true, raw: raw.slice(0, 6000) };
-      else if (again && second?.kind === "short") reply = { ...again, retried: true, short: second.parts, raw: raw.slice(0, 6000) };
-      else if (first.kind === "short") reply = { ...reply, short: first.parts, raw: raw.slice(0, 6000) };
-      // twice nothing: it is shown as what it is, talk with no text behind it
-      else reply = { ...reply, kind: "answer", note: again?.note || reply.note, options: again?.options.length ? again.options : reply.options, empty: true, raw: raw.slice(0, 6000) };
-    }
+    let reply = await checkedReply(llm, sent, recipe, ctx.values, b.messages.at(-1)!.content, ctx.previous);
     // tags written for an anime model are put right against danbooru's list: other names and one-letter typos
     if (settings.tagCheck) {
       const fixed: Array<{ from: string; to: string }> = [];
@@ -586,11 +492,6 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     return { ...reply, sawPicture: Boolean(picture) };
   });
 
-  /**
-   * What the designer will know about a form before anything is said: the pictures whose story it has
-   * (and how many steps back it goes), and whether it knows the clip the form carries on from. The panel
-   * says so, and offers ways to start that use it.
-   */
   /** Every family's prompting guide: the built-in text, and the user's own when one is written in Settings. */
   app.get("/api/designer/guides", async () => {
     const settings = await readSettings(s.db);
@@ -612,6 +513,11 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     return { system: systemPrompt(recipe, guidedFamily(s.registry.family(recipe.family), settings), b.mode, ctx, undefined, own), sees };
   });
 
+  /**
+   * What the designer will know about a form before anything is said: the pictures whose story it has
+   * (and how many steps back it goes), and whether it knows the clip the form carries on from. The panel
+   * says so, and offers ways to start that use it.
+   */
   app.post("/api/designer/knows", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1), values: z.record(z.string(), z.unknown()).default({}) }).parse(req.body);
     const recipe = recipeOf(b.recipe);
@@ -643,7 +549,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
       if (reply.kind === "plan") return { note: reply.note, clips: reply.clips.slice(0, b.clips) };
       if (reply.kind === "question") return { note: reply.question, clips: [] };
     }
-    throw new DesignerError("The language model did not return a usable plan. Try again, or say it another way.");
+    throw new UpstreamError("The language model did not return a usable plan. Try again, or say it another way.");
   });
 
   /**
@@ -683,7 +589,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
       if (reply.kind === "proposal" && Object.keys(reply.changes).length) return { changes: reply.changes, note: reply.note, was: ctx.values };
       if (reply.kind === "question") return { changes: {}, note: reply.question, was: ctx.values };
     }
-    throw new DesignerError("The language model did not write the clip. Try again, or write it yourself.");
+    throw new UpstreamError("The language model did not write the clip. Try again, or write it yourself.");
   });
 
   /**
@@ -695,6 +601,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     const { id } = z.strictObject({ id: z.string().optional() }).parse(req.body ?? {});
     const settings = await readSettings(s.db);
     const llm = id ? settings.llms.find((l) => l.id === id) : llmInUse(settings);
+    if (id && !llm) throw httpError("there is no LLM with this id in Settings", 404);
     // room for a model that thinks before it says its one word
     const room = { maxTokens: Math.min(llm?.maxOutputTokens ?? 400, 400), temperature: 0 };
     const first = await ask(llm, [{ role: "user", content: "Answer with the single word: ready" }], room);

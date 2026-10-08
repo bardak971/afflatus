@@ -3,8 +3,8 @@ import type { Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
-import { newId, now, OWNER, type Tables } from "./db";
-import { lookSchema, type Look } from "./entities";
+import { newId, now, OWNER, type Db, type Tables } from "./db";
+import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
 
 /**
@@ -55,9 +55,23 @@ function titleOf(recipe: Recipe<any> | undefined, all: Record<string, Record<str
 /** Nothing was done in it: no value set in any form, nobody in it, no conversation, no name. */
 function holdsNothing(d: Tables["drafts"]): boolean {
   if (d.name || (d.chat && d.chat !== "[]")) return false;
-  const look = d.look ? (JSON.parse(d.look) as Look) : null;
-  if (look && (look.cast.length || look.style || look.snippets?.length)) return false;
+  if (!emptyLook(d.look ? (JSON.parse(d.look) as Look) : null)) return false;
   return Object.values(JSON.parse(d.forms) as Record<string, Record<string, unknown>>).every((form) => Object.keys(form).length === 0);
+}
+
+/**
+ * A draft nothing was done in, left alone this long, is thrown away: a "New draft" that was left at once.
+ * By its age alone, on the server: a draft just opened in another tab or on another device is never taken.
+ */
+export const IDLE_DRAFT_MS = 30 * 60_000;
+
+/** The drafts nothing was done in and nobody touched for `IDLE_DRAFT_MS`, deleted. */
+export async function sweepIdleDrafts(db: Db, at = Date.now()): Promise<number> {
+  const before = new Date(at - IDLE_DRAFT_MS).toISOString();
+  const old = await db.selectFrom("drafts").selectAll().where("target", "=", "new").where("name", "is", null).where("updated_at", "<", before).execute();
+  const idle = old.filter(holdsNothing).map((d) => d.id);
+  if (idle.length) await db.deleteFrom("drafts").where("id", "in", idle).execute();
+  return idle.length;
 }
 
 const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
@@ -79,6 +93,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
   /** `project`: only the drafts of that project; "none": the Inbox; left out: all. */
   app.get("/api/drafts", async (req) => {
     const { project } = z.object({ project: z.string().optional() }).parse(req.query);
+    await sweepIdleDrafts(s.db);
     let q = s.db.selectFrom("drafts").selectAll();
     if (project === "none") q = q.where("project_id", "is", null);
     else if (project) q = q.where("project_id", "=", project);

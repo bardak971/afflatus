@@ -28,13 +28,10 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
   s.queue.events.on("progress", () => {
     if (Date.now() - lastProgress < PROGRESS_EVERY_MS) return;
     lastProgress = Date.now();
-    // with the running job's figures: the page changes its queue in place and asks for nothing (live.ts)
+    // with the running job's figures (from memory: no query per event): the page changes its queue in place and asks for nothing (live.ts)
     void s.queue
-      .status()
-      .then((st) => {
-        const r = st.running;
-        send("progress", r ? { id: r.id, progress: r.progress, eta: r.eta, phase: r.phase, step: r.step, steps: r.steps, previewSeq: r.previewSeq, stages: r.stages, previewMime: r.previewMime ?? null, spilling: r.spilling } : undefined);
-      })
+      .progress()
+      .then((r) => send("progress", r ? { id: r.id, progress: r.progress, eta: r.eta, phase: r.phase, step: r.step, steps: r.steps, previewSeq: r.previewSeq, stages: r.stages, previewMime: r.previewMime ?? null, spilling: r.spilling } : undefined))
       .catch(() => send("progress"));
   });
 

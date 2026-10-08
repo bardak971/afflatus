@@ -1,4 +1,4 @@
-import type { Selectable } from "kysely";
+import type { Kysely, Selectable } from "kysely";
 import type { Measured } from "@afflatus/comfy";
 import { guess, modelOf, timeKey, type Guess, type Known, type Recipe } from "@afflatus/core";
 import { now, OWNER, type Db, type Tables } from "./db";
@@ -211,11 +211,16 @@ const dayOf = (iso: string) => iso.slice(0, 10);
 
 /**
  * Rows older than `keepDays` become figures per model and day. Only whole days are folded: a day is
- * either all rows or all figures. 0 keeps every row for good. Returns how many rows were folded.
+ * either all rows or all figures. 0 keeps every row for good. Returns how many rows were folded. In one
+ * transaction: a stop half way, or a second fold at the same moment, never counts a row twice.
  */
 export async function fold(db: Db, keepDays: number, when = Date.now()): Promise<number> {
   if (keepDays <= 0) return 0;
   const before = `${dayOf(new Date(when - keepDays * DAY).toISOString())}T00:00:00.000Z`;
+  return db.transaction().execute((tx) => foldBefore(tx, before));
+}
+
+async function foldBefore(db: Kysely<Tables>, before: string): Promise<number> {
   const old = await db.selectFrom("render_stats").selectAll().where("created_at", "<", before).execute();
   if (!old.length) return 0;
   const days = new Map<string, RenderRow[]>();
@@ -319,16 +324,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const first = (await db.selectFrom("render_stats").select((eb) => eb.fn.min("created_at").as("at")).executeTakeFirst())?.at ?? null;
   const firstDay = (await db.selectFrom("render_days").select((eb) => eb.fn.min("day").as("day")).executeTakeFirst())?.day ?? null;
   const since = firstDay ? `${firstDay}T00:00:00.000Z` : first;
-  // the window: a named period ends now; "all" reaches back to the first render; a window is as given
-  const win: Window = typeof period === "string"
-    ? { from: period === "day" ? when - DAY : period === "week" ? when - 7 * DAY : period === "month" ? when - 30 * DAY : Math.min(when - DAY, since ? Date.parse(since) : when - DAY), to: when }
-    : { from: Math.min(period.from, period.to - 60_000), to: Math.min(period.to, when + 60_000) };
-  // the window cut into stretches by its length; days are whole days (UTC), so that a folded day is one stretch
-  const step = stepFor(win.to - win.from);
-  const end = step === DAY ? Date.parse(`${dayOf(new Date(win.to).toISOString())}T00:00:00.000Z`) + DAY : win.to;
-  const count = Math.max(2, Math.min(730, Math.ceil((end - win.from) / step)));
-  const start = end - count * step;
-  const times = Array.from({ length: count }, (_x, i) => start + i * step);
+  const { start, end, step, times } = windowOf(period, since, when);
   const index = (ms: number) => Math.floor((ms - start) / step);
 
   const rows = await db.selectFrom("render_stats").selectAll().where("created_at", ">=", new Date(start).toISOString()).orderBy("created_at", "desc").execute();
@@ -351,8 +347,70 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const count0 = (v: number | null) => v ?? 0;
 
   // the models: everything made with one recipe, and under it each model file
+  const models = modelLines(registry, rows, folded, times, cellAt);
+
+  // what rendered in each stretch, the longest first: for the pointer, and for the lanes
+  const buckets = stretch.map((s) => {
+    const longest = [...s.rows].sort((a, b) => b.total_ms - a.total_ms);
+    return {
+      renders: s.rows.length + sum(s.days.filter((d) => d.recipe === WHOLE_DAY).map((d) => d.cell.renders)),
+      top: longest.slice(0, 8).map((r) => ({ id: r.id, name: nameOf(registry, r.recipe_id), model: r.model, totalMs: r.total_ms, status: r.status, assetId: r.asset_id })),
+    };
+  });
+
+  // ran out of video memory: how many, and the time it cost over what was expected
+  const spills = rows.filter(spilled);
+  const upscale = upscalePaces(registry, rows, stretch.map((x) => x.rows));
+
+  return {
+    period: typeof period === "string" ? period : "window", from: start, to: end, step, times, keepDays, since, buckets,
+    upscale,
+    /** The stretch of time the figures cover: the period, or since the first render when that is later. */
+    spanMs: Math.max(step, Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)),
+    tiles: {
+      done: whole.done, images: whole.images, videos: whole.videos, failed: whole.failed, cancelled: whole.cancelled,
+      videoMs: whole.videoMs, lostMs: whole.lostMs, gpuMs: whole.totalMs, longestMs: whole.longestMs,
+      loadMs: whole.loadMs, loads: whole.cold, loadUsualMs: whole.loadUsualMs,
+      waitedUsualMs: whole.waitedUsualMs, waitedSlowMs: whole.waitedSlowMs, off: whole.off,
+      vramPeak: whole.vramPeak, vramUsual: whole.vramUsual, heatPeak: whole.heatPeak, heatUsual: whole.heatUsual,
+      // the tools among the renders (finishes, slow motions), and the runs that ran out of video memory
+      tools: rows.filter((r) => r.recipe_id.startsWith("tool.")).length,
+      spills: spills.length, spillLostMs: sum(spills.map((r) => Math.max(0, r.total_ms - (r.expected_ms ?? 0)))),
+    },
+    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map(count0) },
+    phases: {
+      loading: series((c) => parts(c).loading).map(count0), sampling: series((c) => parts(c).sampling).map(count0),
+      refining: series((c) => parts(c).refining).map(count0), finishing: series((c) => parts(c).finishing).map(count0),
+    },
+    wait: { usual: series((c) => c.waitedUsualMs), slow: series((c) => c.waitedSlowMs) },
+    gpu: { vram: series((c) => c.vramPeak), heat: series((c) => c.heatPeak) },
+    models,
+  };
+}
+export type TimesSummary = Awaited<ReturnType<typeof summary>>;
+
+/**
+ * The window a summary covers: a named period ends now; "all" reaches back to the first render (`since`); a
+ * window is as given. Cut into stretches by its length; days are whole days (UTC), so that a folded day is one stretch.
+ */
+function windowOf(period: Period | Window, since: string | null, when: number): { start: number; end: number; step: number; times: number[] } {
+  const win: Window = typeof period === "string"
+    ? { from: period === "day" ? when - DAY : period === "week" ? when - 7 * DAY : period === "month" ? when - 30 * DAY : Math.min(when - DAY, since ? Date.parse(since) : when - DAY), to: when }
+    : { from: Math.min(period.from, period.to - 60_000), to: Math.min(period.to, when + 60_000) };
+  const step = stepFor(win.to - win.from);
+  const end = step === DAY ? Date.parse(`${dayOf(new Date(win.to).toISOString())}T00:00:00.000Z`) + DAY : win.to;
+  const count = Math.max(2, Math.min(730, Math.ceil((end - win.from) / step)));
+  const start = end - count * step;
+  return { start, end, step, times: Array.from({ length: count }, (_x, i) => start + i * step) };
+}
+
+/** The figures of one stretch of a summary, for everything or for one recipe (and one of its model files). */
+type CellAt = (i: number, of?: { recipe: string; file?: string }) => Cell | null;
+
+/** A summary's line per recipe, the busiest first: its figures per stretch, its usual setting spelled out, and each of its model files. */
+function modelLines(registry: Registry, rows: RenderRow[], folded: Array<Tables["render_days"]>, times: number[], cellAt: CellAt) {
   const recipes = [...new Set([...rows.map((r) => r.recipe_id), ...folded.filter((d) => d.recipe_id !== WHOLE_DAY).map((d) => d.recipe_id)])];
-  const models = recipes.map((recipe) => {
+  return recipes.map((recipe) => {
     const own = rows.filter((r) => r.recipe_id === recipe);
     const cells = times.map((_t, i) => cellAt(i, { recipe }));
     const all = merge(cells.filter((c): c is Cell => c !== null));
@@ -384,29 +442,22 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
       setting: setting ?? null,
       files: [...files].map(([file, name]) => {
         const of = merge(times.map((_t, i) => cellAt(i, { recipe, file })).filter((c): c is Cell => c !== null));
-        return { file, name: name || file, renders: of.renders, stepMs: of.stepMs, step: series((c) => c.stepMs, { recipe, file }) };
+        return { file, name: name || file, renders: of.renders, stepMs: of.stepMs, step: times.map((_t, i) => cellAt(i, { recipe, file })?.stepMs ?? null) };
       }),
     };
   }).sort((a, b) => b.gpuMs - a.gpuMs);
+}
 
-  // what rendered in each stretch, the longest first: for the pointer, and for the lanes
-  const buckets = stretch.map((s) => {
-    const longest = [...s.rows].sort((a, b) => b.total_ms - a.total_ms);
-    return {
-      renders: s.rows.length + sum(s.days.filter((d) => d.recipe === WHOLE_DAY).map((d) => d.cell.renders)),
-      top: longest.slice(0, 8).map((r) => ({ id: r.id, name: nameOf(registry, r.recipe_id), model: r.model, totalMs: r.total_ms, status: r.status, assetId: r.asset_id })),
-    };
-  });
-
-  // ran out of video memory: how many, and the time it cost over what was expected
-  const spills = rows.filter(spilled);
-  // the upscales' pace per stretch: a video route in minutes of work per second of video, a picture tool or a hires pass in
-  // seconds per megapixel made (what a picture's own size does to it taken out)
-  const paceSeries = (pick: (r: RenderRow) => number | null) => times.map((_t, i) => median(real(stretch[i]!.rows.filter((r) => r.status === "done" && !spilled(r)).map(pick))));
+/**
+ * The upscales' pace per stretch (`stretches`: the rows of each): a video route in minutes of work per second of video,
+ * a picture tool or a hires pass in seconds per megapixel made (what a picture's own size does to it taken out).
+ */
+function upscalePaces(registry: Registry, rows: RenderRow[], stretches: RenderRow[][]) {
+  const paceSeries = (pick: (r: RenderRow) => number | null) => stretches.map((own) => median(real(own.filter((r) => r.status === "done" && !spilled(r)).map(pick))));
   const videoRoutes = [...new Set(rows.filter((r) => r.recipe_id.startsWith("tool.") && r.duration_ms).map((r) => r.recipe_id))];
   const pictureTools = [...new Set(rows.filter((r) => r.kind === "image" && /\.sharper$|^tools\.|upscale/i.test(r.recipe_id) && r.width && r.height).map((r) => r.recipe_id))];
   const mp = (r: RenderRow) => (r.width && r.height ? (r.width * r.height) / 1e6 : 0);
-  const upscale = {
+  return {
     video: videoRoutes.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((r) => (r.recipe_id === key && r.duration_ms ? r.total_ms / 60_000 / (r.duration_ms / 1000) : null)) })),
     pictures: [
       ...pictureTools.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((r) => (r.recipe_id === key && mp(r) ? r.total_ms / 1000 / mp(r) : null)) })),
@@ -416,33 +467,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
         : []),
     ],
   };
-
-  return {
-    period: typeof period === "string" ? period : "window", from: start, to: end, step, times, keepDays, since, buckets,
-    upscale,
-    /** The stretch of time the figures cover: the period, or since the first render when that is later. */
-    spanMs: Math.max(step, Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)),
-    tiles: {
-      done: whole.done, images: whole.images, videos: whole.videos, failed: whole.failed, cancelled: whole.cancelled,
-      videoMs: whole.videoMs, lostMs: whole.lostMs, gpuMs: whole.totalMs, longestMs: whole.longestMs,
-      loadMs: whole.loadMs, loads: whole.cold, loadUsualMs: whole.loadUsualMs,
-      waitedUsualMs: whole.waitedUsualMs, waitedSlowMs: whole.waitedSlowMs, off: whole.off,
-      vramPeak: whole.vramPeak, vramUsual: whole.vramUsual, heatPeak: whole.heatPeak, heatUsual: whole.heatUsual,
-      // the tools among the renders (finishes, slow motions), and the runs that ran out of video memory
-      tools: rows.filter((r) => r.recipe_id.startsWith("tool.")).length,
-      spills: spills.length, spillLostMs: sum(spills.map((r) => Math.max(0, r.total_ms - (r.expected_ms ?? 0)))),
-    },
-    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map(count0) },
-    phases: {
-      loading: series((c) => parts(c).loading).map(count0), sampling: series((c) => parts(c).sampling).map(count0),
-      refining: series((c) => parts(c).refining).map(count0), finishing: series((c) => parts(c).finishing).map(count0),
-    },
-    wait: { usual: series((c) => c.waitedUsualMs), slow: series((c) => c.waitedSlowMs) },
-    gpu: { vram: series((c) => c.vramPeak), heat: series((c) => c.heatPeak) },
-    models,
-  };
 }
-export type TimesSummary = Awaited<ReturnType<typeof summary>>;
 
 /** The renders that are still rows, newest first: one page of them. */
 export async function list(db: Db, registry: Registry, opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }) {
@@ -488,4 +513,39 @@ export async function size(db: Db) {
 export async function clear(db: Db): Promise<void> {
   await db.deleteFrom("render_stats").execute();
   await db.deleteFrom("render_days").execute();
+}
+
+// ---------------------------------------------------------------- the record summed up, for /metrics
+
+/** One recipe's record summed up: how its renders ended, their time by phase, the videos made, and how many finished under each of BUCKETS. */
+export interface RecipeSum { done: number; failed: number; cancelled: number; cold: number; total: number; doneTotal: number; load: number; sample: number; refine: number; finish: number; waited: number; video: number; hist: number[] }
+
+/** The whole record summed up by recipe, rows and folded days alike: what only ever grows, as Prometheus counts it (metrics.ts). */
+export async function tallyByRecipe(db: Db): Promise<Map<string, RecipeSum>> {
+  const rows = await db.selectFrom("render_stats").select(["recipe_id", "status", "kind", "total_ms", "load_ms", "sample_ms", "refine_ms", "finish_ms", "waited_ms", "duration_ms", "cold"]).execute();
+  const days = await db.selectFrom("render_days").select(["recipe_id", "figures"]).where("recipe_id", "!=", "*").execute();
+  const by = new Map<string, RecipeSum>();
+  const of = (recipe: string) => {
+    let v = by.get(recipe);
+    if (!v) by.set(recipe, (v = { done: 0, failed: 0, cancelled: 0, cold: 0, total: 0, doneTotal: 0, load: 0, sample: 0, refine: 0, finish: 0, waited: 0, video: 0, hist: BUCKETS.map(() => 0) }));
+    return v;
+  };
+  for (const r of rows) {
+    const v = of(r.recipe_id);
+    v[r.status]++;
+    v.cold += r.cold;
+    v.total += r.total_ms; v.load += r.load_ms; v.sample += r.sample_ms; v.refine += r.refine_ms; v.finish += r.finish_ms; v.waited += r.waited_ms;
+    if (r.status === "done") v.doneTotal += r.total_ms;
+    if (r.status === "done" && r.kind === "video") v.video += r.duration_ms ?? 0;
+    if (r.status === "done") BUCKETS.forEach((le, i) => { if (r.total_ms / 1000 <= le) v.hist[i]!++; });
+  }
+  for (const d of days) {
+    const c = JSON.parse(d.figures) as Cell;
+    const v = of(d.recipe_id);
+    v.done += c.done; v.failed += c.failed; v.cancelled += c.cancelled; v.cold += c.cold;
+    v.total += c.totalMs; v.doneTotal += c.totalMs - c.lostMs; v.load += c.loadMs; v.sample += c.sampleMs; v.refine += c.refineMs; v.finish += c.finishMs; v.video += c.videoMs;
+    v.waited += (c.waitedUsualMs ?? 0) * c.renders;
+    (c.hist ?? []).forEach((n, i) => { if (v.hist[i] !== undefined) v.hist[i] += n; });
+  }
+  return by;
 }

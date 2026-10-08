@@ -1,4 +1,4 @@
-import type { InputSpec, LoraValue, Recipe, ReferenceRole, ReferenceValue } from "@afflatus/core";
+import { LIMITS, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -16,6 +16,16 @@ import type { Services } from "./services";
  * takes: words in the prompt, LoRAs, reference pictures, a voice. A recipe never hears about people.
  */
 
+/** Who is in it and how it looks: people and places (a person with the outfit picked), and one style. */
+export const lookSchema = z.strictObject({
+  cast: z.array(z.strictObject({ id: z.string().min(1), outfit: z.string().nullable().optional() })).max(LIMITS.cast).default([]),
+  style: z.string().nullable().optional(),
+  /** Snippets that are ticked: their text is added after what is written. */
+  snippets: z.array(z.string().min(1)).max(LIMITS.snippets).default([]),
+});
+export type Look = z.infer<typeof lookSchema>;
+export const emptyLook = (look: Look | null | undefined) => !look || (!look.cast.length && !look.style && !look.snippets?.length);
+
 const lora = z.strictObject({ file: z.string().min(1), weight: z.number().min(-4).max(4) });
 const outfit = z.strictObject({
   id: z.string().min(1),
@@ -27,16 +37,16 @@ const outfit = z.strictObject({
 });
 const defs = {
   person: z.strictObject({
-    pictures: z.array(z.string()).max(9).default([]),
+    pictures: z.array(z.string()).max(LIMITS.pictures).default([]),
     voice: z.string().nullable().default(null),
     tags: z.string().max(4000).default(""),
     sentence: z.string().max(4000).default(""),
     /** Per model family: the LoRA of this person, its strength and the word that calls it up. */
     models: z.record(z.string(), z.strictObject({ lora: z.string().nullable().default(null), weight: z.number().min(-4).max(4).default(0.8), trigger: z.string().max(200).default("") })).default({}),
-    outfits: z.array(outfit).max(30).default([]),
+    outfits: z.array(outfit).max(LIMITS.outfits).default([]),
   }),
   place: z.strictObject({
-    pictures: z.array(z.string()).max(9).default([]),
+    pictures: z.array(z.string()).max(LIMITS.pictures).default([]),
     tags: z.string().max(4000).default(""),
     sentence: z.string().max(4000).default(""),
   }),
@@ -48,7 +58,8 @@ const defs = {
   preset: z.strictObject({
     recipe: z.string().min(1).optional(),
     inputs: z.record(z.string(), z.unknown()).default({}),
-    look: z.unknown().optional(),
+    // the same shape a draft holds: a preset is applied to one, and a look of another shape would make its every save fail
+    look: lookSchema.nullable().optional(),
     /** The model files it is made for, with where each is had: the preset says what is missing and fetches it. */
     files: z.array(presetFileSchema).max(40).optional(),
     // where it comes from, kept on a copy of a shipped preset
@@ -70,15 +81,6 @@ type PersonDef = z.infer<typeof defs.person>;
 type PlaceDef = z.infer<typeof defs.place>;
 type StyleDef = z.infer<typeof defs.style>;
 
-/** Who is in it and how it looks: people and places (a person with the outfit picked), and one style. */
-export const lookSchema = z.strictObject({
-  cast: z.array(z.strictObject({ id: z.string().min(1), outfit: z.string().nullable().optional() })).max(8).default([]),
-  style: z.string().nullable().optional(),
-  /** Snippets that are ticked: their text is added after what is written. */
-  snippets: z.array(z.string().min(1)).max(30).default([]),
-});
-export type Look = z.infer<typeof lookSchema>;
-export const emptyLook = (look: Look | null | undefined) => !look || (!look.cast.length && !look.style && !look.snippets?.length);
 
 // (a snippet kept before there were categories has none: it reads as one without)
 const view = (e: Tables["entities"]) => ({ id: e.id, kind: e.kind, name: e.name, def: (e.kind === "snippet" ? defs.snippet.parse(JSON.parse(e.def)) : JSON.parse(e.def)) as unknown, updatedAt: e.updated_at });
@@ -107,6 +109,33 @@ async function binUnwantedKit(db: Db, ids: string[]): Promise<void> {
 const PICTURES = { person: 3, place: 2 };
 
 const join = (parts: Array<string | undefined | null>, by: string) => parts.map((p) => (p ?? "").trim().replace(/^[,\s]+|[,\s]+$/g, "")).filter(Boolean).join(by);
+
+/**
+ * What is written, with words put before and after it, each only where the text does not hold it yet: a
+ * form that comes back with its cast's words already in it (a tool opened on a picture made with them)
+ * gets them once, not twice. Tags count one by one; sentences as a whole.
+ */
+export function withWords(own: string, before: string[], after: string[], tags: boolean): string {
+  const key = (w: string) => w.trim().replace(/\s+/g, " ").toLowerCase();
+  if (tags) {
+    const seen = new Set(own.split(",").map(key).filter(Boolean));
+    const fresh = (part: string) => join(part.split(",").filter((t) => {
+      const k = key(t);
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }), ", ");
+    return join([...before.map(fresh), own, ...after.map(fresh)], ", ");
+  }
+  let held = key(own);
+  const fresh = (part: string) => {
+    const k = key(part);
+    if (!k || held.includes(k)) return "";
+    held += ` ${k}`;
+    return part;
+  };
+  return join([...before.map(fresh), own, ...after.map(fresh)], " ");
+}
 
 /** The look and mood of a whole video go at the end of what happens, like a style's words. */
 export function withMood(recipe: Recipe<any>, input: Record<string, unknown>, mood: string | null | undefined): Record<string, unknown> {
@@ -218,12 +247,12 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   // ---- the words
   if (main) {
     const own = String(input[main.id] ?? "");
-    if (tags) input[main.id] = join([...people, own, ...bits, ...places, ...looks], ", ");
+    if (tags) input[main.id] = withWords(own, people, [...bits, ...places, ...looks], true);
     else if (subjectSpec && withRefs) {
       // a recipe that follows reference pictures has a place of its own for how the people look
-      input[subjectSpec.id] = join([String(input[subjectSpec.id] ?? ""), ...people], " ");
-      input[main.id] = join([...places, own, ...bits, ...looks], " ");
-    } else input[main.id] = join([...people, ...places, own, ...bits, ...looks], " ");
+      input[subjectSpec.id] = withWords(String(input[subjectSpec.id] ?? ""), [], people, false);
+      input[main.id] = withWords(own, places, [...bits, ...looks], false);
+    } else input[main.id] = withWords(own, [...people, ...places], [...bits, ...looks], false);
   }
 
   // ---- the LoRAs
@@ -247,12 +276,13 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
   const missing = () => httpError("this was not found", 404);
   const changed = () => s.queue.events.emit("entities");
 
-  app.get<{ Querystring: { kind?: string } }>("/api/entities", async (req) => {
+  app.get("/api/entities", async (req) => {
+    const { kind } = z.object({ kind: z.enum(Object.keys(defs) as [EntityKind, ...EntityKind[]]).optional() }).parse(req.query);
     let q = s.db.selectFrom("entities").selectAll().where("owner_id", "=", OWNER);
-    if (req.query.kind) q = q.where("kind", "=", req.query.kind as EntityKind);
+    if (kind) q = q.where("kind", "=", kind);
     const items: Array<ReturnType<typeof view> & { source?: "shipped" }> = (await q.orderBy("name").execute()).map(view);
     // the presets that ship with Afflatus come after the user's own: read-only, to apply or to copy
-    if (!req.query.kind || req.query.kind === "preset") items.push(...s.shippedPresets.list().map((p) => s.shippedPresets.entity(p)));
+    if (!kind || kind === "preset") items.push(...s.shippedPresets.list().map((p) => s.shippedPresets.entity(p)));
     return { items };
   });
 
@@ -262,11 +292,20 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     const at = now();
     const row: Tables["entities"] = { id: newId(), owner_id: OWNER, kind: b.kind, name: b.name, def: JSON.stringify(def), created_at: at, updated_at: at };
     await s.db.insertInto("entities").values(row).execute();
+    await keepTheirs(row.kind, row.def);
     changed();
     return view(row);
   });
 
-  const builtIn = () => Object.assign(new Error("a built-in preset cannot be changed: copy it to your presets first"), { statusCode: 400 });
+  /** Their pictures and voices are wanted: they never go to the bin on their own. */
+  const keepTheirs = async (kind: string, def: string) => {
+    if (kind !== "person" && kind !== "place") return;
+    const d = JSON.parse(def) as { pictures: string[]; voice?: string | null; outfits?: Array<{ picture: string | null }> };
+    const used = [...d.pictures, d.voice, ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
+    if (used.length) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", used).where("kept_at", "is", null).execute();
+  };
+
+  const builtIn = () => httpError("a built-in preset cannot be changed: copy it to your presets first");
 
   app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
     if (req.params.id.startsWith(SHIPPED)) throw builtIn();
@@ -277,12 +316,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     await s.db.updateTable("entities").set(next).where("id", "=", row.id).execute();
     // a picture uploaded for them and taken off again, wanted by no one else: to the bin
     if (b.def !== undefined) await binUnwantedKit(s.db, picturesOf(row.def).filter((id) => !picturesOf(next.def).includes(id)));
-    // their pictures and voices are wanted: they never go to the bin on their own
-    if (b.def !== undefined && (row.kind === "person" || row.kind === "place")) {
-      const d = JSON.parse(next.def) as { pictures: string[]; voice?: string | null; outfits?: Array<{ picture: string | null }> };
-      const used = [...d.pictures, d.voice, ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
-      if (used.length) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", used).where("kept_at", "is", null).execute();
-    }
+    if (b.def !== undefined) await keepTheirs(row.kind, next.def);
     changed();
     return view({ ...row, ...next });
   });
@@ -302,7 +336,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
   app.post("/api/compose", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()), look: lookSchema }).parse(req.body);
     const recipe = s.registry.recipe(b.recipe);
-    if (!recipe) throw Object.assign(new Error(`there is no recipe called ${b.recipe}`), { statusCode: 400 });
+    if (!recipe) throw httpError(`there is no recipe called ${b.recipe}`);
     return compose(s.db, recipe, b.input, b.look);
   });
 }

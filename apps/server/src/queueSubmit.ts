@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { baseModels, mainModel, missingNodesSaid, modelOf, timeKey, checkGraph, choicesOf, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { forecast, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, rangeKeep, referenceClip, soundPart } from "./cut";
+import type { Db, Tables } from "./db";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
+import type { Storage } from "./storage";
 import { maskBox, readPicture } from "./thumbs";
 import { readVideo } from "./video";
 import type { JobRow, QueueCore, Resume } from "./queueModel";
@@ -36,8 +39,29 @@ export function settled(recipe: Recipe<any>, input: Record<string, unknown>, cat
 
 const randomSeed = () => Math.floor(Math.random() * 2 ** 32);
 
-/** Check the graph against this ComfyUI, free its memory if another model is coming, and queue the prompt. */
-export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>, raw: Record<string, unknown>, row: JobRow): Promise<Resume> {
+/** What the files of a form become on their way up: the names ComfyUI has them under, what is known of each, and what was sent otherwise than asked. */
+interface Sent {
+  uploads: Record<string, string>;
+  media: Record<string, MediaFacts>;
+  warnings: string[];
+}
+/** What each uploader works with. `finishedFrom`: the take a finish job finishes; `cleanedInput`: ComfyUI's input folder was cleared already. */
+interface Up {
+  db: Db;
+  storage: Storage;
+  comfy: Comfy;
+  input: Record<string, unknown>;
+  catalog: Awaited<ReturnType<Comfy["catalog"]>>;
+  finishedFrom: string | null;
+  cleanedInput: boolean;
+  sent: Sent;
+}
+
+/**
+ * Check the graph against this ComfyUI, free its memory if another model is coming, and queue the prompt. `hold`
+ * saves what is needed to follow it, under the prompt id it is sent with, before it is sent (see Resume.unsent).
+ */
+export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>, raw: Record<string, unknown>, row: JobRow, hold: (r: Resume) => Promise<void> = async () => {}): Promise<Resume> {
   const { db, storage } = core;
   const catalog = await comfy.catalog();
   // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
@@ -49,142 +73,24 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const slotFiles = await slots(core, comfy, recipe);
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
-  const uploads: Record<string, string> = {};
-  const media: Record<string, MediaFacts> = {};
-  let cleanedInput = false;
-  for (const spec of recipe.inputs) {
+  const up: Up = { db, storage, comfy, input, catalog, finishedFrom: row.finished_from, cleanedInput: false, sent: { uploads: {}, media: {}, warnings: [] } };
+  for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
-    if (spec.type === "image") {
-      if (typeof value !== "string") continue;
-      const asset = await db.selectFrom("assets").select(["file_key", "mime", "width", "height"]).where("id", "=", value).executeTakeFirst();
-      if (!asset) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
-      const bytes = await storage.get(asset.file_key);
-      // ComfyUI clears its temp folder, not its input folder: the pictures put there a day ago or more go first (best effort)
-      if (spec.folder === "input" && !cleanedInput) {
-        cleanedInput = true;
-        void comfy.client.cleanInput(24);
-      }
-      uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime), spec.folder === "input" ? { into: "input" } : {});
-      const size = asset.width && asset.height ? { width: asset.width, height: asset.height } : await readPicture(bytes);
-      media[spec.id] = { width: size?.width ?? 0, height: size?.height ?? 0 };
-      if (spec.role === "mask") {
-        // only the part that was painted is redone: where it is comes from the mask itself
-        const painted = await maskBox(bytes);
-        if (painted && !painted.box) throw new Error("The mask is empty. Paint over the part to inpaint.");
-        if (painted?.box) media[spec.id] = { width: painted.width, height: painted.height, box: painted.box };
-      }
-    } else if (spec.type === "clip" && value && spec.whole) {
-      // an imported workflow's own loader reads the video: the file goes up as it is, or, when a moment was
-      // chosen (carry on from there, arrive there), the part up to that moment or from it
-      const { asset: assetId, at } = value as ClipValue;
-      const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
-      if (!asset || asset.kind !== "video") throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
-      const bytes = await storage.get(asset.file_key);
-      const facts = asset.width && asset.height && asset.duration_ms ? { width: asset.width, height: asset.height, durationMs: asset.duration_ms, hasSound: Boolean(asset.has_sound) } : (await readVideo(bytes, extOf(asset.mime)).catch(() => null))?.facts;
-      const length = facts?.durationMs ?? 0;
-      // a source video is worked on whole: only a clip carried on from or arrived at has a moment
-      const cut = spec.role !== "source" && at !== undefined && length > 0 && (spec.role === "previous" ? at < length - 40 : at > 40);
-      const keep: [number, number] = spec.role === "previous" ? [0, at ?? length] : [at ?? 0, length];
-      uploads[spec.id] = cut
-        ? await comfy.client.upload(await rangeKeep(bytes, extOf(asset.mime), { durationMs: length, hasSound: facts?.hasSound ?? false }, [keep]), "mp4")
-        : await comfy.client.upload(bytes, extOf(asset.mime));
-      media[spec.id] = { width: facts?.width ?? 0, height: facts?.height ?? 0, hasSound: facts?.hasSound ?? false };
-    } else if (spec.type === "clip" && value) {
-      // of the clip it joins onto, the recipe gets a few frames with their sound, cut at the chosen moment
-      const { asset: assetId, at } = value as ClipValue;
-      const shown = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
-      if (!shown || shown.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
-      // a finished (upscaled) take is a copy of a render: the render's own latent and frames are what a join takes. A finish by
-      // H3's latent re-sample is conditioned on the drafts, as the draft it re-samples was
-      const asset = row.finished_from ? await draftOf(db, shown) : await renderedOf(db, shown);
-      // the model's own frames when they were kept (before an upscale or interpolation changed them): a
-      // continuation guided by frames of its own kind joins without the step a changed frame leaves
-      const rawBytes = asset.raw_key ? await storage.get(asset.raw_key).catch(() => null) : null;
-      const rawRead = rawBytes ? await readVideo(rawBytes, extOf(asset.mime)).catch(() => null) : null;
-      const bytes = rawRead?.facts ? rawBytes! : await storage.get(asset.file_key);
-      const facts = rawRead?.facts
-        ? rawRead.facts
-        : asset.duration_ms && asset.width && asset.height
-          ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
-          : (await readVideo(bytes, extOf(asset.mime))).facts;
-      if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
-      // the form may say how many frames the join takes first; shorter counts stay as fallbacks for a short clip
-      const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
-      const counts = Number.isFinite(wanted) && wanted > 0 ? [wanted, ...spec.frames.filter((c) => c < wanted)] : spec.frames;
-      const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at });
-      uploads[spec.id] = await comfy.client.upload(cut.bytes, "mp4");
-      media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
-      // the clip's own latent, when it was kept: a recipe that can join in the latent (the Afflatus node pack)
-      // takes it instead of the frames above. The clip before is continued from its end, as its latent holds
-      // it; the clip after is landed on where its playing part starts, a moment on the latent's frame grid
-      if (asset.latent_key && asset.latent_frames) {
-        const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
-        const whole = spec.role === "previous" && (at === undefined || at >= (facts.durationMs ?? 0) - 40);
-        // handed over before its end, on a frame of the latent's grid: continued from there, its latent cut to it (Afflatus's pack 0.5.0)
-        const cutAt = spec.role === "previous" && !whole && atFrames % 17 === 5 && atFrames >= Math.max(...counts) && atFrames <= asset.latent_frames && "AfflatusTrimH3Latent" in catalog ? atFrames : 0;
-        // the clip after: landed on where one of its 17-frame chunks begins (its tokens keep their time spans there, see H3_LANDING)
-        const fits = spec.role === "previous" ? whole || cutAt > 0 : atFrames % 17 === 0 && atFrames + Math.min(...counts) <= asset.latent_frames;
-        const saved = fits ? await storage.get(asset.latent_key).catch(() => null) : null;
-        if (saved) {
-          uploads[`${spec.id}.latent`] = await comfy.client.upload(saved, "safetensors");
-          media[spec.id] = { ...media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
-          // a finish after a clip finished by the same latent re-sample: that clip's re-sampled latent, for decoding the join as one piece with it
-          const fine = row.finished_from && spec.role === "previous" && shown.fine_latent_key && shown.width && shown.height ? await storage.get(shown.fine_latent_key).catch(() => null) : null;
-          if (fine) {
-            uploads[`${spec.id}.fine`] = await comfy.client.upload(fine, "safetensors");
-            media[spec.id] = { ...media[spec.id]!, fine: { width: shown.width!, height: shown.height! } };
-          }
-        }
-      }
-    } else if (spec.type === "references" && Array.isArray(value)) {
-      // each reference picture goes up under "<input>.<n>", in the order they were given
-      for (const [i, ref] of (value as ReferenceValue[]).entries()) {
-        const asset = await db.selectFrom("assets").select(["file_key", "mime", "width", "height", "kind"]).where("id", "=", ref.asset).executeTakeFirst();
-        if (spec.media === "video") {
-          // a reference video: its first three seconds, small, with its sound when it has one
-          if (!asset || asset.kind !== "video") throw new Error("a reference video is no longer in your library");
-          const clip = await referenceClip(await storage.get(asset.file_key), extOf(asset.mime), { seconds: 3, fps: 24, short: 384 });
-          uploads[`${spec.id}.${i}`] = await comfy.client.upload(clip.bytes, "mp4");
-          media[`${spec.id}.${i}`] = { width: clip.width, height: clip.height, frames: clip.frames, fps: 24, hasSound: clip.hasSound };
-          continue;
-        }
-        if (!asset || asset.kind !== "image") throw new Error("a reference image is no longer in your library");
-        const bytes = await storage.get(asset.file_key);
-        uploads[`${spec.id}.${i}`] = await comfy.client.upload(bytes, extOf(asset.mime));
-        media[`${spec.id}.${i}`] = { width: asset.width ?? 0, height: asset.height ?? 0 };
-      }
-    } else if (spec.type === "audio" && typeof value === "string") {
-      // a sound, or a video whose sound is used: ComfyUI's loader reads the sound track of either
-      const asset = await db.selectFrom("assets").select(["file_key", "mime", "kind", "has_sound", "duration_ms"]).where("id", "=", value).executeTakeFirst();
-      if (!asset || (asset.kind !== "audio" && !(asset.kind === "video" && asset.has_sound))) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
-      const whole = await storage.get(asset.file_key);
-      if (spec.window) {
-        // only the chosen part of it is handed over: a few clean seconds carry a voice better than a long take
-        // (a sound ffmpeg cannot cut, or no ffmpeg at all: the whole of it is used, as before there was a part to set)
-        const part = await soundPart(whole, extOf(asset.mime), { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8), durationMs: asset.duration_ms }).catch((err) => {
-          console.warn(`[queue] the part of the ${spec.label.toLowerCase()} could not be cut, the whole sound is used: ${(err as Error).message}`);
-          return null;
-        });
-        uploads[spec.id] = part ? await comfy.client.upload(part, "wav") : await comfy.client.upload(whole, extOf(asset.mime));
-      } else uploads[spec.id] = await comfy.client.upload(whole, extOf(asset.mime));
-    }
+    if (spec.type === "image" && typeof value === "string") await uploadImage(up, spec, value);
+    else if (spec.type === "clip" && value && spec.whole) await uploadWholeClip(up, spec, value as ClipValue);
+    else if (spec.type === "clip" && value) await uploadJoinClip(up, spec, value as ClipValue);
+    else if (spec.type === "references" && Array.isArray(value)) await uploadReferences(up, spec, value as ReferenceValue[]);
+    else if (spec.type === "audio" && typeof value === "string") await uploadSound(up, spec, value);
   }
-
   // a finish by the latent re-sample: the draft's own sampled latent, re-sampled as it is (rendered again, the frames would differ)
   if (row.finished_from && input.upscale === "Latent: re-sampled") {
     const draft = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["assets.latent_key as latent_key"]).where("takes.id", "=", row.finished_from).executeTakeFirst();
     const saved = draft?.latent_key ? await storage.get(draft.latent_key).catch(() => null) : null;
     if (!saved) throw new Error("This draft's latent was not kept, so H3 cannot re-sample it: finish it with SeedVR2, RTX or a model.");
-    uploads["self.latent"] = await comfy.client.upload(saved, "safetensors");
+    up.sent.uploads["self.latent"] = await comfy.client.upload(saved, "safetensors");
   }
-
-  for (const spec of recipe.inputs) {
-    // a part painted on one picture cannot be put on another one
-    if (spec.type !== "image" || spec.role !== "mask" || !spec.of) continue;
-    const mask = media[spec.id];
-    const picture = media[spec.of];
-    if (mask && picture?.width && (mask.width !== picture.width || mask.height !== picture.height)) throw new Error("The mask was painted on another image. Paint it again on this one.");
-  }
+  const { uploads, media, warnings } = up.sent;
+  checkMasks(recipe, media);
 
   const seed = typeof input.seed === "number" && input.seed !== RANDOM_SEED ? input.seed : randomSeed();
   const built = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
@@ -200,36 +106,232 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // its own (an upscale, a background removal) changes nothing: what is loaded stays, and stays noted.
   const base = baseModels(built);
   const cold = base.length > 0 && !holding(core, base);
-  if (base.length) {
-    if (cold) await comfy.client.free().catch(() => {});
-    await core.loaded(base.join("|"), mainModel(built));
+  if (cold) {
+    await comfy.client.free().catch(() => {});
+    await core.loaded(null);
   }
-  const timing: Resume["timing"] = {
-    model: mainModel(built) ?? "", modelFile: modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase(),
-    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: core.expected(await core.usual(), recipe, chosen, cold),
-    expect: await usualParts(db, recipe, chosen).catch(() => ({})),
-    // what it samples per step, kept with its figures: the next form like it is forecast from them
-    work: workOf(built).pixels * workOf(built).frames,
-  };
+  const timing = await timingOf(core, recipe, chosen, built, cold);
+
+  // a video saved by ComfyUI's own SaveVideo stays in its output folder: the old ones there go (best effort, at most hourly)
+  if (Object.values(built.graph).some((n) => n.class_type === "SaveVideo")) cleanOutput(comfy);
 
   comfy.monitor.ensure();
   await comfy.monitor.ready();
-  if (row.warm) {
-    const warm = warmGraph(built);
-    if (!warm) throw new Error("this loads no model: there is nothing to preload");
-    if (!(WARM_SINK in catalog)) throw new Error(`ComfyUI is missing the ${WARM_SINK} node, which preloading a model needs. Update ComfyUI.`);
-    const promptId = await comfy.client.submit(warm.graph, { preview: "latent2rgb" });
-    return { promptId, seed, outputs: [], totalSteps: 1, phases: warm.phases, passes: warm.pass ? [warm.pass] : [], clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now() };
+  const prompt = await promptOf(comfy, built, Boolean(row.warm));
+  const resume: Resume = row.warm
+    ? { ...prompt.resume, seed, outputs: [], loads: built.loads, startedAt: Date.now() }
+    : {
+      ...prompt.resume, seed, outputs: built.outputs, loads: built.loads, startedAt: Date.now(), timing,
+      // the nodes' titles, for naming what a preview node shows on the way
+      titles: Object.fromEntries(Object.entries(built.graph).flatMap(([id, n]) => { const t = (n as { _meta?: { title?: unknown } })._meta?.title; return typeof t === "string" ? [[id, t]] : []; })),
+      ...(plan ? { input, links: plan.links, sources: plan.sources } : {}),
+      ...(built.overlap ? { overlap: built.overlap } : {}),
+      ...(warnings.length ? { warnings } : {}),
+    };
+  await hold({ ...resume, unsent: true });
+  // a ComfyUI from before prompt ids could be chosen gives one of its own: that one is followed
+  resume.promptId = await comfy.client.submit(prompt.graph, { preview: "latent2rgb", promptId: resume.promptId });
+  // noted once ComfyUI took it: a prompt it refused loads nothing, and the next job must not think otherwise
+  if (base.length) await core.loaded(base.join("|"), mainModel(built));
+  return resume;
+}
+
+/** When ComfyUI's output folder was last asked to drop its old videos, by client: at most once an hour. */
+const outputCleaned = new WeakMap<object, number>();
+function cleanOutput(comfy: Comfy): void {
+  const last = outputCleaned.get(comfy.client) ?? 0;
+  if (Date.now() - last < 60 * 60_000) return;
+  outputCleaned.set(comfy.client, Date.now());
+  void comfy.client.cleanOutput(24);
+}
+
+/** Whether ComfyUI has this prompt: done (in its history), running or waiting. */
+export async function taken(comfy: Comfy, promptId: string): Promise<boolean> {
+  if (await comfy.client.history(promptId)) return true;
+  return (await comfy.client.queuePosition(promptId)) !== "absent";
+}
+
+/** A picture the recipe takes; a mask says where it was painted, which is all that is redone. */
+async function uploadImage(up: Up, spec: InputSpec, value: string): Promise<void> {
+  const { db, storage, comfy, sent } = up;
+  const asset = await db.selectFrom("assets").select(["file_key", "mime", "width", "height", "kind"]).where("id", "=", value).executeTakeFirst();
+  if (!asset) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
+  if (asset.kind !== "image") throw new Error(`the ${spec.label.toLowerCase()} is not a picture`);
+  const bytes = await storage.get(asset.file_key);
+  const intoInput = spec.type === "image" && spec.folder === "input";
+  // ComfyUI clears its temp folder, not its input folder: the pictures put there a day ago or more go first (best effort)
+  if (intoInput && !up.cleanedInput) {
+    up.cleanedInput = true;
+    void comfy.client.cleanInput(24);
   }
-  const promptId = await comfy.client.submit(built.graph, { preview: "latent2rgb" });
+  sent.uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime), intoInput ? { into: "input" } : {});
+  const size = asset.width && asset.height ? { width: asset.width, height: asset.height } : await readPicture(bytes);
+  sent.media[spec.id] = { width: size?.width ?? 0, height: size?.height ?? 0 };
+  if (spec.type === "image" && spec.role === "mask") {
+    // only the part that was painted is redone: where it is comes from the mask itself
+    const painted = await maskBox(bytes);
+    if (painted && !painted.box) throw new Error("The mask is empty. Paint over the part to inpaint.");
+    if (painted?.box) sent.media[spec.id] = { width: painted.width, height: painted.height, box: painted.box };
+  }
+}
+
+/**
+ * A video an imported workflow's own loader reads: the file goes up as it is, or, when a moment was chosen
+ * (carry on from there, arrive there), the part up to that moment or from it.
+ */
+async function uploadWholeClip({ db, storage, comfy, sent }: Up, spec: InputSpec, value: ClipValue): Promise<void> {
+  if (spec.type !== "clip") return;
+  const { asset: assetId, at } = value;
+  const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
+  if (!asset || asset.kind !== "video") throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
+  const bytes = await storage.get(asset.file_key);
+  const facts = asset.width && asset.height && asset.duration_ms ? { width: asset.width, height: asset.height, durationMs: asset.duration_ms, hasSound: Boolean(asset.has_sound) } : (await readVideo(bytes, extOf(asset.mime)).catch(() => null))?.facts;
+  const length = facts?.durationMs ?? 0;
+  // a source video is worked on whole: only a clip carried on from or arrived at has a moment
+  const cut = spec.role !== "source" && at !== undefined && length > 0 && (spec.role === "previous" ? at < length - 40 : at > 40);
+  const keep: [number, number] = spec.role === "previous" ? [0, at ?? length] : [at ?? 0, length];
+  sent.uploads[spec.id] = cut
+    ? await comfy.client.upload(await rangeKeep(bytes, extOf(asset.mime), { durationMs: length, hasSound: facts?.hasSound ?? false }, [keep]), "mp4")
+    : await comfy.client.upload(bytes, extOf(asset.mime));
+  sent.media[spec.id] = { width: facts?.width ?? 0, height: facts?.height ?? 0, hasSound: facts?.hasSound ?? false };
+}
+
+/** Of the clip a clip joins onto, a few frames with their sound, cut at the chosen moment; and its latent, when it can be joined in it. */
+async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promise<void> {
+  if (spec.type !== "clip") return;
+  const { db, storage, comfy, input, sent } = up;
+  const { asset: assetId, at } = value;
+  const shown = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
+  if (!shown || shown.kind !== "video") throw new Error(`the ${spec.role === "previous" ? "previous" : "next"} clip is no longer in your library`);
+  // a finished (upscaled) take is a copy of a render: the render's own latent and frames are what a join takes. A finish by
+  // H3's latent re-sample is conditioned on the drafts, as the draft it re-samples was
+  const asset = up.finishedFrom ? await draftOf(db, shown) : await renderedOf(db, shown);
+  // the model's own frames when they were kept (before an upscale or interpolation changed them): a
+  // continuation guided by frames of its own kind joins without the step a changed frame leaves
+  const rawBytes = asset.raw_key ? await storage.get(asset.raw_key).catch(() => null) : null;
+  const rawRead = rawBytes ? await readVideo(rawBytes, extOf(asset.mime)).catch(() => null) : null;
+  if (asset.raw_key && !rawRead?.facts) sent.warnings.push(`The model's own frames of the ${spec.role === "previous" ? "clip before" : "clip after"} were not found: the join took its finished frames.`);
+  const bytes = rawRead?.facts ? rawBytes! : await storage.get(asset.file_key);
+  const facts = rawRead?.facts
+    ? rawRead.facts
+    : asset.duration_ms && asset.width && asset.height
+      ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
+      : (await readVideo(bytes, extOf(asset.mime))).facts;
+  if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
+  // the form may say how many frames the join takes first; shorter counts stay as fallbacks for a short clip
+  const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
+  const counts = Number.isFinite(wanted) && wanted > 0 ? [wanted, ...spec.frames.filter((c) => c < wanted)] : spec.frames;
+  const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at });
+  sent.uploads[spec.id] = await comfy.client.upload(cut.bytes, "mp4");
+  sent.media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
+  await finishLatent(up, spec, asset, shown, { at, counts, durationMs: facts.durationMs ?? 0 });
+}
+
+/**
+ * The clip's own latent, when it was kept: a recipe that can join in the latent (the Afflatus node pack)
+ * takes it instead of the frames. The clip before is continued from its end, as its latent holds it; the
+ * clip after is landed on where its playing part starts, a moment on the latent's frame grid. A latent that
+ * fits but cannot be read makes the join one on frames, which the job says.
+ */
+async function finishLatent(
+  { storage, comfy, catalog, finishedFrom, sent }: Up, spec: InputSpec & { type: "clip" },
+  asset: Pick<Tables["assets"], "latent_key" | "latent_frames">, shown: Pick<Tables["assets"], "fine_latent_key" | "width" | "height">,
+  cut: { at: number | undefined; counts: number[]; durationMs: number },
+): Promise<void> {
+  if (!asset.latent_key || !asset.latent_frames) return;
+  const { at, counts } = cut;
+  const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
+  const whole = spec.role === "previous" && (at === undefined || at >= cut.durationMs - 40);
+  // handed over before its end, on a frame of the latent's grid: continued from there, its latent cut to it (Afflatus's pack 0.5.0)
+  const cutAt = spec.role === "previous" && !whole && atFrames % 17 === 5 && atFrames >= Math.max(...counts) && atFrames <= asset.latent_frames && "AfflatusTrimH3Latent" in catalog ? atFrames : 0;
+  // the clip after: landed on where one of its 17-frame chunks begins (its tokens keep their time spans there, see H3_LANDING)
+  const fits = spec.role === "previous" ? whole || cutAt > 0 : atFrames % 17 === 0 && atFrames + Math.min(...counts) <= asset.latent_frames;
+  if (!fits) return;
+  const saved = await storage.get(asset.latent_key).catch(() => null);
+  if (!saved) {
+    sent.warnings.push(`The latent of the ${spec.role === "previous" ? "clip before" : "clip after"} was not found: the join was made on frames instead.`);
+    return;
+  }
+  sent.uploads[`${spec.id}.latent`] = await comfy.client.upload(saved, "safetensors");
+  sent.media[spec.id] = { ...sent.media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
+  // a finish after a clip finished by the same latent re-sample: that clip's re-sampled latent, for decoding the join as one piece with it
+  const fine = finishedFrom && spec.role === "previous" && shown.fine_latent_key && shown.width && shown.height ? await storage.get(shown.fine_latent_key).catch(() => null) : null;
+  if (fine) {
+    sent.uploads[`${spec.id}.fine`] = await comfy.client.upload(fine, "safetensors");
+    sent.media[spec.id] = { ...sent.media[spec.id]!, fine: { width: shown.width!, height: shown.height! } };
+  }
+}
+
+/** Each reference picture (or video: its first three seconds, small, with its sound) goes up under "<input>.<n>", in the order they were given. */
+async function uploadReferences({ db, storage, comfy, sent }: Up, spec: InputSpec, refs: ReferenceValue[]): Promise<void> {
+  if (spec.type !== "references") return;
+  for (const [i, ref] of refs.entries()) {
+    const asset = await db.selectFrom("assets").select(["file_key", "mime", "width", "height", "kind"]).where("id", "=", ref.asset).executeTakeFirst();
+    if (spec.media === "video") {
+      if (!asset || asset.kind !== "video") throw new Error("a reference video is no longer in your library");
+      const clip = await referenceClip(await storage.get(asset.file_key), extOf(asset.mime), { seconds: 3, fps: 24, short: 384 });
+      sent.uploads[`${spec.id}.${i}`] = await comfy.client.upload(clip.bytes, "mp4");
+      sent.media[`${spec.id}.${i}`] = { width: clip.width, height: clip.height, frames: clip.frames, fps: 24, hasSound: clip.hasSound };
+      continue;
+    }
+    if (!asset || asset.kind !== "image") throw new Error("a reference image is no longer in your library");
+    sent.uploads[`${spec.id}.${i}`] = await comfy.client.upload(await storage.get(asset.file_key), extOf(asset.mime));
+    sent.media[`${spec.id}.${i}`] = { width: asset.width ?? 0, height: asset.height ?? 0 };
+  }
+}
+
+/** A sound, or a video whose sound is used (ComfyUI's loader reads the sound track of either): the chosen part of it, when the recipe has one. */
+async function uploadSound({ db, storage, comfy, input, sent }: Up, spec: InputSpec, value: string): Promise<void> {
+  if (spec.type !== "audio") return;
+  const asset = await db.selectFrom("assets").select(["file_key", "mime", "kind", "has_sound", "duration_ms"]).where("id", "=", value).executeTakeFirst();
+  if (!asset || (asset.kind !== "audio" && !(asset.kind === "video" && asset.has_sound))) throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
+  const whole = await storage.get(asset.file_key);
+  if (!spec.window) {
+    sent.uploads[spec.id] = await comfy.client.upload(whole, extOf(asset.mime));
+    return;
+  }
+  // only the chosen part of it is handed over: a few clean seconds carry a voice better than a long take
+  // (a sound ffmpeg cannot cut, or no ffmpeg at all: the whole of it is used, as before there was a part to set)
+  const part = await soundPart(whole, extOf(asset.mime), { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8), durationMs: asset.duration_ms }).catch((err) => {
+    sent.warnings.push(`The part of the ${spec.label.toLowerCase()} could not be cut (${(err as Error).message}): the whole sound was used.`);
+    return null;
+  });
+  sent.uploads[spec.id] = part ? await comfy.client.upload(part, "wav") : await comfy.client.upload(whole, extOf(asset.mime));
+}
+
+/** A part painted on one picture cannot be put on another one. */
+function checkMasks(recipe: Recipe<any>, media: Record<string, MediaFacts>): void {
+  for (const spec of recipe.inputs as InputSpec[]) {
+    if (spec.type !== "image" || spec.role !== "mask" || !spec.of) continue;
+    const mask = media[spec.id];
+    const picture = media[spec.of];
+    if (mask && picture?.width && (mask.width !== picture.width || mask.height !== picture.height)) throw new Error("The mask was painted on another image. Paint it again on this one.");
+  }
+}
+
+/** For the record of render times: what a render is filed under, whether its model had to load, and what was expected of it. */
+async function timingOf(core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean): Promise<Resume["timing"]> {
+  const work = workOf(built);
   return {
-    promptId, seed, outputs: built.outputs, totalSteps: built.totalSteps, phases: built.phases, passes: built.passes,
-    clientId: comfy.client.clientId, loads: built.loads, startedAt: Date.now(), timing,
-    // the nodes' titles, for naming what a preview node shows on the way
-    titles: Object.fromEntries(Object.entries(built.graph).flatMap(([id, n]) => { const t = (n as { _meta?: { title?: unknown } })._meta?.title; return typeof t === "string" ? [[id, t]] : []; })),
-    ...(plan ? { input, links: plan.links, sources: plan.sources } : {}),
-    ...(built.overlap ? { overlap: built.overlap } : {}),
+    model: mainModel(built) ?? "", modelFile: modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase(),
+    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: core.expected(await core.usual(), recipe, chosen, cold),
+    expect: await usualParts(core.db, recipe, chosen).catch(() => ({})),
+    // what it samples per step, kept with its figures: the next form like it is forecast from them
+    work: work.pixels * work.frames,
   };
+}
+
+/** The prompt to send ComfyUI, under an id chosen here: the graph, or for a preload only the part that loads its models. */
+async function promptOf(comfy: Comfy, built: BuiltGraph, warm: boolean): Promise<{ graph: BuiltGraph["graph"]; resume: Pick<Resume, "promptId" | "totalSteps" | "phases" | "passes" | "clientId"> }> {
+  const promptId = randomUUID();
+  if (warm) {
+    const catalog = await comfy.catalog();
+    const graph = warmGraph(built);
+    if (!graph) throw new Error("this loads no model: there is nothing to preload");
+    if (!(WARM_SINK in catalog)) throw new Error(`ComfyUI is missing the ${WARM_SINK} node, which preloading a model needs. Update ComfyUI.`);
+    return { graph: graph.graph, resume: { promptId, totalSteps: 1, phases: graph.phases, passes: graph.pass ? [graph.pass] : [], clientId: comfy.client.clientId } };
+  }
+  return { graph: built.graph, resume: { promptId, totalSteps: built.totalSteps, phases: built.phases, passes: built.passes, clientId: comfy.client.clientId } };
 }
 
 /** The files a family's recipes need, as this ComfyUI has them. */
@@ -278,11 +380,6 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
 }
 
 /**
- * Whether the base models a form would use are the ones ComfyUI was last asked to load. Null when it
- * cannot be told (the form is not complete enough to build its graph, ComfyUI is away). It is what
- * this app last asked for: a ComfyUI that was restarted since, or used from elsewhere, is not seen.
- */
-/**
  * What this model's past renders say a form will take: its sampled work against theirs. Null for a form not
  * complete enough to build, one whose model has no measured render yet, or one that samples nothing.
  */
@@ -306,6 +403,11 @@ export async function forecastOf(core: QueueCore, recipeId: string, rawInput: un
   return f ? { forecast: f, shape } : null;
 }
 
+/**
+ * Whether the base models a form would use are the ones ComfyUI was last asked to load. Null when it
+ * cannot be told (the form is not complete enough to build its graph, ComfyUI is away). It is what
+ * this app last asked for: a ComfyUI that was restarted since, or used from elsewhere, is not seen.
+ */
 export async function isLoaded(core: QueueCore, recipeId: string, rawInput: unknown): Promise<boolean | null> {
   try {
     const built = await builtOf(core, recipeId, rawInput);

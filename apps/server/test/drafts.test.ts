@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { IDLE_DRAFT_MS } from "../src/drafts";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -127,6 +128,23 @@ describe("thumbnails", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toBe("image/png");
     expect([...res.rawPayload]).toEqual([1, 2, 3]);
+  });
+});
+
+describe("drafts nothing was done in, left alone", () => {
+  it("are thrown away by the server once they are old, never while just opened (in another tab, on another device)", async () => {
+    const fresh = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+    const old = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+    const worked = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "kept" } } })).json();
+    const long = new Date(Date.now() - IDLE_DRAFT_MS - 60_000).toISOString();
+    await t.db.updateTable("drafts").set({ updated_at: long }).where("id", "in", [old.id, worked.id]).execute();
+    const ids = (await get(t.app, "/api/drafts")).json().items.map((d: { id: string }) => d.id);
+    expect(ids).toContain(fresh.id);
+    expect(ids).toContain(worked.id);
+    expect(ids).not.toContain(old.id);
+    expect((await get(t.app, `/api/drafts/${old.id}`)).statusCode).toBe(404);
+    // a save to one that went answers 404: the page makes it again with what it holds
+    expect((await put(`/api/drafts/${old.id}`, { count: 2 })).statusCode).toBe(404);
   });
 });
 

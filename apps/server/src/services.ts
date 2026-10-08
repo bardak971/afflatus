@@ -10,7 +10,9 @@ import { Linked, RoutedStorage } from "./linked";
 import type { Storage } from "./storage";
 import { sweep } from "./sweep";
 import { fold } from "./renders";
+import type { InfoLookup } from "@afflatus/comfy";
 import type { ModelInfo } from "@afflatus/core";
+import { readJson } from "./queueModel";
 import { Timelines } from "./timelines";
 import { Updates } from "./modelUpdates";
 
@@ -47,21 +49,33 @@ export async function createServices(
   let current: Comfy | null = null;
   registry.onChange = () => current?.forgetScan();
   await registry.load();
+  // what was read off the model files, parsed once: read again after something is written to it (a "models" event)
+  let info: Promise<InfoLookup> | null = null;
+  const infoOf = (): Promise<InfoLookup> => {
+    info ??= (async () => {
+      const rows = await db.selectFrom("model_info").select(["folder", "file", "info"]).execute();
+      const known = new Map(rows.map((r) => [`${r.folder}/${r.file}`, readJson<ModelInfo>(r.info, {})]));
+      return (folder: string, file: string) => known.get(`${folder}/${file}`);
+    })();
+    info.catch(() => {
+      info = null;
+    });
+    return info;
+  };
   const comfy = async () => {
     const { comfyUrl } = await readSettings(db);
     if (current?.url !== comfyUrl) {
       current?.close();
       current = new Comfy(comfyUrl, registry);
       current.overrides = async () => (await readSettings(db)).slotFiles;
-      current.infoOf = async () => {
-        const rows = await db.selectFrom("model_info").select(["folder", "file", "info"]).execute();
-        const known = new Map(rows.map((r) => [`${r.folder}/${r.file}`, JSON.parse(r.info) as ModelInfo]));
-        return (folder, file) => known.get(`${folder}/${file}`);
-      };
+      current.infoOf = infoOf;
     }
     return current;
   };
   const queue = new Queue(db, storage, comfy, registry, queueOptions);
+  queue.events.on("models", () => {
+    info = null;
+  });
   const timelines = new Timelines(db, storage, registry, queue.events);
   queue.clips = timelines;
   // a linked file that changed on the disk: what the timelines derived from it (strips, motion, scenes) goes too
@@ -92,10 +106,12 @@ export async function createServices(
     },
   };
   services.updates = new Updates(services);
-  // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it
-  const checker = setInterval(() => void services.updates.daily().catch(() => {}), 60 * 60_000);
+  // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it. What
+  // goes wrong is logged and kept on the report (daily), never thrown at a timer
+  const daily = () => void services.updates.daily().catch((err) => console.warn("[updates]", (err as Error).message));
+  const checker = setInterval(daily, 60 * 60_000);
   checker.unref();
-  const firstCheck = setTimeout(() => void services.updates.daily().catch(() => {}), 30_000);
+  const firstCheck = setTimeout(daily, 30_000);
   firstCheck.unref();
   const closeBefore = services.close;
   services.close = async () => {

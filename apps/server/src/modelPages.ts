@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ModelInfo } from "@afflatus/core";
 import { civitaiGet, findOnCivitai } from "./civitai";
 import { now } from "./db";
+import { httpError } from "./errors";
 import { findOnHuggingFace } from "./huggingface";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -31,27 +32,31 @@ const FOLDER = /^[\w-]{1,64}$/;
 const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 const webUrl = z.string().max(2000).refine((u) => /^https?:\/\/[^\s]+$/i.test(u), "that is not a web address");
 
-export function registerModelPages(app: FastifyInstance, s: Services): void {
-  const folderOf = (folder: string) => {
-    if (!FOLDER.test(folder)) throw Object.assign(new Error("there is no such model folder"), { statusCode: 400 });
-    return folder;
-  };
-  const known = async (folder: string, name: string): Promise<ModelPage | null> =>
-    (await s.db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).executeTakeFirst()) ?? null;
-  const remember = async (folder: string, name: string, page: ModelPage) => {
-    await s.db
-      .insertInto("model_pages")
-      .values({ folder, name, url: page.url, title: page.title, found_at: now() })
-      .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: page.url, title: page.title, found_at: now() }))
-      .execute();
-  };
+/** A model folder's name, as a route is given it: a word, else a 400. */
+const folderOf = (folder: string) => {
+  if (!FOLDER.test(folder)) throw httpError("there is no such model folder");
+  return folder;
+};
+const known = async (s: Services, folder: string, name: string): Promise<ModelPage | null> =>
+  (await s.db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).executeTakeFirst()) ?? null;
+const remember = async (s: Services, folder: string, name: string, page: ModelPage) => {
+  await s.db
+    .insertInto("model_pages")
+    .values({ folder, name, url: page.url, title: page.title, found_at: now() })
+    .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: page.url, title: page.title, found_at: now() }))
+    .execute();
+};
 
-  /** What the file's header gave as its fingerprint, when it was read and has one. The file is found by its path, else by its name. */
-  const fingerprintOf = async (folder: string, file: string): Promise<string | null> => {
-    const rows = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
-    const row = rows.find((r) => r.file === file) ?? rows.find((r) => nameOf(r.file) === nameOf(file));
-    return row ? (JSON.parse(row.info) as ModelInfo).fingerprint ?? null : null;
-  };
+/** What the file's header gave as its fingerprint, when it was read and has one. The file is found by its path, else by its name. */
+const fingerprintOf = async (s: Services, folder: string, file: string): Promise<string | null> => {
+  const rows = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
+  const row = rows.find((r) => r.file === file) ?? rows.find((r) => nameOf(r.file) === nameOf(file));
+  return row ? (JSON.parse(row.info) as ModelInfo).fingerprint ?? null : null;
+};
+
+/** A file's page: the one known, looked for, or the one the user says. The words that call it up are registerModelWords. */
+export function registerModelPages(app: FastifyInstance, s: Services): void {
+  registerModelWords(app, s);
 
   /** Every page known for the files of a folder, by file name (lower case, without its sub-folder). */
   app.get<{ Params: { folder: string } }>("/api/models/:folder/pages", async (req) => {
@@ -68,18 +73,18 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
     const folder = folderOf(req.params.folder);
     const { file } = z.strictObject({ file: z.string().min(1).max(500) }).parse(req.body);
     const name = nameOf(file);
-    const page = await known(folder, name);
+    const page = await known(s, folder, name);
     if (page) return { page, candidates: [] as PageCandidate[], lookups: true };
     const settings = await readSettings(s.db);
     if (!settings.civitaiLookups) return { page: null, candidates: [] as PageCandidate[], lookups: false };
 
     // by its fingerprint first: the same file under any name is the same version there
-    const print = await fingerprintOf(folder, file);
+    const print = await fingerprintOf(s, folder, file);
     if (print) {
       const v = await civitaiGet<{ id: number; name?: string; modelId?: number; model?: { name?: string } }>(`/api/v1/model-versions/by-hash/${print}`, settings.civitaiKey).catch(() => null);
       if (v?.modelId) {
         const found = { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" };
-        await remember(folder, name, found);
+        await remember(s, folder, name, found);
         return { page: found, candidates: [] as PageCandidate[], lookups: true };
       }
     }
@@ -98,13 +103,31 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
     // a file of exactly this name: on Civitai that is the model it came from; Hugging Face only ever returns such files
     const exact = civitai.items.findIndex((i) => i.exact);
     const sure = exact >= 0 ? candidates[exact]! : !civitai.items.length && hf.items.length === 1 ? candidates[0]! : null;
-    if (sure) await remember(folder, name, { url: sure.url, title: sure.title });
+    if (sure) await remember(s, folder, name, { url: sure.url, title: sure.title });
     return { page: sure ? { url: sure.url, title: sure.title } : null, candidates: sure ? [] : candidates.slice(0, 8), lookups: true };
   });
 
-  // ---------------------------------------------------------------- the words that call a model up
+  /** The page the user says is the file's (one of those offered, or an address of their own); null forgets it. */
+  app.put<{ Params: { folder: string } }>("/api/models/:folder/page", async (req) => {
+    const folder = folderOf(req.params.folder);
+    const b = z.strictObject({ file: z.string().min(1).max(500), url: webUrl.nullable(), title: z.string().max(300).default("") }).parse(req.body);
+    const name = nameOf(b.file);
+    if (b.url === null) {
+      await s.db.deleteFrom("model_pages").where("folder", "=", folder).where("name", "=", name).execute();
+      return { page: null };
+    }
+    const page = { url: b.url, title: b.title.trim() || new URL(b.url).hostname };
+    await remember(s, folder, name, page);
+    return { page };
+  });
+}
 
-  type Words = { own: string | null; found: string | null };
+// ---------------------------------------------------------------- the words that call a model up
+
+type Words = { own: string | null; found: string | null };
+
+/** The words that call a model up, beyond what its file says: the user's own, and those Civitai gave. */
+export function registerModelWords(app: FastifyInstance, s: Services): void {
   const wordsOf = async (folder: string, names?: string[]): Promise<Record<string, Words>> => {
     let q = s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", folder);
     if (names) q = q.where("name", "in", names.length ? names : [""]);
@@ -161,7 +184,7 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
         }
         if (v?.modelId) {
           found = (v.trainedWords ?? []).map((w) => w.trim()).filter(Boolean).slice(0, 20).join(", ");
-          if (!(await known(folder, name))) await remember(folder, name, { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" });
+          if (!(await known(s, folder, name))) await remember(s, folder, name, { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" });
         }
       }
       await s.db
@@ -171,19 +194,5 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
         .execute();
     }
     return { items: await wordsOf(folder, names), lookups: true };
-  });
-
-  /** The page the user says is the file's (one of those offered, or an address of their own); null forgets it. */
-  app.put<{ Params: { folder: string } }>("/api/models/:folder/page", async (req) => {
-    const folder = folderOf(req.params.folder);
-    const b = z.strictObject({ file: z.string().min(1).max(500), url: webUrl.nullable(), title: z.string().max(300).default("") }).parse(req.body);
-    const name = nameOf(b.file);
-    if (b.url === null) {
-      await s.db.deleteFrom("model_pages").where("folder", "=", folder).where("name", "=", name).execute();
-      return { page: null };
-    }
-    const page = { url: b.url, title: b.title.trim() || new URL(b.url).hostname };
-    await remember(folder, name, page);
-    return { page };
   });
 }

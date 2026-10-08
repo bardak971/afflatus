@@ -1,3 +1,4 @@
+import { expandWildcards, movedSeed, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { compose, lookSchema } from "./entities";
@@ -23,17 +24,34 @@ const jobBody = z.strictObject({
 /** A form as it stands, to load its models ahead or to ask whether they are loaded. */
 const warmBody = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()), look: lookSchema.optional() });
 
+/** A form's texts with their {a|b|c} choices settled. */
+function settledTexts(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...input };
+  for (const spec of recipe.inputs as InputSpec[]) if (spec.type === "prompt" && typeof out[spec.id] === "string") out[spec.id] = expandWildcards(out[spec.id] as string);
+  return out;
+}
+
+/** What the cast changed in a form, as it was before (undefined: it was not there): the job keeps the person's own form with it. */
+export function askedOf(own: Record<string, unknown>, composed: Record<string, unknown>): Record<string, unknown> {
+  const changed: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(own), ...Object.keys(composed)])) {
+    if (JSON.stringify(own[key]) !== JSON.stringify(composed[key])) changed[key] = own[key];
+  }
+  return changed;
+}
+
 export function registerJobs(app: FastifyInstance, s: Services): void {
   app.post("/api/jobs", async (req) => {
     const body = jobBody.parse(req.body);
     const recipe = s.registry.recipe(body.recipe);
-    const input = recipe && body.look ? (await compose(s.db, recipe, body.input, body.look)).input : body.input;
     const ids: string[] = [];
-    const seed = typeof input.seed === "number" && input.seed >= 0 ? input.seed : null;
-    const range = 4294967296;
+    const seed = typedSeed(body.input.seed);
     for (let i = 0; i < body.count; i++) {
-      const each = body.seedMode && seed !== null ? { ...input, seed: (((seed + (body.seedMode === "up" ? i : -i)) % range) + range) % range } : input;
-      ids.push(await s.queue.enqueue(body.recipe, each, { label: body.label, draft: body.draft, folder: body.folder, look: body.look }));
+      // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
+      const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
+      const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
+      const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
+      ids.push(await s.queue.enqueue(body.recipe, each, { label: body.label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input) }));
     }
     return { ids };
   });
@@ -106,7 +124,7 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   });
 
   app.get<{ Params: { id: string; n: string } }>("/api/jobs/:id/stage/:n", async (req, reply) => {
-    const p = await s.queue.stage(req.params.id, Number(req.params.n));
+    const p = await s.queue.stage(req.params.id, z.coerce.number().int().min(0).max(99).parse(req.params.n));
     if (!p) throw notFound("that stage");
     return reply.header("Content-Type", p.mime).header("Cache-Control", "no-store").send(Buffer.from(p.bytes));
   });

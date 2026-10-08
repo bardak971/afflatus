@@ -1,0 +1,93 @@
+import type { Migration } from "kysely/migration";
+import m0001 from "./0001-settings";
+import m0002 from "./0002-library-and-queue";
+import m0003 from "./0003-drafts";
+import m0004 from "./0004-model-settings";
+import m0005 from "./0005-workflows";
+import m0006 from "./0006-model-info";
+import m0007 from "./0007-timelines";
+import m0008 from "./0008-timeline-editor";
+import m0009 from "./0009-people";
+import m0010 from "./0010-mood";
+import m0011 from "./0011-clip-chat";
+import m0012 from "./0012-draft-name";
+import m0013 from "./0013-model-pages";
+import m0014 from "./0014-designer-session";
+import m0015 from "./0015-model-words";
+import m0016 from "./0016-job-draft-folder";
+import m0017 from "./0017-linked-folders";
+import m0018 from "./0018-job-warm";
+import m0019 from "./0019-trails";
+import m0020 from "./0020-render-times";
+import m0021 from "./0021-afflatus";
+import m0022 from "./0022-source-range";
+import m0023 from "./0023-projects";
+import m0024 from "./0024-redo";
+import m0025 from "./0025-finish";
+import m0026 from "./0026-raw";
+import m0027 from "./0027-latent";
+import m0028 from "./0028-join-kind";
+import m0029 from "./0029-folder-chosen";
+import m0030 from "./0030-model-updates";
+import m0031 from "./0031-take-lead";
+import m0032 from "./0032-job-timeline";
+import m0033 from "./0033-countdown-from";
+import m0034 from "./0034-render-work";
+import m0035 from "./0035-finished-grid";
+import m0036 from "./0036-fine-latent";
+import m0037 from "./0037-job-warning";
+import m0038 from "./0038-indexes";
+import m0039 from "./0039-wide-sizes";
+import m0040 from "./0040-asked";
+import m0041 from "./0041-generation-measure";
+import m0042 from "./0042-drop-take-lead";
+
+/**
+ * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
+ * released: the databases out there record what ran by it. Written with Kysely's schema builder, for both
+ * databases; the few steps the two spell differently ask onPostgres (dialect.ts).
+ */
+export const migrations: Record<string, Migration> = {
+  "0001_settings": m0001,
+  "0002_library_and_queue": m0002,
+  "0003_drafts": m0003,
+  "0004_model_settings": m0004,
+  "0005_workflows": m0005,
+  "0006_model_info": m0006,
+  "0007_timelines": m0007,
+  "0008_timeline_editor": m0008,
+  "0009_people": m0009,
+  "0010_mood": m0010,
+  "0011_clip_chat": m0011,
+  "0012_draft_name": m0012,
+  "0013_model_pages": m0013,
+  "0014_designer_session": m0014,
+  "0015_model_words": m0015,
+  "0016_job_draft_folder": m0016,
+  "0017_linked_folders": m0017,
+  "0018_job_warm": m0018,
+  "0019_trails": m0019,
+  "0020_render_times": m0020,
+  "0021_afflatus": m0021,
+  "0022_source_range": m0022,
+  "0023_projects": m0023,
+  "0024_redo": m0024,
+  "0025_finish": m0025,
+  "0026_raw": m0026,
+  "0027_latent": m0027,
+  "0028_join_kind": m0028,
+  "0029_folder_chosen": m0029,
+  "0030_model_updates": m0030,
+  "0031_take_lead": m0031,
+  "0032_job_timeline": m0032,
+  "0033_countdown_from": m0033,
+  "0034_render_work": m0034,
+  "0035_finished_grid": m0035,
+  "0036_fine_latent": m0036,
+  "0037_job_warning": m0037,
+  "0038_indexes": m0038,
+  "0039_wide_sizes": m0039,
+  "0040_asked": m0040,
+  "0041_generation_measure": m0041,
+  "0042_drop_take_lead": m0042,
+};

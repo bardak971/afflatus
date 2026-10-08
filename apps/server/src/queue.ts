@@ -3,13 +3,14 @@ import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measu
 import { expandWildcards, modelFileName, parseInput, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
+import { httpError } from "./errors";
 import { estimateMs, rates } from "./estimates";
 import type { Registry } from "./registry";
 import { guessFor, known, record } from "./renders";
 import { readSettings } from "./settings";
 import type { Storage } from "./storage";
 import { CUT_JOB, EXPORT_JOB, type CutOptions, type ExportOptions, type Timelines } from "./timelines";
-import { DEFAULT_QUEUE_OPTIONS, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import { DEFAULT_QUEUE_OPTIONS, readJson, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
 import * as submitting from "./queueSubmit";
 import * as storing from "./queueStore";
 import * as tools from "./queueTools";
@@ -24,6 +25,7 @@ export { rifeModelIn } from "./queueTools";
  * nothing. Queued jobs stay queued, and a job ComfyUI already has is waited on again by its prompt id.
  */
 
+/** @deprecated An error a person reads, as a 400: httpError (errors.ts) is the one to throw. Kept while timelines-api.ts still names it. */
 export class UserError extends Error {
   statusCode = 400;
 }
@@ -33,6 +35,9 @@ const PAUSED_KEY = "queue.paused";
 const MODEL_KEY = "queue.model";
 /** The base models the last job had ComfyUI load, kept across restarts of this app (ComfyUI keeps running through them). */
 const LOADS_KEY = "queue.loads";
+
+/** Whether a job needs ComfyUI: a render, a finish and a RIFE slow-motion do; an export and a cut by ffmpeg do not. */
+const needsComfy = (r: JobRow) => r.recipe_id !== EXPORT_JOB && (r.recipe_id !== CUT_JOB || tools.usesGpu(r));
 
 export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": the running job moved. */
@@ -98,10 +103,16 @@ export class Queue {
     else {
       // nothing noted yet (a database from before the note existed): what the last render loaded
       const last = await this.db.selectFrom("generations").select("resolved").orderBy("created_at", "desc").limit(1).executeTakeFirst();
-      const files = last ? (JSON.parse(last.resolved) as { loads?: string[] }).loads : undefined;
+      const files = readJson<{ loads?: string[] }>(last?.resolved, {}).loads;
       this.lastLoads = files ? files.map(modelFileName).sort().join("|") : null;
     }
-    await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("status", "=", "running").where("resume", "is", null).execute();
+    // a tool job (an export, a cut, a finish) is run again from its start: what it already made is noted on it (queueTools.ts)
+    await this.db
+      .updateTable("jobs")
+      .set({ status: "queued", updated_at: now() })
+      .where("status", "=", "running")
+      .where((eb) => eb.or([eb("resume", "is", null), eb("recipe_id", "in", [EXPORT_JOB, CUT_JOB])]))
+      .execute();
     void this.pump();
   }
 
@@ -120,21 +131,23 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown> } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
-    if (!recipe) throw new UserError(`there is no model or operation called ${recipeId}`);
+    if (!recipe) throw httpError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
     const input = parseInput(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
     for (const spec of recipe.inputs as InputSpec[]) {
       if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);
     }
+    // the person's own form beside it, when a cast was worked in: the fields the cast changed, as they were (JSON leaves out the ones that were not there)
+    const asked = opts.asked && Object.keys(opts.asked).length ? JSON.stringify({ ...input, ...opts.asked }) : null;
     const id = newId();
     const at = now();
     await this.db
       .insertInto("jobs")
       .values({
-        id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input),
+        id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input), asked,
         status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0,
         draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null,
@@ -195,7 +208,10 @@ export class Queue {
       .where("status", "=", "queued")
       .executeTakeFirst();
     if (Number(queued.numUpdatedRows) > 0) {
+      // what continues from it can never run now, as when it is stopped while it runs
+      await this.failDependents(id);
       this.events.emit("queue");
+      this.events.emit("timeline");
       return true;
     }
     if (this.running?.id === id) {
@@ -203,7 +219,24 @@ export class Queue {
       if (this.running.promptId) await (await this.comfy()).client.interrupt(this.running.promptId).catch(() => {});
       return true;
     }
-    return false;
+    // a job ComfyUI had when this process last stopped, not picked up again yet (ComfyUI is away): stopped here, and in ComfyUI when it answers
+    const resumed = await this.db.selectFrom("jobs").select("resume").where("id", "=", id).where("status", "=", "running").executeTakeFirst();
+    if (!resumed) return false;
+    const stopped = await this.db
+      .updateTable("jobs")
+      .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
+      .where("id", "=", id)
+      .where("status", "=", "running")
+      .executeTakeFirst();
+    if (Number(stopped.numUpdatedRows) === 0) return false;
+    // picked up in the meantime: stopped there too
+    if (this.running?.id === id) this.running.abort.abort();
+    const promptId = readJson<Partial<Resume>>(resumed.resume, {}).promptId;
+    if (promptId) void this.comfy().then((c) => c.client.interrupt(promptId)).catch(() => {});
+    await this.failDependents(id);
+    this.events.emit("queue");
+    this.events.emit("timeline");
+    return true;
   }
 
   /**
@@ -226,7 +259,7 @@ export class Queue {
    * under way (its model is in use); the next render loads what it needs again.
    */
   async freeMemory(): Promise<void> {
-    if (this.running?.gpu) throw new UserError("A render is under way and its model is loaded. Wait for it, or cancel it first.");
+    if (this.running?.gpu) throw httpError("A render is under way and its model is loaded. Wait for it, or cancel it first.");
     await (await this.comfy()).client.free();
     await this.loaded(null);
     // every open screen says which model is loaded: they are told it no longer is
@@ -236,29 +269,27 @@ export class Queue {
     this.unloadTimer = null;
   }
 
+  /** One setting of the queue's own, written or replaced. */
+  private async setting(key: string, value: string): Promise<void> {
+    await this.db
+      .insertInto("settings")
+      .values({ key, value, updated_at: now() })
+      .onConflict((oc) => oc.column("key").doUpdateSet({ value, updated_at: now() }))
+      .execute();
+  }
+
   /** Note what ComfyUI was last asked to load, here and in the database. */
   private async loaded(loads: string | null, model: string | null = null): Promise<void> {
     if (this.lastLoads === loads && this.lastModel === model) return;
     this.lastLoads = loads;
     this.lastModel = model;
-    await this.db
-      .insertInto("settings")
-      .values({ key: MODEL_KEY, value: model ?? "", updated_at: now() })
-      .onConflict((oc) => oc.column("key").doUpdateSet({ value: model ?? "", updated_at: now() }))
-      .execute()
-      .catch(() => {});
     // only a note: a database that cannot take it costs one needless unload after the next restart.
     // Freed by hand is noted as empty, which is not the same as nothing noted.
-    const value = loads ?? "";
-    await this.db
-      .insertInto("settings")
-      .values({ key: LOADS_KEY, value, updated_at: now() })
-      .onConflict((oc) => oc.column("key").doUpdateSet({ value, updated_at: now() }))
-      .execute()
-      .catch(() => {});
+    await this.setting(MODEL_KEY, model ?? "").catch(() => {});
+    await this.setting(LOADS_KEY, loads ?? "").catch(() => {});
   }
 
-  /** After a render: when it is set in Settings, the models are unloaded once nothing has rendered for that long. */
+  /** After a render or a job on the GPU: when it is set in Settings, the models are unloaded once nothing has rendered for that long. */
   private async armIdle(): Promise<void> {
     if (this.unloadTimer) clearTimeout(this.unloadTimer);
     this.unloadTimer = null;
@@ -278,7 +309,7 @@ export class Queue {
   /** The same job again (after a failure, or because it was stopped), with some inputs changed if asked. */
   async again(id: string, change: Record<string, unknown> = {}): Promise<string> {
     const row = await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
-    if (!row) throw new UserError("this job was not found");
+    if (!row) throw httpError("this job was not found");
     if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label);
     if (row.recipe_id === CUT_JOB) return this.enqueueCut(JSON.parse(row.inputs) as CutOptions, row.label);
     // a workflow whose settings were changed since no longer has some of what the job was sent with
@@ -287,7 +318,11 @@ export class Queue {
     return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
       clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit) } : undefined,
-      draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: row.look ? JSON.parse(row.look) : undefined,
+      draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: readJson(row.look, undefined),
+      // a finish done again is still the finished version of the same take
+      finishedFrom: row.finished_from,
+      // what the person asked stays theirs, with what was changed now
+      asked: row.asked ? { ...readJson<Record<string, unknown>>(row.asked, {}), ...change } : undefined,
     });
   }
 
@@ -317,12 +352,7 @@ export class Queue {
 
   async setPaused(paused: boolean): Promise<void> {
     this.paused = paused;
-    const value = String(paused);
-    await this.db
-      .insertInto("settings")
-      .values({ key: PAUSED_KEY, value, updated_at: now() })
-      .onConflict((oc) => oc.column("key").doUpdateSet({ value, updated_at: now() }))
-      .execute();
+    await this.setting(PAUSED_KEY, String(paused));
     this.events.emit("queue");
     if (!paused) void this.pump();
   }
@@ -331,6 +361,8 @@ export class Queue {
 
   /** The line as it stands, the running job's progress, and the last finished jobs. */
   status() { return view.status(this.core); }
+  /** The running job's figures alone, from memory: what a progress event carries, many times a second. */
+  progress() { return view.progress(this.core); }
   /** The running job's latest live preview. */
   preview(jobId: string) { return view.preview(this.core, jobId); }
   /** One picture the running job showed on the way (its Preview nodes), by its place in the strip. */
@@ -347,32 +379,37 @@ export class Queue {
       for (;;) {
         if (this.stopped) break;
         const active = await this.db.selectFrom("jobs").selectAll().where("status", "in", ["queued", "running"]).orderBy("priority").orderBy("created_at").execute();
-        // a job ComfyUI already has goes first, paused or not: it is rendering anyway
-        const resumed = active.find((r) => r.status === "running");
         const waitingOn = new Set(active.map((r) => r.id));
-        // a pause is for the GPU: an export does not use it, and goes on
-        const next = resumed ?? active.find((r) => r.status === "queued" && !(r.depends_on && waitingOn.has(r.depends_on)) && (!this.paused || r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB));
-        if (!next) break;
-        if (next.recipe_id === EXPORT_JOB) {
-          await tools.runExport(this.core, next);
-          continue;
+        // a job ComfyUI already has goes first, paused or not: it is rendering anyway
+        const line = [...active.filter((r) => r.status === "running"), ...active.filter((r) => r.status === "queued" && !(r.depends_on && waitingOn.has(r.depends_on)))];
+        let comfy: Comfy | null = null;
+        let reachable: boolean | null = null;
+        let next: JobRow | undefined;
+        for (const r of line) {
+          // what needs no ComfyUI (an export, a cut by ffmpeg) goes on whatever ComfyUI is doing: paused, away, or a GPU job before it waiting
+          if (!needsComfy(r)) {
+            next = r;
+            break;
+          }
+          // a pause is for the GPU: a render, a finish and a RIFE slow-motion wait for its end
+          if (this.paused && r.status === "queued") continue;
+          if (reachable === false) continue;
+          comfy ??= await this.comfy();
+          reachable = await comfy.client.status().then(() => true, () => false);
+          if (reachable) {
+            next = r;
+            break;
+          }
         }
-        if (next.recipe_id === CUT_JOB) {
-          await tools.runCut(this.core, next);
-          continue;
-        }
-        const comfy = await this.comfy();
-        try {
-          await comfy.client.status();
-        } catch {
-          await this.whileOffline(active);
-          break;
-        }
-        if (this.offlineSince !== null) {
+        if (reachable === false) await this.whileOffline(active);
+        else if (reachable && this.offlineSince !== null) {
           this.offlineSince = null;
           this.events.emit("queue");
         }
-        await this.run(comfy, next);
+        if (!next) break;
+        if (next.recipe_id === EXPORT_JOB) await tools.runExport(this.core, next);
+        else if (next.recipe_id === CUT_JOB) await tools.runCut(this.core, next);
+        else await this.run(comfy!, next);
       }
     } catch (err) {
       console.error("[queue] stopped unexpectedly:", err);
@@ -390,31 +427,47 @@ export class Queue {
     }, this.opts.offlineRetryMs);
   }
 
+  /** ComfyUI is away: the jobs that need it wait, and are given up once it has been away too long (a job it had before a restart too). */
   private async whileOffline(active: JobRow[]): Promise<void> {
     if (this.offlineSince === null) {
       this.offlineSince = Date.now();
       this.events.emit("queue");
     }
     if (Date.now() - this.offlineSince > this.opts.offlineExpiryMs) {
-      for (const r of active) if (r.status === "queued") await this.finish(r.id, "failed", { error: "ComfyUI stayed offline. Try again when it is back." });
+      for (const r of active) {
+        if (!needsComfy(r) || this.running?.id === r.id) continue;
+        await this.finish(r.id, "failed", { error: "ComfyUI stayed offline. Try again when it is back." }, r.status);
+      }
     }
     this.retryLater();
   }
 
-  private async finish(id: string, status: "done" | "failed" | "cancelled", extra: { error?: string; generationId?: string } = {}) {
+  /** A job ends. `from`: only when it is still in that state (a job that was cancelled meanwhile stays cancelled). */
+  private async finish(id: string, status: "done" | "failed" | "cancelled", extra: { error?: string; generationId?: string } = {}, from?: JobRow["status"]) {
     // a generation the job wrote before it ended badly stays named on it: what it made is in the library all the same
-    await this.db
+    let q = this.db
       .updateTable("jobs")
       .set({ status, error: extra.error ?? null, ...(extra.generationId ? { generation_id: extra.generationId } : {}), finished_at: now(), updated_at: now() })
-      .where("id", "=", id)
-      .execute();
-    // a job that waited on this one can never run now
-    if (status !== "done") {
-      const dependents = await this.db.selectFrom("jobs").select("id").where("depends_on", "=", id).where("status", "=", "queued").execute();
-      for (const d of dependents) await this.finish(d.id, "failed", { error: "the clip it continues was not rendered" });
-    }
+      .where("id", "=", id);
+    if (from) q = q.where("status", "=", from);
+    await q.execute();
+    if (status !== "done") await this.failDependents(id);
     this.events.emit("queue");
     this.events.emit("timeline");
+  }
+
+  /** The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended. */
+  private async failDependents(id: string): Promise<void> {
+    const dependents = await this.db.selectFrom("jobs").select("id").where("depends_on", "=", id).where("status", "=", "queued").execute();
+    for (const d of dependents) await this.finish(d.id, "failed", { error: "the clip it continues was not rendered" }, "queued");
+  }
+
+  /** Something that went less well than asked in a job that goes on: said on the job (and in the log), not only in the log. */
+  private async warn(id: string, text: string): Promise<void> {
+    console.warn(`[queue] job ${id}: ${text}`);
+    const had = (await this.db.selectFrom("jobs").select("warning").where("id", "=", id).executeTakeFirst())?.warning;
+    if (had?.includes(text)) return;
+    await this.db.updateTable("jobs").set({ warning: had ? `${had} ${text}` : text, updated_at: now() }).where("id", "=", id).execute();
   }
 
   /**
@@ -431,7 +484,7 @@ export class Queue {
       .where("status", "=", "queued")
       .executeTakeFirst();
     if (Number(claimed.numUpdatedRows) === 0) return;
-    const run: Running = { id: row.id, abort: new AbortController(), gpu: false };
+    const run: Running = { id: row.id, abort: new AbortController(), gpu: false, tool: row.recipe_id === EXPORT_JOB ? "exporting" : "cutting" };
     this.running = run;
     this.events.emit("queue");
     try {
@@ -443,13 +496,26 @@ export class Queue {
       else await this.finish(row.id, "failed", { error: (err as Error).message.slice(0, 600) });
     } finally {
       this.running = null;
+      // a finish or a RIFE pass loaded models into ComfyUI: the idle unload counts from its end, as after a render
+      if (run.gpu) {
+        this.holds = true;
+        void this.armIdle();
+      }
     }
   }
 
   private async run(comfy: Comfy, row: JobRow): Promise<void> {
     const recipe = this.registry.recipe(row.recipe_id);
     if (!recipe) return this.finish(row.id, "failed", { error: `the recipe ${row.recipe_id} no longer exists` });
-    let resume = row.resume ? (JSON.parse(row.resume) as Resume) : null;
+    let resume = readJson<Resume | null>(row.resume, null);
+    // saved just before its prompt was sent, by a process that did not hear back (it stopped, ComfyUI did not answer): ComfyUI is
+    // asked whether it took that prompt, which is then followed; one it never had is sent again. Kept for a requeue until then
+    let held = resume?.unsent ? resume : null;
+    if (held) {
+      const { unsent: _, ...sent } = held;
+      resume = (await submitting.taken(comfy, held.promptId).catch(() => false)) ? sent : null;
+      if (resume) await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();
+    }
     // a render this process finds already under way is not measured from its first moment
     const whole = !resume;
     let measured: Measured | null = null;
@@ -471,13 +537,22 @@ export class Queue {
     this.holds = true;
     this.events.emit("queue");
     try {
+      // a job found with its generation already named had filed its result before this process last stopped: it is closed, not rendered again
+      if (row.generation_id && !row.warm) return await this.closeFiled(row, row.generation_id, resume);
       const input = JSON.parse(row.inputs) as Record<string, unknown>;
       if (!resume) {
-        resume = await submitting.submit(this.core, comfy, recipe, input, row);
+        resume = await submitting.submit(this.core, comfy, recipe, input, row, async (r) => {
+          held = r;
+          await this.db.updateTable("jobs").set({ resume: JSON.stringify(r), updated_at: now() }).where("id", "=", row.id).execute();
+        });
         await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();
+        if (resume.warnings?.length) await this.warn(row.id, resume.warnings.join(" "));
       }
       this.running.promptId = resume.promptId;
       this.running.titles = resume.titles;
+      // a fresh render learns how long it should take only once it is sent: the spilling warning needs it from the first run on
+      this.running.expectedMs ??= resume.timing?.expectedMs ?? null;
+      this.running.startedAt = resume.startedAt;
       if (abort.signal.aborted) {
         await comfy.client.interrupt(resume.promptId).catch(() => {});
         throw new ComfyCancelled();
@@ -499,34 +574,56 @@ export class Queue {
         await this.finish(row.id, "done");
         return;
       }
-      // a job found with its generation already named had filed its result before this process last stopped: not twice
-      const generationId = row.generation_id ?? (await storing.store(this.core, comfy, recipe, resume.input ?? input, resume, outputs, row));
+      const generationId = await storing.store(this.core, comfy, recipe, resume.input ?? input, resume, outputs, row);
       made = generationId;
-      // its take on the clip, before the job closes (the two arrive on screen together). A clip that cannot take it (removed meanwhile,
-      // a fault here) is no reason to call the render failed; a job picked up again after a crash finds its take placed and places none
-      if (row.clip_id) await this.clips?.finished(row.clip_id, generationId, resume.overlap, resume.links ?? {}, row.finished_from).catch((err: Error) => console.warn(`[queue] the take of job ${row.id} was not placed on its clip: ${err.message}`));
+      await this.place(row, generationId, resume);
       await this.finish(row.id, "done", { generationId });
       await this.note(row, recipe, resume, measured, "done", whole, tookMs, generationId);
       this.events.emit("library");
     } catch (err) {
-      const message = (err as Error).message;
-      if (this.stopped) {
-        // shutting down: leave the row as it is, the next start picks it up
-      } else if (err instanceof ComfyCancelled || abort.signal.aborted) {
-        await this.finish(row.id, "cancelled", { error: "stopped by you" });
-        if (resume && !made && !row.warm) await this.note(row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
-      } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && attempts < this.opts.maxAttempts) {
-        console.warn(`[queue] job ${row.id} lost (${message}), queued again`);
-        await this.db.updateTable("jobs").set({ status: "queued", resume: null, updated_at: now() }).where("id", "=", row.id).execute();
-        this.events.emit("queue");
-      } else {
-        await this.finish(row.id, "failed", { error: message.slice(0, 600) });
-        // what never reached ComfyUI took no GPU time: only a render that was under way is put on record
-        if (resume && !made && !row.warm) await this.note(row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
-      }
+      await this.failed(err as Error, row, recipe, { resume, held, measured, made, whole, attempts, aborted: abort.signal.aborted });
     } finally {
       this.running = null;
       void this.armIdle();
+    }
+  }
+
+  /**
+   * Its take on the clip, before the job closes (the two arrive on screen together). A clip that cannot take
+   * it (removed meanwhile, a fault here) is no reason to call the render failed: it is said on the job. A job
+   * picked up again after a crash finds its take placed and places none.
+   */
+  private async place(row: JobRow, generationId: string, resume: Resume | null): Promise<void> {
+    if (!row.clip_id || !this.clips) return;
+    await this.clips.finished(row.clip_id, generationId, resume?.overlap, resume?.links ?? {}, row.finished_from).catch((err: Error) => this.warn(row.id, `Its take was not placed on its clip: ${err.message}`));
+  }
+
+  /** A job whose result was filed before this process stopped: its take placed when it was not yet, and the job closed. */
+  private async closeFiled(row: JobRow, generationId: string, resume: Resume | null): Promise<void> {
+    await this.place(row, generationId, resume);
+    await this.finish(row.id, "done", { generationId });
+    this.events.emit("library");
+  }
+
+  /** How a render ended that did not finish: stopped by hand, lost by ComfyUI (queued again while attempts remain), or failed; never while shutting down. */
+  private async failed(err: Error, row: JobRow, recipe: Recipe<any>, at: { resume: Resume | null; held?: Resume | null; measured: Measured | null; made?: string; whole: boolean; attempts: number; aborted: boolean }): Promise<void> {
+    const { resume, measured, made, whole } = at;
+    // what never reached ComfyUI took no GPU time: only a render that was under way is put on record
+    const onRecord = resume && !made && !row.warm;
+    if (this.stopped) {
+      // shutting down: leave the row as it is, the next start picks it up
+    } else if (err instanceof ComfyCancelled || at.aborted) {
+      await this.finish(row.id, "cancelled", { error: "stopped by you" });
+      if (onRecord) await this.note(row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
+    } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && at.attempts < this.opts.maxAttempts) {
+      console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
+      // a prompt sent without an answer (ComfyUI did not answer in time) may have been taken all the same: its id is kept to ask for it
+      const unsent = !resume && at.held ? JSON.stringify(at.held) : null;
+      await this.db.updateTable("jobs").set({ status: "queued", resume: unsent, warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").execute();
+      this.events.emit("queue");
+    } else {
+      await this.finish(row.id, "failed", { error: err.message.slice(0, 600) });
+      if (onRecord) await this.note(row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
     }
   }
 

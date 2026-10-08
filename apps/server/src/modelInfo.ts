@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { ComfyUnreachable, modelInfoFrom, type ModelInfo } from "@afflatus/comfy";
 import { MODEL_INFO_VERSION } from "@afflatus/core";
 import { now } from "./db";
+import { httpError } from "./errors";
 import { modelDirs, readLocalHeader } from "./modelFiles";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -65,7 +66,7 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
 
   app.get<{ Params: { folder: string } }>("/api/models/:folder/info", async (req) => {
     const folder = req.params.folder;
-    if (!/^[\w-]{1,64}$/.test(folder)) throw Object.assign(new Error("there is no such model folder"), { statusCode: 400 });
+    if (!/^[\w-]{1,64}$/.test(folder)) throw httpError("there is no such model folder");
     // ComfyUI's list first, what is known second: nothing can be read between the second and the comparison
     let files: string[] | null = null;
     try {
