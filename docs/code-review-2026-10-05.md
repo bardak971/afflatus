@@ -1,5 +1,7 @@
 # Code review, 2026-10-05
 
+**Kept for history. What became of each finding is in [code-review-2026-10-07.md](code-review-2026-10-07.md).**
+
 A critical pass over the whole application: the server (`apps/server`), the web app (`apps/web`), the shared packages (`packages/*`), the ComfyUI node pack (`comfy-nodes`), the release tooling (`scripts/release`, `Dockerfile`, `chart/`, `.github/workflows`), and a pass that compared what the documentation and the interface promise with what the code does. Four reviewers read the code area by area; every HIGH finding and most MEDIUM ones below were re-verified by hand against the files (the file and line are given), and one claim was re-tested against SQLite itself.
 
 ## The shape of the code
