@@ -1,9 +1,9 @@
 import { choicesOf, folderOfFileInput, isRef, sameFile, type Graph, type NodeCatalog, type Ref } from "@afflatus/core";
-import { optsOf, specOf, typeOf } from "./catalog";
+import { hasKind, infoOf, isSamplingPass, MODEL_FILE, optsOf, own, specOf, typeOf } from "./catalog";
 import { scaleAfterModel } from "./recipe";
 import { splitCaptions, type Bindings, type Control, type ImageBinding, type MediaBinding, type Mode, type Target, type Toggle, type Wiring } from "./types";
 import { isDirector } from "./director";
-import { ancestors, prune, settle, cutFileNameChains, standInLoaders, standInPrimitives, standInSavers, unbundleContexts } from "./wiring";
+import { ancestors, prune, readersOf, settle, cutFileNameChains, soleValue, standInLoaders, standInPrimitives, standInSavers, unbundleContexts } from "./wiring";
 import { chapterName, frameNodes, PASS_WORK } from "./suggest";
 
 /**
@@ -101,23 +101,9 @@ export const MEDIA_LOADERS: Record<string, { kind: "video" | "audio"; input: str
   VHS_LoadAudioUpload: { kind: "audio", input: "audio" },
   VHS_LoadAudio: { kind: "audio", input: "audio_file", path: true },
 };
-const FILE = /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx|engine)$/i;
 const RESIZERS = /scale|resize|crop|pad|upscale/i;
 const POWER_LORAS = "Power Lora Loader (rgthree)";
-const stem = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(FILE, "");
-
-/** Who reads each output: "node:output" → the inputs it is linked to. */
-function consumers(graph: Graph): Map<string, Target[]> {
-  const map = new Map<string, Target[]>();
-  for (const [node, n] of Object.entries(graph)) {
-    for (const [input, value] of Object.entries(n.inputs)) {
-      if (!isRef(value)) continue;
-      const key = `${value[0]}:${value[1]}`;
-      map.set(key, [...(map.get(key) ?? []), { node, input }]);
-    }
-  }
-  return map;
-}
+const stem = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(MODEL_FILE, "");
 
 const VALUE_TYPES = new Set(["INT", "FLOAT", "STRING", "BOOLEAN", "*"]);
 
@@ -131,9 +117,8 @@ const EDITOR_ONLY = /^(Node Collector|Mute \/ Bypass (Repeater|Relay)|Fast (Mute
 
 /** A node that only holds one typed-in value for others to read: one input, typed in, and one plain value out. */
 const isPrimitive = (graph: Graph, catalog: NodeCatalog, id: string) => {
-  const inputs = Object.values(graph[id]?.inputs ?? {});
-  const out = catalog[graph[id]?.class_type ?? ""]?.output;
-  return inputs.length === 1 && !isRef(inputs[0]) && (!out || (out.length === 1 && VALUE_TYPES.has(String(out[0]))));
+  const out = infoOf(catalog, graph[id]?.class_type ?? "")?.output;
+  return Boolean(soleValue(graph[id])) && (!out || (out.length === 1 && VALUE_TYPES.has(String(out[0]))));
 };
 
 /**
@@ -150,7 +135,7 @@ function literal(graph: Graph, catalog: NodeCatalog, node: string, input: string
   const through = PASSES_TEXT[from?.class_type ?? ""]?.[value[1]];
   if (depth > 0 && through && from && through in from.inputs) return literal(graph, catalog, value[0], through, depth - 1);
   // a size handed back out by the node it was given to (a resize that gives its width and height on): that input's value
-  const out = String(catalog[from?.class_type ?? ""]?.output_name?.[value[1]] ?? "").toLowerCase();
+  const out = String(infoOf(catalog, from?.class_type ?? "")?.output_name?.[value[1]] ?? "").toLowerCase();
   return depth > 0 && /^(width|height)$/.test(out) && from && out in from.inputs ? literal(graph, catalog, value[0], out, depth - 1) : null;
 }
 
@@ -209,9 +194,9 @@ function namesOf(source: Graph, catalog: NodeCatalog, editor?: Wiring): Names {
   const givenName = (id: string): string | null => {
     const title = (source[id] as NodeMeta | undefined)?._meta?.title?.trim();
     const cls = source[id]!.class_type;
-    return title && title !== cls && title !== catalog[cls]?.display_name ? title : null;
+    return title && title !== cls && title !== infoOf(catalog, cls)?.display_name ? title : null;
   };
-  const givenLabel = (node: string, input: string) => editor?.labels[`${node}.${input}`]?.replace(/^[\s↳]+/, "").trim() || null;
+  const givenLabel = (node: string, input: string) => own(editor?.labels, `${node}.${input}`)?.replace(/^[\s↳]+/, "").trim() || null;
 
   function control(node: string, input: string): Control | null {
     const n = source[node]!;
@@ -219,18 +204,18 @@ function namesOf(source: Graph, catalog: NodeCatalog, editor?: Wiring): Names {
     if (isRef(value) || value === undefined || value === null) return null;
     const spec = specOf(catalog, n.class_type, input);
     // a node of a kind this ComfyUI lacks says nothing of its inputs: the file's own socket types do (no ranges, no choices)
-    const known = Boolean(catalog[n.class_type]);
+    const known = hasKind(catalog, n.class_type);
     const type = known ? typeOf(spec) : (editor?.slots[node]?.in.find(([k]) => k === input)?.[1] ?? "*");
     const o = known ? optsOf(spec) : {};
     // a renamed primitive is a control its author made on purpose: it keeps that name
     const name = givenName(node);
-    const own = isPrimitive(source, catalog, node) && (name !== null || givenLabel(node, input) !== null);
+    const authored = isPrimitive(source, catalog, node) && (name !== null || givenLabel(node, input) !== null);
     const plain = input.replace(/_/g, " ");
     const label = givenLabel(node, input) ?? (name ? (isPrimitive(source, catalog, node) ? name : `${name} · ${plain}`) : plain);
-    const also = editor?.shared[`${node}.${input}`];
+    const also = own(editor?.shared, `${node}.${input}`);
     // the node author's word on the input: shown as the control's "?"
     const help = typeof o.tooltip === "string" && o.tooltip.trim() ? o.tooltip.trim() : undefined;
-    const base = { id: `ctl_${node}_${input}`.replace(/[^a-zA-Z0-9_]/g, "_"), label, target: { node, input }, ...(own ? { front: true } : {}), ...(also?.length ? { also } : {}), ...(help ? { help } : {}) };
+    const base = { id: `ctl_${node}_${input}`.replace(/[^a-zA-Z0-9_]/g, "_"), label, target: { node, input }, ...(authored ? { front: true } : {}), ...(also?.length ? { also } : {}), ...(help ? { help } : {}) };
     if ((type === "INT" || type === "FLOAT") && typeof value === "number") {
       const step = typeof o.step === "number" ? o.step : type === "INT" ? 1 : 0.01;
       return { ...base, kind: "number", default: value, min: typeof o.min === "number" ? o.min : 0, max: typeof o.max === "number" ? o.max : Math.max(100, value), step };
@@ -238,7 +223,7 @@ function namesOf(source: Graph, catalog: NodeCatalog, editor?: Wiring): Names {
     if (type === "BOOLEAN" && typeof value === "boolean") return { ...base, ...splitCaptions(label), kind: "toggle", default: value };
     if (choicesOf(spec) && typeof value === "string") {
       const choices = choicesOf(spec)!;
-      const file = FILE.test(value) || choices.some((c) => FILE.test(c));
+      const file = MODEL_FILE.test(value) || choices.some((c) => MODEL_FILE.test(c));
       return { ...base, kind: "choice", default: value, choices: { node: n.class_type, input }, ...(file ? { file: true } : {}) };
     }
     if (type === "STRING" && typeof value === "string" && (o.multiline || (!known && (value.includes("\n") || value.length > 24)))) return { ...base, kind: "text", default: value };
@@ -261,6 +246,18 @@ interface Reading {
   /** Who reads each output of `graph`. */
   uses: Map<string, Target[]>;
   names: Names;
+  /** What a node of `graph` is made from (its ancestors), worked out once per node. */
+  behind(id: string): Set<string>;
+}
+
+/** `ancestors` in `graph`, each node's once: sorts and passes ask for the same ones many times. */
+function behindOf(graph: Graph): (id: string) => Set<string> {
+  const known = new Map<string, Set<string>>();
+  return (id) => {
+    let set = known.get(id);
+    if (!set) known.set(id, (set = ancestors(graph, id)));
+    return set;
+  };
 }
 
 /** Where a setting sits on the author's own panel (the settings they meant to be changed, in their order), or -1 when it is not there. */
@@ -275,7 +272,7 @@ function findOutputs(r: Reading): { outputs: Inspection["outputs"]; result: Outp
   const outputs: Inspection["outputs"] = [];
   for (const id of ids) {
     const n = graph[id]!;
-    const info = catalog[n.class_type];
+    const info = infoOf(catalog, n.class_type);
     if (!info?.output_node) continue;
     // only what shows or saves media that reaches it: utility output nodes (pruning files, printing values)
     // and savers at the end of a part that is switched off are not results
@@ -292,7 +289,7 @@ function findOutputs(r: Reading): { outputs: Inspection["outputs"]; result: Outp
   // between two of a kind: the one added last when ids are plain numbers, otherwise the first in the file
   const result = [...outputs].sort((a, b) => rank(b) - rank(a) || (Number(b.node) - Number(a.node) || 0))[0];
   // what the result is made from: a workflow can hold several ways of making it, of which one is in use
-  const reach = result ? ancestors(graph, result.node) : new Set<string>();
+  const reach = result ? r.behind(result.node) : new Set<string>();
   return { outputs, result, reach };
 }
 
@@ -303,7 +300,7 @@ function findTexts(r: Reading): { texts: Inspection["texts"]; prompt: Inspection
   const seen = (t: Target) => texts.some((x) => x.target.node === t.node && x.target.input === t.input);
   for (const id of ids) {
     const n = graph[id]!;
-    const info = catalog[n.class_type];
+    const info = infoOf(catalog, n.class_type);
     if (!info?.output.includes("CONDITIONING")) continue;
     for (const input of Object.keys(n.inputs)) {
       if (typeOf(specOf(catalog, n.class_type, input)) !== "STRING") continue;
@@ -331,7 +328,7 @@ function findTexts(r: Reading): { texts: Inspection["texts"]; prompt: Inspection
     for (const id of ids) {
       for (const [input, value] of Object.entries(graph[id]!.inputs)) {
         // a node of a kind this ComfyUI lacks says nothing of its inputs: one named like a prompt, holding text, is taken as one
-        const textual = catalog[graph[id]!.class_type] ? Boolean(optsOf(specOf(catalog, graph[id]!.class_type, input)).multiline) : /prompt|text|caption/i.test(input);
+        const textual = hasKind(catalog, graph[id]!.class_type) ? Boolean(optsOf(specOf(catalog, graph[id]!.class_type, input)).multiline) : /prompt|text|caption/i.test(input);
         if (typeof value !== "string" || seen({ node: id, input }) || !textual) continue;
         const role = /negative/i.test(input) ? "negative" : /^(prompt|positive(_prompt)?|text|caption)$/i.test(input) ? "positive" : null;
         if (role) texts.push({ target: { node: id, input }, title: names.titleOf(id), text: value, role });
@@ -344,7 +341,30 @@ function findTexts(r: Reading): { texts: Inspection["texts"]; prompt: Inspection
 }
 
 // ---- seeds, size, length
-function findSizeAndLength(r: Reading, reach: Set<string>): { seeds: Target[]; size: Bindings["size"]; length: Bindings["length"]; resolution: Target | undefined; duration: Target | undefined } {
+const LENGTH_INPUTS = ["length", "frames", "num_frames", "video_length"];
+/** What a node's step and range options say a size is typed in steps of. */
+const sizeOf = (width: Target, height: Target, o: Record<string, unknown>): NonNullable<Bindings["size"]> => ({ width, height, step: Number(o.step) || 8, min: Math.max(64, Number(o.min) || 64), max: Math.min(4096, Number(o.max) || 4096) });
+/** The nodes behind an input, nearest first, a few steps back. */
+function nodesBehind(graph: Graph, from: unknown, depth = 6): string[] {
+  const seen: string[] = [];
+  let frontier = [from].filter(isRef).map((x) => x[0]);
+  for (let d = 0; d < depth && frontier.length; d++) {
+    frontier = frontier.filter((id) => !seen.includes(id) && graph[id]);
+    seen.push(...frontier);
+    frontier = frontier.flatMap((id) => Object.values(graph[id]!.inputs).filter(isRef).map((x) => x[0]));
+  }
+  return seen;
+}
+/** A number node named so among some nodes: the place its value is typed in. */
+function primitiveNamed(r: Reading, among: string[], re: RegExp): Target | undefined {
+  const { graph, catalog, names } = r;
+  const id = among.find((x) => isPrimitive(graph, catalog, x) && re.test(names.givenName(x) ?? "") && typeof soleValue(graph[x])?.value === "number");
+  return id ? { node: id, input: soleValue(graph[id])!.input } : undefined;
+}
+/** The frames per second the node that assembles the video says. */
+const rateOf = (r: Reading) => Number(r.ids.map((id) => r.graph[id]!.inputs.frame_rate ?? r.graph[id]!.inputs.fps).find((v) => typeof v === "number")) || 16;
+
+function findSeeds(r: Reading): Target[] {
   const { graph, ids, catalog, names } = r;
   const seeds: Target[] = [];
   const addSeed = (at: Target | null) => {
@@ -352,102 +372,69 @@ function findSizeAndLength(r: Reading, reach: Set<string>): { seeds: Target[]; s
   };
   for (const id of ids) for (const input of Object.keys(graph[id]!.inputs)) if (/^(noise_)?seed(_value)?$/.test(input)) addSeed(literal(graph, catalog, id, input));
   // a number node named "Seed" that reaches the samplers through something else
-  if (!seeds.length) for (const id of ids) if (isPrimitive(graph, catalog, id) && /^seed$/i.test(names.givenName(id) ?? "")) addSeed({ node: id, input: Object.keys(graph[id]!.inputs)[0]! });
+  if (!seeds.length) for (const id of ids) if (isPrimitive(graph, catalog, id) && /^seed$/i.test(names.givenName(id) ?? "")) addSeed({ node: id, input: soleValue(graph[id])!.input });
+  return seeds;
+}
 
-  let size: Bindings["size"];
-  let length: Bindings["length"];
-  /** When the size is worked out by other nodes: the setting among them that says how large ("480p", "720p"). */
-  let resolution: Target | undefined;
-  /** A length the workflow takes in seconds rather than in frames: a control for it, not a conversion. */
-  let duration: Target | undefined;
+/** The size: typed into the node that makes the latent, or into number nodes named so; else the preset it is worked out from. */
+function findSize(r: Reading, reach: Set<string>): { generator: string | undefined; size: Bindings["size"]; resolution: Target | undefined } {
+  const { graph, ids, catalog } = r;
   const sized = ids.filter((id) => "width" in graph[id]!.inputs && "height" in graph[id]!.inputs && !RESIZERS.test(graph[id]!.class_type));
-  const makesLatent = (id: string) => catalog[graph[id]!.class_type]?.output.includes("LATENT");
+  const makesLatent = (id: string) => infoOf(catalog, graph[id]!.class_type)?.output.includes("LATENT");
   // the node that makes the latent decides the size; a "length" beside it makes it a video
   const generator = sized.find((id) => reach.has(id) && makesLatent(id)) ?? sized.find(makesLatent) ?? sized[0];
-  if (generator) {
-    const width = literal(graph, catalog, generator, "width");
-    const height = literal(graph, catalog, generator, "height");
-    const o = optsOf(specOf(catalog, graph[generator]!.class_type, "width"));
-    if (width && height) size = { width, height, step: Number(o.step) || 8, min: Math.max(64, Number(o.min) || 64), max: Math.min(4096, Number(o.max) || 4096) };
-    else {
-      // a size worked out by other nodes (a preset, a calculation) is left to those nodes: look back along what
-      // feeds the width for the preset, nearest first (it can sit behind a resize, a measure and some arithmetic)
-      const visited = new Set<string>();
-      let frontier = [graph[generator]!.inputs.width].filter(isRef).map((r) => r[0]);
-      for (let depth = 0; depth < 10 && frontier.length && !resolution; depth++) {
-        frontier = frontier.filter((id) => !visited.has(id) && graph[id]);
-        for (const id of frontier) {
-          visited.add(id);
-          const cls = graph[id]!.class_type;
-          const input = Object.keys(graph[id]!.inputs).find((k) => (/resolution|megapixel|aspect|preset|dimension/i.test(k) || (/resolution|dimension|aspect|size.?picker/i.test(cls) && !/^(width|height)$/i.test(k))) && typeof graph[id]!.inputs[k] === "string");
-          if (input) resolution ??= { node: id, input };
-        }
-        frontier = frontier.flatMap((id) => Object.values(graph[id]!.inputs).filter(isRef).map((r) => r[0]));
-      }
+  if (!generator) return { generator, size: undefined, resolution: undefined };
+  const width = literal(graph, catalog, generator, "width");
+  const height = literal(graph, catalog, generator, "height");
+  const o = optsOf(specOf(catalog, graph[generator]!.class_type, "width"));
+  if (width && height) return { generator, size: sizeOf(width, height, o), resolution: undefined };
+  // a size worked out by other nodes (a preset, a calculation) is left to those nodes: look back along what
+  // feeds the width for the preset, nearest first (it can sit behind a resize, a measure and some arithmetic)
+  let resolution: Target | undefined;
+  const visited = new Set<string>();
+  let frontier = [graph[generator]!.inputs.width].filter(isRef).map((x) => x[0]);
+  for (let depth = 0; depth < 10 && frontier.length && !resolution; depth++) {
+    frontier = frontier.filter((id) => !visited.has(id) && graph[id]);
+    for (const id of frontier) {
+      visited.add(id);
+      const cls = graph[id]!.class_type;
+      const input = Object.keys(graph[id]!.inputs).find((k) => (/resolution|megapixel|aspect|preset|dimension/i.test(k) || (/resolution|dimension|aspect|size.?picker/i.test(cls) && !/^(width|height)$/i.test(k))) && typeof graph[id]!.inputs[k] === "string");
+      if (input) resolution ??= { node: id, input };
     }
-    /** The nodes behind an input, nearest first, a few steps back. */
-    const behind = (from: unknown, depth = 6): string[] => {
-      const seen: string[] = [];
-      let frontier = [from].filter(isRef).map((r) => r[0]);
-      for (let d = 0; d < depth && frontier.length; d++) {
-        frontier = frontier.filter((id) => !seen.includes(id) && graph[id]);
-        seen.push(...frontier);
-        frontier = frontier.flatMap((id) => Object.values(graph[id]!.inputs).filter(isRef).map((r) => r[0]));
-      }
-      return seen;
-    };
-    /** A number node named so, feeding the input through other nodes (a calculation, a rounding). */
-    const primitiveNamed = (from: unknown, re: RegExp): Target | undefined => {
-      const id = behind(from).find((x) => isPrimitive(graph, catalog, x) && re.test(names.givenName(x) ?? "") && typeof Object.values(graph[x]!.inputs)[0] === "number");
-      return id ? { node: id, input: Object.keys(graph[id]!.inputs)[0]! } : undefined;
-    };
-    if (!size && !resolution) {
-      // the size worked out from a width and a height someone typed into named number nodes: those are the size
-      const w = primitiveNamed(graph[generator]!.inputs.width, /width/i);
-      const h = primitiveNamed(graph[generator]!.inputs.height, /height/i);
-      if (w && h && w.node !== h.node) size = { width: w, height: h, step: Number(o.step) || 8, min: Math.max(64, Number(o.min) || 64), max: Math.min(4096, Number(o.max) || 4096) };
-    }
-    const seconds = ["duration", "seconds", "duration_seconds"].find((k) => typeof graph[generator]!.inputs[k] === "number");
-    if (seconds) duration = { node: generator, input: seconds };
-    const lengthInput = ["length", "frames", "num_frames", "video_length"].find((k) => k in graph[generator]!.inputs);
-    const at = lengthInput ? literal(graph, catalog, generator, lengthInput) : null;
-    if (at && lengthInput) {
-      const lo = optsOf(specOf(catalog, graph[generator]!.class_type, lengthInput));
-      const frames = Number(graph[at.node]!.inputs[at.input]);
-      const step = Number(lo.step) || 1;
-      // frames per second: what the node that assembles the video says
-      const rate = ids.map((id) => graph[id]!.inputs.frame_rate ?? graph[id]!.inputs.fps).find((v) => typeof v === "number");
-      length = { target: at, fps: Number(rate) || 16, step, offset: ((frames % step) + step) % step, min: 1, max: 30 };
-    }
+    frontier = frontier.flatMap((id) => Object.values(graph[id]!.inputs).filter(isRef).map((x) => x[0]));
   }
-  if (generator && !length && !duration) {
-    const lengthInput = ["length", "frames", "num_frames", "video_length"].find((k) => isRef(graph[generator]!.inputs[k]));
-    if (lengthInput) {
-      // "Seconds" typed into a number node, turned into a frame count by other nodes: a length control in seconds
-      const seen: string[] = [];
-      let frontier = [graph[generator]!.inputs[lengthInput]].filter(isRef).map((r) => r[0]);
-      for (let d = 0; d < 6 && frontier.length; d++) {
-        frontier = frontier.filter((id) => !seen.includes(id) && graph[id]);
-        seen.push(...frontier);
-        frontier = frontier.flatMap((id) => Object.values(graph[id]!.inputs).filter(isRef).map((r) => r[0]));
-      }
-      const named = (re: RegExp) => seen.find((x) => isPrimitive(graph, catalog, x) && re.test(names.givenName(x) ?? "") && typeof Object.values(graph[x]!.inputs)[0] === "number");
-      const id = named(/second|duration/i);
-      if (id) duration = { node: id, input: Object.keys(graph[id]!.inputs)[0]! };
-      else {
-        // or a frame count typed into a node named so: a length in frames, shown in seconds at the video's rate
-        const frames = named(/frames?$|^length|num_frames/i);
-        if (frames) {
-          const lo = optsOf(specOf(catalog, graph[generator]!.class_type, lengthInput));
-          const step = Number(lo.step) || 1;
-          const count = Number(Object.values(graph[frames]!.inputs)[0]);
-          const rate = ids.map((x) => graph[x]!.inputs.frame_rate ?? graph[x]!.inputs.fps).find((v) => typeof v === "number");
-          length = { target: { node: frames, input: Object.keys(graph[frames]!.inputs)[0]! }, fps: Number(rate) || 16, step, offset: ((count % step) + step) % step, min: 1, max: 30 };
-        }
-      }
-    }
-  }
-  return { seeds, size, length, resolution, duration };
+  if (resolution) return { generator, size: undefined, resolution };
+  // the size worked out from a width and a height someone typed into named number nodes: those are the size
+  const w = primitiveNamed(r, nodesBehind(graph, graph[generator]!.inputs.width), /width/i);
+  const h = primitiveNamed(r, nodesBehind(graph, graph[generator]!.inputs.height), /height/i);
+  return { generator, size: w && h && w.node !== h.node ? sizeOf(w, h, o) : undefined, resolution: undefined };
+}
+
+/** The length of a video: a frame count on the node that makes the latent, seconds typed there, or a number node named so. */
+function findLength(r: Reading, generator: string | undefined): { length: Bindings["length"]; duration: Target | undefined } {
+  const { graph, catalog } = r;
+  if (!generator) return { length: undefined, duration: undefined };
+  const inputs = graph[generator]!.inputs;
+  const stepOf = (input: string) => Number(optsOf(specOf(catalog, graph[generator]!.class_type, input)).step) || 1;
+  const lengthOf = (target: Target, input: string, frames: number): Bindings["length"] => {
+    const step = stepOf(input);
+    return { target, fps: rateOf(r), step, offset: ((frames % step) + step) % step, min: 1, max: 30 };
+  };
+  const seconds = ["duration", "seconds", "duration_seconds"].find((k) => typeof inputs[k] === "number");
+  const duration: Target | undefined = seconds ? { node: generator, input: seconds } : undefined;
+  const lengthInput = LENGTH_INPUTS.find((k) => k in inputs);
+  const at = lengthInput ? literal(graph, catalog, generator, lengthInput) : null;
+  if (at && lengthInput) return { length: lengthOf(at, lengthInput, Number(graph[at.node]!.inputs[at.input])), duration };
+  if (duration) return { length: undefined, duration };
+  const linked = LENGTH_INPUTS.find((k) => isRef(inputs[k]));
+  if (!linked) return { length: undefined, duration: undefined };
+  // "Seconds" typed into a number node, turned into a frame count by other nodes: a length control in seconds
+  const behind = nodesBehind(graph, inputs[linked]);
+  const secondsNode = primitiveNamed(r, behind, /second|duration/i);
+  if (secondsNode) return { length: undefined, duration: secondsNode };
+  // or a frame count typed into a node named so: a length in frames, shown in seconds at the video's rate
+  const frames = primitiveNamed(r, behind, /frames?$|^length|num_frames/i);
+  return { length: frames ? lengthOf(frames, linked, Number(graph[frames.node]!.inputs[frames.input])) : undefined, duration: undefined };
 }
 
 // ---- pictures it loads: what they are named, then what they are wired to
@@ -464,7 +451,7 @@ function findImages(r: Reading, reach: Set<string>): { images: Inspection["image
   };
   const binding = (id: string): ImageBinding => {
     const direct = uses.get(`${id}:0`) ?? [];
-    const optional = direct.length > 0 && direct.every((u) => u.input in (catalog[graph[u.node]!.class_type]?.input.optional ?? {}));
+    const optional = direct.length > 0 && direct.every((u) => Object.hasOwn(infoOf(catalog, graph[u.node]!.class_type)?.input.optional ?? {}, u.input));
     // a picture the result is not made from as things are set (the other side of a choice) can be left out too
     return { target: { node: id, input: "image" }, detach: optional ? direct : [], required: !optional && reach.has(id) };
   };
@@ -473,10 +460,12 @@ function findImages(r: Reading, reach: Set<string>): { images: Inspection["image
   const startId = loaded.find((id) => id !== endId && imageRole(id) === "start") ?? loaded.find((id) => id !== endId && imageRole(id) !== "mask");
   // the other pictures it loads (references, more pictures to work from): a slot each, named after their loader
   const others = loaded.filter((id) => id !== startId && id !== endId && imageRole(id) !== "mask");
-  const pictures = others.map((id, i) => ({ ...binding(id), id: `pic_${id}`.replace(/[^a-zA-Z0-9_]/g, "_"), label: names.givenName(id) ?? `Image ${i + 2}` }));
+  const pictures = others.map((id, i) => ({ ...binding(id), id: pictureId(id), label: names.givenName(id) ?? `Image ${i + 2}` }));
   return { images, loaded, start: startId ? binding(startId) : undefined, end: endId ? binding(endId) : undefined, pictures };
 }
 
+/** The form's input id of a picture loader that is not the start or the end. */
+export const pictureId = (node: string) => `pic_${node}`.replace(/[^a-zA-Z0-9_]/g, "_");
 /** The form's input id of a sound loader that is not the main one. */
 export const soundId = (node: string) => `snd_${node}`.replace(/[^a-zA-Z0-9_]/g, "_");
 /** The form's input id of a video loader that is not the main source. */
@@ -492,7 +481,7 @@ function findMedia(r: Reading, reach: Set<string>): { videos: Inspection["videos
   });
   const binding = (id: string, input: string): MediaBinding => {
     const direct = [0, 1, 2].flatMap((out) => uses.get(`${id}:${out}`) ?? []);
-    const optional = direct.length > 0 && direct.every((u) => u.input in (catalog[graph[u.node]!.class_type]?.input.optional ?? {}));
+    const optional = direct.length > 0 && direct.every((u) => Object.hasOwn(infoOf(catalog, graph[u.node]!.class_type)?.input.optional ?? {}, u.input));
     return { target: { node: id, input }, detach: optional ? direct : [], required: !optional && reach.has(id) };
   };
   // by the name the loader was given: the clip after, the clip before; otherwise a video to work on (an upscale, a
@@ -525,7 +514,7 @@ function findLoraPoints(r: Reading): { loraPoints: Inspection["loraPoints"]; cho
   for (const id of ids) {
     const n = graph[id]!;
     // a loader of a kind this ComfyUI lacks: the file's own socket types say what it gives out (a WANVIDEOMODEL is a model)
-    const out = catalog[n.class_type]?.output ?? (editor?.slots[id]?.out ?? []).map((t) => (/MODEL/i.test(String(t)) ? "MODEL" : String(t)));
+    const out = infoOf(catalog, n.class_type)?.output ?? (editor?.slots[id]?.out ?? []).map((t) => (/MODEL/i.test(String(t)) ? "MODEL" : String(t)));
     if (n.class_type === POWER_LORAS) {
       // a node that is a list of LoRAs already: Afflatus's list takes its place
       loraPoints.push({ node: id, output: 0, title: names.titleOf(id), label: names.givenName(id) ?? "", power: true });
@@ -533,7 +522,7 @@ function findLoraPoints(r: Reading): { loraPoints: Inspection["loraPoints"]; cho
     }
     const takesModel = Object.entries(n.inputs).some(([k, v]) => k === "model" && isRef(v));
     if (!out.includes("MODEL") || takesModel || !/load/i.test(n.class_type) || /lora/i.test(n.class_type)) continue;
-    const file = Object.values(n.inputs).find((v): v is string => typeof v === "string" && FILE.test(v));
+    const file = Object.values(n.inputs).find((v): v is string => typeof v === "string" && MODEL_FILE.test(v));
     loraPoints.push({ node: id, output: out.indexOf("MODEL"), title: names.titleOf(id), label: names.givenName(id) ?? (file ? stem(file) : n.class_type) });
   }
   // the workflow's own LoRA lists when it has them; else one loader, or a pair (a high and a low model, each
@@ -548,7 +537,7 @@ function findAbout(r: Reading): { about: Record<string, string>; toggles: Toggle
   const { source, catalog, editor, names } = r;
   /** What a kind of node does, when its author said. */
   const aboutOf = (classType: string | undefined) => {
-    const d = classType ? catalog[classType]?.description : undefined;
+    const d = classType ? infoOf(catalog, classType)?.description : undefined;
     return typeof d === "string" && d.trim() ? d.trim() : undefined;
   };
   const about: Record<string, string> = {};
@@ -592,7 +581,7 @@ function collectCandidates(
   for (const id of Object.keys(source)) {
     const n = source[id]!;
     // a kind this ComfyUI lacks is read by the file's socket types, when the file is the editor's
-    if ((!catalog[n.class_type] && !editor?.slots[id]) || id === result?.node || n.class_type === POWER_LORAS) continue;
+    if ((!hasKind(catalog, n.class_type) && !editor?.slots[id]) || id === result?.node || n.class_type === POWER_LORAS) continue;
     const primitive = isPrimitive(source, catalog, id);
     for (const input of Object.keys(n.inputs)) {
       const isModel = model?.target.node === id && model.target.input === input;
@@ -605,7 +594,7 @@ function collectCandidates(
         const elsewhere = choices.length && !choices.includes(String(c.default)) ? sameFile(choices, String(c.default)) : undefined;
         if (elsewhere) relocated.push({ node: id, input, file: String(c.default), found: elsewhere });
         else if (choices.length && !choices.includes(String(c.default))) {
-          const url = editor?.downloads[String(c.default).split(/[\\/]/).pop() ?? ""];
+          const url = own(editor?.downloads, String(c.default).split(/[\\/]/).pop() ?? "");
           missingFiles.push({ node: id, input, classType: n.class_type, file: String(c.default), label: c.label, options: choices, ...(url ? { url } : {}) });
         }
       }
@@ -641,19 +630,18 @@ function collectCandidates(
 /** The passes of sampling, the first pass first (the one the fewest nodes feed). */
 function samplerPasses(r: Reading): string[] {
   const { graph, ids } = r;
-  return ids.filter((id) => /KSampler|SamplerCustom/.test(graph[id]!.class_type)).sort((a, z) => ancestors(graph, a).size - ancestors(graph, z).size);
+  return ids.filter((id) => isSamplingPass(graph[id]!)).sort((a, z) => r.behind(a).size - r.behind(z).size);
 }
 
 // ---- settings of the same name on several nodes are told apart: by the pass of sampling they belong to, else by their node
 function tellApart(r: Reading, candidates: Inspection["candidates"], samplerIds: string[]): void {
-  const { graph } = r;
   const ORDINAL = ["first", "second", "third", "fourth", "fifth"];
   const passOf = (node: string): string | null => {
     // the pass a node works for: the first sampler that is made from it (or is it)
-    const at = samplerIds.findIndex((s) => s === node || ancestors(graph, s).has(node));
-    const own = samplerIds.filter((s) => s === node || ancestors(graph, s).has(node)).length;
+    const at = samplerIds.findIndex((s) => s === node || r.behind(s).has(node));
+    const mine = samplerIds.filter((s) => s === node || r.behind(s).has(node)).length;
     // what every pass reads (the text, the model) belongs to none of them
-    return samplerIds.length > 1 && at >= 0 && (own === 1 || samplerIds[at] === node) ? `${ORDINAL[at] ?? `${at + 1}th`} pass` : null;
+    return samplerIds.length > 1 && at >= 0 && (mine === 1 || samplerIds[at] === node) ? `${ORDINAL[at] ?? `${at + 1}th`} pass` : null;
   };
   const sameLabel = new Map<string, number>();
   for (const c of candidates) if (!c.front) sameLabel.set(c.label, (sameLabel.get(c.label) ?? 0) + 1);
@@ -670,24 +658,24 @@ function findStages(r: Reading, made: { result: Output | undefined; outputs: Ins
   const { result, outputs, candidates, samplerIds, size } = made;
   const stages: Inspection["stages"] = [];
   if (result) {
-    const whole = ancestors(graph, result.node);
+    const whole = r.behind(result.node);
     const isOutput = (id: string) => outputs.some((o) => o.node === id);
     /** What an output is made from, leaving out the nodes that only show or save. */
-    const madeFrom = (id: string) => [...ancestors(graph, id)].filter((x) => !isOutput(x)).sort().join(",");
-    const count = (id: string, what: RegExp) => [...ancestors(graph, id)].filter((x) => what.test(graph[x]!.class_type)).length;
+    const madeFrom = (id: string) => [...r.behind(id)].filter((x) => !isOutput(x)).sort().join(",");
+    const count = (id: string, what: RegExp | ((n: Graph[string]) => boolean)) => [...r.behind(id)].filter((x) => (what instanceof RegExp ? what.test(graph[x]!.class_type) : what(graph[x]!))).length;
     /** The node whose picture an output shows. */
     const shows = (id: string): string | undefined => (["images", "image", "video", "audio"].map((k) => graph[id]!.inputs[k]).find(isRef) as Ref | undefined)?.[0];
-    const SAMPLER = /KSampler|SamplerCustom/;
+    const SAMPLER = isSamplingPass;
     const DISPLAY = /Decode|Preview|Save|Compar/i;
     // an output beside the way: it shows a picture of a pass the result goes through (everything behind it but its own decoding is needed by the result)
     const beside = (o: Output) => o.node !== result.node && !whole.has(o.node) && count(o.node, SAMPLER) > 0
-      && [...ancestors(graph, o.node)].every((x) => whole.has(x) || isOutput(x) || DISPLAY.test(graph[x]!.class_type));
+      && [...r.behind(o.node)].every((x) => whole.has(x) || isOutput(x) || DISPLAY.test(graph[x]!.class_type));
     const onTheWay = outputs.filter((o) => o.kind === result.kind && (o.node === result.node || whole.has(o.node) || beside(o)));
     // several outputs can show the same picture (a preview, then a save): one stage, the result when it is among them
     const byMake = new Map<string, string>();
     for (const o of onTheWay) if (!byMake.has(madeFrom(o.node)) || o.node === result.node) byMake.set(madeFrom(o.node), o.node);
     byMake.set(madeFrom(result.node), result.node);
-    const nodes = [...byMake.values()].sort((a, z) => ancestors(graph, a).size - ancestors(graph, z).size);
+    const nodes = [...byMake.values()].sort((a, z) => r.behind(a).size - r.behind(z).size);
     if (nodes.length > 1) {
       let passes = 0;
       let enlargings = 0;
@@ -721,11 +709,11 @@ function findStages(r: Reading, made: { result: Output | undefined; outputs: Ins
         rename(second, "steps", "Hires steps");
         rename(second, "denoise", "Denoising strength (hires)");
         for (const c of candidates) {
-          if (c.front || !ancestors(graph, second).has(c.target.node) || ancestors(graph, stages[0]!.node).has(c.target.node)) continue;
+          if (c.front || !r.behind(second).has(c.target.node) || r.behind(stages[0]!.node).has(c.target.node)) continue;
           if (c.target.input === "scale_by" || c.target.input === "upscale_by") c.label = "Upscale by";
           // after an upscale model whose factor is not known, it is not the whole factor: it must not be named as if it were
           const afterModel = scaleAfterModel(graph, c.target);
-          if (afterModel && !(afterModel.factor && size && ancestors(graph, afterModel.upscale).has(size.width.node))) c.label = "Scale after the upscaler";
+          if (afterModel && !(afterModel.factor && size && r.behind(afterModel.upscale).has(size.width.node))) c.label = "Scale after the upscaler";
           if (c.target.input === "model_name" && /upscale/i.test(c.classType)) c.label = "Upscaler";
         }
       }
@@ -740,11 +728,11 @@ function findMissingChoices(r: Reading): Inspection["missingChoices"] {
   const missingChoices: Inspection["missingChoices"] = [];
   for (const id of ids) {
     const n = graph[id]!;
-    if (!catalog[n.class_type]) continue;
+    if (!hasKind(catalog, n.class_type)) continue;
     for (const [input, value] of Object.entries(n.inputs)) {
-      if (typeof value !== "string" || FILE.test(value)) continue;
+      if (typeof value !== "string" || MODEL_FILE.test(value)) continue;
       const options = choicesOf(specOf(catalog, n.class_type, input));
-      if (!options?.length || options.includes(value) || options.some((o) => FILE.test(o))) continue;
+      if (!options?.length || options.includes(value) || options.some((o) => MODEL_FILE.test(o))) continue;
       // the closest name: the longest common start ("beta57" → "beta")
       const shared = (o: string) => {
         let i = 0;
@@ -758,14 +746,147 @@ function findMissingChoices(r: Reading): Inspection["missingChoices"] {
   return missingChoices;
 }
 
+// ---- nodes of kinds this ComfyUI lacks that only patch what passes through them (a model in, the same model out,
+// nothing else read from it): bypassed, with a switch to turn them on once their pack is installed
+function bridgeMissing(source: Graph, catalog: NodeCatalog, editor: Wiring | undefined): { bridged: Toggle[]; bridgedModes: Record<string, Mode> } {
+  const bridged: Toggle[] = [];
+  const bridgedModes: Record<string, Mode> = {};
+  if (!editor) return { bridged, bridgedModes };
+  const readers = readersOf(source);
+  const early = namesOf(source, catalog, editor);
+  for (const [id, n] of Object.entries(source)) {
+    // (a list of LoRAs is not a patch to pass by: Afflatus's own list takes its place)
+    if (hasKind(catalog, n.class_type) || n.class_type === POWER_LORAS || EDITOR_ONLY.test(n.class_type) || editor.modes[id] || editor.toggles.some((t) => t.effects.some((e) => e.nodes.includes(id)))) continue;
+    const slots = editor.slots[id];
+    if (!slots?.out.length) continue;
+    // every output that is read has exactly one linked input of its type to hand on (a model, a model and a clip);
+    // nothing else is wired in, so the node only patches what passes through it
+    const linked = slots.in.filter(([name]) => isRef(n.inputs[name]));
+    const readOuts = slots.out.map((t, i) => (readers.has(`${id}:${i}`) ? t : null)).filter((t): t is string => t !== null);
+    if (!readOuts.length || !linked.length) continue;
+    const types = new Set(readOuts);
+    if (![...types].every((t) => linked.filter(([, lt]) => lt === t).length === 1) || !linked.every(([, lt]) => types.has(lt))) continue;
+    bridgedModes[id] = "bypass";
+    const pack = own(editor.packs, n.class_type);
+    bridged.push({
+      id: `sw_${id}`.replace(/[^a-zA-Z0-9_]/g, "_"), label: early.titleOf(id), default: false, writes: [],
+      effects: [{ nodes: [id], activeWhen: true, mode: "bypass" }],
+      help: `${n.class_type}${pack ? ` (pack ${pack})` : ""} is not in this ComfyUI. Off, what it would change passes it by; install the pack to turn it on.`,
+    });
+  }
+  return { bridged, bridgedModes };
+}
+
+// ---- a group bypasser (rgthree's) in the workflow: the author's frames are the switches, each on or off as saved
+function framedSwitches(source: Graph, editor: Wiring | undefined, bridged: Toggle[]): { framed: Toggle[]; bypasser: Graph[string] | undefined } {
+  const bypasser = editor ? Object.values(source).find((n) => /^Fast Groups (Bypasser|Muter)/.test(n.class_type)) : undefined;
+  const framed: Toggle[] = [];
+  if (!editor || !bypasser) return { framed, bypasser };
+  const mode: Mode = /Muter/.test(bypasser.class_type) ? "mute" : "bypass";
+  const covered = new Set([...editor.toggles, ...bridged].flatMap((t) => t.effects.flatMap((e) => e.nodes)));
+  const ids = new Set<string>();
+  for (const fr of editor.frames) {
+    const nodes = fr.nodes.filter((id) => source[id] && !/^Fast Groups|^Note$|^MarkdownNote$/.test(source[id]!.class_type));
+    // a frame partly switched by another switch, or with some nodes on and some off, is not one switch
+    if (!nodes.length || nodes.some((id) => covered.has(id))) continue;
+    const off = nodes.filter((id) => editor.modes[id]);
+    if (off.length && off.length !== nodes.length) continue;
+    let id = `sw_frame_${fr.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "frame"}`;
+    for (let n = 2; ids.has(id); n++) id = `${id.replace(/_\d+$/, "")}_${n}`;
+    ids.add(id);
+    framed.push({ id, label: fr.title, default: off.length === 0, writes: [], effects: [{ nodes, activeWhen: true, mode }], help: `The frame "${fr.title}", switched as a whole with ${bypasser.class_type}.` });
+  }
+  return { framed, bypasser };
+}
+
+// ---- a frame the author saved switched off, with no switch over it, that is a pass of work feeding the output once on
+// (a detailer, an upscale, a second sampling left for when it is wanted): a switch, off as saved
+function savedOffSwitches(source: Graph, editor: Wiring, bridged: Toggle[], bridgedModes: Record<string, Mode>, result: string): Toggle[] {
+  const savedOff: Toggle[] = [];
+  const covered = new Set([...editor.toggles, ...bridged].flatMap((t) => t.effects.flatMap((e) => e.nodes)));
+  const taken = new Set<string>();
+  editor.frames.forEach((fr, i) => {
+    const nodes = frameNodes(editor.frames, i).filter((id) => source[id] && !taken.has(id));
+    if (!nodes.length || nodes.some((id) => covered.has(id) || !editor.modes[id])) return;
+    if (!nodes.some((id) => "steps" in source[id]!.inputs || PASS_WORK.test(source[id]!.class_type))) return;
+    // a frame that only holds other frames is not a part of its own: those inside are switched one by one
+    if (!fr.nodes.some((id) => source[id])) return;
+    // a frame inside one that holds nodes of its own and is saved off as a whole is that one's part
+    const up = fr.parent !== undefined ? editor.frames[fr.parent] : undefined;
+    if (up && up.nodes.some((id) => source[id]) && frameNodes(editor.frames, fr.parent!).every((id) => !source[id] || editor.modes[id])) return;
+    const on = { ...editor.modes, ...bridgedModes };
+    for (const id of nodes) delete on[id];
+    const lit = prune(source, editor, on);
+    const behind = ancestors(lit.graph, result);
+    if (!nodes.some((id) => behind.has(id)) || [...behind].some((id) => lit.broken.has(id)) || lit.broken.has(result)) return;
+    for (const id of nodes) taken.add(id);
+    const label = chapterName(fr.title);
+    let id = `sw_off_${label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "frame"}`;
+    for (let n = 2; savedOff.some((t) => t.id === id); n++) id = `${id.replace(/_\d+$/, "")}_${n}`;
+    savedOff.push({ id, label, default: false, writes: [], effects: [{ nodes, activeWhen: true, mode: editor.modes[nodes[0]!] === "mute" ? "mute" : "bypass" }], help: fr.note ?? `The frame "${fr.title}", saved switched off.` });
+  });
+  return savedOff;
+}
+
+// ---- what this ComfyUI lacks: among the nodes the result is made from it blocks a render; elsewhere it is left out
+// (rgthree's editor-only helpers are missing from every ComfyUI: no pack to ask for, the build leaves them out)
+function missingKinds(r: Reading, result: Output | undefined, reach: Set<string>): { missingNodes: string[]; missingUnneeded: string[]; missingWhenOn: string[] } {
+  const { source, graph, ids, catalog } = r;
+  const lacks = (g: Graph, id: string) => !hasKind(catalog, g[id]!.class_type) && !EDITOR_ONLY.test(g[id]!.class_type);
+  const kinds = (g: Graph, which: string[]) => [...new Set(which.filter((id) => lacks(g, id)).map((id) => g[id]!.class_type))];
+  const needed = result ? ids.filter((id) => id === result.node || reach.has(id)) : ids;
+  const missingNodes = kinds(graph, needed);
+  const missingUnneeded = kinds(graph, ids.filter((id) => !needed.includes(id))).filter((c) => !missingNodes.includes(c));
+  const missingWhenOn = kinds(source, Object.keys(source).filter((id) => !graph[id])).filter((c) => !missingNodes.includes(c) && !missingUnneeded.includes(c));
+  return { missingNodes, missingUnneeded, missingWhenOn };
+}
+
+// ---- the model file: the loader the LoRAs chain after, the first in use, as the form's Model picker
+function findModel(r: Reading, passes: string[], loras: { loraPoints: Inspection["loraPoints"]; chosen: Inspection["loraPoints"] }, reach: Set<string>): { model: Bindings["model"]; modelLoader: Inspection["loraPoints"][number] | undefined } {
+  const { graph, catalog } = r;
+  const { loraPoints, chosen } = loras;
+  const behindBase = passes[0] ? r.behind(passes[0]) : new Set<string>();
+  const modelLoader = loraPoints.find((p) => !p.power && behindBase.has(p.node)) ?? chosen.find((p) => !p.power && reach.has(p.node)) ?? chosen.find((p) => !p.power) ?? loraPoints.find((p) => !p.power);
+  // ComfyUI's folder for the file: known for its own loaders; for a loader of a kind this ComfyUI lacks, the diffusion models' when the input is named as a model
+  const folderFor = (cls: string, input: string) => folderOfFileInput(cls, input) ?? (!hasKind(catalog, cls) && /model|unet|ckpt|checkpoint|gguf/i.test(input) ? "diffusion_models" : null);
+  const modelFile = modelLoader ? Object.entries(graph[modelLoader.node]?.inputs ?? {}).find(([k, v]) => typeof v === "string" && MODEL_FILE.test(v) && folderFor(graph[modelLoader.node]!.class_type, k)) : undefined;
+  const model: Bindings["model"] = modelLoader && modelFile ? { target: { node: modelLoader.node, input: modelFile[0] }, folder: folderFor(graph[modelLoader.node]!.class_type, modelFile[0])! } : undefined;
+  return { model, modelLoader };
+}
+
+// ---- what runs as is, wherever it is told: hints for the person importing, not rules (an imported workflow runs as it was made)
+/** Kinds of node known to run code they are given, or to write a file where they are told. */
+const RISKY_KINDS: Array<[RegExp, string]> = [
+  [/^Evaluate (Integers|Floats|Strings)$|Python|^Exec(ute)?\b|^Exec(ute)?[A-Z]|RunCommand|Shell/i, "runs code it is given"],
+  [/^(easy saveText|Text Save|Save Text File|SaveText\|pysssss)$/i, "writes a file where it is told"],
+];
+/** A path that leaves ComfyUI's folders: absolute (a drive, a share, a root), or climbing out with "..". */
+const OUTSIDE = /^([a-zA-Z]:[\\/]|\\\\\w|\/[\w.~-])|(^|[\\/])\.\.([\\/]|$)/;
+function riskHints(source: Graph, catalog: NodeCatalog, editor: Wiring | undefined): string[] {
+  const names = namesOf(source, catalog, editor);
+  const hints: string[] = [];
+  for (const [id, n] of Object.entries(source)) {
+    const risky = RISKY_KINDS.find(([re]) => re.test(n.class_type));
+    if (risky) hints.push(`"${names.titleOf(id)}" (${n.class_type}) ${risky[1]}: look at what it is set to before a render.`);
+    for (const [input, value] of Object.entries(n.inputs)) {
+      // a prompt is text, not a place
+      if (typeof value !== "string" || value.length > 260 || /[\r\n]/.test(value) || optsOf(specOf(catalog, n.class_type, input)).multiline || !OUTSIDE.test(value)) continue;
+      hints.push(`"${names.titleOf(id)}" names a place outside ComfyUI's folders in ${input.replace(/_/g, " ")} (${value}): it reads or writes there when it runs.`);
+    }
+  }
+  return hints;
+}
+
 /**
  * @param source the workflow: as exported, or every node of an editor file (see `fromEditor`)
  * @param editor what only the editor's file knows, when the workflow came from one
  * @param notes what the reader of that file could not read with certainty
  */
 export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, notes: string[] = []): Inspection {
+  // read before anything stands in for a node: what runs code or writes files is said of the node the file has
+  const hints = riskHints(source, catalog, editor);
   // a saver of a pack this ComfyUI lacks: ComfyUI's own stands in, in the workflow itself (what is saved is this graph)
-  const has = (c: string) => c in catalog;
+  const has = (c: string) => hasKind(catalog, c);
   // values taken out of rgthree's bundles are read where they were put in (the same at run time)
   unbundleContexts(source, editor?.modes);
   const replaced = [
@@ -773,115 +894,33 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     ...standInLoaders(source, has, editor?.slots),
     ...standInPrimitives(source, has, editor?.slots, (cls, input) => Boolean(choicesOf(specOf(catalog, cls, input)))),
   ];
+  const { bridged, bridgedModes } = bridgeMissing(source, catalog, editor);
+  const { framed, bypasser } = framedSwitches(source, editor, bridged);
   // what runs with the switches as they were saved: the parts are looked for in there
-  // a node of a kind this ComfyUI lacks that only patches what passes through it (a model in, the same model out,
-  // nothing else read from it): bypassed, with a switch to turn it on once its pack is installed
-  const bridged: Toggle[] = [];
-  const bridgedModes: Record<string, Mode> = {};
-  if (editor) {
-    const readers = consumers(source);
-    const early = namesOf(source, catalog, editor);
-    for (const [id, n] of Object.entries(source)) {
-      // (a list of LoRAs is not a patch to pass by: Afflatus's own list takes its place)
-      if (catalog[n.class_type] || n.class_type === POWER_LORAS || EDITOR_ONLY.test(n.class_type) || editor.modes[id] || editor.toggles.some((t) => t.effects.some((e) => e.nodes.includes(id)))) continue;
-      const slots = editor.slots[id];
-      if (!slots?.out.length) continue;
-      // every output that is read has exactly one linked input of its type to hand on (a model, a model and a clip);
-      // nothing else is wired in, so the node only patches what passes through it
-      const linked = slots.in.filter(([name]) => isRef(n.inputs[name]));
-      const readOuts = slots.out.map((t, i) => (readers.has(`${id}:${i}`) ? t : null)).filter((t): t is string => t !== null);
-      if (!readOuts.length || !linked.length) continue;
-      const types = new Set(readOuts);
-      if (![...types].every((t) => linked.filter(([, lt]) => lt === t).length === 1) || !linked.every(([, lt]) => types.has(lt))) continue;
-      bridgedModes[id] = "bypass";
-      const pack = editor.packs[n.class_type];
-      bridged.push({
-        id: `sw_${id}`.replace(/[^a-zA-Z0-9_]/g, "_"), label: early.titleOf(id), default: false, writes: [],
-        effects: [{ nodes: [id], activeWhen: true, mode: "bypass" }],
-        help: `${n.class_type}${pack ? ` (pack ${pack})` : ""} is not in this ComfyUI. Off, what it would change passes it by; install the pack to turn it on.`,
-      });
-    }
-  }
-  // a group bypasser (rgthree's) in the workflow: the author's frames are the switches, each on or off as saved
-  const bypasser = editor ? Object.values(source).find((n) => /^Fast Groups (Bypasser|Muter)/.test(n.class_type)) : undefined;
-  const framed: Toggle[] = [];
-  if (editor && bypasser) {
-    const mode: Mode = /Muter/.test(bypasser.class_type) ? "mute" : "bypass";
-    const covered = new Set([...editor.toggles, ...bridged].flatMap((t) => t.effects.flatMap((e) => e.nodes)));
-    const ids = new Set<string>();
-    for (const fr of editor.frames) {
-      const nodes = fr.nodes.filter((id) => source[id] && !/^Fast Groups|^Note$|^MarkdownNote$/.test(source[id]!.class_type));
-      // a frame partly switched by another switch, or with some nodes on and some off, is not one switch
-      if (!nodes.length || nodes.some((id) => covered.has(id))) continue;
-      const off = nodes.filter((id) => editor.modes[id]);
-      if (off.length && off.length !== nodes.length) continue;
-      let id = `sw_frame_${fr.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "frame"}`;
-      for (let n = 2; ids.has(id); n++) id = `${id.replace(/_\d+$/, "")}_${n}`;
-      ids.add(id);
-      framed.push({ id, label: fr.title, default: off.length === 0, writes: [], effects: [{ nodes, activeWhen: true, mode }], help: `The frame "${fr.title}", switched as a whole with ${bypasser.class_type}.` });
-    }
-  }
   const pruned = prune(source, editor, { ...editor?.modes, ...bridgedModes });
   settle(pruned);
   const { graph } = pruned;
   // a file name built by a chain of nodes: the name is Afflatus's to give, the chain is not read
   cutFileNameChains(graph, "afflatus");
   const ids = Object.keys(graph);
-  const r: Reading = { source, graph, ids, catalog, editor, uses: consumers(graph), names: namesOf(source, catalog, editor) };
+  const r: Reading = { source, graph, ids, catalog, editor, uses: readersOf(graph), names: namesOf(source, catalog, editor), behind: behindOf(graph) };
 
   const { outputs, result, reach } = findOutputs(r);
-  // a frame the author saved switched off, with no switch over it, that is a pass of work feeding the output once on
-  // (a detailer, an upscale, a second sampling left for when it is wanted): a switch, off as saved
-  const savedOff: Toggle[] = [];
-  if (editor && result && !bypasser) {
-    const covered = new Set([...editor.toggles, ...bridged].flatMap((t) => t.effects.flatMap((e) => e.nodes)));
-    const taken = new Set<string>();
-    editor.frames.forEach((fr, i) => {
-      const nodes = frameNodes(editor.frames, i).filter((id) => source[id] && !taken.has(id));
-      if (!nodes.length || nodes.some((id) => covered.has(id) || !editor.modes[id])) return;
-      if (!nodes.some((id) => "steps" in source[id]!.inputs || PASS_WORK.test(source[id]!.class_type))) return;
-      // a frame that only holds other frames is not a part of its own: those inside are switched one by one
-      if (!fr.nodes.some((id) => source[id])) return;
-      // a frame inside one that holds nodes of its own and is saved off as a whole is that one's part
-      const up = fr.parent !== undefined ? editor.frames[fr.parent] : undefined;
-      if (up && up.nodes.some((id) => source[id]) && frameNodes(editor.frames, fr.parent!).every((id) => !source[id] || editor.modes[id])) return;
-      const on = { ...editor.modes, ...bridgedModes };
-      for (const id of nodes) delete on[id];
-      const lit = prune(source, editor, on);
-      const behind = ancestors(lit.graph, result.node);
-      if (!nodes.some((id) => behind.has(id)) || [...behind].some((id) => lit.broken.has(id)) || lit.broken.has(result.node)) return;
-      for (const id of nodes) taken.add(id);
-      const label = chapterName(fr.title);
-      let id = `sw_off_${label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "frame"}`;
-      for (let n = 2; savedOff.some((t) => t.id === id); n++) id = `${id.replace(/_\d+$/, "")}_${n}`;
-      savedOff.push({ id, label, default: false, writes: [], effects: [{ nodes, activeWhen: true, mode: editor.modes[nodes[0]!] === "mute" ? "mute" : "bypass" }], help: fr.note ?? `The frame "${fr.title}", saved switched off.` });
-    });
-  }
-  // what this ComfyUI lacks: among the nodes the result is made from it blocks a render; elsewhere it is left out
-  // (rgthree's editor-only helpers are missing from every ComfyUI: no pack to ask for, the build leaves them out)
-  const missingIn = (which: string[]) => [...new Set(which.filter((id) => !catalog[graph[id]!.class_type] && !EDITOR_ONLY.test(graph[id]!.class_type)).map((id) => graph[id]!.class_type))];
-  const needed = result ? ids.filter((id) => id === result.node || reach.has(id)) : ids;
-  const missingNodes = missingIn(needed);
-  const missingUnneeded = missingIn(ids.filter((id) => !needed.includes(id))).filter((c) => !missingNodes.includes(c));
-  const missingWhenOn = [...new Set(Object.keys(source).filter((id) => !graph[id] && !catalog[source[id]!.class_type] && !EDITOR_ONLY.test(source[id]!.class_type)).map((id) => source[id]!.class_type))].filter((c) => !missingNodes.includes(c) && !missingUnneeded.includes(c));
+  const savedOff = editor && result && !bypasser ? savedOffSwitches(source, editor, bridged, bridgedModes, result.node) : [];
+  const { missingNodes, missingUnneeded, missingWhenOn } = missingKinds(r, result, reach);
   const { texts, prompt, negative } = findTexts(r);
-  const { seeds, size, length, resolution, duration } = findSizeAndLength(r, reach);
+  const seeds = findSeeds(r);
+  const { generator, size, resolution } = findSize(r, reach);
+  const { length, duration } = findLength(r, generator);
   const { images, loaded, start, end, pictures } = findImages(r, reach);
   const directorId = ids.find((id) => isDirector(graph, id));
   const { videos, sounds, previous, next, source: sourceVideo, otherVideos, sound, otherSounds, keys: mediaKeys } = findMedia(r, reach);
   const { loraPoints, chosen } = findLoraPoints(r);
-  // the model file: the loader the LoRAs chain after, the first in use, as the form's Model picker
-  const passes = samplerPasses(r);
-  const behindBase = passes[0] ? ancestors(graph, passes[0]) : new Set<string>();
-  const modelLoader = loraPoints.find((p) => !p.power && behindBase.has(p.node)) ?? chosen.find((p) => !p.power && reach.has(p.node)) ?? chosen.find((p) => !p.power) ?? loraPoints.find((p) => !p.power);
-  // ComfyUI's folder for the file: known for its own loaders; for a loader of a kind this ComfyUI lacks, the diffusion models' when the input is named as a model
-  const folderFor = (cls: string, input: string) => folderOfFileInput(cls, input) ?? (!catalog[cls] && /model|unet|ckpt|checkpoint|gguf/i.test(input) ? "diffusion_models" : null);
-  const modelFile = modelLoader ? Object.entries(graph[modelLoader.node]?.inputs ?? {}).find(([k, v]) => typeof v === "string" && FILE.test(v) && folderFor(graph[modelLoader.node]!.class_type, k)) : undefined;
-  const model: Bindings["model"] = modelLoader && modelFile ? { target: { node: modelLoader.node, input: modelFile[0] }, folder: folderFor(graph[modelLoader.node]!.class_type, modelFile[0])! } : undefined;
+  const samplerIds = samplerPasses(r);
+  const { model, modelLoader } = findModel(r, samplerIds, { loraPoints, chosen }, reach);
   const { about, toggles: fileToggles } = findAbout(r);
   const toggles = [...fileToggles, ...bridged, ...framed, ...savedOff];
   const { candidates, missingFiles, relocated } = collectCandidates(r, { result, prompt, negative, seeds, size, length, toggles, loaded, mediaKeys, model, loaders: loraPoints.filter((p) => !p.power && p.node !== modelLoader?.node).map((p) => ({ node: p.node, label: p.label || p.title })), resolution, duration });
-  const samplerIds = samplerPasses(r);
   tellApart(r, candidates, samplerIds);
   const stages = findStages(r, { result, outputs, candidates, samplerIds, size });
   const missingChoices = findMissingChoices(r);
@@ -919,6 +958,6 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
       }
     : null;
 
-  const packs = Object.fromEntries([...missingNodes, ...missingUnneeded, ...missingWhenOn].flatMap((c) => (editor?.packs[c] ? [[c, editor.packs[c]!]] : [])));
-  return { nodeCount: Object.keys(source).length, missingNodes, missingUnneeded, replaced, missingWhenOn, missingFiles, missingChoices, relocated, stages, packs, links: editor?.links ?? [], outputs, texts, images, videos, sounds, loraPoints, toggles, suggested, candidates, notes, about };
+  const packs = Object.fromEntries([...missingNodes, ...missingUnneeded, ...missingWhenOn].flatMap((c) => { const p = own(editor?.packs, c); return p ? [[c, p]] : []; }));
+  return { nodeCount: Object.keys(source).length, missingNodes, missingUnneeded, replaced, missingWhenOn, missingFiles, missingChoices, relocated, stages, packs, links: editor?.links ?? [], outputs, texts, images, videos, sounds, loraPoints, toggles, suggested, candidates, notes: [...notes, ...hints], about };
 }

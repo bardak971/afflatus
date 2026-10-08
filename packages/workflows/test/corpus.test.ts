@@ -7,7 +7,9 @@ import { catalog } from "./fixtures";
 
 /**
  * The importer against real workflows kept locally in ./corpus (see its README): each must map at least
- * as much as expect.json says it did. "Better" is allowed and printed, so that expect.json can be refreshed.
+ * as much as expect.json says it did, bind its main parts where it did, and say no more in its notes.
+ * "Better" is allowed and printed, so that expect.json can be refreshed. The corpus is not published: what
+ * it guards that CI must see too has a hand-made fixture of its own (hostile.test.ts).
  */
 const dir = join(import.meta.dirname, "corpus");
 const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "expect.json").sort() : [];
@@ -26,7 +28,10 @@ describe.skipIf(!files.length)("the importer on the local corpus", () => {
     for (const k of BOOLS) if (was[k]) expect(now[k], k).toBe(true);
     for (const k of MORE) expect(now[k], k).toBeGreaterThanOrEqual(was[k]);
     expect(now.missingNodes, "missingNodes").toBeLessThanOrEqual(was.missingNodes);
+    expect(now.notes, "notes").toBeLessThanOrEqual(was.notes);
+    for (const [part, target] of Object.entries(was.bound ?? {})) expect(now.bound[part], `bound ${part}`).toBe(target);
     const better = [...BOOLS.filter((k) => !was[k] && now[k]), ...MORE.filter((k) => now[k] > was[k])];
-    if (better.length || now.missingNodes < was.missingNodes) console.log(`corpus: ${file} maps more than expect.json says (${better.join(", ")}${now.missingNodes < was.missingNodes ? ", fewer missing nodes" : ""}): refresh it with pnpm corpus:expect`);
+    const fewer = [...(now.missingNodes < was.missingNodes ? ["fewer missing nodes"] : []), ...(now.notes < was.notes ? ["fewer notes"] : [])];
+    if (better.length || fewer.length) console.log(`corpus: ${file} maps more than expect.json says (${[...better, ...fewer].join(", ")}): refresh it with pnpm corpus:expect`);
   });
 });

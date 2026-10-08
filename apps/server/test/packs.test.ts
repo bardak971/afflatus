@@ -53,6 +53,19 @@ describe("missing node packs", () => {
     expect(by["never-queued"]).toMatchObject({ state: "pending" });
   });
 
+  it("takes Manager's word over the workflow's, and never a repository the workflow names", async () => {
+    await start({ manager: true, mappings: { "comfyui-impact-pack": [["FaceDetailer"], { title_aux: "Impact" }] } });
+    const res = await t.app.inject({
+      method: "POST", url: "/api/workflows/packs",
+      payload: { classes: ["FaceDetailer", "Odd"], packs: { FaceDetailer: "some-other-pack", Odd: "https://github.com/someone/ComfyUI-Odd" } },
+    });
+    expect(res.statusCode).toBe(200);
+    const started = res.json() as { jobs: Array<{ pack: string }>; unknown: string[] };
+    expect(started.jobs.map((j) => j.pack)).toEqual(["comfyui-impact-pack"]);
+    expect(started.unknown).toEqual(["Odd"]);
+    expect(fake.packs.some((p) => "repository" in p)).toBe(false);
+  });
+
   it("restarts ComfyUI through Manager once the packs are in, and the next read sees the new node types", async () => {
     await start({
       manager: true,

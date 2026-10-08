@@ -6,9 +6,10 @@ import { modelIndex } from "./comfy";
 import { httpError } from "./errors";
 import { ComfyUnreachable } from "@afflatus/comfy";
 import { isRef, type Graph } from "@afflatus/core";
-import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, paintSwitches, slug, toEditor, wiring as wiringSchema, workflowDef, type Bindings, type FileSource, type WorkflowDef } from "@afflatus/workflows";
+import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, paintSwitches, slug, toEditor, UnreadableWorkflow, wiring as wiringSchema, workflowDef, type Bindings, type FileSource, type WorkflowDef } from "@afflatus/workflows";
 import type { Services } from "./services";
 import { openInComfy } from "./comfyOpen";
+import { made } from "./registry";
 import { installPacks, packStatus } from "./packs";
 import { readSettings } from "./settings";
 import { sourcesFor } from "./sources";
@@ -80,7 +81,16 @@ function checkBindings(graph: Graph, b: Bindings): void {
   }
 }
 
-const brief = (d: WorkflowDef) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length });
+const brief = (d: WorkflowDef, problem?: string) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length, ...(problem ? { problem } : {}) });
+
+/** The workflow is built once, as mapped, before it is kept: one that cannot be built is refused here, not found at the next start. */
+function mustBuild(def: WorkflowDef): void {
+  try {
+    made(def);
+  } catch (err) {
+    throw httpError(`This workflow cannot be run as it is mapped: ${(err as Error).message}`);
+  }
+}
 
 export function registerWorkflows(app: FastifyInstance, s: Services): void {
   /**
@@ -122,7 +132,14 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
       return { ...found, elsewhere };
     };
     if (fromFile) {
-      const read = fromEditor(body, catalog);
+      let read;
+      try {
+        read = fromEditor(body, catalog);
+      } catch (err) {
+        // a file that is not what it says (its shape, names no editor writes, group nodes that never end): said, not a 500
+        if (err instanceof UnreadableWorkflow) throw httpError(err.message);
+        throw err;
+      }
       if (!Object.keys(read.graph).length) throw httpError("No node that ComfyUI can run was found in this file.");
       return { ...(await withElsewhere(inspect(read.graph, catalog, read.wiring, read.notes))), graph: read.graph, wiring: read.wiring, editor: body };
     }
@@ -130,7 +147,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     return { ...(await withElsewhere(inspect(exported!, catalog))), graph: exported };
   });
 
-  app.get("/api/workflows", async () => ({ items: s.registry.workflows().map(brief) }));
+  app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => brief(d, s.registry.problem(d.id))) }));
 
   /**
    * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.
@@ -169,6 +186,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     let id = base;
     for (let n = 2; s.registry.recipe(id); n++) id = `${base}-${n}`;
     const def = workflowDef.parse({ id, ...body });
+    mustBuild(def);
     await s.registry.save(def);
     return brief(def);
   });
@@ -179,6 +197,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     const body = saveBody.parse(req.body);
     checkBindings(body.graph as Graph, body.bindings);
     const def = workflowDef.parse({ id: current.id, ...body });
+    mustBuild(def);
     await s.registry.save(def);
     return brief(def);
   });

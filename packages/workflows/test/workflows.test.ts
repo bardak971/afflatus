@@ -114,7 +114,9 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
 
   it("offers the author's own controls under the names the author gave them, ticked", () => {
     const labels = s.controls.map((c) => c.label).sort();
-    expect(labels).toEqual(["FPS", "Model · Wan22_I2V_High", "Resolution", "Sampling · cfg", "Sampling · steps total", "Seconds", "Sigma Shift High · shift", "Sigma Shift Low · shift"]);
+    // the main model is the first pass's (the high one); the low one is offered beside it. KSampler Config is no pass (W-4)
+    expect(s.model?.target).toEqual({ node: "1502", input: "unet_name" });
+    expect(labels).toEqual(["FPS", "Model · Wan22_I2V_Low", "Resolution", "Sampling · cfg", "Sampling · steps total", "Seconds", "Sigma Shift High · shift", "Sigma Shift Low · shift"]);
     // "Seconds" is the author's own control: up front, with a range a person would use
     expect(s.controls.find((c) => c.label === "Seconds")).toMatchObject({ kind: "number", default: 5, min: 1, max: 30, front: true, target: { node: "1668", input: "value" } });
     expect(s.controls.find((c) => c.label === "FPS")).toMatchObject({ min: 1, max: 60, front: true });
@@ -147,7 +149,7 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
 
     it("has a form with the author's controls and two LoRA lists", () => {
       expect(recipe.inputs.map((i) => i.label)).toEqual([
-        "Model", "Prompt", "Negative prompt", "Start image", "End image", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High", "Model · Wan22_I2V_High",
+        "Model", "Prompt", "Negative prompt", "Start image", "End image", "LoRAs · Wan22_I2V_Low", "LoRAs · Wan22_I2V_High", "Model · Wan22_I2V_Low",
         "Seconds", "FPS", "Sampling · steps total", "Sampling · cfg", "Sigma Shift High · shift", "Sigma Shift Low · shift", "Resolution", "Seed",
       ]);
     });

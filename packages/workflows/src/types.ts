@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UNSAFE_KEYS } from "./catalog";
 
 /**
  * A workflow recipe: a ComfyUI workflow in API format, plus a mapping that says which of its node
@@ -17,9 +18,22 @@ export const captions = z.object({ on: z.string(), off: z.string() });
  * and the two captions are taken apart.
  */
 export function splitCaptions(label: string): { label: string; captions?: { on: string; off: string } } {
-  const m = /^(.*?)[\s:–-]*\btrue\s*=\s*(.+?)\s*\|\s*false\s*=\s*(.+)$/i.exec(label);
-  return m ? { label: m[1]!.trim() || "Mode", captions: { on: m[2]!.trim(), off: m[3]!.trim() } } : { label };
+  // found piece by piece, not by one pattern: a long run of spaces or dashes would make that one backtrack
+  const yes = /\btrue\s*=/i.exec(label);
+  const rest = yes ? label.slice(yes.index + yes[0].length) : "";
+  const no = /\|\s*false\s*=/i.exec(rest);
+  const on = no ? rest.slice(0, no.index).trim() : "";
+  const off = no ? rest.slice(no.index + no[0].length).trim() : "";
+  if (!yes || !on || !off || /[\r\n]/.test(off)) return { label };
+  let end = yes.index;
+  while (end > 0 && /[\s:–-]/.test(label[end - 1]!)) end--;
+  return { label: label.slice(0, end).trim() || "Mode", captions: { on, off } };
 }
+
+/** A key a file names (a node's id, an input): never one that reaches an object's prototype. */
+const key = z.string().refine((k) => !UNSAFE_KEYS.has(k), { message: "is a name Afflatus does not take" });
+/** An address the workflow names: shown as a link, so a web address only. */
+const webAddress = (url: string) => /^https?:\/\//i.test(url);
 
 /** A setting of the workflow shown as a control. Its kind and range were read from ComfyUI when it was imported. */
 export const control = z.object({
@@ -111,29 +125,29 @@ export type Section = z.infer<typeof section>;
  */
 export const wiring = z.object({
   /** Nodes that are off in the file. Switches override this for the nodes they control. */
-  modes: z.record(z.string(), mode),
+  modes: z.record(key, mode),
   /** Per node: its input sockets in the editor's order, as [name, type], and the types of its outputs. */
-  slots: z.record(z.string(), z.object({ in: z.array(z.tuple([z.string(), z.string()])), out: z.array(z.string()) })),
+  slots: z.record(key, z.object({ in: z.array(z.tuple([z.string(), z.string()])), out: z.array(z.string()) })),
   /** The typed-in value of an input that is also linked: used when the link leads to a node that is off. */
-  fallback: z.record(z.string(), z.record(z.string(), z.unknown())),
+  fallback: z.record(key, z.record(key, z.unknown())),
   /** Names the author gave to single settings: "node.input" to the name. */
-  labels: z.record(z.string(), z.string()).default({}),
+  labels: z.record(key, z.string()).default({}),
   /** The author's own control panel (settings shown on the front of a group node), in its order. */
   panel: z.array(target).default([]),
   /** Every switch found in the file, whether or not the recipe offers it. */
   toggles: z.array(toggle).default([]),
   /** A setting read by several inputs (one field on the front of a group node): "node.input" of the first, to the others. */
-  shared: z.record(z.string(), z.array(target)).default({}),
+  shared: z.record(key, z.array(target)).default({}),
   /** Where the workflow says its things come from, for when one is missing: */
   /** the pack each kind of node belongs to (its id in ComfyUI's registry), */
-  packs: z.record(z.string(), z.string()).default({}),
-  /** where a model file can be downloaded, by file name, */
-  downloads: z.record(z.string(), z.string()).default({}),
+  packs: z.record(key, z.string()).default({}),
+  /** where a model file can be downloaded, by file name (web addresses only: a file shared from elsewhere can say anything), */
+  downloads: z.record(key, z.string()).default({}).transform((d) => Object.fromEntries(Object.entries(d).filter(([, url]) => webAddress(url)))),
   /** and the links its author wrote in its notes. */
-  links: z.array(z.object({ label: z.string(), url: z.string() })).default([]),
-  /** The frames the author drew around nodes (the editor's groups): their titles and the nodes inside, for making switches. */
+  links: z.array(z.object({ label: z.string(), url: z.string() })).default([]).transform((ls) => ls.filter((l) => webAddress(l.url))),
   /** The inputs of each node that its kind declares optional: a link to one that leads nowhere is dropped, not broken. */
-  optional: z.record(z.string(), z.array(z.string())).default({}),
+  optional: z.record(key, z.array(z.string())).default({}),
+  /** The frames the author drew around nodes (the editor's groups): their titles and the nodes inside, for making switches. */
   frames: z.array(z.object({
     title: z.string(),
     /** The nodes it holds itself; those in a frame drawn inside it belong to that one. */
@@ -219,8 +233,8 @@ export const bindings = z.object({
 });
 export type Bindings = z.infer<typeof bindings>;
 
-const graphNode = z.looseObject({ class_type: z.string(), inputs: z.record(z.string(), z.unknown()) });
-export const graph = z.record(z.string(), graphNode);
+const graphNode = z.looseObject({ class_type: z.string(), inputs: z.record(key, z.unknown()) });
+export const graph = z.record(key, graphNode);
 
 export const workflowDef = z.object({
   /** "workflow.<slug>": the recipe id. */

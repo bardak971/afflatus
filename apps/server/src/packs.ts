@@ -5,8 +5,9 @@ import { httpError } from "./errors";
 /**
  * Node packs a workflow uses that this ComfyUI lacks, installed through ComfyUI-Manager's task
  * queue: the same path as Manager's own "Install missing custom nodes". Which pack a node type comes
- * from is taken from the workflow when it says (the cnr_id its author's ComfyUI wrote), else from
- * Manager's own map of node types to packs. Manager clones the pack into custom_nodes and runs its pip
+ * from is taken from Manager's own map of node types to packs, else from the workflow when it names an id
+ * of ComfyUI's registry (the cnr_id its author's ComfyUI wrote): a workflow file is someone else's, and never
+ * chooses a repository for Manager to fetch. Manager clones the pack into custom_nodes and runs its pip
  * requirements; ComfyUI only reads that folder at start, so nothing works until it is restarted.
  */
 
@@ -25,6 +26,9 @@ export interface PacksStarted {
 export interface PackState { id: string; state: "pending" | "done" | "failed"; message?: string }
 
 type Mapping = Record<string, [string[], { title_aux?: string }]>;
+
+/** An id of ComfyUI's registry, as a workflow names one: the only thing a workflow may say about where a pack comes from. */
+export const REGISTRY_ID = /^[\w-]{1,100}$/;
 
 /** What Manager installs for a pack's name: a registry id at its latest version, or a GitHub repository's nightly. Null for what its queue has no way to install. */
 function target(pack: string) {
@@ -52,11 +56,12 @@ async function mapping(comfy: Comfy): Promise<Mapping> {
 /** Queue the install of every pack the missing node types come from, then start Manager's queue. */
 export async function installPacks(comfy: Comfy, classes: string[], known: Record<string, string>): Promise<PacksStarted> {
   const packOf: Record<string, string> = {};
-  const unresolved = classes.filter((c) => !known[c]);
-  const map = unresolved.length ? await mapping(comfy) : {};
+  const map = await mapping(comfy);
   const keys = Object.keys(map).sort((a, b) => Number(/^https?:/i.test(a)) - Number(/^https?:/i.test(b)));
   for (const c of classes) {
-    const pack = known[c] ?? keys.find((k) => map[k]?.[0]?.includes(c));
+    // Manager's own map first; the workflow's word only when it is a registry id
+    const said = Object.hasOwn(known, c) && REGISTRY_ID.test(known[c]!) ? known[c] : undefined;
+    const pack = keys.find((k) => map[k]?.[0]?.includes(c)) ?? said;
     if (pack) packOf[c] = pack;
   }
   const unknown = classes.filter((c) => !packOf[c]);

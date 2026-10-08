@@ -14,7 +14,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 1
+    "notes": 1,
+    "bound": {
+      "result": "363",
+      "prompt": "144.value",
+      "negative": "145.value",
+      "model": "290:488.unet_name",
+      "seeds": "854.seed 884.seed_value",
+      "startImage": "230.image"
+    }
   },
   "DasiwaMinimaxH3WorkflowsT2VA_cMMH3V26.json": {
     "result": true,
@@ -31,7 +39,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 1
+    "notes": 1,
+    "bound": {
+      "result": "2568",
+      "prompt": "2730.prompt",
+      "model": "1512:2586.unet_name",
+      "seeds": "2739.seed_value",
+      "size": "2730.width 2730.height"
+    }
   },
   "FLASHVSR__FlashVSR FaceEnhance.json": {
     "result": true,
@@ -48,7 +63,13 @@
     "stages": 0,
     "missingNodes": 9,
     "replaced": 4,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "41",
+      "prompt": "184:578.value",
+      "model": "182:478.model",
+      "seeds": "184:556.value"
+    }
   },
   "FLASHVSR__FlashVSR UPSCALE.json": {
     "result": true,
@@ -65,7 +86,12 @@
     "stages": 0,
     "missingNodes": 11,
     "replaced": 3,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "4",
+      "negative": "65:63.negative_prompt",
+      "seeds": "65:67.value 65:66.value"
+    }
   },
   "FastWan 2.2 5B__WAN 2.2 FASTWAN 5B ControlNetDepth.json": {
     "result": true,
@@ -82,7 +108,14 @@
     "stages": 0,
     "missingNodes": 13,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "prompt": "492:16.positive_prompt",
+      "negative": "492:16.negative_prompt",
+      "model": "492:417.model",
+      "seeds": "308.seed"
+    }
   },
   "FastWan 2.2 5B__WAN 2.2 FASTWAN 5B I2V.json": {
     "result": true,
@@ -99,7 +132,16 @@
     "stages": 0,
     "missingNodes": 12,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "prompt": "500:16.positive_prompt",
+      "negative": "500:16.negative_prompt",
+      "model": "500:417.model",
+      "seeds": "308.seed",
+      "length": "480:473.num_frames",
+      "startImage": "487.image"
+    }
   },
   "FastWan 2.2 5B__WAN 2.2 FASTWAN 5B T2V.json": {
     "result": true,
@@ -116,7 +158,16 @@
     "stages": 0,
     "missingNodes": 10,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "prompt": "486:16.positive_prompt",
+      "negative": "486:16.negative_prompt",
+      "model": "486:417.model",
+      "seeds": "308.seed",
+      "size": "325.width 325.height",
+      "length": "325.num_frames"
+    }
   },
   "I2V__WAN 2.1 I2V.json": {
     "result": true,
@@ -133,7 +184,14 @@
     "stages": 0,
     "missingNodes": 11,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "negative": "16.negative_prompt",
+      "model": "484:478.model",
+      "seeds": "308.seed",
+      "startImage": "433.image"
+    }
   },
   "I2V__WAN 2.2 I2V StartEnd Frames.json": {
     "result": true,
@@ -150,7 +208,15 @@
     "stages": 0,
     "missingNodes": 13,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "negative": "548.negative_prompt",
+      "model": "559:484.model",
+      "seeds": "561.value",
+      "startImage": "521.image",
+      "endImage": "526.image"
+    }
   },
   "I2V__WAN 2.2 I2V.json": {
     "result": true,
@@ -167,7 +233,14 @@
     "stages": 0,
     "missingNodes": 12,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "negative": "548.negative_prompt",
+      "model": "559:484.model",
+      "seeds": "561.value",
+      "startImage": "521.image"
+    }
   },
   "Niche Specific__WAN 2.2 FunCameraControl I2V.json": {
     "result": true,
@@ -184,7 +257,14 @@
     "stages": 0,
     "missingNodes": 15,
     "replaced": 3,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "negative": "521.negative_prompt",
+      "model": "532:484.model",
+      "seeds": "534.value",
+      "startImage": "433.image"
+    }
   },
   "Niche Specific__WAN 2.2 MANUAL  FunCameraControl I2V.json": {
     "result": true,
@@ -201,7 +281,14 @@
     "stages": 0,
     "missingNodes": 15,
     "replaced": 3,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "544",
+      "negative": "536.negative_prompt",
+      "model": "537:484.model",
+      "seeds": "538.value",
+      "startImage": "433.image"
+    }
   },
   "T2I__WAN 2.2 T2I (native).json": {
     "result": true,
@@ -218,7 +305,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "80",
+      "prompt": "13.text",
+      "negative": "14.text",
+      "model": "114.unet_name",
+      "seeds": "92.noise_seed",
+      "size": "15.width 15.height"
+    }
   },
   "T2I__WAN 2.2 T2I.json": {
     "result": true,
@@ -235,7 +330,14 @@
     "stages": 0,
     "missingNodes": 11,
     "replaced": 2,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "508",
+      "negative": "16.negative_prompt",
+      "model": "490:484.model",
+      "seeds": "492.value",
+      "size": "503.width 503.height"
+    }
   },
   "T2V__WAN 2.1 T2V.json": {
     "result": true,
@@ -252,7 +354,15 @@
     "stages": 0,
     "missingNodes": 9,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "negative": "16.negative_prompt",
+      "model": "484:478.model",
+      "seeds": "308.seed",
+      "size": "490.width 490.height",
+      "length": "490.num_frames"
+    }
   },
   "T2V__WAN 2.2 T2V.json": {
     "result": true,
@@ -269,7 +379,15 @@
     "stages": 0,
     "missingNodes": 11,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "negative": "16.negative_prompt",
+      "model": "490:484.model",
+      "seeds": "492.value",
+      "size": "503.width 503.height",
+      "length": "503.num_frames"
+    }
   },
   "WAN 2.1 FantasyPortrait__WAN 2.1 FantasyPortrait.json": {
     "result": true,
@@ -283,10 +401,17 @@
     "seeds": 1,
     "toggles": 0,
     "controls": 5,
-    "stages": 0,
+    "stages": 2,
     "missingNodes": 15,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "474",
+      "negative": "16.negative_prompt",
+      "model": "479:434.model",
+      "seeds": "308.seed",
+      "startImage": "456.image"
+    }
   },
   "WAN 2.2 Batch Sampler__WAN T2I 2.2 FAST EFFICIENT BATCH.json": {
     "result": true,
@@ -303,7 +428,14 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 3,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "361",
+      "negative": "14.text",
+      "model": "17.unet_name",
+      "seeds": "353.seed 356.seed",
+      "size": "353.width 353.height"
+    }
   },
   "WAN 2.2 Batch Sampler__WAN T2V 2.2 FAST EFFICIENT BATCH.json": {
     "result": true,
@@ -320,7 +452,14 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 3,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "348",
+      "negative": "14.text",
+      "model": "17.unet_name",
+      "seeds": "353.seed 356.seed",
+      "size": "353.width 353.height"
+    }
   },
   "WAN 2.2 FUNCONTROL__WAN 2.2 FUNCONTROL_Main.json": {
     "result": true,
@@ -337,7 +476,12 @@
     "stages": 0,
     "missingNodes": 24,
     "replaced": 3,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "579",
+      "prompt": "553.value",
+      "seeds": "564:572.seed 582.value"
+    }
   },
   "WAN 2.2 UPSCALE + FACE ENHANCE__WAN 2.2 FaceEnhance.json": {
     "result": true,
@@ -354,7 +498,12 @@
     "stages": 0,
     "missingNodes": 19,
     "replaced": 4,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "569",
+      "prompt": "567:574.value",
+      "seeds": "567:556.value 567:571.value"
+    }
   },
   "WAN 2.2 UPSCALE + FACE ENHANCE__WAN 2.2 UPSCALE + FACE ENHANCE.json": {
     "result": true,
@@ -368,10 +517,15 @@
     "seeds": 3,
     "toggles": 7,
     "controls": 10,
-    "stages": 0,
+    "stages": 4,
     "missingNodes": 19,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "585",
+      "prompt": "526:59.value",
+      "seeds": "567:556.value 526:526.value 526:527.value"
+    }
   },
   "WAN 2.2 UPSCALE + FACE ENHANCE__WAN 2.2 UPSCALE BATCH.json": {
     "result": true,
@@ -385,10 +539,15 @@
     "seeds": 3,
     "toggles": 4,
     "controls": 6,
-    "stages": 0,
+    "stages": 2,
     "missingNodes": 19,
     "replaced": 3,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "585",
+      "prompt": "526:59.value",
+      "seeds": "604.seed 526:527.value 526:526.value"
+    }
   },
   "WAN 2.2 UPSCALE + FACE ENHANCE__WAN 2.2 UPSCALE.json": {
     "result": true,
@@ -402,10 +561,15 @@
     "seeds": 2,
     "toggles": 4,
     "controls": 6,
-    "stages": 0,
+    "stages": 2,
     "missingNodes": 19,
     "replaced": 3,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "585",
+      "prompt": "526:59.value",
+      "seeds": "526:526.value 526:527.value"
+    }
   },
   "WAN ANIMATE 2.2__WAN ANIMATE 2.2.json": {
     "result": true,
@@ -422,7 +586,15 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "496",
+      "negative": "526.negative_prompt",
+      "model": "530:533.model",
+      "seeds": "308.seed",
+      "size": "519.value 518.value",
+      "startImage": "515.image"
+    }
   },
   "WAN21IMGToVIDEO_v40_2862321__WAN2.1_Img2Video_auto.json": {
     "result": false,
@@ -439,7 +611,8 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "WAN21IMGToVIDEO_v40_2862321__WAN2.1_Img2video_manual.json": {
     "result": false,
@@ -456,7 +629,8 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "WF10 CIV By Stable Yogi XL.json": {
     "result": true,
@@ -469,11 +643,19 @@
     "length": false,
     "seeds": 5,
     "toggles": 1,
-    "controls": 12,
+    "controls": 17,
     "stages": 2,
     "missingNodes": 4,
     "replaced": 2,
-    "notes": 1
+    "notes": 1,
+    "bound": {
+      "result": "43",
+      "prompt": "11.text",
+      "negative": "12.text",
+      "model": "1.ckpt_name",
+      "seeds": "9.seed 169.seed 172.seed 198.seed 204.seed",
+      "size": "10.width 10.height"
+    }
   },
   "comfyuiImage_v39__Advanced_Gemma_V39.json": {
     "result": true,
@@ -490,7 +672,12 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 4,
-    "notes": 1
+    "notes": 5,
+    "bound": {
+      "result": "129",
+      "model": "109.ckpt_name",
+      "size": "75.value 78.value"
+    }
   },
   "comfyuiImage_v39__Advanced_V39.json": {
     "result": true,
@@ -507,7 +694,12 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 4,
-    "notes": 1
+    "notes": 6,
+    "bound": {
+      "result": "127",
+      "model": "107.ckpt_name",
+      "size": "73.value 76.value"
+    }
   },
   "comfyuiImage_v39__Basic_V39.json": {
     "result": true,
@@ -524,7 +716,13 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "50",
+      "model": "45.ckpt_name",
+      "seeds": "40.seed",
+      "size": "1.value 11.value"
+    }
   },
   "comfyuiImage_v39__Detailer_V39.json": {
     "result": true,
@@ -541,7 +739,13 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 1,
-    "notes": 1
+    "notes": 5,
+    "bound": {
+      "result": "33",
+      "model": "93.ckpt_name",
+      "seeds": "82.seed",
+      "startImage": "2.image"
+    }
   },
   "comfyuiImage_v39__Standard_V39.json": {
     "result": true,
@@ -558,7 +762,12 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 2,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "53",
+      "model": "30.ckpt_name",
+      "size": "1.value 12.value"
+    }
   },
   "flux1DEVKontext_F1Img2img13__flux_img2img_1_2.json": {
     "result": true,
@@ -575,7 +784,14 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "9",
+      "prompt": "36.clip_l",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed",
+      "startImage": "26.image"
+    }
   },
   "flux1DEVKontext_F1Img2img13__flux_img2img_1_3_HighresFix.json": {
     "result": true,
@@ -592,7 +808,14 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "77",
+      "prompt": "36.clip_l",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed 73.noise_seed",
+      "startImage": "26.image"
+    }
   },
   "gonzalomoZImage_v11__gonzaLomo_Z-Image_Refiner_v11.json": {
     "result": true,
@@ -609,7 +832,14 @@
     "stages": 3,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "128",
+      "prompt": "37.text",
+      "negative": "6.text",
+      "model": "169.unet_name",
+      "seeds": "137.seed 183.seed 189.seed 193.noise_seed 195.noise_seed"
+    }
   },
   "krea2SFWNSFWUncensoredImageTo_v10 (1).json": {
     "result": true,
@@ -626,7 +856,13 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 2
+    "notes": 7,
+    "bound": {
+      "result": "75",
+      "prompt": "46.value",
+      "model": "2.unet_name",
+      "seeds": "60.seed 78.seed 56:53.seed 128.value_0"
+    }
   },
   "v2__Consistent_Face_v1.2.json": {
     "result": true,
@@ -643,7 +879,14 @@
     "stages": 2,
     "missingNodes": 5,
     "replaced": 6,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "376",
+      "prompt": "204.text",
+      "model": "197.unet_name",
+      "seeds": "201.seed 251.seed 353.seed 398.noise_seed",
+      "startImage": "237.image"
+    }
   },
   "v2__Hunyuan 2step Upscale TeaCache Wavespeed.json": {
     "result": true,
@@ -660,7 +903,15 @@
     "stages": 2,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "135",
+      "prompt": "44.text",
+      "model": "150.unet_name",
+      "seeds": "25.noise_seed",
+      "size": "45.width 45.height",
+      "length": "45.length"
+    }
   },
   "v2__LTX23LTXDirector13.json": {
     "result": true,
@@ -677,7 +928,13 @@
     "stages": 0,
     "missingNodes": 7,
     "replaced": 1,
-    "notes": 2
+    "notes": 6,
+    "bound": {
+      "result": "301",
+      "prompt": "125.text",
+      "model": "33.unet_name",
+      "seeds": "238.noise_seed 246.noise_seed"
+    }
   },
   "v2__LTX23LTXDirector2.json": {
     "result": true,
@@ -694,7 +951,13 @@
     "stages": 0,
     "missingNodes": 7,
     "replaced": 1,
-    "notes": 2
+    "notes": 7,
+    "bound": {
+      "result": "301",
+      "prompt": "125.text",
+      "model": "33.unet_name",
+      "seeds": "246.noise_seed"
+    }
   },
   "v2__LTX23Legacy.json": {
     "result": true,
@@ -711,7 +974,13 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 1,
-    "notes": 2
+    "notes": 6,
+    "bound": {
+      "result": "449",
+      "prompt": "97.text",
+      "model": "11.unet_name",
+      "seeds": "477.noise_seed 483.noise_seed"
+    }
   },
   "v2__Wan2.1-CameraImage (experimental).json": {
     "result": true,
@@ -728,7 +997,12 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "size": "411.width 411.height"
+    }
   },
   "v2__Wan2.1-FirstFrameLastFrame.json": {
     "result": true,
@@ -745,7 +1019,13 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "size": "404.width 404.height",
+      "length": "404.length"
+    }
   },
   "v2__Wan2.1-FunControl (experimental).json": {
     "result": true,
@@ -762,7 +1042,13 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "size": "407.width 407.height",
+      "length": "407.length"
+    }
   },
   "v2__Wan2.1-Image2Video.json": {
     "result": true,
@@ -779,7 +1065,14 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "size": "415.width 415.height",
+      "length": "415.length",
+      "startImage": "416.image"
+    }
   },
   "v2__Wan2.1-Text2Video.json": {
     "result": true,
@@ -796,7 +1089,13 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "size": "418.width 418.height",
+      "length": "418.length"
+    }
   },
   "v2__Wan2.1-Vace.json": {
     "result": true,
@@ -813,7 +1112,14 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "negative": "111.text",
+      "size": "318.width 318.height",
+      "length": "318.length"
+    }
   },
   "v2__Wan_FusionX_t2v_native_WF_V2.json": {
     "result": true,
@@ -830,7 +1136,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "3.seed",
+      "size": "40.width 40.height",
+      "length": "40.length"
+    }
   },
   "v2__Wan_FusionX_t2v_wrapper_WF.json": {
     "result": true,
@@ -847,7 +1162,16 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "prompt": "16.positive_prompt",
+      "negative": "16.negative_prompt",
+      "model": "22.model",
+      "seeds": "27.seed",
+      "size": "37.width 37.height",
+      "length": "37.num_frames"
+    }
   },
   "v2__amazing-z-image-a_GGUF.json": {
     "result": true,
@@ -864,7 +1188,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "9",
+      "prompt": "54.text",
+      "negative": "60.text",
+      "model": "397.unet_name",
+      "seeds": "307.value 181.noise_seed 279.noise_seed 341.seed 475.noise_seed 563.noise_seed"
+    }
   },
   "v2__amazing-z-image-a_SAFETENSORS.json": {
     "result": true,
@@ -881,7 +1212,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "9",
+      "prompt": "54.text",
+      "negative": "60.text",
+      "model": "572.unet_name",
+      "seeds": "307.value 181.noise_seed 279.noise_seed 341.seed 475.noise_seed 563.noise_seed"
+    }
   },
   "v2__amazing-z-image-b_GGUF.json": {
     "result": true,
@@ -898,7 +1236,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "9",
+      "prompt": "54.text",
+      "negative": "60.text",
+      "model": "397.unet_name",
+      "seeds": "307.value 181.noise_seed 279.noise_seed 341.seed 475.noise_seed 563.noise_seed"
+    }
   },
   "v2__amazing-z-image-b_SAFETENSORS.json": {
     "result": true,
@@ -915,7 +1260,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "9",
+      "prompt": "54.text",
+      "negative": "60.text",
+      "model": "572.unet_name",
+      "seeds": "307.value 181.noise_seed 279.noise_seed 341.seed 475.noise_seed 563.noise_seed"
+    }
   },
   "v2__hunyuan_I2V_NFSW_NEW.json": {
     "result": true,
@@ -932,7 +1284,11 @@
     "stages": 0,
     "missingNodes": 11,
     "replaced": 1,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "103",
+      "startImage": "72.image"
+    }
   },
   "v2__illustriousPonySDXLSFWNSFW_v14LC123Sigmas.json": {
     "result": true,
@@ -949,7 +1305,15 @@
     "stages": 2,
     "missingNodes": 19,
     "replaced": 7,
-    "notes": 0
+    "notes": 20,
+    "bound": {
+      "result": "3398",
+      "prompt": "3201.text",
+      "negative": "3250.value",
+      "model": "1700.ckpt_name",
+      "seeds": "685.seed",
+      "startImage": "2282.image"
+    }
   },
   "v2__ltx23AllInOneWorkflowForRTX_v44.json": {
     "result": true,
@@ -966,7 +1330,14 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 4,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "188",
+      "prompt": "121.text",
+      "negative": "593.text",
+      "model": "366.unet_name",
+      "seeds": "115.noise_seed"
+    }
   },
   "v2__lustifyWorkflowsKrea2_krea2Edit (1).json": {
     "result": true,
@@ -983,7 +1354,13 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 1,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "272",
+      "model": "117.unet_name",
+      "seeds": "241.seed",
+      "startImage": "72.image"
+    }
   },
   "v2__minimaxH3T2VI2VREF2VAdvanced_v20.json": {
     "result": true,
@@ -1000,7 +1377,13 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "702",
+      "prompt": "138.value",
+      "model": "620.unet_name",
+      "seeds": "142.seed"
+    }
   },
   "v2__v2.json": {
     "result": true,
@@ -1017,7 +1400,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "3.seed",
+      "size": "40.width 40.height",
+      "length": "40.length"
+    }
   },
   "v2__v3.4 Kontext window editing.json": {
     "result": true,
@@ -1034,7 +1426,14 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "223",
+      "prompt": "6.text",
+      "model": "37.unet_name",
+      "seeds": "200.seed",
+      "startImage": "190.image"
+    }
   },
   "v2__video_00300.json": {
     "result": true,
@@ -1051,7 +1450,10 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30"
+    }
   },
   "v3__2025_Murphylanga__Easy_Flux__Easy_Flux_Checkpoint_Comfort_Workflow_v4.01.json": {
     "result": true,
@@ -1068,7 +1470,14 @@
     "stages": 2,
     "missingNodes": 3,
     "replaced": 16,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "543",
+      "prompt": "222.value",
+      "model": "557.ckpt_name",
+      "seeds": "420.seed",
+      "size": "423.width 423.height"
+    }
   },
   "v3__2025_Murphylanga__Easy_Flux__Easy_Flux_Diffusion_Comfort_Workflow_v4.01.json": {
     "result": true,
@@ -1085,7 +1494,13 @@
     "stages": 2,
     "missingNodes": 4,
     "replaced": 15,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "536",
+      "prompt": "222.value",
+      "model": "521.unet_name",
+      "seeds": "442.seed"
+    }
   },
   "v3__2025_Murphylanga__Easy_Flux__Easy_Flux_GGUF_Comfort_Workflow_v4.01.json": {
     "result": true,
@@ -1102,7 +1517,14 @@
     "stages": 2,
     "missingNodes": 3,
     "replaced": 16,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "520",
+      "prompt": "222.value",
+      "model": "438.unet_name",
+      "seeds": "432.seed",
+      "size": "435.width 435.height"
+    }
   },
   "v3__2025_Murphylanga__Easy_Nunchaku_Flux__Easy_Context_Flux_Nunchaku_Diffusion_Comfort_Combine.json": {
     "result": true,
@@ -1116,10 +1538,17 @@
     "seeds": 1,
     "toggles": 0,
     "controls": 7,
-    "stages": 3,
+    "stages": 2,
     "missingNodes": 7,
     "replaced": 20,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2006",
+      "prompt": "2258.value",
+      "model": "2138.model_path",
+      "seeds": "566.seed",
+      "startImage": "911.image"
+    }
   },
   "v3__2025_Murphylanga__Easy_Nunchaku_Flux__Easy_Fill_Flux_Nunchaku_Diffusion_Comfort_Workflow_v.json": {
     "result": true,
@@ -1136,7 +1565,13 @@
     "stages": 2,
     "missingNodes": 7,
     "replaced": 16,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2006",
+      "model": "2117.model_path",
+      "seeds": "566.seed",
+      "startImage": "896.image"
+    }
   },
   "v3__2025_Murphylanga__Easy_Nunchaku_Flux__Easy_Start_Flux_Nunchaku_Diffusion_Comfort_Workflow_.json": {
     "result": true,
@@ -1153,7 +1588,15 @@
     "stages": 2,
     "missingNodes": 5,
     "replaced": 19,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2006",
+      "prompt": "1311.value",
+      "model": "1664.model_path",
+      "seeds": "566.seed",
+      "size": "568.width 568.height",
+      "startImage": "896.image"
+    }
   },
   "v3__2025_Murphylanga__Easy_Nunchaku_Flux__Easy_Start_qwen_nunchaku-image.json": {
     "result": true,
@@ -1170,7 +1613,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "3",
+      "prompt": "9.text",
+      "negative": "5.text",
+      "model": "13.model_name",
+      "seeds": "16.seed",
+      "size": "15.width 15.height"
+    }
   },
   "v3__2025_Murphylanga__Easy_SDXL__Easy_SDXL_Advanced_Comfort_Workflow_v5.0.json": {
     "result": true,
@@ -1187,7 +1638,15 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 17,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "402",
+      "prompt": "219.value",
+      "negative": "220.value",
+      "model": "416.ckpt_name",
+      "seeds": "13.seed",
+      "size": "87.width 87.height"
+    }
   },
   "v3__2025_Murphylanga__Easy_SDXL__Easy_SDXL_Inspire_Comfort_Workflow_v5.0.json": {
     "result": true,
@@ -1204,7 +1663,15 @@
     "stages": 2,
     "missingNodes": 5,
     "replaced": 18,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "326",
+      "prompt": "273.value",
+      "negative": "274.value",
+      "model": "340.ckpt_name",
+      "seeds": "13.seed",
+      "size": "87.width 87.height"
+    }
   },
   "v3__2025_Murphylanga__Multi_Flux__Multi_Flux_Checkpoint_Advanced_Comfort_+_Redux_Workflow_v7.0.json": {
     "result": true,
@@ -1221,7 +1688,15 @@
     "stages": 2,
     "missingNodes": 3,
     "replaced": 16,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1399",
+      "prompt": "1172.value",
+      "model": "1411.ckpt_name",
+      "seeds": "499.seed",
+      "size": "502.width 502.height",
+      "startImage": "1062.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Flux__Multi_Flux_Diffusion_Comfort_+_Redux_Workflow__v7.01.json": {
     "result": true,
@@ -1238,7 +1713,15 @@
     "stages": 2,
     "missingNodes": 4,
     "replaced": 15,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "1272",
+      "prompt": "736.value",
+      "model": "1223.unet_name",
+      "seeds": "566.seed",
+      "size": "568.width 568.height",
+      "startImage": "896.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Flux__Multi_Flux_GGUF_Advanced_Comfort_+_Redux_Workflow_v7.01.json": {
     "result": true,
@@ -1255,7 +1738,15 @@
     "stages": 2,
     "missingNodes": 3,
     "replaced": 16,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "1200",
+      "prompt": "1130.value",
+      "model": "563.unet_name",
+      "seeds": "549.seed",
+      "size": "551.width 551.height",
+      "startImage": "1024.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__All_In_One_Multi_Flux_Nunchaku_Diffusion_Comfort_Co.json": {
     "result": true,
@@ -1272,7 +1763,14 @@
     "stages": 2,
     "missingNodes": 5,
     "replaced": 25,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2006",
+      "prompt": "736.value",
+      "model": "1664.model_path",
+      "seeds": "566.seed 1899.seed",
+      "size": "568.width 568.height"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__Multi_Canny_Flux_Nunchaku_Diffusion_Comfort_Combine.json": {
     "result": true,
@@ -1289,7 +1787,15 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 19,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2084",
+      "prompt": "2128.clip_l",
+      "model": "2122.model_path",
+      "seeds": "566.seed 1899.seed",
+      "size": "568.width 568.height",
+      "startImage": "2088.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__Multi_Context_Flux_Nunchaku_Diffusion_Comfort_Combi.json": {
     "result": true,
@@ -1303,10 +1809,17 @@
     "seeds": 2,
     "toggles": 2,
     "controls": 19,
-    "stages": 3,
+    "stages": 2,
     "missingNodes": 7,
     "replaced": 21,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2312",
+      "prompt": "2258.value",
+      "model": "2138.model_path",
+      "seeds": "566.seed 1899.seed",
+      "startImage": "911.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__Multi_Depth_Flux_Nunchaku_Diffusion_Comfort_Combine.json": {
     "result": true,
@@ -1323,7 +1836,15 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 19,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2084",
+      "prompt": "2128.clip_l",
+      "model": "2122.model_path",
+      "seeds": "566.seed 1899.seed",
+      "size": "568.width 568.height",
+      "startImage": "2088.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__Multi_Fill_Flux_Nunchaku_Diffusion_Comfort_Combine_.json": {
     "result": true,
@@ -1337,10 +1858,17 @@
     "seeds": 2,
     "toggles": 3,
     "controls": 19,
-    "stages": 3,
+    "stages": 2,
     "missingNodes": 9,
     "replaced": 21,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2146",
+      "prompt": "1311.value",
+      "model": "1783.model_path",
+      "seeds": "566.seed 1899.seed",
+      "startImage": "911.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__Multi_Standard_Flux_Nunchaku_Diffusion_Comfort_Comb.json": {
     "result": true,
@@ -1357,7 +1885,14 @@
     "stages": 2,
     "missingNodes": 5,
     "replaced": 19,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2088",
+      "prompt": "736.value",
+      "model": "2236.model_path",
+      "seeds": "566.seed 1899.seed",
+      "size": "568.width 568.height"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__Multi_Union_Controlnet_Flux_Nunchaku_Diffusion_Comf.json": {
     "result": true,
@@ -1371,10 +1906,18 @@
     "seeds": 2,
     "toggles": 3,
     "controls": 19,
-    "stages": 4,
+    "stages": 3,
     "missingNodes": 6,
     "replaced": 19,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2006",
+      "prompt": "1311.value",
+      "model": "1664.model_path",
+      "seeds": "566.seed 1899.seed",
+      "size": "568.width 568.height",
+      "startImage": "1668.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_Nunchaku_Flux__Optimize_Upscale_Flux_Nunchaku_Diffusion_Comfort_Co.json": {
     "result": true,
@@ -1391,7 +1934,14 @@
     "stages": 2,
     "missingNodes": 13,
     "replaced": 22,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2006",
+      "prompt": "1311.value",
+      "negative": "1916.text",
+      "seeds": "566.seed 1186.seed 1899.seed",
+      "startImage": "896.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_SDXL__Multi_SDXL_Advanced_Comfort_Workflow_v7.0.json": {
     "result": true,
@@ -1408,7 +1958,16 @@
     "stages": 2,
     "missingNodes": 4,
     "replaced": 17,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1441",
+      "prompt": "934.value",
+      "negative": "935.value",
+      "model": "1415.ckpt_name",
+      "seeds": "1413.seed",
+      "size": "1422.width 1422.height",
+      "startImage": "1356.image"
+    }
   },
   "v3__2025_Murphylanga__Multi_SDXL__Multi_SDXL_Inspire_Comfort_Workflow_v7.0.json": {
     "result": true,
@@ -1425,7 +1984,16 @@
     "stages": 2,
     "missingNodes": 5,
     "replaced": 18,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1461",
+      "prompt": "934.value",
+      "negative": "935.value",
+      "model": "1447.ckpt_name",
+      "seeds": "1433.seed",
+      "size": "1453.width 1453.height",
+      "startImage": "1356.image"
+    }
   },
   "v3__2025_Murphylanga__Murphy_Info.json": {
     "result": false,
@@ -1442,7 +2010,8 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__2025_Murphylanga__Noob-AI_and_Pony__Multi_NoobAI-XL_Advanced_Comfort_Workflow_v2.0.json": {
     "result": true,
@@ -1459,7 +2028,16 @@
     "stages": 2,
     "missingNodes": 4,
     "replaced": 17,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1465",
+      "prompt": "934.value",
+      "negative": "935.value",
+      "model": "1479.ckpt_name",
+      "seeds": "915.seed",
+      "size": "918.width 918.height",
+      "startImage": "1356.image"
+    }
   },
   "v3__2025_Murphylanga__Noob-AI_and_Pony__Multi_Pony_Advanced_Comfort_Workflow_v7.0.json": {
     "result": true,
@@ -1476,7 +2054,15 @@
     "stages": 2,
     "missingNodes": 3,
     "replaced": 15,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1412",
+      "prompt": "937.value",
+      "negative": "936.value",
+      "model": "1442.ckpt_name",
+      "seeds": "1427.seed",
+      "startImage": "1268.image"
+    }
   },
   "v3__2025_Murphylanga__Nunchaku_2025_Nov08__Tools_Nunchaku__Nunchaku_Wheel_Install_2025_07.json": {
     "result": false,
@@ -1493,7 +2079,8 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__2025_Murphylanga__Nunchaku_2025_Nov08__Tools_Nunchaku__merge_safetensors.json": {
     "result": false,
@@ -1510,7 +2097,8 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__2025_Murphylanga__Nunchaku_2025_Nov08__Upscale_Nunchaku__Flux_Nunchaku_SD_Ultimate_Custom_.json": {
     "result": true,
@@ -1527,7 +2115,15 @@
     "stages": 2,
     "missingNodes": 9,
     "replaced": 19,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "2006",
+      "prompt": "1311.value",
+      "negative": "1916.text",
+      "model": "1664.model_path",
+      "seeds": "566.seed 1899.seed",
+      "startImage": "896.image"
+    }
   },
   "v3__2025_Murphylanga__Sound__Murph_ACE-generate_V0.999.json": {
     "result": true,
@@ -1544,7 +2140,13 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "23",
+      "prompt": "6.tags",
+      "model": "4.ckpt_name",
+      "seeds": "2.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__Murph_F5_TTS_01.json": {
     "result": true,
@@ -1561,7 +2163,10 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "64"
+    }
   },
   "v3__2025_Murphylanga__Sound__Murph_Stabel_Audio_v1.0.json": {
     "result": true,
@@ -1578,7 +2183,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "13",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__Murph_text_to_speech_v0.991.json": {
     "result": true,
@@ -1595,7 +2207,11 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 18,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "107",
+      "seeds": "112.value"
+    }
   },
   "v3__2025_Murphylanga__Sound__Murph_text_to_speech_v0.992.json": {
     "result": true,
@@ -1612,7 +2228,12 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "107",
+      "prompt": "128.positive",
+      "seeds": "136.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__Murph_🎤 📺 F5-TTS SRT and Normal Generation V1.0.json": {
     "result": true,
@@ -1629,7 +2250,11 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "264",
+      "seeds": "263.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__work__Murph_ACE-generate_Zverboy_V0.99.json": {
     "result": true,
@@ -1646,7 +2271,12 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 1,
-    "notes": 0
+    "notes": 4,
+    "bound": {
+      "result": "43",
+      "prompt": "38.value",
+      "seeds": "2.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__work__Murph_Chatterbox integration_02_v0.1.json": {
     "result": true,
@@ -1663,7 +2293,12 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "73",
+      "prompt": "51.text",
+      "seeds": "51.seed 60.seed 61.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__work__Murph_mmaudio_v0.99.json": {
     "result": true,
@@ -1680,7 +2315,11 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "97",
+      "seeds": "109.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__work__Murph_mmaudio_v1.0.json": {
     "result": true,
@@ -1697,7 +2336,11 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 4,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "97",
+      "seeds": "109.seed"
+    }
   },
   "v3__2025_Murphylanga__Sound__work__Murph_text_to_speech_v0.99.json": {
     "result": true,
@@ -1714,7 +2357,11 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 14,
-    "notes": 0
+    "notes": 4,
+    "bound": {
+      "result": "107",
+      "seeds": "112.value"
+    }
   },
   "v3__2025_Murphylanga__Sound__work__Murph_👄 F5-TTS Speech Editor Workflow V0.99.json": {
     "result": true,
@@ -1731,7 +2378,11 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "135",
+      "seeds": "128.seed 134.seed"
+    }
   },
   "v3__2025_Murphylanga__Tools__Comfort Save v4.0.json": {
     "result": true,
@@ -1748,7 +2399,11 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 14,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "27",
+      "model": "35.unet_name"
+    }
   },
   "v3__2025_Murphylanga__Tools__Murphy_Compare_Image_v1.json": {
     "result": false,
@@ -1765,7 +2420,8 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__2025_Murphylanga__Tools__Murphy_Inpaint_Detail_Daemon_Sampler_v1.0.json": {
     "result": false,
@@ -1782,7 +2438,8 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__2025_Murphylanga__Tools__Murphys_Bastelbude_v5.3.json": {
     "result": true,
@@ -1799,7 +2456,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 75,
-    "notes": 0
+    "notes": 7,
+    "bound": {
+      "result": "4436",
+      "prompt": "961.text",
+      "negative": "962.text",
+      "model": "1113.ckpt_name",
+      "seeds": "950.seed 1116.seed 2286.seed 2441.seed 3830.seed 3939.seed 3942.seed 3945.seed 3951.seed 3952.seed 3968.seed 3971.seed 4357.seed 4362.seed",
+      "startImage": "1324.image"
+    }
   },
   "v3__2025_Murphylanga__Tools__Murphys_Florence-2_Version_2.0.json": {
     "result": true,
@@ -1816,7 +2481,12 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "50",
+      "seeds": "156.seed",
+      "startImage": "14.image"
+    }
   },
   "v3__2025_Murphylanga__Tools__Ollama_API_Prompt_generator_v5.01.json": {
     "result": false,
@@ -1833,7 +2503,8 @@
     "stages": 0,
     "missingNodes": 7,
     "replaced": 11,
-    "notes": 0
+    "notes": 4,
+    "bound": {}
   },
   "v3__2025_Murphylanga__Tools__QR-Code_Murphylanga.json": {
     "result": true,
@@ -1850,7 +2521,11 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 4,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "33",
+      "prompt": "47.text"
+    }
   },
   "v3__2025_Murphylanga__Tools__Remove Background.json": {
     "result": true,
@@ -1867,7 +2542,11 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 4,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "137",
+      "startImage": "102.image"
+    }
   },
   "v3__2025_Murphylanga__Ultimate__Ultimate_Complete_Modular_Comfy_Machine_2025_V9.0 .json": {
     "result": true,
@@ -1884,7 +2563,15 @@
     "stages": 6,
     "missingNodes": 5,
     "replaced": 43,
-    "notes": 1
+    "notes": 6,
+    "bound": {
+      "result": "9796",
+      "prompt": "7628.value",
+      "model": "6004.ckpt_name",
+      "seeds": "5996.seed 8185.value",
+      "size": "7597.width 7597.height",
+      "startImage": "9857.image"
+    }
   },
   "v3__2025_Murphylanga__Ultimate__Ultimate_Easy_Modular_Comfy_Machine_2025_V7.0.json": {
     "result": true,
@@ -1901,7 +2588,15 @@
     "stages": 5,
     "missingNodes": 6,
     "replaced": 38,
-    "notes": 0
+    "notes": 5,
+    "bound": {
+      "result": "9459",
+      "prompt": "6046.prompt",
+      "model": "6004.ckpt_name",
+      "seeds": "5996.seed 8185.value",
+      "size": "7597.width 7597.height",
+      "startImage": "9398.image"
+    }
   },
   "v3__2025_Murphylanga__Versuche__Murph_qwen_t2i_subgraphed.json": {
     "result": true,
@@ -1918,7 +2613,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "60",
+      "prompt": "81.prompt",
+      "negative": "83.prompt",
+      "model": "156:147.unet_name",
+      "seeds": "82.seed 86.seed",
+      "size": "156:151.width 156:151.height"
+    }
   },
   "v3__2025_Murphylanga__Versuche__Standard_Pony_Compact_Workflow_v1.0.json": {
     "result": true,
@@ -1935,7 +2638,13 @@
     "stages": 0,
     "missingNodes": 7,
     "replaced": 11,
-    "notes": 1
+    "notes": 3,
+    "bound": {
+      "result": "118",
+      "prompt": "317.value",
+      "model": "338:330.ckpt_name",
+      "seeds": "282.seed 338:340.seed"
+    }
   },
   "v3__2025_Murphylanga__Versuche__Standard_SDXL_Compact_Workflow_v1.0.json": {
     "result": true,
@@ -1952,7 +2661,14 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 13,
-    "notes": 1
+    "notes": 3,
+    "bound": {
+      "result": "118",
+      "prompt": "317.value",
+      "negative": "320.value",
+      "model": "338:330.ckpt_name",
+      "seeds": "282.seed 338:340.seed"
+    }
   },
   "v3__2025_Murphylanga__Versuche__Standard_SDXL_Compact_Workflow_v1.0_Beta_Nodes.json": {
     "result": true,
@@ -1969,7 +2685,14 @@
     "stages": 0,
     "missingNodes": 7,
     "replaced": 13,
-    "notes": 1
+    "notes": 2,
+    "bound": {
+      "result": "118",
+      "prompt": "317.value",
+      "negative": "320.value",
+      "model": "338:330.ckpt_name",
+      "seeds": "282.seed 338:340.seed"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__Murphys_WAN2.2_I2V_Sage_Attention_v1.11.json": {
     "result": true,
@@ -1986,7 +2709,16 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 8,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "346",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed 436.noise_seed",
+      "length": "50.length",
+      "startImage": "52.image"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__Murphys_WAN2.2_I2V_Sage_Attention_v1.2.json": {
     "result": true,
@@ -2003,7 +2735,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 8,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "346",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed 436.noise_seed",
+      "startImage": "52.image"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__Murphys_WAN2.2_I2V_Sage_Attention_v1.3.json": {
     "result": true,
@@ -2020,7 +2760,16 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 8,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "346",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed 436.noise_seed",
+      "startImage": "52.image",
+      "endImage": "94.image"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__Murphys_WAN2.2_I2V_Sage_Attention_v1.4.json": {
     "result": true,
@@ -2037,7 +2786,16 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 8,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "346",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed 436.noise_seed",
+      "startImage": "52.image",
+      "endImage": "94.image"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__Murphys_WAN2.2_S2V_Sage_Attention_v1.0.json": {
     "result": true,
@@ -2054,7 +2812,17 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 8,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "346",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed",
+      "length": "93.length",
+      "startImage": "52.image",
+      "endImage": "94.image"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__Murphys_WAN2.2_T2V_Sage_Attention_v1.0.json": {
     "result": true,
@@ -2071,7 +2839,16 @@
     "stages": 2,
     "missingNodes": 1,
     "replaced": 9,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "504",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed",
+      "size": "500.width 500.height",
+      "length": "500.length"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__Murphys_WAN2.2_T2V_Sage_Attention_v1.3.json": {
     "result": true,
@@ -2088,7 +2865,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 8,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "346",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed 436.noise_seed",
+      "size": "534.width 534.height",
+      "length": "534.length"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__work__Get-Last-Frame.json": {
     "result": true,
@@ -2105,7 +2891,10 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "3"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__work__Murph_wanvideo_multitalk_basic.json": {
     "result": true,
@@ -2122,7 +2911,15 @@
     "stages": 0,
     "missingNodes": 14,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "237",
+      "prompt": "163.positive_prompt",
+      "negative": "76.text",
+      "seeds": "164.seed",
+      "size": "246.width 246.height",
+      "length": "246.length"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__work__Murphy_MultiTalk_v0.5.json": {
     "result": true,
@@ -2139,7 +2936,15 @@
     "stages": 0,
     "missingNodes": 14,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "237",
+      "prompt": "163.positive_prompt",
+      "negative": "76.text",
+      "seeds": "164.seed",
+      "size": "246.width 246.height",
+      "length": "246.length"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__work__Murphys_WAN2.2_I2V_Sage_Attention_v1.1.json": {
     "result": true,
@@ -2156,7 +2961,16 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 8,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "346",
+      "prompt": "157.value",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "85.seed 436.noise_seed",
+      "length": "50.length",
+      "startImage": "52.image"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__work__sound_to_video_wan_example.json": {
     "result": true,
@@ -2173,7 +2987,17 @@
     "stages": 2,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "60",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "37.unet_name",
+      "seeds": "3.seed",
+      "size": "55.width 55.height",
+      "length": "55.length",
+      "startImage": "52.image"
+    }
   },
   "v3__2025_Murphylanga__WAN2.2_Triton_GUFF__work__wan22_14B_gguf_sage_attn.json": {
     "result": true,
@@ -2190,7 +3014,15 @@
     "stages": 0,
     "missingNodes": 14,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "237",
+      "prompt": "163.positive_prompt",
+      "negative": "76.text",
+      "seeds": "164.seed",
+      "size": "246.width 246.height",
+      "length": "246.length"
+    }
   },
   "v3__2025_Murphylanga__upscale__4K_SDXL_SD_Ultimate_Custom_Upscale_Workflow_v3.0.json": {
     "result": true,
@@ -2207,7 +3039,14 @@
     "stages": 3,
     "missingNodes": 12,
     "replaced": 18,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1108",
+      "prompt": "1362.value",
+      "negative": "1050.text",
+      "seeds": "915.seed 1019.seed 1554.seed",
+      "startImage": "303.image"
+    }
   },
   "v3__2025_Murphylanga__upscale__4K_SDXL_SD_Ultimate_Custom_Upscale_Workflow_v6.0.json": {
     "result": true,
@@ -2224,7 +3063,14 @@
     "stages": 3,
     "missingNodes": 12,
     "replaced": 18,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1108",
+      "prompt": "1362.value",
+      "negative": "1050.text",
+      "seeds": "915.seed 1019.seed 1554.seed",
+      "startImage": "303.image"
+    }
   },
   "v3__2025_Murphylanga__upscale__Flux_Checkpoint_SD_Ultimate_Custom_Upscale_Workflow_v6.01.json": {
     "result": true,
@@ -2241,7 +3087,15 @@
     "stages": 3,
     "missingNodes": 7,
     "replaced": 16,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "838",
+      "prompt": "1232.value",
+      "negative": "707.text",
+      "model": "1293.ckpt_name",
+      "seeds": "676.seed 734.seed",
+      "startImage": "303.image"
+    }
   },
   "v3__2025_Murphylanga__upscale__SDXL_SD_Ultimate_Custom_Upscale_Workflow_v7.0.json": {
     "result": true,
@@ -2258,7 +3112,15 @@
     "stages": 3,
     "missingNodes": 8,
     "replaced": 19,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1634",
+      "prompt": "1362.value",
+      "negative": "1050.text",
+      "model": "1612.ckpt_name",
+      "seeds": "1019.seed 1607.seed",
+      "startImage": "303.image"
+    }
   },
   "v3__2025_Murphylanga__upscale__SDXL_SD_Ultimate_Custom_Upscale_Workflow_v8.0.json": {
     "result": true,
@@ -2275,7 +3137,15 @@
     "stages": 3,
     "missingNodes": 8,
     "replaced": 20,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "1688",
+      "prompt": "1362.value",
+      "negative": "1050.text",
+      "model": "1612.ckpt_name",
+      "seeds": "1019.seed 1607.seed",
+      "startImage": "303.image"
+    }
   },
   "v3__2025_Murphylanga__upscale__Supir_SDXL_SD_Ultimate_Custom_Upscale_Workflow_v3.01_high_VRAM.json": {
     "result": true,
@@ -2292,7 +3162,14 @@
     "stages": 3,
     "missingNodes": 13,
     "replaced": 19,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "418",
+      "prompt": "343.value",
+      "negative": "490.value",
+      "seeds": "164.seed 278.seed 344.seed 401.seed",
+      "startImage": "397.image"
+    }
   },
   "v3__2025_Murphylanga__upscale__Supir_SDXL_SD_Ultimate_Custom_Upscale_Workflow_v3.01_low_VRAM.json": {
     "result": true,
@@ -2306,10 +3183,17 @@
     "seeds": 4,
     "toggles": 0,
     "controls": 22,
-    "stages": 4,
+    "stages": 3,
     "missingNodes": 19,
     "replaced": 19,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "418",
+      "prompt": "343.value",
+      "negative": "490.value",
+      "seeds": "164.seed 278.seed 344.seed 409.seed",
+      "startImage": "397.image"
+    }
   },
   "v3__2026_Murphylanga__Easy_Nunchaku_Flux_Compact_Workflow_v1.00.json": {
     "result": true,
@@ -2326,7 +3210,12 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 14,
-    "notes": 0
+    "notes": 4,
+    "bound": {
+      "result": "118",
+      "prompt": "725.positive",
+      "seeds": "282.seed"
+    }
   },
   "v3__2026_Murphylanga__Easy_SDXL_Compact_Workflow_v1.00.json": {
     "result": true,
@@ -2343,7 +3232,13 @@
     "stages": 0,
     "missingNodes": 7,
     "replaced": 13,
-    "notes": 0
+    "notes": 4,
+    "bound": {
+      "result": "876",
+      "prompt": "725.positive",
+      "negative": "726.negative",
+      "seeds": "282.seed"
+    }
   },
   "v3__2026_Murphylanga__Easy_Z_Image_turbo_Compact_Workflow_v1.00.json": {
     "result": true,
@@ -2360,7 +3255,13 @@
     "stages": 0,
     "missingNodes": 6,
     "replaced": 14,
-    "notes": 1
+    "notes": 4,
+    "bound": {
+      "result": "118",
+      "prompt": "725.positive",
+      "model": "887.unet_name",
+      "seeds": "282.seed"
+    }
   },
   "v3__2026_Murphylanga__Multi_Nunchaku_Flux_Compact_Workflow_v1.00.json": {
     "result": true,
@@ -2377,7 +3278,13 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 15,
-    "notes": 1
+    "notes": 6,
+    "bound": {
+      "result": "118",
+      "prompt": "725.positive",
+      "model": "835.model_path",
+      "seeds": "282.seed"
+    }
   },
   "v3__2026_Murphylanga__Multi_Pony_Compact_Workflow_v1.00.json": {
     "result": true,
@@ -2394,7 +3301,14 @@
     "stages": 0,
     "missingNodes": 6,
     "replaced": 12,
-    "notes": 0
+    "notes": 4,
+    "bound": {
+      "result": "118",
+      "prompt": "728.positive",
+      "negative": "342:227.text_l",
+      "model": "859.ckpt_name",
+      "seeds": "282.seed"
+    }
   },
   "v3__2026_Murphylanga__Multi_SDXL_Compact_Workflow_v1.00.json": {
     "result": true,
@@ -2411,7 +3325,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 14,
-    "notes": 1
+    "notes": 6,
+    "bound": {
+      "result": "846",
+      "prompt": "725.positive",
+      "negative": "726.negative",
+      "seeds": "282.seed",
+      "startImage": "840.image"
+    }
   },
   "v3__2026_Murphylanga__Multi_Z_Image_Turbo_Compact_Workflow_v1.00.json": {
     "result": true,
@@ -2428,7 +3349,14 @@
     "stages": 0,
     "missingNodes": 6,
     "replaced": 15,
-    "notes": 2
+    "notes": 7,
+    "bound": {
+      "result": "118",
+      "prompt": "725.positive",
+      "model": "887.unet_name",
+      "seeds": "282.seed",
+      "startImage": "899.image"
+    }
   },
   "v3__2026_Murphylanga__Multi_Z_Image_Turbo_Compact_Workflow_v2.00.json": {
     "result": true,
@@ -2445,7 +3373,14 @@
     "stages": 0,
     "missingNodes": 6,
     "replaced": 15,
-    "notes": 2
+    "notes": 7,
+    "bound": {
+      "result": "118",
+      "prompt": "725.positive",
+      "model": "887.unet_name",
+      "seeds": "282.seed 952.seed",
+      "startImage": "899.image"
+    }
   },
   "v3__2026_Murphylanga__Murph_text_to_speech_v0.995.json": {
     "result": true,
@@ -2462,7 +3397,10 @@
     "stages": 0,
     "missingNodes": 4,
     "replaced": 0,
-    "notes": 0
+    "notes": 5,
+    "bound": {
+      "result": "107"
+    }
   },
   "v3__FLUXINPAINT_v80__FLUX_Inpaint_auto.json": {
     "result": false,
@@ -2479,7 +3417,8 @@
     "stages": 0,
     "missingNodes": 6,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__FLUXINPAINT_v80__FLUX_Inpaint_manual.json": {
     "result": false,
@@ -2496,7 +3435,8 @@
     "stages": 0,
     "missingNodes": 6,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__SimpleAdvancedFLUX1_loraSupportV2NoCLIP__MarkuryFLUX_LoRA_v2.json": {
     "result": true,
@@ -2513,7 +3453,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 3,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "9",
+      "prompt": "28.value",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed",
+      "size": "70.value 71.value"
+    }
   },
   "v3__WAN21IMGToVIDEO_v40_2862321__WAN2.1_Img2Video_auto.json": {
     "result": false,
@@ -2530,7 +3477,8 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__WAN21IMGToVIDEO_v40_2862321__WAN2.1_Img2video_manual.json": {
     "result": false,
@@ -2547,7 +3495,8 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__WAN21TXTToVIDEO_v41__WAN2.1_Txt2Vid_auto.json": {
     "result": false,
@@ -2564,7 +3513,8 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__WAN21TXTToVIDEO_v41__WAN2.1_Txt2Vid_manual.json": {
     "result": false,
@@ -2581,14 +3531,15 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__allInOneMingQwenImage21ZImageKrea2_v114__LLM-all-in-One-v.11.4.json": {
     "result": true,
     "prompt": true,
     "negative": true,
     "model": false,
-    "startImage": true,
+    "startImage": false,
     "video": false,
     "size": false,
     "length": false,
@@ -2598,7 +3549,13 @@
     "stages": 3,
     "missingNodes": 20,
     "replaced": 1,
-    "notes": 3
+    "notes": 17,
+    "bound": {
+      "result": "1497",
+      "prompt": "943.value",
+      "negative": "756.value",
+      "seeds": "1475.seed"
+    }
   },
   "v3__audioreactiveVid2vid_v10__audioreactiveVid2vid_v10__AudioReactive_VideoToVideo_Yvann.json": {
     "result": true,
@@ -2614,8 +3571,16 @@
     "controls": 7,
     "stages": 2,
     "missingNodes": 8,
-    "replaced": 8,
-    "notes": 0
+    "replaced": 6,
+    "notes": 5,
+    "bound": {
+      "result": "412",
+      "prompt": "377.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed 417.seed",
+      "startImage": "56.image"
+    }
   },
   "v3__comfyuiFlux1Advanced_v27__Flux_Advanced_v27_Base.json": {
     "result": true,
@@ -2632,7 +3597,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 6
+    "notes": 1,
+    "bound": {
+      "result": "1676",
+      "prompt": "239.value",
+      "negative": "94.text",
+      "model": "1508:1504.unet_name",
+      "seeds": "216.value 1490:1484.seed",
+      "startImage": "1641.image"
+    }
   },
   "v3__comfyuiFlux1Advanced_v27__Flux_Advanced_v27_SVDQ.json": {
     "result": true,
@@ -2649,7 +3622,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 6
+    "notes": 1,
+    "bound": {
+      "result": "1676",
+      "prompt": "239.value",
+      "negative": "94.text",
+      "model": "1508:1504.unet_name",
+      "seeds": "216.value 1490:1484.seed",
+      "startImage": "1641.image"
+    }
   },
   "v3__comfyuiFlux1Advanced_v27__Nunchaku_Installer_SVDQ.json": {
     "result": false,
@@ -2666,7 +3647,8 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__comfyuiHunyuanTextTo_v11Lora__ComfyUI Hunyuan text to video with lora.json": {
     "result": true,
@@ -2683,7 +3665,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "36",
+      "prompt": "3.text",
+      "model": "13.unet_name",
+      "seeds": "29.noise_seed",
+      "size": "35.width 35.height",
+      "length": "35.length"
+    }
   },
   "v3__daxamursWAN22WorkflowsV121FLF2VT2V_flf2vV121__Daxamur_WAN22_FLF2V_12.1.json": {
     "result": true,
@@ -2700,7 +3690,15 @@
     "stages": 2,
     "missingNodes": 2,
     "replaced": 7,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "188",
+      "prompt": "48.value",
+      "model": "2.unet_name",
+      "seeds": "251.seed",
+      "startImage": "189.image",
+      "endImage": "295.image"
+    }
   },
   "v3__flux1DEVKontext_F1Img2img13__flux_img2img_1_2.json": {
     "result": true,
@@ -2717,7 +3715,14 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "9",
+      "prompt": "36.clip_l",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed",
+      "startImage": "26.image"
+    }
   },
   "v3__flux1DEVKontext_F1Img2img13__flux_img2img_1_3_HighresFix.json": {
     "result": true,
@@ -2734,7 +3739,14 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "77",
+      "prompt": "36.clip_l",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed 73.noise_seed",
+      "startImage": "26.image"
+    }
   },
   "v3__flux1DevGGUFQ2KQ3KSQ4WITHInpaintingIMG2IMG_v10Flux1DevGGUFQ4K__zGenMedia_Flux dev Q4_K_S.json": {
     "result": true,
@@ -2751,7 +3763,14 @@
     "stages": 0,
     "missingNodes": 13,
     "replaced": 9,
-    "notes": 0
+    "notes": 8,
+    "bound": {
+      "result": "415",
+      "prompt": "259.text",
+      "negative": "232.text",
+      "model": "231.ckpt_name",
+      "seeds": "236.seed 393.seed 435.seed"
+    }
   },
   "v3__flux2KleinSwapAnytingFace_sam31Native__Flux Swap-Anything (Sam3.1).json": {
     "result": true,
@@ -2768,7 +3787,15 @@
     "stages": 2,
     "missingNodes": 3,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "115",
+      "prompt": "16.positive",
+      "model": "121.unet_name",
+      "seeds": "135:127.noise_seed",
+      "size": "131.width 131.height",
+      "startImage": "219.image"
+    }
   },
   "v3__fluxKontextWorkflow_v10__FluxKontextYorgash.json": {
     "result": true,
@@ -2785,7 +3812,15 @@
     "stages": 2,
     "missingNodes": 4,
     "replaced": 2,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "58",
+      "prompt": "59.positive",
+      "model": "62.model_path",
+      "seeds": "35.noise_seed 50.seed",
+      "size": "4.value 5.value",
+      "startImage": "65.image"
+    }
   },
   "v3__fluxKontextWorkflow_v10__KontextDetailed.json": {
     "result": true,
@@ -2802,7 +3837,15 @@
     "stages": 2,
     "missingNodes": 4,
     "replaced": 2,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "58",
+      "prompt": "59.positive",
+      "model": "62.model_path",
+      "seeds": "35.noise_seed 50.seed",
+      "size": "4.value 5.value",
+      "startImage": "65.image"
+    }
   },
   "v3__fluxWithSkinDetailer_detailDaemonNI__Detailer_Daemon_Flux.json": {
     "result": true,
@@ -2819,7 +3862,13 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 1,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "35",
+      "prompt": "146.text",
+      "model": "175.unet_name",
+      "seeds": "194.noise_seed"
+    }
   },
   "v3__gonzalomoSDXL_v40__gonzaLomo_SDXL_v41.json": {
     "result": true,
@@ -2832,11 +3881,19 @@
     "length": false,
     "seeds": 3,
     "toggles": 0,
-    "controls": 10,
+    "controls": 9,
     "stages": 2,
     "missingNodes": 3,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "304",
+      "prompt": "237:109.text",
+      "negative": "237:6.text",
+      "model": "292.ckpt_name",
+      "seeds": "237:7.seed 237:213.seed 237:295.seed",
+      "startImage": "278.image"
+    }
   },
   "v3__hunyuan12GBVram1080pW_v10__Hunyuan12g-upscale-framegen-1080p.json": {
     "result": true,
@@ -2853,7 +3910,14 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "169",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed",
+      "size": "45.width 45.height",
+      "length": "45.length"
+    }
   },
   "v3__hunyuan2stepT2vAnd_v17__Hunyuan 2step Upscale TeaCache Wavespeed.json": {
     "result": true,
@@ -2870,7 +3934,15 @@
     "stages": 2,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "135",
+      "prompt": "44.text",
+      "model": "150.unet_name",
+      "seeds": "25.noise_seed",
+      "size": "45.width 45.height",
+      "length": "45.length"
+    }
   },
   "v3__hunyuanAllinone_AllVersions__I2V Leap Fusion.json": {
     "result": true,
@@ -2887,7 +3959,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 4,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "model": "12.unet_name",
+      "seeds": "367.noise_seed",
+      "size": "380.value 376.value",
+      "length": "378.value",
+      "startImage": "259.image"
+    }
   },
   "v3__hunyuanAllinone_AllVersions__✔️HUN ADVANCED 1.5.json": {
     "result": true,
@@ -2904,7 +3985,15 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 23,
-    "notes": 1
+    "notes": 9,
+    "bound": {
+      "result": "1812",
+      "prompt": "2303.text",
+      "model": "2864.unet_name",
+      "seeds": "703.noise_seed 2851.value 707.noise_seed",
+      "size": "2899.value 2900.value",
+      "startImage": "630.image"
+    }
   },
   "v3__hunyuanAllinone_AllVersions__✔️HUN BASIC 1.5  (I2V V2 OFFICIAL).json": {
     "result": true,
@@ -2921,7 +4010,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 4,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "82",
+      "prompt": "402.prompt",
+      "model": "12.unet_name",
+      "seeds": "398.noise_seed",
+      "size": "380.value 376.value",
+      "length": "378.value",
+      "startImage": "259.image"
+    }
   },
   "v3__hunyuanAllinone_AllVersions__✔️HUN BASIC 1.5  (T2V + Upscale).json": {
     "result": true,
@@ -2938,7 +4036,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 6,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "82",
+      "prompt": "360.text",
+      "model": "12.unet_name",
+      "seeds": "361.value",
+      "size": "349.value 350.value",
+      "length": "351.value"
+    }
   },
   "v3__hunyuanAllinone_AllVersions__✔️HUN BASIC 1.5  (T2V only) .json": {
     "result": true,
@@ -2955,7 +4061,15 @@
     "stages": 2,
     "missingNodes": 2,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "324",
+      "prompt": "44.text",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed 335.noise_seed",
+      "size": "232.width 232.height",
+      "length": "295.value"
+    }
   },
   "v3__hunyuanAllinone_AllVersions__✔️HUN BASIC 1.5 .json": {
     "result": true,
@@ -2972,7 +4086,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 4,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "82",
+      "prompt": "44.text",
+      "model": "12.unet_name",
+      "seeds": "25.noise_seed",
+      "size": "350.value 351.value",
+      "length": "352.value"
+    }
   },
   "v3__hunyuanAllinone_AllVersions__✔️HUN ULTRA 1.5.json": {
     "result": true,
@@ -2989,7 +4111,14 @@
     "stages": 0,
     "missingNodes": 6,
     "replaced": 39,
-    "notes": 1
+    "notes": 12,
+    "bound": {
+      "result": "2535",
+      "prompt": "2303.text",
+      "model": "2864.unet_name",
+      "seeds": "703.noise_seed 2851.value 707.noise_seed",
+      "size": "2899.value 2900.value"
+    }
   },
   "v3__hunyuanImage2videoJan_v11__Image2Video-By-Sam-ManualSize.json": {
     "result": true,
@@ -3006,7 +4135,12 @@
     "stages": 0,
     "missingNodes": 9,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "12",
+      "size": "37.width 37.height",
+      "startImage": "7.image"
+    }
   },
   "v3__hunyuanImage2videoJan_v11__Image2Video-By-Sam.json": {
     "result": true,
@@ -3023,7 +4157,11 @@
     "stages": 0,
     "missingNodes": 12,
     "replaced": 0,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "12",
+      "startImage": "7.image"
+    }
   },
   "v3__hunyuanYAW67YetAnotherWorkflowT2VI2VV2V_v69__Hunyuan YAW Workflow by JSN-v692.json": {
     "result": true,
@@ -3037,10 +4175,17 @@
     "seeds": 1,
     "toggles": 18,
     "controls": 14,
-    "stages": 3,
+    "stages": 2,
     "missingNodes": 7,
     "replaced": 33,
-    "notes": 0
+    "notes": 11,
+    "bound": {
+      "result": "1180",
+      "prompt": "1308.text",
+      "model": "1480.unet_name",
+      "seeds": "1279.seed",
+      "size": "1315.width 1315.height"
+    }
   },
   "v3__ipivsSDXLLightning_v10__ipiv_SDXL_Lightning_AnimateLCM_02.json": {
     "result": true,
@@ -3057,7 +4202,12 @@
     "stages": 3,
     "missingNodes": 7,
     "replaced": 4,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "111",
+      "seeds": "69.seed 82.seed",
+      "size": "114.width 114.height"
+    }
   },
   "v3__jboogxMACHINELEARNERANIMATEDIFFWORKFLOW_v40UPDATEDIPADAPTER__jboogx_animatediffv3_no mask .json": {
     "result": true,
@@ -3074,7 +4224,13 @@
     "stages": 0,
     "missingNodes": 11,
     "replaced": 10,
-    "notes": 0
+    "notes": 5,
+    "bound": {
+      "result": "576",
+      "negative": "6.text",
+      "size": "172.width 172.height",
+      "startImage": "256.image"
+    }
   },
   "v3__lonecatsSimpleIshWorkflowsMinimaxH3Krea2_simpleMinimaxV20.json": {
     "result": true,
@@ -3091,7 +4247,12 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 6,
-    "notes": 0
+    "notes": 3,
+    "bound": {
+      "result": "218",
+      "prompt": "167.value",
+      "startImage": "137.image"
+    }
   },
   "v3__ltx219BGGUF12GBComfyui_iWANTALLTHEThingsv20__LTX-2 Image Audio 2 Video GGUF 12GB.json": {
     "result": true,
@@ -3108,7 +4269,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "290",
+      "prompt": "169.text",
+      "negative": "165.text",
+      "seeds": "178.noise_seed",
+      "size": "241.width 241.height",
+      "length": "162.length",
+      "startImage": "240.image"
+    }
   },
   "v3__ltx219BGGUF12GBComfyui_iWANTALLTHEThingsv20__LTX-2 Text Audio 2 Video GGUF 12GB.json": {
     "result": true,
@@ -3125,7 +4295,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "290",
+      "prompt": "169.text",
+      "negative": "165.text",
+      "seeds": "178.noise_seed 310.noise_seed",
+      "length": "300.value"
+    }
   },
   "v3__ltx219BGGUF12GBComfyui_iWANTALLTHEThingsv20__LTX2 I2V GGUF 12GB.json": {
     "result": true,
@@ -3142,7 +4319,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "75",
+      "prompt": "121.text",
+      "negative": "110.text",
+      "seeds": "114.noise_seed 115.noise_seed",
+      "length": "112.value",
+      "startImage": "149.image"
+    }
   },
   "v3__ltx219BGGUF12GBComfyui_iWANTALLTHEThingsv20__LTX2 T2V GGUF 12GB.json": {
     "result": true,
@@ -3159,7 +4344,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "165",
+      "prompt": "121.text",
+      "negative": "110.text",
+      "seeds": "114.noise_seed 115.noise_seed",
+      "length": "112.value"
+    }
   },
   "v3__ltx219BGGUF12GBComfyui_iWANTALLTHEThingsv20__LTX2 V2V GGUF 12GB.json": {
     "result": true,
@@ -3176,7 +4368,13 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "75",
+      "prompt": "121.text",
+      "negative": "110.text",
+      "seeds": "114.noise_seed 115.noise_seed"
+    }
   },
   "v3__ltx2322BGGUFWORKFLOWS_v11__LTX2.3 I2V GGUF 12GB.json": {
     "result": true,
@@ -3193,7 +4391,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "75",
+      "prompt": "121.text",
+      "negative": "110.text",
+      "model": "187.unet_name",
+      "seeds": "114.noise_seed 115.noise_seed",
+      "length": "112.value",
+      "startImage": "149.image"
+    }
   },
   "v3__ltx2322BGGUFWORKFLOWS_v11__LTX2.3 Image Audio to Video GGUF 12GB.json": {
     "result": true,
@@ -3210,7 +4417,17 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "290",
+      "prompt": "169.text",
+      "negative": "165.text",
+      "model": "310.unet_name",
+      "seeds": "178.noise_seed",
+      "size": "241.width 241.height",
+      "length": "162.length",
+      "startImage": "240.image"
+    }
   },
   "v3__ltx2322BGGUFWORKFLOWS_v11__LTX2.3 MULTI-I2V GGUF 12GB.json": {
     "result": true,
@@ -3227,7 +4444,16 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "75",
+      "prompt": "121.text",
+      "negative": "110.text",
+      "model": "141.unet_name",
+      "seeds": "115.noise_seed",
+      "length": "112.value",
+      "startImage": "149.image"
+    }
   },
   "v3__ltx2322BGGUFWORKFLOWS_v11__LTX2.3 T2V GGUF 12GB.json": {
     "result": true,
@@ -3244,7 +4470,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "165",
+      "prompt": "121.text",
+      "negative": "110.text",
+      "model": "177.unet_name",
+      "seeds": "114.noise_seed 115.noise_seed",
+      "length": "112.value"
+    }
   },
   "v3__ltx2322BGGUFWORKFLOWS_v11__LTX2.3 Text Audio to Video GGUF 12GB.json": {
     "result": true,
@@ -3261,7 +4495,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "290",
+      "prompt": "169.text",
+      "negative": "165.text",
+      "model": "323.unet_name",
+      "seeds": "178.noise_seed 310.noise_seed",
+      "length": "300.value"
+    }
   },
   "v3__ltx2322BGGUFWORKFLOWS_v11__LTX2.3 V2V GGUF 12GB.json": {
     "result": true,
@@ -3278,7 +4520,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "75",
+      "prompt": "121.text",
+      "negative": "110.text",
+      "model": "202.unet_name",
+      "seeds": "114.noise_seed 115.noise_seed"
+    }
   },
   "v3__ltx25ImageAudioToVideo_ltx252Stage.json": {
     "result": true,
@@ -3295,7 +4544,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "453",
+      "prompt": "411.text",
+      "negative": "419.text",
+      "model": "410.unet_name",
+      "seeds": "433.noise_seed 442.noise_seed",
+      "startImage": "452.image"
+    }
   },
   "v3__ltxIMAGEToVIDEOWithSTG_v95LTX097dist__LTX_I2V_V9.5__LTX_0.9.7Dist_I2V_Florence__LTX_I2V_DI.json": {
     "result": true,
@@ -3312,7 +4569,15 @@
     "stages": 0,
     "missingNodes": 5,
     "replaced": 10,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "79",
+      "negative": "259.text",
+      "seeds": "227.value",
+      "size": "229.value 229.value",
+      "length": "96.value",
+      "startImage": "78.image"
+    }
   },
   "v3__ltxIMAGEToVIDEOWithSTG_v95LTX097dist__LTX_I2V_V9.5__LTX_0.9.7Dist_I2V_LTXPromptEnhancer__L.json": {
     "result": true,
@@ -3329,7 +4594,15 @@
     "stages": 0,
     "missingNodes": 2,
     "replaced": 10,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "79",
+      "negative": "259.text",
+      "seeds": "227.value",
+      "size": "229.value 229.value",
+      "length": "96.value",
+      "startImage": "78.image"
+    }
   },
   "v3__plaguekindMinimaxH3SparseAttention_h3V11.json": {
     "result": true,
@@ -3342,11 +4615,17 @@
     "length": false,
     "seeds": 1,
     "toggles": 4,
-    "controls": 20,
+    "controls": 22,
     "stages": 0,
     "missingNodes": 5,
     "replaced": 0,
-    "notes": 3
+    "notes": 6,
+    "bound": {
+      "result": "5480",
+      "prompt": "5479:5961.prompt",
+      "model": "5310:5008.unet_name",
+      "seeds": "5445.noise_seed"
+    }
   },
   "v3__qwenCharacterCreator_v20__Qwen_2509_Img2Dataset.json": {
     "result": true,
@@ -3363,7 +4642,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "227",
+      "prompt": "207.text",
+      "negative": "208.text",
+      "model": "243.unet_name",
+      "seeds": "263.value 205.seed",
+      "startImage": "257.image"
+    }
   },
   "v3__qwenEdit2509MultiAngle_v10__Qwen+Edit2509多角度分镜直出.json": {
     "result": true,
@@ -3380,7 +4667,13 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 1
+    "notes": 1,
+    "bound": {
+      "result": "11",
+      "model": "17.unet_name",
+      "seeds": "12.seed",
+      "startImage": "13.image"
+    }
   },
   "v3__qwenEdit2511MultiView_v10__一键多视图pose__1d5fcb37f5d149f20745fa2a81ec012f112651ac5bcefd7ae9d9.json": {
     "result": true,
@@ -3397,7 +4690,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "146",
+      "prompt": "124.text",
+      "model": "115.unet_name",
+      "seeds": "83.seed 113.seed",
+      "startImage": "13.image"
+    }
   },
   "v3__qwenEdit2511MultiView_v10__人物一键多视图工作流 Qwen_image_edit_2511.json": {
     "result": true,
@@ -3414,7 +4714,14 @@
     "stages": 2,
     "missingNodes": 3,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "338",
+      "prompt": "214.text",
+      "model": "115.unet_name",
+      "seeds": "186.seed",
+      "startImage": "111.image"
+    }
   },
   "v3__qwenEditPlus2509_v10Old2509__Qwen-Edit-Plus-(2509)_Openpose_8-Steps.json": {
     "result": true,
@@ -3431,7 +4738,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "19",
+      "prompt": "11.prompt",
+      "negative": "13.prompt",
+      "model": "3.unet_name",
+      "seeds": "12.seed",
+      "startImage": "2.image"
+    }
   },
   "v3__qwenEditPlus2509_v10Old2509__QwenEditPlus_OpenPose_1.json": {
     "result": true,
@@ -3448,7 +4763,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "19",
+      "prompt": "11.prompt",
+      "negative": "13.prompt",
+      "model": "3.unet_name",
+      "seeds": "12.seed",
+      "startImage": "2.image"
+    }
   },
   "v3__qwenImageEditMulti_2511V1__Qwen_2511-Multi_00032_.json": {
     "result": true,
@@ -3465,7 +4788,13 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 1,
-    "notes": 0
+    "notes": 2,
+    "bound": {
+      "result": "43",
+      "prompt": "11.prompt",
+      "seeds": "13.seed 29.seed 34.seed",
+      "startImage": "8.image"
+    }
   },
   "v3__qwenImageEditMulti_2511V1__Qwen_2511_MultiGen_v1.json": {
     "result": true,
@@ -3482,7 +4811,13 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 1,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "43",
+      "prompt": "11.prompt",
+      "seeds": "13.seed 29.seed 34.seed",
+      "startImage": "8.image"
+    }
   },
   "v3__sdxlPONYILLUSTRIOUSDMD2_v20__WF10 CIV By Stable Yogi XL.json": {
     "result": true,
@@ -3495,11 +4830,19 @@
     "length": false,
     "seeds": 5,
     "toggles": 1,
-    "controls": 12,
+    "controls": 17,
     "stages": 2,
     "missingNodes": 4,
     "replaced": 2,
-    "notes": 1
+    "notes": 1,
+    "bound": {
+      "result": "43",
+      "prompt": "11.text",
+      "negative": "12.text",
+      "model": "1.ckpt_name",
+      "seeds": "9.seed 169.seed 172.seed 198.seed 204.seed",
+      "size": "10.width 10.height"
+    }
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-0-sig.json": {
     "result": false,
@@ -3516,7 +4859,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-1-qui.json": {
     "result": false,
@@ -3533,7 +4877,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-2-hig.json": {
     "result": false,
@@ -3550,7 +4895,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-3-wat.json": {
     "result": false,
@@ -3567,7 +4913,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-4-alb.json": {
     "result": false,
@@ -3584,7 +4931,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-5-dra.json": {
     "result": false,
@@ -3601,7 +4949,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-6-rev.json": {
     "result": false,
@@ -3618,7 +4967,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__examples__example-7-con.json": {
     "result": false,
@@ -3635,7 +4985,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__testing__cliptest.json": {
     "result": true,
@@ -3652,7 +5003,15 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 6,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "28",
+      "prompt": "24.value",
+      "negative": "21.value",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__testing__compare-clip-s.json": {
     "result": true,
@@ -3669,7 +5028,14 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "21",
+      "prompt": "12.text_g",
+      "negative": "14.text_g",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed"
+    }
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__testing__one-word-chall.json": {
     "result": true,
@@ -3686,7 +5052,14 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "9",
+      "prompt": "6.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__testing__test-cond-late.json": {
     "result": true,
@@ -3703,7 +5076,15 @@
     "stages": 2,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "36",
+      "prompt": "11.text_g",
+      "negative": "12.text_g",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed 13.seed 20.seed 26.seed 34.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__testing__test-condition.json": {
     "result": true,
@@ -3720,7 +5101,15 @@
     "stages": 0,
     "missingNodes": 3,
     "replaced": 6,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "28",
+      "prompt": "25.value",
+      "negative": "21.value",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__testing__test-upscale.json": {
     "result": true,
@@ -3737,7 +5126,15 @@
     "stages": 2,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "100",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed 26.noise_seed 39.seed 42.seed 53.seed 58.seed 61.seed 63.seed 72.seed 76.seed 91.seed 92.seed 101.noise_seed 104.noise_seed",
+      "size": "12.width 12.height"
+    }
   },
   "v3__seargeSDXLEVOLVEDV432OptimizedWorkflowForComfyui_v432__SeargeSDXL__workflow__Searge-SDXL-R.json": {
     "result": false,
@@ -3754,7 +5151,8 @@
     "stages": 0,
     "missingNodes": 8,
     "replaced": 5,
-    "notes": 0
+    "notes": 0,
+    "bound": {}
   },
   "v3__textMorphAnimateLCM_v10__images__1.json": {
     "result": true,
@@ -3771,7 +5169,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "10",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__textMorphAnimateLCM_v10__images__2.json": {
     "result": true,
@@ -3788,7 +5194,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "10",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__textMorphAnimateLCM_v10__images__3.json": {
     "result": true,
@@ -3805,7 +5219,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "10",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__textMorphAnimateLCM_v10__images__4.json": {
     "result": true,
@@ -3822,7 +5244,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "10",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__textMorphAnimateLCM_v10__images__5.json": {
     "result": true,
@@ -3839,7 +5269,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "10",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "4.ckpt_name",
+      "seeds": "3.seed",
+      "size": "5.width 5.height"
+    }
   },
   "v3__textMorphAnimateLCM_v10__text morph.json": {
     "result": true,
@@ -3854,9 +5292,16 @@
     "toggles": 1,
     "controls": 3,
     "stages": 0,
-    "missingNodes": 13,
-    "replaced": 4,
-    "notes": 0
+    "missingNodes": 14,
+    "replaced": 3,
+    "notes": 6,
+    "bound": {
+      "result": "33",
+      "negative": "35.text",
+      "model": "2.ckpt_name",
+      "seeds": "67.seed",
+      "size": "30.width 30.height"
+    }
   },
   "v3__v4DejankedImage2Video_v4__V4 DeJanked Unofficial Image 2 Video Hunyuan Magic with Flux and.json": {
     "result": true,
@@ -3873,7 +5318,15 @@
     "stages": 2,
     "missingNodes": 10,
     "replaced": 1,
-    "notes": 1
+    "notes": 1,
+    "bound": {
+      "result": "264",
+      "prompt": "36.text",
+      "negative": "207.text",
+      "model": "233.ckpt_name",
+      "seeds": "40.noise_seed 149.seed 163.seed 234.seed",
+      "size": "240.width 240.height"
+    }
   },
   "v3__videoflowLTX23AllInOneT2VI2VA2V_ltx23AllInOneV30.json": {
     "result": true,
@@ -3890,7 +5343,14 @@
     "stages": 2,
     "missingNodes": 10,
     "replaced": 1,
-    "notes": 1
+    "notes": 5,
+    "bound": {
+      "result": "678",
+      "prompt": "1879.text",
+      "model": "2016.unet_name",
+      "seeds": "2019.seed 1194:1192.noise_seed",
+      "size": "389:828.value 389:830.value"
+    }
   },
   "v3__wan2214bLongVideoWorkflow_v10__Wan2.2 20 sec.json": {
     "result": true,
@@ -3907,7 +5367,16 @@
     "stages": 0,
     "missingNodes": 18,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "185",
+      "prompt": "118.text",
+      "model": "113.model",
+      "seeds": "98.seed 99.seed 177.seed 178.seed",
+      "size": "110.width 110.height",
+      "length": "198.value",
+      "startImage": "117.image"
+    }
   },
   "wan22WorkflowT2VI2VT2I_v185__WAN 2.2 LORA COMPARE.json": {
     "result": true,
@@ -3924,7 +5393,15 @@
     "stages": 0,
     "missingNodes": 1,
     "replaced": 1,
-    "notes": 0
+    "notes": 1,
+    "bound": {
+      "result": "187",
+      "prompt": "260.value",
+      "negative": "14.text",
+      "model": "17.unet_name",
+      "seeds": "189.value",
+      "size": "315.width 315.height"
+    }
   },
   "wan22WorkflowT2VI2VT2I_v185__WAN 2.2 S2V.json": {
     "result": true,
@@ -3941,7 +5418,14 @@
     "stages": 0,
     "missingNodes": 21,
     "replaced": 2,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "30",
+      "negative": "16.negative_prompt",
+      "model": "575:533.model",
+      "seeds": "308.seed",
+      "startImage": "433.image"
+    }
   },
   "wanI2vWithUpscaling_v17__wan22_i2v_v17.json": {
     "result": true,
@@ -3958,6 +5442,15 @@
     "stages": 0,
     "missingNodes": 0,
     "replaced": 0,
-    "notes": 0
+    "notes": 0,
+    "bound": {
+      "result": "70",
+      "prompt": "6.text",
+      "negative": "7.text",
+      "model": "88.unet_name",
+      "seeds": "93:12.noise_seed 93:10.noise_seed",
+      "length": "8.length",
+      "startImage": "102:98.image"
+    }
   }
 }

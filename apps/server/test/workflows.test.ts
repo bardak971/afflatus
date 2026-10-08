@@ -53,6 +53,25 @@ describe("reading a workflow", () => {
     expect(res.json().error).toContain("No node that ComfyUI can run");
   });
 
+  it("refuses, in plain words, an editor's file that is not what it says, and nothing reaches Object.prototype", async () => {
+    const crafted = {
+      nodes: [
+        { id: 2, type: "Source", outputs: [{ type: "STRING", links: [1] }] },
+        { id: "__proto__", type: "Sink", inputs: [{ name: "polluted", type: "STRING", link: 1, widget: { name: "polluted" } }], widgets_values: ["PWNED"] },
+      ],
+      links: [[1, 2, 0, "__proto__", 0, "STRING"]],
+    };
+    const res = await inspect(crafted);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/could not be read as a workflow of ComfyUI's editor/);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    // a node that is not one, and a group node that holds itself: a 400 that says so, not a 500
+    expect((await inspect({ nodes: [null], links: [] })).statusCode).toBe(400);
+    const loop = await inspect({ nodes: [{ id: 1, type: "loop" }], links: [], definitions: { subgraphs: [{ id: "loop", nodes: [{ id: 1, type: "loop" }], links: [] }] } });
+    expect(loop.statusCode).toBe(400);
+    expect(loop.json().error).toMatch(/holds itself/);
+  });
+
   it("refuses what is not a workflow", async () => {
     expect((await inspect({ hello: "world" })).statusCode).toBe(400);
     expect((await inspect({})).statusCode).toBe(400);
@@ -190,6 +209,36 @@ describe("an imported workflow", () => {
     const res = await post(t.app, "/api/workflows", { title: "Broken", model: "SDXL", graph: sdxl, bindings: broken });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("node 999");
+  });
+
+  /** A Director whose saved data this version cannot read: its graph cannot be built. */
+  const director = {
+    "1": { class_type: "MiniMaxH3Director", inputs: { timeline_data: "not json", mode: "T2VA", prompt: "a boat" } },
+    "2": { class_type: "SaveImage", inputs: { images: ["1", 0], filename_prefix: "x" } },
+  };
+  const directorBindings = { result: { node: "2", kind: "image" }, director: { node: "1" } };
+
+  it("is refused when it cannot be built as mapped, before anything is kept", async () => {
+    const res = await post(t.app, "/api/workflows", { title: "Director", model: "MiniMax H3", graph: director, bindings: directorBindings });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/cannot be run as it is mapped: .*Director/);
+    expect((await get(t.app, "/api/workflows")).json().items).toEqual([]);
+  });
+
+  it("does not keep the server from starting when a saved one cannot be built: it is listed with why, and can be removed", async () => {
+    await importWan();
+    // as an older version kept it, before builds were checked
+    const def = { id: "workflow.director", title: "Director", model: "MiniMax H3", source: "", graph: director, bindings: directorBindings };
+    await t.db.insertInto("workflows").values({ id: def.id, owner_id: "owner", def: JSON.stringify(def), created_at: new Date().toISOString(), updated_at: new Date().toISOString() }).execute();
+    const again = await makeApp({ db: t.db, dir: t.dir, comfyUrl: fake.url });
+    const items = (await get(again.app, "/api/workflows")).json().items as Array<{ id: string; problem?: string }>;
+    expect(items.map((i) => i.id).sort()).toEqual(["workflow.director", "workflow.wan-2-2-picture-to-video"]);
+    expect(items.find((i) => i.id === "workflow.director")!.problem).toMatch(/Director/);
+    const recipes = (await get(again.app, "/api/recipes")).json().recipes.map((r: { id: string }) => r.id);
+    expect(recipes).toContain("workflow.wan-2-2-picture-to-video");
+    expect(recipes).not.toContain("workflow.director");
+    expect((await again.app.inject({ method: "DELETE", url: "/api/workflows/workflow.director" })).statusCode).toBe(200);
+    await again.app.close();
   });
 });
 

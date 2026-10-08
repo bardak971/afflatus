@@ -1,7 +1,6 @@
 import type { Graph } from "@afflatus/core";
+import { MODEL_FILE } from "./catalog";
 
-/** A file name a loader takes, as opposed to a prompt or a number. */
-const MODEL_FILE = /\.(safetensors|sft|gguf|ckpt|pt|pth|bin)$/i;
 /** A node that loads or stacks LoRAs: its type says what it can take, not what this workflow runs on. */
 const LORA_NODE = /lora/i;
 

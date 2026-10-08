@@ -3,6 +3,13 @@ import { families as builtInFamilies, recipes as builtInRecipes } from "@afflatu
 import { familyOf, recipeFromWorkflow, workflowDef, type WorkflowDef } from "@afflatus/workflows";
 import { now, OWNER, type Db } from "./db";
 
+/** A workflow's recipe, built once as it was saved: what cannot be built is found here, not by every later reader. */
+export function made(def: WorkflowDef): Recipe<any> {
+  const recipe = recipeFromWorkflow(def);
+  void recipe.files;
+  return recipe;
+}
+
 /**
  * Everything Afflatus can make things with: the built-in recipes, plus one recipe per imported workflow.
  * The rest of the server asks here and never needs to know which kind a recipe is.
@@ -10,22 +17,48 @@ import { now, OWNER, type Db } from "./db";
 export class Registry {
   private defs: WorkflowDef[] = [];
   private made: Recipe<any>[] = [];
+  /** Saved workflows that could not be made into a recipe, with why: listed (to be changed or removed), never run. */
+  private broken = new Map<string, string>();
   /** Called when the list changes (what ComfyUI can run has to be worked out again). */
   onChange: () => void = () => {};
 
   constructor(private readonly db: Db) {}
 
-  /** Read the saved workflows. One that no longer parses is skipped with a warning, not fatal. */
+  /**
+   * Read the saved workflows. One that no longer parses is skipped with a warning; one that cannot be made into a
+   * recipe (its graph cannot be built) stays listed, with why, and is not offered: never fatal, one workflow does not
+   * keep the server from starting.
+   */
   async load(): Promise<void> {
     const rows = await this.db.selectFrom("workflows").select(["id", "def"]).orderBy("created_at").execute();
     this.defs = [];
+    this.made = [];
+    this.broken = new Map();
     for (const row of rows) {
-      const parsed = workflowDef.safeParse(JSON.parse(row.def));
-      if (parsed.success) this.defs.push(parsed.data);
-      else console.warn(`[workflows] ${row.id} could not be read and is skipped`);
+      let parsed;
+      try {
+        parsed = workflowDef.safeParse(JSON.parse(row.def));
+      } catch {
+        parsed = null;
+      }
+      if (!parsed?.success) {
+        console.warn(`[workflows] ${row.id} could not be read and is skipped`);
+        continue;
+      }
+      this.defs.push(parsed.data);
+      try {
+        this.made.push(made(parsed.data));
+      } catch (err) {
+        this.broken.set(parsed.data.id, (err as Error).message);
+        console.warn(`[workflows] ${row.id} cannot be built and is not offered: ${(err as Error).message}`);
+      }
     }
-    this.made = this.defs.map(recipeFromWorkflow);
     this.onChange();
+  }
+
+  /** Why a saved workflow is not offered, when it is not. */
+  problem(id: string): string | undefined {
+    return this.broken.get(id);
   }
 
   recipes(): Recipe<any>[] {

@@ -10,57 +10,29 @@ import { api, ApiError, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { notReady, recipeLabel } from "../format";
+import { saveJson } from "../download";
 import { useHandover } from "../store";
 import { Button, cx, ErrorNote, SectionTitle, TwoStep } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
+import { pngText } from "./pngText";
 
 /**
  * Read a file the user chose: a workflow as ComfyUI saves it, one saved with "Export (API)", or one
  * shared from another Afflatus (the same workflow with its mapping already made).
  */
-/** The text chunks of a PNG (tEXt, and iTXt when not compressed): ComfyUI writes the workflow into one named "workflow". */
-function pngText(bytes: Uint8Array): Record<string, string> {
-  const out: Record<string, string> = {};
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const latin = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
-  let p = 8;
-  while (p + 8 <= bytes.length) {
-    const len = view.getUint32(p);
-    const type = latin(p + 4, p + 8);
-    const data = bytes.subarray(p + 8, p + 8 + len);
-    if (type === "tEXt" || type === "iTXt") {
-      const zero = data.indexOf(0);
-      if (zero > 0) {
-        const key = latin(p + 8, p + 8 + zero);
-        let q = zero + 1;
-        let fine = true;
-        if (type === "iTXt") {
-          fine = data[q] === 0;
-          q += 2;
-          q = data.indexOf(0, q) + 1;
-          q = data.indexOf(0, q) + 1;
-        }
-        if (fine) out[key] = new TextDecoder().decode(data.subarray(q));
-      }
-    }
-    if (type === "IEND") break;
-    p += 12 + len;
-  }
-  return out;
-}
-
 /** The workflow in a file: a .json, or a picture or video ComfyUI saved with its workflow inside. */
 async function workflowIn(file: File): Promise<unknown> {
   if (file.type === "image/png" || /\.png$/i.test(file.name)) {
-    const text = pngText(new Uint8Array(await file.arrayBuffer()));
+    const text = await pngText(new Uint8Array(await file.arrayBuffer()));
     const raw = text.workflow ?? text.prompt;
     if (!raw) throw new ApiError("This picture carries no workflow. ComfyUI writes one into the pictures it saves; a picture from elsewhere has none.");
     return JSON.parse(raw);
   }
   if (file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v|mkv)$/i.test(file.name)) {
-    const r = await fetch("/api/workflows/extract", { method: "POST", body: file, headers: { "content-type": file.type || "application/octet-stream" } });
-    const body = (await r.json().catch(() => ({}))) as { workflow?: unknown; message?: string };
-    if (!r.ok) throw new ApiError(body.message ?? "This video could not be read.");
+    const r = await fetch("/api/workflows/extract", { method: "POST", body: file, headers: { "content-type": file.type || "application/octet-stream", "X-Afflatus": "1" } });
+    // the server says what went wrong as { error }, like every route
+    const body = (await r.json().catch(() => ({}))) as { workflow?: unknown; error?: string };
+    if (!r.ok) throw new ApiError(body.error ?? "This video could not be read.");
     return body.workflow;
   }
   try {
@@ -122,12 +94,7 @@ async function reopen(id: string): Promise<Editing> {
 /** The workflow with its mapping, as a file someone else can import into their Afflatus. */
 async function share(w: WorkflowBrief): Promise<void> {
   const { id: _id, ...def } = await api.workflow(w.id);
-  const url = URL.createObjectURL(new Blob([JSON.stringify(def, null, 2)], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${w.title.replace(/[^\w .-]+/g, "").trim() || "workflow"}.afflatus.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  saveJson(def, `${w.title.replace(/[^\w .-]+/g, "").trim() || "workflow"}.afflatus.json`);
 }
 
 const KIND = { image: "Image", video: "Video", audio: "Audio" } as const;
@@ -237,7 +204,8 @@ export function Workflows() {
           {cardMenu.menu && <ContextMenu at={cardMenu.menu.at} label={`Actions on ${cardMenu.menu.subject.title}`} items={cardItems(cardMenu.menu.subject)} onClose={cardMenu.close} />}
           {list.data?.items.map((w) => {
             const recipe = recipes.data?.recipes.find((r) => r.id === w.id);
-            const problem = why(w.id);
+            // a saved workflow that cannot be built says why; otherwise what the setup check says of its recipe
+            const problem = w.problem ?? why(w.id);
             const pictures = recipe?.inputs.filter((i) => i.type === "image").length ?? 0;
             const controls = recipe?.inputs.filter((i) => i.advanced).length ?? 0;
             return (

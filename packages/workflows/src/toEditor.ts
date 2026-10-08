@@ -1,5 +1,5 @@
 import { isRef, type Graph, type NodeCatalog, type NodeInfo, type Ref } from "@afflatus/core";
-import { isWidget } from "./catalog";
+import { defaultOf as declaredDefault, infoOf, isWidget } from "./catalog";
 
 /**
  * A graph as ComfyUI's editor saves it, made from the graph Afflatus runs (the "API" form), so that the
@@ -51,9 +51,11 @@ function specsOf(info: NodeInfo | undefined): Array<[string, Spec]> {
 
 /** The type of an input, as the editor writes it on a slot. */
 const slotType = ([type]: Spec): string => (Array.isArray(type) ? "COMBO" : typeof type === "string" ? type : "*");
-/** What a widget starts on when the graph does not say. */
-function defaultOf([type, opts]: Spec): unknown {
-  if (opts && "default" in opts) return opts.default;
+/** What a widget starts on when the graph does not say: its declared default, else the first choice or an empty value of its type. */
+function defaultOf(spec: Spec): unknown {
+  const [type, opts] = spec;
+  const declared = declaredDefault(spec);
+  if (declared !== undefined) return declared;
   if (Array.isArray(type)) return type[0] ?? "";
   if (type === "COMBO") return (opts?.options as unknown[] | undefined)?.[0] ?? "";
   if (type === "INT" || type === "FLOAT") return 0;
@@ -95,7 +97,7 @@ export function toEditor(graph: Graph, catalog: NodeCatalog, opts: { titles?: Re
 
   for (const id of ids) {
     const node = graph[id]!;
-    const info = catalog[node.class_type];
+    const info = infoOf(catalog, node.class_type);
     const specs = specsOf(info);
     const known = new Set(specs.map(([n]) => n));
     const inputs: EditorNode["inputs"] = [];

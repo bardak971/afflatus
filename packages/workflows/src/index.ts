@@ -9,3 +9,4 @@ export * from "./paint";
 export * from "./suggest";
 export * from "./explain";
 export * from "./director";
+export { isSamplingPass, isWidget, MODEL_FILE } from "./catalog";

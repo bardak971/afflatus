@@ -2,6 +2,7 @@ import {
   isRef, type BuiltGraph, type Family, type Graph, type InputSpec, type LoraValue, type Phase, type Recipe, type SizeValue, type VideoTraits,
 } from "@afflatus/core";
 import type { Chapter } from "@afflatus/core";
+import { MODEL_FILE, own } from "./catalog";
 import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
 import { ancestors, cutFileNameChains, modesFor, prune, remove, settle, skipsFor, trim } from "./wiring";
 import { MEDIA_LOADERS } from "./inspect";
@@ -22,7 +23,6 @@ export function familyOf(def: WorkflowDef): Family {
   };
 }
 
-const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const read = (graph: Graph, t: Target) => graph[t.node]?.inputs[t.input];
 const write = (graph: Graph, t: Target, value: unknown) => {
   const node = graph[t.node];
@@ -135,11 +135,25 @@ function listedLoras(node: Graph[string] | undefined): LoraValue[] {
   });
 }
 
-/**
- * A recipe made from an imported workflow: the form comes from the mapping, and building means
- * filling the user's values into a copy of the workflow.
- */
-export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unknown>> {
+/** The form of an imported workflow, and what building from it needs to know of that form. */
+interface Form {
+  inputs: InputSpec[];
+  /** The DaSiWa Director whose own picture slots are the form's start and end images. */
+  director: { node: string } | undefined;
+  /** One LoRA list per loader (a high and a low model), or one for the model. */
+  separate: boolean;
+  loraInput(i: number): string;
+  loraDefault(i: number): LoraValue[];
+  /** A scale after an upscale model, shown as what it comes to in all: its own input id and default. */
+  net: Map<string, { id: string; default: number }>;
+  /** The places it can stop at, when it shows its picture at several. */
+  stages: Array<{ node: string; label: string }>;
+  staged: boolean;
+  hiresFix: boolean;
+}
+
+/** The form's inputs, in their first order: the model, the prompts, what it loads, the LoRAs, size and length, how far it runs, the settings and switches, the seed. */
+function formInputs(def: WorkflowDef): Form {
   const b = def.bindings;
   const g = def.graph as Graph;
   const inputs: InputSpec[] = [];
@@ -186,9 +200,8 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
       ],
     });
   }
-  let seconds = 0;
   if (b.length) {
-    seconds = Math.max(1, Math.round((Number(read(g, b.length.target)) / b.length.fps) * 2) / 2);
+    const seconds = Math.max(1, Math.round((Number(read(g, b.length.target)) / b.length.fps) * 2) / 2);
     inputs.push({ id: "seconds", type: "number", label: "Length", unit: " s", min: b.length.min, max: Math.max(b.length.max, seconds), step: 0.5, default: seconds });
   }
 
@@ -266,12 +279,19 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     }
   }
   if (b.seeds.length) inputs.push({ id: "seed", type: "seed", label: "Seed" });
+  return { inputs, director, separate, loraInput, loraDefault, net, stages, staged, hiresFix };
+}
 
-  // the importer's own chapters: each section's settings in its order, folded away by the switch at its head
-  // "advanced" and "prompt" among the sections are not sections: they mark where the folded Advanced chapter
-  // (last, without the mark) and the prompt block (first, without it) go
+/**
+ * The importer's own chapters: each section's settings in its order, folded away by the switch at its head. "advanced"
+ * and "prompt" among the sections are not sections: they mark where the folded Advanced chapter (last, without the
+ * mark) and the prompt block (first, without it) go. Puts `inputs` in the chapters' order, in place.
+ */
+function placeSections(def: WorkflowDef, inputs: InputSpec[], net: Form["net"]): Chapter[] {
+  const b = def.bindings;
+  const g = def.graph as Graph;
   const MARKS: Record<string, string> = { advanced: "Advanced", prompt: "Prompt" };
-  const sections = (b.sections ?? []).filter((s) => s.items.length || s.id in MARKS);
+  const sections = (b.sections ?? []).filter((s) => s.items.length || Object.hasOwn(MARKS, s.id));
   const chapters: Chapter[] = [];
   if (sections.length) {
     const byId = new Map(inputs.map((i) => [i.id, i]));
@@ -287,7 +307,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
       placed.add(i.id);
     };
     for (const s of sections) {
-      if (s.id in MARKS) {
+      if (Object.hasOwn(MARKS, s.id)) {
         chapters.push({ id: s.id, label: MARKS[s.id]! });
         continue;
       }
@@ -315,6 +335,150 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     if (i.chapter || i.id === "prompt" || i.id === "negative" || i.type === "model" || i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio") continue;
     Object.assign(i, { advanced: true, section: "rare" });
   }
+  return chapters;
+}
+
+/** Seconds → a frame count the model accepts. */
+const framesFor = (length: NonNullable<WorkflowDef["bindings"]["length"]>, s: number) => {
+  const { fps, step, offset } = length;
+  return Math.max(offset || step, Math.round((s * fps - offset) / step) * step + offset);
+};
+
+/** The workflow ComfyUI is sent for a form's values: every value goes into the whole workflow first, then the parts that are switched off are taken out. */
+function buildWorkflow(def: WorkflowDef, form: Form, input: Record<string, unknown>, ctx: { seed: number; uploads: Record<string, string>; has?: (classType: string) => boolean }): BuiltGraph {
+  const b = def.bindings;
+  const { director, separate, loraInput, loraDefault, net, stages, staged, hiresFix } = form;
+  const whole = structuredClone(def.graph as Graph);
+  if (b.prompt && typeof input.prompt === "string") write(whole, b.prompt, input.prompt);
+  if (b.negative && typeof input.negative === "string") write(whole, b.negative, input.negative);
+  if (b.model && typeof input.model === "string" && input.model) write(whole, b.model.target, input.model);
+  for (const s of b.seeds) write(whole, s, ctx.seed);
+  if (b.size && input.size) {
+    const size = input.size as SizeValue;
+    write(whole, b.size.width, size.width);
+    write(whole, b.size.height, size.height);
+  }
+  if (b.length && typeof input.seconds === "number") write(whole, b.length.target, framesFor(b.length, input.seconds));
+  for (const c of b.controls) if (input[c.id] !== undefined && !net.has(c.id)) for (const at of [c.target, ...(c.also ?? [])]) write(whole, at, input[c.id]);
+  // "Upscale by": the node is given the size itself, base size times the factor, whatever the upscale model's own factor
+  for (const c of b.controls) {
+    const by = net.has(c.id) ? input[net.get(c.id)!.id] : undefined;
+    const node = whole[c.target.node];
+    if (typeof by !== "number" || !node || !b.size) continue;
+    const { scale_by: _by, ...rest } = node.inputs;
+    whole[c.target.node] = {
+      ...node, class_type: "ImageScale",
+      inputs: { ...rest, width: Math.round(Number(read(whole, b.size.width)) * by), height: Math.round(Number(read(whole, b.size.height)) * by), crop: "disabled" },
+    };
+  }
+  for (const t of b.toggles) for (const at of t.writes) write(whole, at, typeof input[t.id] === "boolean" ? input[t.id] : t.default);
+  const pruned = prune(whole, def.wiring, modesFor(def.wiring, b.toggles, input), skipsFor(b.toggles, input));
+  settle(pruned);
+  const { graph } = pruned;
+  // previews left out at import, with the branches that only served them: ComfyUI runs every output node it is sent
+  for (const sk of b.skip ?? []) for (const id of [sk.node, ...sk.nodes]) if (id !== b.result.node) delete graph[id];
+  // a file name built by a chain of nodes: a plain name instead, and the chain goes (its packs are not needed)
+  cutFileNameChains(graph, slug(def.title) || "afflatus");
+  for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const), ["previousVideo", b.previousVideo], ["nextVideo", b.nextVideo], ["sourceVideo", b.sourceVideo], ...(b.otherVideos ?? []).map((v) => [v.id, v] as const), ["sound", b.sound], ...(b.otherSounds ?? []).map((s) => [s.id, s] as const)] as const) {
+    if (!image) continue;
+    const uploaded = ctx.uploads[id];
+    // a loader that takes a path, not a name of the input folder: the uploaded file is in ComfyUI's temp folder
+    const loader = graph[image.target.node] ? MEDIA_LOADERS[graph[image.target.node]!.class_type] : undefined;
+    if (uploaded) write(graph, image.target, loader?.path ? `temp/${uploaded.replace(/ \[temp\]$/, "")}` : uploaded);
+    // no picture, video or sound: take the loader out, with every link that read it
+    else remove(pruned, image.target.node);
+  }
+  if (director && graph[director.node]) fillDirector(graph, director.node, { start: ctx.uploads.startImage, end: ctx.uploads.endImage });
+  // where it stops: the result, or an earlier point the form asked for. What comes after that point is taken out.
+  const stop = !staged ? b.result.node : hiresFix ? (input.stage === false ? stages[0]!.node : b.result.node) : stages.find((s) => s.label === input.stage)?.node ?? b.result.node;
+  if (stop !== b.result.node && graph[stop]) {
+    const kept = ancestors(graph, stop);
+    for (const id of Object.keys(graph)) if (!kept.has(id)) delete graph[id];
+  }
+  const end = graph[stop] ? stop : b.result.node;
+  // what broke on the way and the result does not need is left out
+  trim(pruned, end, ctx.has);
+  for (const n of Object.values(graph)) {
+    if (typeof n.inputs.filename_prefix === "string") n.inputs.filename_prefix = fillFileName(n.inputs.filename_prefix, graph);
+  }
+
+  b.loras.forEach((point, p) => {
+    const node = graph[point.node];
+    if (!node) return;
+    const list = separate ? p : 0;
+    const loras = ((input[loraInput(list)] as LoraValue[] | undefined) ?? loraDefault(list)).filter((l) => l.weight !== 0);
+    if (point.power) {
+      // the node is a list of LoRAs: the user's list replaces the one it came with
+      for (const name of Object.keys(node.inputs)) if (isLoraEntry(name)) delete node.inputs[name];
+      loras.forEach((l, i) => (node.inputs[`lora_${i + 1}`] = { on: true, lora: l.file, strength: l.weight }));
+      return;
+    }
+    let model: [string, number] = [point.node, point.output];
+    // everything that read the loader's model reads the end of the LoRA chain instead
+    const readers = Object.values(graph).flatMap((n) => Object.entries(n.inputs).filter(([, v]) => isRef(v) && v[0] === point.node && v[1] === point.output).map(([k]) => ({ n, k })));
+    loras.forEach((l, i) => {
+      const id = `afflatus_lora_${p}_${i}`;
+      graph[id] = { class_type: "LoraLoaderModelOnly", inputs: { model, lora_name: l.file, strength_model: l.weight } };
+      model = [id, 0];
+    });
+    if (loras.length) for (const { n, k } of readers) n.inputs[k] = model;
+  });
+
+  // a workflow can hold more than the result needs (another way of making it, left unused): only what
+  // the result is made from counts towards progress and memory
+  const used = ancestors(graph, end);
+  const phases: Record<string, Phase> = {};
+  const passes: Array<{ node: string; steps: number; after: number }> = [];
+  let totalSteps = 0;
+  for (const [id, n] of Object.entries(graph)) {
+    phases[id] = phaseOf(n.class_type);
+    // for progress, every node with a step count is a pass of sampling (unlike isSamplingPass, which tells the passes
+    // apart for naming): a sampler, the scheduler a custom sampler reads its steps from, a detailer. The count can be
+    // typed in or come from a number node.
+    if (!used.has(id) || !("steps" in n.inputs)) continue;
+    const steps = numberAt(graph, n.inputs.steps);
+    if (steps === null) continue;
+    // a sampler that runs only part of the schedule (a high then a low model) reports only the steps it runs
+    const start = numberAt(graph, n.inputs.start_at_step) ?? 0;
+    const stopAt = Math.min(numberAt(graph, n.inputs.end_at_step) ?? steps, steps);
+    totalSteps += Math.max(0, stopAt - start);
+    // a pass that needs another one runs after it: it has more behind it
+    passes.push({ node: id, steps: Math.max(0, stopAt - start), after: ancestors(graph, id).size });
+  }
+  passes.sort((a, z) => a.after - z.after);
+  return {
+    graph,
+    phases,
+    outputs: [{ node: end, kind: b.result.kind, role: "result" }],
+    totalSteps: Math.max(1, totalSteps),
+    passes: passes.map(({ node, steps }) => ({ node, steps })),
+    loads: [...used].flatMap((id) => Object.values(graph[id]!.inputs).filter((v): v is string => typeof v === "string" && MODEL_FILE.test(v))).sort(),
+  };
+}
+
+/** The model files a workflow needs, from the nodes its result is made from: with where its author says each can be had. */
+function filesOf(def: WorkflowDef, nodes: Graph[string][]): NonNullable<Recipe["files"]> {
+  return nodes.flatMap((n) =>
+    Object.entries(n.inputs)
+      .filter(([, v]) => typeof v === "string" && MODEL_FILE.test(v))
+      .map(([input, v]) => {
+        const url = own(def.wiring?.downloads, (v as string).split(/[\\/]/).pop() ?? "");
+        return { classType: n.class_type, input, file: v as string, ...(url ? { url } : {}) };
+      }),
+  );
+}
+
+/**
+ * A recipe made from an imported workflow: the form comes from the mapping, and building means
+ * filling the user's values into a copy of the workflow. Nothing is built until it is asked for: the
+ * files it needs are worked out the first time they are read.
+ */
+export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unknown>> {
+  const b = def.bindings;
+  const video = b.result.kind === "video";
+  const form = formInputs(def);
+  const { inputs, director } = form;
+  const chapters = placeSections(def, inputs, form.net);
 
   const traits: VideoTraits | undefined = video
     ? {
@@ -330,121 +494,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
       }
     : undefined;
 
-  /** Seconds → a frame count the model accepts. */
-  const framesFor = (s: number) => {
-    const { fps, step, offset } = b.length!;
-    return Math.max(offset || step, Math.round((s * fps - offset) / step) * step + offset);
-  };
-
-  function build(input: Record<string, unknown>, ctx: { seed: number; uploads: Record<string, string>; has?: (classType: string) => boolean }): BuiltGraph {
-    // every value goes into the whole workflow first; then the parts that are switched off are taken out
-    const whole = structuredClone(g);
-    if (b.prompt && typeof input.prompt === "string") write(whole, b.prompt, input.prompt);
-    if (b.negative && typeof input.negative === "string") write(whole, b.negative, input.negative);
-    if (b.model && typeof input.model === "string" && input.model) write(whole, b.model.target, input.model);
-    for (const s of b.seeds) write(whole, s, ctx.seed);
-    if (b.size && input.size) {
-      const size = input.size as SizeValue;
-      write(whole, b.size.width, size.width);
-      write(whole, b.size.height, size.height);
-    }
-    if (b.length && typeof input.seconds === "number") write(whole, b.length.target, framesFor(input.seconds));
-    for (const c of b.controls) if (input[c.id] !== undefined && !net.has(c.id)) for (const at of [c.target, ...(c.also ?? [])]) write(whole, at, input[c.id]);
-    // "Upscale by": the node is given the size itself, base size times the factor, whatever the upscale model's own factor
-    for (const c of b.controls) {
-      const by = net.has(c.id) ? input[net.get(c.id)!.id] : undefined;
-      const node = whole[c.target.node];
-      if (typeof by !== "number" || !node || !b.size) continue;
-      const { scale_by: _by, ...rest } = node.inputs;
-      whole[c.target.node] = {
-        ...node, class_type: "ImageScale",
-        inputs: { ...rest, width: Math.round(Number(read(whole, b.size.width)) * by), height: Math.round(Number(read(whole, b.size.height)) * by), crop: "disabled" },
-      };
-    }
-    for (const t of b.toggles) for (const at of t.writes) write(whole, at, typeof input[t.id] === "boolean" ? input[t.id] : t.default);
-    const pruned = prune(whole, def.wiring, modesFor(def.wiring, b.toggles, input), skipsFor(b.toggles, input));
-    settle(pruned);
-    const { graph } = pruned;
-    // previews left out at import, with the branches that only served them: ComfyUI runs every output node it is sent
-    for (const sk of b.skip ?? []) for (const id of [sk.node, ...sk.nodes]) if (id !== b.result.node) delete graph[id];
-    // a file name built by a chain of nodes: a plain name instead, and the chain goes (its packs are not needed)
-    cutFileNameChains(graph, slug(def.title) || "afflatus");
-    for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const), ["previousVideo", b.previousVideo], ["nextVideo", b.nextVideo], ["sourceVideo", b.sourceVideo], ...(b.otherVideos ?? []).map((v) => [v.id, v] as const), ["sound", b.sound], ...(b.otherSounds ?? []).map((s) => [s.id, s] as const)] as const) {
-      if (!image) continue;
-      const uploaded = ctx.uploads[id];
-      // a loader that takes a path, not a name of the input folder: the uploaded file is in ComfyUI's temp folder
-      const loader = graph[image.target.node] ? MEDIA_LOADERS[graph[image.target.node]!.class_type] : undefined;
-      if (uploaded) write(graph, image.target, loader?.path ? `temp/${uploaded.replace(/ \[temp\]$/, "")}` : uploaded);
-      // no picture, video or sound: take the loader out, with every link that read it
-      else remove(pruned, image.target.node);
-    }
-    if (director && graph[director.node]) fillDirector(graph, director.node, { start: ctx.uploads.startImage, end: ctx.uploads.endImage });
-    // where it stops: the result, or an earlier point the form asked for. What comes after that point is taken out.
-    const stop = !staged ? b.result.node : hiresFix ? (input.stage === false ? stages[0]!.node : b.result.node) : stages.find((s) => s.label === input.stage)?.node ?? b.result.node;
-    if (stop !== b.result.node && graph[stop]) {
-      const kept = ancestors(graph, stop);
-      for (const id of Object.keys(graph)) if (!kept.has(id)) delete graph[id];
-    }
-    const end = graph[stop] ? stop : b.result.node;
-    // what broke on the way and the result does not need is left out
-    trim(pruned, end, ctx.has);
-    for (const n of Object.values(graph)) {
-      if (typeof n.inputs.filename_prefix === "string") n.inputs.filename_prefix = fillFileName(n.inputs.filename_prefix, graph);
-    }
-
-    b.loras.forEach((point, p) => {
-      const node = graph[point.node];
-      if (!node) return;
-      const list = separate ? p : 0;
-      const loras = ((input[loraInput(list)] as LoraValue[] | undefined) ?? loraDefault(list)).filter((l) => l.weight !== 0);
-      if (point.power) {
-        // the node is a list of LoRAs: the user's list replaces the one it came with
-        for (const name of Object.keys(node.inputs)) if (isLoraEntry(name)) delete node.inputs[name];
-        loras.forEach((l, i) => (node.inputs[`lora_${i + 1}`] = { on: true, lora: l.file, strength: l.weight }));
-        return;
-      }
-      let model: [string, number] = [point.node, point.output];
-      // everything that read the loader's model reads the end of the LoRA chain instead
-      const readers = Object.values(graph).flatMap((n) => Object.entries(n.inputs).filter(([, v]) => isRef(v) && v[0] === point.node && v[1] === point.output).map(([k]) => ({ n, k })));
-      loras.forEach((l, i) => {
-        const id = `afflatus_lora_${p}_${i}`;
-        graph[id] = { class_type: "LoraLoaderModelOnly", inputs: { model, lora_name: l.file, strength_model: l.weight } };
-        model = [id, 0];
-      });
-      if (loras.length) for (const { n, k } of readers) n.inputs[k] = model;
-    });
-
-    // a workflow can hold more than the result needs (another way of making it, left unused): only what
-    // the result is made from counts towards progress and memory
-    const used = ancestors(graph, end);
-    const phases: Record<string, Phase> = {};
-    const passes: Array<{ node: string; steps: number; after: number }> = [];
-    let totalSteps = 0;
-    for (const [id, n] of Object.entries(graph)) {
-      phases[id] = phaseOf(n.class_type);
-      // every node with a step count is a pass of sampling: a sampler, the scheduler a custom sampler reads
-      // its steps from, a detailer. The count can be typed in or come from a number node.
-      if (!used.has(id) || !("steps" in n.inputs)) continue;
-      const steps = numberAt(graph, n.inputs.steps);
-      if (steps === null) continue;
-      // a sampler that runs only part of the schedule (a high then a low model) reports only the steps it runs
-      const start = numberAt(graph, n.inputs.start_at_step) ?? 0;
-      const end = Math.min(numberAt(graph, n.inputs.end_at_step) ?? steps, steps);
-      totalSteps += Math.max(0, end - start);
-      // a pass that needs another one runs after it: it has more behind it
-      passes.push({ node: id, steps: Math.max(0, end - start), after: ancestors(graph, id).size });
-    }
-    passes.sort((a, z) => a.after - z.after);
-    return {
-      graph,
-      phases,
-      outputs: [{ node: end, kind: b.result.kind, role: "result" }],
-      totalSteps: Math.max(1, totalSteps),
-      passes: passes.map(({ node, steps }) => ({ node, steps })),
-      loads: [...used].flatMap((id) => Object.values(graph[id]!.inputs).filter((v): v is string => typeof v === "string" && /\.(safetensors|ckpt|gguf|sft|pt|pth)$/i.test(v))).sort(),
-    };
-  }
-
+  const build = (input: Record<string, unknown>, ctx: { seed: number; uploads: Record<string, string>; has?: (classType: string) => boolean }) => buildWorkflow(def, form, input, ctx);
   const everyPicture: Record<string, string> = {
     ...(b.startImage || director ? { startImage: "start.png" } : {}), ...(b.endImage || director ? { endImage: "end.png" } : {}),
     ...Object.fromEntries((b.pictures ?? []).map((p) => [p.id, `${p.id}.png`])),
@@ -459,6 +509,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     const built = build(input, { seed: 1, uploads: everyPicture });
     return [...ancestors(built.graph, built.outputs[0]!.node)].map((id) => built.graph[id]!);
   };
+  let files: Recipe["files"];
   return {
     id: def.id,
     family: familyOf(def).id,
@@ -470,14 +521,9 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
     ...(chapters.length ? { chapters } : {}),
     traits,
     // the model files it needs as it was saved: the parts that are switched off are not counted
-    files: usedNodes({}).flatMap((n) =>
-      Object.entries(n.inputs)
-        .filter(([, v]) => typeof v === "string" && MODEL_FILE.test(v))
-        .map(([input, v]) => {
-          const url = def.wiring?.downloads[(v as string).split(/[\\/]/).pop() ?? ""];
-          return { classType: n.class_type, input, file: v as string, ...(url ? { url } : {}) };
-        }),
-    ),
+    get files() {
+      return (files ??= filesOf(def, usedNodes({})));
+    },
     nodes: (input) => [...new Set(usedNodes(input).map((n) => n.class_type))],
     build,
     // the workflow as it was saved, with a picture in every slot
