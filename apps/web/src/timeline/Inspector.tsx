@@ -12,6 +12,7 @@ import { FormModel } from "../ModelLoad";
 import { about, aboutMs, clock, phaseLabel, recipeLabel } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
+import { CardPrompt } from "../recipeForm/Part";
 import { CastPictures } from "../castPictures";
 import { Select } from "../Select";
 import { AutoText, Bar, Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
@@ -343,8 +344,10 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               const seconds = secondsInput(form.inputs);
               const landing = recipe.inputs.find((i) => i.id === "landing" && i.type === "choice");
               const landingOptions = landing && landing.type === "choice" && Array.isArray(landing.options) ? landing.options : [];
+              // the prompt as a card of its own, as in the Studio: the same cards, spaced alike
               const formElement = (
                   <CastPictures recipe={form} input={whole ?? stored} look={clip.look ?? timeline.look}>
+                  <CardPrompt.Provider value>
                   <Form
                     key={`${clip.id}:${form.id}`}
                     recipe={form}
@@ -371,6 +374,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                       />
                     }
                   />
+                  </CardPrompt.Provider>
                   </CastPictures>
               );
               if (!joins) return <div className="flex flex-col gap-2.5">{formElement}</div>;
@@ -415,9 +419,10 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                       </div>
                     )}
                   </div>
-                  <details className="group rounded-lg border border-line">
-                    <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink"><ChevronDown size={13} className="transition-transform group-open:rotate-180" /> All settings</summary>
-                    <div className="border-t border-line p-2">{formElement}</div>
+                  <details className="group">
+                    <summary className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink"><ChevronDown size={13} className="transition-transform group-open:rotate-180" /> All settings</summary>
+                    {/* the cards at the panel's full width, under the switch: not boxed a second time */}
+                    <div className="flex flex-col gap-2.5 pt-3">{formElement}</div>
                   </details>
                 </div>
               );
