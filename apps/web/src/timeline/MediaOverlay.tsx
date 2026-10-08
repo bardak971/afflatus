@@ -10,7 +10,7 @@ import { Kbd } from "../Keys";
 import { LoadMore } from "../LoadMore";
 import { Popover } from "../Popover";
 import { useProject } from "../project";
-import { FolderPanel, Tile, tileName } from "../screens/Library";
+import { FolderPanel, Tile } from "../screens/Library";
 import { aspectOf } from "../screens/library/justify";
 import { JustifiedRows, type Placed } from "../screens/studio/MediaGrid";
 import { useStudio } from "../store";
@@ -147,7 +147,6 @@ export function MediaOverlay({ timeline, placeItems }: {
     first: placeItems,
     compact: true,
   });
-  const what = (a: Asset) => (a.kind === "audio" ? "Click to open. Drag it onto a clip's audio, a voice sample or the music track; right-click for the same places." : "Click to open. Drag it onto the track or into a clip's places; right-click for the same places.");
 
   const tab = (
     <aside className={cx("flex w-10 shrink-0 flex-col items-center border-r border-line py-2", open ? "bg-raised" : "bg-panel")}>
@@ -176,7 +175,7 @@ export function MediaOverlay({ timeline, placeItems }: {
     render: () => {
       const r = used.roles.get(a.id)!;
       return (
-        <div data-tip={`${tileName(a)}: ${r.words}. ${what(a)}`} className="flex h-full flex-col gap-1.5">
+        <div className="flex h-full flex-col gap-1.5">
           <div className={cx("relative min-h-0 grow rounded-xl", r.plays && "ring-2 ring-accent/60")}>
             <Tile fill plain asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
             {r.plays && (
