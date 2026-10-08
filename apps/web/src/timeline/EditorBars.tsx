@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { Camera, Download, Link2, Maximize, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
 import type { Clip, Timeline } from "../api";
-import { aboutMs } from "../format";
-import { Button, cx } from "../ui";
+import { aboutMs, clock } from "../format";
+import { Button, Chip, cx } from "../ui";
 import { Slider } from "../Slider";
 import type { Clock } from "./clock";
 import { Readout } from "./Readout";
 import type { Slot } from "./model";
-import { timelineLength } from "../bar/items";
 
 /**
  * The editor's header: the timeline's name, its length, what is said (a save that failed, an error, a note), Undo and Redo,
@@ -37,6 +36,9 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
 }) {
   const [name, setName] = useState<string | null>(null);
   const { error, note } = said;
+  // rendered and planned, as the index says them ("1:37 rendered of 1:47"), the figures in mono
+  const now = clock(t.durationMs);
+  const planned = clock(total);
   return (
     <header className="flex h-[56px] shrink-0 items-center gap-2.5 border-b border-line px-3">
       <input
@@ -50,7 +52,15 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         className="h-9 w-56 rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
       />
-      <span className="shrink-0 text-ink-2">{clips.length === 0 ? "Empty" : `${timelineLength({ durationMs: t.durationMs, plannedMs: total })} · ${clips.length} clip${clips.length > 1 ? "s" : ""}`}</span>
+      <Chip>
+        {clips.length === 0 ? "Empty" : (
+          <span>
+            <span className="font-mono">{now}</span>
+            {now !== planned && <> rendered of <span className="font-mono">{planned}</span></>} · {clips.length} clip{clips.length > 1 ? "s" : ""}
+          </span>
+        )}
+      </Chip>
+      {missing.length > 0 && <Chip tone="warn">{missing.length} to render{allMs ? ` · ${aboutMs(allMs).replace(/^about /, "~")}` : ""}</Chip>}
       <span className="grow" />
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again
@@ -115,7 +125,7 @@ export function Transport({ t, clock, slots, cursor, total, playing, ranged, loo
   onSaveFrame(): void;
 }) {
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
+    <div className="flex h-[54px] shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
       <button type="button" aria-label="Previous clip" data-tip="Previous clip" disabled={!t.durationMs} onClick={() => onJump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
       <button type="button" aria-label={playing ? "Pause" : ranged ? "Play the range" : "Play"} data-tip={ranged ? "Play the range: from the playhead inside it, else from In; stops at Out (Space)" : "Play / pause (Space)"} disabled={!t.durationMs} onClick={onToggle} className={cx("flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40", ranged ? "bg-accent text-accent-ink" : "bg-ink text-ground")}>
         {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}

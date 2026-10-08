@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ChevronDown, ChevronLeft, ImagePlus, Music, Trash2, Wand2, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Music, Trash2, Wand2, X } from "lucide-react";
 import { secondsInput } from "@afflatus/core";
 import { api, thumbUrl, type Clip, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
@@ -14,7 +14,10 @@ import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { CastPictures } from "../castPictures";
 import { Select } from "../Select";
-import { AutoText, Bar, Button, cx, ErrorNote, fieldClass, Help, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
+import { AutoText, Bar, Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
+import { FieldRow } from "../fields";
+import { RangeSlider } from "../RangeSlider";
+import { Kbd } from "../Keys";
 import { usePanelWidth } from "../store";
 import { Slider } from "../Slider";
 import { fileVersion, otherShape, pinInputs, roomOf, shapeOf, type ShownPatch } from "./model";
@@ -75,7 +78,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, writing, writeError, onWriteBetween, onClose }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, writing, writeError, onWriteBetween, onSelectClip }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -112,6 +115,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   onWriteBetween?(): void;
   /** Back to the timeline's own panel (its name, music, cast, where renders land, export): also Escape. */
   onClose?(): void;
+  /** Open another clip in the panel (the one before or after, the one it extends); left out, those are not offered. */
+  onSelectClip?(id: string): void;
 }) {
   const panelWidth = usePanelWidth((st) => st.width);
   const all = useRecipes();
@@ -163,7 +168,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const shapes = { tall: "portrait", wide: "landscape", square: "square" } as const;
   const shown = still ? clip.still : take?.asset;
   const misfit = otherShape(clip, timeline) && shown?.width && shown.height && timeline.width && timeline.height
-    ? `This ${still ? "still" : "clip"} is ${shapes[shapeOf(shown.width, shown.height)]}, the video is ${shapes[shapeOf(timeline.width, timeline.height)]}.`
+    ? { mine: shapes[shapeOf(shown.width, shown.height)], video: shapes[shapeOf(timeline.width, timeline.height)] }
     : null;
   // a neighbour joined to it at another size (enlarged in its render, or finished, when this one is not): the join shows a change of sharpness
   const sizeStep = (() => {
@@ -186,13 +191,16 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const worst = (j: { in: number | null; out: number | null } | undefined) => Math.max(j?.in ?? 0, j?.out ?? 0);
   const smoothest = joins.data && clip.takes.length > 1 ? clip.takes.reduce<string | null>((best, t) => (best === null || worst(joinOf(t.id)) < worst(joinOf(best)) ? t.id : best), null) : null;
   const heard = clip.sound === "file" ? "file" : clip.sound === "muted" && hasOwn ? "muted" : "own";
+  // what the head calls it: the start of what happens in it, else the name of its picture or video
+  const mainInput = form ? mainTextOf(form) : undefined;
+  const name = (mainInput ? String(stored[mainInput.id] ?? "").trim().split("\n")[0] : "") || (still ? clip.still?.name : take?.asset.name) || "";
 
 
   // ---- what the clip got (its takes, how much of the one that plays is used, how it looks) and its pinned
   // frames: above the form for a clip with no form; inside it otherwise, as its Takes chapter and in Inputs
   const inForm = Boolean(!still && form && recipe);
   const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} /> : null;
-  const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion); the smoothest is marked." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take. The one you pick plays.";
+  const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion; from ×2.5 the catch shows); the smoothest is marked." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take; the one you pick plays.";
   const durationInner = still || take ? <Duration clip={clip} take={take} room={room} rendered={Boolean(recipe)} onPatch={onPatch} /> : null;
   const lookInner = take?.measure && !still ? <LookTable timeline={timeline} index={index} take={take} /> : null;
   const pinnedInner = recipe && !still && (pins.start || pins.end) ? <PinnedFrames stored={stored} pins={pins} frames={{ opens, ends, through, loops, carries }} midDefault={midSpec?.type === "number" ? midSpec.default : 2.5} onInputs={onInputs} onPick={setPicking} /> : null;
@@ -201,11 +209,12 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const takesLead = inForm && (takesInner || durationInner) ? {
     id: "takes",
     title: "Takes",
+    // for the part's ?, once the form's lead passes it on (the rows' tips say it meanwhile)
+    help: takesHelp,
     summary: take ? `take ${playing} of ${clip.takes.length} plays · ${(clip.lengthMs / 1000).toFixed(1)} s${take.trimStartMs > 0 || take.trimEndMs > 0 ? " · trimmed" : ""}` : "none yet",
     node: (
       <div className="flex flex-col gap-3">
         {takesInner}
-        <span className="flex items-center gap-1.5 text-xs text-ink-2">{clip.takes.length > 1 ? "Hover a take to preview it, click to make it play." : "Each render adds a take; the one you pick plays."}<Help text={takesHelp} /></span>
         {durationInner}
         {lookInner}
       </div>
@@ -225,23 +234,47 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   return (
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
       <PanelEdge side="left" />
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-2">
-        {onClose && (
-          <button type="button" onClick={onClose} aria-label="Back to the timeline" data-tip="Back to the timeline's own panel: its music, cast and export (Esc)" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink">
-            <ChevronLeft size={16} />
-          </button>
-        )}
-        <span className="font-semibold">{still ? "Still" : "Clip"} {index + 1}</span>
-        <span className="text-ink-2">{clip.lengthMs ? `${(clip.lengthMs / 1000).toFixed(1)} s` : "not rendered yet"}</span>
-        <span className="grow" />
-        <TwoStep title="Remove from timeline" icon={<Trash2 size={15} />} note={still ? "The image stays in your library." : "Its videos stay in your library."} yes="Remove" onYes={onRemove} className="rounded-lg" />
+      <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 pt-3.5 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-6 shrink-0 items-center rounded-[7px] bg-accent-wash px-2 text-xs font-bold text-accent uppercase">{still ? "Still" : "Clip"} {index + 1}</span>
+          <span className="min-w-0 grow truncate font-bold" data-tip={name.length > 40 ? name : undefined}>{name}</span>
+          {onSelectClip && (
+            <>
+              <button type="button" aria-label="Previous clip" data-tip={before ? `Clip ${index}` : "This is the first clip"} disabled={!before} onClick={() => before && onSelectClip(before.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40">
+                <ChevronLeft size={15} />
+              </button>
+              <button type="button" aria-label="Next clip" data-tip={after ? `Clip ${index + 2}` : "This is the last clip"} disabled={!after} onClick={() => after && onSelectClip(after.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40">
+                <ChevronRight size={15} />
+              </button>
+            </>
+          )}
+          <TwoStep title="Remove from timeline" icon={<Trash2 size={14} />} note={still ? "The image stays in your library." : "Its videos stay in your library."} yes="Remove" onYes={onRemove} className="h-7! w-7! rounded-lg text-warn-ink! hover:bg-warn-wash!" />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Chip tip={clip.lengthMs && shown?.width && shown.height ? "How long it plays · its size in pixels" : undefined}>
+            {clip.lengthMs ? <span className="font-mono">{(clip.lengthMs / 1000).toFixed(1)} s{shown?.width && shown.height ? ` · ${shown.width}×${shown.height}` : ""}</span> : "not rendered yet"}
+          </Chip>
+          {carries && before && (
+            <Chip tone="link" onClick={onSelectClip ? () => onSelectClip(before.id) : undefined} tip={`Its motion carries on from clip ${index}${onSelectClip ? ": open it" : ""}`}>
+              extends clip {index}{onSelectClip && <ArrowUpRight size={12} />}
+            </Chip>
+          )}
+          {!still && !recipe && take && (
+            <Chip>imported video<Help title="Imported video" text="It can be trimmed, and a new clip can extend from any of its frames. It cannot be re-rendered, unless you choose a model to render in its place, under Model." /></Chip>
+          )}
+          {misfit && (
+            <Chip tone="warn">{misfit.mine} in a {misfit.video} video<Help title="Another shape" text={`This ${still ? "still" : "clip"} is ${misfit.mine}, the video is ${misfit.video}. ${clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."} Fill frame switches between the two.`} /></Chip>
+          )}
+          {sizeStep && take && (
+            <Chip tone="warn">sharpness jumps at the join<Help title="Another size" text={`This clip is ${take.asset.width} × ${take.asset.height}, the clip ${sizeStep.before ? "before" : "after"} ${sizeStep.other.width} × ${sizeStep.other.height}: one was enlarged and the other not, so the join shows a change of sharpness. Finish all clips (the Finish button above the timeline) to bring every clip to one size the same way, or render both alike.`} /></Chip>
+          )}
+        </div>
       </div>
 
       <div className="flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4">
         {still && clip.still && (
           <>
             <img src={thumbUrl(clip.still.id)} alt={clip.still.name} className="max-h-56 self-start rounded-lg" />
-            <span className="text-ink-2">A still: an image held on screen.</span>
             <span><Button onClick={() => onPatch({ animate: true })}>Image to video (i2v)</Button></span>
           </>
         )}
@@ -260,31 +293,15 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
 
         {clip.failed && !clip.job && <ErrorNote>The last render failed: {clip.failed}</ErrorNote>}
 
-        {misfit && (
-          <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
-            <span>{misfit} {clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."}</span>
-            <Toggle on={clip.fill} onChange={(fill) => onPatch({ fill })} label="Fill frame (crop)" />
-          </div>
-        )}
+        {misfit && <Toggle on={clip.fill} onChange={(fill) => onPatch({ fill })} label="Fill frame (crop)" note={clip.fill ? "its edges are cropped" : "letterboxed: shown whole, with bars"} />}
 
-        {sizeStep && take && (
-          <div className="rounded-lg border border-line p-3 text-xs text-ink-2">
-            This clip is {take.asset.width} × {take.asset.height}, the clip {sizeStep.before ? "before" : "after"} {sizeStep.other.width} × {sizeStep.other.height}: one was enlarged and the other not, so the join shows a change of sharpness. Finish all clips (the Finish button above the timeline) to bring every clip to one size the same way, or render both alike.
-          </div>
-        )}
-
-        {!inForm && takesInner && <div className="flex flex-col gap-2"><SectionTitle>Takes</SectionTitle>{takesInner}</div>}
-        {!inForm && durationInner && <div className="flex flex-col gap-2"><SectionTitle>Duration</SectionTitle>{durationInner}</div>}
+        {!inForm && takesInner && <div className="flex flex-col gap-2"><span className="flex items-center gap-1.5"><SectionTitle>Takes</SectionTitle><Help title="Takes" text={takesHelp} /></span>{takesInner}</div>}
+        {!inForm && durationInner}
         {!inForm && lookInner}
         {!inForm && pinnedInner && <div className="flex flex-col gap-2"><SectionTitle>Pinned frames</SectionTitle>{pinnedInner}</div>}
 
         {!still && (
           <>
-            {!recipe && take && (
-              <div className="rounded-lg bg-raised px-3 py-2.5 text-ink-2">
-                An imported video. It can be trimmed, and a new clip can extend from any of its frames. It cannot be re-rendered, unless you choose a model to render in its place:
-              </div>
-            )}
             {(() => {
               const picker = (
                 <Select
@@ -409,7 +426,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         )}
         {(take || still) && (
           <div className="flex flex-col gap-2">
-            <SectionTitle>Audio</SectionTitle>
+            <span className="flex items-center gap-1.5"><SectionTitle>Audio</SectionTitle>{!still && !hasOwn && heard !== "file" && <Help title="No audio of its own" text="This clip has no audio of its own. Drop an audio file on it, or choose one." />}</span>
             <Segmented
               label="Audio source"
               value={heard}
@@ -424,29 +441,25 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               </div>
             )}
             {(heard === "file" || (heard === "own" && hasOwn)) && <Slide label="Volume" value={clip.volume} max={100} show={(v) => `${v}%`} onCommit={(volume) => onPatch({ volume })} />}
-            {!still && !hasOwn && heard !== "file" && <span className="text-xs text-ink-2">This clip has no audio of its own. Drop an audio file on it, or choose one.</span>}
           </div>
         )}
 
       </div>
 
       {recipe && !still && (
-        <div className="flex shrink-0 flex-col gap-2 border-t border-line p-4">
+        <div className="flex shrink-0 flex-col gap-2.5 border-t border-line px-3.5 py-3">
           {error && <ErrorNote>{error}</ErrorNote>}
           {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href={why.includes("ComfyUI") ? "/settings" : "/settings/models"} className="font-semibold underline">Open Settings</Link> : null}</div>}
           {/* a pinned last frame wins over the landing (the server skips it): shown off, the stored choice kept for when the pin goes */}
           {canFit && (
             <div className="flex flex-col gap-1">
-              <Toggle on={fit && !ends} onChange={setFit} disabled={Boolean(ends)} label={`End where clip ${index + 2} begins`} note="so that clip need not be redone" />
-              {ends && <span className="text-xs text-ink-2">Off: this clip's own last frame is pinned.</span>}
+              <Toggle on={fit && !ends} onChange={setFit} disabled={Boolean(ends)} label={`End where clip ${index + 2} begins`} note={ends ? "off: this clip's own last frame is pinned" : "so that clip need not be redone"} />
             </div>
           )}
           {!clip.job && (
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold">Takes at once</span>
-              <div className="w-40">
-                <Segmented<"1" | "2" | "3"> label="Takes at once" value={String(count) as "1" | "2" | "3"} onChange={(v) => pickCount(Number(v) as 1 | 2 | 3)} options={[{ value: "1", label: "1" }, { value: "2", label: "2" }, { value: "3", label: "3" }]} />
-              </div>
+            <div className="flex items-center gap-2.5">
+              <span className="grow font-semibold">Takes at once</span>
+              <Segmented<"1" | "2" | "3"> label="Takes at once" size="sm" oneLine value={String(count) as "1" | "2" | "3"} onChange={(v) => pickCount(Number(v) as 1 | 2 | 3)} options={[{ value: "1", label: "1" }, { value: "2", label: "2" }, { value: "3", label: "3" }]} className="[&>button]:w-[34px] [&>button]:px-0" />
             </div>
           )}
           {whole && !clip.job && <FormModel recipe={recipe} input={whole} look={clip.look ?? timeline.look} />}
@@ -464,6 +477,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           ) : (
             <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit, count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
               {busy ? "Sending…" : `${count > 1 ? `Render ${count} takes` : take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
+              {/* Ctrl+Enter renders one take: said only when that is what the button does */}
+              {!busy && count === 1 && <Kbd>Ctrl ↵</Kbd>}
             </Button>
           )}
         </div>
@@ -509,15 +524,21 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
   if (m.voice != null) rows.push({ label: "Voice", value: `${m.voice} Hz`, since: pct(m.voice, first?.voice, 1), why: "Where the sound's energy sits (its spectral centroid). A voice carried over several clips dulls before it changes: it drifts down." });
   if (m.drift) rows.push({ label: "Run-up", value: `×${m.drift.width.toFixed(3)}`, since: null, why: "A join made in the latent: how wide the regenerated run-up came out against the latent it was guided by. 1.000 is the same; a chain of exact latents reads 1.02 to 1.05 at every hop, which is the drift." });
   if (m.handover != null) rows.push({ label: "Run-up end", value: `×${m.handover.toFixed(1)}`, since: null, bad: m.handover > 3, why: "A continuation: how much the picture jumps where the run-up (the frames shared with the clip before; in a seamless take, that clip's own frames) ends and this clip's own frames begin, against its own motion right after. ×1 carries on; past ×3 the model stepped away from its guide and the join shows: re-render the take." });
-  const brief = `${m.luma.toFixed(0)} luma · ${m.sharp.toFixed(1)} sharp${first ? ` · since clip ${k + 1}: ${pct(m.luma, first.luma)} / ${pct(m.sharp, first.sharp, 0.01)}` : ""}${m.handover != null && m.handover > 3 ? ` · run-up end ×${m.handover.toFixed(1)}` : ""}`;
+  const since = first ? `since clip ${k + 1}: ${pct(m.luma, first.luma)} / ${pct(m.sharp, first.sharp, 0.01)}` : null;
   return (
-    <div className="flex flex-col gap-2">
-      {/* one line, folded: the table takes room that the form needs more often */}
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex items-center gap-2 text-left" data-tip={open ? "Fold the figures" : "Every figure, with its meaning"}>
-        <SectionTitle>Look</SectionTitle>
-        <span className="min-w-0 grow truncate font-mono text-[11px] tabular-nums text-ink-3">{brief}</span>
-        <ChevronDown size={13} className={cx("shrink-0 text-ink-3 transition-transform", open && "rotate-180")} />
-      </button>
+    <>
+      <FieldRow label="Look" note={first ? `Measured on this take's own frames. "Since" is the change since clip ${k + 1}, the first of this run; a few per cent is the model's own variation. Unfold for every figure; hover a row for what it means.` : "Measured on this take's own frames when it was rendered. Unfold for every figure; hover a row for what it means."}>
+        {/* the figures that matter most, as chips; the table takes room that the form needs more often */}
+        <span className="flex flex-wrap items-center gap-1.5">
+          <Chip className="font-mono">{m.luma.toFixed(0)} luma</Chip>
+          <Chip className="font-mono">{m.sharp.toFixed(1)} sharp</Chip>
+          {since && <Chip className="font-mono" tip="Brightness / sharpness against the first clip of this run">{since}</Chip>}
+          {m.handover != null && m.handover > 3 && <Chip tone="warn" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Re-render the take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label={open ? "Fold the figures" : "Every figure"} data-tip={open ? "Fold the figures" : "Every figure, with its meaning"} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink">
+            <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
+          </button>
+        </span>
+      </FieldRow>
       {open && (
       <table className="w-full text-xs">
         <tbody>
@@ -531,8 +552,7 @@ function LookTable({ timeline, index, take }: { timeline: Timeline; index: numbe
         </tbody>
       </table>
       )}
-      {open && <Note text={first ? `Measured on this take's own frames. The last column is the change since clip ${k + 1}, the first of this run; a few per cent is the model's own variation. Hover a row for what it means.` : "Measured on this take's own frames when it was rendered. Hover a row for what it means."} />}
-    </div>
+    </>
   );
 }
 
@@ -548,7 +568,16 @@ function PinDrop({ className, onPick, children }: { className?: string; onPick(i
   );
 }
 
-/** A clip's takes, the one that plays marked: hovered, one is previewed in the player; clicked, it plays. Each says how its joins jump, and can be removed. */
+/** A state of a take, on its row: plays (filled), finished, smoothest. */
+function TakeChip({ tone, tip, children }: { tone: "accent" | "good" | "neutral"; tip?: string; children: ReactNode }) {
+  return (
+    <span data-tip={tip} className={cx("flex h-[18px] shrink-0 items-center rounded-full px-[7px] text-[11px] font-bold", tone === "accent" ? "bg-accent text-accent-ink" : tone === "good" ? "bg-good/15 text-good" : "bg-hover text-ink-2")}>
+      {children}
+    </span>
+  );
+}
+
+/** A clip's takes, one per row, the one that plays marked: hovered, one is previewed in the player; clicked, it plays. Each says how its joins jump, and can be removed. */
 function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveTake }: {
   clip: Clip;
   take: Take | null;
@@ -559,79 +588,98 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
   onPatch(patch: ShownPatch): void;
   onRemoveTake(id: string): void;
 }) {
+  // ×2.5 and up is a visible catch
+  const bad = (v: number) => v >= 2.5;
   return (
-    <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-start gap-2">
-              {clip.takes.map((t, i) => {
-                const on = t.id === take?.id;
-                return (
-                  <div key={t.id} className="relative" onMouseEnter={() => !on && onPreview(t)} onMouseLeave={() => onPreview(null)}>
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      aria-label={on ? `Take ${i + 1}, the one that plays` : `Play take ${i + 1} instead`}
-                      onFocus={() => !on && onPreview(t)}
-                      onBlur={() => onPreview(null)}
-                      onClick={() => {
-                        onPreview(null);
-                        if (!on) onPatch({ take: t.id });
-                      }}
-                      className="flex w-[68px] flex-col gap-1 text-left"
-                    >
-                      <span className="relative">
-                        <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" className={cx("h-[84px] w-[68px] rounded-md border-2 object-cover", on ? "border-accent" : "border-line hover:border-line-strong")} />
-                        {smoothest === t.id && clip.takes.length > 1 && <span className="absolute bottom-1 left-1 rounded bg-good px-1 py-px text-[9px] font-bold leading-tight text-ground" data-tip="The smoothest joins of the takes">smoothest</span>}
-                        {t.finishedFrom && <span className="absolute top-1 left-1 rounded bg-accent px-1 py-px text-[9px] font-bold leading-tight text-accent-ink" data-tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</span>}
-                      </span>
-                      <span className={cx("text-[11px]", on ? "font-semibold text-accent" : "text-ink-2")}>{on ? "plays" : `take ${i + 1}`}</span>
-                      {(() => {
-                        const j = joinOf(t.id);
-                        if (!j || (j.in === null && j.out === null)) return null;
-                        const bad = (v: number | null) => v !== null && v >= 2.5;
-                        return (
-                          <span className="flex items-center gap-1 font-mono text-[10px] leading-none" data-tip="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
-                            {j.in !== null && <span className={bad(j.in) ? "text-warn-ink" : "text-ink-3"}>in ×{j.in}</span>}
-                            {j.out !== null && <span className={bad(j.out) ? "text-warn-ink" : "text-ink-3"}>out ×{j.out}</span>}
-                          </span>
-                        );
-                      })()}
-                    </button>
-                    <button type="button" aria-label={`Remove take ${i + 1}`} data-tip="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/80 text-ink-2 hover:text-ink">
-                      <X size={11} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+    <div className="-mx-1.5 flex flex-col gap-0.5">
+      {clip.takes.map((t, i) => {
+        const on = t.id === take?.id;
+        const j = joinOf(t.id);
+        // the thumbnail at the take's own shape, 54 px on its long side
+        const w = t.asset.width ?? 0;
+        const h = t.asset.height ?? 0;
+        const thumb = w && h ? (h >= w ? { width: Math.max(24, Math.round((54 * w) / h)), height: 54 } : { width: 54, height: Math.max(24, Math.round((54 * h) / w)) }) : { width: 34, height: 54 };
+        return (
+          <div
+            key={t.id}
+            className={cx("group/take flex items-center rounded-[10px]", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
+            onMouseEnter={() => !on && onPreview(t)}
+            onMouseLeave={() => onPreview(null)}
+          >
+            <button
+              type="button"
+              aria-pressed={on}
+              aria-label={on ? `Take ${i + 1}, the one that plays` : `Play take ${i + 1} instead`}
+              data-tip={on ? undefined : "Click to make it play (hovered, it previews)"}
+              onFocus={() => !on && onPreview(t)}
+              onBlur={() => onPreview(null)}
+              onClick={() => {
+                onPreview(null);
+                if (!on) onPatch({ take: t.id });
+              }}
+              className="flex min-w-0 grow items-center gap-2.5 p-1.5 text-left"
+            >
+              <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" style={thumb} className="shrink-0 rounded-md bg-raised object-cover" />
+              <span className="flex min-w-0 grow flex-col gap-[3px]">
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="font-bold">Take {i + 1}</span>
+                  {on && <TakeChip tone="accent">plays</TakeChip>}
+                  {t.finishedFrom && <TakeChip tone="good" tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>}
+                  {smoothest === t.id && clip.takes.length > 1 && <TakeChip tone="neutral" tip="The smoothest joins of the takes">smoothest</TakeChip>}
+                </span>
+                {j && (j.in !== null || j.out !== null) && (
+                  <span className="font-mono text-[11px] text-ink-3" data-tip="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
+                    join{j.in !== null && <> in <span className={bad(j.in) ? "text-warn-ink" : "text-good"}>×{j.in}</span></>}{j.in !== null && j.out !== null && " ·"}{j.out !== null && <> out <span className={bad(j.out) ? "text-warn-ink" : "text-good"}>×{j.out}</span></>}
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 font-mono text-[11.5px] text-ink-2">{((t.endMs - t.startMs) / 1000).toFixed(1)} s</span>
+            </button>
+            <button type="button" aria-label={`Remove take ${i + 1}`} data-tip="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover/take:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
+              <X size={13} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 /** How long a still is held; how long a take plays and how much is trimmed off its start, with Reset. */
 function Duration({ clip, take, room, rendered, onPatch }: { clip: Clip; take: Take | null; room: number; rendered: boolean; onPatch(patch: ShownPatch): void }) {
+  // the pair while a knob moves, in seconds from the start of what can play
+  const [moving, setMoving] = useState<{ from: number; to: number } | null>(null);
   if (clip.kind === "still") {
     return (
-    <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <span>Held on screen for</span>
-                <NumberBox label="How long the still is held, in seconds" value={clip.lengthMs / 1000} min={0.5} max={60} step={0.1} unit="s" onCommit={(v) => onPatch({ stillMs: Math.round(v * 1000) })} />
-              </div>
-    </div>
+      <FieldRow label="Held for">
+        <NumberBox label="How long the still is held, in seconds" value={clip.lengthMs / 1000} min={0.5} max={60} step={0.1} unit="s" onCommit={(v) => onPatch({ stillMs: Math.round(v * 1000) })} />
+      </FieldRow>
     );
   }
   if (!take) return null;
+  // what can play counts from here: the take's start before its trim
+  const base = take.startMs - take.trimStartMs;
+  const from = take.trimStartMs / 1000;
+  const to = (take.trimStartMs + clip.lengthMs) / 1000;
+  const max = Math.max(to, (take.headMs + room - base) / 1000);
+  const shown = moving ?? { from, to };
+  // asked by what is seen: the server works out the trim, whatever a landing or a seamless join moves
+  const commit = (f: number, t: number) => {
+    setMoving(null);
+    const trimStartMs = Math.round(f * 1000);
+    const startMoved = trimStartMs !== take.trimStartMs;
+    const endMoved = Math.abs(t - to) > 0.0005;
+    if (startMoved || endMoved) onPatch({ ...(startMoved ? { trimStartMs } : {}), ...(endMoved ? { shownToMs: base + Math.round(t * 1000) } : {}) });
+  };
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span>Plays</span>
-        {/* asked by what is seen: the server works out the trim, whatever a landing or a seamless join moves */}
-        <NumberBox label="How long the clip plays, in seconds" value={clip.lengthMs / 1000} min={0.3} max={Math.max(0.3, (take.headMs + room - take.startMs) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ shownToMs: take.startMs + Math.round(v * 1000) })} />
-        <span className="text-ink-2">of {(room / 1000).toFixed(1)} s, from</span>
-        <NumberBox label="How much is trimmed from the start, in seconds" value={take.trimStartMs / 1000} min={0} max={Math.max(0, (room - take.trimEndMs - 300) / 1000)} step={0.1} unit="s" onCommit={(v) => onPatch({ trimStartMs: Math.round(v * 1000) })} />
-        <Help text={`Or drag the clip's edges on the timeline. This trims what plays${rendered ? "; to make the clip itself longer, change Duration in Output and render a new take" : ""}.`} />
-        {(take.trimStartMs > 0 || take.trimEndMs > 0) && <Button size="sm" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Reset trim</Button>}
-      </div>
-    </div>
+    <FieldRow label="Plays" note={`Drag either end, or the clip's edges on the timeline. This trims what plays${rendered ? "; to make the clip itself longer, change Duration in Output and render a new take" : ""}.`}>
+      <RangeSlider label="Plays" from={shown.from} to={shown.to} min={0} max={max} step={0.1} gap={0.3} format={(v) => `${v.toFixed(1)} s`} onChange={(f, t) => setMoving({ from: f, to: t })} onCommit={commit} />
+      <span className="flex items-center justify-between gap-2 font-mono text-[11.5px] text-ink-2">
+        <span>from {shown.from.toFixed(1)} s</span>
+        {(take.trimStartMs > 0 || take.trimEndMs > 0) && <Button size="sm" className="font-sans" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Reset trim</Button>}
+        <span>{(shown.to - shown.from).toFixed(1)} of {(room / 1000).toFixed(1)} s</span>
+      </span>
+    </FieldRow>
   );
 }
 

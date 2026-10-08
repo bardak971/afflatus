@@ -323,7 +323,7 @@ export const Player = forwardRef<PlayerHandle, {
           </span>
         </div>
       )}
-      {screen && <FullscreenBar box={box} c={screen} live={live && !playing ? (live.job.previewMime?.startsWith("video/") ? "video" : "picture") : null} />}
+      {screen && <FullscreenBar box={box} c={screen} clips={clips} timeline={timeline} live={live && !playing ? (live.job.previewMime?.startsWith("video/") ? "video" : "picture") : null} />}
     </div>
   );
 });

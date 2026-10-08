@@ -7,10 +7,11 @@ export function Readout({ clock, slots, cursor, total }: { clock: Clock; slots: 
   const head = placeOf(slots, time);
   return (
     <>
-      <span className="ml-1 font-mono">{stamp(cursor ?? head?.layoutMs ?? 0)} <span className="text-ink-3">/ {stamp(total)}</span></span>
+      <span className="ml-1 font-mono"><b className="font-semibold">{stamp(cursor ?? head?.layoutMs ?? 0)}</b> <span className="text-ink-3">/ {stamp(total)}</span></span>
+      {/* the clip under the playhead, as a tag: which one, and where in it */}
       {head && cursor === null && head.slot.clip.lengthMs > 0 && (
-        <span className="hidden text-xs text-ink-2 lg:inline" data-tip="Which clip is under the playhead, and where in it">
-          clip {head.slot.index + 1} · <span className="font-mono">{stamp(Math.max(0, time - head.slot.clip.atMs))}</span> of <span className="font-mono">{stamp(head.slot.clip.lengthMs)}</span>
+        <span className="hidden h-[22px] shrink-0 items-center gap-1 rounded-md bg-accent-wash px-2 text-[11.5px] font-bold whitespace-nowrap text-accent lg:inline-flex" data-tip="Which clip is under the playhead, and where in it">
+          Clip {head.slot.index + 1} · <span className="font-mono">{stamp(Math.max(0, time - head.slot.clip.atMs))} / {stamp(head.slot.clip.lengthMs)}</span>
         </span>
       )}
     </>

@@ -1,46 +1,64 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, Plus, Search, SlidersHorizontal, Star } from "lucide-react";
-import { groupItems } from "../screens/studio/grouping";
+import { ChevronDown, Folder as FolderIcon, PanelLeftClose, PanelLeftOpen, Play, Search, Star, Trash2, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Asset, Timeline } from "../api";
 import { useAssets, useFolders, useProjects } from "../data";
+import { clock } from "../format";
 import { useSettled } from "../hooks";
+import { Kbd } from "../Keys";
 import { LoadMore } from "../LoadMore";
 import { Popover } from "../Popover";
 import { useProject } from "../project";
-import { FolderPanel, Tile } from "../screens/Library";
+import { FolderPanel, Tile, tileName } from "../screens/Library";
+import { aspectOf } from "../screens/library/justify";
+import { JustifiedRows, type Placed } from "../screens/studio/MediaGrid";
 import { useStudio } from "../store";
 import { useTileMenu } from "../TileMenu";
 import type { MenuItem } from "../ContextMenu";
 import { cx, Segmented } from "../ui";
 import { Select } from "../Select";
 import { useFit } from "../useFit";
+import { Viewer } from "../Viewer";
 
 /** Whether the library is open over the editor's stage: kept from one visit to the next. */
-const useMediaOpen = create<{ open: boolean; set(open: boolean): void; size: "S" | "M" | "L"; group: "timeline" | "none"; setView(v: Partial<{ size: "S" | "M" | "L"; group: "timeline" | "none" }>): void }>()(
-  persist((set) => ({ open: false, set: (open) => set({ open }), size: "M", group: "timeline", setView: (v) => set(v) }), { name: "afflatus.media-open" }),
+const useMediaOpen = create<{ open: boolean; set(open: boolean): void }>()(
+  persist((set) => ({ open: false, set: (open) => set({ open }) }), { name: "afflatus.media-open" }),
 );
-const TILES = { S: "minmax(110px, 1fr)", M: "minmax(150px, 1fr)", L: "minmax(220px, 1fr)" } as const;
+/** The rows' height: the Studio's justified rows, a little lower (the stage's room). The caption under a tile of this timeline. */
+const ROW = 150;
+const CAPTION = 38;
 
 type Scope = "timeline" | "folder" | "recent";
 type Kind = "all" | "image" | "video" | "audio";
 const DAY = 86_400_000;
 
+/** What an item does on this timeline, said under its tile. */
+interface Role {
+  words: string;
+  /** It plays on a clip: the ▶ dot and the ring. */
+  plays: boolean;
+  /** Its length on the timeline. */
+  length: string;
+  /** Clip order, so the section reads left to right as the track does. */
+  order: number;
+}
+
 /**
- * The library over the editor's stage: the Studio's own grid, with its folder button, its scopes ("This
- * timeline" in place of "This draft"), its kinds and its search, on the same place the Studio is looking
- * at. Folded, it is the Media tab at the left edge; open, it covers the stage and nothing else: the track
- * keeps its width and the clip's form stays at hand. A tile is dragged onto the track or into the form,
- * or clicked to go at the end. What the timeline already uses is dimmed.
+ * The library over the editor's stage: the Studio's own grid (its justified rows, its tiles, its menu), with
+ * its folder button, its scopes ("This timeline" in place of "Draft"), its kinds and its search, on the same
+ * place the Studio is looking at. Folded, it is the Media tab at the left edge; open, it covers the stage and
+ * nothing else: the track keeps its width and the clip's form stays at hand. In two parts: what is on this
+ * timeline, its role said under each tile, then the rest as the library shows it. A tile is dragged onto the
+ * track or into the form; a click opens it, the arrow keys going through the shelf.
  */
-export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: {
+export function MediaOverlay({ timeline, placeItems }: {
   timeline: Timeline;
   /** Whether a clip is selected (a sound needs one to go on). */
   selected: boolean;
   /** Pictures and videos go at the end of the timeline; a sound goes on the selected clip. */
   onAdd(asset: Asset): void;
-  /** The viewer, on this item: large, with everything that can be done with it. */
+  /** The editor's viewer: the shelf opens its own, which walks the shelf's items. */
   onOpen(asset: Asset): void;
   /** Where the item can go in what is being edited: into the selected clip's places, onto the timeline. First in its menu. */
   placeItems(asset: Asset): MenuItem[];
@@ -50,12 +68,7 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
   const place = useStudio((s) => s.place);
   const setStudio = useStudio((s) => s.set);
   const [scope, setScope] = useState<Scope>("folder");
-  const size = useMediaOpen((s) => s.size ?? "M");
-  const group = useMediaOpen((s) => s.group ?? "timeline");
-  const setView = useMediaOpen((s) => s.setView);
   const [kept, setKept] = useState(false);
-  const filtersButton = useRef<HTMLButtonElement>(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [kind, setKind] = useState<Kind>("all");
   const [typed, setTyped] = useState("");
   const q = useSettled(typed.trim());
@@ -64,6 +77,8 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
   const bar = useRef<HTMLDivElement>(null);
   const fold = useFit(bar, 2);
   const [folders, setFolders] = useState(false);
+  // the item open large: the shelf's own viewer, so that ← → go through what the shelf shows
+  const [viewing, setViewing] = useState<Asset | null>(null);
 
   // the place, named as the Studio names it
   const projectId = useProject((s) => s.id);
@@ -85,22 +100,23 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
     return () => window.removeEventListener("keydown", key);
   }, [open, setOpen]);
 
-  // what the timeline already uses (every take, the stills, the pinned pictures, the sounds, the music), and where
+  // what the timeline uses (every take, the stills, the sounds, the music: its role; the pinned pictures: their clip)
   const used = useMemo(() => {
     const out = new Map<string, Asset>();
-    const playing = new Set<string>();
-    const where = new Map<string, string>();
-    const at = (id: string, words: string) => { if (!where.has(id)) where.set(id, words); };
+    const roles = new Map<string, Role>();
+    const pinned = new Map<string, number>();
+    const len = (a: Asset, ms = a.durationMs) => (ms ? clock(ms, { decimals: a.kind === "audio" ? 0 : 1 }) : "");
+    const role = (a: Asset, r: Role) => { out.set(a.id, a); if (!roles.has(a.id)) roles.set(a.id, r); };
     timeline.clips.forEach((c, i) => {
       const n = i + 1;
-      if (c.take) { playing.add(c.take.asset.id); at(c.take.asset.id, `Playing on clip ${n}`); }
-      for (const t of c.takes) { out.set(t.asset.id, t.asset); at(t.asset.id, `A take of clip ${n}`); }
-      if (c.still) { out.set(c.still.id, c.still); at(c.still.id, `Clip ${n}`); }
-      for (const p of c.pictures) { out.set(p.asset.id, p.asset); at(p.asset.id, `Pinned on clip ${n}`); }
-      if (c.soundAsset) { out.set(c.soundAsset.id, c.soundAsset); at(c.soundAsset.id, `Sound of clip ${n}`); }
+      if (c.take) role(c.take.asset, { words: `Clip ${n}`, plays: true, length: len(c.take.asset), order: n });
+      for (const t of c.takes) role(t.asset, { words: `Clip ${n} · take`, plays: false, length: len(t.asset), order: n });
+      if (c.still) role(c.still, { words: `Clip ${n}`, plays: true, length: len(c.still, c.lengthMs), order: n });
+      for (const p of c.pictures) { out.set(p.asset.id, p.asset); if (!pinned.has(p.asset.id)) pinned.set(p.asset.id, n); }
+      if (c.soundAsset) role(c.soundAsset, { words: `Clip ${n} · sound`, plays: false, length: len(c.soundAsset), order: n });
     });
-    if (timeline.music) { out.set(timeline.music.asset.id, timeline.music.asset); at(timeline.music.asset.id, "Music"); }
-    return { items: [...out.values()], playing, where };
+    if (timeline.music) role(timeline.music.asset, { words: "Music", plays: false, length: len(timeline.music.asset), order: timeline.clips.length + 1 });
+    return { items: [...out.values()], roles, pinned };
   }, [timeline]);
 
   const since = useMemo(() => new Date(Date.now() - 2 * DAY).toISOString(), [scope]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -119,21 +135,15 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
   const items = fetched
     ? (assets.data?.pages.flatMap((p) => p.items) ?? [])
     : used.items.filter((a) => (kind === "all" || a.kind === kind) && (!kept || a.kept) && (!q || (a.name ?? "").toLowerCase().includes(q.toLowerCase())));
-  // by timeline: this timeline's first, then the others', then what is on none (nothing is left out here: it is a shelf to pick from)
-  const sections = useMemo(() => {
-    if (group === "none" || scope === "timeline") return null;
-    const every = new Set(items.filter((a) => a.clipOf).map((a) => `${a.clipOf!.timeline}:${a.clipOf!.clip}`));
-    const secs = groupItems(items, "timeline", every);
-    const placed = new Set(secs.flatMap((x) => x.entries.map((e) => e.asset.id)));
-    const rest = items.filter((a) => !placed.has(a.id));
-    const mine = secs.filter((x) => x.key === timeline.id).map((x) => ({ ...x, label: "This timeline", timeline: undefined }));
-    const others = secs.filter((x) => x.key !== timeline.id);
-    return [...mine, ...others, ...(rest.length ? [{ key: "rest", label: "On no timeline", note: `${rest.length} item${rest.length === 1 ? "" : "s"}`, entries: rest.map((asset) => ({ asset })) }] : [])];
-  }, [items, group, scope, timeline.id]);
-  const active = [kept && "Kept only", group === "none" && scope !== "timeline" && "no groups"].filter(Boolean).length;
+  // on this timeline first, in clip order; then the rest, as listed (a pinned picture is not on the track: it is in the rest, tagged)
+  const [on, off] = useMemo(() => {
+    const mine = items.filter((a) => used.roles.has(a.id)).sort((a, b) => used.roles.get(a.id)!.order - used.roles.get(b.id)!.order);
+    return [mine, items.filter((a) => !used.roles.has(a.id))];
+  }, [items, used]);
+  const shown = useMemo(() => [...on, ...off], [on, off]);
   // the right-click: what the Studio's tiles offer, with the timeline's own line first
   const menu = useTileMenu({
-    onOpen,
+    onOpen: setViewing,
     first: placeItems,
     compact: true,
   });
@@ -145,7 +155,7 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
         type="button"
         aria-pressed={open}
         aria-label={open ? "Fold the media away" : "Show the media"}
-        data-tip={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form; a click adds at the end."}
+        data-tip={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form."}
         onClick={() => setOpen(!open)}
         className={cx("flex h-8 w-8 items-center justify-center rounded-lg hover:bg-hover hover:text-ink", open ? "text-accent" : "text-ink-2")}
       >
@@ -154,86 +164,114 @@ export function MediaOverlay({ timeline, selected, onAdd, onOpen, placeItems }: 
       <span className={cx("mt-3 text-[10px] font-semibold tracking-wide uppercase [writing-mode:vertical-rl]", open ? "text-accent" : "text-ink-3")}>Media</span>
     </aside>
   );
-  const scopes: Array<{ value: Scope; label: string }> = [{ value: "timeline", label: "This timeline" }, { value: "folder", label: place.type === "all" ? "Everything" : "Whole folder" }, { value: "recent", label: "All recent" }];
+  const viewer = viewing && <Viewer asset={shown.find((a) => a.id === viewing.id) ?? viewing} items={shown} onOpen={setViewing} onClose={() => setViewing(null)} />;
+  // short, as the Studio's, so the three stay a segmented control
+  const scopes: Array<{ value: Scope; label: string }> = [{ value: "timeline", label: "This timeline" }, { value: "folder", label: "Folder" }, { value: "recent", label: "Recent" }];
   const kinds: Array<{ value: Kind; label: string }> = [{ value: "all", label: "All" }, { value: "image", label: "Images" }, { value: "video", label: "Videos" }, { value: "audio", label: "Audio" }];
-  const tileOf = (a: Asset) => {
-    const where = used.where.get(a.id);
-    return (
-      <div key={a.id} data-tip={where ? `${where} of this timeline. ${what(a)}` : what(a)} className={cx("relative rounded-[10px]", used.playing.has(a.id) && "ring-2 ring-accent")}>
-        <Tile asset={a} onOpen={() => onOpen(a)} onMenu={(e) => menu.open(e, a)} />
-        {where && scope !== "timeline" && <span className="pointer-events-none absolute top-2 left-2 z-10 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-bold text-accent-ink shadow">{where}</span>}
-      </div>
-    );
-  };
-  if (!open) return tab;
+
+  // on this timeline: the picture with nothing over it but the ▶ of what plays; its role and length under it
+  const onTile = (a: Asset): Placed => ({
+    key: a.id,
+    aspect: aspectOf(a),
+    render: () => {
+      const r = used.roles.get(a.id)!;
+      return (
+        <div data-tip={`${tileName(a)}: ${r.words}. ${what(a)}`} className="flex h-full flex-col gap-1.5">
+          <div className={cx("relative min-h-0 grow rounded-xl", r.plays && "ring-2 ring-accent/60")}>
+            <Tile fill plain asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
+            {r.plays && (
+              <span aria-label="Plays on the timeline" className="pointer-events-none absolute top-1.5 left-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-accent-ink">
+                <Play size={9} fill="currentColor" strokeWidth={0} className="ml-px" />
+              </span>
+            )}
+          </div>
+          {/* two short lines, so a portrait tile's caption is not cut: which clip (the ▶ dot says it plays), then its length */}
+          <div className="flex shrink-0 flex-col gap-px px-0.5 text-[11px] leading-[16px]">
+            <span className={cx("truncate", r.plays ? "font-bold text-accent" : "text-ink-3")}>{r.words}</span>
+            <span className="truncate font-mono text-ink-2">{r.length}</span>
+          </div>
+        </div>
+      );
+    },
+  });
+  // the rest: the library's tile, a pinned picture tagged with its clip
+  const offTile = (a: Asset): Placed => ({
+    key: a.id,
+    aspect: aspectOf(a),
+    render: () => {
+      const n = used.pinned.get(a.id);
+      return (
+        <div className="relative h-full">
+          <Tile fill asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
+          {n && <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 flex h-5 items-center rounded-full bg-ground px-[7px] text-[11px] font-bold text-accent">pinned · clip {n}</span>}
+        </div>
+      );
+    },
+  });
+  const head = (words: string, hint: string) => (
+    <div className="mb-2 flex items-baseline gap-2">
+      <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{words}</span>
+      <span className="truncate text-xs text-ink-3">{hint}</span>
+    </div>
+  );
+  if (!open) return <>{tab}{viewer}</>;
   return (
     <>
       {tab}
       <section aria-label="Your library" className="absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
-        <div ref={bar} className="flex h-12 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
-          <button ref={folderButton} type="button" aria-expanded={folders} data-tip="Folders, the Inbox and the bin" onClick={() => setFolders((o) => !o)} className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 text-sm font-semibold">
-            {placeName} <span className="text-ink-3">▾</span>
-          </button>
-          {fold >= 2
-            ? <div className="w-36 shrink-0"><Select size="sm" label="What is shown" value={scope} onChange={(v) => setScope(v as Scope)} options={scopes} /></div>
-            : <Segmented<Scope> oneLine label="What is shown" value={scope} onChange={setScope} options={scopes} />}
-          <Segmented oneLine label="Tile size" value={size} options={[{ value: "S", label: "S" }, { value: "M", label: "M" }, { value: "L", label: "L" }]} onChange={(v) => setView({ size: v })} />
-          {fold >= 1
-            ? <div className="w-28 shrink-0"><Select size="sm" label="Media type" value={kind} onChange={(v) => setKind(v as Kind)} options={kinds} /></div>
-            : <Segmented<Kind> oneLine label="Media type" value={kind} onChange={setKind} options={kinds} />}
-          <span className="min-w-2 grow" />
-          <label className="flex h-8 w-56 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
-            <Search size={13} className="shrink-0 text-ink-3" />
-            <input data-search="media" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search prompts and names" className="min-w-0 grow bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
-          </label>
+        <div ref={bar} className="flex h-14 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
+          <span className="shrink-0 text-[11px] font-bold tracking-[0.08em] text-accent uppercase">Media</span>
           <button
-            ref={filtersButton}
+            ref={folderButton}
             type="button"
             aria-haspopup="dialog"
-            aria-expanded={filtersOpen}
-            data-tip="Kept only, and how the shelf is grouped"
-            onClick={() => setFiltersOpen(!filtersOpen)}
-            className={cx("flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold", active || filtersOpen ? "border-accent text-ink" : "border-line text-ink-2 hover:text-ink")}
+            aria-expanded={folders}
+            data-tip="Folders, the Inbox and the bin"
+            onClick={() => setFolders((o) => !o)}
+            className={cx("flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-lg border bg-raised px-3 text-sm font-semibold", folders ? "border-accent" : "border-line-strong")}
           >
-            <SlidersHorizontal size={13} /> Filters
-            {active > 0 && <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[11px] font-bold text-accent-ink">{active}</span>}
+            {place.type === "bin" ? <Trash2 size={15} className="shrink-0" /> : <FolderIcon size={15} className="shrink-0" />}
+            <span className="truncate">{placeName}</span>
+            <ChevronDown size={14} className="shrink-0 text-ink-2" />
           </button>
+          {fold >= 2
+            ? <div className="w-36 shrink-0"><Select size="sm" className="h-9" label="What is shown" value={scope} onChange={(v) => setScope(v as Scope)} options={scopes} /></div>
+            : <Segmented<Scope> oneLine label="What is shown" value={scope} onChange={setScope} options={scopes} />}
+          {fold >= 1
+            ? <div className="w-32 shrink-0"><Select size="sm" className={cx("h-9", kind !== "all" && "border-accent")} label="Kind" value={kind} onChange={(v) => setKind(v as Kind)} options={kinds} /></div>
+            : <Segmented<Kind> oneLine label="Kind" value={kind} onChange={setKind} options={kinds} />}
+          <span className="min-w-2 grow" />
+          <label className="flex h-9 w-64 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
+            <Search size={14} className="shrink-0 text-ink-3" />
+            <input data-search="media" aria-label="Search the media" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search prompts and names" className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+            {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+          </label>
+          <button type="button" aria-pressed={kept} aria-label="Kept only" data-tip={kept ? "Kept only: on. Show everything again" : "Kept only"} onClick={() => setKept(!kept)} className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
+            <Star size={14} fill={kept ? "currentColor" : "none"} />
+          </button>
+          <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap text-ink-3"><Kbd>Esc</Kbd> close</span>
         </div>
-        <div className="min-h-0 grow overflow-y-auto px-4 py-3">
+        <div className="min-h-0 grow overflow-y-auto px-4 py-3.5">
           {(fetched ? assets.isSuccess : true) && !items.length && (
             <div className="py-10 text-center text-sm text-ink-3">{scope === "timeline" ? "This timeline uses nothing of that kind yet." : "Nothing here. Change the folder, the scope or the kind."}</div>
           )}
-          {sections
-            ? sections.map((sec) => (
-                <section key={sec.key} aria-label={sec.label} className="mb-4 flex flex-col gap-2">
-                  <div className="flex items-baseline gap-2 border-b border-line pb-1">
-                    <span className={cx("truncate text-sm font-semibold", sec.key === timeline.id && "text-accent")}>{sec.label}</span>
-                    <span className="shrink-0 text-xs text-ink-2">{sec.note}</span>
-                  </div>
-                  <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${TILES[size]})` }}>{sec.entries.map((e) => tileOf(e.asset))}</div>
-                </section>
-              ))
-            : <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${TILES[size]})` }}>{items.map((a) => tileOf(a))}</div>}
+          {on.length > 0 && (
+            <section aria-label="On this timeline" className="mb-5">
+              {head(`On this timeline · ${on.length}`, "drag one onto the track to use it again")}
+              <JustifiedRows rowHeight={ROW} under={CAPTION} places={on.map(onTile)} />
+            </section>
+          )}
+          {off.length > 0 && (
+            <section aria-label="Not on it">
+              {head(`Not on it · ${off.length}`, "drag onto the track to add it")}
+              <JustifiedRows rowHeight={ROW} places={off.map(offTile)} />
+            </section>
+          )}
           {fetched && <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage} onMore={() => void assets.fetchNextPage()} />}
         </div>
       </section>
-      {filtersOpen && (
-        <Popover anchor={filtersButton} onClose={() => setFiltersOpen(false)} label="Filters" width={280} height={220}>
-          <div className="flex flex-col gap-3 p-3">
-            {scope !== "timeline" && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Group by</span>
-                <Segmented label="Group by" value={group} onChange={(g) => setView({ group: g })} options={[{ value: "timeline", label: "Timeline" }, { value: "none", label: "None" }]} />
-                <span className="text-xs text-ink-3">{group === "timeline" ? "This timeline's first, then the other timelines', then what is on none." : "Everything, newest first."}</span>
-              </div>
-            )}
-            <button type="button" aria-pressed={kept} onClick={() => setKept(!kept)} className={cx("flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
-              <Star size={13} fill={kept ? "currentColor" : "none"} /> Kept only
-            </button>
-          </div>
-        </Popover>
-      )}
       {menu.element}
+      {viewer}
       {folders && (
         <Popover anchor={folderButton} onClose={() => setFolders(false)} label="Folders" width={300} height={520}>
           <FolderPanel

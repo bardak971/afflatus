@@ -277,7 +277,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   selectedNow.current = current?.id ?? null;
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
-  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false) });
+  // Ctrl+Enter: the selected clip renders (set once the clip actions exist, below)
+  const renderNow = useRef(() => {});
+  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false), renderNow });
 
   const jump = (by: -1 | 1) => {
     const time = clock.get();
@@ -325,6 +327,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const largest = Math.max(0, ...clips.map((c) => (c.take?.asset.width ?? 0) * (c.take?.asset.height ?? 0)));
   const finishedK = t.width && t.height ? Math.sqrt(largest / (t.width * t.height)) : 1;
   const finishedSize = finishedK > 1.05 && t.width && t.height ? `${Math.round((t.width * finishedK) / 8) * 8} × ${Math.round((t.height * finishedK) / 8) * 8}` : null;
+  renderNow.current = () => {
+    const c = clips.find((x) => x.id === selectedNow.current);
+    if (c && c.kind === "video" && !c.job && !render.isPending) render.mutate({ clips: [c] });
+  };
   /** What a clip's menu reaches: the editor's mutations, by name. */
   const clipActs: ClipMenuActions = {
     clips: shown.clips,
@@ -490,6 +496,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         ) : current ? (
           <Inspector
             key={current.id}
+            onSelectClip={select}
             timeline={t}
             clip={current}
             index={clips.indexOf(current)}
@@ -520,7 +527,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           />
         ) : (
           <aside className="flex w-[400px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-panel p-5 text-ink-2">
-            <span className="text-base font-semibold text-ink">{clips.length ? t.name : "Start your video"}</span>
+            <span className="text-[17px] font-bold text-ink">{clips.length ? t.name : "Start your video"}</span>
             {clips.length ? (
               <Overview
                 timeline={t}
@@ -537,6 +544,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 missing={missing}
                 misfits={misfits}
                 allMs={allMs}
+                total={total}
                 onPick={(id) => select(id)}
                 onMusic={() => setMusicOpen(true)}
                 onCast={() => setCasting(true)}

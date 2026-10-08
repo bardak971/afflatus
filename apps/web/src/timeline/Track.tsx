@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Minus, Music, Plus } from "lucide-react";
 import type { Clip, RecipeInfo, RunningJob, Timeline } from "../api";
+import { Kbd } from "../Keys";
 import { cx } from "../ui";
 import { layout, NEW_CLIP, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
 import type { Clock } from "./clock";
@@ -13,7 +14,7 @@ import { HEIGHT, MUSIC, ROW, SOUND } from "./track/rows";
 import { TrackClip, type Stretch } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
 import { useMotionMarks } from "./track/useMotionMarks";
-import { useTrackDrop } from "./track/useTrackDrop";
+import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
 import { Wave } from "./track/Wave";
 
 /** How long the pointer rests on a clip before its tooltip shows; on a pinned picture, before its card shows. */
@@ -124,7 +125,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const width = end + NEW_CLIP + PAD * 2 + 40;
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
-  const { over, dragging, draggedOf, hover, overClip, drop, hint, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic });
+  const { over, dragging, draggedOf, hover, overClip, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic });
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const playEnd = clips.reduce((sum, c) => sum + c.lengthMs, 0);
@@ -370,7 +371,15 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         </div>
       </div>
       <div className="flex h-8 items-center gap-2 border-t border-line pr-2 pl-3 text-xs">
-        <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
+        {legend ? (
+          // the keys and their words; the line said in full for a screen reader
+          <span className="flex min-w-0 grow items-center gap-3.5 overflow-hidden text-[11.5px] whitespace-nowrap text-ink-3">
+            <span className="sr-only">{hint}</span>
+            {LEGEND.map((l) => <span key={l.words} aria-hidden className="flex shrink-0 items-center gap-1.5">{l.keys.map((k) => <Kbd key={k}>{k}</Kbd>)}{l.words}</span>)}
+          </span>
+        ) : (
+          <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
+        )}
         <button type="button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => onZoom(Math.max(ZOOM.least, pps / 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
         <button type="button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => onZoom(Math.min(ZOOM.most, pps * 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
         <button type="button" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>

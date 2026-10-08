@@ -6,9 +6,10 @@ import type { TimeRange } from "./Track";
 /**
  * The editor's keys: Space plays, Ctrl+Z and Ctrl+Shift+Z undo and redo, I and O mark the range, L loops it,
  * the arrows step a frame (with Alt: move the selected clip one place), Escape clears, Delete removes the selected
- * clip. What changes often is read through refs, so the listener is only put back when an action it calls changes.
+ * clip, Ctrl+Enter renders it (a new take). What changes often is read through refs, so the listener is only put back
+ * when an action it calls changes.
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic, renderNow }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
@@ -36,6 +37,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   /** The music's panel is open, and how to close it (Escape). */
   musicOpenNow?: RefObject<boolean>;
   closeMusic?(): void;
+  /** Render the selected clip (a new take), as Generate does in the Studio's form: Ctrl+Enter, even from its prompt. */
+  renderNow?: RefObject<() => void>;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -56,6 +59,10 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         redo();
       }
       const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.repeat && !open && renderNow) {
+        e.preventDefault();
+        renderNow.current();
+      }
       const plain = !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open;
       // I and O: In and Out at the playhead (one alone reaches to the end, or from the start)
       // I and O: In and Out at the playhead (one alone reaches to the end, or from the start); with Shift: go to In / Out

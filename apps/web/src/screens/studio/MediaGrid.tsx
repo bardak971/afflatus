@@ -22,7 +22,13 @@ export interface Placed {
  * as wide as the grid; the last row, not full, at the target height. In the list's order, row after row,
  * so Tab and the screen readers go through them as before.
  */
-export function JustifiedRows({ places, rowHeight, className }: { places: Placed[]; rowHeight: number; className?: string }) {
+export function JustifiedRows({ places, rowHeight, className, under = 0 }: {
+  places: Placed[];
+  rowHeight: number;
+  className?: string;
+  /** Room under every tile, in pixels, for a line its render draws there (the media shelf's captions); the shapes are the tiles' own. */
+  under?: number;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
@@ -42,14 +48,14 @@ export function JustifiedRows({ places, rowHeight, className }: { places: Placed
     for (const r of rows) {
       let left = 0;
       for (const w of r.widths) {
-        at.push({ left, top, width: w, height: r.height });
+        at.push({ left, top, width: w, height: r.height + under });
         left += w + GAP;
       }
-      top += r.height + GAP;
+      top += r.height + under + GAP;
     }
     return { at, height: Math.max(0, top - GAP) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shapes, width, rowHeight]);
+  }, [shapes, width, rowHeight, under]);
   // one box, every tile placed in it: a tile keeps its element when a new item pushes it to another row (no image read again)
   return (
     <div ref={box} className={cx("relative min-w-0", className)} style={{ height: laid.height }}>

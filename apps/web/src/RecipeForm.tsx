@@ -42,7 +42,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   /** What sits above the prompt: the designer, the snippets. */
   helpers?: ReactNode;
   /** A chapter of the screen's own before every other (a timeline clip's Takes): first in the strip too. */
-  lead?: { id: string; title: string; summary: ReactNode; node: ReactNode };
+  lead?: { id: string; title: string; summary: ReactNode; node: ReactNode; help?: string };
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
   frameExtra?: { node: ReactNode; summary: string };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
@@ -135,7 +135,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         {!q && helpers}
         {isShown(mainText, seen) && (!q || hit(mainText)) && render(mainText, card && !q && mainText.type === "prompt")}
       </div>
-      {texts.length > 0 && <div className={card ? "border-t border-line py-0.5" : "-mx-3 flex flex-col"}>{texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i)}</TextFold>)}</div>}
+      {texts.length > 0 && <div className={card ? "border-t border-line py-0.5" : "-mx-3 flex flex-col"}>{texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i, true)}</TextFold>)}</div>}
     </div>
   );
   const advancedPart = rare.length > 0 && (
@@ -148,7 +148,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     <>
       <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
-      {lead && !q && <Part id={lead.id} title={lead.title} summary={lead.summary} startOpen>{lead.node}</Part>}
+      {lead && !q && <Part id={lead.id} title={lead.title} help={lead.help} summary={lead.summary} startOpen>{lead.node}</Part>}
       {((made && !q) || knobs.length > 0 || loras.length > 0) && (
         <Part id="model" title="Model" summary={said.modelSaid || recipe.title} needs={Boolean(q)}>
           {!q && made}

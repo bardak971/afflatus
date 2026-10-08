@@ -1,18 +1,28 @@
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import { api, type Clip, type Timeline } from "../api";
+import { AudioPlayer } from "../AudioPlayer";
+import { openProjects } from "../bar/bridge";
 import { useEntities, useFolders, useProjects } from "../data";
+import { FieldRow } from "../fields";
+import { Kbd } from "../Keys";
 import { lookWords } from "../LookBar";
 import { aboutMs, clock } from "../format";
+import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
-import { Button, cx, SectionTitle } from "../ui";
+import { Button, Chip, cx, Segmented } from "../ui";
 import { otherShape } from "./model";
+
+/** A quiet action in a card's head or row: accent words, no box. */
+const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabled:opacity-40";
 
 /**
  * The timeline as a whole, shown while no clip is selected: what it is, what needs attention (each line
  * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
  * missing, export.
  */
-export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
+export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, total, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
   aspect: { value: string; options: Array<{ value: string; label: string; note?: string; detail?: string }>; onChange(value: string): void };
   timeline: Timeline;
@@ -20,6 +30,8 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   missing: Clip[];
   misfits: number;
   allMs: number;
+  /** How long it is planned to be, every clip counted (rendered or not), as the header says it. */
+  total: number;
   onPick(clip: string): void;
   onMusic(): void;
   onCast(): void;
@@ -68,75 +80,142 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   const stills = clips.filter((c) => c.kind === "still").length;
   const videos = clips.length - stills;
   const cast = lookWords(t.look, entities.data?.items ?? []);
-  const row = (key: string, text: string, ids: string[], tone: "warn" | "plain" = "plain") => (
-    <div key={key} className="flex flex-wrap items-center gap-1.5">
-      <span className={cx("text-sm", tone === "warn" ? "text-warn-ink" : "text-ink")}>{text}</span>
-      {ids.slice(0, 8).map((id) => {
-        const i = clips.findIndex((c) => c.id === id);
-        return <button key={id} type="button" onClick={() => onPick(id)} className="rounded-md border border-line-strong px-1.5 py-px font-mono text-xs text-ink-2 hover:border-accent hover:text-ink">{i + 1}</button>;
-      })}
-    </div>
+  const unrendered = missing.filter((c) => !c.take);
+  const number = (id: string) => clips.findIndex((c) => c.id === id) + 1;
+
+  // a join holds when its figure and the run-up's end both stay at ×3 or under (past ×3 it shows)
+  const carryOf = (c: Clip) => c.take?.measure?.handover ?? null;
+  const badJoin = (c: Clip) => {
+    const figure = joinsOf.get(c.id);
+    const carry = carryOf(c);
+    return (figure !== undefined && figure !== null && figure > 3) || (carry !== null && carry > 3);
+  };
+  const figured = joined.filter((c) => typeof joinsOf.get(c.id) === "number");
+  const loading = joined.some((c) => joinsOf.get(c.id) === undefined);
+  const worst = figured.reduce<Clip | null>((w, c) => (!w || joinsOf.get(c.id)! > joinsOf.get(w.id)! ? c : w), null);
+
+  // what needs attention, one row each; the one action the panel has (render what is missing) goes on the first row it mends
+  const renderAct = missing.length > 0 && (
+    <Button size="sm" disabled={rendering} onClick={onRenderAll} data-tip={`Renders the ${missing.length} clip${missing.length === 1 ? "" : "s"} with no take yet or a join that no longer holds, in order${allMs ? `: ${aboutMs(allMs)}` : ""}`}>
+      Render {missing.length}
+    </Button>
   );
+  const problems: Array<{ key: string; text: string; ids: string[]; warn?: boolean; act?: ReactNode }> = [];
+  if (unrendered.length > 0) problems.push({ key: "missing", text: `${unrendered.length} not rendered yet`, ids: unrendered.map((c) => c.id), act: renderAct });
+  if (stale.length > 0) problems.push({ key: "stale", text: `${stale.length} join${stale.length === 1 ? "" : "s"} no longer hold${stale.length === 1 ? "s" : ""}: the clip before changed`, ids: stale.map((c) => c.id), warn: true, act: unrendered.length === 0 ? renderAct : undefined });
+  if (failed.length > 0) problems.push({ key: "failed", text: `${failed.length} failed to render`, ids: failed.map((c) => c.id), warn: true });
+  if (wrong.length > 0) problems.push({ key: "shape", text: `${misfits} in another aspect ratio, shown with bars`, ids: wrong.map((c) => c.id) });
+  // rendered and planned, as the header has them
+  const now = clock(t.durationMs);
+  const planned = clock(total);
+  const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
+  const shapeWords = aspect.value === "first" ? "Shape from the first clip" : aspect.options.find((o) => o.value === aspect.value)?.label;
+  const castWords = [cast, t.mood].filter(Boolean).join(" · ");
+
   return (
     <>
-      <span className="text-xs">
-        {[project?.name, `${clock(t.durationMs)}`, `${clips.length} clip${clips.length === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`, t.width && t.height ? `${t.width} × ${t.height}` : "frame from the first clip"].filter(Boolean).join(" · ")}
-      </span>
-
-      <section className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-3.5 py-3">
-        <SectionTitle>Needs attention</SectionTitle>
-        {missing.length === 0 && stale.length === 0 && failed.length === 0 && wrong.length === 0 && <span className="text-sm text-good">Every clip is rendered and every join holds.</span>}
-        {missing.filter((c) => !c.take).length > 0 && row("missing", `${missing.filter((c) => !c.take).length} not rendered yet`, missing.filter((c) => !c.take).map((c) => c.id))}
-        {stale.length > 0 && row("stale", `${stale.length} join${stale.length === 1 ? "" : "s"} no longer hold${stale.length === 1 ? "s" : ""}: the clip before changed`, stale.map((c) => c.id), "warn")}
-        {failed.length > 0 && row("failed", `${failed.length} failed to render`, failed.map((c) => c.id), "warn")}
-        {wrong.length > 0 && row("shape", `${misfits} in another aspect ratio, shown with bars`, wrong.map((c) => c.id))}
-        {missing.length > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderAll}>Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}</Button></span>}
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Music</SectionTitle>
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 grow truncate text-sm text-ink">{t.music ? `${t.music.asset.name || "Music"} · ${t.music.volume} %${t.music.duck ? " · ducks under voices" : ""}` : "None: drop a sound on the Music track."}</span>
-          {t.music && <Button size="sm" onClick={onMusic}>Settings</Button>}
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Aspect ratio</SectionTitle>
-        <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
-        <span className="text-xs text-ink-3">{t.width && t.height ? `The video is ${t.width} × ${t.height}; every clip is made to fit it.` : "The first clip that is rendered decides; pick one to decide yourself."}</span>
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Cast and mood</SectionTitle>
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 grow truncate text-sm text-ink">{[cast, t.mood].filter(Boolean).join(" · ") || "Nobody yet, no mood set."}</span>
-          <Button size="sm" onClick={onCast}>Change</Button>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Renders land in</SectionTitle>
-        <Select
-          size="sm"
-          label="Where the renders and exports of this timeline land"
-          value={folder && folder.id !== project?.folderId ? folder.id : ""}
-          onChange={(id) => onFolder(id || null)}
-          options={[{ value: "", label: project ? `${project.name} (its root)` : "The Inbox" }, ...choices.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
-        />
-        <span className="text-xs text-ink-3">{fromClips ? "Taken from the first picture or clip you put here. Pick another to decide yourself." : "Every take and export of this timeline goes there."}</span>
-        {elsewhere.length > 0 && (
-          <span className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
-            {elsewhere.length === 1 ? "1 take sits in another folder." : `${elsewhere.length} takes sit in other folders.`}
-            <Button size="sm" disabled={gather.isPending} onClick={() => gather.mutate()} data-tip="Move those videos into this folder in the library. Nothing on the timeline changes.">{gather.isPending ? "Moving…" : "Move them here"}</Button>
-            {gather.isError && <span className="text-warn-ink">{gather.error.message}</span>}
-          </span>
+      <div className="flex flex-wrap gap-1.5">
+        <Chip tip={now === planned ? "How long it plays" : "Rendered so far, of the length every clip planned makes"}>
+          <span>{now === planned ? <span className="font-mono">{now}</span> : <><span className="font-mono">{now}</span> of <span className="font-mono">{planned}</span></>}</span>
+        </Chip>
+        <Chip>{`${clips.length} clip${clips.length === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`}</Chip>
+        <Chip className={t.width && t.height ? "font-mono" : undefined}>{t.width && t.height ? `${t.width}×${t.height}` : "frame from the first clip"}</Chip>
+        {project && (
+          <Chip tone="link" tip="Show in Projects" onClick={() => openProjects(project.name)}>
+            {project.name} <ChevronRight size={12} className="-ml-1" />
+          </Chip>
         )}
+      </div>
+
+      {problems.length > 0 ? (
+        <section className="flex flex-col rounded-xl border border-warn/35 bg-warn-wash/60 pb-1.5">
+          <span className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-warn-ink uppercase">Needs attention · {problems.length}</span>
+          {problems.map((p) => (
+            <div key={p.key} className="flex min-h-[34px] flex-wrap items-center gap-1.5 px-3 py-1">
+              <span className={cx("min-w-0 grow text-sm", p.warn ? "text-warn-ink" : "text-ink")}>{p.text}</span>
+              {p.ids.slice(0, 8).map((id) => (
+                <button key={id} type="button" onClick={() => onPick(id)} data-tip={`Clip ${number(id)}`} className="flex h-[22px] min-w-[22px] items-center justify-center rounded-[7px] border border-line-strong px-1.5 font-mono text-[11.5px] text-ink-2 hover:border-accent hover:text-ink">{number(id)}</button>
+              ))}
+              {p.act}
+            </div>
+          ))}
+        </section>
+      ) : (
+        <section className="flex flex-col gap-1 rounded-xl border border-line px-3 py-2.5">
+          <PartHead>Needs attention</PartHead>
+          <span className="text-sm text-good">Every clip is rendered and every join holds.</span>
+        </section>
+      )}
+
+      <section className="flex flex-col rounded-xl border border-line-strong">
+        <div className="flex flex-col gap-0.5 border-b border-line px-3 py-2.5">
+          <PartHead>Timeline</PartHead>
+          <span className="truncate font-bold text-ink">{[shapeWords, cast || "nobody cast", `lands in ${landsIn}`].filter(Boolean).join(" · ")}</span>
+        </div>
+        <div className="flex flex-col px-3 pt-1 pb-2.5 text-ink">
+          <FieldRow label="Aspect" note={t.width && t.height ? `The video is ${t.width} × ${t.height}; every clip is made to fit it.` : "The first clip that is rendered decides; pick one to decide yourself."}>
+            {aspect.options.length <= 4 ? (
+              <Segmented
+                size="sm"
+                label="Aspect ratio"
+                value={aspect.value}
+                onChange={aspect.onChange}
+                options={aspect.options.map((o) => ({ value: o.value, label: o.value === "first" ? "First clip" : o.label, tip: o.detail ?? o.note }))}
+              />
+            ) : (
+              <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
+            )}
+          </FieldRow>
+          <FieldRow label="Cast and mood">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-[12.5px] font-semibold text-ink" data-tip={castWords || undefined}>
+                <span className="truncate">{castWords || "Nobody yet, no mood set."}</span>
+              </span>
+              <span className="grow" />
+              <button type="button" onClick={onCast} className={quiet}>Change</button>
+            </span>
+          </FieldRow>
+          <FieldRow label="Renders land in" note={fromClips ? "Taken from the first picture or clip you put here. Pick another to decide yourself." : "Every take and export of this timeline goes there."}>
+            <Select
+              size="sm"
+              label="Where the renders and exports of this timeline land"
+              value={folder && folder.id !== project?.folderId ? folder.id : ""}
+              onChange={(id) => onFolder(id || null)}
+              options={[{ value: "", label: project ? `${project.name} (its root)` : "The Inbox" }, ...choices.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
+            />
+          </FieldRow>
+          {elsewhere.length > 0 && (
+            <span className="flex flex-wrap items-center gap-2 pt-1 text-xs text-ink-2">
+              {elsewhere.length === 1 ? "1 take sits in another folder." : `${elsewhere.length} takes sit in other folders.`}
+              <Button size="sm" disabled={gather.isPending} onClick={() => gather.mutate()} data-tip="Move those videos into this folder in the library. Nothing on the timeline changes.">{gather.isPending ? "Moving…" : "Move them here"}</Button>
+              {gather.isError && <span className="text-warn-ink">{gather.error.message}</span>}
+            </span>
+          )}
+        </div>
       </section>
 
-      <section className="flex flex-col gap-1.5">
-        <SectionTitle>Joins and renders</SectionTitle>
-        {/* the chain's health at a glance: the largest frame-to-frame change at each join as it plays, fade included (×1 = the clip's own motion; past ×3 it shows), and what the renders cost */}
+      <section className="flex flex-col rounded-xl border border-line-strong">
+        <div className={cx("flex items-center gap-2.5 px-3 py-2.5", t.music && "border-b border-line")}>
+          <span className="flex min-w-0 grow flex-col gap-0.5">
+            <PartHead>Music</PartHead>
+            <span className={cx("truncate", t.music ? "font-bold text-ink" : "text-sm text-ink-2")}>{t.music ? `${t.music.asset.name || "Music"} · ${t.music.volume} %${t.music.duck ? " · ducks under voices" : ""}` : "None: drop a sound on the Music track."}</span>
+          </span>
+          {t.music && <button type="button" onClick={onMusic} className={quiet}>Settings</button>}
+        </div>
+        {t.music && <AudioPlayer bare asset={t.music.asset.id} className="px-3 py-2.5" />}
+      </section>
+
+      <section className="flex flex-col gap-2 rounded-xl border border-line bg-raised px-3 py-2.5">
+        <PartHead>Joins and renders</PartHead>
+        {(figured.length > 0 || renderMs > 0) && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            {figured.length > 0 && <Fact label="Joins that hold" value={loading ? "…" : `${figured.filter((c) => !badJoin(c)).length} of ${figured.length}`} />}
+            {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > 3} />}
+            {renderMs > 0 && <Fact label="Rendered in" value={aboutMs(renderMs).replace(/^about /, "~")} />}
+            {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${videos} clip${videos === 1 ? "" : "s"}`} />}
+          </div>
+        )}
+        {/* the chain's health at a glance: the largest frame-to-frame change at each join as it plays, fade included (×1 = the clip's own motion; past ×3 it shows) */}
         {joined.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1">
             {joined.map((c) => {
@@ -144,7 +223,7 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
               const figure = joinsOf.get(c.id);
               const jumped = figure !== undefined && figure !== null && figure > 3;
               // where the clip's own frames begin after the run-up: a model that steps away from its guide shows a cut there
-              const carry = c.take?.measure?.handover ?? null;
+              const carry = carryOf(c);
               const broke = carry !== null && carry > 3;
               const bad = jumped || broke;
               return (
@@ -157,11 +236,24 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
         ) : (
           <span className="text-sm text-ink-2">No clip flows on from another yet.</span>
         )}
-        {renderMs > 0 && <span className="text-xs text-ink-2">Rendered in {aboutMs(renderMs)} in all{rendered < videos ? ` (${rendered} of ${videos} clips measured)` : ""}.</span>}
         {picked.size > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderPicked}>Render {picked.size} picked</Button></span>}
       </section>
 
-      <span className="text-xs text-ink-3">Click a clip to work on it. Right-click one for its menu. I and O mark a range. Ctrl + click picks clips to render together.</span>
+      <div className="mt-auto flex flex-wrap gap-x-3.5 gap-y-1.5 border-t border-line pt-3 text-[11.5px] text-ink-3">
+        <span className="flex items-center gap-1.5"><Kbd>Click</Kbd>a clip</span>
+        <span className="flex items-center gap-1.5"><Kbd>I</Kbd><Kbd>O</Kbd>a range</span>
+        <span className="flex items-center gap-1.5"><Kbd>Ctrl</Kbd>+ click picks clips</span>
+      </div>
     </>
+  );
+}
+
+/** One figure of the facts grid: a dim label over its value. */
+function Fact({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <span className="flex min-w-0 flex-col gap-px">
+      <span className="text-[11.5px] text-ink-3">{label}</span>
+      <span className={cx("truncate font-mono", warn ? "text-warn-ink" : "text-ink")}>{value}</span>
+    </span>
   );
 }

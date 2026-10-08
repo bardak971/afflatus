@@ -3,6 +3,15 @@ import type { Clip, RecipeInfo } from "../../api";
 import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../../screens/Library";
 import { DRAG_CLIP, pinInputs, type Slot } from "../model";
 
+/** What is done on the track, as keys and their words: the line under it while nothing is dragged. */
+export const LEGEND: ReadonlyArray<{ keys: string[]; words: string }> = [
+  { keys: ["Drag"], words: "media onto the track" },
+  { keys: ["Click"], words: "a clip" },
+  { keys: ["Right-click"], words: "its menu" },
+  { keys: ["I", "O"], words: "a range" },
+  { keys: ["Ctrl"], words: "+ click picks clips" },
+];
+
 /** What a drop would do, worked out while something is dragged over the track. */
 export type Over =
   | { kind: "insert"; index: number }
@@ -103,7 +112,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   const n = (id: string) => clips.findIndex((c) => c.id === id) + 1;
   const hint = !dragging
     ? clips.length
-      ? "Drag images, videos and audio here from the left. Click a clip to change it; drag its edges to trim it. I and O mark a range."
+      ? LEGEND.map((l) => `${l.keys.join(" ")} ${l.words}`).join(" · ")
       : "Your clips will line up here, left to right, in the order they play."
     : !over
       ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : "Drop it on the timeline."
@@ -114,6 +123,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
           : over.kind === "sound"
             ? `Drop to replace the audio of clip ${n(over.clip)}.`
             : "Drop to play it under the whole video.";
+  // nothing dragged and clips on the track: the line is drawn as keys and their words (the LEGEND)
+  const legend = !dragging && clips.length > 0;
   const lineAt = over?.kind === "insert" ? (over.index < slots.length ? slots[over.index]!.left : end) : null;
 
   /** The pointer left the track: nothing is dragged over it any more. */
@@ -121,5 +132,5 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     setOver(null);
     setDragging(null);
   };
-  return { over, dragging, draggedOf, hover, overClip, drop, hint, lineAt, leave };
+  return { over, dragging, draggedOf, hover, overClip, drop, hint, legend, lineAt, leave };
 }

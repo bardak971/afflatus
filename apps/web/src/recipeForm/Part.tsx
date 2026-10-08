@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { InputSpec } from "@afflatus/core";
+import { withNote } from "../fieldNotes";
 import { cx, Help } from "../ui";
 
 /**
@@ -73,13 +74,19 @@ export function TextFold({ spec, value, children }: { spec: Extract<InputSpec, {
   const open = useParts((s) => s.open[id] ?? false);
   const set = useParts((s) => s.set);
   const said = value.trim().replace(/\s+/g, " ");
+  const note = withNote(spec).note;
+  // the row is its name: the text box under it, open, has no label of its own (only for screen readers)
   return (
     <div data-part={id} className="flex flex-col">
-      <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="grid h-9 w-full grid-cols-[104px_minmax(0,1fr)_14px] items-center gap-2 px-3 text-left">
-        <span className="truncate text-xs font-semibold text-ink-2">{spec.label}</span>
-        <span className={cx("truncate text-xs", said ? "text-ink" : "text-ink-3")}>{said || "empty"}</span>
-        <ChevronDown size={14} className={cx("text-ink-3 transition-transform motion-reduce:transition-none", open && "rotate-180")} />
-      </button>
+      <div className="flex items-center">
+        <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="grid h-9 min-w-0 grow grid-cols-[104px_minmax(0,1fr)_14px] items-center gap-2 pl-3 text-left">
+          <span className="truncate text-xs font-semibold text-ink-2">{spec.label}</span>
+          {/* folded, what it holds; open, the box says it */}
+          <span className={cx("truncate text-xs", said ? "text-ink" : "text-ink-3")}>{open ? "" : said || "empty"}</span>
+          <ChevronDown size={14} className={cx("text-ink-3 transition-transform motion-reduce:transition-none", open && "rotate-180")} />
+        </button>
+        {note && <Help text={note} title={spec.label} className="pr-3 pl-2" />}
+      </div>
       {open && <div className="px-3 pb-3">{children}</div>}
     </div>
   );
