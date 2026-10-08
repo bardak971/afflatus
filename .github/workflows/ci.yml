@@ -28,6 +28,20 @@ jobs:
       - run: pipx run --spec "pytest==9.1.1" pytest -q comfy-nodes/afflatus-nodes/tests
       - run: node scripts/release/stage.mjs
 
+  # the timeline player frame by frame in headless Chrome (the runner has Chrome): H3-shaped synthetic clips with their frame
+  # index burned in, played in the real editor; fails on a frame out of order, a flicker at a hand-over, a hidden run-up shown
+  player:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 24, cache: pnpm }
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm check:player
+
   # the migrations on a real Postgres (DATABASE_URL is documented): the rest of the tests run on SQLite
   postgres:
     runs-on: ubuntu-latest
