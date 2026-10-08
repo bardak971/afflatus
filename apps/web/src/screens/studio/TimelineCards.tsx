@@ -1,23 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Film, Folder as FolderIcon, FolderKanban, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Select } from "../../Select";
-import { api, thumbUrl, type TimelineBrief } from "../../api";
+import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api";
 import { ask, askText } from "../../Confirm";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
-import { useFolders, useProjects } from "../../data";
+import { useFolders, useProjects, useProjectsTree } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
-import { clock, when } from "../../format";
+import { when } from "../../format";
 import { plainKey } from "../../Keys";
 import { projectForNew } from "../../project";
 import { Button, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
+import { chipsOf, factsOf, stripOf, type ChipTone } from "./timelineCard";
 
 const CARD = { S: "minmax(190px,1fr)", M: "minmax(250px,1fr)", L: "minmax(360px,1fr)" } as const;
-/** A card's film strip shows this many clips at most; the rest are a "+N". */
-const STRIP = 8;
+/** How tall a card's film strip is, by the cards' size. */
+const STRIP_H = { S: "h-[72px]", M: "h-24", L: "h-32" } as const;
+const TONE: Record<ChipTone, string> = { warn: "bg-warn-wash text-warn-ink", neutral: "bg-raised text-ink-2", good: "bg-good/15 text-good" };
+/** A clip with nothing rendered yet, in the strip. */
+const HATCH = "repeating-linear-gradient(45deg, var(--color-raised) 0 6px, var(--color-panel) 6px 12px)";
 
 /**
  * The timelines of the place that is open, as cards in the Studio's grid: a click opens one in the editor,
@@ -37,6 +41,9 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const [, go] = useLocation();
   const client = useQueryClient();
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
+  // the size, unused takes and export of every timeline, from the Projects panel's tree (the same query, read once for all the cards)
+  const tree = useProjectsTree("");
+  const leaves = useMemo(() => new Map((tree.data?.groups ?? []).flatMap((g) => g.timelines.map((l) => [l.id, l] as const))), [tree.data]);
   const refresh = () => client.invalidateQueries({ queryKey: ["timelines"] });
   const create = useMutation({ mutationFn: () => api.createTimeline(undefined, projectForNew()), onSuccess: (t) => { void refresh(); go(`/timelines/${t.id}`); } });
   const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.editTimeline(v.id, { name: v.name }), onSuccess: () => void refresh() });
@@ -172,18 +179,18 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
               />
             </div>
           )}
-          <Button size="sm" disabled={remove.isPending} title="Delete them: the videos stay in your library (Del)" onClick={() => void removeSome([...picked])}><Trash2 size={13} /> Delete</Button>
-          <button type="button" aria-label="Clear selection" title="Clear selection (Esc)" onClick={() => setPicked(new Set())} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+          <Button size="sm" disabled={remove.isPending} data-tip="Delete them: the videos stay in your library (Del)" onClick={() => void removeSome([...picked])}><Trash2 size={13} /> Delete</Button>
+          <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked(new Set())} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
         </div>,
         slot,
       )}
-      <div className="grid gap-3.5" style={{ gridTemplateColumns: `repeat(auto-fill, ${CARD[size]})` }}>
+      <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(auto-fill, ${CARD[size]})` }}>
         {place.type !== "bin" && (
           <button
             type="button"
             onClick={() => create.mutate()}
             disabled={create.isPending || makeOf.isPending}
-            title="A new, empty timeline, in the project the rail looks at. Drop pictures or videos on it: a timeline of them, in that order"
+            data-tip="A new, empty timeline, in the project the rail looks at. Drop pictures or videos on it: a timeline of them, in that order"
             onDragOver={(e) => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); setDropOver(true); } }}
             onDragLeave={() => setDropOver(false)}
             onDrop={(e) => {
@@ -193,7 +200,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
               e.preventDefault();
               makeOf.mutate(ids);
             }}
-            className={cx("flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-[10px] border border-dashed text-ink-2 hover:border-accent hover:text-ink", dropOver ? "border-accent bg-accent-wash text-ink" : "border-line-strong")}
+            className={cx("flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed text-ink-2 hover:border-accent hover:text-ink", dropOver ? "border-accent bg-accent-wash text-ink" : "border-line-strong")}
           >
             <Plus size={20} strokeWidth={2.2} />
             <span className="text-sm font-semibold">{makeOf.isPending ? "Making it…" : "New timeline"}</span>
@@ -201,7 +208,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
           </button>
         )}
         {timelines.map((t) => (
-          <TimelineCard key={t.id} t={t} picked={picked.has(t.id)} anyPicked={picked.size > 0} folder={place.type === "all" ? folderName(t.folderId) : null} onClick={(e, tick) => click(e, t, tick)} onMenu={(e) => menu.open(e, t)} onDragStart={(e) => {
+          <TimelineCard key={t.id} t={t} leaf={leaves.get(t.id)} size={size} picked={picked.has(t.id)} anyPicked={picked.size > 0} folder={place.type === "all" ? folderName(t.folderId) : null} onClick={(e, tick) => click(e, t, tick)} onMenu={(e) => menu.open(e, t)} onDragStart={(e) => {
             // the picked ones go together when this one is among them
             const ids = picked.has(t.id) ? [...picked] : [t.id];
             e.dataTransfer.setData(DRAG_TIMELINE, ids.join(","));
@@ -214,9 +221,16 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   );
 }
 
-/** One timeline as a card: a film strip of its clips, its name and length, what is left to do, and the tick that picks it. */
-function TimelineCard({ t, picked, anyPicked, folder, onClick, onMenu, onDragStart, onTick }: {
+/**
+ * One timeline as a card: a film strip of its clips in order, each as wide as it plays (a clip still to render hatched), its name
+ * and when it changed, its facts, the chips of what needs doing, and the tick that picks it. The render estimate is asked only
+ * for a card with clips to render, once it is on screen, so a long list asks for the few that are seen.
+ */
+function TimelineCard({ t, leaf, size, picked, anyPicked, folder, onClick, onMenu, onDragStart, onTick }: {
   t: TimelineBrief;
+  /** Its size, unused takes and export (the projects tree's), once read. */
+  leaf: TimelineLeaf | undefined;
+  size: "S" | "M" | "L";
   picked: boolean;
   /** Something is picked: the ticks show on every card. */
   anyPicked: boolean;
@@ -227,37 +241,65 @@ function TimelineCard({ t, picked, anyPicked, folder, onClick, onMenu, onDragSta
   onDragStart(e: React.DragEvent): void;
   onTick(): void;
 }) {
+  const ref = useRef<HTMLAnchorElement>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seen || !t.toRender) return;
+    const watch = new IntersectionObserver((e) => { if (e.some((x) => x.isIntersecting)) setSeen(true); }, { rootMargin: "200px" });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [seen, t.toRender]);
+  // learned from this machine's renders, none said when nothing is learned; a change of the timeline is a new key
+  const estimate = useQuery({
+    queryKey: ["timeline-estimate", t.id, t.toRender, t.updatedAt],
+    queryFn: ({ signal }) => api.commandEstimate({ timeline: t.id }, { signal }),
+    enabled: seen && Boolean(t.toRender),
+    staleTime: 5 * 60_000,
+  });
+  const frames = stripOf(t);
+  const chips = chipsOf(t, leaf, estimate.data?.ms);
   return (
     <div className="group relative">
       <a
+        ref={ref}
         href={`/timelines/${t.id}`}
         onClick={(e) => onClick(e, false)}
         onContextMenu={onMenu}
         draggable
         onDragStart={onDragStart}
         aria-selected={picked}
-        className={cx("flex flex-col overflow-hidden rounded-[10px] border-2 bg-panel", picked ? "border-accent" : "border-transparent outline outline-1 outline-line hover:outline-line-strong")}
+        className={cx("flex h-full flex-col overflow-hidden rounded-2xl border bg-panel", picked ? "border-accent ring-1 ring-accent" : "border-line hover:border-line-strong")}
       >
-        {/* a film strip: a frame per clip, in order, so what is in it shows at a glance */}
-        <span className="relative flex aspect-video gap-px overflow-hidden bg-ground text-ink-3">
-          {(t.strip?.length ? t.strip : t.cover ? [t.cover] : []).slice(0, STRIP).map((id, i) => (
-            <span key={i} className="relative min-w-0 flex-1 bg-raised">
-              {id ? <img src={thumbUrl(id)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center text-[11px]">{i + 1}</span>}
+        {/* a film strip: the clips in order, each as wide as it plays, so what is in it and what is left show at a glance */}
+        <span className={cx("flex shrink-0 gap-0.5 px-2 pt-2", STRIP_H[size])}>
+          {frames.map((f) => (
+            <span
+              key={f.n}
+              style={{ flexGrow: f.grow, backgroundImage: f.asset ? undefined : HATCH }}
+              data-tip={f.asset ? `Clip ${f.n}` : `Clip ${f.n}: to render`}
+              className="relative min-w-4 basis-0 overflow-hidden rounded-md bg-raised"
+            >
+              {f.asset && <img src={thumbUrl(f.asset)} alt="" loading="lazy" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
+              <span className="absolute bottom-1 left-1 rounded bg-shade/50 px-1 font-mono text-[10px] leading-tight text-white">{f.n}</span>
             </span>
           ))}
-          {!t.strip?.length && !t.cover && <span className="flex grow items-center justify-center bg-raised"><Film size={26} /></span>}
-          {t.clips > STRIP && <span className="absolute right-1.5 bottom-1.5 rounded bg-ground/85 px-1.5 py-0.5 text-[11px] font-semibold text-ink">+{t.clips - STRIP}</span>}
+          {!frames.length && <span className="flex grow items-center justify-center rounded-md border border-dashed border-line-strong text-ink-3"><Film size={22} /></span>}
+          {t.clips > frames.length && frames.length > 0 && <span className="flex shrink-0 items-center rounded-md bg-raised px-1.5 text-[11px] font-semibold text-ink-2" data-tip={`${t.clips - frames.length} more clips`}>+{t.clips - frames.length}</span>}
         </span>
-        <span className="flex flex-col gap-1 px-3 py-2">
-          <span className="truncate font-semibold">{t.name}</span>
-          <span className="truncate text-xs text-ink-2">{t.clips === 0 ? "Empty" : `${t.clips} clip${t.clips > 1 ? "s" : ""}${t.durationMs ? ` · ${clock(t.durationMs)}` : ""}`} · {when(t.updatedAt)}</span>
-          {/* what is left to do, or that nothing is; the folder when the list is every folder's */}
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] font-semibold">
-            {(t.toRender ?? 0) > 0 && <span className="rounded bg-warn-wash px-1.5 py-0.5 text-warn-ink">{t.toRender} to render</span>}
-            {(t.staleJoins ?? 0) > 0 && <span className="rounded bg-warn-wash px-1.5 py-0.5 text-warn-ink">{t.staleJoins} join{t.staleJoins === 1 ? "" : "s"} to redo</span>}
-            {t.clips > 0 && !t.toRender && !t.staleJoins && <span className="rounded border border-good/40 px-1.5 py-0.5 text-good">Ready</span>}
-            {folder !== null && <span className="flex min-w-0 items-center gap-1 rounded bg-raised px-1.5 py-0.5 font-normal text-ink-2"><FolderIcon size={10} className="shrink-0" /><span className="truncate">{folder}</span></span>}
+        <span className="flex flex-col gap-1.5 px-3.5 pt-3 pb-3.5">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="grow truncate text-[15px] font-bold">{t.name}</span>
+            <span className="shrink-0 text-xs text-ink-2">{when(t.updatedAt)}</span>
           </span>
+          <span className="truncate text-[12.5px] text-ink-2">{factsOf(t, leaf)}</span>
+          {/* what needs doing, the same figures as the Projects panel; the folder when the list is every folder's */}
+          {(chips.length > 0 || folder !== null) && (
+            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] font-semibold">
+              {chips.map((c) => <span key={c.label} data-tip={c.title} className={cx("rounded-full px-2.5 py-0.5", TONE[c.tone])}>{c.label}</span>)}
+              {folder !== null && <span className="flex min-w-0 items-center gap-1 rounded-full bg-raised px-2.5 py-0.5 font-normal text-ink-2"><FolderIcon size={10} className="shrink-0" /><span className="truncate">{folder}</span></span>}
+            </span>
+          )}
         </span>
       </a>
       <span
@@ -265,11 +307,11 @@ function TimelineCard({ t, picked, anyPicked, folder, onClick, onMenu, onDragSta
         tabIndex={0}
         aria-checked={picked}
         aria-label={`Select ${t.name}`}
-        title="Select (also Ctrl + click; Shift + click selects the range)"
+        data-tip="Select (also Ctrl + click; Shift + click selects the range)"
         onClick={(e) => onClick(e, true)}
         onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onTick(); } }}
         className={cx(
-          "absolute top-2 left-2 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
+          "absolute top-3.5 left-3.5 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
           picked ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
           !picked && !anyPicked && "opacity-0 group-hover:opacity-100 focus:opacity-100",
         )}

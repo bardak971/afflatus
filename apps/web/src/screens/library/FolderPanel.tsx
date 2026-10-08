@@ -46,23 +46,23 @@ function FolderRow({ f, selected, over, drop, onOpen, onEdit, onDelete, onRescan
           <span className="flex min-w-0 items-center gap-2">
             {/* a folder inside another one sits under it, with an arrow that says so */}
             {f.depth > 0 ? <CornerDownRight size={13} className="shrink-0 text-ink-3" /> : f.path ? <HardDrive size={14} className="shrink-0 text-ink-2" /> : <FolderIcon size={14} className="shrink-0 text-ink-2" />}
-            <span className="truncate" title={f.path ?? undefined}>{f.name}</span>
+            <span className="truncate" data-tip={f.path ?? undefined}>{f.name}</span>
           </span>
           <span className="shrink-0 font-normal text-ink-2 group-hover:invisible">{f.count}</span>
         </button>
         <span className="absolute inset-y-0 right-1 hidden items-center gap-0.5 group-hover:flex">
           {f.path && (
-            <button type="button" aria-label={`Rescan ${f.name}`} title="Scan the folder on your disk again: what was added appears, what was removed is gone" disabled={scanning} onClick={onRescan} className={hoverButton}>
+            <button type="button" aria-label={`Rescan ${f.name}`} data-tip="Scan the folder on your disk again: what was added appears, what was removed is gone" disabled={scanning} onClick={onRescan} className={hoverButton}>
               <RefreshCw size={12} className={scanning ? "animate-spin" : undefined} />
             </button>
           )}
           {(!f.path || f.root) && (
-            <button type="button" aria-label={`Rename ${f.name}`} title="Rename" onClick={onEdit} className={hoverButton}>
+            <button type="button" aria-label={`Rename ${f.name}`} data-tip="Rename" onClick={onEdit} className={hoverButton}>
               <Pencil size={12} />
             </button>
           )}
           {(!f.path || f.root) && (
-            <button type="button" aria-label={f.path ? `Unlink ${f.name}` : `Delete ${f.name}`} title={f.path ? "Unlink: nothing on your disk is touched" : "Delete: its items move to the parent folder"} onClick={onDelete} className={hoverButton}>
+            <button type="button" aria-label={f.path ? `Unlink ${f.name}` : `Delete ${f.name}`} data-tip={f.path ? "Unlink: nothing on your disk is touched" : "Delete: its items move to the parent folder"} onClick={onDelete} className={hoverButton}>
               {f.path ? <Unlink size={12} /> : <Trash2 size={12} />}
             </button>
           )}
@@ -75,7 +75,7 @@ function FolderRow({ f, selected, over, drop, onOpen, onEdit, onDelete, onRescan
       )}
       {selected && f.path && (
         // a folder of the disk: where it is
-        <span className="block truncate py-1 pl-1.5 font-mono text-[11px] text-ink-3" title={f.path}>{f.path}</span>
+        <span className="block truncate py-1 pl-1.5 font-mono text-[11px] text-ink-3" data-tip={f.path}>{f.path}</span>
       )}
     </div>
   );
@@ -127,7 +127,7 @@ function BinFooter({ on, row: binRow, onOpen, empty }: { on: boolean; row: (on: 
         </div>
       )}
       {storage.data && (
-        <Link href="/settings/storage" title="Disk usage breakdown and how to free space: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
+        <Link href="/settings/storage" data-tip="Disk usage breakdown and how to free space: in Settings." className="px-2.5 pt-1 text-xs text-ink-2 hover:text-ink">
           {size(storage.data.total)} used
           {storage.data.idleTakes.bytes + storage.data.bin.bytes > 0 ? ` · ${size(storage.data.idleTakes.bytes + storage.data.bin.bytes)} could be freed` : ""}
         </Link>
@@ -139,7 +139,7 @@ function BinFooter({ on, row: binRow, onOpen, empty }: { on: boolean; row: (on: 
 /** A quiet line of the panel that does something: a new folder, a link, an import. */
 function Action({ icon, title, onClick, children }: { icon: ReactNode; title?: string; onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" title={title} onClick={onClick} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
+    <button type="button" data-tip={title} onClick={onClick} className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-left text-ink-2 hover:bg-raised hover:text-ink">
       {icon} <span className="truncate">{children}</span>
     </button>
   );
@@ -244,7 +244,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
         ),
       )}
       {folderMenu.menu && <ContextMenu at={folderMenu.menu.at} label={`Folder ${folderMenu.menu.subject.name}`} items={folderItems(folderMenu.menu.subject)} onClose={folderMenu.close} />}
-      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", over === "unfiled")} {...drop("unfiled", null)} title="What is in no folder and no project. Drop here to take items out of their folder">Inbox</button>
+      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", over === "unfiled")} {...drop("unfiled", null)} data-tip="What is in no folder and no project. Drop here to take items out of their folder">Inbox</button>
 
       {adding ? (
         <NewFolderForm adding={adding} inside={open?.name} onSubmit={(name) => (adding === "link" ? m.link.mutate(name) : m.create.mutate({ name, parent: adding === "inside" ? selected : null }))} onDone={() => setAdding(false)} />

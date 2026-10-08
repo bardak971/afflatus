@@ -47,7 +47,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
           <button type="button" aria-label="Batch count: one more" onClick={() => onCount(count + 1)} className="flex h-full w-9 items-center justify-center"><Plus size={14} /></button>
         </div>
         <Button tone="primary" className="h-11 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || send.isPending} onClick={() => send.mutate()}>
-          <span title="Ctrl + Enter">{send.isPending ? "Queuing…" : `Generate ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>
+          <span data-tip="Ctrl + Enter">{send.isPending ? "Queuing…" : `Generate ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>
         </Button>
       </div>
     </div>

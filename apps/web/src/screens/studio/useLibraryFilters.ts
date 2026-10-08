@@ -16,7 +16,7 @@ export const KINDS = [
 ] as const;
 export type LibraryKind = (typeof KINDS)[number]["id"];
 
-/** What the library's grid is narrowed to: the kind, the search, the model and LoRA it was made with, Kept only; and the items that match. */
+/** What the library's grid is narrowed to: the kind, the search, the model and LoRA it was made with, Kept only (or not kept only); and the items that match. */
 export function useLibraryFilters({ place, view, draftId, initialKind = "all", onKind }: {
   place: Place;
   /** What the grid opens on: the Timelines entry of the rail opens it on the timelines. */
@@ -40,7 +40,17 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
   const [lora, setLora] = useState("");
   const family = made.startsWith("f:") ? made.slice(2) : "";
   const model = made.startsWith("m:") ? made.slice(2) : "";
-  const [kept, setKept] = useState(false);
+  // Kept only, or the other way round: only what is not kept ("Show only these" on the not-kept line)
+  const [kept, setKeptState] = useState(false);
+  const [unkept, setUnkeptState] = useState(false);
+  const setKept = (on: boolean) => {
+    setKeptState(on);
+    if (on) setUnkeptState(false);
+  };
+  const setUnkept = (on: boolean) => {
+    setUnkeptState(on);
+    if (on) setKeptState(false);
+  };
   const showTimelines = kind === "timeline" && place.type !== "bin";
   // with the form open, "Recent" and "Kept" look across the project, not the folder: what is there to drag into the form
   // "Kept" was a scope: a store kept from then still says it, and shows the folder (Kept only is in Filters now)
@@ -58,10 +68,11 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
     model: model || undefined,
     lora: lora || undefined,
     kept: kept || undefined,
+    unkept: unkept || undefined,
   }, true, true);
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
-  const filtered = Boolean(q || made || lora || kept);
-  return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, showTimelines, reach, assets, items, filtered };
+  const filtered = Boolean(q || made || lora || kept || unkept);
+  return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines, reach, assets, items, filtered };
 }
 
 export type LibraryFilters = ReturnType<typeof useLibraryFilters>;

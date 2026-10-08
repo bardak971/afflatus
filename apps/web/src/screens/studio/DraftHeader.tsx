@@ -81,7 +81,7 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
           />
         </div>
       )}
-      <button type="button" aria-label="Rename this draft" title="Rename this draft" disabled={!draft} onClick={() => { cancelledNaming.current = false; setNaming(draft?.name ?? ""); }} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
+      <button type="button" aria-label="Rename this draft" data-tip="Rename this draft" disabled={!draft} onClick={() => { cancelledNaming.current = false; setNaming(draft?.name ?? ""); }} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
       {/* deleted as everything else is: asked first (its conversation with the designer goes with it) */}
       <TwoStep
         title="Delete this draft"
@@ -93,8 +93,8 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
         onYes={() => draft && void d.remove(draft.id).catch(failed("deleted"))}
         className="h-9 w-8 rounded-lg"
       />
-      <button type="button" title="New draft: an empty form. This one is kept." onClick={() => void d.startNew().catch(failed("started"))} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
-      <button type="button" aria-label="Close the form" title="Fold the form away: the library takes the whole width. N opens it again." onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 text-accent hover:bg-accent-wash"><ChevronLeft size={15} /></button>
+      <button type="button" data-tip="New draft: an empty form. This one is kept." onClick={() => void d.startNew().catch(failed("started"))} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
+      <button type="button" aria-label="Close the form" data-tip="Fold the form away: the library takes the whole width. N opens it again." onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 text-accent hover:bg-accent-wash"><ChevronLeft size={15} /></button>
     </div>
   );
 }

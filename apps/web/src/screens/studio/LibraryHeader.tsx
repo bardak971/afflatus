@@ -55,7 +55,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
   // model, LoRA, Kept only and the grouping: set now and then, so in a panel; the button says how many are on
   const filtersButton = useRef<HTMLButtonElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const active = [made && "model", lora && "LoRA", kept && "Kept only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
+  const active = [made && "model", lora && "LoRA", kept && "Kept only", filters.unkept && "not kept only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
   return (
     <header ref={bar} className="flex h-[60px] shrink-0 flex-nowrap items-center gap-2 overflow-hidden px-5">
       <h1 className="sr-only">Studio</h1>
@@ -64,7 +64,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
         type="button"
         aria-haspopup="dialog"
         aria-expanded={Boolean(foldersOpen)}
-        title="Folders, the Inbox and the bin"
+        data-tip="Folders, the Inbox and the bin"
         onClick={() => setFoldersOpen(foldersOpen ? false : "click")}
         className={cx("flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-lg border bg-raised px-3 text-sm font-semibold", foldersOpen ? "border-accent" : "border-line-strong")}
       >
@@ -127,7 +127,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
       {!draftOnly && picked.length === 0 && (
         <>
           {fold >= 2 && !searching && !typed ? (
-            <button type="button" data-search-opener aria-label="Search the library" title="Search prompts and names (/)" onClick={() => setSearching(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink">
+            <button type="button" data-search-opener aria-label="Search the library" data-tip="Search prompts and names (/)" onClick={() => setSearching(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink">
               <Search size={15} />
             </button>
           ) : (
@@ -142,7 +142,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
             type="button"
             aria-haspopup="dialog"
             aria-expanded={filtersOpen}
-            title={active.length ? `Filters and grouping: ${active.join(", ")}` : "Filter by model, LoRA or Kept, and group the grid"}
+            data-tip={active.length ? `Filters and grouping: ${active.join(", ")}` : "Filter by model, LoRA or Kept, and group the grid"}
             onClick={() => setFiltersOpen(!filtersOpen)}
             className={cx("flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", active.length || filtersOpen ? "border-accent text-ink" : "border-line text-ink-2 hover:text-ink")}
           >
@@ -192,7 +192,7 @@ function SelectionBar({ place, items, selection }: { place: Place; items: Asset[
         <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Restore</Button>
       ) : (
         <>
-          {ordered.length > 0 && <Button size="sm" disabled={make.isPending} title="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} /> {make.isPending ? "Making…" : "Make a timeline of these"}</Button>}
+          {ordered.length > 0 && <Button size="sm" disabled={make.isPending} data-tip="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} /> {make.isPending ? "Making…" : "Make a timeline of these"}</Button>}
           <div className="w-44">
             <Select
               size="sm" label="Move the selected items to a folder" placeholder="Move to folder" searchHint="Search folders" value=""
@@ -201,18 +201,18 @@ function SelectionBar({ place, items, selection }: { place: Place; items: Asset[
             />
           </div>
           {chosen.some((a) => !a.kept) && <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} /> Keep</Button>}
-          {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} title="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Unkeep</Button>}
-          <Button size="sm" disabled={bulk.isPending} title="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} /> Bin</Button>
+          {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} data-tip="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Unkeep</Button>}
+          <Button size="sm" disabled={bulk.isPending} data-tip="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} /> Bin</Button>
         </>
       )}
-      <button type="button" aria-label="Clear selection" title="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+      <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
     </div>
   );
 }
 
 /** Model, LoRA, Kept only and the grouping: set now and then, so in a panel under the Filters button. */
 function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefObject<HTMLButtonElement | null>; onClose(): void; view: ReturnType<typeof useStudio.getState>; filters: LibraryFilters; /** Something is set: "Clear all" is offered. */ active: boolean }) {
-  const { made, setMade, lora, setLora, kept, setKept, showTimelines } = filters;
+  const { made, setMade, lora, setLora, kept, setKept, setUnkept, showTimelines } = filters;
   const usedModels = useAssetModels();
   const families = useAssetFamilies();
   const recipes = useRecipes();
@@ -258,7 +258,7 @@ function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefO
           </button>
         </div>
         {active && (
-          <button type="button" onClick={() => { setMade(""); setLora(""); setKept(false); view.set({ groupBy: "none" }); }} className="self-start text-xs text-ink-2 underline hover:text-ink">Clear all</button>
+          <button type="button" onClick={() => { setMade(""); setLora(""); setKept(false); setUnkept(false); view.set({ groupBy: "none" }); }} className="self-start text-xs text-ink-2 underline hover:text-ink">Clear all</button>
         )}
       </div>
     </Popover>

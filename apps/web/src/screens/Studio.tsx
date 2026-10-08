@@ -19,6 +19,8 @@ import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
+import { JustifiedRows, NotKeptLine, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
+import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
 import { useSelection } from "./studio/useSelection";
@@ -32,14 +34,13 @@ import { useSelection } from "./studio/useSelection";
 
 export { useStudio, displayOf, openFolderId, type Display, type Scope } from "../store";
 
-const TILE = { S: "minmax(120px,1fr)", M: "minmax(170px,1fr)", L: "minmax(250px,1fr)" };
-
 /** What is being made now, first in the grid where its result will land: the only part of the screen that follows its progress. */
 function RunningTile({ onDraft }: { onDraft(id: string): void }) {
   const running = useQueueOf((q) => (q.running?.kind === "render" ? q.running : null));
   if (!running) return null;
   return (
     <LiveTile
+      fill
       job={running}
       title={running.draftId ? "Open the draft it was queued from" : undefined}
       // to the draft it comes from: the form opens on it, with what it has made beside it
@@ -52,7 +53,7 @@ function RunningTile({ onDraft }: { onDraft(id: string): void }) {
 function FormRail({ onOpen }: { onOpen(): void }) {
   return (
     <aside aria-label="Create (folded)" className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-line bg-panel py-2">
-      <button type="button" aria-label="Create: open the form" title="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink hover:brightness-110">
+      <button type="button" aria-label="Create: open the form" data-tip="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink hover:brightness-110">
         <Plus size={16} strokeWidth={2.6} />
       </button>
       <span aria-hidden className="mt-1 text-[10px] font-semibold tracking-wide text-ink-3 uppercase [writing-mode:vertical-rl]">Create</span>
@@ -113,7 +114,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   }, [shown, hand, say]);
   // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
   const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });
-  const { kind, q, made, lora, kept, showTimelines, reach, assets, items, filtered } = filters;
+  const { kind, q, made, lora, kept, unkept, setUnkept, showTimelines, reach, assets, items, filtered } = filters;
   // the stage (the newest large, the rest in a strip) in place of the grid, when the scope is on it; the timelines still show when asked for
   const display = displayOf(view, reach as Scope);
   const draftOnly = display === "Stage" && !showTimelines && (reach !== "draft" || Boolean(draftId));
@@ -174,7 +175,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   }, []);
 
   // what is ticked is of the list that is shown: another folder, another search, and nothing is
-  const listKey = JSON.stringify([place, kind, q, made, lora, kept, draftOnly, reach]);
+  const listKey = JSON.stringify([place, kind, q, made, lora, kept, unkept, draftOnly, reach]);
   const selection = useSelection({ items, listKey, binned: place.type === "bin", off: draftOnly || Boolean(open) });
   const { picked, tick, bulk, moveTo } = selection;
   // the grid in sections (grouping.ts); the stacks of takes shown opened
@@ -190,8 +191,9 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     const a = e.asset;
     const opened = e.stack ? openStacks.has(e.stack) : false;
     return (
-      <div key={a.id} className="relative isolate">
+      <div className="relative isolate h-full">
         <Tile
+          fill
           asset={a}
           onOpen={() => setOpen(a)}
           selected={picked.includes(a.id)}
@@ -199,22 +201,25 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
           onSelect={(range) => tick(a, range)}
           dragIds={picked.includes(a.id) ? picked : undefined}
           onMenu={(ev) => gridMenu.open(ev, a)}
+          // a stack of takes: how many, and a way in; opened, the first take folds them back
+          corner={e.takes && e.stack && (!opened || e.takes[0]!.id === a.id) && (
+            <button
+              type="button"
+              onClick={() => flipStack(e.stack!)}
+              data-tip={opened ? "Fold the takes of this clip back into one" : "Show every take of this clip"}
+              className="rounded-md bg-ground/85 px-1.5 py-0.5 text-[11px] font-semibold text-ink shadow hover:bg-accent hover:text-accent-ink"
+            >
+              {opened ? "Fold takes" : `${e.takes.length} takes`}
+            </button>
+          )}
         />
-        {/* a stack of takes: how many, and a way in; opened, the first take folds them back */}
-        {e.takes && e.stack && (!opened || e.takes[0]!.id === a.id) && (
-          <button
-            type="button"
-            onClick={() => flipStack(e.stack!)}
-            title={opened ? "Fold the takes of this clip back into one" : "Show every take of this clip"}
-            className="absolute top-2 right-2 z-10 rounded-md bg-ground/85 px-1.5 py-0.5 text-[11px] font-semibold text-ink shadow hover:bg-accent hover:text-accent-ink"
-          >
-            {opened ? "Fold takes" : `${e.takes.length} takes`}
-          </button>
-        )}
         {!opened && e.takes && <span aria-hidden className="pointer-events-none absolute inset-x-2 -bottom-1.5 -z-10 h-full rounded-[12px] border border-line-strong bg-raised" />}
       </div>
     );
   };
+  // the grid in justified rows (MediaGrid): each item at its own shape, rows as high as the display's size asks
+  const rowHeight = ROW_HEIGHT[display === "Stage" ? view.size : display];
+  const placesOf = (entries: ReturnType<typeof groupItems>[number]["entries"]): Placed[] => entries.map((e) => ({ key: e.asset.id, aspect: aspectOf(e.asset), render: () => tileOf(e) }));
   const gridMenu = useTileMenu({ onOpen: setOpen, onSelect: (a) => tick(a, false), into: { draft: draftOnly ? draftId ?? undefined : undefined, folder: folder?.id } });
 
   // what the Create panel is handed keeps its identity from one draw to the next: the panel is not drawn again for nothing
@@ -255,11 +260,17 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               {/* the pages above, let go past the cap (useAssets), read again when scrolled back up to */}
               {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title}>{groupedEmpty.body}</Empty>}
-              <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${TILE[display === "Stage" ? view.size : display]})` }}>
-                {/* what is being made now comes first, where its result will land */}
-                {!showTimelines && running && !("other" in running) && place.type !== "bin" && !filtered && <RunningTile onDraft={openRunningDraft} />}
-                {sections.length === 1 && !sections[0]!.key && sections[0]!.entries.map((e) => tileOf(e))}
-              </div>
+              {!showTimelines && place.type !== "bin" && <NotKeptLine items={items} only={unkept} onOnly={setUnkept} />}
+              {/* what is being made now comes first, where its result will land */}
+              {!showTimelines && (
+                <JustifiedRows
+                  rowHeight={rowHeight}
+                  places={[
+                    ...(running && !("other" in running) && place.type !== "bin" && !filtered ? [{ key: "running", aspect: FALLBACK_ASPECT, render: () => <RunningTile onDraft={openRunningDraft} /> }] : []),
+                    ...(sections.length === 1 && !sections[0]!.key ? placesOf(sections[0]!.entries) : []),
+                  ]}
+                />
+              )}
               {(sections.length > 1 || Boolean(sections[0]?.key)) && sections.map((sec) => (
                 <section key={sec.key} aria-label={sec.label} className="mt-4 flex flex-col gap-2 first:mt-1">
                   <div className="flex items-baseline gap-2 border-b border-line pb-1">
@@ -267,9 +278,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                     <span className="shrink-0 text-xs text-ink-2">{sec.note}</span>
                     {sec.timeline && <button type="button" onClick={() => go(`/timelines/${sec.timeline}`)} className="shrink-0 text-xs font-semibold text-accent hover:underline">Open timeline</button>}
                   </div>
-                  <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${TILE[display === "Stage" ? view.size : display]})` }}>
-                    {sec.entries.map((e) => tileOf(e))}
-                  </div>
+                  <JustifiedRows rowHeight={rowHeight} places={placesOf(sec.entries)} />
                 </section>
               ))}
               {!showTimelines && <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage || assets.isFetchingPreviousPage} onMore={() => void assets.fetchNextPage()} />}

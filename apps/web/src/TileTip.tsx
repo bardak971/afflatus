@@ -3,15 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { api, type Asset } from "./api";
 import { assetKey } from "./data";
-import { clock, when } from "./format";
+import { clock, left as timeLeft, when } from "./format";
+import { leftOf } from "./screens/library/justify";
 
 /** How long the pointer rests on a tile before its tooltip shows. */
 const TILE_TIP_AFTER_MS = 800;
 
-/** The tooltip's timer and place, for a tile: rest on it to show, leave or press to hide. */
+/** How far the pointer moves (px) before a tile counts as no longer rested on: the tip goes, and waits for the next rest. */
+const MOVED_PX = 6;
+
+/** The tooltip's timer and place, for a tile: rest on it to show; move on it, leave it or press to hide. */
 export function useTileTip() {
   const [tip, setTip] = useState<{ left: number; top: number } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rest = useRef<{ x: number; y: number } | null>(null);
   const restOn = (el: HTMLElement) => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
@@ -27,14 +32,33 @@ export function useTileTip() {
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
-  return { tip, restOn, leave, props: { onPointerEnter: (e: { currentTarget: HTMLElement }) => restOn(e.currentTarget), onPointerLeave: leave, onPointerDown: leave } };
+  // moving along a tile (a video scrubbing, a sound followed) is not resting on it: the tip waits for the pointer to stop
+  const moved = (e: { currentTarget: HTMLElement; clientX: number; clientY: number }) => {
+    const r = rest.current;
+    if (r && Math.abs(e.clientX - r.x) < MOVED_PX && Math.abs(e.clientY - r.y) < MOVED_PX) return;
+    rest.current = { x: e.clientX, y: e.clientY };
+    setTip(null);
+    restOn(e.currentTarget);
+  };
+  return {
+    tip, restOn, leave,
+    props: {
+      onPointerEnter: (e: { currentTarget: HTMLElement; clientX: number; clientY: number }) => {
+        rest.current = { x: e.clientX, y: e.clientY };
+        restOn(e.currentTarget);
+      },
+      onPointerMove: moved,
+      onPointerLeave: leave,
+      onPointerDown: leave,
+    },
+  };
 }
 
 const origins: Record<string, string> = { generated: "Generated", uploaded: "Uploaded", imported: "Imported", exported: "Timeline export", frame: "Video frame" };
 
 /**
  * What a picture, video or sound is, read without opening it: shown after the pointer has rested on its
- * tile, in the library and in a timeline's media. What it is (kind, size, length, when), where it is used
+ * tile, in the library and in a timeline's media. Its name first, then what it is (kind, size, length, when), where it is used
  * (a timeline's clip), its seed and what it was made from. Neither the prompt nor the model name: those are
  * in the details.
  */
@@ -46,9 +70,11 @@ export function TileTip({ asset, at }: { asset: Asset; at: { left: number; top: 
   const what = asset.kind === "audio" && asset.origin === "imported" ? "Extracted audio" : (origins[asset.origin] ?? asset.origin);
   const size = asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : "";
   const length = asset.durationMs ? ` · ${clock(asset.durationMs)}` : "";
-  lines.push({ text: `${what}${size}${length}${asset.kind === "video" && asset.hasSound === false ? " · silent" : ""}` });
   if (asset.name) lines.push({ text: asset.name });
-  lines.push({ text: `${when(asset.createdAt)}${asset.kept ? " · kept" : ""}${asset.inBin ? " · in the bin" : ""}`, tone: "dim" });
+  lines.push({ text: `${what}${size}${length}${asset.kind === "video" && asset.hasSound === false ? " · silent" : ""}` });
+  // not kept: what its corner clock stands for, said in words
+  const unkept = !asset.kept && !asset.inBin ? ` · not kept: ${timeLeft(leftOf(asset))}` : "";
+  lines.push({ text: `${when(asset.createdAt)}${asset.kept ? " · kept" : unkept}${asset.inBin ? " · in the bin" : ""}`, tone: "dim" });
   const of = asset.clipOf;
   if (of) lines.push({ text: `Clip ${of.clip} of ${of.timelineName}${of.takes > 1 ? ` · take ${of.take} of ${of.takes}` : ""}${of.playing ? "" : " · not the one that plays"}` });
   if (g) {

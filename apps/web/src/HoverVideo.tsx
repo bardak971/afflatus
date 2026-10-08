@@ -1,100 +1,167 @@
 import { useEffect, useRef, useState } from "react";
-import { Music } from "lucide-react";
 import { fileUrl, thumbUrl } from "./api";
 import { useHoverPlay } from "./store";
 
+/** The fewest milliseconds between two seeks while the pointer scrubs: a seek waits for the one before anyway. */
+const SEEK_EVERY_MS = 60;
+
 /**
- * A sound's tile: it plays while the mouse rests on it, with a bar that fills as it goes, and stops and
- * rewinds when the mouse leaves. Fills its box, like HoverVideo.
+ * A media element sent where the pointer is along its tile (`at`, 0 to 1), cheaply: one seek at a time,
+ * no more often than SEEK_EVERY_MS; the place asked for while a seek runs is gone to when it ends.
  */
-export function HoverAudio({ asset, delay = 250 }: { asset: string; delay?: number }) {
-  // sounds on hover turned off in Settings → Appearance: the card only shows
+function useScrub(el: React.RefObject<HTMLMediaElement | null>, at: number | null | undefined, on: boolean) {
+  const want = useRef<number | null>(null);
+  const last = useRef(0);
+  const timer = useRef<number | null>(null);
+  const go = () => {
+    const m = el.current;
+    if (!m || want.current === null || !Number.isFinite(m.duration) || !m.duration) return;
+    if (m.seeking) return; // the `seeked` that ends it comes back here
+    const wait = SEEK_EVERY_MS - (performance.now() - last.current);
+    if (wait > 0) {
+      if (timer.current === null) timer.current = window.setTimeout(() => { timer.current = null; go(); }, wait);
+      return;
+    }
+    const t = Math.min(m.duration - 0.05, Math.max(0, want.current * m.duration));
+    if (Math.abs(m.currentTime - t) > 0.04) {
+      last.current = performance.now();
+      m.currentTime = t;
+    }
+  };
+  useEffect(() => {
+    want.current = at ?? null;
+    if (on) go();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [at, on]);
+  useEffect(() => () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+  }, []);
+  // for the element: a seek ended, or its length became known
+  return go;
+}
+
+/**
+ * A sound that plays while the mouse rests on its tile, from where the pointer is along it (`at`), and
+ * follows the pointer as it moves; it stops when the mouse leaves. Draws nothing but the element: the tile
+ * draws the card (its waveform). Off when sounds on hover are turned off in Settings → Appearance.
+ */
+export function HoverAudio({ asset, at, delay = 250, onPlaying, onTime }: {
+  asset: string;
+  /** The pointer's place along the tile, 0 to 1; null: the pointer is not on it. */
+  at: number | null;
+  delay?: number;
+  onPlaying?(playing: boolean): void;
+  /** Where it is as it plays, 0 to 1. */
+  onTime?(at: number): void;
+}) {
   const allowed = useHoverPlay((s) => s.sound);
   const [playing, setPlaying] = useState(false);
-  const [at, setAt] = useState(0);
-  const timer = useRef<number | null>(null);
   const el = useRef<HTMLAudioElement>(null);
-  const stop = () => {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = null;
-    setPlaying(false);
-    setAt(0);
-  };
-  useEffect(() => stop, []);
+  const hovering = at !== null;
   useEffect(() => {
-    const a = el.current;
-    if (!playing || !a) return;
-    a.play().catch(() => setPlaying(false));
-  }, [playing]);
+    if (!allowed || !hovering) return;
+    const t = window.setTimeout(() => setPlaying(true), delay);
+    return () => {
+      window.clearTimeout(t);
+      setPlaying(false);
+    };
+  }, [allowed, hovering, delay]);
+  useEffect(() => onPlaying?.(playing), [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const seek = useScrub(el, at, playing);
+  if (!playing) return null;
   return (
-    <span
-      className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-ink-2"
-      onPointerEnter={(e) => {
-        if (!allowed || e.pointerType !== "mouse") return;
-        if (timer.current !== null) window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => setPlaying(true), delay);
+    <audio
+      ref={el}
+      src={fileUrl(asset)}
+      preload="auto"
+      onLoadedMetadata={(e) => {
+        seek();
+        e.currentTarget.play().catch(() => setPlaying(false));
       }}
-      onPointerLeave={stop}
-    >
-      <Music size={20} />
-      {playing ? "Playing" : "Audio"}
-      {playing && <audio ref={el} src={fileUrl(asset)} preload="auto" onTimeUpdate={(e) => setAt(e.currentTarget.duration ? e.currentTarget.currentTime / e.currentTarget.duration : 0)} onEnded={stop} />}
-      <span aria-hidden className="absolute inset-x-0 bottom-0 h-1 bg-line">
-        <span className="block h-full bg-accent transition-[width] duration-150" style={{ width: `${Math.round(at * 100)}%` }} />
-      </span>
-    </span>
+      onSeeked={seek}
+      onTimeUpdate={(e) => onTime?.(e.currentTarget.duration ? e.currentTarget.currentTime / e.currentTarget.duration : 0)}
+      onEnded={() => setPlaying(false)}
+    />
   );
 }
 
 /**
  * A preview frame that plays as a video, with its sound, while the mouse rests on it. Clips that open on
  * the same picture look alike as frames; they tell apart as they play. The sound plays when the browser
- * allows it (after any click on the page); otherwise the video plays silent. Fills its box: put it in a
- * box with `relative` and a size (an aspect ratio).
+ * allows it (after any click on the page); otherwise the video plays silent. Given `at`, the pointer's
+ * place along the tile, it scrubs: the video goes where the pointer is and plays on from there. Fills its
+ * box: put it in a box with `relative` and a size (an aspect ratio).
  */
-export function HoverVideo({ asset, video, alt = "", delay = 250, onNoFrame }: {
+export function HoverVideo({ asset, video, alt = "", delay = 250, at, onNoFrame, onPlaying }: {
   asset: string;
   /** It is a video: it plays on hover. An image only shows. */
   video: boolean;
   alt?: string;
   /** Milliseconds the mouse rests before the video starts: a sweep across tiles starts nothing. */
   delay?: number;
+  /** The pointer's place along the tile, 0 to 1, for a tile that scrubs (its own pointer events then start it); null: off it. */
+  at?: number | null;
   /** The preview frame could not be shown (a video the server could not read a frame from). */
   onNoFrame?(): void;
+  /** It started or stopped playing; muted: without its sound. */
+  onPlaying?(playing: boolean, muted: boolean): void;
 }) {
   // Settings → Appearance: whether a video plays on hover, and with its sound
   const hover = useHoverPlay();
   const [playing, setPlaying] = useState(false);
   const timer = useRef<number | null>(null);
   const el = useRef<HTMLVideoElement>(null);
+  const scrubs = at !== undefined;
   const stop = () => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
     setPlaying(false);
   };
   useEffect(() => stop, []);
+  // a tile that scrubs says where the pointer is: on it, it starts after the delay; off it, it stops
+  const over = scrubs && at !== null;
+  useEffect(() => {
+    if (!scrubs || !video || !hover.video) return;
+    if (!over) return stop();
+    timer.current = window.setTimeout(() => setPlaying(true), delay);
+    return () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [over, video, hover.video, delay]);
+  const report = useRef(onPlaying);
+  report.current = onPlaying;
   useEffect(() => {
     const v = el.current;
-    if (!playing || !v) return;
+    if (!playing || !v) {
+      report.current?.(false, true);
+      return;
+    }
+    // a play that starts after the pointer has left says nothing: it stopped already
+    let gone = false;
     v.muted = !hover.sound;
-    v.play().catch(() => {
+    v.play().then(() => !gone && report.current?.(true, v.muted)).catch(() => {
       // no sound allowed yet: it plays silent rather than not at all
       v.muted = true;
-      v.play().catch(() => {});
+      v.play().then(() => !gone && report.current?.(true, true)).catch(() => {});
     });
+    return () => {
+      gone = true;
+    };
   }, [playing, hover.sound]);
+  const seek = useScrub(el, at, playing);
   return (
     <span
       className="absolute inset-0 block"
       onPointerEnter={(e) => {
-        if (!video || !hover.video || e.pointerType !== "mouse") return;
+        if (scrubs || !video || !hover.video || e.pointerType !== "mouse") return;
         if (timer.current !== null) window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => setPlaying(true), delay);
       }}
-      onPointerLeave={stop}
+      onPointerLeave={scrubs ? undefined : stop}
     >
-      <img src={thumbUrl(asset)} alt={alt} loading="lazy" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
-      {playing && <video ref={el} src={fileUrl(asset)} loop playsInline preload="auto" aria-label="Playing on hover" className="absolute inset-0 h-full w-full object-cover" />}
+      <img src={thumbUrl(asset)} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
+      {playing && <video ref={el} src={fileUrl(asset)} loop playsInline preload="auto" aria-label="Playing on hover" onLoadedMetadata={seek} onSeeked={seek} className="absolute inset-0 h-full w-full object-cover" />}
     </span>
   );
 }

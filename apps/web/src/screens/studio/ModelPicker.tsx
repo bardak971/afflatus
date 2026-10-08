@@ -84,7 +84,7 @@ function Operations({ group, recipe, why, pick }: { group: ModelGroup; recipe: R
             role="radio"
             aria-checked={on}
             tabIndex={on ? 0 : -1}
-            title={`${why(r) ? `${why(r)} ` : ""}${r.summary}`}
+            data-tip={`${why(r) ? `${why(r)} ` : ""}${r.summary}`}
             onClick={() => pick(r.id)}
             onKeyDown={(e) => step(e, i)}
             className={cx("flex h-7 min-w-0 grow items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", own ? "basis-[45%]" : "basis-[30%]", on ? "bg-line-strong text-ink-strong" : why(r) ? "text-ink-3" : "text-ink-2 hover:text-ink")}

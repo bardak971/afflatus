@@ -73,11 +73,11 @@ export function DraftResults({ draft, folder, list, title, empty }: {
               <div className="w-full"><Bar value={running.progress * 100} /></div>
               {waiting > 0 && <span className="text-xs text-ink-2">{waiting} more queued</span>}
               <div className="flex flex-wrap justify-center gap-2 pt-1">
-                <Button size="sm" onClick={() => stop.mutate([running.id])} disabled={stop.isPending} title={waiting ? "Cancel this render. Nothing is saved; the next queued job starts." : "Cancel this render. Nothing is saved."}>
+                <Button size="sm" onClick={() => stop.mutate([running.id])} disabled={stop.isPending} data-tip={waiting ? "Cancel this render. Nothing is saved; the next queued job starts." : "Cancel this render. Nothing is saved."}>
                   <Square size={11} fill="currentColor" /> Cancel render
                 </Button>
                 {waiting > 0 && (
-                  <Button size="sm" onClick={() => stop.mutate([...inLine.map((j) => j.id), running.id])} disabled={stop.isPending} title="Cancel this render and remove the queued jobs from the queue.">
+                  <Button size="sm" onClick={() => stop.mutate([...inLine.map((j) => j.id), running.id])} disabled={stop.isPending} data-tip="Cancel this render and remove the queued jobs from the queue.">
                     Cancel all {waiting + 1}
                   </Button>
                 )}
@@ -104,7 +104,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
         {waiting > 0 && (
           <span className="flex items-center justify-between gap-1 rounded-lg border border-dashed border-line-strong py-1 pr-1 pl-2 text-xs text-ink-2">
             {waiting} queued
-            <button type="button" aria-label={`Remove the ${waiting} queued jobs from the queue`} title="Remove from the queue" disabled={stop.isPending} onClick={() => stop.mutate(inLine.map((j) => j.id))} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-warn">
+            <button type="button" aria-label={`Remove the ${waiting} queued jobs from the queue`} data-tip="Remove from the queue" disabled={stop.isPending} onClick={() => stop.mutate(inLine.map((j) => j.id))} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-warn">
               <X size={13} />
             </button>
           </span>
