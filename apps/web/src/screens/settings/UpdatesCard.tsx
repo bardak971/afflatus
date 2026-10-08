@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { api, type UpdateRow } from "../../api";
 import { useModelUpdates, useSettings } from "../../data";
 import { fileLabel } from "../../format";
@@ -13,6 +13,8 @@ export function UpdatesCard() {
   const client = useQueryClient();
   const report = useModelUpdates();
   const [q, setQ] = useState("");
+  // the list folded by default: with many models it would make the tab endless
+  const [open, setOpen] = useState(false);
   const save = useMutation({ mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }) });
   const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(["model-updates"], r) });
   const get = useMutation({
@@ -56,7 +58,14 @@ export function UpdatesCard() {
             </span>
             <Button size="sm" onClick={() => check.mutate()} disabled={check.isPending}>{check.isPending ? "Checking…" : "Check now"}</Button>
           </Row>
-          {newer.length > 8 && (
+          {newer.length > 0 && (
+            <Row label="Newer versions" sub={`${newer.length} of your models`}>
+              <Button size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+                {open ? "Hide the list" : `Show ${newer.length}`} <ChevronDown size={13} className={open ? "rotate-180" : ""} />
+              </Button>
+            </Row>
+          )}
+          {open && newer.length > 8 && (
             <Row label="Filter">
               <Segmented label="Kind" value={kind} onChange={(v) => setKind(v as typeof kind)} options={[{ value: "all", label: `All ${newer.length}` }, ...KINDS.map((k) => ({ value: k.id, label: `${k.label} ${newer.filter((u) => u.folder === k.id).length}` })).filter((o) => !o.label.endsWith(" 0"))]} />
               <label className="flex h-8 items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
@@ -65,10 +74,11 @@ export function UpdatesCard() {
               </label>
             </Row>
           )}
-          {shown.length > 0 && (
-            <div className="border-t border-line">
+          {open && shown.length > 0 && (
+            // its own scroll, the head kept in view: the page stays as long as the other tabs
+            <div className="max-h-[520px] overflow-y-auto border-t border-line">
               <table className="w-full text-sm">
-                <thead className="bg-raised text-left text-[11px] tracking-wide text-ink-2 uppercase">
+                <thead className="sticky top-0 z-10 bg-raised text-left text-[11px] tracking-wide text-ink-2 uppercase">
                   <tr><th className="py-1.5 pr-3 pl-[18px] font-semibold">Model</th><th className="px-3 py-1.5 font-semibold">You have</th><th className="px-3 py-1.5 font-semibold">Newer</th><th className="px-3 py-1.5" /></tr>
                 </thead>
                 {groups.map((g) => (
