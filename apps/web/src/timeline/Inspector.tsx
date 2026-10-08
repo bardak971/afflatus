@@ -193,10 +193,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const worst = (j: { in: number | null; out: number | null } | undefined) => Math.max(j?.in ?? 0, j?.out ?? 0);
   const smoothest = joins.data && clip.takes.length > 1 ? clip.takes.reduce<string | null>((best, t) => (best === null || worst(joinOf(t.id)) < worst(joinOf(best)) ? t.id : best), null) : null;
   const heard = clip.sound === "file" ? "file" : clip.sound === "muted" && hasOwn ? "muted" : "own";
-  // what the head calls it: the start of what happens in it, else the name of its picture or video
-  const mainInput = form ? mainTextOf(form) : undefined;
-  const name = (mainInput ? String(stored[mainInput.id] ?? "").trim().split("\n")[0] : "") || (still ? clip.still?.name : take?.asset.name) || "";
-
 
   // ---- what the clip got (its takes, how much of the one that plays is used, how it looks) and its pinned
   // frames: above the form for a clip with no form; inside it otherwise, as its Takes chapter and in Inputs
@@ -237,9 +233,28 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
       <PanelEdge side="left" />
       <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 pt-3.5 pb-3">
-        <div className="flex items-center gap-2">
-          <span className="flex h-6 shrink-0 items-center rounded-[7px] bg-accent-wash px-2 text-xs font-bold text-accent uppercase">{still ? "Still" : "Clip"} {index + 1}</span>
-          <span className="min-w-0 grow truncate font-bold" data-tip={name.length > 40 ? name : undefined}>{name}</span>
+        <div className="flex items-start gap-2">
+          {/* its number and what it is, wrapping as one line: the prompt is in the form below, not said twice */}
+          <div className="flex min-w-0 grow flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-[7px] bg-accent-wash px-2 text-xs font-bold text-accent uppercase">{still ? "Still" : "Clip"} {index + 1}</span>
+            <Chip tip={clip.lengthMs && shown?.width && shown.height ? "How long it plays · its size in pixels" : undefined}>
+              {clip.lengthMs ? <span className="font-mono">{(clip.lengthMs / 1000).toFixed(1)} s{shown?.width && shown.height ? ` · ${shown.width}×${shown.height}` : ""}</span> : "not rendered yet"}
+            </Chip>
+            {carries && before && (
+              <Chip tone="link" onClick={onSelectClip ? () => onSelectClip(before.id) : undefined} tip={`Its motion carries on from clip ${index}${onSelectClip ? ": open it" : ""}`}>
+                extends clip {index}{onSelectClip && <ArrowUpRight size={12} />}
+              </Chip>
+            )}
+            {!still && !recipe && take && (
+              <Chip>imported video<Help title="Imported video" text="It can be trimmed, and a new clip can extend from any of its frames. It cannot be re-rendered, unless you choose a model to render in its place, under Model." /></Chip>
+            )}
+            {misfit && (
+              <Chip tone="warn">{misfit.mine} in a {misfit.video} video<Help title="Another shape" text={`This ${still ? "still" : "clip"} is ${misfit.mine}, the video is ${misfit.video}. ${clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."} Fill frame switches between the two.`} /></Chip>
+            )}
+            {sizeStep && take && (
+              <Chip tone="warn">sharpness jumps at the join<Help title="Another size" text={`This clip is ${take.asset.width} × ${take.asset.height}, the clip ${sizeStep.before ? "before" : "after"} ${sizeStep.other.width} × ${sizeStep.other.height}: one was enlarged and the other not, so the join shows a change of sharpness. Finish all clips (the Finish button above the timeline) to bring every clip to one size the same way, or render both alike.`} /></Chip>
+            )}
+          </div>
           {onSelectClip && (
             <>
               <button type="button" aria-label="Previous clip" data-tip={before ? `Clip ${index}` : "This is the first clip"} disabled={!before} onClick={() => before && onSelectClip(before.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40">
@@ -251,25 +266,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             </>
           )}
           <TwoStep title="Remove from timeline" icon={<Trash2 size={14} />} note={still ? "The image stays in your library." : "Its videos stay in your library."} yes="Remove" onYes={onRemove} className="h-7! w-7! rounded-lg text-warn-ink! hover:bg-warn-wash!" />
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Chip tip={clip.lengthMs && shown?.width && shown.height ? "How long it plays · its size in pixels" : undefined}>
-            {clip.lengthMs ? <span className="font-mono">{(clip.lengthMs / 1000).toFixed(1)} s{shown?.width && shown.height ? ` · ${shown.width}×${shown.height}` : ""}</span> : "not rendered yet"}
-          </Chip>
-          {carries && before && (
-            <Chip tone="link" onClick={onSelectClip ? () => onSelectClip(before.id) : undefined} tip={`Its motion carries on from clip ${index}${onSelectClip ? ": open it" : ""}`}>
-              extends clip {index}{onSelectClip && <ArrowUpRight size={12} />}
-            </Chip>
-          )}
-          {!still && !recipe && take && (
-            <Chip>imported video<Help title="Imported video" text="It can be trimmed, and a new clip can extend from any of its frames. It cannot be re-rendered, unless you choose a model to render in its place, under Model." /></Chip>
-          )}
-          {misfit && (
-            <Chip tone="warn">{misfit.mine} in a {misfit.video} video<Help title="Another shape" text={`This ${still ? "still" : "clip"} is ${misfit.mine}, the video is ${misfit.video}. ${clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."} Fill frame switches between the two.`} /></Chip>
-          )}
-          {sizeStep && take && (
-            <Chip tone="warn">sharpness jumps at the join<Help title="Another size" text={`This clip is ${take.asset.width} × ${take.asset.height}, the clip ${sizeStep.before ? "before" : "after"} ${sizeStep.other.width} × ${sizeStep.other.height}: one was enlarged and the other not, so the join shows a change of sharpness. Finish all clips (the Finish button above the timeline) to bring every clip to one size the same way, or render both alike.`} /></Chip>
-          )}
         </div>
       </div>
 
