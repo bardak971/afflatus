@@ -4,7 +4,7 @@ import type { Entity, RecipeInfo } from "../../api";
 import { useRecipes } from "../../data";
 import { recipeLabel } from "../../format";
 import { Select } from "../../Select";
-import { Button, ErrorNote } from "../../ui";
+import { Button, ErrorNote, fieldClass } from "../../ui";
 
 type Preset = Extract<Entity, { kind: "preset" }>;
 
@@ -52,7 +52,7 @@ export function PresetMenu({ presets, onApply, onSave, error }: {
               close();
             }}
           >
-            <input aria-label="New preset name" placeholder="Save as preset: name" value={presetName} onChange={(e) => setPresetName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 placeholder:text-ink-3" />
+            <input aria-label="New preset name" placeholder="Save as preset: name" value={presetName} onChange={(e) => setPresetName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className={`${fieldClass} h-8 min-w-0 grow`} />
             <Button size="sm" tone="quiet" type="submit" disabled={!presetName.trim()}>Save</Button>
           </form>
         )}

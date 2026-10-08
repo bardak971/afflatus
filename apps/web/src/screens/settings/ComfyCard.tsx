@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings, useSetup } from "../../data";
 import { gb } from "../../format";
-import { Button, cx, ErrorNote, NumberBox } from "../../ui";
+import { Button, cx, ErrorNote, fieldClass, NumberBox } from "../../ui";
 
 /** Afflatus's node pack (MiniMax H3 continued in the latent): written into ComfyUI's folder when it is known, loaded after a ComfyUI restart. */
 function NodePackLine() {
@@ -82,7 +82,7 @@ export function ComfyCard() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             spellCheck={false}
-            className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
+            className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)}
           />
           <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>
         </div>
@@ -107,7 +107,7 @@ export function ComfyCard() {
             onChange={(e) => setDir(e.target.value)}
             placeholder="D:\ComfyUI  —  empty when ComfyUI runs elsewhere"
             spellCheck={false}
-            className="h-10 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-mono text-xs"
+            className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)}
           />
           <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
         </div>

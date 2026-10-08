@@ -1,7 +1,8 @@
 import type { InputSpec } from "@afflatus/core";
 import type { Entity, FamilyInfo, RecipeInfo } from "../../api";
+import { fieldClass } from "../../ui";
 
-export const field = "w-full rounded-lg border border-line bg-raised px-3 py-2 text-ink placeholder:text-ink-3";
+export const field = `w-full py-2 ${fieldClass}`;
 
 /** What one model can take of a person, read from its recipes: words (tags or a sentence), a LoRA, pictures, a voice. */
 export function takes(family: FamilyInfo, recipes: RecipeInfo[]) {

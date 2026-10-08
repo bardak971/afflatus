@@ -14,8 +14,9 @@ import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { CastPictures } from "../castPictures";
 import { Select } from "../Select";
-import { AutoText, Bar, Button, cx, ErrorNote, Help, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
+import { AutoText, Bar, Button, cx, ErrorNote, fieldClass, Help, Note, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
 import { usePanelWidth } from "../store";
+import { Slider } from "../Slider";
 import { fileVersion, otherShape, pinInputs, roomOf, shapeOf, type ShownPatch } from "./model";
 import { DRAG_PICTURE, useDropZone } from "../dragging";
 import { projectForNew } from "../project";
@@ -24,18 +25,18 @@ import { projectForNew } from "../project";
 function Slide({ label, value, min = 0, max, step = 1, show, onCommit }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void }) {
   const [local, setLocal] = useState<number | null>(null);
   const shown = local ?? value;
-  const commit = () => {
-    if (local !== null && local !== value) onCommit(local);
+  const commit = (v: number) => {
+    if (v !== value) onCommit(v);
     setLocal(null);
   };
   return (
-    <label className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1">
       <span className="flex items-baseline justify-between">
         <span>{label}</span>
         <span className="font-mono text-ink-2">{show(shown)}</span>
       </span>
-      <input type="range" min={min} max={max} step={step} value={shown} onChange={(e) => setLocal(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} onBlur={commit} className="w-full" />
-    </label>
+      <Slider box={false} label={label} min={min} max={max} step={step} value={shown} format={show} onChange={setLocal} onCommit={commit} />
+    </div>
   );
 }
 
@@ -370,7 +371,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                     {main && (
                       <label className="flex flex-col gap-1.5">
                         <span className="text-xs font-semibold">What happens <span className="font-normal text-ink-2">· between the two</span></span>
-                        <AutoText rows={3} value={written} disabled={writing} placeholder={main.type === "prompt" ? main.placeholder ?? "What happens in this stretch" : ""} onChange={(e) => onInputs({ ...stored, [main.id]: e.target.value })} className="w-full rounded-lg border border-line bg-raised px-3 py-2 text-ink placeholder:text-ink-3 disabled:opacity-60" />
+                        <AutoText rows={3} value={written} disabled={writing} placeholder={main.type === "prompt" ? main.placeholder ?? "What happens in this stretch" : ""} onChange={(e) => onInputs({ ...stored, [main.id]: e.target.value })} className={cx(fieldClass, "w-full py-2 disabled:opacity-60")} />
                       </label>
                     )}
                     <div className="flex flex-wrap items-center gap-2 text-xs">

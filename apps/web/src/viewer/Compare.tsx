@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { fileUrl, type Asset } from "../api";
 import { Kbd } from "../Keys";
 import { Button } from "../ui";
+import { Slider } from "../Slider";
 import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
 
@@ -84,7 +85,7 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
         {pictures && <Button size="sm" tone={wipe !== null ? "primary" : "plain"} aria-pressed={wipe !== null} data-tip="The two pictures over each other, the second cut at a line you move" onClick={() => setWipe((w) => (w === null ? 50 : null))}>Wipe</Button>}
-        {pictures && wipe !== null && <input type="range" min={0} max={100} value={wipe} aria-label="Where the second picture takes over" onChange={(e) => setWipe(Number(e.target.value))} className="w-64 accent-[var(--color-accent)]" />}
+        {pictures && wipe !== null && <Slider box={false} min={0} max={100} value={wipe} label="Where the second picture takes over" format={(v) => `${v} %`} onChange={setWipe} className="w-64" />}
         <Button size="sm" data-tip="The pinned one becomes the one you move through, and the other way round" onClick={onSwap}>Swap</Button>
         <span className="flex items-center gap-1 text-xs text-ink-3"><Kbd><ArrowLeft size={10} className="inline" /></Kbd><Kbd><ArrowRight size={10} className="inline" /></Kbd> change the right one</span>
         <Button size="sm" onClick={onClose}>Done <Kbd>X</Kbd></Button>

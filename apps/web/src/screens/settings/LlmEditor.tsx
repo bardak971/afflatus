@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api, type LlmInfo } from "../../api";
-import { Button, cx, ErrorNote, NumberBox, Toggle } from "../../ui";
+import { Button, Chip, cx, ErrorNote, fieldClass, NumberBox, Toggle } from "../../ui";
 
-const field = "h-10 min-w-0 rounded-lg border border-line bg-raised px-3 font-mono text-xs placeholder:font-sans placeholder:text-ink-3";
+const field = `h-10 min-w-0 font-mono text-xs placeholder:font-sans ${fieldClass}`;
 
 /** One language model: its address, name and key, how much it reads and writes, whether it reads pictures. */
 export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
@@ -42,7 +42,7 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
         </button>
         {test.isSuccess && !dirty && <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-good"><span className="h-2 w-2 rounded-full bg-good" /> Answering</span>}
         {!only && (inUse
-          ? <span className="shrink-0 rounded-full bg-accent-wash px-2 py-0.5 text-xs font-semibold text-accent" data-tip="A new conversation with the designer starts with this one. Each conversation keeps the one it was given.">New conversations</span>
+          ? <Chip tone="accent" tip="A new conversation with the designer starts with this one. Each conversation keeps the one it was given.">New conversations</Chip>
           : <Button size="sm" disabled={fresh} onClick={onUse} data-tip="New conversations with the designer start with this one">Start with this one</Button>)}
         <Button size="sm" tone="quiet" onClick={() => setOpen(!open)}>{open ? "Close" : "Change"}</Button>
       </div>

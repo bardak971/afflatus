@@ -3,7 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { Search, X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
 import { AppearanceCard } from "../theme/Appearance";
-import { cx } from "../ui";
+import { Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
@@ -42,13 +42,7 @@ export function Setup() {
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
       <header className="flex h-20 shrink-0 items-center gap-5">
         <h1 className="text-xl font-semibold">Settings</h1>
-        <div role="tablist" aria-label="Settings" className="flex shrink-0 gap-1 rounded-[9px] bg-raised p-[3px]">
-          {TABS.map((t) => (
-            <button key={t.id} type="button" role="tab" aria-selected={t.id === tab} onClick={() => open(t.id)} className={cx("h-7 rounded-md px-3 text-xs font-semibold whitespace-nowrap", t.id === tab ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:text-ink")}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <Segmented<Tab> size="sm" oneLine label="Settings" value={tab} options={TABS.map((t) => ({ value: t.id, label: t.label }))} onChange={open} />
         <span className="grow" />
         <div className="relative">
           <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">

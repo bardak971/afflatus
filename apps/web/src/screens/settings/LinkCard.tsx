@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useSettings } from "../../data";
 import { size } from "../../format";
 import { Select } from "../../Select";
-import { Button, cx, ErrorNote } from "../../ui";
+import { Button, cx, ErrorNote, fieldClass } from "../../ui";
 
 /**
  * A model from a link: the address of a model's page on Civitai or of a file on Hugging Face is pasted,
@@ -47,7 +47,7 @@ export function LinkCard() {
   if (!settings.data?.downloadModels) return null;
   const chosen = found?.files.find((f) => f.name === file);
   const already = found?.have[file];
-  const field = "h-10 min-w-0 rounded-lg border border-line bg-raised px-3 text-xs placeholder:text-ink-3";
+  const field = `h-10 min-w-0 text-xs ${fieldClass}`;
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
       <h2 className="text-[15px] font-bold">Download a model from a URL</h2>

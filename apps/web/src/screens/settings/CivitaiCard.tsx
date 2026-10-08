@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings } from "../../data";
 import { DownloadRow, useDownloads } from "../../GetFile";
-import { Button, cx, ErrorNote, Toggle } from "../../ui";
+import { Button, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
 
 /** Whether Afflatus may ask Civitai where a missing file can be had. Off unless turned on here. */
 export function CivitaiCard() {
@@ -58,7 +58,7 @@ export function CivitaiCard() {
         <div className="flex items-end gap-2">
           <label className="flex min-w-0 grow flex-col gap-1.5">
             <span className="text-xs text-ink-2">Civitai API key {settings.data?.hasCivitaiKey ? "(one is saved)" : "(only needed for models hidden without an account)"}</span>
-            <input type="password" value={key} autoComplete="off" placeholder={settings.data?.hasCivitaiKey ? "leave empty to keep it" : "none"} onChange={(e) => setKey(e.target.value)} className="h-10 min-w-0 rounded-lg border border-line bg-raised px-3 font-mono text-xs placeholder:font-sans placeholder:text-ink-3" />
+            <input type="password" value={key} autoComplete="off" placeholder={settings.data?.hasCivitaiKey ? "leave empty to keep it" : "none"} onChange={(e) => setKey(e.target.value)} className={cx("h-10 min-w-0 font-mono text-xs placeholder:font-sans", fieldClass)} />
           </label>
           <Button onClick={() => save.mutate({ civitaiKey: key })} disabled={!key || save.isPending}>Save</Button>
           {settings.data?.hasCivitaiKey && <Button onClick={() => save.mutate({ civitaiKey: "" })} disabled={save.isPending}>Remove key</Button>}

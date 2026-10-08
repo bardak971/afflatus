@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../api";
-import { AutoText, Button, cx, ErrorNote } from "../ui";
+import { AutoText, Button, cx, ErrorNote, fieldClass } from "../ui";
 
 /** A new snippet, kept under a name and a category: it starts with what the form's prompt holds. */
 export function NewSnippet({ style, categories, first, onDone, onCancel }: {
@@ -31,8 +31,8 @@ export function NewSnippet({ style, categories, first, onDone, onCancel }: {
       }}
     >
       <div className="flex gap-1.5">
-        <input autoFocus aria-label="Name of the new snippet" placeholder="Name" maxLength={120} value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md border border-line bg-ground px-2 placeholder:text-ink-3" />
-        <input aria-label="Category of the new snippet" placeholder="Category (pose, light…)" maxLength={40} value={adding.category} onChange={(e) => setAdding({ ...adding, category: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="h-8 w-40 shrink-0 rounded-md border border-line bg-ground px-2 placeholder:text-ink-3" />
+        <input autoFocus aria-label="Name of the new snippet" placeholder="Name" maxLength={120} value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className={cx("h-8 min-w-0 grow", fieldClass)} />
+        <input aria-label="Category of the new snippet" placeholder="Category (pose, light…)" maxLength={40} value={adding.category} onChange={(e) => setAdding({ ...adding, category: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className={cx("h-8 w-40 shrink-0", fieldClass)} />
       </div>
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-1">
@@ -41,7 +41,7 @@ export function NewSnippet({ style, categories, first, onDone, onCancel }: {
           ))}
         </div>
       )}
-      <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} is a wildcard: one is picked each time" : "A sentence or two. {a|b} is a wildcard: one is picked each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className="rounded-md border border-line bg-ground px-2 py-1.5 text-[13px] placeholder:text-ink-3" />
+      <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} is a wildcard: one is picked each time" : "A sentence or two. {a|b} is a wildcard: one is picked each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className={cx("py-1.5 text-[13px]", fieldClass)} />
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
       <div className="flex items-center justify-end gap-1.5">
         <span className="mr-auto text-xs text-ink-3">{first.trim() ? "Starts with the prompt in the form." : ""}</span>

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Clock, Film, Play, VolumeX } from "lucide-react";
+import { Check, Clock, Film, Play, VolumeX } from "lucide-react";
 import { HoverAudio, HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
 import type { Asset } from "../api";
@@ -35,7 +35,7 @@ export function tileFacts(a: Asset): string {
   ].filter(Boolean).join(" · ");
 }
 
-export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, onMenu, fill, corner }: {
+export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, onMenu, fill, corner, plain }: {
   asset: Asset;
   onOpen(): void;
   /** It is one of the items ticked; and whether any is: a click then ticks instead of opening. */
@@ -51,6 +51,8 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
   fill?: boolean;
   /** A control for its top-right corner, beside the not-kept clock (a stack's "3 takes" button). */
   corner?: ReactNode;
+  /** Nothing written over the picture (its length, its clip, its name on hover, the hover card): what it is is said under it (the draft's results column). */
+  plain?: boolean;
 }) {
   // a video has a preview frame when the server could read one from it
   const [noFrame, setNoFrame] = useState(false);
@@ -80,7 +82,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
   const sound = asset.kind === "audio";
   return (
     <div className={cx("group relative select-none", fill && "h-full")}>
-    {tip.tip && <TileTip asset={asset} at={tip.tip} />}
+    {tip.tip && !plain && <TileTip asset={asset} at={tip.tip} />}
     <button
       type="button"
       draggable
@@ -139,7 +141,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
           Video
         </span>
       )}
-      {asset.kind === "video" && (
+      {asset.kind === "video" && !plain && (
         // its length, or while it plays on hover that it does (and whether muted); clear of the tick when the tick shows
         <span className={cx("absolute top-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 overflow-hidden rounded-md bg-ground/75 px-1.5 py-0.5 text-[10.5px] whitespace-nowrap transition-[left] duration-100", onSelect ? (selecting ? "left-9" : "left-2 group-hover:left-9") : "left-2")}>
           {playing ? (
@@ -155,7 +157,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
           )}
         </span>
       )}
-      {!sound && (
+      {!sound && !plain && (
         // on hover: its name and a dim line of facts; out of the way while the fuller tip shows
         <span className={cx("pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-px bg-gradient-to-b from-transparent to-ground/90 px-2.5 pt-6 pb-2 text-left opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100", tip.tip && "!opacity-0")}>
           <span className="truncate text-[12.5px] font-bold text-ink">{name}</span>
@@ -163,7 +165,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
         </span>
       )}
       {asset.kind === "video" && at !== null && <span aria-hidden className="absolute bottom-0 left-0 z-[2] h-[3px] bg-accent" style={{ width: `${at * 100}%` }} />}
-      {asset.clipOf && !sound && <ClipMark of={asset.clipOf} className="absolute right-2 bottom-2 transition-opacity group-hover:opacity-0" />}
+      {asset.clipOf && !sound && !plain && <ClipMark of={asset.clipOf} className="absolute right-2 bottom-2 transition-opacity group-hover:opacity-0" />}
     </button>
     {/* the corner's control and the clock sit over the tile, beside the button (a button holds no other control); clicks through the clock open the tile */}
     {((!sound && clockMark) || corner) && <span className="pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1 [&>button]:pointer-events-auto">{corner}{!sound && clockMark}</span>}
@@ -183,13 +185,13 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
         }}
         className={cx(
           // a sound's card has its play dot top-left: its tick sits bottom-right
-          "absolute z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
+          "absolute z-10 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[6px] transition-colors",
           sound ? "right-2 bottom-2" : "top-2 left-2",
-          selected ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
+          selected ? "bg-accent text-accent-ink" : "border-[1.5px] border-white/80 bg-ground/60",
           !selected && !selecting && "opacity-0 group-hover:opacity-100 focus:opacity-100",
         )}
       >
-        ✓
+        {selected && <Check size={12} strokeWidth={3.5} />}
       </span>
     )}
     </div>

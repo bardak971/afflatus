@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Film, Folder as FolderIcon, FolderKanban, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Film, Folder as FolderIcon, FolderKanban, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Select } from "../../Select";
 import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api";
 import { ask, askText } from "../../Confirm";
@@ -12,14 +12,13 @@ import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
 import { when } from "../../format";
 import { plainKey } from "../../Keys";
 import { projectForNew } from "../../project";
-import { Button, cx, Empty, ErrorNote } from "../../ui";
+import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
-import { chipsOf, factsOf, stripOf, type ChipTone } from "./timelineCard";
+import { chipsOf, factsOf, stripOf } from "./timelineCard";
 
 const CARD = { S: "minmax(190px,1fr)", M: "minmax(250px,1fr)", L: "minmax(360px,1fr)" } as const;
 /** How tall a card's film strip is, by the cards' size. */
 const STRIP_H = { S: "h-[72px]", M: "h-24", L: "h-32" } as const;
-const TONE: Record<ChipTone, string> = { warn: "bg-warn-wash text-warn-ink", neutral: "bg-raised text-ink-2", good: "bg-good/15 text-good" };
 /** A clip with nothing rendered yet, in the strip. */
 const HATCH = "repeating-linear-gradient(45deg, var(--color-raised) 0 6px, var(--color-panel) 6px 12px)";
 
@@ -296,7 +295,7 @@ function TimelineCard({ t, leaf, size, picked, anyPicked, folder, onClick, onMen
           {/* what needs doing, the same figures as the Projects panel; the folder when the list is every folder's */}
           {(chips.length > 0 || folder !== null) && (
             <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] font-semibold">
-              {chips.map((c) => <span key={c.label} data-tip={c.title} className={cx("rounded-full px-2.5 py-0.5", TONE[c.tone])}>{c.label}</span>)}
+              {chips.map((c) => <Chip key={c.label} tone={c.tone} tip={c.title}>{c.label}</Chip>)}
               {folder !== null && <span className="flex min-w-0 items-center gap-1 rounded-full bg-raised px-2.5 py-0.5 font-normal text-ink-2"><FolderIcon size={10} className="shrink-0" /><span className="truncate">{folder}</span></span>}
             </span>
           )}
@@ -311,12 +310,12 @@ function TimelineCard({ t, leaf, size, picked, anyPicked, folder, onClick, onMen
         onClick={(e) => onClick(e, true)}
         onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onTick(); } }}
         className={cx(
-          "absolute top-3.5 left-3.5 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold",
-          picked ? "border-accent bg-accent text-accent-ink" : "border-white/80 bg-ground/60 text-transparent",
+          "absolute top-3.5 left-3.5 z-10 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[6px] transition-colors",
+          picked ? "bg-accent text-accent-ink" : "border-[1.5px] border-white/80 bg-ground/60",
           !picked && !anyPicked && "opacity-0 group-hover:opacity-100 focus:opacity-100",
         )}
       >
-        ✓
+        {picked && <Check size={12} strokeWidth={3.5} />}
       </span>
     </div>
   );

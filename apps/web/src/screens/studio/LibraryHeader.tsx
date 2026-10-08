@@ -15,7 +15,8 @@ import { KINDS, type LibraryFilters } from "./useLibraryFilters";
 import type { Selection } from "./useSelection";
 
 // "Kept" is not a scope any more: Kept only, in Filters, does it. "All recent": the last two days of every folder, whatever folder is open
-const SCOPES: Array<{ value: Scope; label: string }> = [{ value: "draft", label: "This draft" }, { value: "all", label: "Whole folder" }, { value: "recent", label: "All recent" }];
+// short, so the three stay a segmented control at any width
+const SCOPES: Array<{ value: Scope; label: string }> = [{ value: "draft", label: "Draft" }, { value: "all", label: "Folder" }, { value: "recent", label: "Recent" }];
 // the kinds of media, the Timelines being a view of their own (Media · Timelines)
 const MEDIA_KINDS = KINDS.filter((k) => k.id !== "timeline");
 const GROUP_HINT = {
@@ -48,9 +49,9 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
   // the scope the display is remembered for: with the form closed, the grid is the folder's
   const scopeNow = reach as Scope;
   const { picked } = selection;
-  // one line, always: what does not fit folds, step by step (useFit): 1 the kinds into a menu, 2 the search into an icon, 3 the scopes into a menu
+  // one line, always: what does not fit folds, step by step (useFit): 1 the kinds into a menu, 2 the search into an icon
   const bar = useRef<HTMLElement>(null);
-  const fold = useFit(bar, 3);
+  const fold = useFit(bar, 2);
   const [searching, setSearching] = useState(false);
   // model, LoRA, Kept only and the grouping: set now and then, so in a panel; the button says how many are on
   const filtersButton = useRef<HTMLButtonElement>(null);
@@ -82,13 +83,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
           onChange={(v) => setKind(v === "timelines" ? "timeline" : "all")}
         />
       )}
-      {!showTimelines && view.form && draftId && (fold >= 3 ? (
-        <div className="w-36 shrink-0">
-          <Select size="sm" className="h-9" label="Results shown" value={scopeNow} onChange={(sc) => view.set({ scope: sc as Scope })} options={SCOPES} />
-        </div>
-      ) : (
-        <Segmented oneLine label="Results shown" value={scopeNow} options={SCOPES} onChange={(sc) => view.set({ scope: sc })} />
-      ))}
+      {!showTimelines && view.form && draftId && <Segmented oneLine label="Results shown" value={scopeNow} options={SCOPES} onChange={(sc) => view.set({ scope: sc })} />}
       {/* the display sits right after the scopes, so it stays put whatever the rest of the header holds */}
       {showTimelines ? (
         <>
@@ -110,17 +105,9 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
         <div className="w-32 shrink-0">
           <Select size="sm" className={cx("h-9", kind !== "all" && "border-accent")} label="Kind" value={kind} onChange={(k) => setKind(k as typeof kind)} options={MEDIA_KINDS.map((k) => ({ value: k.id, label: k.label }))} />
         </div>
-      ) : MEDIA_KINDS.map((k) => (
-        <button
-          key={k.id}
-          type="button"
-          aria-pressed={kind === k.id}
-          onClick={() => setKind(k.id)}
-          className={cx("h-[30px] shrink-0 rounded-full border px-3 text-xs font-semibold", kind === k.id ? "border-ink bg-ink text-ground" : "border-line text-ink-2 hover:text-ink")}
-        >
-          {k.label}
-        </button>
-      )))}
+      ) : (
+        <Segmented oneLine label="Kind" value={kind} onChange={(k) => setKind(k)} options={MEDIA_KINDS.map((k) => ({ value: k.id, label: k.label }))} />
+      ))}
       <span className="min-w-2 grow" />
       <div id="timeline-selection-slot" className="contents" />
       {!draftOnly && picked.length > 0 && <SelectionBar place={place} items={items} selection={selection} />}

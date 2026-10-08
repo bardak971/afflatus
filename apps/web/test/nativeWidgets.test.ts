@@ -14,14 +14,18 @@ function tsxFiles(dir: string): string[] {
 
 /**
  * The browser's own widgets look like no theme of the app's: the app has its own for each (VideoPlayer and
- * AudioPlayer for `controls`, a mono text box for a moment or a seed, Select for a list, Confirm for a question).
+ * AudioPlayer for `controls`, a mono text box for a moment or a seed, Slider, Checkbox, Select for a list, Confirm
+ * for a question).
  * The import editor is left out: another piece of work is under way there.
  */
+const IMPORT_EDITOR = ["screens/workflowEditor/", "screens/SwitchDialog.tsx"];
 const NATIVE: Array<[string, RegExp]> = [
   ["the browser's media controls", /<(video|audio)\b[^>]*\bcontrols\b/],
   ["a date or time picker", /type="(date|datetime-local|time|month|week)"/],
   ["a number box with spin arrows", /type="number"/],
   ["a colour picker", /type="color"/],
+  ["the browser's slider (Slider)", /type="range"/],
+  ["the browser's checkbox (Checkbox)", /type="checkbox"/],
   ["a native list", /<select\b/],
   ["a native question", /\b(window\.)?(confirm|alert|prompt)\(/],
 ];
@@ -30,7 +34,7 @@ describe("no native widgets", () => {
   for (const [what, re] of NATIVE) {
     it(`has no ${what}`, () => {
       const found = tsxFiles(SRC)
-        .filter((f) => !relative(SRC, f).replaceAll("\\", "/").startsWith("screens/workflowEditor/"))
+        .filter((f) => !IMPORT_EDITOR.some((p) => relative(SRC, f).replaceAll("\\", "/").startsWith(p)))
         .flatMap((f) => readFileSync(f, "utf8").split("\n").map((line, i) => [f, i, line] as const))
         .filter(([, , line]) => re.test(line) && !/^\s*(\/\/|\*)/.test(line))
         .map(([f, i]) => `${relative(SRC, f)}:${i + 1}`);

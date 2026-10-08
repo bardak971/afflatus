@@ -10,7 +10,7 @@ import { clock, when } from "./format";
 import { useProject } from "./project";
 import { Select } from "./Select";
 import { useBanners, useStudio } from "./store";
-import { Button, ErrorNote } from "./ui";
+import { Button, cx, ErrorNote, fieldClass } from "./ui";
 import { foldersOf } from "./screens/library/tree";
 
 /** Which timeline an item goes to the end of: one of the project's, or a new one. */
@@ -41,7 +41,7 @@ export function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): voi
         <span className="text-xs text-ink-2">{asset.kind === "image" ? "The image goes at the end, as a still you can animate or hold." : "The video goes at the end, as a clip of its own."}</span>
         {add.isError && <ErrorNote>{add.error.message}</ErrorNote>}
         <div className="flex gap-2">
-          <input autoFocus data-search="add-timeline" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search timelines" aria-label="Search timelines" className="h-9 min-w-0 grow rounded-lg border border-line bg-ground px-3 text-sm" />
+          <input autoFocus data-search="add-timeline" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search timelines" aria-label="Search timelines" className={cx(fieldClass, "h-9 min-w-0 grow text-sm")} />
           <div className="w-44 shrink-0">
             <Select size="sm" label="Folder" value={folder} onChange={setFolder} options={[{ value: "any", label: "Every folder" }, ...folders.map((x) => ({ value: x.id, label: x.name })), { value: "root", label: "The project's root" }]} />
           </div>

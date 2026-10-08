@@ -9,7 +9,8 @@ import { ModelLink } from "../ModelLink";
 import { appendTo, removeFrom, wordsIn } from "../promptText";
 import { copyText } from "../secureContext";
 import { Select, type Option } from "../Select";
-import { cx, NumberBox } from "../ui";
+import { cx, fieldClass, NumberBox } from "../ui";
+import { Slider } from "../Slider";
 import { fileOption } from "./FileSelect";
 import { Label } from "./Label";
 
@@ -81,7 +82,7 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
           maxLength={600}
           onChange={(e) => setTyping(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && setTyping(null)}
-          className="h-7 min-w-0 grow rounded-md border border-line bg-ground px-2 text-xs placeholder:text-ink-3"
+          className={`${fieldClass} h-7 min-w-0 grow text-xs`}
         />
         <button type="submit" aria-label="Keep these words" className={small}><Check size={12} /></button>
       </form>
@@ -192,7 +193,8 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
         <div key={l.file} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">
           <div className="flex items-center gap-2">
             <ModelLink folder="loras" file={l.file} className="min-w-0 grow font-semibold" />
-            <input type="range" aria-label={`Strength of ${fileLabel(l.file)}`} min={-1} max={2} step={0.05} value={Math.max(-1, Math.min(2, l.weight))} onChange={(e) => set(i, Number(e.target.value))} className="w-24 shrink-0" />
+            {/* the slider covers −1 to 2; the typed box beside it goes further */}
+            <Slider label={`Strength of ${fileLabel(l.file)}`} min={-1} max={2} step={0.05} zero={0} box={false} value={Math.max(-1, Math.min(2, l.weight))} onChange={(v) => set(i, v)} className="w-24 shrink-0" />
             <NumberBox label={`Strength of ${fileLabel(l.file)}, typed`} value={l.weight} min={-4} max={4} step={0.05} onCommit={(v) => set(i, v)} className="shrink-0 text-xs" />
             <button type="button" aria-label={`Remove ${fileLabel(l.file)}`} onClick={() => onChange(value.filter((_, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover">
               <X size={14} />

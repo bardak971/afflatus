@@ -11,7 +11,7 @@ import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
 import { clock, fileLabel, notReady, recipeLabel, took, when } from "../format";
 import { Select } from "../Select";
-import { Button, cx, SectionTitle } from "../ui";
+import { Button, cx, fieldClass, SectionTitle } from "../ui";
 import { ModelLink } from "../ModelLink";
 import { FORMATS, mb, OPS } from "./shared";
 import { ViewerHeader } from "./ViewerHeader";
@@ -285,7 +285,7 @@ function FolderPicker({ asset }: { asset: Asset }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
-              className="h-8 min-w-0 grow rounded-md bg-raised px-2 placeholder:text-ink-3"
+              className={cx(fieldClass, "h-8 min-w-0 grow px-2")}
             />
             <Button size="sm" tone="quiet" type="submit" disabled={!name.trim()}>Create and move</Button>
           </form>

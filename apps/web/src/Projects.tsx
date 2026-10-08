@@ -5,7 +5,7 @@ import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
 import { Dialog } from "./Dialog";
 import { useProject } from "./project";
-import { Button, cx, ErrorNote } from "./ui";
+import { Button, cx, ErrorNote, fieldClass } from "./ui";
 
 // the panel loads on its first opening: it is not needed to draw the app
 const ProjectsPanel = lazy(() => import("./projects/ProjectsPanel").then((m) => ({ default: m.ProjectsPanel })));
@@ -91,7 +91,7 @@ function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): 
       >
         <span className="text-base font-semibold">New project</span>
         <span className="text-ink-2">A project holds drafts, timelines and folders. It gets a root folder of the same name, where its renders land unless another folder of it is open. The library, the drafts and the timelines then show this project's.</span>
-        <input autoFocus aria-label="Project name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" maxLength={120} className="h-10 rounded-lg border border-line bg-raised px-3 text-ink placeholder:text-ink-3" />
+        <input autoFocus aria-label="Project name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" maxLength={120} className={cx(fieldClass, "h-10")} />
         {make.isError && <ErrorNote>{make.error.message}</ErrorNote>}
         <div className="flex gap-2">
           <Button tone="primary" type="submit" disabled={!name.trim() || make.isPending}>Create</Button>

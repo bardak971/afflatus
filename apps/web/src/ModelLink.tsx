@@ -6,7 +6,7 @@ import { ExternalLink } from "lucide-react";
 import { api, type ModelPage } from "./api";
 import { useModelPages } from "./data";
 import { fileLabel } from "./format";
-import { cx } from "./ui";
+import { cx, fieldClass } from "./ui";
 
 const CIVITAI = /^https?:\/\/(www\.)?civitai\.(com|red)(?=\/|$)/i;
 /** The same page on Civitai's two sites: what one hides the other shows, and a model has the same number on both. */
@@ -146,7 +146,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
                   if (own.trim()) set.mutate({ url: own.trim() });
                 }}
               >
-                <input aria-label="Model page URL" value={own} placeholder="Or paste the model page URL" onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 text-xs placeholder:text-ink-3" />
+                <input aria-label="Model page URL" value={own} placeholder="Or paste the model page URL" onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className={cx(fieldClass, "h-8 min-w-0 grow px-2 text-xs")} />
                 <button type="submit" disabled={!own.trim() || set.isPending} className="shrink-0 rounded-md border border-line-strong px-2 py-1 text-xs hover:bg-hover disabled:opacity-45">Link</button>
               </form>
               {set.isError && <span className="px-2 py-1 text-xs text-warn-ink">{set.error.message}</span>}

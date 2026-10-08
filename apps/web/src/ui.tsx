@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
-import { HelpCircle, Trash2 } from "lucide-react";
+import { Check, HelpCircle, Trash2 } from "lucide-react";
 import { PANEL, useExplain, usePanelWidth } from "./store";
 
 /** The few shapes every screen shares, so that a button looks the same wherever it is. */
@@ -16,12 +16,12 @@ export function Button({ tone = "plain", size = "md", className, ...rest }: Butt
       type="button"
       {...rest}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-lg font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-45",
-        size === "md" ? "h-10 px-4" : "h-8 px-3 text-xs",
-        tone === "primary" && "bg-accent text-accent-ink",
+        "inline-flex items-center justify-center gap-2 font-semibold whitespace-nowrap transition-[filter,background-color] disabled:cursor-not-allowed disabled:opacity-45",
+        size === "md" ? "h-10 rounded-[10px] px-4" : "h-8 rounded-lg px-3 text-xs",
+        tone === "primary" && "bg-accent font-bold text-accent-ink hover:brightness-110",
         tone === "plain" && "border border-line-strong text-ink hover:bg-hover",
-        tone === "quiet" && "bg-hover text-ink",
-        tone === "danger" && "bg-warn text-warn-on",
+        tone === "quiet" && "bg-hover text-ink hover:brightness-110",
+        tone === "danger" && "bg-warn-wash font-bold text-warn-ink hover:brightness-125",
         className,
       )}
     />
@@ -90,7 +90,7 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
           if (e.key === "Enter") e.currentTarget.blur();
           if (e.key === "Escape") setText(null);
         }}
-        className="h-7 w-16 rounded-md border border-line bg-raised px-1.5 text-right text-ink focus:border-accent"
+        className="h-[30px] w-[60px] rounded-lg border border-line bg-raised px-1.5 text-center text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)]"
       />
       {unit && <span>{unit.trim()}</span>}
     </span>
@@ -108,9 +108,13 @@ export function Toggle({ on, onChange, label, note, bare, disabled }: { on: bool
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!on)}
-        className={cx("h-[22px] w-[38px] shrink-0 rounded-full p-[3px]", on ? "bg-accent" : "bg-line-strong", disabled && "cursor-not-allowed")}
+        className={cx(
+          "h-6 w-10 shrink-0 rounded-full p-[3px] transition-[background-color,box-shadow]",
+          on ? "bg-accent" : "bg-line-strong",
+          disabled ? "cursor-not-allowed" : "hover:shadow-[0_0_0_4px_var(--color-accent-wash)]",
+        )}
       >
-        <span className={cx("block h-4 w-4 rounded-full transition-[margin]", on ? "ml-4 bg-knob" : "bg-white")} />
+        <span className={cx("block h-[18px] w-[18px] rounded-full transition-[margin] motion-reduce:transition-none", on ? "ml-4 bg-knob" : "bg-ink")} />
       </button>
       {!bare && <span>{label}</span>}
       {!bare && <Note text={note} />}
@@ -190,32 +194,99 @@ export function PanelEdge({ side }: { side: "left" | "right" }) {
   );
 }
 
-/** A row of choices where one is on. */
-export function Segmented<T extends string>({ value, options, onChange, label, oneLine }: {
+/** A row of choices where one is on: a pill holding them, the one on lit. `sm`: smaller, for a dense bar (time windows). `mono`: choices that are figures (1H, 24H). */
+export function Segmented<T extends string>({ value, options, onChange, label, oneLine, size = "md", mono, className }: {
   value: T;
-  options: Array<{ value: T; label: string }>;
+  options: Array<{ value: T; label: ReactNode; tip?: string }>;
   onChange(value: T): void;
   label: string;
   /** Kept on one line, whatever the room (a bar of switches in a header); otherwise the chips wrap. */
   oneLine?: boolean;
+  size?: "md" | "sm";
+  mono?: boolean;
+  className?: string;
 }) {
   return (
     // the chips wrap onto another line rather than run past the edge of a narrow panel (seven shapes do)
-    <div role="radiogroup" aria-label={label} className={cx("flex gap-1 rounded-[9px] bg-raised p-[3px]", oneLine ? "shrink-0 flex-nowrap" : "max-w-full flex-wrap")}>
+    <div role="radiogroup" aria-label={label} className={cx("flex gap-0.5 rounded-xl bg-raised p-[3px]", oneLine ? "shrink-0 flex-nowrap" : "max-w-full flex-wrap", className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={o.value === value}
+          data-tip={o.tip}
           onClick={() => onChange(o.value)}
-          className={cx("h-7 grow rounded-md px-2 text-xs font-semibold whitespace-nowrap", o.value === value ? "bg-line-strong text-ink-strong" : "text-ink-2")}
+          className={cx(
+            "grow rounded-[9px] whitespace-nowrap transition-colors",
+            size === "md" ? "h-[30px] px-3 text-[12.5px]" : "h-[26px] px-2.5 text-xs",
+            mono && "font-mono",
+            o.value === value ? "bg-line-strong font-bold text-ink" : "font-semibold text-ink-2 hover:bg-hover hover:text-ink",
+          )}
         >
           {o.label}
         </button>
       ))}
     </div>
   );
+}
+
+/** The kit's text box look: a rounded box on the raised colour, an accent ring while typing, the warn colour when what is in it is wrong (aria-invalid). */
+export const fieldClass =
+  "rounded-[10px] border border-line bg-raised px-3 text-ink outline-none placeholder:text-ink-3 focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)] aria-[invalid=true]:border-warn";
+
+/** A box to tick: the app's own, with a third state for "some of them" (a selection that holds part of a list). */
+export function Checkbox({ checked, onChange, label, children, disabled, className }: {
+  checked: boolean | "some";
+  onChange(checked: boolean): void;
+  /** What a screen reader says, when there is no text beside it. */
+  label?: string;
+  children?: ReactNode;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const on = checked !== false;
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked === "some" ? "mixed" : checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange(checked !== true);
+      }}
+      className={cx("group/check inline-flex items-center gap-2.5 text-left disabled:cursor-not-allowed disabled:opacity-50", className)}
+    >
+      <span
+        aria-hidden
+        className={cx(
+          "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] transition-colors",
+          on ? "bg-accent text-accent-ink" : "border-[1.5px] border-line-strong group-hover/check:border-ink-3",
+        )}
+      >
+        {checked === true && <Check size={12} strokeWidth={3.5} />}
+        {checked === "some" && <span className="h-[2.5px] w-2 rounded-full bg-accent-ink" />}
+      </span>
+      {children}
+    </button>
+  );
+}
+
+/** A status chip: what something is (to render, unused, exported), or where it is (a folder), then clickable. */
+export function Chip({ tone = "neutral", children, onClick, tip, className }: { tone?: "neutral" | "warn" | "good" | "accent" | "link"; children: ReactNode; onClick?(): void; tip?: string; className?: string }) {
+  const look = cx(
+    "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold whitespace-nowrap",
+    tone === "neutral" && "bg-hover text-ink-2",
+    tone === "warn" && "bg-warn-wash text-warn-ink",
+    tone === "good" && "bg-good/15 text-good",
+    tone === "accent" && "bg-accent-wash text-accent",
+    tone === "link" && "border border-line-strong text-ink",
+    onClick && "hover:brightness-125",
+    className,
+  );
+  return onClick ? <button type="button" data-tip={tip} onClick={onClick} className={look}>{children}</button> : <span data-tip={tip} className={look}>{children}</span>;
 }
 
 /**
@@ -273,8 +344,8 @@ export function SectionTitle({ children }: { children: ReactNode }) {
 export function Bar({ value, tone = "accent" }: { value: number; tone?: "accent" | "picture" | "warn" }) {
   const color = tone === "accent" ? "bg-accent" : tone === "warn" ? "bg-warn" : "bg-picture";
   return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-line">
-      <div className={cx("h-full", color)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    <div className="h-1.5 overflow-hidden rounded-full bg-line-strong">
+      <div className={cx("h-full rounded-full transition-[width] motion-reduce:transition-none", color)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
     </div>
   );
 }

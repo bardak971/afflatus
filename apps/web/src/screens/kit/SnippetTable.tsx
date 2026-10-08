@@ -6,7 +6,7 @@ import { ask } from "../../Confirm";
 import { fuzzyFilter } from "@afflatus/core";
 import { api, type Entity } from "../../api";
 import { Select } from "../../Select";
-import { AutoText, Button, cx, Empty, ErrorNote, TwoStep } from "../../ui";
+import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
 import { copyText } from "../../secureContext";
 
@@ -62,9 +62,9 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
   return (
     <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} items={items} onClose={menu.close} />}
-      <label className="flex h-8 w-7 items-center justify-center">
-        <input type="checkbox" aria-label={`Tick ${snippet.name}`} checked={ticked} onChange={(e) => onTick(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
-      </label>
+      <span className="flex h-8 w-7 items-center justify-center">
+        <Checkbox label={`Tick ${snippet.name}`} checked={ticked} onChange={onTick} />
+      </span>
       <input
         aria-label="Name of the snippet" value={name} maxLength={120} autoFocus={fresh}
         onFocus={(e) => fresh && e.currentTarget.select()}
@@ -156,16 +156,19 @@ export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: 
     for (const id of ids) (on ? next.add(id) : next.delete(id));
     return next;
   });
-  const chip = (label: string, count: number, value: string | null) => (
-    <button key={label} type="button" aria-pressed={only === value} onClick={() => setOnly(value)} className={cx("flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs", only === value ? "border-ink bg-ink font-semibold text-ground" : "border-line text-ink-2 hover:text-ink")}>
-      {label} <span className={only === value ? "" : "text-ink-3"}>{count}</span>
-    </button>
-  );
+  // "" is the snippets with no category, so "every one" is a value no category can be
+  const EVERY = "\u0000every";
+  const choice = (label: string, count: number, value: string) => ({ value, label: <>{label} <span className="font-normal text-ink-3">{count}</span></> });
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1.5">
-        {chip("All", snippets.length, null)}
-        {categories.map((c) => chip(c || "No category", snippets.filter((s) => s.def.category === c).length, c))}
+        <Segmented
+          size="sm"
+          label="Which category"
+          value={only ?? EVERY}
+          options={[choice("All", snippets.length, EVERY), ...categories.map((c) => choice(c || "No category", snippets.filter((s) => s.def.category === c).length, c))]}
+          onChange={(v) => setOnly(v === EVERY ? null : v)}
+        />
         <span className="grow" />
         <Button size="sm" tone="primary" disabled={create.isPending} onClick={() => create.mutate()}><Plus size={13} /> New snippet{only ? ` in ${only}` : ""}</Button>
       </div>
@@ -188,7 +191,7 @@ export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: 
                     close();
                   }}
                 >
-                  <input aria-label="A new category" placeholder="A new category" maxLength={40} value={newCategory} onChange={(e) => setNewCategory(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="h-8 min-w-0 grow rounded-md bg-raised px-2 placeholder:text-ink-3" />
+                  <input aria-label="A new category" placeholder="A new category" maxLength={40} value={newCategory} onChange={(e) => setNewCategory(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className={cx("h-8 min-w-0 grow", fieldClass)} />
                   <Button size="sm" tone="quiet" type="submit" disabled={!newCategory.trim()}>Move</Button>
                 </form>
               )}
@@ -216,9 +219,9 @@ export function SnippetTable({ snippets, query }: { snippets: Snippet[]; query: 
         return (
           <section key={c || "none"} className="flex flex-col gap-0.5">
             <div className="flex items-center gap-1.5 border-b border-line pb-1">
-              <label className="flex h-7 w-7 items-center justify-center pl-1.5" data-tip={`Tick every snippet of ${c || "no category"}`}>
-                <input type="checkbox" aria-label={`Tick every snippet of ${c || "no category"}`} checked={all} onChange={(e) => tick(rows.map((s) => s.id), e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
-              </label>
+              <span className="flex h-7 w-7 items-center justify-center pl-1.5" data-tip={`Tick every snippet of ${c || "no category"}`}>
+                <Checkbox label={`Tick every snippet of ${c || "no category"}`} checked={all} onChange={(on) => tick(rows.map((s) => s.id), on)} />
+              </span>
               <button type="button" aria-expanded={open} disabled={narrow} onClick={() => fold(c, !open)} className="flex grow items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs font-bold tracking-[0.06em] text-ink-2 uppercase enabled:hover:text-ink">
                 {!narrow && (open ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
                 {c || "No category"}

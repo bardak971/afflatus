@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { pickChoice, RANDOM_SEED, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
 import { useCastPictures } from "./castPictures";
@@ -10,6 +10,7 @@ import { SeedField } from "./fields/SeedField";
 import { SizeField } from "./fields/SizeField";
 import { fileLabel } from "./format";
 import { MaskField } from "./MaskField";
+import { Slider } from "./Slider";
 import { ClipField, PictureField, ReferencesField, SoundField } from "./PictureField";
 import { useExplain } from "./store";
 import { cx, NumberBox, Segmented, Toggle, Help, Note } from "./ui";
@@ -47,7 +48,7 @@ export function defaultOf(spec: InputSpec, options: string[] | undefined): unkno
 
 export const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export function Field({ spec, value, values, options, family, model, onChange, onValue, main }: {
+export function Field({ spec, value, values, options, family, model, onChange, onValue, main, bare, standard }: {
   spec: InputSpec;
   value: unknown;
   /** The whole form, for a field that goes with another one (the part painted over a picture). */
@@ -62,6 +63,10 @@ export function Field({ spec, value, values, options, family, model, onChange, o
   /** Set another input of the form (the part of a sound that is used is two numbers of their own). */
   onValue?(input: string, value: unknown): void;
   main?: MainText;
+  /** A prompt whose name is said by the head over it: its own label only for screen readers. */
+  bare?: boolean;
+  /** What the model starts with: a number's slider marks it with a notch (a click on it goes back). */
+  standard?: unknown;
 }) {
   const id = useId();
   const explain = useExplain((st) => st.on);
@@ -69,7 +74,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
   const cast = useCastPictures(spec.id);
   switch (spec.type) {
     case "prompt":
-      return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} />;
+      return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} bare={bare} />;
 
     case "model":
       return (
@@ -87,42 +92,42 @@ export function Field({ spec, value, values, options, family, model, onChange, o
 
     case "number": {
       const n = Number(value ?? spec.default);
+      const mark = typeof standard === "number" ? standard : undefined;
       return (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5"><label htmlFor={id}>{spec.label}</label>{spec.note && !explain && <Help text={spec.note} />}</span>
-            <NumberBox label={`${spec.label}, typed`} value={n} min={spec.min} max={spec.max} step={spec.step} unit={spec.unit} onCommit={onChange} />
-          </div>
-          <input id={id} type="range" min={spec.min} max={spec.max} step={spec.step} value={n} onChange={(e) => onChange(Number(e.target.value))} className="w-full" />
+        <FieldRow label={spec.label} note={spec.note}>
+          <Slider label={spec.label} value={n} min={spec.min} max={spec.max} step={spec.step} unit={spec.unit} mark={mark} onChange={onChange} />
           {spec.picks && (
             <div className="flex flex-wrap gap-1">
               {spec.picks.map((p) => (
-                <button key={p} type="button" onClick={() => onChange(p)} className={cx("rounded-md border px-2 py-0.5 font-mono text-xs", p === n ? "border-accent text-accent" : "border-line text-ink-2 hover:bg-hover hover:text-ink")}>
+                <button key={p} type="button" onClick={() => onChange(p)} className={cx("rounded-full border px-2 py-0.5 font-mono text-xs", p === n ? "border-accent bg-accent-wash text-accent" : "border-line text-ink-2 hover:bg-hover hover:text-ink")}>
                   {p}{spec.unit?.trim() ?? ""}
                 </button>
               ))}
             </div>
           )}
-          {explain && <Note text={spec.note} />}
-        </div>
+        </FieldRow>
       );
     }
 
     case "toggle":
       if (spec.captions) {
         return (
-          <div className="flex flex-col gap-1.5">
-            <Label note={spec.note}>{spec.label}</Label>
+          <FieldRow label={spec.label} note={spec.note}>
             <Segmented
               label={spec.label}
               value={value ? "on" : "off"}
               options={[{ value: "on", label: spec.captions.on }, { value: "off", label: spec.captions.off }]}
               onChange={(v) => onChange(v === "on")}
+              className="w-fit"
             />
-          </div>
+          </FieldRow>
         );
       }
-      return <Toggle on={Boolean(value)} onChange={onChange} label={spec.label} note={spec.note} />;
+      return (
+        <FieldRow label={spec.label} note={spec.note}>
+          <Toggle bare on={Boolean(value)} onChange={onChange} label={spec.label} />
+        </FieldRow>
+      );
 
     case "choice": {
       // when ComfyUI offers nothing for it (not asked yet, or it lists no file), what is set is still shown
@@ -133,14 +138,13 @@ export function Field({ spec, value, values, options, family, model, onChange, o
       // a few short choices sit side by side; file names and long lists go in a list
       const few = all.length <= 4 && all.every((o) => fileLabel(o).length <= 14);
       return (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={id} note={spec.note}>{spec.label}</Label>
+        <FieldRow label={spec.label} note={spec.note} htmlFor={few ? undefined : id}>
           {few ? (
-            <Segmented label={spec.label} value={current} options={all.map((o) => ({ value: o, label: fileLabel(o) }))} onChange={onChange} />
+            <Segmented label={spec.label} value={current} options={all.map((o) => ({ value: o, label: fileLabel(o) }))} onChange={onChange} className="w-fit" />
           ) : (
             <FileSelect id={id} label={spec.label} value={current} onChange={onChange} files={all.includes(current) ? all : [current, ...all]} folder={Array.isArray(spec.options) ? undefined : FOLDER_OF[spec.options.input]} />
           )}
-        </div>
+        </FieldRow>
       );
     }
 
@@ -171,4 +175,23 @@ export function Field({ spec, value, values, options, family, model, onChange, o
     case "clip":
       return <ClipField label={spec.label} note={spec.note} role={spec.role} optional={Boolean(spec.optional)} value={(value as ClipValue | undefined) ?? null} onChange={onChange} />;
   }
+}
+
+/**
+ * A compact setting on one row: its name on the left (with its ? or, while forms explain themselves, its
+ * line under it), the control on the right. Numbers, switches and choices are drawn so; pictures, prompts and
+ * lists of files keep their own stacked shape.
+ */
+function FieldRow({ label, note, htmlFor, children }: { label: string; note?: string; htmlFor?: string; children: ReactNode }) {
+  const explain = useExplain((st) => st.on);
+  return (
+    <div className="grid min-h-11 grid-cols-[104px_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+      <span className="flex min-w-0 items-center gap-1.5">
+        {htmlFor ? <label htmlFor={htmlFor} className="truncate font-semibold">{label}</label> : <span className="truncate font-semibold">{label}</span>}
+        {note && !explain && <Help text={note} />}
+      </span>
+      <div className="flex min-w-0 flex-col gap-1.5">{children}</div>
+      {explain && note && <span className="col-span-2 text-xs text-ink-2">{note}</span>}
+    </div>
+  );
 }

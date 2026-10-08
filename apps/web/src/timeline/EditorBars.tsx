@@ -3,6 +3,7 @@ import { Camera, Download, Link2, Maximize, Pause, Play, Redo2, Repeat, SkipBack
 import type { Clip, Timeline } from "../api";
 import { aboutMs } from "../format";
 import { Button, cx } from "../ui";
+import { Slider } from "../Slider";
 import type { Clock } from "./clock";
 import { Readout } from "./Readout";
 import type { Slot } from "./model";
@@ -130,7 +131,7 @@ export function Transport({ t, clock, slots, cursor, total, playing, ranged, loo
         <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} data-tip={muted || volume === 0 ? "Unmute" : "Mute"} onClick={onMute} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
           {muted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
         </button>
-        <input type="range" min={0} max={1} step={0.01} value={muted ? 0 : volume} aria-label="Volume" data-tip={`Volume ${Math.round((muted ? 0 : volume) * 100)} %`} onChange={(e) => onVolume(Number(e.target.value))} className="w-20 cursor-pointer accent-accent" />
+        <Slider box={false} min={0} max={1} step={0.01} value={muted ? 0 : volume} label="Volume" format={(v) => `Volume ${Math.round(v * 100)} %`} onChange={onVolume} className="w-20" />
       </div>
       <button type="button" aria-label="Full screen" data-tip="Full screen (Esc leaves it; Space plays and pauses)" disabled={!t.durationMs} onClick={onFullscreen} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Maximize size={15} /></button>
       <button type="button" aria-label="Extend from this frame" data-tip="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || adding} onClick={onExtend} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>

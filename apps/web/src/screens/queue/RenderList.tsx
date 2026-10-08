@@ -2,7 +2,7 @@ import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query
 import { Clapperboard, Image as ImageIcon, X } from "lucide-react";
 import { thumbUrl, type RenderItem, type TimesSummary } from "../../api";
 import { long, pace, took, when } from "../../format";
-import { Button, cx, ErrorNote, SectionTitle } from "../../ui";
+import { Button, Chip, cx, ErrorNote, SectionTitle, Segmented } from "../../ui";
 import { Legend, PhaseBar } from "./phases";
 
 type Page = { total: number; more: boolean; items: RenderItem[] };
@@ -24,15 +24,11 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
     <div className="flex flex-wrap items-center gap-3">
       <SectionTitle>Renders in this window · {renders.data?.pages[0]?.total ?? 0}</SectionTitle>
       {picked && (
-        <button type="button" onClick={() => onModel(null)} className="flex items-center gap-1 rounded-full border border-line-strong px-2.5 py-0.5 text-xs hover:bg-hover">
+        <Chip tone="link" onClick={() => onModel(null)}>
           Only {picked.name} <X size={12} />
-        </button>
+        </Chip>
       )}
-      <div className="flex overflow-hidden rounded-lg border border-line-strong text-xs">
-        {([["all", "All"], ["trouble", "Failed or cancelled"]] as const).map(([v, l]) => (
-          <button key={v} type="button" aria-pressed={only === v} onClick={() => onOnly(v)} className={cx("h-7 px-2.5 font-semibold", only === v ? "bg-accent text-accent-ink" : "text-ink-2 hover:bg-hover hover:text-ink")}>{l}</button>
-        ))}
-      </div>
+      <Segmented<"all" | "trouble"> size="sm" oneLine label="Which renders" value={only} options={[{ value: "all", label: "All" }, { value: "trouble", label: "Failed or cancelled" }]} onChange={onOnly} />
       <div className="grow" />
       <Legend />
     </div>

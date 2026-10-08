@@ -1,5 +1,6 @@
 import { Eraser, Minus, Plus, Undo2, X } from "lucide-react";
-import { Button, NumberBox, Segmented } from "../ui";
+import { Button, Segmented } from "../ui";
+import { Slider } from "../Slider";
 import type { Tool } from "./useBrushCanvas";
 
 /** The painter's bar: the tool, the brush, undo and start over, how close the picture is, and Done. */
@@ -26,11 +27,10 @@ export function PainterToolbar({ tool, onTool, brush, onBrush, canUndo, onUndo, 
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line bg-panel px-5">
       <h2 className="text-base font-semibold">Paint the mask</h2>
       <Segmented<Tool> label="Tool" value={tool} options={[{ value: "paint", label: "Paint" }, { value: "erase", label: "Rub out" }, { value: "move", label: "Move" }]} onChange={onTool} />
-      <label className="flex items-center gap-2 text-ink-2">
+      <span className="flex items-center gap-2 text-ink-2">
         Brush
-        <input type="range" min={8} max={300} step={2} value={brush} aria-label="Size of the brush" onChange={(e) => onBrush(Number(e.target.value))} className="w-36 accent-accent" />
-        <NumberBox label="Size of the brush" value={brush} min={8} max={300} step={2} unit="px" onCommit={onBrush} />
-      </label>
+        <Slider label="Size of the brush" value={brush} min={8} max={300} step={2} unit="px" onChange={onBrush} className="w-56" />
+      </span>
       <Button size="sm" onClick={onUndo} disabled={!canUndo} data-tip="Undo the last stroke (Ctrl+Z)"><Undo2 size={14} /> Undo</Button>
       <Button size="sm" onClick={onClear} disabled={!canClear}><Eraser size={14} /> Start over</Button>
       <span className="flex items-center gap-1">

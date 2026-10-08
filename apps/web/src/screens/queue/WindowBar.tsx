@@ -1,5 +1,5 @@
 import { Kbd } from "../../Keys";
-import { Button, cx } from "../../ui";
+import { Button, cx, fieldClass, Segmented } from "../../ui";
 import { PRESETS, toLocalInput, typedWindow, type View } from "./useTimesView";
 
 /**
@@ -20,11 +20,7 @@ export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom }: {
   const spanMs = shown.to - shown.from;
   return (
     <>
-      <div role="radiogroup" aria-label="Window" className="flex overflow-hidden rounded-lg border border-line-strong">
-        {PRESETS.map((p) => (
-          <button key={p.label} type="button" role="radio" aria-checked={view.preset === p.label} onClick={() => onPreset(p.label)} className={cx("h-8 px-2.5 text-xs font-semibold", view.preset === p.label ? "bg-accent text-accent-ink" : "text-ink-2 hover:bg-hover hover:text-ink")}>{p.label}</button>
-        ))}
-      </div>
+      <Segmented size="sm" mono oneLine label="Window" value={view.preset} options={PRESETS.map((p) => ({ value: p.label, label: p.label }))} onChange={onPreset} />
       <div className="flex items-center gap-1.5 text-xs">
         {(["from", "to"] as const).map((end, i) => (
           <span key={end} className="contents">
@@ -39,7 +35,8 @@ export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom }: {
                 if (e.key === "Enter" && asked) onZoom(asked.from, asked.to);
               }}
               data-tip={typed && !asked ? "Two moments as YYYY-MM-DD HH:MM, the end after the start" : "A moment as YYYY-MM-DD HH:MM"}
-              className={cx("h-8 w-[136px] rounded-lg border bg-raised px-2 font-mono text-xs text-ink outline-none focus:border-accent", typed && !asked ? "border-warn" : "border-line")}
+              aria-invalid={Boolean(typed && !asked)}
+              className={cx("h-8 w-[152px] px-2 font-mono text-xs", fieldClass)}
             />
           </span>
         ))}

@@ -1,7 +1,7 @@
 import { FileDown, Play, Trash2, X } from "lucide-react";
 import type { Entity } from "../../api";
 import { savePresetFile } from "../../presetFile";
-import { Button, cx, TwoStep } from "../../ui";
+import { Button, Chip, TwoStep } from "../../ui";
 
 /** What deleting an item does, said before it is done. */
 export const noteOfDelete = (e: Entity) => (e.kind === "person" || e.kind === "place" ? "Images picked from your library stay there; images uploaded here go to the bin with it." : "It cannot be brought back.");
@@ -22,10 +22,10 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
   return (
     <div className="flex items-center gap-3">
       <input aria-label="Name" value={item.name} onChange={(e) => onRename(e.target.value)} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent px-2 text-xl font-semibold hover:border-line focus:border-accent focus:bg-raised" />
-      <span data-tip={saved === "failed" ? failure ?? undefined : undefined} className={cx("flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px]", saved === "failed" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+      <Chip tone={saved === "failed" ? "warn" : "neutral"} tip={saved === "failed" ? failure ?? undefined : undefined}>
         {saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : `Could not save${failure ? `: ${failure}` : ""}`}
         {saved === "failed" && <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>}
-      </span>
+      </Chip>
       {item.kind === "preset" && (
         <>
           <Button size="sm" tone="primary" onClick={onApply} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>

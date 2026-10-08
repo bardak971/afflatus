@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { Entity } from "../../api";
 import { useRecipes } from "../../data";
 import { usePresetFiles } from "../../PresetFiles";
-import { cx } from "../../ui";
+import { Segmented } from "../../ui";
 import { Badge, Mark, Row } from "./Row";
 
 /** "all", "mine", "missing", or "by:<author>" for the presets shipped under that author's name (none is Afflatus's own: they are called by who made them). */
@@ -11,8 +11,6 @@ type PresetFilter = string;
 const UNNAMED_AUTHOR = "Shipped";
 /** Who a shipped preset is by, as its file says; a shipped file that names nobody is filed under one word. */
 export const authorOf = (e: Entity) => (e.kind === "preset" && e.def.author?.trim()) || UNNAMED_AUTHOR;
-
-const chip = (on: boolean) => cx("h-7 shrink-0 rounded-full border px-2.5 text-xs font-semibold", on ? "border-accent bg-raised text-ink" : "border-line text-ink-2 hover:text-ink");
 
 /**
  * The presets the search leaves, grouped by the model they are for, with filters for yours, the shipped
@@ -85,14 +83,10 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
   return (
     <>
       <div className="flex flex-col gap-2 border-b border-line px-4 py-2.5">
-        <div className="flex flex-wrap gap-1.5">
-          {filters.map((f) => <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)} className={chip(filter === f.id)}>{f.label}</button>)}
-        </div>
+        <Segmented size="sm" label="Whose presets" value={filter} options={filters.map((f) => ({ value: f.id, label: f.label }))} onChange={setFilter} />
         {presetFamilies.length > 1 && (
-          <div className="flex flex-wrap gap-1.5">
-            <button type="button" aria-pressed={!familyFilter} onClick={() => setFamilyFilter(null)} className={chip(!familyFilter)}>Every model</button>
-            {presetFamilies.map((f) => <button key={f.id} type="button" aria-pressed={familyFilter === f.id} onClick={() => setFamilyFilter(familyFilter === f.id ? null : f.id)} className={chip(familyFilter === f.id)}>{f.name}</button>)}
-          </div>
+          // "" is every model
+          <Segmented size="sm" label="Which model" value={familyFilter ?? ""} options={[{ value: "", label: "Every model" }, ...presetFamilies.map((f) => ({ value: f.id, label: f.name }))]} onChange={(id) => setFamilyFilter(id || null)} />
         )}
       </div>
       <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto px-3 py-3">

@@ -13,6 +13,7 @@ import { ModelLink } from "../../ModelLink";
 import { Select } from "../../Select";
 import { localId } from "../../secureContext";
 import { AutoText, Button, cx, NumberBox, SectionTitle } from "../../ui";
+import { Slider } from "../../Slider";
 import { field, takes } from "./shared";
 
 /** The pictures of a person or a place: a row to add to and take from. */
@@ -132,7 +133,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
                   {m.lora && (
                     <label className="flex items-center gap-2 text-xs text-ink-2">
                       weight
-                      <input type="range" min={-1} max={2} step={0.05} value={Math.max(-1, Math.min(2, m.weight))} onChange={(e) => set({ weight: Number(e.target.value) })} className="w-24" />
+                      <Slider label={`Weight of the LoRA of ${name} for ${f.name}`} min={-1} max={2} step={0.05} zero={0} box={false} value={Math.max(-1, Math.min(2, m.weight))} onChange={(v) => set({ weight: v })} className="w-24" />
                       <NumberBox label={`Weight of the LoRA of ${name} for ${f.name}, typed`} value={m.weight} min={-4} max={4} step={0.05} onCommit={(v) => set({ weight: v })} />
                     </label>
                   )}

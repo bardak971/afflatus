@@ -1,8 +1,8 @@
 import { useExplain } from "../store";
-import { Help } from "../ui";
+import { fieldClass, Help } from "../ui";
 
 /** The look of a text or number box of a form. */
-export const field = "w-full rounded-lg border border-line bg-raised px-3 text-ink placeholder:text-ink-3";
+export const field = `w-full ${fieldClass}`;
 
 /** A field's name, with its explanation (a line, or a ? on hover) and, apart from that, what must always be seen beside it ("0 of 6", "set by the start image"). */
 export function Label({ htmlFor, children, note, aside }: { htmlFor?: string; children: string; note?: string; aside?: string }) {

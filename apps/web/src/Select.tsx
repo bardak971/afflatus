@@ -2,6 +2,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
+import { Kbd } from "./Keys";
 import { cx } from "./ui";
 
 export interface Option {
@@ -144,16 +145,15 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
           }
         }}
         className={cx(
-          "flex w-full min-w-0 items-center gap-2 rounded-lg text-left",
-          size === "md" ? "h-10 px-3" : "h-8 px-2.5 text-xs",
-          dashed ? "border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink" : "border border-line bg-raised text-ink",
-          open && "border-accent",
+          "flex w-full min-w-0 items-center gap-2 text-left transition-colors",
+          size === "md" ? "h-10 rounded-[10px] px-3" : "h-8 rounded-lg px-2.5 text-xs",
+          dashed ? "border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink" : open ? "border border-accent bg-accent-wash text-ink" : "border border-line-strong bg-raised text-ink hover:border-ink-3",
           className,
         )}
       >
         {icon}
-        <span className={cx("min-w-0 grow truncate", !dashed && selected && "font-medium", !selected && !dashed && "text-ink-3")}>{selected?.label ?? placeholder}</span>
-        {!dashed && <ChevronDown size={15} className="shrink-0 text-ink-2" />}
+        <span className={cx("min-w-0 grow truncate", !dashed && selected && "font-semibold", !selected && !dashed && "text-ink-3")}>{selected?.label ?? placeholder}</span>
+        {!dashed && <ChevronDown size={15} className={cx("shrink-0 transition-transform motion-reduce:transition-none", open ? "rotate-180 text-accent" : "text-ink-2")} />}
       </button>
 
       {open && place && createPortal(
@@ -161,7 +161,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
           ref={panel}
           data-floating
           style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height }}
-          className="fixed z-[70] flex flex-col overflow-hidden rounded-xl border border-line-strong bg-panel shadow-2xl shadow-shade/60"
+          className="fixed z-[70] flex flex-col overflow-hidden rounded-[14px] border border-line-strong bg-panel shadow-2xl shadow-shade/60"
         >
           <div className="flex shrink-0 items-center gap-2 border-b border-line px-3">
             <Search size={14} className="shrink-0 text-ink-3" />
@@ -198,7 +198,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
           <div ref={list} id={listId} role="listbox" aria-label={label} className="flex min-h-0 grow flex-col overflow-y-auto p-1">
             {shown.map((o, i) => (
               <Fragment key={o.value}>
-              {o.group && o.group !== shown[i - 1]?.group && <div className={cx("shrink-0 px-2 pt-2 pb-1 text-[10px] font-bold tracking-[0.08em] uppercase", o.marked ? "text-accent" : "text-ink-3")}>{o.group}</div>}
+              {o.group && o.group !== shown[i - 1]?.group && <div className={cx("shrink-0 px-2 pt-2.5 pb-1 text-[11px] font-bold tracking-[0.08em] uppercase", o.marked ? "text-accent" : "text-ink-3")}>{o.group}</div>}
               <button
                 type="button"
                 id={optionId(i)}
@@ -208,7 +208,12 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 data-index={i}
                 onClick={() => pick(o)}
                 onPointerMove={() => setActive(i)}
-                className={cx("flex min-h-8 shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left", i === active ? "bg-hover" : o.marked && "bg-accent-wash", o.marked && "mb-0.5")}
+                className={cx(
+                  "flex min-h-8 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left",
+                  o.value === value ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : i === active ? "bg-hover" : o.marked && "bg-accent-wash",
+                  o.value === value && i === active && "brightness-110",
+                  o.marked && "mb-0.5",
+                )}
               >
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center text-accent">{o.value === value && <Check size={14} strokeWidth={3} />}</span>
                 <span className="flex min-w-0 grow flex-col">
@@ -223,6 +228,11 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
             {found.length > shown.length && <span className="px-3 py-2 text-xs text-ink-3">{found.length - shown.length} more: type to narrow the list.</span>}
           </div>
           {footer && <div className="shrink-0 border-t border-line p-1.5">{footer(() => close())}</div>}
+          <div aria-hidden className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-[11px] text-ink-3">
+            <span className="flex items-center gap-1"><Kbd>â†‘</Kbd><Kbd>â†“</Kbd> move</span>
+            <span className="flex items-center gap-1"><Kbd>â†µ</Kbd> pick</span>
+            <span className="flex items-center gap-1"><Kbd>Esc</Kbd> close</span>
+          </div>
         </div>,
         document.body,
       )}

@@ -103,7 +103,7 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
  * A text box of a prompt. Ctrl + ↑ / ↓ changes the weight of the tag the cursor is in, or of what is
  * selected: (red dress:1.1). In a prompt of sentences only a selection is weighed.
  */
-export function PromptField({ spec, id, value, values, onChange }: { spec: Extract<InputSpec, { type: "prompt" }>; id: string; value: string; values?: Record<string, unknown>; onChange(value: string): void }) {
+export function PromptField({ spec, id, value, values, onChange, bare }: { spec: Extract<InputSpec, { type: "prompt" }>; id: string; value: string; values?: Record<string, unknown>; onChange(value: string): void; bare?: boolean }) {
   const settings = useSettings();
   const checked = spec.style === "tags" && !spec.optional && Boolean(settings.data?.tagCheck);
   const ignore = useLoraWords(checked ? values : undefined);
@@ -112,7 +112,8 @@ export function PromptField({ spec, id, value, values, onChange }: { spec: Extra
   const snippetKeys = useSnippetKeys({ value, onChange });
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id} note={spec.note}>{spec.label}</Label>
+      {/* bare: the head over it already names it (the Create panel's Prompt row) */}
+      {bare ? <label htmlFor={id} className="sr-only">{spec.label}</label> : <Label htmlFor={id} note={spec.note}>{spec.label}</Label>}
       <div data-snippet-box className="relative flex flex-col">
       <AutoText
         id={id}

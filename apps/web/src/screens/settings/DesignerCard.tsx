@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type LlmInfo, type Settings } from "../../api";
 import { useSettings } from "../../data";
-import { AutoText, Button, ErrorNote, TwoStep } from "../../ui";
+import { AutoText, Button, cx, ErrorNote, fieldClass, TwoStep } from "../../ui";
 import { LlmEditor } from "./LlmEditor";
 
 const shortId = () => Math.random().toString(36).slice(2, 10);
@@ -36,7 +36,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
       <div className="flex items-center gap-2">
-        <input aria-label="Name of this system prompt" value={name} placeholder="A name: Photographer, Anime, Explicit…" onChange={(e) => setName(e.target.value)} className="h-9 min-w-0 grow rounded-lg border border-line bg-raised px-3 font-semibold placeholder:font-normal placeholder:text-ink-3" />
+        <input aria-label="Name of this system prompt" value={name} placeholder="A name: Photographer, Anime, Explicit…" onChange={(e) => setName(e.target.value)} className={cx("h-9 min-w-0 grow font-semibold placeholder:font-normal", fieldClass)} />
         {inUse && <span className="shrink-0 rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">in use</span>}
         {dirty && <Button size="sm" tone="primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Save</Button>}
         <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>

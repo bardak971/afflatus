@@ -11,7 +11,7 @@ import { size } from "../../format";
 import { useFolderImport } from "../../folderImport";
 import { useProject } from "../../project";
 import type { Place } from "../../store";
-import { cx, ErrorNote, TwoStep } from "../../ui";
+import { cx, ErrorNote, fieldClass, TwoStep } from "../../ui";
 import { foldersOf, tree } from "./tree";
 import { useFolderMutations } from "./useFolderMutations";
 
@@ -94,7 +94,7 @@ function NewFolderForm({ adding, inside, onSubmit, onDone }: { adding: "inside" 
         spellCheck={false}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => { if (!text.trim()) onDone(); }}
-        className={cx("h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5", adding === "link" && "font-mono text-xs")}
+        className={cx(fieldClass, "h-[34px] w-full", adding === "link" && "font-mono text-xs")}
       />
       {adding === "link" && <span className="px-1 text-xs text-ink-3">A folder the computer Afflatus runs on can read. Its images, videos and audio files show here and are used in place; nothing is copied. Press Enter.</span>}
     </form>
@@ -222,7 +222,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       {tree(scoped).map((f) =>
         editing?.id === f.id ? (
           <form key={f.id} onSubmit={(e) => { e.preventDefault(); if (editing.text.trim()) m.rename.mutate({ id: f.id, name: editing.text.trim() }); setEditing(null); }} style={{ paddingLeft: f.depth * 14 }}>
-            <input autoFocus aria-label="Folder name" value={editing.text} onChange={(e) => setEditing({ id: f.id, text: e.target.value })} onBlur={() => setEditing(null)} onKeyDown={(e) => e.key === "Escape" && setEditing(null)} className="h-[34px] w-full rounded-lg border border-accent bg-raised px-2.5" />
+            <input autoFocus aria-label="Folder name" value={editing.text} onChange={(e) => setEditing({ id: f.id, text: e.target.value })} onBlur={() => setEditing(null)} onKeyDown={(e) => e.key === "Escape" && setEditing(null)} className={`${fieldClass} h-[34px] w-full`} />
           </form>
         ) : (
           <FolderRow

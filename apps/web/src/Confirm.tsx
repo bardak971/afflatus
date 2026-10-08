@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { create } from "zustand";
 import { Dialog } from "./Dialog";
-import { Button } from "./ui";
-import { field } from "./screens/kit/shared";
+import { Button, cx, fieldClass } from "./ui";
 
 /**
  * A question asked before something that cannot simply be undone from where it was done (a file taken
@@ -86,7 +85,7 @@ function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
           }
         }}
         onFocus={(e) => e.currentTarget.select()}
-        className={field}
+        className={cx(fieldClass, "w-full py-2")}
       />
       <div className="flex justify-end gap-2 pt-1">
         <Button tone="quiet" onClick={() => open.answer(null)}>Cancel</Button>
