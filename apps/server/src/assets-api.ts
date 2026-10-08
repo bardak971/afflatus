@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
-import { nameOf, soundName } from "./autoName";
+import { nameOf, shownNames, soundName } from "./autoName";
 import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
@@ -121,6 +121,9 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
       .orderBy("assets.created_at", "desc").limit(24).execute();
     // which timeline clip it, and what was made from it, is a take of: the viewer leads there
     const placed = await s.timelines.clipOf([a.id, ...usedIn.map((u) => u.id)]);
+    // what came before and after it, by the names they go by when they were given none
+    const shown = await shownNames(s.db, [...sources.map(({ role: _, ...row }) => row), ...usedIn], (id) => s.registry.recipe(id)?.title);
+    const named = <T extends { id: string }>(v: T) => (shown.has(v.id) ? { ...v, shownName: shown.get(v.id) } : v);
     return {
       ...assetView(a),
       ...(await withShownName(s, a)),
@@ -130,8 +133,8 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
       generation: g
         ? { id: g.id, recipe: g.recipe_id, family: g.family, inputs: JSON.parse(g.inputs), resolved: JSON.parse(g.resolved), tookMs: g.gen_ms, ...(g.asked ? { asked: JSON.parse(g.asked) } : {}) }
         : null,
-      sources: sources.map(({ role, ...row }) => ({ role, asset: assetView(row) })),
-      usedIn: usedIn.map((u) => ({ ...assetView(u), clipOf: placed.get(u.id) ?? null })),
+      sources: sources.map(({ role, ...row }) => ({ role, asset: named(assetView(row)) })),
+      usedIn: usedIn.map((u) => named({ ...assetView(u), clipOf: placed.get(u.id) ?? null })),
       // a frame or a cut: the video it was taken from, and the range when it is one
       source: await (async () => {
         if (!a.source_id) return null;
