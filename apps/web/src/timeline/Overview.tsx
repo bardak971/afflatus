@@ -8,7 +8,7 @@ import { useEntities, useFolders, useProjects } from "../data";
 import { FieldRow } from "../fields";
 import { Kbd } from "../Keys";
 import { lookWords } from "../LookBar";
-import { aboutMs, clock } from "../format";
+import { aboutMs } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Segmented } from "../ui";
@@ -22,7 +22,7 @@ const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabl
  * selects the clip), its music, its cast and mood, and the two things done to the whole: render what is
  * missing, export.
  */
-export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, total, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
+export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, onPick, onMusic, onCast, onFolder, onRenderAll, rendering, picked, onRenderPicked }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
   aspect: { value: string; options: Array<{ value: string; label: string; note?: string; detail?: string }>; onChange(value: string): void };
   timeline: Timeline;
@@ -30,8 +30,6 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   missing: Clip[];
   misfits: number;
   allMs: number;
-  /** How long it is planned to be, every clip counted (rendered or not), as the header says it. */
-  total: number;
   onPick(clip: string): void;
   onMusic(): void;
   onCast(): void;
@@ -105,9 +103,6 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   if (stale.length > 0) problems.push({ key: "stale", text: `${stale.length} join${stale.length === 1 ? "" : "s"} no longer hold${stale.length === 1 ? "s" : ""}: the clip before changed`, ids: stale.map((c) => c.id), warn: true, act: unrendered.length === 0 ? renderAct : undefined });
   if (failed.length > 0) problems.push({ key: "failed", text: `${failed.length} failed to render`, ids: failed.map((c) => c.id), warn: true });
   if (wrong.length > 0) problems.push({ key: "shape", text: `${misfits} in another aspect ratio, shown with bars`, ids: wrong.map((c) => c.id) });
-  // rendered and planned, as the header has them
-  const now = clock(t.durationMs);
-  const planned = clock(total);
   const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
   const shapeWords = aspect.value === "first" ? "Shape from the first clip" : aspect.options.find((o) => o.value === aspect.value)?.label;
   const castWords = [cast, t.mood].filter(Boolean).join(" · ");
@@ -115,9 +110,7 @@ export function Overview({ timeline: t, aspect, clips, missing, misfits, allMs, 
   return (
     <>
       <div className="flex flex-wrap gap-1.5">
-        <Chip tip={now === planned ? "How long it plays" : "Rendered so far, of the length every clip planned makes"}>
-          <span>{now === planned ? <span className="font-mono">{now}</span> : <><span className="font-mono">{now}</span> of <span className="font-mono">{planned}</span></>}</span>
-        </Chip>
+        {/* its length is in the editor's header: not said twice */}
         <Chip>{`${clips.length} clip${clips.length === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`}</Chip>
         <Chip className={t.width && t.height ? "font-mono" : undefined}>{t.width && t.height ? `${t.width}×${t.height}` : "frame from the first clip"}</Chip>
         {project && (

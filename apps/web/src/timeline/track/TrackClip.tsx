@@ -143,10 +143,8 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         )}
         {c.kind === "still" && c.still && <img src={thumbUrl(c.still.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
         {live && <LivePreview job={live} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
-        <span className="absolute inset-x-0 top-0 flex items-center gap-1 bg-gradient-to-b from-ground/85 to-transparent px-1.5 pt-1 pb-3">
-          <span className="shrink-0 rounded bg-ground/85 px-1.5 py-px text-[11px] font-bold">{s.index + 1}</span>
-          {s.width > 86 && <span className="min-w-0 truncate text-[11px] font-semibold">{titleOf(c, recipe)}</span>}
-        </span>
+        {/* its number only: the frames stay clean (the prompt is in its hover card and its panel) */}
+        <span className="absolute top-1 left-1.5 rounded bg-ground/85 px-1.5 py-px text-[11px] font-bold">{s.index + 1}</span>
         <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">
           {c.job ? (
             <span className="flex min-w-0 grow flex-col gap-1 rounded bg-ground/85 px-1.5 py-1 text-[11px]">

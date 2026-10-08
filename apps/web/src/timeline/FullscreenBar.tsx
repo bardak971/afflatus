@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
-import { Minimize, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
+import { Minimize, Pause, Play, Repeat, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fileUrl, type Clip, type Timeline } from "../api";
 import { clock as clockText } from "../format";
@@ -21,6 +21,10 @@ export interface ScreenControls {
   onSeek(ms: number): void;
   onVolume(volume: number): void;
   onMute(): void;
+  /** To the clip before or after, selecting it as the editor's buttons and [ ] do; left out, the bar only seeks. */
+  onJump?(by: -1 | 1): void;
+  /** A range is marked: whether it loops, and the switch (L). */
+  loop?: { on: boolean; toggle(): void };
 }
 
 /** How long the controls stay up without a move while it plays. */
@@ -138,6 +142,7 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
   const tag = onScreen ? `Clip ${onScreen.n}${takeNo ? ` · take ${takeNo}` : onScreen.clip.kind === "still" && onScreen.clip.still ? " · still" : ""}` : null;
   // back: to the start of this clip, or of the one before when already there (as the editor's own buttons)
   const jump = (by: -1 | 1) => {
+    if (c.onJump) return c.onJump(by);
     const p = by === 1 ? parts[here + 1] : at - (onScreen?.clip.atMs ?? 0) > 400 ? onScreen : parts[Math.max(0, here - 1)];
     if (p) c.onSeek(p.clip.atMs);
   };
@@ -166,6 +171,8 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
         <div className="absolute top-[22px] right-7 flex gap-3.5 text-[11.5px] text-ink-2">
           <Keys keys={["Space"]} does="play" />
           {seeks && <Keys keys={["←", "→"]} does="frame" />}
+          {seeks && c.onJump && <Keys keys={["[", "]"]} does="clip" />}
+          {c.loop && <Keys keys={["L"]} does="loop" />}
           <Keys keys={["Esc"]} does="leave" />
         </div>
       </div>
@@ -187,6 +194,11 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
               </span>
             )}
             <span className="grow" />
+            {c.loop && (
+              <button type="button" aria-pressed={c.loop.on} data-tip={c.loop.on ? "Looping the range" : "Loop the range"} data-tip-keys="L" onClick={c.loop.toggle} className={cx("flex h-[30px] items-center gap-1.5 rounded-[9px] px-2.5 text-xs font-semibold", c.loop.on ? "bg-accent/25 text-accent" : "bg-ink/10 text-ink hover:bg-ink/15")}>
+                <Repeat size={14} /> Loop range
+              </button>
+            )}
             <span className="flex items-center gap-1">
               <button type="button" aria-label={quiet ? "Unmute" : "Mute"} data-tip={quiet ? "Unmute" : "Mute"} onClick={c.onMute} className={button}>
                 {quiet ? <VolumeX size={17} /> : <Volume2 size={17} />}

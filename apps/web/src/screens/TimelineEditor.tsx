@@ -279,7 +279,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const stepping = undo.isPending || redo.isPending;
   // Ctrl+Enter: the selected clip renders (set once the clip actions exist, below)
   const renderNow = useRef(() => {});
-  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false), renderNow });
+  // [ and ]: the clip before or after (set once jump exists, below)
+  const jumpNow = useRef<(by: -1 | 1) => void>(() => {});
+  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false), renderNow, jumpNow });
 
   const jump = (by: -1 | 1) => {
     const time = clock.get();
@@ -291,6 +293,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     player.current?.seek(target.atMs);
     select(target.id);
   };
+  jumpNow.current = jump;
 
   /**
    * Cut the clip at this moment of it and add a clip that continues from there: one step to undo (the server stops the clip
@@ -403,7 +406,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         />
 
         <main className="flex min-w-0 grow flex-col">
-            <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} master={muted ? 0 : volume} screen={{ clock, total, playing, volume, muted, onToggle: toggle, onSeek: (ms) => player.current?.seek(ms), onVolume: (v) => { setVolume(v); setMuted(false); }, onMute: () => { if (volume === 0) { setVolume(1); setMuted(false); } else setMuted((x) => !x); } }} onPickPreview={(take) => { if (current) patch.mutate({ clip: current.id, patch: { take: take.id } }); setPreview(null); }} />
+            <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} master={muted ? 0 : volume} screen={{ clock, total, playing, volume, muted, onToggle: toggle, onSeek: (ms) => player.current?.seek(ms), onVolume: (v) => { setVolume(v); setMuted(false); }, onMute: () => { if (volume === 0) { setVolume(1); setMuted(false); } else setMuted((x) => !x); }, onJump: jump, loop: range ? { on: loopRange, toggle: toggleLoop } : undefined }} onPickPreview={(take) => { if (current) patch.mutate({ clip: current.id, patch: { take: take.id } }); setPreview(null); }} />
         </main>
         </div>
           {range && <RangeBar range={range} emptyRange={emptyRange} clips={clips} snapQuiet={snapQuiet} onSnapQuiet={toggleSnapQuiet} items={rangeItems()} />}
@@ -544,7 +547,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 missing={missing}
                 misfits={misfits}
                 allMs={allMs}
-                total={total}
                 onPick={(id) => select(id)}
                 onMusic={() => setMusicOpen(true)}
                 onCast={() => setCasting(true)}
