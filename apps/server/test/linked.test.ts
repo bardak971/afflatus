@@ -161,6 +161,9 @@ describe("a folder linked to a directory of the disk", () => {
     // made into the folder, but not a file of the directory until it is kept
     expect(made).toMatchObject({ kept: false, path: null });
     expect(readdirSync(dir).filter((f) => f.endsWith(".png") && !f.startsWith("."))).toEqual(["one.png"]);
+    // named after its prompt when made (autoName.ts); a file with no name of its own is named after its day and prompt
+    expect(made.name).toBe("Terrace at Sunset, 1girl 01");
+    await t.db.updateTable("assets").set({ name: "" }).where("id", "=", made.id).execute();
 
     const kept = (await post(t.app, `/api/assets/${made.id}/keep`, { kept: true })).json();
     const day = new Date().toISOString().slice(0, 10);

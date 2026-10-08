@@ -190,7 +190,7 @@ export function CommandBar() {
       pause: ["Pause the queue", queue.data ? `${queue.data.running ? "1 running" : "nothing running"}, ${queue.data.waiting.length} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
       resume: ["Resume the queue", `${queue.data?.waiting.length ?? 0} waiting`],
       "empty-bin": ["Empty the bin", "Asked first · cannot be undone"],
-      "bin-unused": [`Bin the unused takes of ${t}`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} takes · asked first` : "It has none") : "Asked first"],
+      "bin-unused": [`Bin the unused takes of ${t}`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} take${aim.entry.unusedTakes === 1 ? "" : "s"} · asked first` : "It has none") : "Asked first"],
       "link-folder": [c.cmd === "link-folder" && c.path ? `Link ${c.path}` : "Link a folder of your disk", "Used in place, nothing copied"],
       "new-project": [`New project “${c.cmd === "new-project" ? c.name : ""}”`, "Made, and worked in"],
     };
@@ -460,7 +460,7 @@ export function CommandBar() {
             <div className="flex items-center gap-3 border-b border-line px-5 py-4">
               <Search size={20} strokeWidth={2.2} className={cx("shrink-0", MODE_TONE[mode])} aria-hidden />
               {acting && (
-                <button type="button" tabIndex={-1} onClick={() => setActing(null)} className="flex max-w-[45%] shrink-0 items-center gap-1.5 rounded-lg bg-accent/15 px-2.5 py-1 text-[13px] font-semibold text-accent" title="Back to the results (Tab or Esc)">
+                <button type="button" tabIndex={-1} onClick={() => setActing(null)} className="flex max-w-[45%] shrink-0 items-center gap-1.5 rounded-lg bg-accent/15 px-2.5 py-1 text-[13px] font-semibold text-accent" data-tip="Back to the results (Tab or Esc)">
                   <span className="truncate">{acting.item.label}</span><ChevronRight size={14} className="shrink-0 opacity-70" />
                 </button>
               )}

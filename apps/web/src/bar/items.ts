@@ -44,6 +44,16 @@ export const GROUP_OF: Record<Kind, Group> = {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const KIND_WORD = { image: "Image", video: "Video", audio: "Sound" } as const;
 
+/**
+ * A timeline's length: what is rendered of it, and what the editor's header says (clips not rendered yet at the length their
+ * form asks for) when that is more. "0:12 rendered of 0:42"; one figure when both read the same.
+ */
+export function timelineLength(e: { durationMs: number; plannedMs: number }): string {
+  const rendered = clock(e.durationMs);
+  const planned = clock(e.plannedMs);
+  return rendered === planned ? rendered : `${rendered} rendered of ${planned}`;
+}
+
 /** Every entry of the index as a row: its words, its detail line, its project said by name. */
 export function indexItems(entries: readonly CommandEntry[], recipes: readonly RecipeInfo[], current: string | null): Item[] {
   const projects = new Map<string, { label: string; archived: boolean }>();
@@ -58,7 +68,7 @@ export function indexItems(entries: readonly CommandEntry[], recipes: readonly R
     const base = { key: `${e.kind}:${e.id}`, label: e.label, p: prepare(e.label), entry: e };
     switch (e.kind) {
       case "timeline":
-        out.push({ ...base, kind: "timeline", group: "Timelines", verb: "open", archived: archived(e.project), meta: ["Timeline", plural(e.clips, "clip"), clock(e.durationMs), e.exported && "exported", place(e.project)].filter(Boolean).join(" · ") });
+        out.push({ ...base, kind: "timeline", group: "Timelines", verb: "open", archived: archived(e.project), meta: ["Timeline", plural(e.clips, "clip"), timelineLength(e), e.exported && "exported", place(e.project)].filter(Boolean).join(" · ") });
         break;
       case "draft":
         out.push({ ...base, kind: "draft", group: "Drafts", verb: "open", archived: archived(e.project), meta: ["Draft", recipeTitle.get(e.recipe) ?? e.recipe, plural(e.renders, "render"), when(e.updatedAt), place(e.project)].join(" · ") });

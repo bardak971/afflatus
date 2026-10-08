@@ -26,7 +26,7 @@ const listQuery = z.object({
   q: z.string().max(200).optional(),
   /** Only what was made with this model family. */
   family: z.string().optional(),
-  /** Only what was kept. */
+  /** Only what was kept ("1"); "0": only what was not. */
   kept: z.string().optional(),
   /** Only what was made with this model file (a checkpoint, a diffusion model), or with this LoRA. */
   model: z.string().max(500).optional(),
@@ -99,7 +99,8 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
       const own = await folderIdsOf(s.db, q.project);
       query = own.length ? query.where("folder_id", "in", own) : query.where("folder_id", "=", "-");
     }
-    if (q.kept) query = query.where("kept_at", "is not", null);
+    if (q.kept === "0") query = query.where("kept_at", "is", null);
+    else if (q.kept) query = query.where("kept_at", "is not", null);
     if (q.since) query = query.where("created_at", ">=", q.since);
     if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
     if (q.draft) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("draft_id", "=", q.draft));

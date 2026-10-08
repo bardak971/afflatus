@@ -238,8 +238,14 @@ export async function peekAt(source: Media, ext: string, atMs: number, height = 
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "peek.jpg");
-    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", (Math.max(0, atMs) / 1000).toFixed(3), "-i", input, "-frames:v", "1", "-vf", `scale=-2:${Math.max(48, Math.min(480, height))}`, "-q:v", "4", out]);
-    const bytes = await readFile(out).catch(() => null);
+    const scale = `scale=-2:${Math.max(48, Math.min(480, height))}`;
+    const seeked = await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", (Math.max(0, atMs) / 1000).toFixed(3), "-i", input, "-frames:v", "1", "-vf", scale, "-q:v", "4", out]).then(() => true, () => false);
+    let bytes = seeked ? await readFile(out).catch(() => null) : null;
+    // a moment inside the last frame (a clip's end, asked for by its length) seeks past every frame: the last one is taken instead
+    if (!bytes?.length) {
+      await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-sseof", "-0.5", "-i", input, "-vf", scale, "-q:v", "4", "-update", "1", out]);
+      bytes = await readFile(out).catch(() => null);
+    }
     if (!bytes?.length) throw new CutError("No picture could be taken from that moment of the video.");
     return new Uint8Array(bytes);
   });

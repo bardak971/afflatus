@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { capName, draftLabel, finishedName, numbered, takeName } from "../src/autoName";
+import { backfillLabelNames, capName, draftLabel, finishedName, givenLabel, numbered, takeName } from "../src/autoName";
 import { migrate, newId, openSqlite, OWNER, type Db } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { CHECKPOINT, complete, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -73,7 +73,7 @@ describe("what a draft made", () => {
     await fake.close().catch(() => {});
   });
 
-  it("is named after the draft and numbered on; a render sent from no draft keeps no name", async () => {
+  it("is named after the draft and numbered on; a render sent from no draft after its prompt, numbered past the same words", async () => {
     const recipe = "sdxl.text-to-picture";
     const named = (await post(t.app, "/api/drafts", { recipe, forms: { [recipe]: { prompt: "a harbour at dusk" } } })).json();
     await t.app.inject({ method: "PUT", url: `/api/drafts/${named.id}`, payload: { name: "Harbor walk" } });
@@ -91,7 +91,34 @@ describe("what a draft made", () => {
     await make({ draft: untitled.id });
     await make({});
     const names = (await t.db.selectFrom("assets").select("name").orderBy("created_at").execute()).map((a) => a.name);
-    expect(names).toEqual(["Harbor walk 01", "Harbor walk 02", "two gulls on a mooring 01", ""]);
+    expect(names).toEqual(["Harbor walk 01", "Harbor walk 02", "two gulls on a mooring 01", "two gulls on a mooring 02"]);
+  });
+
+  it("sent from no draft with a label: named after it and numbered on past the highest; with the recipe's own title, after the prompt", async () => {
+    const recipe = "sdxl.text-to-picture";
+    const make = async (label?: string) => {
+      const before = fake.prompts.size;
+      const filed = (await t.db.selectFrom("assets").select("id").execute()).length;
+      await post(t.app, "/api/jobs", { recipe, input: { prompt: "a pier in the fog", checkpoint: CHECKPOINT }, ...(label === undefined ? {} : { label }) });
+      await until(() => fake.prompts.size === before + 1);
+      complete(fake, [...fake.prompts.keys()].at(-1)!);
+      await until(async () => (await t.db.selectFrom("assets").select("id").execute()).length === filed + 1);
+      return (await t.db.selectFrom("assets").select(["id", "name"]).orderBy("created_at", "desc").orderBy("id", "desc").executeTakeFirstOrThrow());
+    };
+    const label = "Harbor walk · A01 wide";
+    expect((await make(label)).name).toBe("Harbor walk · A01 wide 01");
+    const second = await make(` ${label} `);
+    expect(second.name).toBe("Harbor walk · A01 wide 02");
+    expect((await make(label)).name).toBe("Harbor walk · A01 wide 03");
+    // the second thrown away and the first renamed by hand: the next is still the fourth
+    await t.db.deleteFrom("assets").where("id", "=", second.id).execute();
+    await t.db.updateTable("assets").set({ name: "the good one" }).where("name", "=", "Harbor walk · A01 wide 01").execute();
+    expect((await make(label)).name).toBe("Harbor walk · A01 wide 04");
+    // another label counts on its own, even one that starts the same
+    expect((await make("Harbor walk · A01 wide, closer")).name).toBe("Harbor walk · A01 wide, closer 01");
+    // the queue's own label (the recipe's title), or none, says nothing: the first words of the prompt name it instead
+    expect((await make("txt2img")).name).toBe("a pier in the fog 01");
+    expect((await make()).name).toBe("a pier in the fog 02");
   });
 });
 
@@ -137,6 +164,61 @@ describe("migration 0046, names for what was made before", () => {
       f1: "Harbor walk · c2 · t2, a frame",
       p1: "a harbour at dusk under 01", p2: "mine", p3: "a harbour at dusk under 03", p4: "", p5: "",
     });
+    await db.destroy();
+  });
+});
+
+describe("migration 0047, names for what was sent with a label before", () => {
+  const at = (i: number) => new Date(Date.UTC(2026, 9, 1, 12, 0, i)).toISOString();
+
+  it("tells a given label from the recipe's title", () => {
+    expect(givenLabel("Harbor walk · A01 wide", "sdxl.text-to-picture", "txt2img")).toBe("Harbor walk · A01 wide");
+    expect(givenLabel(" txt2img ", "sdxl.text-to-picture", "txt2img")).toBe("");
+    expect(givenLabel("Text to picture", "krea2.text-to-picture")).toBe("");
+    expect(givenLabel("Harbor-walk Picture", "workflow.harbor-walk-picture")).toBe("");
+    expect(givenLabel("", "sdxl.text-to-picture", "txt2img")).toBe("");
+  });
+
+  it("numbers the nameless results of labelled jobs in the order made, past the numbers already given; leaves the rest", async () => {
+    const db: Db = openSqlite(":memory:");
+    await migrate(db, "0046_auto_names");
+    await db.insertInto("drafts").values({ id: "d", owner_id: OWNER, project_id: null, target: "new", recipe_id: "sdxl.text-to-picture", title: "a pier", name: null, forms: "{}", count: 1, chat: null, look: null, created_at: at(0), updated_at: at(0) } as never).execute();
+    const made = async (n: number, opts: { label: string; name?: string; draft?: string | null; clip?: string | null; noJob?: boolean; inputs?: string }) => {
+      const g = `g${n}`;
+      await db.insertInto("generations").values({ id: g, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: opts.inputs ?? "{}", resolved: "{}", gen_ms: 1, draft_id: opts.draft ?? null, created_at: at(n) } as never).execute();
+      if (!opts.noJob) {
+        await db.insertInto("jobs").values({
+          id: `j${n}`, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", label: opts.label, inputs: "{}", status: "done", warm: 0, look: null, priority: 10, depends_on: null,
+          attempts: 1, resume: null, error: null, generation_id: g, clip_id: opts.clip ?? null, draft_id: opts.draft ?? null, folder_id: null, created_at: at(n), updated_at: at(n),
+        } as never).execute();
+      }
+      await db.insertInto("assets").values({ ...video(opts.name ?? "", { kind: "image", generation_id: g }), id: `a${n}`, created_at: at(n) }).execute();
+    };
+    const label = "Harbor walk · A01 wide";
+    await made(1, { label, name: `${label} 05` });
+    await made(2, { label });
+    await made(3, { label, name: "kept by hand" });
+    await made(4, { label });
+    await made(5, { label: "Harbor walk · B02 close" });
+    await made(6, { label: "txt2img" });
+    await made(7, { label: "Harbor walk · C03", draft: "d" });
+    await made(8, { label: "Harbor walk · c1 · take 1 of 2", clip: "c" });
+    await made(9, { label, noJob: true });
+    // the queue's own label: named after the first words of the prompt, numbered past what those words already have
+    await made(10, { label: "txt2img", name: "a quiet harbour at dawn 02", draft: "d" });
+    await made(11, { label: "txt2img", inputs: JSON.stringify({ prompt: "  a quiet harbour at dawn, gulls over the water" }) });
+    await made(12, { label: "txt2img", inputs: "not json" });
+    // a given label still wins over the prompt
+    await made(13, { label, inputs: JSON.stringify({ prompt: "a quiet harbour at dawn" }) });
+
+    expect(await migrate(db)).toContain("0047_label_names");
+    const names = Object.fromEntries((await db.selectFrom("assets").select(["id", "name"]).execute()).map((a) => [a.id, a.name]));
+    expect(names).toEqual({
+      a1: `${label} 05`, a2: `${label} 06`, a3: "kept by hand", a4: `${label} 07`, a5: "Harbor walk · B02 close 01",
+      a6: "", a7: "", a8: "", a9: "", a10: "a quiet harbour at dawn 02", a11: "a quiet harbour at dawn 03", a12: "", a13: `${label} 08`,
+    });
+    // run again, nothing is left to name
+    expect(await backfillLabelNames(db, () => "txt2img")).toBe(0);
     await db.destroy();
   });
 });

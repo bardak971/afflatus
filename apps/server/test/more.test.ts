@@ -49,6 +49,8 @@ describe("finding things in the library", () => {
     await post(t.app, `/api/assets/${market}/keep`, { kept: true });
     expect(await ids("/api/assets?kept=1")).toEqual([market]);
     expect(await ids("/api/assets?kept=1&q=terrace")).toEqual([]);
+    // and the other way round: only what was not kept (the library's "Show only these")
+    expect(await ids("/api/assets?kept=0")).toEqual([terrace]);
   });
 });
 

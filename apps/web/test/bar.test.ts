@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { castPlace, clipRefuses, withPerson, type ClipCast } from "../src/bar/castTo";
 import { atTop } from "../src/screens/queue/order";
 import { arithmetic, calc, gridFramesAtLeast, ratioOf, sizeFor, type Grid } from "../src/bar/calc";
+import { indexItems, timelineLength } from "../src/bar/items";
 import { highlight, pieces, prepare, QUALITY, score, search } from "../src/bar/match";
 import { clipList, modeOf, parseCommand, sizeOf } from "../src/bar/parse";
 import { bonus, bumped, frecency, HALF_LIFE_MS, KEPT, recentKeys } from "../src/bar/rank";
@@ -237,5 +238,20 @@ describe("where @name puts a person", () => {
     const look = { cast: [{ id: "p1", outfit: "o1" }], style: "s1", snippets: ["n1"] };
     expect(withPerson(look, "p2")).toEqual({ cast: [{ id: "p1", outfit: "o1" }, { id: "p2" }], style: "s1", snippets: ["n1"] });
     expect(withPerson(look, "p1")).toBeNull();
+  });
+});
+
+describe("a timeline's length in the bar", () => {
+  it("says what is rendered of the length the editor plans, one figure when they read the same", () => {
+    expect(timelineLength({ durationMs: 12_000, plannedMs: 42_200 })).toBe("0:12 rendered of 0:42");
+    expect(timelineLength({ durationMs: 42_000, plannedMs: 42_000 })).toBe("0:42");
+    expect(timelineLength({ durationMs: 42_000, plannedMs: 42_300 })).toBe("0:42");
+  });
+  it("puts it on the timeline's row", () => {
+    const [row] = indexItems([{
+      kind: "timeline", id: "t1", label: "Harbor walk", project: null, folder: null, updatedAt: "2026-10-08T00:00:00.000Z",
+      clips: 3, durationMs: 12_000, plannedMs: 42_200, exported: false, unusedTakes: 0, unusedBytes: 0,
+    }], [], null);
+    expect(row!.meta).toBe("Timeline · 3 clips · 0:12 rendered of 0:42 · Inbox");
   });
 });

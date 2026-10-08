@@ -15,7 +15,7 @@ import { unusedSize, unusedTakes } from "./timelineUnused";
  */
 
 export type CommandEntry =
-  | { kind: "timeline"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; clips: number; durationMs: number; exported: boolean; unusedTakes: number; unusedBytes: number }
+  | { kind: "timeline"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; clips: number; durationMs: number; plannedMs: number; exported: boolean; unusedTakes: number; unusedBytes: number }
   | { kind: "draft"; id: string; label: string; project: string | null; updatedAt: string; recipe: string; renders: number }
   | { kind: "asset"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; assetKind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; bytes: number; hasThumb: boolean }
   | { kind: "project"; id: string; label: string; updatedAt: string; archived: boolean; timelines: number; items: number; bytes: number }
@@ -90,7 +90,7 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
     if (p) p.timelines += 1;
     entries.push({
       kind: "timeline", id: t.id, label: t.name, project, folder: folderOf(t.folderId), updatedAt: t.updatedAt || t.createdAt,
-      clips: t.clips, durationMs: t.durationMs, exported: t.exported, ...unusedSize(unused.get(t.id)),
+      clips: t.clips, durationMs: t.durationMs, plannedMs: t.plannedMs, exported: t.exported, ...unusedSize(unused.get(t.id)),
     });
   }
 

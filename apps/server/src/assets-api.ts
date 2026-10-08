@@ -86,15 +86,18 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
       .selectFrom("generation_inputs").innerJoin("assets", "assets.generation_id", "generation_inputs.generation_id").selectAll("assets")
       .where("generation_inputs.asset_id", "=", a.id).where("assets.deleted_at", "is", null)
       .orderBy("assets.created_at", "desc").limit(24).execute();
+    // which timeline clip it, and what was made from it, is a take of: the viewer leads there
+    const placed = await s.timelines.clipOf([a.id, ...usedIn.map((u) => u.id)]);
     return {
       ...assetView(a),
+      clipOf: placed.get(a.id) ?? null,
       // who was in it, as far back as it is known: what is made from it next can start with the same people
       look: castOf(await madeIn(s, a.id)),
       generation: g
         ? { id: g.id, recipe: g.recipe_id, family: g.family, inputs: JSON.parse(g.inputs), resolved: JSON.parse(g.resolved), tookMs: g.gen_ms, ...(g.asked ? { asked: JSON.parse(g.asked) } : {}) }
         : null,
       sources: sources.map(({ role, ...row }) => ({ role, asset: assetView(row) })),
-      usedIn: usedIn.map(assetView),
+      usedIn: usedIn.map((u) => ({ ...assetView(u), clipOf: placed.get(u.id) ?? null })),
       // a frame or a cut: the video it was taken from, and the range when it is one
       source: await (async () => {
         if (!a.source_id) return null;

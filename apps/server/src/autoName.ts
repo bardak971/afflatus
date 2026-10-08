@@ -1,8 +1,9 @@
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 
 /**
  * The names a render is given when it is made, so that the library does not fill with nameless files: a take
- * of a timeline clip is "<timeline> · c<clip> · t<take>", what a draft made is "<draft> 01", "<draft> 02"…
+ * of a timeline clip is "<timeline> · c<clip> · t<take>", what a draft made is "<draft> 01", "<draft> 02"…, what was
+ * sent from no draft "<label> 01" after the label it was given, else after the first words of its prompt.
  * A name that is already there is never replaced: one given by hand wins. Migration 0046 names the
  * results made before this with the same rules, from what the database still says.
  */
@@ -209,5 +210,114 @@ export async function backfillNames(db: AnyDb, recipeTitle: (id: string) => stri
   }
 
   for (const [id, name] of given) await db.updateTable("assets").set({ name }).where("id", "=", id).where("name", "=", "").execute();
+  return given.size;
+}
+
+/**
+ * The label a job was sent with, when someone gave it one: a job sent without one is labelled with its recipe's title
+ * by the queue (queue.ts), which says nothing a name should. Empty when the label is that title, or the recipe id said in words.
+ */
+export function givenLabel(label: string | null | undefined, recipeId: string, recipeTitle?: string): string {
+  const clean = (label ?? "").trim().replace(/\s+/g, " ");
+  // compared without case, dashes or underscores: an imported workflow deleted since is only known by its id ("workflow.harbor-walk")
+  const plain = (a: string) => a.trim().replace(/[\s_-]+/g, " ").toLowerCase();
+  const same = (a: string) => plain(a) === plain(clean);
+  if (!clean || same(recipeId) || same(recipeWords(recipeId)) || (recipeTitle !== undefined && same(recipeTitle))) return "";
+  return clean;
+}
+
+/** The number after `label` in a name numbered from it (capped as numbered() caps it), else 0. */
+function numberAfter(label: string, name: string): number {
+  const m = / (\d+)$/.exec(name);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  return numbered(label, n) === name ? n : 0;
+}
+
+/**
+ * The highest number already given after each of these labels, among every asset's name. Read by the start the names
+ * share however they were cut (a cut is never before the middle of NAME_MAX): code points, as SQLite and Postgres count.
+ */
+async function highestAfter(db: AnyDb, labels: string[]): Promise<Map<string, number>> {
+  const out = new Map(labels.map((l) => [l, 0]));
+  const starts = new Map<string, string[]>();
+  for (const l of labels) {
+    const start = [...capName(l)].slice(0, 30).join("");
+    starts.set(start, [...(starts.get(start) ?? []), l]);
+  }
+  const list = [...starts.keys()];
+  for (let i = 0; i < list.length; i += 200) {
+    const chunk = list.slice(i, i + 200);
+    const rows = (await db.selectFrom("assets").select("name").where((eb) => eb.or(chunk.map((s) => eb(sql`substr(name, 1, ${[...s].length})`, "=", s)))).execute()) as Array<{ name: string }>;
+    for (const { name } of rows) {
+      for (const s of chunk) {
+        if (!name.startsWith(s)) continue;
+        for (const l of starts.get(s)!) out.set(l, Math.max(out.get(l)!, numberAfter(l, name)));
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * What the results of a job sent from no draft and for no clip are called before their number: the label it was given,
+ * else the first words of its prompt (as a draft with no title is labelled). Empty when it has neither.
+ */
+export function jobLabel(label: string | null | undefined, recipe: { id: string; title?: string }, prompt?: string | null): string {
+  return givenLabel(label, recipe.id, recipe.title) || firstWords(prompt ?? "");
+}
+
+/**
+ * The names of `count` results of a job sent from no draft and for no clip, from the label it was given or the start of its
+ * prompt: numbered on past the highest number already given after that label (so that one thrown away is not named again).
+ * Empty when the label is only the recipe's title and there is no prompt.
+ */
+export async function labelNames(db: AnyDb, label: string | null | undefined, count: number, recipe: { id: string; title: string }, prompt?: string | null): Promise<string[]> {
+  const given = jobLabel(label, recipe, prompt);
+  if (!given) return [];
+  const from = (await highestAfter(db, [given])).get(given) ?? 0;
+  return Array.from({ length: count }, (_, i) => numbered(given, from + i + 1));
+}
+
+/** Names written many at a time: one statement per two hundred, and never over a name already there. */
+async function writeNames(db: AnyDb, given: Map<string, string>): Promise<void> {
+  const all = [...given];
+  for (let i = 0; i < all.length; i += 200) {
+    const chunk = all.slice(i, i + 200);
+    const cases = sql.join(chunk.map(([id, name]) => sql`when ${id} then ${name}`), sql` `);
+    await db.updateTable("assets").set({ name: sql`case id ${cases} end` }).where("id", "in", chunk.map(([id]) => id)).where("name", "=", "").execute();
+  }
+}
+
+/**
+ * Every nameless result of a job sent from no draft and for no clip, whose job is still in the queue's list: named
+ * "<label> NN" after the label given to it, else after the first words of its prompt, numbered in the order they were
+ * made, past the numbers that label already has. `recipeTitle` says a recipe's title (undefined when not known), to tell
+ * a given label from the queue's own. Returns how many were named.
+ */
+export async function backfillLabelNames(db: AnyDb, recipeTitle: (id: string) => string | undefined): Promise<number> {
+  const rows = (await db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
+    .innerJoin("jobs", "jobs.generation_id", "generations.id")
+    .select(["assets.id as id", "jobs.label as label", "jobs.recipe_id as recipe_id", "generations.inputs as inputs"])
+    .where("assets.name", "=", "").where("generations.draft_id", "is", null).where("jobs.draft_id", "is", null).where("jobs.clip_id", "is", null)
+    .orderBy("assets.created_at").orderBy("assets.id").execute()) as Array<{ id: string; label: string; recipe_id: string; inputs: string }>;
+  const promptIn = (inputs: string) => {
+    try {
+      return promptOf(JSON.parse(inputs) as Record<string, unknown>);
+    } catch {
+      return ""; // a record that cannot be read: named after its label only
+    }
+  };
+  const labelled = rows.map((r) => ({ id: r.id, label: jobLabel(r.label, { id: r.recipe_id, title: recipeTitle(r.recipe_id) }, promptIn(r.inputs)) })).filter((r) => r.label);
+  if (!labelled.length) return 0;
+  const next = await highestAfter(db, [...new Set(labelled.map((r) => r.label))]);
+  const given = new Map<string, string>();
+  for (const r of labelled) {
+    if (given.has(r.id)) continue;
+    const n = next.get(r.label)! + 1;
+    next.set(r.label, n);
+    given.set(r.id, numbered(r.label, n));
+  }
+  await writeNames(db, given);
   return given.size;
 }

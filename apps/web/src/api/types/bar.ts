@@ -6,7 +6,7 @@
  * `updatedAt`: its last change, else when it was made (an item of the library, a folder: when it was made).
  */
 export type CommandEntry =
-  | { kind: "timeline"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; clips: number; durationMs: number; exported: boolean; unusedTakes: number; unusedBytes: number }
+  | { kind: "timeline"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; clips: number; durationMs: number; plannedMs: number; exported: boolean; unusedTakes: number; unusedBytes: number }
   | { kind: "draft"; id: string; label: string; project: string | null; updatedAt: string; recipe: string; renders: number }
   | { kind: "asset"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; assetKind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; bytes: number; hasThumb: boolean }
   | { kind: "project"; id: string; label: string; updatedAt: string; archived: boolean; timelines: number; items: number; bytes: number }

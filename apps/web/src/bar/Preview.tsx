@@ -5,7 +5,7 @@ import { useTimeline } from "../data";
 import { mainTextOf } from "../form";
 import { clock, recipeLabel, size, took, when } from "../format";
 import { cx } from "../ui";
-import type { Item } from "./items";
+import { timelineLength, type Item } from "./items";
 import type { SettingCtx } from "./settingsRegistry";
 import { pageLabel, valueSaid } from "./settingsRegistry";
 
@@ -98,7 +98,7 @@ function TimelinePreview({ e }: { e: Extract<CommandEntry, { kind: "timeline" }>
       <Title title={e.label} sub={`Timeline · edited ${when(e.updatedAt)}`} />
       <Facts facts={[
         { k: "clips", v: String(e.clips) },
-        { k: "length", v: clock(e.durationMs) },
+        { k: "length", v: timelineLength(e) },
         { k: "unused takes", v: e.unusedTakes ? `${e.unusedTakes} · ${size(e.unusedBytes)}` : "none" },
         { k: "export", v: e.exported ? "done" : "not yet" },
         ...(t?.width && t.height ? [{ k: "frame", v: `${t.width}×${t.height}` }] : []),

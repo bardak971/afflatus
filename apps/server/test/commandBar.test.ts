@@ -77,10 +77,25 @@ describe("the command bar's index", () => {
     expect(of(harbor.id)).toMatchObject({ kind: "project", label: "Harbor walk", archived: false, timelines: 1, items: 3, bytes: 123 });
     expect(of(shots.id)).toMatchObject({ kind: "folder", label: "shots", project: harbor.id, parent: null, items: 2, linked: false });
     expect(of(loose.id)).toMatchObject({ kind: "folder", project: null, items: 1 });
-    expect(of(tl.id)).toMatchObject({ kind: "timeline", label: "Harbor cut", project: harbor.id, clips: 0, durationMs: 0, exported: false, unusedTakes: 0, unusedBytes: 0 });
+    expect(of(tl.id)).toMatchObject({ kind: "timeline", label: "Harbor cut", project: harbor.id, clips: 0, durationMs: 0, plannedMs: 0, exported: false, unusedTakes: 0, unusedBytes: 0 });
     expect(of(named.id)).toMatchObject({ kind: "draft", label: "Night market", project: harbor.id, recipe: "sdxl.text-to-picture", renders: 2 });
     expect(of(blank.id)).toMatchObject({ kind: "draft", label: "No prompt yet", project: null, renders: 0 });
     for (const e of entries) expect(typeof e.updatedAt).toBe("string");
+  });
+
+  it("says a timeline's rendered length and the length the editor plans, clips with nothing yet at their form's length", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "Harbor walk" });
+    const [picture] = await put(asset(null, { name: "Pier" }));
+    const clip = (position: number, over: Record<string, unknown>) => t.db.insertInto("clips").values({
+      id: newId(), timeline_id: tl.id, position, take_id: null, joined: "cut", recipe_id: "h3.video", inputs: "{}", kind: "video", still_asset_id: null, still_ms: 3000,
+      sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: null, chat: null, created_at: now(), updated_at: now(), ...over,
+    }).execute();
+    // a still that plays 3 s, a clip asking for 7 s and one asking for its model's default (5 s), neither rendered
+    await clip(0, { kind: "still", recipe_id: null, still_asset_id: picture });
+    await clip(1, { inputs: JSON.stringify({ seconds: 7 }) });
+    await clip(2, {});
+    const entry = (await index()).find((e) => e.id === tl.id);
+    expect(entry).toMatchObject({ kind: "timeline", clips: 3, durationMs: 3000, plannedMs: 15_000 });
   });
 
   it("answers for 10 000 items in well under a second", async () => {

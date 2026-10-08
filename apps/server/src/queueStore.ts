@@ -1,6 +1,6 @@
 import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
 import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
-import { draftNames, promptOf } from "./autoName";
+import { draftNames, labelNames, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
 import { frameAt, lookOf, repairJoinAudio, runUpBreak, type Measure } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
@@ -62,7 +62,7 @@ export const draftOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, ass
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   outputs: Outputs,
-  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null },
+  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null },
 ): Promise<string> {
   const { db, storage } = core;
   const files = collectOutputs(resume, outputs);
@@ -88,10 +88,15 @@ export async function store(
       rows.push(newAssetRow({ ...filed.row, folder_id: folder, generation_id: generationId, created_at: at }));
     }
     // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
+    const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);
     if (row.draft_id && !row.clip_id) {
-      const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);
       const names = await draftNames(db, row.draft_id, rows.length, { prompt: promptOf(input, prompts), recipe: recipe.title });
       names?.forEach((name, i) => (rows[i]!.name ||= name));
+    } else if (!row.draft_id && !row.clip_id) {
+      // sent from no draft (by the API, a batch): named after the label it was given, numbered on; a label that is only
+      // the recipe's title says nothing, so the first words of its prompt are used then (as for a draft with no title)
+      const names = await labelNames(db, row.label, rows.length, recipe, promptOf(input, prompts));
+      names.forEach((name, i) => (rows[i]!.name ||= name));
     }
     await writeRows(db, { id: generationId, recipe, input, resolved, genMs: Date.now() - resume.startedAt, at }, row, sourcesOf(recipe, input, resume), rows);
   } catch (err) {

@@ -62,7 +62,7 @@ describe("the projects tree", () => {
     expect(a.folders.map((f: { name: string }) => f.name)).toEqual(["boards", "shots"]);
     expect(a.folders[1]).toMatchObject({ id: shots.id, items: 1, totalItems: 2, bytes: 23, children: [{ id: close.id, items: 1, totalItems: 1, bytes: 3, children: [] }] });
     expect(a.folders[0]).toMatchObject({ id: boards.id, items: 0, totalItems: 0, bytes: 0 });
-    expect(a.timelines).toEqual([{ id: tl.id, name: "Cut one", folderId: alpha.folderId, clips: 0, durationMs: 0, bytes: 0, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: expect.any(String), updatedAt: expect.any(String) }]);
+    expect(a.timelines).toEqual([{ id: tl.id, name: "Cut one", folderId: alpha.folderId, clips: 0, durationMs: 0, plannedMs: 0, bytes: 0, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: expect.any(String), updatedAt: expect.any(String) }]);
     expect(z).toMatchObject({ rootFolderId: zed.folderId, folders: [], counts: { items: 0 } });
     expect(o).toMatchObject({ archived: true });
   });
