@@ -53,6 +53,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
 
   const act = useRef<(e: KeyboardEvent) => void>(() => {});
   act.current = (e) => {
+    // a key already taken by another part of the screen is not taken twice
+    if (e.defaultPrevented) return;
     // drawn in place, it leaves the keys to whatever is open over the screen
     if (inline && document.querySelector("[role=dialog][aria-modal=true]")) return;
     if (e.key === "Escape") {
@@ -78,7 +80,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     else if (e.key === "ArrowRight" && !inPlayer && !trim) move(1);
     else if (k === "x" && canCompare) toggleCompare();
     else if (a.inBin) return;
-    else if (k === "n" && a.kind !== "audio") timelineMenu.startFrom(a);
+    // drawn in place (the Studio's stage), N is the Studio's own (it folds the form): a timeline starts from the menus there
+    else if (k === "n" && !inline && a.kind !== "audio") timelineMenu.startFrom(a);
     else if (k === "a" && a.kind !== "audio" && timelineMenu.addToLast) timelineMenu.addToLast(a);
     else if (k === "s") keep.mutate(!a.kept);
     else if (e.key === "Delete") void toBin();

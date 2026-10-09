@@ -68,7 +68,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // N opens the form, or folds it away, from anywhere on the screen (not while typing)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "n" || e.ctrlKey || e.metaKey || e.altKey || !plainKey(e) || document.querySelector("[role=dialog][aria-modal=true]")) return;
+      if (e.defaultPrevented || e.key.toLowerCase() !== "n" || e.ctrlKey || e.metaKey || e.altKey || !plainKey(e) || document.querySelector("[role=dialog][aria-modal=true]")) return;
       e.preventDefault();
       useStudio.getState().set({ form: !useStudio.getState().form });
     };
@@ -175,19 +175,27 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     };
   }, []);
 
-  // what is ticked is of the list that is shown: another folder, another search, and nothing is
-  const listKey = JSON.stringify([place, kind, q, made, lora, kept, unkept, draftOnly, reach]);
-  const selection = useSelection({ items, listKey, binned: place.type === "bin", off: draftOnly || Boolean(open) });
-  const { picked, tick, bulk, moveTo } = selection;
   // the grid in sections (grouping.ts); the stacks of takes shown opened
   const [openStacks, setOpenStacks] = useState<Set<string>>(new Set());
   const sections = useMemo(() => groupItems(items, view.groupBy ?? "none", openStacks), [items, view.groupBy, openStacks]);
-  // the stage's strip: the grid's sections end to end (By timeline / By draft keep only what has one)
-  const staged = useMemo(() => sections.flatMap((s) => s.entries.map((e) => e.asset)), [sections]);
+  // what is on screen, in its order: the grid's sections end to end (By timeline / By draft keep only what has one;
+  // a folded stack is its top take). The stage's strip, and what is ticked, ranged and walked with the arrows
+  const visible = useMemo(() => sections.flatMap((s) => s.entries.map((e) => e.asset)), [sections]);
+  // what is ticked is of the list that is shown: another folder, another search, another grouping, and nothing is
+  const listKey = JSON.stringify([place, kind, q, made, lora, kept, unkept, draftOnly, reach, view.groupBy ?? "none"]);
+  const selection = useSelection({ items: visible, listKey, binned: place.type === "bin", off: draftOnly || Boolean(open) });
+  const { picked, setPicked, tick, bulk, moveTo } = selection;
   const groupedEmpty = view.groupBy === "draft"
     ? { title: "Nothing here came from a draft", body: "Grouped by draft, only what a draft made shows. Imports and older renders have no draft. Choose No groups to see everything." }
     : { title: "Nothing here is on a timeline", body: "Grouped by timeline, only takes of a timeline's clips show. Choose No groups to see everything." };
-  const flipStack = (key: string) => setOpenStacks((old) => { const n = new Set(old); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const flipStack = (key: string) => {
+    // folded back, the takes under the top one leave the screen, and what is ticked of them is unticked
+    if (openStacks.has(key)) {
+      const hidden = new Set(sections.flatMap((s) => s.entries).filter((e) => e.stack === key && e.takes && e.asset.id !== e.takes[0]!.id).map((e) => e.asset.id));
+      setPicked((old) => old.filter((id) => !hidden.has(id)));
+    }
+    setOpenStacks((old) => { const n = new Set(old); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  };
   const tileOf = (e: ReturnType<typeof groupItems>[number]["entries"][number]) => {
     const a = e.asset;
     const opened = e.stack ? openStacks.has(e.stack) : false;
@@ -235,13 +243,13 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     <div className="flex min-h-0 min-w-0 grow">
       {view.form ? <CreatePanel folder={panelFolder} onClose={closePanel} /> : <FormRail onOpen={() => view.set({ form: true })} />}
       <div className="flex min-w-0 grow flex-col">
-        <LibraryHeader place={place} placeName={placeName} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} items={items} filters={filters} selection={selection} />
+        <LibraryHeader place={place} placeName={placeName} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} items={visible} filters={filters} selection={selection} />
 
         <div className={cx("min-h-0 grow px-5 pt-1.5", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
           {draftOnly ? (
             stageOfDraft
               ? <DraftResults draft={draftId!} folder={folder?.id} />
-              : <DraftResults folder={folder?.id} empty={items.length && !staged.length ? groupedEmpty : undefined} list={{ items: staged, hasNextPage: Boolean(assets.hasNextPage), more: () => void assets.fetchNextPage(), hasPreviousPage: Boolean(assets.hasPreviousPage), newer: () => void assets.fetchPreviousPage(), loading: assets.isFetchingNextPage || assets.isFetchingPreviousPage, ready: assets.isSuccess }} title={reach === "recent" ? "All recent" : placeName} />
+              : <DraftResults folder={folder?.id} empty={items.length && !visible.length ? groupedEmpty : undefined} list={{ items: visible, hasNextPage: Boolean(assets.hasNextPage), more: () => void assets.fetchNextPage(), hasPreviousPage: Boolean(assets.hasPreviousPage), newer: () => void assets.fetchPreviousPage(), loading: assets.isFetchingNextPage || assets.isFetchingPreviousPage, ready: assets.isSuccess }} title={reach === "recent" ? "All recent" : placeName} />
           ) : (
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
@@ -300,7 +308,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
           />
         </Popover>
       )}
-      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={items} onOpen={setOpen} onClose={() => setOpen(null)} />}
+      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={visible} onOpen={setOpen} onClose={() => setOpen(null)} />}
       {gridMenu.element}
     </div>
   );

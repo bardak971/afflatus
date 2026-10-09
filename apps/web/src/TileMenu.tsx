@@ -6,6 +6,7 @@ import { Clapperboard, Copy, Download, ExternalLink, Eye, Film, MoreHorizontal, 
 import { useAddTo, useLast, useQueueVariation, useStartTimeline } from "./actions";
 import { AddToTimeline } from "./AddToTimeline";
 import { api, type Asset } from "./api";
+import { askAboutDisk } from "./Confirm";
 import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
 import { formPlaces, useFormTarget } from "./formTarget";
 import { useAsset, useDrafts, useFamilies, useRecipes, useSetup, useTimelines } from "./data";
@@ -68,6 +69,10 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
   });
   const variation = useQueueVariation(into);
   const timelineMenu = useTimelineSubmenu();
+  /** To the bin; a file of a linked folder leaves its folder on the disk, which is asked first (as the viewer and a selection do). */
+  const toBin = async (asset: Asset) => {
+    if (await askAboutDisk([asset])) bin.mutate(asset.id);
+  };
   const items = (asset: Asset): MenuItem[] => {
     const reading = detail.isLoading;
     const studio: MenuItem[] = [
@@ -91,7 +96,7 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
       { label: "Download", key: "D", icon: <Download size={14} />, run: () => saveAsset(asset) },
       asset.inBin
         ? { label: "Put back", icon: <Undo2 size={14} />, run: () => restore.mutate(asset.id) }
-        : { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => bin.mutate(asset.id) },
+        : { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin(asset) },
       ...(compact ? ["—" as const, { label: "More", icon: <MoreHorizontal size={14} />, note: "i2v, reuse, timelines, projects", items: studio.filter((it, i, all) => it !== "—" || (i > 0 && i < all.length - 1 && all[i - 1] !== "—")) }] : []),
     ];
   };

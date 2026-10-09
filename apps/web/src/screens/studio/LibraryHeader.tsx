@@ -41,6 +41,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
   draftId: string | null;
   /** The grid shows only the open draft's results: the search, the kinds and the ticks are out of the way. */
   draftOnly: boolean;
+  /** What is on screen, in its order (a grouping leaves some out): what "select all" ticks. */
   items: Asset[];
   filters: LibraryFilters;
   selection: Selection;
