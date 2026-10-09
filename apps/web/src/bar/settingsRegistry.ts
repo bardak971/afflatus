@@ -72,13 +72,13 @@ export const SETTINGS: SettingEntry[] = [
   { id: "notify.each", label: "Notify after each render", page: "interface", words: "browser notification done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes or fails.", get: () => useNotify.getState().eachRender, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ eachRender: Boolean(v) }); } },
   { id: "notify.empty", label: "Notify when the queue is empty", page: "interface", words: "browser notification done", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done.", get: () => useNotify.getState().whenEmpty, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ whenEmpty: Boolean(v) }); } },
   server("tagCheck", "Danbooru tag check", "prompts", "Tags written for an anime model are compared with danbooru's list: another name or a typo is pointed out under the prompt.", "typo tags anime"),
-  server("civitaiLookups", "Civitai lookups", "models", "Missing model files, trigger words and model pages may be looked for on Civitai (file hashes are sent).", "trigger words lora names"),
-  server("downloadModels", "Download missing files into ComfyUI", "models", "Missing model files may be fetched into ComfyUI, through ComfyUI-Manager.", "manager fetch"),
+  server("civitaiLookups", "Search Hugging Face and Civitai", "models", "Missing model files, trigger words and model pages may be looked for on Hugging Face and Civitai (file hashes are sent).", "civitai lookups trigger words lora names"),
+  server("downloadModels", "Download missing models", "models", "Missing model files may be fetched into ComfyUI, through ComfyUI-Manager.", "download missing files into comfyui manager fetch"),
   server("updateChecks", "Check for newer versions of your models", "models", "Once a day, Civitai is asked for newer versions of the models here (lookups on; hashes are sent).", "update civitai version"),
   { id: "bar.learn", label: "Learn what I use", page: "bar", words: "command bar ranking recent frequency", scope: "this browser", kind: "switch", about: "What you open often and lately comes first in the bar. Kept in this browser.", get: () => useBar.getState().learn, set: (_c, v) => useBar.getState().setLearn(Boolean(v)) },
   { id: "bar.preview", label: "Preview in the bar", page: "bar", words: "command bar shift", scope: "this browser", kind: "switch", about: "The selected result shown beside the list. Shift shows or hides it.", get: () => useBar.getState().preview, set: (_c, v) => useBar.getState().setPreview(Boolean(v)) },
-  barPart("snippets", "Prompt snippets typed by name", "Type ; and a snippet's name in any prompt box: a space or Tab puts its text there.", "command bar ; expand kit"),
-  barPart("history", "Prompt history in the bar", 'Type " in the bar to search every prompt that was rendered, with its render.', "command bar quote prompts"),
+  barPart("snippets", "Prompt snippets", "Type ; and a snippet's name in any prompt box: a space or Tab puts its text there.", "typed by name command bar ; expand kit"),
+  barPart("history", "Prompt history", 'Type " in the bar to search every prompt that was rendered, with its render.', "in the bar command bar quote prompts"),
   barPart("cast", "Cast with @", "Type @ in the bar to add a person of the Prompt kit to the open draft.", "command bar person people kit"),
 ];
 

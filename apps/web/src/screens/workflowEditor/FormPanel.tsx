@@ -3,10 +3,10 @@ import { placeablesFor, suggestSections } from "@afflatus/workflows";
 import { ask } from "../../Confirm";
 import { useRecipes } from "../../data";
 import { Form } from "../../RecipeForm";
-import { cx, ErrorNote, Help, SectionTitle } from "../../ui";
+import { Chip, cx, ErrorNote, fieldClass, Help, SectionTitle } from "../../ui";
 import { FormSections } from "../FormSections";
 import { SwitchDialog } from "../SwitchDialog";
-import { Step, text } from "./parts";
+import { Step } from "./parts";
 import type { Mapping } from "./useMapping";
 
 /** Words for the kinds of input the sections tray shows. */
@@ -37,18 +37,18 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="wf-title" className="text-xs font-semibold">Name</label>
-          <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Portrait, two passes" className={text} />
+          <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Portrait, two passes" className={cx(fieldClass, "h-10 w-full")} />
         </div>
         <div className="flex flex-col gap-1.5">
           <span className="flex items-center gap-1.5">
             <label htmlFor="wf-model" className="text-xs font-semibold">Model</label>
             <Help title="Model" text="Which model it runs, as the families call them: workflows of one model share its LoRAs and saved settings." />
           </span>
-          <input id="wf-model" list="wf-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, Wan 2.2, MiniMax H3…" className={cx(text, !model.trim() && "border-warn/60")} />
+          {/* empty, its border says so; the header's chip says why Save waits (said once, there) */}
+          <input id="wf-model" list="wf-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, Wan 2.2, MiniMax H3…" aria-invalid={!model.trim()} className={cx(fieldClass, "h-10 w-full")} />
           <datalist id="wf-models">{familyNames.map((n) => <option key={n} value={n} />)}</datalist>
         </div>
       </div>
-      {!model.trim() && <span className="-mt-2 text-xs text-warn-ink">Model: needed to save</span>}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
@@ -68,10 +68,10 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
           canSuggest={frames.length > 0}
         />
         {suggestedWhy && (
-          <div className="flex flex-col gap-1 rounded-lg border border-line px-3 py-2 text-xs text-ink-2">
-            <span className="font-semibold text-ink">What the proposal did, frame by frame. Edit as you like.</span>
-            {suggestedWhy.map((w) => <span key={w}>{w}</span>)}
-          </div>
+          <span className="flex items-center gap-1.5 text-xs text-ink-2">
+            proposal from the author's frames
+            {suggestedWhy.length > 0 && <Help title="What the proposal did, frame by frame" text={suggestedWhy.join("\n")} />}
+          </span>
         )}
       </div>
       {switchFor && (
@@ -108,11 +108,12 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
       </div>
 
       {preview.recipe?.traits && (
-        <div className="flex flex-col gap-1 text-xs text-ink-2">
-          <span className="font-semibold text-ink">In a timeline, a clip generated with it</span>
-          <span>{preview.recipe.traits.startFrame ? "takes a first frame, and can extend the previous clip from its last frame" : "takes no first frame"}</span>
-          <span>{preview.recipe.traits.endFrame ? "takes a last frame" : "takes no last frame"}</span>
-          <span>{preview.recipe.traits.sound ? "has audio" : "has no audio"}</span>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="font-semibold">In a timeline</span>
+          <Help title="In a timeline" text="What a clip generated with it takes and gives. With a first frame, it can also extend the previous clip from its last frame." />
+          <Chip tone={preview.recipe.traits.startFrame ? "good" : "neutral"}>{preview.recipe.traits.startFrame ? "first frame" : "no first frame"}</Chip>
+          <Chip tone={preview.recipe.traits.endFrame ? "good" : "neutral"}>{preview.recipe.traits.endFrame ? "last frame" : "no last frame"}</Chip>
+          <Chip tone={preview.recipe.traits.sound ? "good" : "neutral"}>{preview.recipe.traits.sound ? "audio" : "no audio"}</Chip>
         </div>
       )}
 

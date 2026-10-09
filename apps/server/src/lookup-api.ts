@@ -21,7 +21,7 @@ export function registerLookup(app: FastifyInstance, s: Services): void {
   app.get("/api/civitai/find", async (req) => {
     const query = findQuery.parse(req.query);
     const settings = await readSettings(s.db);
-    if (!settings.civitaiLookups) throw httpError("Civitai lookups are turned off. Turn them on in Settings.");
+    if (!settings.civitaiLookups) throw httpError("Searching Hugging Face and Civitai is off. Turn it on in Settings › Models.");
     const file = query.file.split(/[\\/]/).pop() ?? "";
     if (!file.replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i, "")) throw httpError("no filename given");
     // Hugging Face is asked for the file itself, by its exact name; Civitai for models whose names are close

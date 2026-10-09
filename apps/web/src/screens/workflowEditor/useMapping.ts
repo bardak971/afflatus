@@ -3,7 +3,7 @@ import { describeRecipe, folderOfFileInput, fuzzyFilter, fuzzyScore } from "@aff
 import { MODEL_FILE, recipeFromWorkflow, videoId, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
 import { useSettled } from "../../hooks";
 import type { Inspected } from "../MissingPacks";
-import { keyOf } from "./parts";
+import { keyOf, plainLabel } from "./parts";
 
 /** A workflow being imported or changed: the file, what was found in it, and the mapping so far. */
 export interface Editing {
@@ -33,7 +33,10 @@ export function useMapping(start: Editing) {
   // a switch made here lives in a section: one no section holds any more (its section was removed, or saved by an older form) is dropped
   const [first] = useState<Bindings>(() => {
     const held = new Set((start.bindings.sections ?? []).flatMap((sec) => sec.items.flatMap((it) => (typeof it === "string" ? [] : [it.toggle]))));
-    return { ...start.bindings, toggles: start.bindings.toggles.filter((t) => !t.made || held.has(t.id)) };
+    const toggles = start.bindings.toggles.filter((t) => !t.made || held.has(t.id));
+    // a new import's names come from the workflow: without their colour emoji (a saved one keeps the names it was saved with)
+    if (start.id) return { ...start.bindings, toggles };
+    return { ...start.bindings, toggles: toggles.map((t) => ({ ...t, label: plainLabel(t.label) })), controls: start.bindings.controls.map((c) => ({ ...c, label: plainLabel(c.label) })) };
   });
   const [b, setB] = useState<Bindings>(first);
   const [filter, setFilter] = useState("");
@@ -135,14 +138,16 @@ export function useMapping(start: Editing) {
     const { classType: _c, title: _t, suggested: _s, byAuthor: _a, off: _o, ...control } = c;
     const on = b.controls.some((x) => x.id === c.id);
     set({
-      controls: on ? b.controls.filter((x) => x.id !== c.id) : [...b.controls, control],
+      // the name it starts with comes from the workflow: without its colour emoji
+      controls: on ? b.controls.filter((x) => x.id !== c.id) : [...b.controls, { ...control, label: plainLabel(control.label) }],
       ...(on ? { sections: (b.sections ?? []).map((s) => ({ ...s, items: s.items.flatMap((it): Section["items"] => (typeof it === "string" ? (it === c.id ? [] : [it]) : [{ ...it, items: it.items.filter((id) => id !== c.id) }])) })) } : {}),
     });
   };
   const change = (id: string, patch: Partial<Control>) => set({ controls: b.controls.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   // switches keep the order they have in the workflow
   const toggleSwitch = (t: Toggle) => {
-    const on = b.toggles.some((x) => x.id === t.id) ? b.toggles.filter((x) => x.id !== t.id) : [...b.toggles, t];
+    // the name it starts with comes from the workflow: without its colour emoji ("🌈 Styler" is "Styler")
+    const on = b.toggles.some((x) => x.id === t.id) ? b.toggles.filter((x) => x.id !== t.id) : [...b.toggles, { ...t, label: plainLabel(t.label) }];
     // the file's switches in the file's order, the ones made here after them
     set({
       toggles: [...found.toggles.flatMap((f) => on.filter((x) => x.id === f.id)), ...on.filter((x) => x.made)],
@@ -220,7 +225,7 @@ export function useMapping(start: Editing) {
   /** Put the author's settings on the form, or take off what the author did not put forward (off its sections too). */
   const followAuthor = (what: "add" | "remove") => {
     if (what === "add") {
-      set({ controls: [...b.controls, ...authorDiff.add.map(({ classType: _c, title: _t, suggested: _s, byAuthor: _a, off: _o, ...c }) => c)] });
+      set({ controls: [...b.controls, ...authorDiff.add.map(({ classType: _c, title: _t, suggested: _s, byAuthor: _a, off: _o, ...c }) => ({ ...c, label: plainLabel(c.label) }))] });
       return;
     }
     const gone = new Set(authorDiff.remove.map((c) => c.id));

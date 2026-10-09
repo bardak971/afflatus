@@ -2,9 +2,9 @@ import { useMemo } from "react";
 import { ancestors, pictureId, soundId } from "@afflatus/workflows";
 import { fileLabel } from "../../format";
 import { Select } from "../../Select";
-import { Checkbox, cx, ErrorNote } from "../../ui";
+import { Checkbox, cx, ErrorNote, fieldClass, Help } from "../../ui";
 import { BeforeItRuns } from "./BeforeItRuns";
-import { Found, keyOf, Step, text } from "./parts";
+import { Found, keyOf, Step } from "./parts";
 import type { Mapping, VideoRole } from "./useMapping";
 
 /** Step 1: what stands before a first render, then the parts of the workflow the form is built on, a row each with the way to correct it. */
@@ -115,7 +115,7 @@ function MediaRoles({ m }: { m: Mapping }) {
                       aria-label={`Label of the image input for ${i.title}`}
                       value={on.label}
                       onChange={(e) => set({ pictures: have.map((p) => (p === on ? { ...p, label: e.target.value } : p)) })}
-                      className={cx(text, "h-8 min-w-0 grow")}
+                      className={cx(fieldClass, "h-8 min-w-0 grow")}
                     />
                   ) : <span className="text-ink-2">{i.title}</span>}
                   <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · required" : " · optional") : ""}</span>
@@ -176,7 +176,7 @@ function MediaRoles({ m }: { m: Mapping }) {
                       aria-label={`Label of the sound input for ${i.title}`}
                       value={on.label}
                       onChange={(e) => set({ otherSounds: have.map((p) => (p === on ? { ...p, label: e.target.value } : p)) })}
-                      className={cx(text, "h-8 min-w-0 grow")}
+                      className={cx(fieldClass, "h-8 min-w-0 grow")}
                     />
                   ) : <span className="text-ink-2">{i.title}</span>}
                   <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · required" : " · optional") : ""}</span>
@@ -222,7 +222,10 @@ function OutputPick({ m }: { m: Mapping }) {
         <>
           {deadEnds.length > 0 && (
             <div className="flex flex-col gap-1.5 rounded-lg border border-line px-3 py-2 text-ink-2">
-              <span>Shown on the way, on branches this output does not need. ComfyUI runs them all the same; what they show appears under the live preview while it renders. Leave one out to save its work:</span>
+              <span className="flex items-center gap-1.5">
+                Previews on branches it does not need
+                <Help title="Previews on the way" text="Shown on the way, on branches this output does not need. ComfyUI runs them all the same; what they show appears under the live preview while it renders. Leave one out to save its work." />
+              </span>
               {deadEnds.map((d) => (
                 <label key={d.node} className="flex cursor-pointer items-center gap-2">
                   <Checkbox checked={skipped.has(d.node)} onChange={(v) => setSkip(d, v)} />

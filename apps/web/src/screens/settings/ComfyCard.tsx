@@ -9,6 +9,15 @@ import { Block, Card, Fact, Row, Status, warnButton } from "./Rows";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
 
+/**
+ * The stops of "Unload models after", in minutes: a few minutes to a day, more of them where a choice matters
+ * (5 or 10 minutes, not 731 or 732). 0 is never.
+ */
+const UNLOAD = [0, 5, 10, 15, 30, 60, 120, 240, 480, 1440];
+/** The stop nearest a saved value (one saved before the stops, or typed into the API). */
+const stopOf = (minutes: number) => (minutes <= 0 ? 0 : UNLOAD.reduce((best, v, i) => (i > 0 && Math.abs(v - minutes) < Math.abs(UNLOAD[best]! - minutes) ? i : best), 1));
+const unloadSaid = (minutes: number) => (minutes <= 0 ? "never" : minutes < 60 ? `${minutes} min` : `${+(minutes / 60).toFixed(1)} h`);
+
 /** Afflatus's node pack (MiniMax H3 continued in the latent): written into ComfyUI's folder when it is known, loaded after a ComfyUI restart. */
 function NodePackRow() {
   const settings = useSettings();
@@ -77,7 +86,6 @@ export function ComfyCard() {
     },
   });
   const comfy = setup.data?.comfy;
-  const never = (v: number) => (v > 0 ? `${v} min` : "never");
   return (
     <div className="flex flex-col gap-4">
       <Card id="comfyui" title="Connection" status={comfy && <Status ok={comfy.online}>{comfy.online ? "Connected" : "Not answering"}</Status>}>
@@ -109,8 +117,9 @@ export function ComfyCard() {
       {settings.data && (
         <Card title="VRAM">
           <Row label="Unload models after" help={`Minutes without a render, then ComfyUI's models are unloaded and the VRAM is freed; the next render loads them again. 0 = never: they stay loaded until something else needs the VRAM. "Unload models" in the Queue does it by hand.`}>
-            <Slider label="Minutes without a render before ComfyUI's models are unloaded" value={minutes} min={0} max={1440} box={false} format={never} onChange={setMinutes} onCommit={(v) => unload.mutate(v)} className="max-w-[320px] grow" />
-            <span className="w-16 shrink-0 text-right font-mono text-xs text-ink">{never(minutes)}</span>
+            {/* a stepped scale: the slider walks the stops, what is saved is the stop's minutes */}
+            <Slider label="Minutes without a render before ComfyUI's models are unloaded" value={stopOf(minutes)} min={0} max={UNLOAD.length - 1} box={false} format={(i) => unloadSaid(UNLOAD[i]!)} onChange={(i) => setMinutes(UNLOAD[i]!)} onCommit={(i) => unload.mutate(UNLOAD[i]!)} className="max-w-[320px] grow" />
+            <span className="w-16 shrink-0 text-right font-mono text-xs text-ink">{unloadSaid(minutes)}</span>
           </Row>
           {unload.isError && <Block><ErrorNote>{unload.error.message}</ErrorNote></Block>}
         </Card>

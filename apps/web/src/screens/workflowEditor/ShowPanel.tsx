@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { Toggle } from "@afflatus/workflows";
-import { Checkbox, cx, Help, SectionTitle } from "../../ui";
-import { keyOf, rangeOf, Step, text } from "./parts";
+import { Button, Checkbox, cx, fieldClass, Help, SectionTitle } from "../../ui";
+import { keyOf, plainLabel, rangeOf, Step } from "./parts";
 import type { Mapping } from "./useMapping";
 
 /** Step 2: the switches, the choice of how far it runs, and the widgets the form can show. */
@@ -11,13 +11,16 @@ export function ShowPanel({ m }: { m: Mapping }) {
   return (
     <section className="flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-line p-5">
       <Step n={2} title="What the form shows" hint="Ticked to begin with: what the workflow's author put forward. Tick a switch or a widget to get a control for it. Everything else stays as it is in the file." />
-      <input data-search
-        aria-label="Search switches and widgets"
-        placeholder={`Search ${found.toggles.length ? `${found.toggles.length} switches and ` : ""}${found.candidates.length} widgets`}
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        className={cx(text, "sticky top-0 z-10 h-9 shrink-0 shadow-[0_0_0_8px_var(--color-ground)]")}
-      />
+      {/* held at the top while the lists scroll under it, on the column's ground */}
+      <div className="sticky top-0 z-10 shrink-0 bg-ground shadow-[0_0_0_8px_var(--color-ground)]">
+        <input data-search
+          aria-label="Search switches and widgets"
+          placeholder={`Search ${found.toggles.length ? `${found.toggles.length} switches and ` : ""}${found.candidates.length} widgets`}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className={cx(fieldClass, "h-9 w-full")}
+        />
+      </div>
       <FollowAuthor m={m} />
       <SwitchList m={m} />
       <StagesPick m={m} />
@@ -33,21 +36,24 @@ export function ShowPanel({ m }: { m: Mapping }) {
 function FollowAuthor({ m }: { m: Mapping }) {
   const { start, authorDiff, followAuthor } = m;
   if (!start.id || (!authorDiff.add.length && !authorDiff.remove.length)) return null;
-  const names = (labels: string[]) => labels.join(" · ");
+  // a name in both lists, or twice in one ("Resolution" of two nodes), says which node it is
+  const all = [...authorDiff.add, ...authorDiff.remove].map((c) => plainLabel(c.label));
+  const clash = new Set(all.filter((l, i) => all.indexOf(l) !== i));
+  const names = (list: Array<{ label: string; target: { node: string } }>) => list.map((c) => (clash.has(plainLabel(c.label)) ? `${plainLabel(c.label)} #${c.target.node}` : plainLabel(c.label))).join(" · ");
   return (
     <div className="flex shrink-0 flex-col gap-1.5 rounded-xl border border-accent/35 bg-panel px-3 py-2 text-xs">
       {authorDiff.add.length > 0 && (
         <div className="flex items-start gap-2">
-          <span className="min-w-0 grow pt-1"><span className="text-ink-2">Author's front, not on the form:</span> <span className="font-semibold">{names(authorDiff.add.map((c) => c.label))}</span></span>
-          <button type="button" onClick={() => followAuthor("add")} className="h-6 shrink-0 rounded-md bg-accent px-2 font-bold text-accent-ink hover:brightness-110">Add {authorDiff.add.length}</button>
-          <Help className="mt-1" title="Saved differently" text={EXPLAIN} />
+          <span className="min-w-0 grow pt-1.5"><span className="text-ink-2">Author's front, not on the form:</span> <span className="font-semibold">{names(authorDiff.add)}</span></span>
+          <Button size="sm" tone="primary" onClick={() => followAuthor("add")} className="shrink-0">Add {authorDiff.add.length}</Button>
+          <Help className="mt-2" title="Saved differently" text={EXPLAIN} />
         </div>
       )}
       {authorDiff.remove.length > 0 && (
         <div className="flex items-start gap-2">
-          <span className="min-w-0 grow pt-1"><span className="text-ink-2">On the form, not the author's:</span> <span className="font-semibold">{names(authorDiff.remove.map((c) => c.label))}</span></span>
-          <button type="button" onClick={() => followAuthor("remove")} className="h-6 shrink-0 rounded-md bg-hover px-2 font-bold text-ink hover:brightness-125">Remove {authorDiff.remove.length}</button>
-          {authorDiff.add.length > 0 ? <span className="w-4 shrink-0" /> : <Help className="mt-1" title="Saved differently" text={EXPLAIN} />}
+          <span className="min-w-0 grow pt-1.5"><span className="text-ink-2">On the form, not the author's:</span> <span className="font-semibold">{names(authorDiff.remove)}</span></span>
+          <Button size="sm" tone="quiet" onClick={() => followAuthor("remove")} className="shrink-0">Remove {authorDiff.remove.length}</Button>
+          {authorDiff.add.length > 0 ? <span className="w-4 shrink-0" /> : <Help className="mt-2" title="Saved differently" text={EXPLAIN} />}
         </div>
       )}
     </div>
@@ -88,7 +94,7 @@ function SwitchList({ m }: { m: Mapping }) {
               {ticked ? (
                 <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => m.changeSwitch(t.id, { label: e.target.value })} className={quietName} />
               ) : (
-                <span className="min-w-24 grow basis-24 truncate text-ink-2" data-tip={t.label}>{t.label}</span>
+                <span className="min-w-24 grow basis-24 truncate text-ink-2" data-tip={plainLabel(t.label)}>{plainLabel(t.label)}</span>
               )}
               <span className="min-w-0 truncate text-xs text-ink-3">{via && <span data-tip="Two switches of this name: this one goes through this node">via {via} · </span>}{t.default ? "on" : "off"} in the file · {nodes} node{nodes === 1 ? "" : "s"}</span>
             </div>
@@ -178,7 +184,7 @@ function WidgetList({ m }: { m: Mapping }) {
                   {ticked ? (
                     <input aria-label="Name of the control" value={ticked.label} onChange={(e) => m.change(c.id, { label: e.target.value })} className={quietName} />
                   ) : (
-                    <span className="min-w-24 grow basis-24 truncate text-ink-2" data-tip={c.label}>{c.label}</span>
+                    <span className="min-w-24 grow basis-24 truncate text-ink-2" data-tip={plainLabel(c.label)}>{plainLabel(c.label)}</span>
                   )}
                   <Origin c={c} />
                   {!ticked && (() => {

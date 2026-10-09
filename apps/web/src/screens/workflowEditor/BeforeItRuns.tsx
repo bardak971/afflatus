@@ -76,8 +76,10 @@ export function BeforeItRuns({ m }: { m: Mapping }) {
         );
       })}
       {(found.relocated ?? []).map((r) => (
-        <div key={keyOf(r)} className="px-3 py-2 text-ink-2">
-          <span className="font-mono font-semibold break-all text-ink">{fileLabel(r.file)}</span> is in your ComfyUI in another folder ({r.found.split(/[\\/]/).slice(0, -1).join("/") || "the top one"}): it is used from there.
+        <div key={keyOf(r)} className="flex flex-wrap items-center gap-x-1.5 px-3 py-2 text-ink-2">
+          <span className="font-mono font-semibold break-all text-ink">{fileLabel(r.file)}</span>
+          <span>used from {r.found.split(/[\\/]/).slice(0, -1).join("/") || "the top folder"}</span>
+          <Help text="Your ComfyUI has it in another folder than the workflow says: it is used from there." />
         </div>
       ))}
       {found.missingFiles.length > 0 && found.links.length > 0 && (
@@ -92,18 +94,24 @@ export function BeforeItRuns({ m }: { m: Mapping }) {
         </details>
       )}
       {(found.replaced ?? []).length > 0 && (
-        <span className="px-3 py-2 text-ink-2">
-          {found.replaced.map((x) => `${x.from}${found.packs[x.from] ? ` (${found.packs[x.from]})` : ""} #${x.node}`).join(", ")} {found.replaced.length === 1 ? "is" : "are"} not in this ComfyUI: ComfyUI's own {found.replaced.map((x) => x.to).filter((v, i, a) => a.indexOf(v) === i).join(" and ")} stands in{found.replaced.some((x) => /^Save/.test(x.to)) ? ". Afflatus saves and names what it keeps itself" : ", with the same value"}.
+        <span className="flex flex-wrap items-center gap-x-1.5 px-3 py-2 text-ink-2">
+          Stand-ins: {found.replaced.map((x) => `${x.from} #${x.node} → ${x.to}`).join(", ")}
+          <Help
+            title="Stand-ins"
+            text={`${found.replaced.map((x) => `${x.from}${found.packs[x.from] ? ` (${found.packs[x.from]})` : ""} #${x.node}`).join(", ")} ${found.replaced.length === 1 ? "is" : "are"} not in this ComfyUI: ComfyUI's own ${found.replaced.map((x) => x.to).filter((v, i, a) => a.indexOf(v) === i).join(" and ")} stands in${found.replaced.some((x) => /^Save/.test(x.to)) ? ". Afflatus saves and names what it keeps itself" : ", with the same value"}.`}
+          />
         </span>
       )}
       {(found.missingUnneeded ?? []).length > 0 && (
-        <span className="px-3 py-2 text-ink-2">
-          Not needed for the result, left out at render: {found.missingUnneeded.map((n) => (found.packs[n] ? `${n} (${found.packs[n]})` : n)).join(", ")}. A preview or a sound when done, mostly; the pack is not asked for.
+        <span className="flex flex-wrap items-center gap-x-1.5 px-3 py-2 text-ink-2">
+          Left out at render: {found.missingUnneeded.map((n) => (found.packs[n] ? `${n} (${found.packs[n]})` : n)).join(", ")}
+          <Help text="Not in this ComfyUI and not needed for the result: a preview or a sound when done, mostly. The pack is not asked for." />
         </span>
       )}
       {found.missingWhenOn.length > 0 && (
-        <span className="px-3 py-2 text-ink-2">
-          Bypassed parts use node types your ComfyUI does not have: {found.missingWhenOn.map((n) => (found.packs[n] ? `${n} (pack ${found.packs[n]})` : n)).join(", ")}. Those switches will not work until they are installed.
+        <span className="flex flex-wrap items-center gap-x-1.5 px-3 py-2 text-ink-2">
+          Missing in bypassed parts: {found.missingWhenOn.map((n) => (found.packs[n] ? `${n} (pack ${found.packs[n]})` : n)).join(", ")}
+          <Help text="Bypassed parts use node types your ComfyUI does not have. Those switches will not work until they are installed." />
         </span>
       )}
       {looseNotes.map((n) => <div key={n} className="px-3 py-2 text-warn-ink">{n}</div>)}

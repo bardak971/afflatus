@@ -47,8 +47,9 @@ export function UpdatesCard() {
   return (
     <Card title="Newer versions on Civitai" status={on && newer.length > 0 ? <span className="font-mono text-xs text-accent">{newer.length} newer</span> : undefined}>
       {!on ? (
-        <Row label="Check against Civitai" help={`Needs "Search Hugging Face and Civitai" on, in Missing models above.`}>
-          <span className="text-xs text-ink-3">needs Civitai search on</span>
+        // the switch itself, here too: a check asks Civitai, which only this switch allows
+        <Row label="Search Hugging Face and Civitai" sub="needed to check" help="A check asks Civitai, which only this switch allows. The same switch as in Missing models.">
+          <Toggle bare on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Search Hugging Face and Civitai for missing models" />
         </Row>
       ) : (
         <>
@@ -119,9 +120,9 @@ export function UpdatesCard() {
               {getError && <ErrorNote>{getError}</ErrorNote>}
             </Dialog>
           )}
-          {(check.isError || save.isError) && <Block><ErrorNote>{(check.error ?? save.error)?.message}</ErrorNote></Block>}
         </>
       )}
+      {(check.isError || save.isError) && <Block><ErrorNote>{(check.error ?? save.error)?.message}</ErrorNote></Block>}
     </Card>
   );
 }

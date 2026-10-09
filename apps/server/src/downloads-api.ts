@@ -27,7 +27,7 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     const settings = await readSettings(s.db);
     if (!settings.downloadModels) throw httpError("Downloading into ComfyUI is turned off. Turn it on in Settings.");
     // "Lookups off" means Afflatus never contacts Civitai or Hugging Face: a link is read on those sites
-    if (!settings.civitaiLookups) throw httpError("Looking up models online is turned off. Turn on Civitai lookups in Settings to read a link.");
+    if (!settings.civitaiLookups) throw httpError("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to read a link.");
     const found = await resolveLink(link, settings.civitaiKey);
     const index = await modelIndex(await s.comfy());
     const have = Object.fromEntries(found.files.flatMap((f) => {

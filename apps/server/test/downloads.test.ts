@@ -177,7 +177,7 @@ describe("fetching a missing model file into ComfyUI", () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
     const res = await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42 });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("lookups");
+    expect(res.json().error).toContain("Search Hugging Face and Civitai");
     expect((await post(t.app, "/api/downloads/resolve", { link: "https://civitai.com/models/9" })).statusCode).toBe(400);
     expect(asked).toEqual([]);
   });

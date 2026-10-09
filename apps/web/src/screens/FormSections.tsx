@@ -1,7 +1,7 @@
 import { useState, type DragEvent } from "react";
 import { GripVertical, Plus, X } from "lucide-react";
 import type { Section, SwitchGroup, Toggle } from "@afflatus/workflows";
-import { Button, cx, Toggle as Switch } from "../ui";
+import { Button, cx, Help, Toggle as Switch } from "../ui";
 
 /**
  * The form of an imported workflow, arranged: named sections holding the form's inputs in the order
@@ -196,7 +196,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       <div className="flex items-center gap-1.5">
         <span draggable onDragStart={startSection(ADVANCED)} data-tip="Drag to put the Advanced chapter before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
         <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Advanced · {loose.length}</span>
-        <span className="text-xs text-ink-2">folded in the form, holds what is in no section</span>
+        <Help text="Folded in the form; holds what is in no section." />
       </div>
       {loose.length ? (
         <div className="flex flex-wrap gap-1.5">
@@ -206,7 +206,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
             </span>
           ))}
         </div>
-      ) : <span className="text-xs text-ink-2">Everything is in a section: no Advanced chapter.</span>}
+      ) : <span className="text-xs text-ink-3">empty: no Advanced chapter</span>}
     </div>
   );
 
@@ -227,7 +227,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     >
       <span draggable onDragStart={startSection(PROMPT)} data-tip="Drag to put the prompt before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
       <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Prompt</span>
-      <span className="text-xs text-ink-2">the main text, with Designer and Snippets; its negative under it unless placed</span>
+      <Help text="The main text, with Designer and Snippets; its negative prompt under it unless placed." />
     </div>
   );
 
@@ -249,7 +249,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
               aria-label="Name of the section" value={s.label} onChange={(e) => update(s.id, { label: e.target.value })}
               className="h-7 min-w-0 grow rounded-md border border-transparent bg-transparent px-1.5 text-sm font-bold hover:border-line focus:border-line-strong focus:outline-none"
             />
-            <button type="button" onClick={() => onMakeSwitch(s)} className="h-7 shrink-0 rounded-md border border-line px-2 text-xs hover:bg-hover" data-tip="A switch in this section: on, it shows the settings put under it; off, they fold away and the nodes you pick are bypassed">+ Switch</button>
+            <Button size="sm" onClick={() => onMakeSwitch(s)} className="shrink-0" data-tip="A switch in this section: on, it shows the settings put under it; off, they fold away and the nodes you pick are bypassed"><Plus size={14} /> Switch</Button>
             <button type="button" aria-label={`Remove the section ${s.label}`} onClick={() => remove(s)} className="h-7 w-7 shrink-0 rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} className="mx-auto" /></button>
           </div>
           <div className="flex flex-col p-1.5">
@@ -275,12 +275,17 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
                       <>
                         <span className="shrink-0 text-ink-3" data-tip={`Off, ${nodes} node${nodes === 1 ? "" : "s"} are bypassed`}>switch · {nodes} node{nodes === 1 ? "" : "s"}</span>
                         <Switch bare label={`${name} starts on`} on={sw.default} onChange={(v) => onSwitchDefault(sw.id, v)} />
-                        {sw.made && <button type="button" onClick={() => onMakeSwitch(s, sw.id)} className="h-6 shrink-0 rounded border border-line px-1.5 text-[11px] hover:bg-hover">Edit</button>}
+                        {sw.made && <Button size="sm" onClick={() => onMakeSwitch(s, sw.id)} className="shrink-0">Edit</Button>}
                       </>
                     ) : <span className="shrink-0 text-ink-3">switch</span>}
                     <button type="button" aria-label={`Take the switch ${name} out`} onClick={() => onDropSwitch(s, item.toggle)} className="h-6 w-6 shrink-0 rounded text-ink-3 hover:bg-hover hover:text-ink"><X size={12} className="mx-auto" /></button>
                   </div>
-                  {sw && cuts(sw) && <div className="px-2 pb-1 text-[11px] text-warn-ink">Off, the output node is bypassed too: nothing is saved. "Edit" to leave the output out of it.</div>}
+                  {sw && cuts(sw) && (
+                    <div className="flex items-center gap-1.5 px-2 pb-1 text-[11px] text-warn-ink">
+                      off, bypasses the output node too
+                      <Help text={`While it is off, nothing is saved.${sw.made ? " Edit it to leave the output out." : ""}`} />
+                    </div>
+                  )}
                   <div className="ml-5 flex flex-col border-l border-line pl-1.5 pb-1">
                     {item.items.map((id, i) => settingRow(id, { section: s.id, group: item.toggle, index: i }))}
                     {tail({ section: s.id, group: item.toggle, index: item.items.length }, "drop the settings it shows here")}

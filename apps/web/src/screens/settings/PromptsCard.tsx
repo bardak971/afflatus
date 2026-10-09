@@ -54,7 +54,10 @@ function GuideEditor({ guide, own, open, onOpen, onSave }: {
           <div className="flex flex-wrap items-center gap-2">
             {dirty && <Button size="sm" tone="primary" disabled={save.isPending || !text.trim()} onClick={() => save.mutate(text.trim() === guide.guide.trim() ? "" : text)}>Save as my guide for {guide.name}</Button>}
             {(yours || dirty) && <Button size="sm" tone="quiet" disabled={save.isPending} onClick={() => { setText(guide.guide); if (yours) save.mutate(""); }}>Reset to built-in</Button>}
-            <span className="text-xs text-ink-3">{yours ? "The designer is given your text for this family." : "The built-in text. Change it and save: yours replaces it for this family only."}</span>
+            <span className="flex items-center gap-1.5 text-xs text-ink-3">
+              {yours ? "yours" : "built-in"}
+              <Help text={yours ? "The designer is given your text for this family." : "Change it and save: yours replaces the built-in text for this family only."} />
+            </span>
           </div>
           {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
         </div>

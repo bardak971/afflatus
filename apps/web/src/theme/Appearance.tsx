@@ -1,6 +1,5 @@
 import { Check, Moon, Sun } from "lucide-react";
-import { useExplain, useHoverPlay } from "../store";
-import { cx, Segmented, Toggle } from "../ui";
+import { cx, Segmented } from "../ui";
 import { themeInUse, useThemeChoice } from "./store";
 import { FAMILIES, THEMES, tokensOf, type Theme } from "./themes";
 
@@ -90,30 +89,6 @@ export function ThemePickers() {
 export function ThemeMode() {
   const choice = useThemeChoice();
   return <Segmented label="Theme mode" value={choice.mode} onChange={(mode) => choice.set({ mode })} options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }]} />;
-}
-
-/**
- * How Afflatus looks in this browser: a theme for the night and one for the day, which of the two is up,
- * and the accent. Kept in the browser, so that another screen can look another way.
- */
-export function AppearanceCard() {
-  const explain = useExplain();
-  const hover = useHoverPlay();
-  return (
-    <section className="flex flex-col gap-3.5 rounded-xl border border-line bg-panel p-[18px]">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-[15px] font-bold">Appearance</h2>
-        <div className="w-64"><ThemeMode /></div>
-      </div>
-      <ThemePickers />
-      <div className="flex flex-col gap-3.5 border-t border-line pt-3">
-        <Toggle on={explain.on} onChange={explain.set} label="Explain every setting in the forms" note="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting." />
-        <Toggle on={hover.video} onChange={(video) => hover.set({ video })} label="Play videos when the mouse rests on a card" note="Off: a video card shows its frame until you open it." />
-        <Toggle on={hover.sound} onChange={(sound) => hover.set({ sound })} label="Play sound on hover" note="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened." />
-      </div>
-      <span className="text-xs text-ink-2">Kept in this browser. The palettes are Catppuccin's, Rosé Pine's, Tokyo Night's and Kanagawa's own.</span>
-    </section>
-  );
 }
 
 /** In the rail: from the night theme to the day theme and back. */

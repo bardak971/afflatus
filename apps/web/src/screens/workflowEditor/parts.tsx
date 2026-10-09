@@ -11,7 +11,14 @@ export const searchLinks = (file: string) => [
   { label: "Civitai", url: `https://civitai.com/search/models?query=${encodeURIComponent(fileLabel(file))}` },
   { label: "Hugging Face", url: `https://huggingface.co/models?search=${encodeURIComponent(fileLabel(file))}` },
 ];
-export const text = "h-10 w-full rounded-lg border border-line bg-raised px-3";
+
+/** Colour emoji and what glues them (variation selectors, joiners, skin tones, flags, keycaps). */
+const PICTOGRAPHS = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}\u{1F3FB}-\u{1F3FF}\u{1F1E6}-\u{1F1FF}\u{E0020}-\u{E007F}]/gu;
+/**
+ * A name taken from the workflow (a switch's, a node's title) without its colour emoji: "🌈 Styler" is "Styler".
+ * The rest of the text stays as written; a name that is nothing but emoji is kept as it is.
+ */
+export const plainLabel = (label: string) => label.replace(PICTOGRAPHS, " ").replace(/\s{2,}/g, " ").trim() || label;
 
 /**
  * One thing Afflatus looked for, as a row of step 1's card: a mark that says whether it has it (found; not found

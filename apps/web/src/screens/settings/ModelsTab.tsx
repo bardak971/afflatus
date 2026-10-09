@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { api, type RecipeInfo } from "../../api";
 import { useFamilies, useRecipes, useSettings, useSetup } from "../../data";
 import { fileLabel, problemSaid } from "../../format";
 import { GetFile } from "../../GetFile";
 import { Select } from "../../Select";
-import { cx, ErrorNote, Help, Toggle } from "../../ui";
+import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
 
 /**
@@ -62,14 +62,13 @@ export function ModelSwitches() {
                   <span className="shrink-0 text-xs text-warn-ink" data-tip="No model of this family was found in ComfyUI. Put one in its models folder (an SDXL checkpoint goes in models/checkpoints); it is listed as soon as ComfyUI sees it.">no model file yet</span>
                 ))}
                 {byHand && (
-                  <button
-                    type="button"
-                    data-tip="Set manually. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."
+                  <Chip
+                    tone="link"
+                    tip="Set manually. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."
                     onClick={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
-                    className="shrink-0 rounded-md border border-line-strong px-1.5 py-0.5 text-[11px] font-semibold text-ink-2 hover:text-ink"
                   >
-                    manual ×
-                  </button>
+                    manual <X size={12} aria-hidden />
+                  </Chip>
                 )}
                 <Toggle bare on={on} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={`${name} in the model lists`} />
               </div>
@@ -176,10 +175,14 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
       ))}
       {(s?.missing ?? []).map(({ file, folder, url }) => (
         <div key={file} className="text-warn-ink">
-          Your ComfyUI does not have <span className="font-semibold break-all">{fileLabel(file)}</span>. Search for it on{" "}
-          <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a> or{" "}
-          <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
-          {r.id.startsWith("workflow.") && <>, or pick another file for it: <Link href="/workflows" className="font-semibold underline">Workflows</Link>, then Edit</>}.
+          <span className="flex flex-wrap items-center gap-x-1.5">
+            <span>Missing: <span className="font-semibold break-all">{fileLabel(file)}</span></span>
+            <span className="text-ink-3">·</span>
+            <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a>
+            <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
+            {r.id.startsWith("workflow.") && <Link href="/workflows" className="font-semibold underline">Workflows</Link>}
+            <Help text={`Your ComfyUI does not have this file. Search for it on Civitai or Hugging Face, or download it here${r.id.startsWith("workflow.") ? "; or pick another file for it in Workflows, with Edit" : ""}.`} />
+          </span>
           <GetFile file={file} folder={folder} url={url} hints={family?.name ? [family.name] : []} />
         </div>
       ))}
@@ -214,7 +217,10 @@ export function ReadyList() {
     >
       {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
       {setup.data && !listed.length && (
-        <Block className="text-ink-2">Nothing yet: no model of any family was found in ComfyUI. Put the files in, or download them, and each family turns on by itself; a switch above forces one on or off.</Block>
+        <Block className="flex-row items-center gap-1.5 text-ink-2">
+          No model found in ComfyUI
+          <Help text="Put the files in, or download them: each family turns on by itself. A switch under Models forces one on or off." />
+        </Block>
       )}
         {groups.map(({ family, recipes: mine }) => {
           const good = mine.filter((r) => readyOf(r.id)).length;

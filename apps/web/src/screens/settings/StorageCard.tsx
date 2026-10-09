@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings, useStorage } from "../../data";
 import { size } from "../../format";
-import { Button, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
+import { Button, ButtonLink, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 
 /** Where the space goes, and the two ways to get some back. */
@@ -78,7 +78,7 @@ function Backup() {
         sub={p ? `${p.files} files${p.database ? " and the database" : ""}` : undefined}
         help={`One zip, made while Afflatus runs: ${p?.database ? "the database (a consistent copy) and " : ""}every file of the library. Not in it: the files of linked folders, which stay on your disk, and ComfyUI's models. To restore, stop Afflatus, unpack the zip into an empty data folder (pnpm restore <zip> <folder> does it, and refuses a folder that is not empty), and start it again with DATA_DIR pointing there.${p && !p.database ? " With Postgres, back the database up with Postgres's own tools." : ""}`}
       >
-        <a href="/api/backup.zip" download className="inline-flex h-8 items-center rounded-lg border border-line-strong bg-raised px-3 text-xs font-semibold hover:bg-hover">Back up now{p ? ` · about ${size(p.bytes)}` : ""}</a>
+        <ButtonLink href="/api/backup.zip" download size="sm">Back up now{p ? ` · about ${size(p.bytes)}` : ""}</ButtonLink>
       </Row>
     </Card>
   );

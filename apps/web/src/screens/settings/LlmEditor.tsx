@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api, type LlmInfo } from "../../api";
-import { Button, Chip, cx, ErrorNote, fieldClass, NumberBox, Toggle } from "../../ui";
+import { Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, Toggle, TwoStep } from "../../ui";
 import { Block, Row } from "./Rows";
 
 const field = `h-10 min-w-0 font-mono text-xs placeholder:font-sans ${fieldClass}`;
@@ -55,8 +55,8 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
           </Row>
           <Row label="Base URL" help="The OpenAI-compatible endpoint, /v1 included. Ollama and LM Studio fill in their usual local address.">
             <input aria-label="Base URL" value={form.baseUrl} placeholder="http://127.0.0.1:1234/v1" spellCheck={false} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className={cx(field, "grow")} />
-            <button type="button" data-tip="Ollama serves the OpenAI format at this address on the computer it runs on. Then the model name as `ollama list` shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:11434/v1", name: form.name || "Ollama" })} className="rounded-md border border-line-strong px-2 h-7 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">Ollama</button>
-            <button type="button" data-tip="LM Studio's local server, at its usual address. Then the model name as its server page shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:1234/v1", name: form.name || "LM Studio" })} className="rounded-md border border-line-strong px-2 h-7 text-[11px] font-semibold text-ink-2 hover:bg-hover hover:text-ink">LM Studio</button>
+            <Button size="sm" data-tip="Ollama serves the OpenAI format at this address on the computer it runs on. Then the model name as `ollama list` shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:11434/v1", name: form.name || "Ollama" })}>Ollama</Button>
+            <Button size="sm" data-tip="LM Studio's local server, at its usual address. Then the model name as its server page shows it." onClick={() => setForm({ ...form, baseUrl: "http://127.0.0.1:1234/v1", name: form.name || "LM Studio" })}>LM Studio</Button>
           </Row>
           <Row label="Model name">
             <input aria-label="Model name" value={form.model} placeholder="as /v1/models lists it" spellCheck={false} onChange={(e) => setForm({ ...form, model: e.target.value })} className={cx(field, "grow")} />
@@ -77,20 +77,28 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
             <Toggle bare on={form.noThinking} onChange={(on) => setForm({ ...form, noThinking: on })} label="No thinking" />
           </Row>
           <Row label="Test" help="Asks it a short question (with Vision on, also the colour of a small red picture). Saves first when something changed.">
-            <Button tone="quiet" onClick={onRemove}>Remove</Button>
             <Button tone={dirty ? "primary" : "plain"} onClick={() => test.mutate()} disabled={test.isPending || !usable}>{test.isPending ? "Asking…" : dirty ? "Save and test" : "Test it"}</Button>
           </Row>
           {(test.isSuccess || test.isError) && (
             <Block>
               {test.isSuccess && (
-                <span className="text-ink-2">
-                  It answered "{test.data.answer}" in {(test.data.ms / 1000).toFixed(1)} s{test.data.thinks ? ", thinking first" : ""}
-                  {test.data.vision && (test.data.vision.ok ? " · it read the picture" : ` · it did not name the red picture's colour (it said "${test.data.vision.answer}"): turn Vision off, or pick a model that reads images`)}
+                <span className="flex flex-wrap items-center gap-1.5 text-ink-2">
+                  <span className="font-mono text-xs">answered in {(test.data.ms / 1000).toFixed(1)} s{test.data.thinks ? " · thinks first" : ""}</span>
+                  {test.data.vision && (test.data.vision.ok
+                    ? <span className="font-mono text-xs">· reads images</span>
+                    : <span className="font-mono text-xs text-warn-ink">· did not read the image</span>)}
+                  <Help text={`It said "${test.data.answer}".${test.data.vision && !test.data.vision.ok ? ` Asked the colour of a small red picture, it said "${test.data.vision.answer}": turn Vision off, or pick a model that reads images.` : ""}`} />
                 </span>
               )}
               {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
             </Block>
           )}
+          {/* in a row of its own, away from Test: a saved one asks first */}
+          <Row label="Remove">
+            {fresh
+              ? <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
+              : <TwoStep label="Remove" title="Remove this LLM" note="Conversations that use it fall back to the one new conversations start with." yes="Remove" onYes={onRemove} />}
+          </Row>
         </div>
       )}
     </div>

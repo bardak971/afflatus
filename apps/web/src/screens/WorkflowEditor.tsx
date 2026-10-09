@@ -64,7 +64,8 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         <Chip tone="good" tip={list(has)} onClick={() => jump('[data-jump="found"]')}>✓ {has.length} found<Mark items={has} /></Chip>
         {lacks.length > 0 && <Chip tone="neutral" tip={list(lacks)} onClick={() => jump("[data-jump] [data-dash]")}>– {lacks.length} not found<Mark items={lacks} /></Chip>}
         {toCheck.length > 0 && <Chip tone="warn" tip={list(toCheck)} onClick={() => jump('[data-jump="before"]')}>⚠ {toCheck.length} before it runs<Mark items={toCheck} /></Chip>}
-        {!model.trim() && <Chip tone="warn" tip="Say which model it runs, in step 3's Model field.">Needs a model name to save</Chip>}
+        {/* said here only: the Model field's border marks it; a click goes there */}
+        {!model.trim() && <Chip tone="warn" tip="Say which model it runs, in step 3's Model field." onClick={() => document.getElementById("wf-model")?.focus()}>Needs a model name to save</Chip>}
         <span className="mx-1 h-6 w-px bg-line" />
         <Button onClick={() => void cancel()}>Cancel</Button>
         <Button tone="primary" disabled={!canSave} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : start.id ? "Save changes" : "Save workflow"}</Button>

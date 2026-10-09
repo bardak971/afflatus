@@ -34,7 +34,7 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   const settings = await readSettings(s.db);
   if (!settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn it on in Settings.");
   // "Lookups off" means Afflatus never contacts Civitai or Hugging Face, which is where model files come from
-  if (!settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on Civitai lookups in Settings to fetch model files.");
+  if (!settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to fetch model files.");
   if (!b.civitai === !b.url) throw bad("a source is needed: a Civitai version or a URL");
   const comfy = await s.comfy();
   const self = selfUrl(req);

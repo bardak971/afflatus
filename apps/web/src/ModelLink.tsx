@@ -6,7 +6,7 @@ import { ExternalLink } from "lucide-react";
 import { api, type ModelPage } from "./api";
 import { useModelPages } from "./data";
 import { fileLabel } from "./format";
-import { cx, fieldClass } from "./ui";
+import { cx, fieldClass, Help } from "./ui";
 
 const CIVITAI = /^https?:\/\/(www\.)?civitai\.(com|red)(?=\/|$)/i;
 /** The same page on Civitai's two sites: what one hides the other shows, and a model has the same number on both. */
@@ -119,7 +119,11 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
               {(find.isPending || pages.isPending) && <span className="px-2 py-1.5 text-ink-2">Searching for its model page…</span>}
               {find.isError && <span className="px-2 py-1.5 text-warn-ink">{find.error.message}</span>}
               {find.data && !find.data.lookups && (
-                <span className="px-2 py-1.5 text-ink-2">Civitai lookups are turned off. <Link href="/settings/models" className="underline" onClick={() => setOpen(false)}>Turn them on in Settings</Link>, or search manually below.</span>
+                <span className="flex items-center gap-1.5 px-2 py-1.5 text-ink-2">
+                  Search Hugging Face and Civitai: off
+                  <Link href="/settings/models" className="font-semibold underline" onClick={() => setOpen(false)}>Settings</Link>
+                  <Help text="The page is looked for only with this switch on (Settings › Models). Or search by hand below and paste the page URL." />
+                </span>
               )}
               {find.data?.lookups && !candidates.length && <span className="px-2 py-1.5 text-ink-2">No match for this filename. Search manually below, then paste the page URL to link it.</span>}
               {candidates.length > 0 && <span className="px-2 pt-1 text-xs font-semibold text-ink-2">No exact filename match. It may be one of these:</span>}

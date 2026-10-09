@@ -40,7 +40,6 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
         <input aria-label="Name of this system prompt" value={name} placeholder="A name: Photographer, Anime, Explicit…" onChange={(e) => setName(e.target.value)} className={cx("h-9 min-w-0 grow font-semibold placeholder:font-normal", fieldClass)} />
         {inUse && <span className="shrink-0 rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">in use</span>}
         {dirty && <Button size="sm" tone="primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Save</Button>}
-        <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
         {!fresh && <Button size="sm" tone="quiet" onClick={onOpen}>Close</Button>}
       </div>
       <AutoText
@@ -52,6 +51,12 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
         className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 leading-normal placeholder:text-ink-3"
       />
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+      {/* on a line of its own, under the text: a saved one asks first */}
+      <div className="flex justify-end">
+        {fresh
+          ? <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
+          : <TwoStep label="Remove" title="Remove this system prompt" note="Conversations that use it go on without one." yes="Remove" onYes={onRemove} />}
+      </div>
     </div>
   );
 }
@@ -66,7 +71,9 @@ export function DesignerCard() {
   /** The system prompt open for reading or changing; the rest are folded to a line. */
   const [openNote, setOpenNote] = useState<string | null>(null);
   const put = async (patch: Record<string, unknown>) => client.setQueryData(["settings"], await api.saveSettings(patch));
-  const change = useMutation({ mutationFn: put });
+  // one per card: an error shows under the card it came from
+  const changeLlms = useMutation({ mutationFn: put });
+  const changeNotes = useMutation({ mutationFn: put });
   const forget = useMutation({
     mutationFn: api.forgetConversations,
     onSuccess: () => {
@@ -103,8 +110,8 @@ export function DesignerCard() {
                   setNewLlms((list) => list.filter((x) => x.id !== l.id));
                 }
                 : (next) => put({ llms: saved.map((x) => (x.id === l.id ? next : kept(x))) })}
-              onUse={() => { if (!fresh) change.mutate({ designerLlm: l.id }); }}
-              onRemove={() => (fresh ? setNewLlms((list) => list.filter((x) => x.id !== l.id)) : change.mutate({ llms: saved.filter((x) => x.id !== l.id).map(kept) }))}
+              onUse={() => { if (!fresh) changeLlms.mutate({ designerLlm: l.id }); }}
+              onRemove={() => (fresh ? setNewLlms((list) => list.filter((x) => x.id !== l.id)) : changeLlms.mutate({ llms: saved.filter((x) => x.id !== l.id).map(kept) }))}
             />
           );
         })}
@@ -115,6 +122,7 @@ export function DesignerCard() {
             </Button>
           </div>
         </Block>
+        {changeLlms.isError && <Block><ErrorNote>{changeLlms.error.message}</ErrorNote></Block>}
       </Card>
 
       <Card
@@ -130,7 +138,7 @@ export function DesignerCard() {
             open={openNote === n.id}
             onOpen={() => setOpenNote(openNote === n.id ? null : n.id)}
             onSave={(next) => put({ designerInstructions: notes.map((x) => (x.id === n.id ? next : x)) })}
-            onRemove={() => change.mutate({ designerInstructions: notes.filter((x) => x.id !== n.id) })}
+            onRemove={() => changeNotes.mutate({ designerInstructions: notes.filter((x) => x.id !== n.id) })}
           />
         ))}
         {newNotes.map((n) => (
@@ -153,7 +161,7 @@ export function DesignerCard() {
             <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add system prompt</Button>
           </div>
         </Block>
-        {change.isError && <Block><ErrorNote>{change.error.message}</ErrorNote></Block>}
+        {changeNotes.isError && <Block><ErrorNote>{changeNotes.error.message}</ErrorNote></Block>}
       </Card>
 
       <Card title="Conversation history">

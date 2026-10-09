@@ -12,7 +12,7 @@ import { useOpenNewDraft } from "../draft";
 import { notReady, recipeLabel } from "../format";
 import { saveJson } from "../download";
 import { useHandover } from "../store";
-import { Button, cx, ErrorNote, Help, SectionTitle } from "../ui";
+import { Button, Chip, cx, ErrorNote, Help, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { pngText } from "./pngText";
 
@@ -114,10 +114,10 @@ function Readiness({ known, why, count = "", fix }: { known: boolean; why: strin
   if (!known) return <span aria-hidden className="h-6 w-20 animate-pulse rounded-lg bg-hover" />;
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <span className={cx("inline-flex h-6 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11.5px] font-bold whitespace-nowrap", why ? "bg-warn-wash text-warn-ink" : "bg-good/15 text-good")}>
+      <Chip tone={why ? "warn" : "good"}>
         {why ? `Not ready${count}` : "Ready"}
         {why && <Help title="Not ready" text={why} />}
-      </span>
+      </Chip>
       {why && fix}
     </span>
   );
@@ -299,7 +299,7 @@ export function Workflows() {
               return (
                 <div key={w.id} className={cx("flex flex-col gap-1.5 px-4 py-3", i > 0 && "border-t border-line")} onContextMenu={(e) => { setFromMore(false); cardMenu.open(e, w); }}>
                   <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_160px] items-center gap-3.5">
-                    <span className={cx("justify-self-start rounded-md px-1.5 py-0.5 text-[10.5px] font-bold", w.output === "video" ? "bg-accent-wash text-accent" : "bg-raised text-picture")}>{KIND[w.output]}</span>
+                    <Chip tone={w.output === "video" ? "accent" : "neutral"} className="justify-self-start">{KIND[w.output]}</Chip>
                     <div className="flex min-w-0 flex-col gap-0.5">
                       <span className="truncate font-semibold">{recipeLabel(w.model, w.title)}</span>
                       <span className="truncate text-[11.5px] text-ink-3">
@@ -324,13 +324,16 @@ export function Workflows() {
                     </div>
                   </div>
                   {opened?.id === w.id && !opened.direct && (
-                    <div className="pl-[70px] text-xs text-ink-2">
-                      Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: in ComfyUI, open the Workflows sidebar (key W) and pick it under "afflatus".
-                      {opened.restart
-                        ? " Restart ComfyUI once: from then on it opens straight away."
-                        : settings.data && !settings.data.comfyDir
-                          ? " To have it open straight away, set the ComfyUI folder in Settings (same computer only)."
-                          : ""}
+                    <div className="flex items-center gap-1.5 pl-[70px] text-xs text-ink-2">
+                      Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>
+                      <Help
+                        title="Open it in ComfyUI"
+                        text={`In ComfyUI, open the Workflows sidebar (key W) and pick it under "afflatus".${opened.restart
+                          ? " Restart ComfyUI once: from then on it opens straight away."
+                          : settings.data && !settings.data.comfyDir
+                            ? " To have it open straight away, set the ComfyUI folder in Settings (same computer only)."
+                            : ""}`}
+                      />
                     </div>
                   )}
                 </div>

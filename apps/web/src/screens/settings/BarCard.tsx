@@ -10,7 +10,7 @@ import { useEntities, useRecipes, useSettings } from "../../data";
 import { mainTextOf } from "../../form";
 import { NewSnippet } from "../../snippets/NewSnippet";
 import { useOpenDraft } from "../../store";
-import { Button, cx, ErrorNote, Toggle } from "../../ui";
+import { Button, buttonClass, cx, ErrorNote, Toggle } from "../../ui";
 import { Block, Card, Fact, Row } from "./Rows";
 
 const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, history: false, cast: false };
@@ -128,11 +128,11 @@ export function BarCard() {
             help="Your snippets live in the Prompt kit › Snippets. Each is typed as ; and its name, lower case, with dashes for spaces. A new one here starts from the prompt of the draft open in the Studio."
           >
             <Fact tip="How a snippet is typed">{snippets.length ? `;${slugOf(snippets[0]!.name)}` : ";cine-look"}</Fact>
-            <Link href="/kit#snippets" className="inline-flex h-8 items-center rounded-lg border border-line-strong px-3 text-xs font-semibold text-ink hover:bg-hover">Prompt kit › Snippets</Link>
+            <Link href="/kit#snippets" className={buttonClass({ size: "sm" })}>Prompt kit › Snippets</Link>
             {!adding && (
-              <button type="button" onClick={() => setAdding(true)} className="flex h-8 items-center gap-1.5 rounded-lg border border-dashed border-line-strong px-3 text-xs font-semibold text-ink-2 hover:text-ink">
+              <Button size="sm" onClick={() => setAdding(true)}>
                 <Plus size={13} /> Snippet from the open prompt
-              </button>
+              </Button>
             )}
           </Row>
         )}
