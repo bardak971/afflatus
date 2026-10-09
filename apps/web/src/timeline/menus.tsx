@@ -62,7 +62,7 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       // said rather than hidden: an imported workflow with no first-frame or previous-clip input cannot extend
       : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true, run: () => {} }] : []),
     "—" as const,
-    { label: "Set range to this clip", key: "I  O", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => act.setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
+    { label: "Set range to this clip", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => act.setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
     { label: "Duplicate clip", icon: <Copy size={14} />, disabled: act.pending.duplicate, note: "a copy right after it, with its takes", run: () => act.duplicate(c.id) },
     // the same as dragging it along the track, from the keyboard too
     { label: "Move earlier", key: "Alt + ←", icon: <ArrowLeft size={14} />, disabled: index <= 0, run: () => act.move(c.id, -1) },

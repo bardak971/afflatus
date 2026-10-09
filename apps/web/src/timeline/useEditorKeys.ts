@@ -74,7 +74,6 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         e.preventDefault();
         jumpNow.current(e.key === "[" ? -1 : 1);
       }
-      // I and O: In and Out at the playhead (one alone reaches to the end, or from the start)
       // I and O: In and Out at the playhead (one alone reaches to the end, or from the start); with Shift: go to In / Out
       if (plain && (e.key === "i" || e.key === "I")) {
         e.preventDefault();

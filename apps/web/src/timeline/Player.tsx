@@ -319,7 +319,7 @@ export const Player = forwardRef<PlayerHandle, {
                 onClick={() => onPickPreview?.(preview)}
                 className="absolute inset-0 h-full w-full cursor-pointer bg-black object-contain"
               />
-              <span className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">Previewing this take. Click it to make it the one that plays.</span>
+              <span className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">Preview · click to play this take</span>
             </>
           )}
         </div>
@@ -342,7 +342,7 @@ function LiveStage({ clipId, clip, onStop }: { clipId: string; clip: number; onS
       {job.previewSeq > 0
         // its own sound, silent at first: not the timeline's volume, which is for playing the video
         ? <LivePreview job={job} sound className="h-full w-full object-contain" />
-        : <span className="text-ink-2">Clip {clip} is generating. The live preview shows here from its first step.</span>}
+        : <span className="text-ink-2">Clip {clip} · live preview from the first step</span>}
       <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 py-1 pr-1 pl-3 text-xs font-semibold whitespace-nowrap">
         Clip {clip} · {phaseLabel(job.phase)}{job.steps ? ` · step ${job.step} of ${job.steps}` : ""}
         {onStop && <button type="button" onClick={() => onStop(job.id)} data-tip="Stop this render. Nothing is added; the clip keeps the takes it has." className="rounded-full border border-line-strong px-2.5 py-0.5 hover:bg-hover">Stop</button>}

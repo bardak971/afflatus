@@ -18,7 +18,7 @@ import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
+import { clockOf, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -286,6 +286,14 @@ export class Timelines {
     return takeFollows(b.active.take, a.active) || takeLandsOn(a.active.take, b.active) ? "fresh" : "stale";
   }
 
+  /** A video clip with a model here and its form filled, as the editor's ready() reads it (see formFilled). */
+  renderable(all: Placed[], i: number): boolean {
+    const p = all[i]!;
+    const recipe = p.clip.kind === "video" && p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined;
+    if (!recipe) return false;
+    return formFilled(recipe, JSON.parse(p.clip.inputs) as Record<string, unknown>, { carries: i > 0 && p.clip.joined === "continue", afterStill: all[i - 1]?.clip.kind === "still" });
+  }
+
   /**
    * Every timeline as the projects tree lists it, newest first: its clips, how long it plays, the size of its videos (its takes'
    * and its export, each once, none in the bin) and whether it has an export. A few queries for all of them.
@@ -328,8 +336,8 @@ export class Timelines {
         strip: all.slice(0, 12).map((p) => p.active?.asset.id ?? p.still?.id ?? null),
         // and how long each of them plays, so a frame is as wide as its clip is long
         lengths: all.slice(0, 12).map(lengthOf),
-        // clips with nothing to play yet, and joins that no longer follow on
-        toRender: all.filter((p) => p.clip.kind !== "still" && !p.active).length,
+        // clips with nothing to play yet that can render (a model, the form filled: the editor's Render all), and joins that no longer follow on
+        toRender: all.filter((p, i) => !p.active && this.renderable(all, i)).length,
         staleJoins: all.filter((_, i) => this.joinState(all, i) === "stale").length,
       };
     });

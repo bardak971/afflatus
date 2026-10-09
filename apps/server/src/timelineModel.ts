@@ -150,6 +150,19 @@ export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined) => {
   if (plays > 0) return plays;
   return Math.max(1000, ((recipe ? secondsOf(recipe.inputs, JSON.parse(p.clip.inputs) as Record<string, unknown>) : null) ?? 5) * 1000);
 };
+
+/**
+ * A video clip's form filled enough to render, as the editor's ready() reads it: its texts written, its pictures chosen,
+ * an opening picture that the clip before gives not asked for. Whether ComfyUI and the model files are there is not said here.
+ */
+export function formFilled(recipe: Recipe<any>, inputs: Record<string, unknown>, from: { carries: boolean; afterStill: boolean }): boolean {
+  for (const i of recipe.inputs) {
+    if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(inputs[i.id] ?? "").trim()) return false;
+    const given = from.carries && i.type === "image" && i.role === "start" && (recipe.traits?.continues === "frame" || from.afterStill);
+    if (i.type === "image" && !i.optional && !inputs[i.id] && !given) return false;
+  }
+  return true;
+}
 /** What a take that opens on a still says it carried on from. */
 export const stillRef = (assetId: string) => `still:${assetId}`;
 

@@ -7,13 +7,13 @@ import { AudioPlayer } from "../AudioPlayer";
 import { openProjects } from "../bar/bridge";
 import { useEntities, useFolders, useProjects } from "../data";
 import { FieldRow } from "../fields";
-import { Kbd } from "../Keys";
+
 import { lookWords } from "../LookBar";
 import { aboutMs, clock } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
-import { attention, canDismiss, dismissKey, fixAll, type Act, type Fix, type JoinFigures, type Row } from "./attention";
+import { attention, canDismiss, dismissKey, fixAll, SHOWS, type Act, type Fix, type JoinFigures, type Row } from "./attention";
 
 /** The rows of Needs attention set aside, per timeline, in this browser (see dismissKey). */
 const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string, keys: string[]): void }>()(
@@ -30,7 +30,7 @@ const about = (ms: number) => aboutMs(ms).replace(/^about /, "~");
 /**
  * The timeline as a whole, shown while no clip is selected: what it is, what needs attention (each line
  * with its clips, which select the clip, and the action that mends it; Fix all runs them all), its music,
- * its cast and mood.
+ * its cast and look.
  */
 export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
@@ -93,12 +93,12 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   const cast = lookWords(t.look, entities.data?.items ?? []);
   const number = (id: string) => clips.findIndex((c) => c.id === id) + 1;
 
-  // a join holds when its figure and the run-up's end both stay at ×3 or under (past ×3 it shows)
+  // a join holds when its figure and the run-up's end both stay at ×3 or under (past SHOWS it shows)
   const carryOf = (c: Clip) => c.take?.measure?.handover ?? null;
   const badJoin = (c: Clip) => {
     const figure = joinsOf.get(c.id);
     const carry = carryOf(c);
-    return (figure !== undefined && figure !== null && figure > 3) || (carry !== null && carry > 3);
+    return (figure !== undefined && figure !== null && figure > SHOWS) || (carry !== null && carry > SHOWS);
   };
   const figured = joined.filter((c) => typeof joinsOf.get(c.id) === "number");
   const loading = joined.some((c) => joinsOf.get(c.id) === undefined);
@@ -190,10 +190,10 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
               <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
             )}
           </FieldRow>
-          <FieldRow label="Cast and mood" note="Who is in the video and a few words of look and mood, set once for every clip: the people's reference pictures and LoRAs, and the words added to each clip's prompt. A clip given its own keeps it; changes apply from the next take.">
+          <FieldRow label="Cast and look" note="Who is in the video, its style and a few mood words, set once for every clip: the people's reference pictures and LoRAs, and the words added to each clip's prompt. A clip given its own cast and look keeps it; changes apply from the next take.">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-[12.5px] font-semibold text-ink" data-tip={castWords || undefined}>
-                <span className="truncate">{castWords || "Nobody yet, no mood set."}</span>
+                <span className="truncate">{castWords || "Nobody cast, no mood"}</span>
               </span>
               <span className="grow" />
               <button type="button" onClick={onCast} className={quiet}>Change</button>
@@ -234,7 +234,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
         {(figured.length > 0 || renderMs > 0) && (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             {figured.length > 0 && <Fact label="Joins that hold" value={loading ? "…" : `${figured.filter((c) => !badJoin(c)).length} of ${figured.length}`} />}
-            {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > 3} />}
+            {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > SHOWS} />}
             {renderMs > 0 && <Fact label="Rendered in" value={aboutMs(renderMs).replace(/^about /, "~")} />}
             {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${videos} clip${videos === 1 ? "" : "s"}`} />}
           </div>
@@ -245,13 +245,13 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
             {joined.map((c) => {
               const i = clips.findIndex((x) => x.id === c.id);
               const figure = joinsOf.get(c.id);
-              const jumped = figure !== undefined && figure !== null && figure > 3;
+              const jumped = figure !== undefined && figure !== null && figure > SHOWS;
               // where the clip's own frames begin after the run-up: a model that steps away from its guide shows a cut there
               const carry = carryOf(c);
-              const broke = carry !== null && carry > 3;
+              const broke = carry !== null && carry > SHOWS;
               const bad = jumped || broke;
               return (
-                <button key={c.id} type="button" onClick={() => onPick(c.id)} data-tip={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? ". Past ×3 the join shows" : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
+                <button key={c.id} type="button" onClick={() => onPick(c.id)} data-tip={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? `. Past ×${SHOWS} the join shows` : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
                   {i + 1}: {figure === undefined ? "…" : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
                 </button>
               );
@@ -262,12 +262,6 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
         )}
         {picked.size > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderPicked}>Render {picked.size} picked</Button></span>}
       </section>
-
-      <div className="mt-auto flex flex-wrap gap-x-3.5 gap-y-1.5 border-t border-line pt-3 text-[11.5px] text-ink-3">
-        <span className="flex items-center gap-1.5"><Kbd>Click</Kbd>a clip</span>
-        <span className="flex items-center gap-1.5"><Kbd>I</Kbd><Kbd>O</Kbd>a range</span>
-        <span className="flex items-center gap-1.5"><Kbd>Ctrl</Kbd>+ click picks clips</span>
-      </div>
     </>
   );
 }
@@ -315,7 +309,7 @@ function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind
     : kind === "missing" ? [`Render ${n}`, `Renders the ${n} clip${n === 1 ? "" : "s"} with no take yet, in order`]
     : kind === "stale" ? ["Re-render", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
     : kind === "failed" ? ["Retry", `Queues ${n === 1 ? "the clip" : `the ${n} clips`} again`]
-    : ["New take", "No other take comes in under ×3: render another"];
+    : ["New take", `No other take comes in at ×${SHOWS} or under: render another`];
   return (
     <Button size="sm" tone={warn ? "danger" : "quiet"} disabled={disabled} onClick={onClick} data-tip={tip}>
       {words}

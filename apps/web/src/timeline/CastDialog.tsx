@@ -4,9 +4,9 @@ import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { Kbd } from "../Keys";
 import { LookBar } from "../LookBar";
-import { AutoText, Button, cx } from "../ui";
+import { AutoText, Button, cx, Help } from "../ui";
 
-/** Cast and places: who is in the video, where it happens and how it looks, for every clip that has no cast of its own. */
+/** Cast and look: who is in the video, where it happens, its style and mood, for every clip that has no cast and look of its own. */
 export function CastDialog({ timeline: t, mood, onMood: setMood, onEdit, onClose }: {
   timeline: Timeline;
   /** The mood being typed; null while the box shows the timeline's. */
@@ -25,11 +25,15 @@ export function CastDialog({ timeline: t, mood, onMood: setMood, onEdit, onClose
     onClose();
   };
   return (
-    <Dialog label="Cast and places" onClose={close} className={cx(DIALOG, "max-w-lg")}>
-        <DialogHead icon={<Users size={16} />} title="Cast and places" sub="Who is in the video, where it happens, how it looks" onClose={close} />
-        <span className="text-ink-2">Set once here, used by every clip unless a clip is given its own, from the next take of each clip.</span>
+    <Dialog label="Cast and look" onClose={close} className={cx(DIALOG, "max-w-lg")}>
+        <DialogHead
+          icon={<Users size={16} />}
+          title="Cast and look"
+          sub={<span className="flex items-center gap-1.5">Every clip without its own · from the next take<Help title="Cast and look" text="Who is in the video, where it happens, its style and mood: set once here, used by every clip unless a clip is given its own cast and look, from the next take of each clip." /></span>}
+          onClose={close}
+        />
         <LookBar title="In this video" look={t.look} onChange={(look) => onEdit({ look })} />
-        <FieldRow label="Look and mood" htmlFor="cast-mood" note="A few words every clip keeps: they are added to what happens in each clip, and the designer writes with them in mind.">
+        <FieldRow label="Mood" htmlFor="cast-mood" note="A few words every clip keeps: they are added to what happens in each clip, and the designer writes with them in mind.">
           <AutoText
             id="cast-mood"
             rows={1}

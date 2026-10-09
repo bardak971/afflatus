@@ -53,12 +53,6 @@ interface Role {
  */
 export function MediaOverlay({ timeline, placeItems }: {
   timeline: Timeline;
-  /** Whether a clip is selected (a sound needs one to go on). */
-  selected: boolean;
-  /** Pictures and videos go at the end of the timeline; a sound goes on the selected clip. */
-  onAdd(asset: Asset): void;
-  /** The editor's viewer: the shelf opens its own, which walks the shelf's items. */
-  onOpen(asset: Asset): void;
   /** Where the item can go in what is being edited: into the selected clip's places, onto the timeline. First in its menu. */
   placeItems(asset: Asset): MenuItem[];
 }) {
@@ -85,7 +79,7 @@ export function MediaOverlay({ timeline, placeItems }: {
   const projects = useProjects();
   const rootId = projectId && projectId !== "none" ? projects.data?.items.find((p) => p.id === projectId)?.folderId ?? null : null;
   const folder = place.type === "folder" ? folderList.data?.items.find((f) => f.id === place.id) : rootId ? folderList.data?.items.find((f) => f.id === rootId) : undefined;
-  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "Inbox" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
+  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "No folder" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
 
   // Escape folds it away, unless something is open over it
   useEffect(() => {
@@ -215,7 +209,7 @@ export function MediaOverlay({ timeline, placeItems }: {
             type="button"
             aria-haspopup="dialog"
             aria-expanded={folders}
-            data-tip="Folders, the Inbox and the bin"
+            data-tip="Folders, items in no folder, and the bin"
             onClick={() => setFolders((o) => !o)}
             className={cx("flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-lg border bg-raised px-3 text-sm font-semibold", folders ? "border-accent" : "border-line-strong")}
           >

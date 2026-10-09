@@ -1,4 +1,5 @@
 import type { Clip, Measure } from "../api";
+import { SHOWS } from "./attention";
 
 /**
  * How far a take's look has slid along its run: the clips joined one after the other ("continue"), from the
@@ -11,9 +12,9 @@ import type { Clip, Measure } from "../api";
  * Past these, a change shows. A few per cent is the model's own variation; a chain continued from exact latents
  * drifts darker and softer clip after clip. Pace: H3 slows down after each hand-over, and a slower clip than
  * -15 % reads as slow motion. Colour: the distance moved in U/V (0 to 255 chroma), past 3 a cast shows.
- * Run-up end: past ×3 the model stepped away from its guide.
+ * Run-up end: past ×3 the model stepped away from its guide, and the join shows (SHOWS, as every join figure).
  */
-export const DRIFT = { luma: -0.08, sharp: -0.15, pace: -0.15, colour: 3, handover: 3 } as const;
+export const DRIFT = { luma: -0.08, sharp: -0.15, pace: -0.15, colour: 3, handover: SHOWS } as const;
 
 type Joined = Pick<Clip, "joined">;
 

@@ -1,15 +1,15 @@
-import { hiddenRunUp } from "@afflatus/core";
+import { hiddenRunUp, resamplesLatent } from "@afflatus/core";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api, type Clip, type FinishSettings } from "../api";
-import { useSettings } from "../data";
+import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { fileLabel } from "../format";
 import { Kbd } from "../Keys";
 import { Select } from "../Select";
-import { Button, Chip, cx, ErrorNote, NumberBox, Segmented, Toggle } from "../ui";
+import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
 
 const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: string }> = [
   { value: "seedvr", label: "SeedVR2 (restores + enlarges)", detail: "any clip; the whole clip in view, so no flicker; compression and softness repaired too. Minutes per clip" },
@@ -33,6 +33,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
   onQueued(r: { jobs: string[]; skipped: Array<{ clip: number; why: string }> }): void;
 }) {
   const settings = useSettings();
+  const recipes = useRecipes();
   const client = useQueryClient();
   const [v, setV] = useState<FinishSettings>(FALLBACK);
   const [redo, setRedo] = useState(false);
@@ -50,7 +51,8 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
   const finished = videos.filter((c) => c.take?.finishedFrom);
   const todo = redo ? videos : videos.filter((c) => !c.take?.finishedFrom);
   const stills = clips.filter((c) => c.kind === "still").length;
-  const h3 = videos.filter((c) => c.recipe === "h3.video").length;
+  // the clips whose model re-samples its own latent (H3's, or a workflow that offers it); the others take SeedVR2 on that route
+  const resampled = videos.filter((c) => resamplesLatent(recipes.data?.recipes.find((r) => r.id === c.recipe))).length;
   // what it should take, from this route's own past finishes: its pace × what each clip makes (its size × the factor, its frames)
   const tool = v.route === "rtx" ? "tool.finish.rtx" : v.route === "model" ? "tool.finish.model" : v.route === "seedvr" ? "tool.finish.seedvr" : null;
   const pace = useQuery({ queryKey: ["renderPace", tool], queryFn: () => api.renderPace(tool!), enabled: Boolean(tool) });
@@ -63,9 +65,9 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         <div className="flex flex-wrap gap-1.5">
           <Chip tone="accent">{todo.length} clip{todo.length === 1 ? "" : "s"} to finish</Chip>
           {stills > 0 && <Chip>{stills} still{stills > 1 ? "s" : ""} left as {stills > 1 ? "they are" : "it is"}</Chip>}
-          {v.route === "latent" && h3 < videos.length && <Chip tone="warn" tip="Only H3 renders are re-sampled in the latent.">{videos.length - h3} of {videos.length} not H3: SeedVR2</Chip>}
+          {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
+          <Help title="Finish all clips" text={`Each finished take plays in place of its draft, with the same motion (the draft stays in the takes list); export "At the finished size" afterwards.`} className="ml-auto self-center" />
         </div>
-        <span className="text-ink-2">Each finished take plays in place of its draft, with the same motion (the draft stays in the takes list); export "At the finished size" afterwards.</span>
         <div className="flex flex-col">
           <FieldRow label="Route" note={ROUTES.find((r) => r.value === v.route)?.detail}>
             <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
@@ -73,7 +75,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
           <FieldRow label="Upscale by" note={v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"}>
             <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
           </FieldRow>
-          {(v.route === "seedvr" || (v.route === "latent" && h3 < videos.length)) && (
+          {(v.route === "seedvr" || (v.route === "latent" && resampled < videos.length)) && (
             <>
               <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
                 <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />

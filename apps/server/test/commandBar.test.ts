@@ -132,7 +132,10 @@ describe("the command bar's estimate", () => {
     const tl = await call("POST", "/api/timelines", { name: "Harbor cut" });
     const at = now();
     const clip = (position: number, take: string | null) => ({ id: newId(), timeline_id: tl.id, position, take_id: take, joined: "cut", recipe_id: "sdxl.text-to-picture", inputs: JSON.stringify(input), created_at: at, updated_at: at });
-    await t.db.insertInto("clips").values([clip(0, null), clip(1, null), clip(2, null)] as never).execute();
+    // a fourth clip whose prompt is not written yet: it cannot render, so the card neither counts it nor times it
+    await t.db.insertInto("clips").values([clip(0, null), clip(1, null), clip(2, null), { ...clip(3, null), inputs: JSON.stringify({ checkpoint: CHECKPOINT }) }] as never).execute();
+    const card = async () => (await get(t.app, "/api/timelines")).json().items.find((x: { id: string }) => x.id === tl.id);
+    expect((await card()).toRender).toBe(3);
 
     const estimate = async (qs: string) => (await get(t.app, `/api/command-estimate?${qs}`)).json();
     expect(await estimate(`draft=${draft.id}`)).toEqual({ ms: null, basis: 0, ahead: 0 });
@@ -163,6 +166,10 @@ describe("the command bar's estimate", () => {
     expect((await estimate(`timeline=${tl.id}`)).ms).toBe(clipOne * 3);
     // a clip number past the end, or nothing to render, says nothing
     expect((await estimate(`timeline=${tl.id}&clips=9`)).ms).toBeNull();
+    // the editor's own: each form it sends, the same forecast; null for what was never rendered here
+    const each = (await post(t.app, "/api/forecasts", { forms: [{ recipe: "sdxl.text-to-picture", input: { checkpoint: CHECKPOINT } }, { recipe: "nope", input: {} }] })).json();
+    expect(each.ms).toEqual([clipOne, null]);
+    expect((await post(t.app, "/api/forecasts", { forms: "all" })).statusCode).toBe(400);
 
     await post(t.app, "/api/queue/pause");
     await post(t.app, "/api/jobs", job({ prompt: "Night market" }));

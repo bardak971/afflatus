@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { RANDOM_SEED, hiddenRunUp, movedSeed, typedSeed } from "@afflatus/core";
+import { RANDOM_SEED, hiddenRunUp, movedSeed, resamplesLatent, typedSeed } from "@afflatus/core";
 import { nameOf } from "./autoName";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
@@ -406,7 +406,7 @@ async function finishClips(s: Services, timeline: string, b: z.infer<typeof fini
     const draft = (take.finishedFrom ? clip.takes.find((x) => x.id === take.finishedFrom) : undefined) ?? take;
     const from = draft.id;
     const label = `${view.name} · clip ${i + 1} · finish`;
-    if (b.route === "latent" && clip.recipe === "h3.video") {
+    if (b.route === "latent" && resamplesLatent(clip.recipe ? s.registry.recipe(clip.recipe) : undefined)) {
       const gen = await t.generationOf(draft.asset.id);
       if (!gen) { skipped.push({ clip: i + 1, why: "not rendered here: no seed to repeat" }); continue; }
       const why = notRenderedAgain(view.clips, i, gen.inputs);

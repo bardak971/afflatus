@@ -3,7 +3,7 @@ import { Keyboard, X } from "lucide-react";
 import { Dialog, DialogHead } from "./Dialog";
 import { Kbd, typing } from "./Keys";
 import { useSettings } from "./data";
-import { cx } from "./ui";
+import { Segmented } from "./ui";
 
 /** Where the list says the command bar's shortcut: the one set in Settings › Command bar is written there. */
 const BAR_KEY = "Ctrl + K";
@@ -69,7 +69,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
     where: "Prompt",
     keys: [["Ctrl + ↑  ↓", "The weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"], [";", "A snippet of the Prompt kit by name (when turned on in Settings › Command bar): ↑ ↓, then Tab or Enter puts it in"]],
   },
-  { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it, stopping at Out"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead; they snap to cuts, the playhead and quiet moments"], ["Shift + drag", "On the ruler: In and Out in one go"], ["Shift + Click", "On a clip: the range reaches to it"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["[  ]", "The clip before / after"], ["Ctrl + Enter", "Render the selected clip (a new take)"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z  Ctrl + Y", "Redo"], ["Ctrl + Click", "On a clip: pick it too; Del removes the picked clips"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "The menu of the clip under the pointer, of the range, of a clip's audio or of the music"]] },
+  { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it, stopping at Out"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["I  O", "In / Out at the playhead, exactly (no snapping); alone, In reaches to the end, Out from the start"], ["Shift + drag", "On the ruler: In and Out in one go"], ["Shift + Click", "On a clip: the range reaches to it"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["[  ]", "The clip before / after"], ["Alt + ←  →", "Move the selected clip one place earlier / later (Undo puts it back)"], ["Ctrl + Enter", "Render the selected clip (a new take)"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z  Ctrl + Y", "Redo"], ["Ctrl + Click", "On a clip: pick it too; Del removes the picked clips"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "The menu of the clip under the pointer, of the range, of a clip's audio or of the music"]] },
   {
     where: "Media library, in a timeline",
     note: "The library opened over the stage from the Media tab.",
@@ -81,6 +81,11 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
   { where: "Menus", keys: [["↑  ↓", "Walk the menu"], ["Enter", "Run the item, or open its submenu"], ["→", "Open the submenu"], ["←", "Back to the menu above"], ["Esc", "Close"]] },
   { where: "Everywhere", keys: [["/  :", "The search nearest the mouse (a form's settings, the library, the Prompt kit, the workflow editor); pressed again inside one, the next"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
 ];
+
+/** The cards of a whole screen, put first when it is the one open (Trim goes before the viewer it is in). */
+const SCREENS = ["Viewer", "Timeline", "Grid", "Timelines", "Queue", "Workflows", "Prompt kit"];
+/** The cards that hold on every screen: after the screen's own. */
+const GENERAL = ["Command bar", "Menus", "Everywhere"];
 
 /** A key as a cap, as on a keyboard. */
 const cap = "inline-flex h-7 min-w-7 items-center justify-center rounded-md border border-line-strong bg-ground px-2 font-mono text-xs text-ink shadow-[inset_0_-2px_0_var(--color-line)]";
@@ -141,7 +146,10 @@ export function KeysHelp() {
     if (where === "Prompt") return has("textarea");
     return true;
   };
-  const shown = all ? KEYS : KEYS.filter((g) => onPage(g.where));
+  // the screen's own card first (Trim over the viewer it is in), then the parts of it, then what works everywhere; every screen: the rest after
+  const rank = (where: string) => (where.startsWith("Trim") ? 0 : SCREENS.some((s) => where.startsWith(s)) ? 1 : GENERAL.includes(where) ? 3 : 2);
+  const here = KEYS.filter((g) => onPage(g.where)).sort((a, b) => rank(a.where) - rank(b.where));
+  const shown = all ? [...here, ...KEYS.filter((g) => !here.includes(g))] : here;
   return (
     <Dialog label="Keyboard shortcuts" onClose={() => setOpen(false)} z="z-[90]" className="flex max-h-full w-full max-w-[1500px] flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
         {/* the head, with the switch between it and the way out */}
@@ -149,7 +157,7 @@ export function KeysHelp() {
           <span className="min-w-0 grow">
             <DialogHead icon={<Keyboard size={16} />} title="Keyboard shortcuts" sub={all ? "Every screen's keys. They act when the focus is not in a text field." : "The keys of what is on screen now. They act when the focus is not in a text field."} />
           </span>
-          <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-8 shrink-0 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>{all ? "This screen only" : "Every screen"}</button>
+          <Segmented size="sm" oneLine label="Which keys" value={all ? "all" : "here"} onChange={(v) => setAll(v === "all")} options={[{ value: "here", label: "This screen" }, { value: "all", label: "Every screen" }]} />
           <Kbd>Esc</Kbd>
           <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={() => setOpen(false)} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
         </header>

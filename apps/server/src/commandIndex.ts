@@ -8,6 +8,7 @@ import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { findDraft } from "./drafts";
+import { formFilled } from "./timelineModel";
 
 /**
  * The command bar's side of the server (docs/command-bar.md): everything the bar can find in one small answer, a render
@@ -145,16 +146,19 @@ export async function commandEstimate(s: Services, raw: unknown): Promise<Comman
   if (q.timeline) {
     const t = await s.db.selectFrom("timelines").select("id").where("id", "=", q.timeline).executeTakeFirst();
     if (!t) throw httpError("this timeline was not found", 404);
-    const clips = await s.db.selectFrom("clips").select(["recipe_id", "inputs", "kind", "take_id"]).where("timeline_id", "=", t.id).orderBy("position").orderBy("created_at").execute();
+    const clips = await s.db.selectFrom("clips").select(["recipe_id", "inputs", "kind", "take_id", "joined"]).where("timeline_id", "=", t.id).orderBy("position").orderBy("created_at").execute();
     const asked = q.clips ? new Set(q.clips.split(",").map(Number)) : null;
     for (const [i, c] of clips.entries()) {
       if (c.kind !== "video" || !c.recipe_id) continue;
       if (asked ? !asked.has(i + 1) : c.take_id !== null) continue;
       const recipe = s.registry.recipe(c.recipe_id);
       if (!recipe) continue;
+      const stored = JSON.parse(c.inputs) as Record<string, unknown>;
+      // left out, the clips the card counts: those that can render (their form filled), as the timelines list's toRender
+      if (!asked && !formFilled(recipe, stored, { carries: i > 0 && c.joined === "continue", afterStill: clips[i - 1]?.kind === "still" })) continue;
       // what a timeline fills in itself (the clip it carries on from) is not the form's to say, as when it is rendered
       const own = new Set((recipe.inputs as InputSpec[]).filter((x) => x.type !== "clip").map((x) => x.id));
-      const input = Object.fromEntries(Object.entries(JSON.parse(c.inputs) as Record<string, unknown>).filter(([k]) => own.has(k)));
+      const input = Object.fromEntries(Object.entries(stored).filter(([k]) => own.has(k)));
       forms.push({ recipe: recipe.id, input, times: 1 });
     }
   } else {
@@ -166,19 +170,40 @@ export async function commandEstimate(s: Services, raw: unknown): Promise<Comman
 
   const ahead = Number((await s.db.selectFrom("jobs").select((eb) => eb.fn.countAll().as("n")).where("status", "in", ["queued", "running"]).executeTakeFirst())?.n ?? 0);
   if (!forms.length) return { ms: null, basis: 0, ahead };
-  // the same form twice (clips left on the same settings) is worked out once
-  const seen = new Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecast"]>>>>();
   let ms = 0;
   let basis = Infinity;
-  for (const f of forms) {
+  for (const got of await forecastsOf(s, forms)) {
+    if (!got) return { ms: null, basis: 0, ahead };
+    ms += got.ms;
+    basis = Math.min(basis, got.samples);
+  }
+  return { ms, basis, ahead };
+}
+
+/** Each form's forecast (queue.forecast), times its count; null for one with no learned figure. The same form twice is worked out once. */
+async function forecastsOf(s: Services, forms: Array<{ recipe: string; input: Record<string, unknown>; times: number }>): Promise<Array<{ ms: number; samples: number } | null>> {
+  const seen = new Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecast"]>>>>();
+  return Promise.all(forms.map(async (f) => {
     const key = `${f.recipe}\n${JSON.stringify(f.input)}`;
     if (!seen.has(key)) seen.set(key, s.queue.forecast(f.recipe, f.input).catch(() => null));
     const got = await seen.get(key)!;
-    if (!got) return { ms: null, basis: 0, ahead };
-    ms += got.forecast.ms * f.times;
-    basis = Math.min(basis, got.forecast.samples);
-  }
-  return { ms, basis, ahead };
+    return got ? { ms: got.forecast.ms * f.times, samples: got.forecast.samples } : null;
+  }));
+}
+
+const forecastsBody = z.strictObject({
+  forms: z.array(z.strictObject({ recipe: z.string().min(1).max(200), input: z.record(z.string(), z.unknown()) })).max(400),
+});
+
+/**
+ * What each of these forms would take to render once, as the timeline editor sends them (a clip's whole form, its texts
+ * left out): the same forecast as the command bar's and the timeline card's, per form. Null where nothing like it was
+ * rendered here yet.
+ */
+export async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<number | null> }> {
+  const b = forecastsBody.parse(raw);
+  const got = await forecastsOf(s, b.forms.map((f) => ({ ...f, times: 1 })));
+  return { ms: got.map((g) => g?.ms ?? null) };
 }
 
 export function registerCommandBar(app: FastifyInstance, s: Services): void {
@@ -186,6 +211,8 @@ export function registerCommandBar(app: FastifyInstance, s: Services): void {
   app.get("/api/command-index", async () => commandIndex(s));
   /** What the bar's command would take to render (commandEstimate). */
   app.get("/api/command-estimate", async (req) => commandEstimate(s, req.query));
+  /** What each of the editor's clips would take to render (forecasts). */
+  app.post("/api/forecasts", async (req) => forecasts(s, req.body));
   /** The prompts that were rendered, newest first (promptHistory.ts). */
   app.get("/api/prompt-history", async (req) => promptHistory(s, req.query));
 }

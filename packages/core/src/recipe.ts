@@ -178,3 +178,11 @@ export function describeRecipe(r: Recipe<any>) {
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };
 }
+
+/** The upscale route that samples a video's own latent again, larger (H3's): kept in the recipe, not run as a tool. */
+export const LATENT_RESAMPLE = "Latent: re-sampled";
+
+/** A recipe whose form offers the latent re-sample as an upscale route: its clips can be finished that way. */
+export function resamplesLatent(recipe: { inputs: InputSpec[] } | undefined): boolean {
+  return Boolean(recipe?.inputs.some((i) => i.id === "upscale" && i.type === "choice" && Array.isArray(i.options) && i.options.includes(LATENT_RESAMPLE)));
+}

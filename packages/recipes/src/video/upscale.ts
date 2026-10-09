@@ -1,4 +1,4 @@
-import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
+import { LATENT_RESAMPLE, roundTo, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
 
 /**
@@ -14,7 +14,7 @@ export const UPSCALE = {
   model: "Pixel: upscale model",
   rtx: "Pixel: RTX Video Super Resolution",
   seedvr: "Video: SeedVR2 (restores)",
-  latent: "Latent: re-sampled",
+  latent: LATENT_RESAMPLE,
 } as const;
 
 /** The nodes that drive RTX VSR: NVIDIA's own pack, or the RTX Upscaler & Refiner pack. Either does. */

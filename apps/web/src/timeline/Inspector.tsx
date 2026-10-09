@@ -9,7 +9,7 @@ import { WritingHelp } from "../WritingHelp";
 import { appendTo } from "../promptText";
 import { LookBar, lookWords } from "../LookBar";
 import { FormModel } from "../ModelLoad";
-import { about, aboutMs, clock, phaseLabel, recipeLabel } from "../format";
+import { aboutMs, clock, phaseLabel, recipeLabel, timeLeft } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { CardPrompt } from "../recipeForm/Part";
@@ -27,6 +27,7 @@ import { change, DRIFT, driftOf, driftWords, past, pct, runSeries, runTicks, sig
 import { DRAG_PICTURE, useDropZone } from "../dragging";
 import { projectForNew } from "../project";
 import { useRunningOf } from "./useRunning";
+import { SHOWS } from "./attention";
 
 /** A slider that says its value while it moves and saves it when it is let go. */
 function Slide({ label, value, min = 0, max, step = 1, show, onCommit }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void }) {
@@ -119,7 +120,7 @@ function SongStrip({ timeline, onFrom }: { timeline: Timeline; onFrom(fromMs: nu
 }
 
 /** The music's own panel: one sound under the whole video. */
-export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(patch: TimelinePatch): void }) {
+export function MusicPanel({ timeline, onEdit, onClose }: { timeline: Timeline; onEdit(patch: TimelinePatch): void; /** Back to the timeline's own panel: also Escape. */ onClose?(): void }) {
   const m = timeline.music;
   const [picking, setPicking] = useState(false);
   const width = usePanelWidth((st) => st.width);
@@ -133,10 +134,11 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
         <Music size={15} className="text-accent" />
         <span className="font-semibold">Music</span>
-        <span className="min-w-0 truncate text-ink-2">{m.asset.name || "an audio file"}{m.asset.durationMs ? ` · ${clock(m.asset.durationMs)}` : ""}</span>
+        <Help title="Music" text="Plays under the whole video. Drop another audio file on the music track to replace it." />
+        <span className="min-w-0 grow truncate text-ink-2">{m.asset.name || "an audio file"}{m.asset.durationMs ? ` · ${clock(m.asset.durationMs)}` : ""}</span>
+        {onClose && <CloseButton onClose={onClose} />}
       </div>
       <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
-        <span className="text-ink-2">Plays under the whole video. Drop another audio file on the music track to replace it.</span>
         <SongStrip timeline={timeline} onFrom={(fromMs) => onEdit({ music: { fromMs } })} />
         <FieldRow label="Song from" note="The moment of the song heard where the music starts. Drag the lit stretch, or the song on its lane.">
           <NumberBox label="Song from, in seconds" value={m.fromMs / 1000} min={0} max={mostFromMs({ ...m, durationMs: m.asset.durationMs ?? 0 }, timeline.clips) / 1000} step={0.1} unit="s" onCommit={(s) => onEdit({ music: { fromMs: Math.round(s * 1000) } })} />
@@ -153,7 +155,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
         <Slide label="Fade out" value={m.fadeOutMs} max={10_000} step={500} show={(v) => `${(v / 1000).toFixed(1)} s`} onCommit={(fadeOutMs) => onEdit({ music: { fadeOutMs } })} />
         <Toggle on={m.duck} onChange={(duck) => onEdit({ music: { duck } })} label="Duck under speech" note="the music dips where people speak in the clips, in the player and the export alike" />
         {m.duck && <Slide label="Duck by" value={m.duckDb} min={3} max={30} step={1} show={(v) => `−${v} dB`} onCommit={(duckDb) => onEdit({ music: { duckDb } })} />}
-        {m.asset.durationMs && m.asset.durationMs < timeline.durationMs ? <span className="text-xs text-ink-2">It is shorter than the video: it stops at {clock(m.asset.durationMs)}.</span> : null}
+        {m.asset.durationMs && m.asset.durationMs < timeline.durationMs ? <span className="text-xs text-ink-2">Shorter than the video: stops at {clock(m.asset.durationMs)}</span> : null}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => setPicking(true)}>Choose another audio file</Button>
           <Button size="sm" onClick={() => onEdit({ music: { asset: null } })}><Trash2 size={13} /> Remove music</Button>
@@ -164,11 +166,20 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
   );
 }
 
+/** The panel's way back to the timeline's own panel, at the right of its head: the same as Escape. */
+function CloseButton({ onClose }: { onClose(): void }) {
+  return (
+    <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+      <X size={15} />
+    </button>
+  );
+}
+
 /** The selected clip: how it starts, its takes, its sound, its pictures and its form. */
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onSelectClip }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -286,7 +297,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   // frames: above the form for a clip with no form; inside it otherwise, as its Takes chapter and in Inputs
   const inForm = Boolean(!still && form && recipe);
   const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} /> : null;
-  const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? " The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion; from ×2.5 the catch shows); the smoothest is marked." : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take; the one you pick plays.";
+  const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? ` The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion; past ×${SHOWS} the join shows); the smoothest is marked.` : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take; the one you pick plays.";
   const durationInner = still || take ? <Duration clip={clip} take={take} room={room} rendered={Boolean(recipe)} onPatch={onPatch} /> : null;
   const lookInner = take?.measure && !still ? <LookTable timeline={timeline} index={index} take={take} onSelectClip={onSelectClip} /> : null;
   const pinnedInner = recipe && !still && (pins.start || pins.end) ? <PinnedFrames stored={stored} pins={pins} frames={{ opens, ends, through, loops, carries }} midDefault={midSpec?.type === "number" ? midSpec.default : 2.5} onInputs={onInputs} onPick={setPicking} /> : null;
@@ -359,6 +370,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             </button>
           )}
           <TwoStep title="Remove from timeline" icon={<Trash2 size={14} />} note={still ? "The image stays in your library." : "Its videos stay in your library."} yes="Remove" onYes={onRemove} className="h-7! w-7! rounded-lg text-warn-ink! hover:bg-warn-wash!" />
+          {onClose && <CloseButton onClose={onClose} />}
         </div>
       </div>
 
@@ -410,7 +422,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               const written = main ? String(stored[main.id] ?? "") : "";
               const cast = clip.look === null ? (
                 <div className="flex flex-col gap-1.5">
-                  <div className="text-xs font-semibold">Cast and places</div>
+                  <div className="text-xs font-semibold">Cast and look</div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span>{lookWords(timeline.look, entities.data?.items ?? []) || "Nobody yet"}</span>
                     <span className="text-xs text-ink-2">from the timeline</span>
@@ -419,7 +431,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 </div>
               ) : (
                 <div className="flex flex-col gap-1.5">
-                  <LookBar title="Cast and places, for this clip only" look={clip.look} onChange={(look) => onPatch({ look })} recipe={recipe} input={stored} />
+                  <LookBar title="Cast and look · this clip only" look={clip.look} onChange={(look) => onPatch({ look })} recipe={recipe} input={stored} />
                   <span><Button size="sm" onClick={() => onPatch({ look: null })}>Use the timeline's again</Button></span>
                 </div>
               );
@@ -593,7 +605,7 @@ function RenderProgress({ clip, onStop }: { clip: string; onStop(): void }) {
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between">
         <span className="font-semibold">{running ? phaseLabel(running.phase) : "Queued"}</span>
-        <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${about(running.eta)}` : ""}</span>
+        <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${timeLeft(running.eta)}` : ""}</span>
       </div>
       <Bar value={(running?.progress ?? 0) * 100} />
       <Button size="sm" className="self-start" onClick={onStop} data-tip={running ? "Stop this render. Nothing is added; the clip keeps the takes it has." : "Remove it from the queue."}>
@@ -633,7 +645,7 @@ function LookTable({ timeline, index, take, onSelectClip }: { timeline: Timeline
   ];
   if (m.pace != null) rows.push({ label: "Pace", value: m.pace.toFixed(1), vs: each((c) => ({ text: share(c.by.pace), bad: past("pace", c.by.pace) })), why: `Mean frame-to-frame change, the ruler's motion figure. H3 tends to slow down after each hand-over; past ${pct(DRIFT.pace)} it reads as slow motion.` });
   if (m.chroma) rows.push({ label: "Colour", value: `${signed(m.chroma.u)} / ${signed(m.chroma.v)}`, vs: each((c) => ({ text: c.by.colour == null ? null : `±${c.by.colour.toFixed(1)}`, bad: past("colour", c.by.colour) })), why: `Mean chroma against neutral, as U / V: U is blue (+) to yellow (−), V red (+) to green (−). Against another clip: how far the colour moved in U/V; past ${DRIFT.colour} a cast shows. A warming or greying chain shows here.` });
-  if (m.handover != null) rows.push({ label: "Run-up end", value: `×${m.handover.toFixed(1)}`, vs: each(() => ({ text: null })), bad: m.handover > DRIFT.handover, why: "A continuation: how much the picture jumps where the run-up (the frames shared with the clip before; in a seamless take, that clip's own frames) ends and this clip's own frames begin, against its own motion right after. ×1 carries on; past ×3 the model stepped away from its guide and the join shows: re-render the take." });
+  if (m.handover != null) rows.push({ label: "Run-up end", value: `×${m.handover.toFixed(1)}`, vs: each(() => ({ text: null })), bad: m.handover > DRIFT.handover, why: `A continuation: how much the picture jumps where the run-up (the frames shared with the clip before; in a seamless take, that clip's own frames) ends and this clip's own frames begin, against its own motion right after. ×1 carries on; past ×${SHOWS} the model stepped away from its guide and the join shows: re-render the take.` });
   // the rest: read when something looks off, not every time
   const more: Row[] = [];
   if (m.range) more.push({ label: "Range", value: `${m.range.low.toFixed(0)}–${m.range.high.toFixed(0)}`, vs: each((c) => ({ text: c.of?.range ? diff(m.range!.high - m.range!.low, c.of.range.high - c.of.range.low) : null })), why: "Where the darkest and the brightest tenth of the picture sit. A shrinking range is crushed blacks or clipped whites." });
@@ -804,8 +816,8 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
   onPatch(patch: ShownPatch): void;
   onRemoveTake(id: string): void;
 }) {
-  // ×2.5 and up is a visible catch
-  const bad = (v: number) => v >= 2.5;
+  // past ×3 the join shows, as Needs attention counts it
+  const bad = (v: number) => v > SHOWS;
   return (
     <div className="-mx-1.5 flex flex-col gap-0.5">
       {clip.takes.map((t, i) => {
@@ -844,7 +856,7 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
                   {smoothest === t.id && clip.takes.length > 1 && <TakeChip tone="neutral" tip="The smoothest joins of the takes">smoothest</TakeChip>}
                 </span>
                 {j && (j.in !== null || j.out !== null) && (
-                  <span className="font-mono text-[11px] text-ink-3" data-tip="How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, ×2.5 and up is a visible catch.">
+                  <span className="font-mono text-[11px] text-ink-3" data-tip={`How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, past ×${SHOWS} the join shows.`}>
                     join{j.in !== null && <> in <span className={bad(j.in) ? "text-warn-ink" : "text-good"}>×{j.in}</span></>}{j.in !== null && j.out !== null && " ·"}{j.out !== null && <> out <span className={bad(j.out) ? "text-warn-ink" : "text-good"}>×{j.out}</span></>}
                   </span>
                 )}

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type Take } from "../api";
-import { useEstimates, useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
+import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
-import { estimateFor } from "../estimate";
 import { clock as mmss, notReady } from "../format";
 import { Picker } from "../PictureField";
 import { useNewClock } from "../timeline/clock";
@@ -12,11 +11,11 @@ import { layout, moveAfter, otherShape, pinInputs, SHAPES, shapeOf, ZOOM, type S
 import { Player, type PlayerHandle } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
 import { Track } from "../timeline/Track";
-import { ErrorNote } from "../ui";
+import { ErrorNote, PanelEdge } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
 import { ContextMenu, useMenu, type MenuHead } from "../ContextMenu";
-import { useBanners } from "../store";
+import { useBanners, usePanelWidth } from "../store";
 import { CastDialog } from "../timeline/CastDialog";
 import { ClipDesigner } from "../timeline/ClipDesigner";
 import { TimelineHeader, Transport } from "../timeline/EditorBars";
@@ -27,10 +26,13 @@ import { RangeBar } from "../timeline/RangeBar";
 import { StartPanel } from "../timeline/StartPanel";
 import { useClipEdits } from "../timeline/useClipEdits";
 import { useEditorKeys } from "../timeline/useEditorKeys";
+import { useForecasts } from "../timeline/useForecasts";
 import { useRange } from "../timeline/useRange";
 import { useTimelineMutations } from "../timeline/useTimelineMutations";
 import { useSelectedClip, useTimelineRequest } from "../bar/bridge";
 import { useQueueOf } from "./studio/queueOf";
+
+const NONE: RecipeInfo[] = [];
 
 /**
  * The timeline editor: your media on the left, the video in the middle, the selected clip on the right,
@@ -45,6 +47,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   // only which clip renders: the queue changes at every step of a render, and the parts that show its progress read it themselves
   const running = useQueueOf((q) => q.running?.clipId ?? null) ?? null;
   const settings = useModelSettings();
+  const panelWidth = usePanelWidth((st) => st.width);
 
   const [selected, setSelected] = useState<string | null>(null);
   /** The clips picked with Ctrl + click on the track, to render together. */
@@ -194,9 +197,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const missing = clips.filter((c) => c.kind === "video" && !c.job && (!c.take || c.join === "stale") && ready(c).input);
   const renderable = (c: Clip) => picked.has(c.id) && c.kind === "video" && Boolean(ready(c).input);
 
-  const estimates = useEstimates();
-  /** About how long a clip takes to render, from past renders of its model. */
-  const takes = (c: Clip) => estimateFor(estimates.data, recipes.data?.recipes.find((r) => r.id === c.recipe), ready(c).input ?? inputsOf(c))?.ms ?? null;
+  /** About how long a clip takes to render: the server's forecast of its whole form, learned from past renders (as the timeline card's). */
+  const takes = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
   const allMs = missing.reduce((sum, c) => sum + (takes(c) ?? 0), 0);
 
   // what the command bar asked of this timeline (render clips by number, render what is missing, export): done here, as
@@ -422,17 +424,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         {/* the media and the player side by side, and under both the row that plays: it starts at the left edge */}
         <div className="flex min-w-0 grow flex-col">
         <div className="relative flex min-h-0 grow">
-        <MediaOverlay
-          timeline={shown}
-          selected={Boolean(current)}
-          onOpen={setOpened}
-          placeItems={(a) => placeItems(a, placing)}
-          onAdd={(a) => {
-            if (a.kind !== "audio") return add.mutate({ asset: a.id });
-            if (current) patch.mutate({ clip: current.id, patch: { soundAsset: a.id } });
-            else setNote("Select a clip first, or drag the audio onto a clip or onto the music track.");
-          }}
-        />
+        <MediaOverlay timeline={shown} placeItems={(a) => placeItems(a, placing)} />
 
         <main className="flex min-w-0 grow flex-col">
             <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} master={muted ? 0 : volume} screen={{ clock, total, playing, volume, muted, onToggle: toggle, onSeek: (ms) => player.current?.seek(ms), onVolume: (v) => { setVolume(v); setMuted(false); }, onMute: () => { if (volume === 0) { setVolume(1); setMuted(false); } else setMuted((x) => !x); }, onJump: jump, loop: range ? { on: loopRange, toggle: toggleLoop } : undefined }} onPickPreview={(take) => { if (current) patch.mutate({ clip: current.id, patch: { take: take.id } }); setPreview(null); }} />
@@ -528,7 +520,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         </div>
 
         {musicOpen && t.music ? (
-          <MusicPanel timeline={t} onEdit={(p) => edit.mutate(p)} />
+          <MusicPanel timeline={t} onEdit={(p) => edit.mutate(p)} onClose={() => setMusicOpen(false)} />
         ) : current ? (
           <Inspector
             key={current.id}
@@ -580,7 +572,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onWriteBetween={() => writeBetween.mutate({ clip: current.id, force: true })}
           />
         ) : (
-          <aside className="flex w-[400px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-panel p-5 text-ink-2">
+          // as wide as the clip's panel, and widened the same way: the stage keeps its size from one to the other
+          <aside style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel text-ink-2">
+            <PanelEdge side="left" />
+            <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
             <span className="text-[17px] font-bold text-ink">{clips.length ? t.name : "Start your video"}</span>
             {clips.length ? (
               <Overview
@@ -609,6 +604,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             ) : (
               <StartPanel busy={add.isPending} planning={plan.isPending} onPickImage={() => setPicking(true)} onPlan={(idea, count) => plan.mutate({ idea, clips: count })} onNewClip={() => newClip()} />
             )}
+            </div>
           </aside>
         )}
       </div>
@@ -640,7 +636,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         <FinishDialog
           timeline={id}
           clips={clips}
-          upscaleModels={setup.data?.recipes.find((r) => r.id === "h3.video")?.options.upscaleModel ?? setup.data?.recipes.find((r) => r.id === "wan.video")?.options.upscaleModel ?? []}
+          // ComfyUI's upscale_models, as any recipe with an upscale model to pick lists them
+          upscaleModels={setup.data?.recipes.find((r) => r.options.upscaleModel?.length)?.options.upscaleModel ?? []}
           onClose={() => setFin(false)}
           onQueued={(r) => {
             after();
