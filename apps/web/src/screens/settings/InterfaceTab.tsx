@@ -21,7 +21,7 @@ export function InterfaceTab() {
   return (
     <div className="flex flex-col gap-4">
       <Card
-        title={<span className="flex items-center gap-1.5">Appearance <Help title="Appearance" text="Kept in this browser, so that another screen can look another way. The palettes are Catppuccin's and Rosé Pine's own." /></span>}
+        title={<span className="flex items-center gap-1.5">Appearance <Help title="Appearance" text="Kept in this browser, so that another screen can look another way. Studio is the app's own neutral grey; Catppuccin, Rosé Pine, Tokyo Night and Kanagawa use their authors' palettes." /></span>}
         status={<div className="w-64"><ThemeMode /></div>}
       >
         <Block className="gap-3.5 py-4"><ThemePickers /></Block>

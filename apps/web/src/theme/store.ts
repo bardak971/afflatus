@@ -16,7 +16,7 @@ export interface ThemeChoice {
   accents: Record<string, string>;
 }
 export const useThemeChoice = create<ThemeChoice & { set(patch: Partial<ThemeChoice>): void }>()(
-  persist((set) => ({ mode: "dark", day: "latte", night: "afflatus", accents: {}, set: (patch) => set(patch) }), { name: "afflatus.theme" }),
+  persist((set) => ({ mode: "dark", day: "latte", night: "studio", accents: {}, set: (patch) => set(patch) }), { name: "afflatus.theme" }),
 );
 
 const systemDark = () => (typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)").matches : true);

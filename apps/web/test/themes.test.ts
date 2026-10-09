@@ -25,10 +25,16 @@ describe("the themes' text", () => {
     expect(contrast(pale, "#e6e9ef")).toBeGreaterThanOrEqual(LEGIBLE);
     expect(pale).not.toBe("#df8e1d");
   });
-  it("keeps the Afflatus theme's own colours", () => {
-    const t = tokensOf(THEMES[0]!, "amber");
-    expect(t.accent).toBe("#f5c451");
-    expect(t["ink-2"]).toBe("#a3acb9");
+  it("starts on Studio Dark with the coral of the app's mark", () => {
+    expect(THEMES[0]!.id).toBe("studio");
+    expect(tokensOf(THEMES[0]!, undefined).accent).toBe("#ff9a73");
+    expect(themeById("afflatus").id).toBe("studio");
+  });
+  it("keeps green status text readable on every theme", () => {
+    for (const theme of THEMES) {
+      const t = tokensOf(theme, undefined);
+      for (const on of ["panel", "raised", "ground"] as const) expect(contrast(t.good, t[on]), `${theme.id}: good on ${on}`).toBeGreaterThanOrEqual(LEGIBLE);
+    }
   });
 });
 
@@ -43,14 +49,14 @@ describe("the warning beside a warm accent", () => {
   it("keeps the theme's own warning beside an accent of another hue", () => {
     expect(warnOf("mocha", "mauve")).toBe("#fab387");
     expect(warnOf("rose-pine", "iris")).toBe("#eb6f92");
-    expect(warnOf("afflatus", "sky")).toBe("#ff8a5c");
   });
   it("turns to the family's red beside a peach, yellow or rosewater accent", () => {
     for (const accent of ["peach", "yellow", "rosewater"]) {
       expect(warnOf("mocha", accent), accent).toBe("#f38ba8");
       expect(warnOf("latte", accent), accent).toBe("#d20f39");
     }
-    expect(warnOf("afflatus", "coral")).toBe("#ff6b7a");
+    // beside Studio's coral, its red
+    expect(warnOf("studio", "coral")).toBe("#f06a72");
     // beside love, or rose, Rosé Pine's warning is its gold
     expect(warnOf("rose-pine", "love")).toBe("#f6c177");
     expect(warnOf("rose-pine-dawn", "rose")).toBe("#ea9d34");
@@ -75,7 +81,6 @@ describe("the warning beside a warm accent", () => {
 describe("the theme list", () => {
   it("has a dark and a light theme in every family, the new ones among them", () => {
     for (const family of Object.keys(FAMILIES)) {
-      if (family === "afflatus") continue;
       expect(THEMES.some((t) => t.family === family && !t.light), `${family} dark`).toBe(true);
       expect(THEMES.some((t) => t.family === family && t.light), `${family} light`).toBe(true);
     }

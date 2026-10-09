@@ -19,8 +19,8 @@ type Warning = Pick<Tokens, "warn" | "warn-wash" | "warn-ink">;
 export interface Theme {
   id: string;
   name: string;
-  /** The themes that share accents: "Catppuccin", "Rosé Pine", "afflatus"... */
-  family: "afflatus" | "studio" | "catppuccin" | "rosepine" | "tokyonight" | "kanagawa";
+  /** The themes that share accents: "Studio", "Catppuccin", "Rosé Pine"... */
+  family: "studio" | "catppuccin" | "rosepine" | "tokyonight" | "kanagawa";
   light: boolean;
   /** The accents it offers, by name, most at home first. */
   accents: Record<string, string>;
@@ -70,30 +70,12 @@ const darkStage = (ground: string) => mix(ground, "#000000", 0.45);
 /** The cards of a light theme: lighter than the page they stand on, toward white, as paper on a desk. */
 const paper = (c: string, t: number) => mix(c, "#ffffff", t);
 
-// ---------------------------------------------------------------- Afflatus (the look the app was drawn in)
-
-const afflatusWarn: Warning = { warn: "#ff8a5c", "warn-wash": "#2a1a12", "warn-ink": "#ffb79c" };
-const afflatus: Theme = {
-  id: "afflatus", name: "Afflatus", family: "afflatus", light: false,
-  accents: { amber: "#f5c451", coral: "#ff9a73", rose: "#f38ba8", lilac: "#c4a7e7", sky: "#86aeff", mint: "#5ad6bd" },
-  base: {
-    ground: "#0f1114", panel: "#16191e", raised: "#1d2127", hover: "#262b33", line: "#2a3038", "line-strong": "#3a424e",
-    ink: "#e9ecf1", "ink-2": "#a3acb9", "ink-3": "#7d8794", "ink-strong": "#ffffff",
-    good: "#5ad6bd", ...afflatusWarn, "warn-on": "#2a0e00",
-    // the black the timeline's player was drawn on
-    picture: "#86aeff", shade: "#000000", stage: "#08090b",
-  },
-  alerts: ["#ff8a5c", "#ff6b7a"],
-  warning: (c) => (c === afflatusWarn.warn ? afflatusWarn : warning(c, "#16191e", "#e9ecf1", false)),
-  onAccent: "#1b1503",
-  wash: 0.07,
-};
-
 // ---------------------------------------------------------------- Studio (neutral greys: nothing on the page tints a picture)
 
+// the app's own default: neutral greys, the coral of its mark first
 const studio: Theme = {
   id: "studio", name: "Studio Dark", family: "studio", light: false,
-  accents: { amber: "#d9b56b", coral: "#e8916b", rose: "#e08aa5", lilac: "#b9a2e0", sky: "#7fb0e8", mint: "#6fc9b0" },
+  accents: { coral: "#ff9a73", amber: "#d9b56b", rose: "#e08aa5", lilac: "#b9a2e0", sky: "#7fb0e8", mint: "#6fc9b0" },
   base: {
     ground: "#141414", panel: "#1b1b1b", raised: "#232323", hover: "#2a2a2a", line: "#2b2b2b", "line-strong": "#3a3a3a",
     ink: "#e8e8e8", "ink-2": "#a9a9a9", "ink-3": "#7c7c7c", "ink-strong": "#ffffff",
@@ -107,7 +89,7 @@ const studio: Theme = {
 };
 const studioLight: Theme = {
   id: "studio-light", name: "Studio Light", family: "studio", light: true, stage: studio.id,
-  accents: { amber: "#a8792a", coral: "#c4683f", rose: "#b5507a", lilac: "#7a5fb5", sky: "#2f72b3", mint: "#23836c" },
+  accents: { coral: "#c4683f", amber: "#a8792a", rose: "#b5507a", lilac: "#7a5fb5", sky: "#2f72b3", mint: "#23836c" },
   base: {
     ground: "#e4e4e4", panel: "#f7f7f7", raised: "#ffffff", hover: "#ececec", line: "#d8d8d8", "line-strong": "#c2c2c2",
     ink: "#1d1d1d", "ink-2": "#4f4f4f", "ink-3": "#6a6a6a", "ink-strong": "#000000",
@@ -269,7 +251,6 @@ const kanagawaLotus: Theme = {
 const mocha = ofCatppuccin("mocha", "Catppuccin Mocha", catppuccin.mocha);
 const rosePineMain = ofRosePine("rose-pine", "Rosé Pine", rosePine.main);
 export const THEMES: Theme[] = [
-  afflatus,
   studio,
   mocha,
   ofCatppuccin("macchiato", "Catppuccin Macchiato", catppuccin.macchiato),
@@ -284,8 +265,8 @@ export const THEMES: Theme[] = [
   tokyoDayTheme,
   kanagawaLotus,
 ];
-export const FAMILIES: Record<Theme["family"], string> = { afflatus: "Afflatus", studio: "Studio", catppuccin: "Catppuccin", rosepine: "Rosé Pine", tokyonight: "Tokyo Night", kanagawa: "Kanagawa" };
-export const themeById = (id: string): Theme => THEMES.find((t) => t.id === id) ?? afflatus;
+export const FAMILIES: Record<Theme["family"], string> = { studio: "Studio", catppuccin: "Catppuccin", rosepine: "Rosé Pine", tokyonight: "Tokyo Night", kanagawa: "Kanagawa" };
+export const themeById = (id: string): Theme => THEMES.find((t) => t.id === id) ?? studio;
 
 /** How bright a colour is to the eye, 0 to 1. */
 function luminance(c: string): number {
@@ -336,8 +317,7 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   // text in the accent, and the two quieter inks, read on the panels and on the page
   const grounds = [theme.base.panel, theme.base.ground];
   const colour = legible(theme.accents[name]!, grounds, theme.light);
-  // the look the app was drawn in is kept to the last value
-  const wash = theme.id === "afflatus" && name === "amber" ? "#211d10" : mix(theme.base.panel, colour, theme.wash);
+  const wash = mix(theme.base.panel, colour, theme.wash);
   // what is written on the accent: the theme's usual ink for it, unless the other one reads clearly better
   // (a dark accent in a dark theme, a pale one in a light theme)
   const other = theme.light ? theme.base.ink : theme.base["ink-strong"];
@@ -348,12 +328,14 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
     ...base,
     "ink-2": legible(base["ink-2"], grounds, theme.light),
     "ink-3": legible(base["ink-3"], grounds, theme.light),
+    // "OK", "Ready", "Connected": green text that reads on the light themes' panels too
+    good: legible(base.good, [base.panel, base.raised, base.ground], theme.light),
     // a notice's text reads on its wash
     "warn-ink": legible(base["warn-ink"], [base["warn-wash"], base.panel], theme.light),
     accent: colour,
     "accent-ink": written,
     "accent-wash": wash,
-    // the knob of a switch that is on: white as the app was drawn, else whatever is written on the accent
-    knob: theme.id === "afflatus" && name === "amber" ? "#ffffff" : written,
+    // the knob of a switch that is on: whatever is written on the accent
+    knob: written,
   };
 }
