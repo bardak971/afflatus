@@ -132,14 +132,13 @@ export const api = {
   /** Finished jobs again, several in one request ("Retry all"), in the order given; with `dismiss`, the ones queued again leave the history. */
   retryJobs: (ids: string[], dismiss = false) => call<{ ids: string[]; failed: number }>("POST", "/jobs/retry", { ids, dismiss }),
   estimates: (o?: Asked) => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates", undefined, o?.signal),
-  /** A tool's usual pace from its own record: milliseconds per pixel × frame it makes (null until it has run). */
-  renderPace: (tool: string) => call<{ msPerWork: number | null }>("GET", `/renders/pace?tool=${encodeURIComponent(tool)}`),
   renderTimes: (range: TimesPeriod | TimesWindow, o?: Asked) => call<TimesSummary>("GET", typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`, undefined, o?.signal),
   renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }, o?: Asked) =>
     call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`, undefined, o?.signal),
   renderRecordSize: (o?: Asked) => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size", undefined, o?.signal),
   /** ComfyUI's terminal log, the last few hundred lines (`t`: when, `m`: the line). */
-  comfyLogs: (o?: Asked) => call<{ lines: Array<{ t: string; m: string }> }>("GET", "/comfy/logs", undefined, o?.signal),
+  /** ComfyUI's log; `since`: the stamp of the last line had, for the lines from then on only. */
+  comfyLogs: (since?: string, o?: Asked) => call<{ lines: Array<{ t: string; m: string }> }>("GET", `/comfy/logs${since ? `?since=${encodeURIComponent(since)}` : ""}`, undefined, o?.signal),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
   /** Everything the command bar can find, in one answer. */
   commandIndex: (o?: Asked) => call<CommandIndex>("GET", "/command-index", undefined, o?.signal),
@@ -342,6 +341,8 @@ export const api = {
   exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; fit?: "timeline" | "largest"; webMb?: 10 | 25 }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
   /** Every clip's selected take brought to its final quality by an upscale route, as a new take each; the drafts stay. */
   finishTimeline: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }>("POST", `/timelines/${id}/finish`, opts),
+  /** What finishTimeline with these settings would take in all; null while one of its jobs has nothing learned yet. */
+  finishForecast: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ ms: number | null }>("POST", `/timelines/${id}/finish/forecast`, opts),
   /** One frame of a video, saved as a picture in the library. */
   frame: (video: string, atMs: number, timeline?: string) => call<Asset>("POST", `/assets/${video}/frame`, { atMs, ...(timeline ? { timeline } : {}) }),
   mirror: (picture: string, axis: "horizontal" | "vertical") => call<Asset>("POST", `/assets/${picture}/mirror`, { axis }),

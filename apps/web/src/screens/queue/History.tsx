@@ -9,6 +9,7 @@ import { Select } from "../../Select";
 import { useSettled } from "../../hooks";
 import { Button, cx, Empty, Help, Segmented } from "../../ui";
 import { useQueueBulk } from "./bulk";
+import { useCopyNote } from "./copyNote";
 import { FailedRow } from "./FailedRow";
 import { dayLabel, dayOf, hourOf, pinnedFailures, reasonsOf } from "./failures";
 import { rowFacts, rowName } from "./historyText";
@@ -221,13 +222,14 @@ function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): vo
   const made = jobs.flatMap((j) => j.made);
   const first = made[0];
   const name = rowName(jobs);
+  const seedCopy = useCopyNote();
   // right-click: what the row's buttons do, opening what it made, and its seed
   const menu = useMenu<true>();
   const items: MenuItem[] = [
     ...(first ? [{ label: made.length > 1 ? "Open the first result" : "Open the result", icon: <Eye size={14} />, run: () => onOpen(first.id) }] : []),
     ...(head.draftId ? [{ label: "Open its draft in Studio", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
     ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
-    ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => void navigator.clipboard?.writeText(String(head.seed)).catch(() => {}) }] : []),
+    ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => seedCopy.copy(String(head.seed)) }] : []),
     "—",
     { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => dismiss.mutate(jobs.map((j) => j.id)) },
   ];
@@ -238,7 +240,10 @@ function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): vo
       <Thumb jobs={jobs} onOpen={onOpen} />
       <span className="flex min-w-0 items-center gap-2">
         <span className="flex min-w-0 grow flex-col gap-0.5" data-tip={tip || undefined}>
-          <span className="truncate text-[13.5px] font-semibold">{name}</span>
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-[13.5px] font-semibold">{name}</span>
+            {seedCopy.note && <span aria-live="polite" className={cx("shrink-0 text-xs", seedCopy.note.ok ? "text-accent" : "text-warn-ink")}>{seedCopy.note.text}</span>}
+          </span>
           <span className="truncate text-xs text-ink-2">
             {rowFacts(jobs)}
             {head.warning && <span className="text-warn-ink" data-tip={head.warning}> · {head.warning}</span>}

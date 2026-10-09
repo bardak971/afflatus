@@ -163,13 +163,14 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   return (
     <>
       {error && <ErrorNote>{error.message}</ErrorNote>}
-      {ready && !timelines.length && searched && <Empty title="No timeline of that name">Nothing here matches the search. Clear it, or open All in the folder list.</Empty>}
+      {ready && !timelines.length && searched && <Empty title="No timeline of that name" help="Clear the search, or open All in the folder list." />}
       {ready && !timelines.length && !searched && (
-        <Empty title={place.type === "folder" ? "No timeline in this folder" : "No timeline yet"}>
-          {place.type === "folder"
+        <Empty
+          title={place.type === "folder" ? "No timeline in this folder" : "No timeline yet"}
+          help={place.type === "folder"
             ? "A timeline is listed in the folder its renders land in (its own, else its project's root). Open All to see every timeline of the project, or start one here."
-            : "A timeline plays clips one after the other. Each clip can extend the previous clip, so the motion and the voices continue across the cut. Start one with the card below, or with \"Start a timeline from it\" on a picture or a video."}
-        </Empty>
+            : "A timeline plays clips one after the other; a clip can extend the one before, so the motion and the voices go on across the cut. Start one with the card below, or with \"Start a timeline from it\" on a picture or a video."}
+        />
       )}
       {picked.size > 0 && slot && createPortal(
         <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">

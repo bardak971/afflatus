@@ -12,8 +12,6 @@ import { Button, ErrorNote, Help } from "../../ui";
 import { useQueueOf } from "./queueOf";
 import type { useGenerate } from "./useGenerate";
 
-const stepper = "flex h-full w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent";
-
 /** The foot of the Create panel: what stops the form, where its results go, the batch count, and Generate with what it will take. */
 export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCount }: {
   recipe: RecipeInfo | undefined;
@@ -48,10 +46,10 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
       {recipe && draft && !blocked && <FormModel recipe={recipe} input={whole} look={draft.look} />}
       <ResultsPlace folder={folder} />
       <div className="flex items-center gap-2.5">
-        <div role="group" aria-label="Batch count" data-tip={`Batch count, ${BATCH.least} to ${BATCH.most}`} className="flex h-11 shrink-0 items-center rounded-lg border border-line">
-          <button type="button" aria-label="Batch count: one fewer" disabled={count <= BATCH.least} onClick={() => onCount(count - 1)} className={stepper}><Minus size={14} /></button>
+        <div role="group" aria-label="Batch count" data-tip={`Batch count, ${BATCH.least} to ${BATCH.most}`} className="flex h-11 shrink-0 items-center gap-0.5 rounded-lg border border-line px-1.5">
+          <Button tone="quiet" size="sm" className="w-8 px-0!" aria-label="Batch count: one fewer" disabled={count <= BATCH.least} onClick={() => onCount(count - 1)}><Minus size={14} /></Button>
           <span aria-live="polite" className="w-6 text-center font-mono font-bold">{count}</span>
-          <button type="button" aria-label="Batch count: one more" disabled={count >= BATCH.most} onClick={() => onCount(count + 1)} className={stepper}><Plus size={14} /></button>
+          <Button tone="quiet" size="sm" className="w-8 px-0!" aria-label="Batch count: one more" disabled={count >= BATCH.most} onClick={() => onCount(count + 1)}><Plus size={14} /></Button>
         </div>
         <Button tone="primary" className="h-11 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || send.isPending} onClick={() => send.mutate()}>
           <span>{send.isPending ? "Queuing…" : `Generate ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>

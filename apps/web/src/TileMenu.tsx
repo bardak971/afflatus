@@ -65,7 +65,8 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
   });
   const reuse = useReuse({ onError: failed("Could not reuse its parameters") });
   const variation = useQueueVariation(into);
-  const timelineMenu = useTimelineSubmenu();
+  // N starts a timeline only in the viewer (in Studio's grid it folds the form): no key on it in a tile's menu
+  const timelineMenu = useTimelineSubmenu({ noStartKey: true });
   /** To the bin; a file of a linked folder leaves its folder on the disk, which is asked first (as the viewer and a selection do). */
   const toBin = async (asset: Asset) => {
     if (await askAboutDisk([asset])) bin.mutate(asset.id);
@@ -128,7 +129,7 @@ export function assetHead(a: Asset): MenuHead {
  */
 export function useTimelineSubmenu(opts: {
   onStarted?(): void;
-  /** The inline viewer on the stage: N folds the form there, so "Start a timeline" shows no key. */
+  /** Where N does something else (it folds the form in Studio: the grid, the inline viewer on the stage): "Start a timeline" shows no key. */
   noStartKey?: boolean;
 } = {}) {
   const timelines = useTimelines();

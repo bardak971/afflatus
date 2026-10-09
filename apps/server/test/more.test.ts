@@ -54,6 +54,25 @@ describe("finding things in the library", () => {
   });
 });
 
+describe("ComfyUI's log, read again", () => {
+  it("gives only the lines from `since` on (the one at that stamp again), and every line without it", async () => {
+    const comfy = await t.services.comfy();
+    comfy.client.logs = async () => [
+      { t: "2026-10-09T10:00:00.100000", m: "one" },
+      { t: "2026-10-09T10:00:01.200000", m: "two" },
+      { t: "2026-10-09T10:00:01.200000", m: "two, same stamp" },
+      { t: "2026-10-09T10:00:02", m: "three" },
+    ];
+    const read = async (url: string) => (await get(t.app, url)).json().lines.map((l: { m: string }) => l.m);
+    expect(await read("/api/comfy/logs")).toEqual(["one", "two", "two, same stamp", "three"]);
+    expect(await read(`/api/comfy/logs?since=${encodeURIComponent("2026-10-09T10:00:01.200000")}`)).toEqual(["two", "two, same stamp", "three"]);
+    expect(await read("/api/comfy/logs?since=2026-10-09T10:00:02")).toEqual(["three"]);
+    expect(await read("/api/comfy/logs?since=2026-10-09T11:00:00")).toEqual([]);
+    // a stamp that does not read: everything, as without one
+    expect(await read("/api/comfy/logs?since=yesterday")).toHaveLength(4);
+  });
+});
+
 describe("how long things take", () => {
   it("is learned from past renders and said for what waits", async () => {
     await picture("a cat");

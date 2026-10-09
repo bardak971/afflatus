@@ -70,9 +70,7 @@ export function RenderTimes() {
       </div>
 
       {!d.since && (
-        <Empty title="No render history yet">
-          Every render from now on: total, per phase (model load, sampling, VAE decode), VRAM, GPU temp. The ETAs come from it.
-        </Empty>
+        <Empty title="No render history yet" help="Recorded for every render from now on: total, per phase (model load, sampling, VAE decode), VRAM, GPU temp. The ETAs come from it." />
       )}
 
       {d.since && (

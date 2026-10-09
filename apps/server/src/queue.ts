@@ -177,6 +177,7 @@ export class Queue {
       })
       .execute();
     this.events.emit("queue");
+    // an export is always of a timeline: its editor shows it waiting
     this.events.emit("timeline");
     void this.pump();
     return id;
@@ -213,7 +214,7 @@ export class Queue {
       // what continues from it can never run now, as when it is stopped while it runs
       await this.failDependents(id);
       this.events.emit("queue");
-      this.events.emit("timeline");
+      if (await this.ofTimeline([id])) this.events.emit("timeline");
       return true;
     }
     if (this.running?.id === id) {
@@ -237,7 +238,7 @@ export class Queue {
     if (promptId) void this.comfy().then((c) => c.client.interrupt(promptId)).catch(() => {});
     await this.failDependents(id);
     this.events.emit("queue");
-    this.events.emit("timeline");
+    if (await this.ofTimeline([id])) this.events.emit("timeline");
     return true;
   }
 
@@ -387,7 +388,7 @@ export class Queue {
     // one left out of `ids` may continue one cancelled now: it can never run
     for (const id of waiting) await this.failDependents(id);
     this.events.emit("queue");
-    this.events.emit("timeline");
+    if (await this.ofTimeline(waiting)) this.events.emit("timeline");
     return Number(r.numUpdatedRows);
   }
 
@@ -516,6 +517,13 @@ export class Queue {
   }
 
   /** The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended. */
+  /** Whether one of these jobs is a clip's render, a cut or an export: only those change a timeline (a dependent failed with them says so itself, through finish). */
+  private async ofTimeline(ids: readonly string[]): Promise<boolean> {
+    if (!ids.length) return false;
+    const one = await this.db.selectFrom("jobs").select("id").where("id", "in", [...ids]).where((eb) => eb.or([eb("clip_id", "is not", null), eb("timeline_id", "is not", null)])).executeTakeFirst();
+    return Boolean(one);
+  }
+
   private async failDependents(id: string): Promise<void> {
     const dependents = await this.db.selectFrom("jobs").select("id").where("depends_on", "=", id).where("status", "=", "queued").execute();
     for (const d of dependents) await this.finish(d.id, "failed", { error: "the clip it continues was not rendered" }, "queued");

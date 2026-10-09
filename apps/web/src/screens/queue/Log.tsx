@@ -1,24 +1,29 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDownToLine, ChevronRight, Copy, Eraser, Pause, Play, Search, X } from "lucide-react";
 import { api } from "../../api";
-import { useQueue } from "../../data";
-import { logRows, type LogLine, type LogRow } from "./logRows";
+import { useQueueOf } from "../studio/queueOf";
+import { logRows, type JobAt, type LogLine, type LogRow } from "./logRows";
 import { copyText } from "../../secureContext";
-import { Button, Chip, cx, ErrorNote, Toggle } from "../../ui";
+import { Button, Chip, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
 
 /**
- * ComfyUI's terminal, live: its last few hundred lines are read every two seconds and kept here as
- * they scroll by (up to a few thousand), so that what a render printed is still there after the
+ * ComfyUI's terminal, live: what it printed since the last read is fetched every two seconds and kept here as
+ * it scrolls by (up to a few thousand lines), so that what a render printed is still there after the
  * next one. Errors and warnings are coloured, a prompt's start and end marked and named after its job (a click
  * shows only its lines), a progress bar folded into its latest, a traceback into its last line. The view follows
- * the end until it is scrolled up.
+ * the end until it is scrolled up; only the rows in view (and a screen's worth around them) are drawn.
  */
 
 type Line = LogLine;
 const KEEP = 4000;
-/** The rows drawn at once, from the end; more on asking. Thousands of rows redrawn on each read made the tab crawl. */
-const DRAWN = 400;
+/** A row's height until it has been drawn once: one line of the log (11.5 px at 1.45). */
+const ROW_GUESS = 17;
+/** How far past the view rows are drawn, above and below, in px: a quick scroll shows no blank. */
+const OVERSCAN = 600;
+/** The log box's padding (p-3): where the first row starts. */
+const PAD = 12;
+const NO_JOBS: JobAt[] = [];
 
 const toneOf = (m: string): Line["tone"] =>
   /\[ERROR\]|Traceback|Error:|error\b.*\bexecuting|CUDA out of memory|not enough memory/i.test(m) ? "error"
@@ -30,6 +35,18 @@ const clock = (t: string) => {
   return Number.isNaN(d.getTime()) ? t.slice(11, 19) : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 };
 
+/** The row at height `y`: the last whose offset is not past it (offsets ascending, one more than the rows). */
+const rowAt = (offsets: number[], y: number) => {
+  let lo = 0;
+  let hi = offsets.length - 2;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (offsets[mid]! <= y) lo = mid;
+    else hi = mid - 1;
+  }
+  return Math.max(0, lo);
+};
+
 export function ComfyLog({ online }: { online: boolean }) {
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState("");
@@ -37,17 +54,20 @@ export function ComfyLog({ online }: { online: boolean }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [stuck, setStuck] = useState(true);
   const box = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const seen = useRef(new Set<string>());
-  const log = useQuery({ queryKey: ["comfy-log"], queryFn: api.comfyLogs, refetchInterval: paused ? false : 2000, enabled: online, retry: 0 });
-  // the jobs a prompt may have run for: the one running and the recent ones
-  const queue = useQueue();
-  const listed = [...(queue.data?.running ? [queue.data.running] : []), ...(queue.data?.recent ?? [])];
-  // read again only when the jobs themselves change: a progress event (several a second) changes the queue, not these
-  const jobsKey = listed.map((j) => `${j.id}|${j.startedAt ?? ""}|${j.label}`).join(",");
-  const jobs = useMemo(() => listed.map((j) => ({ id: j.id, label: j.label, startedAt: j.startedAt })), [jobsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the stamp of the last line read: the next read asks only for what came from then on
+  const cursor = useRef<string | undefined>(undefined);
+  // a read is appended once: not kept once the tab is left, or coming back would start with an old read's tail
+  const log = useQuery({ queryKey: ["comfy-log"], queryFn: () => api.comfyLogs(cursor.current), refetchInterval: paused ? false : 2000, enabled: online, retry: 0, gcTime: 0 });
+  // the jobs a prompt may have run for: the one running and the recent ones; drawn again when they change, not at each progress event
+  const jobs = useQueueOf((q) => [...(q.running ? [q.running] : []), ...q.recent].map((j) => ({ id: j.id, label: j.label, startedAt: j.startedAt ?? null }))) ?? NO_JOBS;
   const [onlyJob, setOnlyJob] = useState<{ id: string; label: string } | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const [drawn, setDrawn] = useState(DRAWN);
+  // the window: where the view is, and each row's height once drawn
+  const [view, setView] = useState({ top: 0, height: 800 });
+  const heights = useRef(new Map<string, number>());
+  const [measured, setMeasured] = useState(0);
 
   // what came in since last time goes on the end; ComfyUI keeps a window, this keeps the scroll
   useEffect(() => {
@@ -59,19 +79,20 @@ export function ComfyLog({ online }: { online: boolean }) {
       seen.current.add(key);
       fresh.push({ key, t: e.t, m: e.m, tone: toneOf(e.m) });
     }
+    const last = log.data.lines.at(-1);
+    if (last) cursor.current = last.t;
     if (!fresh.length) return;
     setLines((all) => {
       const next = [...all, ...fresh];
       if (next.length > KEEP) {
-        for (const gone of next.splice(0, next.length - KEEP)) seen.current.delete(gone.key);
+        for (const gone of next.splice(0, next.length - KEEP)) {
+          seen.current.delete(gone.key);
+          heights.current.delete(gone.key);
+        }
       }
       return next;
     });
   }, [log.data]);
-  // the end stays in view until the reader scrolls up
-  useEffect(() => {
-    if (stuck && box.current) box.current.scrollTop = box.current.scrollHeight;
-  }, [lines, stuck, filter, onlyTrouble]);
 
   const rows = useMemo(() => logRows(lines, jobs), [lines, jobs]);
   const shown = useMemo(() => {
@@ -85,18 +106,62 @@ export function ComfyLog({ online }: { online: boolean }) {
   const trouble = useMemo(() => rows.filter((r) => r.kind === "trace" || (r.kind !== "start" && r.line.tone === "error")).length, [rows]);
   const toggle = useCallback((key: string) => setOpen((s) => { const next = new Set(s); if (next.has(key)) next.delete(key); else next.add(key); return next; }), []);
   const only = useCallback((job: { id: string; label: string }) => setOnlyJob((cur) => (cur?.id === job.id ? null : job)), []);
-  const visible = useMemo(() => (shown.length > drawn ? shown.slice(-drawn) : shown), [shown, drawn]);
+
+  // where each shown row starts (its drawn height, else one line's), and the rows in view with the overscan
+  const offsets = useMemo(() => {
+    const at = [0];
+    for (const r of shown) at.push(at[at.length - 1]! + (heights.current.get(r.key) ?? ROW_GUESS));
+    return at;
+  }, [shown, measured]); // eslint-disable-line react-hooks/exhaustive-deps
+  const first = shown.length ? rowAt(offsets, view.top - OVERSCAN) : 0;
+  const end = shown.length ? rowAt(offsets, view.top + view.height + OVERSCAN) + 1 : 0;
+  const drawn = useMemo(() => shown.slice(first, end), [shown, first, end]);
+
+  // the rows just drawn measured (a wrapped line, a traceback unfolded); then the end kept in view until the reader scrolls up
+  useLayoutEffect(() => {
+    let changed = false;
+    for (const el of Array.from(body.current?.children ?? [])) {
+      const key = (el as HTMLElement).dataset.key;
+      if (!key) continue;
+      const h = el.getBoundingClientRect().height;
+      if (Math.abs((heights.current.get(key) ?? -1) - h) > 0.5) {
+        heights.current.set(key, h);
+        changed = true;
+      }
+    }
+    if (changed) setMeasured((n) => n + 1);
+    const el = box.current;
+    if (stuck && el && el.scrollHeight - el.clientHeight - el.scrollTop > 1) el.scrollTop = el.scrollHeight;
+  });
+  // a box made taller or narrower: other rows in view, other wraps
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const read = () => setView({ top: el.scrollTop - PAD, height: el.clientHeight });
+    read();
+    const watch = new ResizeObserver(read);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+
+  const clearView = () => {
+    setLines([]);
+    heights.current.clear();
+    // the lines at the last stamp come again with the next read: still known, so they are not drawn again
+    const at = cursor.current;
+    seen.current = new Set(at === undefined ? [] : [...seen.current].filter((k) => k.startsWith(`${at}\u0000`)));
+  };
 
   return (
     <div className="flex min-h-0 grow flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex h-8 w-72 items-center gap-2 rounded-[10px] border border-line bg-raised px-2.5 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--color-accent-wash)]">
-          <Search size={13} className="shrink-0 text-ink-3" />
-          <input data-search="log" aria-label="Find in the log" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find in the log" className="min-w-0 grow bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
-        </label>
+        <span className="relative w-72">
+          <Search size={13} aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-3" />
+          <input data-search="log" aria-label="Find in the log" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find in the log" className={cx(fieldClass, "h-8 w-full pl-7.5 text-xs")} />
+        </span>
         <Toggle on={onlyTrouble} onChange={setOnlyTrouble} label={`Errors and warnings${trouble ? ` · ${trouble}` : ""}`} />
         <Button size="sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)} data-tip={paused ? "Read the log again every two seconds" : "Stop reading: what is here stays put"}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? "Resume" : "Pause"}</Button>
-        <Button size="sm" onClick={() => { setLines([]); seen.current.clear(); }} data-tip="Empty this view. ComfyUI keeps its own log."><Eraser size={13} /> Clear view</Button>
+        <Button size="sm" onClick={clearView} data-tip="Empty this view. ComfyUI keeps its own log."><Eraser size={13} /> Clear view</Button>
         {onlyJob && (
           <Chip tone="link" onClick={() => setOnlyJob(null)} tip="Show every job's lines again" className="max-w-72">
             <span className="truncate">Only {onlyJob.label}</span> <X size={12} className="shrink-0" />
@@ -114,66 +179,62 @@ export function ComfyLog({ online }: { online: boolean }) {
         onScroll={(e) => {
           const el = e.currentTarget;
           setStuck(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+          setView({ top: el.scrollTop - PAD, height: el.clientHeight });
         }}
         className="min-h-0 grow overflow-y-auto rounded-xl border border-line bg-ground p-3 font-mono text-[11.5px] leading-[1.45]"
       >
-        {shown.length > visible.length && (
-          <button type="button" onClick={() => setDrawn((n) => n + DRAWN)} className="mb-1.5 font-sans text-xs text-ink-2 underline underline-offset-2 hover:text-ink">
-            {shown.length - visible.length} earlier rows · show {Math.min(DRAWN, shown.length - visible.length)} more
-          </button>
-        )}
-        <LogBody rows={visible} open={open} onToggle={toggle} onOnly={only} />
+        {/* the rows not drawn stand as room above and below, at their heights (one line's, until drawn once) */}
+        <div ref={body} style={{ paddingTop: offsets[first], paddingBottom: offsets[shown.length]! - offsets[end]! }}>
+          <LogBody rows={drawn} open={open} onToggle={toggle} onOnly={only} />
+        </div>
         {!shown.length && online && !log.isError && <span className="text-ink-3">{lines.length ? "Nothing matches." : "Waiting for ComfyUI's log…"}</span>}
       </div>
     </div>
   );
 }
 
-/** The rows drawn: held apart, so that a read of the queue (a progress event) does not draw them again. */
+/** The rows drawn, each in a box of its own that is measured (its margin inside it): held apart, so that a scroll that keeps the same rows does not draw them again. */
 const LogBody = memo(function LogBody({ rows, open, onToggle, onOnly }: { rows: LogRow[]; open: Set<string>; onToggle(key: string): void; onOnly(job: { id: string; label: string }): void }) {
   const toneClass = (l: Line) => (l.tone === "error" ? "text-warn-ink" : l.tone === "warn" ? "text-picture" : l.tone === "mark" ? "text-accent" : "text-ink-2");
-  return (
-    <>
-      {rows.map((r) => {
-        if (r.kind === "start") {
-          return (
-            <div key={r.key} className="mt-1.5 flex gap-3 border-t border-line pt-1.5 whitespace-pre-wrap break-all text-accent">
-              <span className="shrink-0 select-none text-ink-3">{clock(r.line.t)}</span>
-              <span className="flex min-w-0 items-center gap-2">
-                {r.line.m}
-                {r.job && r.label && (
-                  <button type="button" onClick={() => onOnly({ id: r.job!, label: r.label! })} data-tip="Only this job's lines" className="truncate rounded-md bg-accent-wash px-1.5 font-sans text-[11px] font-semibold hover:brightness-110">
-                    {r.label}
-                  </button>
-                )}
-              </span>
-            </div>
-          );
-        }
-        if (r.kind === "trace") {
-          const unfolded = open.has(r.key);
-          return (
-            <div key={r.key} className="flex flex-col">
-              <button type="button" onClick={() => onToggle(r.key)} aria-expanded={unfolded} data-tip={unfolded ? "Fold the traceback" : `The traceback, ${r.lines.length} lines`} className="flex gap-3 text-left whitespace-pre-wrap break-all text-warn-ink hover:brightness-110">
-                <span className="shrink-0 select-none text-ink-3">{clock(r.last.t)}</span>
-                <span className="flex min-w-0 items-start gap-1"><ChevronRight size={12} className={cx("mt-0.5 shrink-0 transition-transform", unfolded && "rotate-90")} /><span className="font-semibold">{r.last.m.trim()}</span></span>
+  const one = (r: LogRow) => {
+    if (r.kind === "start") {
+      return (
+        <div className="mt-1.5 flex gap-3 border-t border-line pt-1.5 whitespace-pre-wrap break-all text-accent">
+          <span className="shrink-0 select-none text-ink-3">{clock(r.line.t)}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            {r.line.m}
+            {r.job && r.label && (
+              <button type="button" onClick={() => onOnly({ id: r.job!, label: r.label! })} data-tip="Only this job's lines" className="truncate rounded-md bg-accent-wash px-1.5 font-sans text-[11px] font-semibold hover:brightness-110">
+                {r.label}
               </button>
-              {unfolded && r.lines.slice(0, -1).map((l) => (
-                <div key={l.key} className="flex gap-3 whitespace-pre-wrap break-all text-ink-3">
-                  <span className="invisible shrink-0 select-none">{clock(l.t)}</span>
-                  <span>{l.m}</span>
-                </div>
-              ))}
+            )}
+          </span>
+        </div>
+      );
+    }
+    if (r.kind === "trace") {
+      const unfolded = open.has(r.key);
+      return (
+        <div className="flex flex-col">
+          <button type="button" onClick={() => onToggle(r.key)} aria-expanded={unfolded} data-tip={unfolded ? "Fold the traceback" : `The traceback, ${r.lines.length} lines`} className="flex gap-3 text-left whitespace-pre-wrap break-all text-warn-ink hover:brightness-110">
+            <span className="shrink-0 select-none text-ink-3">{clock(r.last.t)}</span>
+            <span className="flex min-w-0 items-start gap-1"><ChevronRight size={12} className={cx("mt-0.5 shrink-0 transition-transform", unfolded && "rotate-90")} /><span className="font-semibold">{r.last.m.trim()}</span></span>
+          </button>
+          {unfolded && r.lines.slice(0, -1).map((l) => (
+            <div key={l.key} className="flex gap-3 whitespace-pre-wrap break-all text-ink-3">
+              <span className="invisible shrink-0 select-none">{clock(l.t)}</span>
+              <span>{l.m}</span>
             </div>
-          );
-        }
-        return (
-          <div key={r.key} className={cx("flex gap-3 whitespace-pre-wrap break-all", toneClass(r.line))}>
-            <span className="shrink-0 select-none text-ink-3">{clock(r.line.t)}</span>
-            <span>{r.line.m}{r.kind === "progress" && r.folded > 1 && <span className="ml-2 select-none text-ink-3" data-tip={`${r.folded} updates of this bar, the latest shown`}>×{r.folded}</span>}</span>
-          </div>
-        );
-      })}
-    </>
-  );
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className={cx("flex gap-3 whitespace-pre-wrap break-all", toneClass(r.line))}>
+        <span className="shrink-0 select-none text-ink-3">{clock(r.line.t)}</span>
+        <span>{r.line.m}{r.kind === "progress" && r.folded > 1 && <span className="ml-2 select-none text-ink-3" data-tip={`${r.folded} updates of this bar, the latest shown`}>×{r.folded}</span>}</span>
+      </div>
+    );
+  };
+  return <>{rows.map((r) => <div key={r.key} data-key={r.key} className="flow-root">{one(r)}</div>)}</>;
 });

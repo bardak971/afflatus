@@ -1,12 +1,13 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { api } from "../../api";
-import { useQueue } from "../../data";
 import { long } from "../../format";
+import { useQueueOf } from "../studio/queueOf";
+import { useQueueBulk } from "./bulk";
 import type { Flag } from "./flagRules";
-import { byModel, modelSwitches } from "./order";
+import { groupingSaves, modelSwitches } from "./order";
 import { pct } from "./SummaryTiles";
 
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const head = "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase";
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
@@ -30,11 +31,12 @@ const actionClass = "text-xs font-bold text-accent hover:underline disabled:text
  * opens the renders it is about, or sorts the queue.
  */
 export function Flags({ flags, onJobs }: { flags: Flag[]; onJobs(model: string, only: "all" | "trouble"): void }) {
-  const queue = useQueue();
-  const client = useQueryClient();
-  const waiting = queue.data?.waiting ?? [];
-  const switches = modelSwitches(waiting);
-  const sort = useMutation({ mutationFn: () => api.queueOrder(byModel(waiting)), onSuccess: (q) => client.setQueryData(["queue"], q) });
+  // counted from the running job's model, as the queue's header, its "loads" chips and Group by model count: read only these, not at each progress event
+  const now = useQueueOf((q) => ({ waiting: q.waiting.length, switches: modelSwitches(q.waiting, q.running), saves: groupingSaves(q.waiting, q.running) }));
+  const bulk = useQueueBulk();
+  const sort = useMutation({ mutationFn: () => bulk.groupQueueByModel() });
+  const switches = now?.switches ?? 0;
+  const saves = now?.saves ?? 0;
   return (
     <section className="flex min-w-0 flex-col rounded-2xl border border-line bg-panel px-4.5 pt-3.5 pb-1.5">
       <span className={head}>Flags · {flags.length}</span>
@@ -57,11 +59,11 @@ export function Flags({ flags, onJobs }: { flags: Flag[]; onJobs(model: string, 
                 sub={`${pct(f.share)} of the GPU time · queue alternates checkpoints`}
                 action={
                   <button
-                    type="button" className={actionClass} disabled={!switches || sort.isPending}
-                    data-tip={switches ? `Group the ${waiting.length} waiting jobs by model: ${switches} switch${switches === 1 ? "" : "es"} → fewer` : "No model switch in the queue now"}
+                    type="button" className={actionClass} disabled={!saves || sort.isPending}
+                    data-tip={saves ? `Group the ${plural(now?.waiting ?? 0, "waiting job")} by model, the loaded one first: saves ${plural(saves, "load")}` : switches ? "Grouping saves no load now" : "No model switch in the queue now"}
                     onClick={() => sort.mutate()}
                   >
-                    {sort.isSuccess && !switches ? "sorted" : "sort queue by model"}
+                    {sort.isSuccess && !saves ? "sorted" : "sort queue by model"}
                   </button>
                 }
               />
@@ -84,7 +86,6 @@ export function Flags({ flags, onJobs }: { flags: Flag[]; onJobs(model: string, 
           );
         })}
       </div>
-      {sort.isError && <span className="pb-2 text-xs text-warn-ink">{sort.error.message}</span>}
     </section>
   );
 }

@@ -4,7 +4,8 @@ import type { RunningJob } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { elapsed, phaseLabel, timeLeft } from "../../format";
 import { LivePreview, StageStrip } from "../../LivePreview";
-import { Bar, Button, Help } from "../../ui";
+import { Bar, Button, cx, Help } from "../../ui";
+import { useCopyNote } from "./copyNote";
 import { useModelName } from "./modelName";
 import { STEP_RATE_HELP, stepRateSaid, useStepRate } from "./stepRate";
 
@@ -29,12 +30,13 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
   const [large, setLarge] = useState(false);
   const modelOf = useModelName();
   const rate = useStepRate();
+  const seedCopy = useCopyNote();
   if (!running) return <div className="rounded-xl border border-line px-3 py-2.5 text-sm text-ink-2">Nothing running.</div>;
   const seen = running.previewSeq > 0;
   const seed = running.seed ?? null;
   const pace = rate?.id === running.id ? rate.secondsPerStep : null;
   const items: MenuItem[] = [
-    ...(seed !== null ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(seed), run: () => void navigator.clipboard?.writeText(String(seed)).catch(() => {}) }, "—" as const] : []),
+    ...(seed !== null ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(seed), run: () => seedCopy.copy(String(seed)) }, "—" as const] : []),
     { label: "Stop this render", icon: <X size={14} />, danger: true, run: () => onStop(running.id) },
   ];
   return (
@@ -69,6 +71,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
             {running.startedAt && <Elapsed since={running.startedAt} />}
             {running.eta > 0 && <span className="text-ink">{timeLeft(running.eta)}</span>}
             {seed !== null && <span data-tip="Right-click to copy it">seed {seed}</span>}
+            {seedCopy.note && <span aria-live="polite" className={cx("font-sans", seedCopy.note.ok ? "text-accent" : "text-warn-ink")}>{seedCopy.note.text}</span>}
             {running.spilling && <span className="font-sans font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together.">spilling out of VRAM, much slower than usual</span>}
           </span>
         </div>

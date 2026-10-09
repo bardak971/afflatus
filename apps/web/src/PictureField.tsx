@@ -15,7 +15,7 @@ import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
-import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note, Segmented } from "./ui";
+import { Button, cx, Empty, ErrorNote, fieldClass, NumberBox, Help, Note, Segmented } from "./ui";
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
 import { VideoPlayer } from "./VideoPlayer";
@@ -58,11 +58,11 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
           <span className="min-w-0 grow">
             <DialogHead icon={kind === "audio" ? <Music size={16} /> : kind === "video" ? <Film size={16} /> : <ImagePlus size={16} />} title={title} sub="Pick one from your library, or bring one in" />
           </span>
-          {/* the kit's text box look, its ring on the box that holds the glass and the input */}
-          <label className="flex h-9 w-64 items-center gap-2 rounded-[10px] border border-line bg-raised px-2.5 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--color-accent-wash)]">
-            <Search size={13} className="shrink-0 text-ink-3" />
-            <input autoFocus data-search="picker" aria-label={`Search ${WORD[kind]}s by prompt or name`} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className="min-w-0 grow bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
-          </label>
+          {/* the kit's text box, the glass laid over it */}
+          <span className="relative w-64 shrink-0">
+            <Search size={13} aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-3" />
+            <input autoFocus data-search="picker" aria-label={`Search ${WORD[kind]}s by prompt or name`} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className={cx(fieldClass, "h-9 w-full pl-7.5 text-sm")} />
+          </span>
           {project !== null && (
             <Segmented
               size="sm" oneLine label="Where to look" value={all ? "all" : "here"} onChange={(v) => setAll(v === "all")}
@@ -94,7 +94,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
           {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
           <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />
           {assets.isSuccess && !items.length && !sounding.length && (
-            <Empty title={`No ${WORD[kind]}s in your library yet`}>Bring one in with "From your computer"{kind === "audio" ? "." : ", or make one in Studio."}</Empty>
+            <Empty title={q ? "Nothing matches" : `No ${WORD[kind]}s yet`} help={q ? undefined : `Bring one in with "From your computer"${kind === "audio" ? "." : ", or make one in Studio."}`} />
           )}
           {kind === "audio" && (
             <div className="flex flex-col gap-1.5">

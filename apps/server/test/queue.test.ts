@@ -621,6 +621,37 @@ describe("dismissing from the history", () => {
     await until(async () => (await statusOf(id)).status === "done");
     expect(timeline).toBe(0);
   });
+
+  it("says a timeline changed on a cancel or a stop only when a job of a timeline was in it", async () => {
+    let timeline = 0;
+    t.services.queue.events.on("timeline", () => timeline++);
+    // a picture's: stopped while it runs, cancelled while it waits, cancelled with the others
+    const running = await enqueue();
+    await until(() => submitted().length === 1);
+    await t.services.queue.setPaused(true);
+    const waiting = [await enqueue(), await enqueue(), await enqueue()];
+    expect((await post(t.app, `/api/jobs/${waiting[0]}/cancel`)).statusCode).toBe(200);
+    expect((await post(t.app, "/api/queue/cancel-waiting", {})).json()).toEqual({ cancelled: 2 });
+    expect((await post(t.app, `/api/jobs/${running}/cancel`)).statusCode).toBe(200);
+    await until(async () => (await statusOf(running)).status === "cancelled");
+    expect(timeline).toBe(0);
+    // a clip's render (held by the pause): its cancel is seen on its timeline, alone or with the others
+    const tl = (await post(t.app, "/api/timelines", {})).json();
+    const at = new Date().toISOString();
+    const clipJob = (id: string) => ({
+      id, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", label: id, inputs: JSON.stringify({ prompt: id, checkpoint: CHECKPOINT }),
+      status: "queued" as const, warm: 0, look: null, priority: 0, depends_on: null, attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: tl.id as string,
+      draft_id: null, folder_id: null, finished_from: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
+    });
+    await t.db.insertInto("jobs").values([clipJob("c1"), clipJob("c2")]).execute();
+    timeline = 0;
+    expect((await post(t.app, "/api/jobs/c1/cancel")).statusCode).toBe(200);
+    expect(timeline).toBe(1);
+    await enqueue();
+    timeline = 0;
+    expect((await post(t.app, "/api/queue/cancel-waiting", {})).json()).toEqual({ cancelled: 2 });
+    expect(timeline).toBe(1);
+  });
 });
 
 describe("a result filed just before the process died", () => {

@@ -37,11 +37,19 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   /** The same, asked of ComfyUI afresh rather than from what was learned a moment ago ("Test" in Settings). */
   app.post("/api/setup/rescan", async () => (await s.comfy()).scan(true));
 
-  /** ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds. */
-  app.get("/api/comfy/logs", async () => {
+  /**
+   * ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds.
+   * `since`: the stamp of the last line the page has; only the lines from that moment on come back (that one again
+   * among them, as lines can share a stamp: the page drops what it has).
+   */
+  app.get("/api/comfy/logs", async (req) => {
+    const { since } = z.object({ since: z.string().max(64).optional() }).parse(req.query ?? {});
+    const from = since ? Date.parse(since) : Number.NaN;
     const comfy = await s.comfy();
     try {
-      return { lines: await comfy.client.logs() };
+      const lines = await comfy.client.logs();
+      // a line whose stamp does not read is kept
+      return { lines: Number.isNaN(from) ? lines : lines.filter((l) => !(Date.parse(l.t) < from)) };
     } catch (e) {
       throw httpError(`it answered: ${e instanceof Error ? e.message : String(e)}`, 502);
     }
