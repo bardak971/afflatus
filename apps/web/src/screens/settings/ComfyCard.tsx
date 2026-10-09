@@ -4,8 +4,8 @@ import { api } from "../../api";
 import { useSettings, useSetup } from "../../data";
 import { gb } from "../../format";
 import { Slider } from "../../Slider";
-import { Button, cx, ErrorNote, fieldClass } from "../../ui";
-import { Block, Card, Fact, Row, Status, warnButton } from "./Rows";
+import { Button, ButtonLink, cx, ErrorNote, fieldClass } from "../../ui";
+import { Block, Card, Fact, Row, Status } from "./Rows";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
 
@@ -42,8 +42,8 @@ function NodePackRow() {
       label="Node pack not installed"
       help={`ComfyUI's folder is not on this computer, so Afflatus cannot write its node pack there. Install it once by hand: download it, unpack it into ComfyUI's custom_nodes folder (it makes custom_nodes/afflatus-nodes/) and restart ComfyUI. ${WHY_PACK}`}
     >
-      {/* a link (the zip is a download), drawn as the warn button */}
-      <a href="/api/comfy/node-pack.zip" download className={warnButton}>Download the node pack</a>
+      {/* a link (the zip is a download), drawn as the kit's danger button */}
+      <ButtonLink href="/api/comfy/node-pack.zip" download tone="danger" size="sm">Download the node pack</ButtonLink>
     </Row>
   );
 }

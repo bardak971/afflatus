@@ -83,6 +83,3 @@ export function Block({ children, className, setting }: { children: ReactNode; c
 export function Fact({ children, tip }: { children: ReactNode; tip?: string }) {
   return <Chip tip={tip} className="font-mono text-[11.5px] font-medium">{children}</Chip>;
 }
-
-/** The button of a warn row, for a link (a download, another tab) that has to look like one. */
-export const warnButton = "inline-flex h-9 items-center rounded-[10px] bg-warn-wash px-3.5 text-[12.5px] font-semibold whitespace-nowrap text-warn-ink hover:brightness-125";

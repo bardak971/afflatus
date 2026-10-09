@@ -48,14 +48,14 @@ export const INDEX: SettingSpot[] = [
   { tab: "designer", label: "Max output tokens", key: "designer.tokens", near: "designer.llms", words: "llm thinking answer length" },
   { tab: "designer", label: "Clear every conversation", key: "designer.forget", words: "forget every conversation chat history" },
   { tab: "prompts", label: "Danbooru tag check", key: "server.tagCheck", words: "typo tags" },
-  { tab: "interface", label: "Theme", key: "interface.theme", also: ["theme.mode", "theme.night", "theme.day"], words: "appearance dark light system accent catppuccin mocha macchiato frappe latte rose pine moon dawn studio neutral grey tokyo night day kanagawa wave lotus" },
-  { tab: "interface", label: "Accent colour", key: "interface.accent", words: "appearance color" },
+  { tab: "interface", label: "Dark theme · Light theme", key: "interface.theme", also: ["theme.mode", "theme.night", "theme.day"], words: "theme appearance dark light system accent catppuccin mocha macchiato frappe latte rose pine moon dawn studio neutral grey tokyo night day kanagawa wave lotus" },
+  { tab: "interface", label: "Accent", key: "interface.accent", words: "accent colour color appearance theme" },
   { tab: "interface", label: "Explain every setting in the forms", key: "explain", words: "help tooltips" },
   { tab: "interface", label: "Play videos on hover", key: "hover.video", words: "mouse card preview" },
   { tab: "interface", label: "Play sound on hover", key: "hover.sound", words: "audio mouse card" },
   { tab: "bar", label: "Shortcut", key: "bar.shortcut", words: "command bar shortcut ctrl k keyboard palette search" },
   { tab: "bar", label: "Learn what I use", key: "bar.learn", words: "command bar ranking recent" },
-  { tab: "bar", label: "Preview in the bar", key: "bar.preview", words: "command bar shift side" },
+  { tab: "bar", label: "Preview", key: "bar.preview", words: "preview in the bar command bar shift side" },
   { tab: "bar", label: "Prompt snippets", key: "bar.snippets", words: "typed by name command bar ; expand" },
   { tab: "bar", label: "Prompt history", key: "bar.history", words: "in the bar command bar quote" },
   { tab: "bar", label: "Cast with @", key: "bar.cast", words: "command bar person people" },
@@ -66,8 +66,8 @@ export const INDEX: SettingSpot[] = [
   { tab: "storage", label: "Back up now", key: "storage.backup", words: "backup zip export restore database files" },
   { tab: "interface", label: "Notify when the queue is empty", key: "notify.empty", words: "notifications browser" },
   { tab: "interface", label: "Notify after each render", key: "notify.each", words: "notifications browser" },
-  { tab: "about", label: "Version", key: "about.version", words: "about license source github" },
-  { tab: "about", label: "Start-up checks: ffmpeg, ffprobe, Node, data folder", key: "about.checks", words: "tools missing install path preflight" },
+  { tab: "about", label: "Afflatus", key: "about.version", words: "version about license source github" },
+  { tab: "about", label: "On this computer", key: "about.checks", words: "start-up checks startup ffmpeg ffprobe node data folder tools missing install path preflight" },
 ];
 
 /** A tab's address: ComfyUI's is Settings itself. */

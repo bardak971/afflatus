@@ -125,7 +125,12 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
                   <Help text="The page is looked for only with this switch on (Settings › Models). Or search by hand below and paste the page URL." />
                 </span>
               )}
-              {find.data?.lookups && !candidates.length && <span className="px-2 py-1.5 text-ink-2">No match for this filename. Search manually below, then paste the page URL to link it.</span>}
+              {find.data?.lookups && !candidates.length && (
+                <span className="flex items-center gap-1.5 px-2 py-1.5 text-ink-2">
+                  No match
+                  <Help text="Nothing on Hugging Face or Civitai goes by this filename. Search by hand below, then paste the page URL to link it." />
+                </span>
+              )}
               {candidates.length > 0 && <span className="px-2 pt-1 text-xs font-semibold text-ink-2">No exact filename match. It may be one of these:</span>}
               {candidates.map((c) => (
                 <span key={c.url} className="flex items-center gap-1">

@@ -341,7 +341,7 @@ export function Workflows() {
             })}
           </div>
         ) : (
-          list.isSuccess && <div className="rounded-xl border border-line bg-panel px-4 py-3 text-ink-2">None yet. A workflow you build in ComfyUI can be used here like any built-in model.</div>
+          list.isSuccess && <div className="flex items-center gap-1.5 rounded-xl border border-line bg-panel px-4 py-3 text-ink-2">None yet <Help title="Your workflows" text="A workflow you build in ComfyUI can be used here like any built-in model: Import ComfyUI workflow, above." /></div>
         )}
       </section>
 

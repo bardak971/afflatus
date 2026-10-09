@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type LlmInfo, type Settings } from "../../api";
 import { useSettings } from "../../data";
-import { AutoText, Button, cx, ErrorNote, fieldClass, Help, TwoStep } from "../../ui";
+import { AutoText, Button, Chip, cx, ErrorNote, fieldClass, Help, TwoStep } from "../../ui";
 import { LlmEditor } from "./LlmEditor";
 import { Block, Card, Row } from "./Rows";
 
@@ -28,7 +28,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
     return (
       <button type="button" aria-expanded={false} onClick={onOpen} className="flex min-h-[52px] w-full items-center gap-2 px-[18px] text-left hover:bg-hover">
         <span className="shrink-0 font-semibold">{item.name || "Unnamed"}</span>
-        {inUse && <span className="shrink-0 rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">in use</span>}
+        {inUse && <Chip tone="accent">in use</Chip>}
         <span className="min-w-0 grow truncate text-xs text-ink-3">{firstLine}</span>
         <span className="shrink-0 text-xs text-ink-2">{item.text.split(/\s+/).filter(Boolean).length} words · Read or change</span>
       </button>
@@ -38,7 +38,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
     <div className="flex flex-col gap-2 bg-raised/40 px-[18px] py-3">
       <div className="flex items-center gap-2">
         <input aria-label="Name of this system prompt" value={name} placeholder="A name: Photographer, Anime, Explicit…" onChange={(e) => setName(e.target.value)} className={cx("h-9 min-w-0 grow font-semibold placeholder:font-normal", fieldClass)} />
-        {inUse && <span className="shrink-0 rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">in use</span>}
+        {inUse && <Chip tone="accent">in use</Chip>}
         {dirty && <Button size="sm" tone="primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Save</Button>}
         {!fresh && <Button size="sm" tone="quiet" onClick={onOpen}>Close</Button>}
       </div>
@@ -48,7 +48,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
         value={text}
         placeholder="What the designer should always do when this is picked, beyond the model's guide. For example: keep every prompt under 60 words; write the spoken lines in French; describe clothes down to the fabric; never soften explicit content."
         onChange={(e) => setText(e.target.value)}
-        className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 leading-normal placeholder:text-ink-3"
+        className={cx("w-full py-2.5 leading-normal", fieldClass)}
       />
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
       {/* on a line of its own, under the text: a saved one asks first */}

@@ -62,8 +62,10 @@ export const shortcutParts = (s: string) => s.split("+").map((p) => p.trim()).fi
 /** The shortcut a key press is, written as the settings keep it; null for a press of a modifier alone. */
 export function shortcutOf(e: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">): string | null {
   if (["Control", "Meta", "Alt", "Shift", "AltGraph", "OS"].includes(e.key)) return null;
-  // the key itself by its place when it is a letter or a figure: Ctrl+K is Ctrl+K whatever the keyboard's layout shifts
-  const key = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : /^Digit\d$/.test(e.code) ? e.code.slice(5) : e.key === " " ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  // a letter by what it types (Ctrl+Z is the key that writes Z, on AZERTY too: the one Copy/Undo use), else by its
+  // place (Alt on a Mac types another sign); a figure by its place, as AZERTY's figures need Shift. The recorder
+  // and the listener both name a press here, so what is kept is what is matched.
+  const key = /^[a-z]$/i.test(e.key) ? e.key.toUpperCase() : /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : /^Digit\d$/.test(e.code) ? e.code.slice(5) : e.key === " " ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
   return [e.ctrlKey && "Ctrl", e.metaKey && "Meta", e.altKey && "Alt", e.shiftKey && "Shift", key].filter(Boolean).join("+");
 }
 

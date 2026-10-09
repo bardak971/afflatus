@@ -4,8 +4,8 @@ import { Link } from "wouter";
 import { api } from "../../api";
 import { useSettings } from "../../data";
 import { DownloadRow, useDownloads } from "../../GetFile";
-import { Button, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
-import { Block, Card, Row, Status, warnButton } from "./Rows";
+import { Button, buttonClass, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
+import { Block, Card, Row, Status } from "./Rows";
 
 const MANAGER_HOWTO = "ComfyUI has ComfyUI-Manager built in since 0.3.7x, off until asked for: in ComfyUI's folder run pip install -r manager_requirements.txt with its own Python (the venv's, or python_embeded in the portable build), then start ComfyUI with --enable-manager. On an older ComfyUI, clone https://github.com/Comfy-Org/ComfyUI-Manager into its custom_nodes folder instead. Either way, restart ComfyUI, then Test again in the ComfyUI tab. The desktop build has it on already. A ComfyUI that listens on the network (--listen) also needs network_mode = personal_cloud in Manager's config.ini, or it refuses the download.";
 
@@ -41,7 +41,7 @@ export function CivitaiCard() {
         <Row label="ComfyUI-Manager"><Status ok>found{manager.version ? ` · ${manager.version}` : ""}</Status></Row>
       ) : (
         <Row tone="warn" label="ComfyUI-Manager not found" help={`Downloading needs ComfyUI-Manager in your ComfyUI, and it was not found (or ComfyUI is not answering). ${MANAGER_HOWTO}`}>
-          <Link href="/settings" className={warnButton}>Test again in ComfyUI</Link>
+          <Link href="/settings" className={buttonClass({ tone: "danger", size: "sm" })}>Test again in ComfyUI</Link>
         </Row>
       ))}
       {(downloads.data?.items.length ?? 0) > 0 && (
