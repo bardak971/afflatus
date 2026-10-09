@@ -20,8 +20,10 @@ import { tileName } from "./screens/Library";
 
 /**
  * The right-click menu of a library tile: what the viewer offers on the item, without opening it. Each
- * entry mirrors a button or a key of the viewer. What needs the item's generation parameters (Reuse,
- * Variation, Open in ComfyUI) is offered once they are read, which starts when the menu opens.
+ * entry mirrors a button or a key of the viewer, but shows no key: the viewer's keys act on the item open in
+ * it, and nothing where this menu opens (the Studio's grids, the editor's library, the command bar). What needs
+ * the item's generation parameters (Reuse, Variation, Open in ComfyUI) is offered once they are read, which
+ * starts when the menu opens.
  */
 export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }: {
   onOpen(asset: Asset): void;
@@ -65,8 +67,8 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
   });
   const reuse = useReuse({ onError: failed("Could not reuse its parameters") });
   const variation = useQueueVariation(into);
-  // N starts a timeline only in the viewer (in Studio's grid it folds the form): no key on it in a tile's menu
-  const timelineMenu = useTimelineSubmenu({ noStartKey: true });
+  // A and N add / start only in the viewer (in Studio's grid N folds the form): no key in a tile's menu
+  const timelineMenu = useTimelineSubmenu({ noKeys: true });
   /** To the bin; a file of a linked folder leaves its folder on the disk, which is asked first (as the viewer and a selection do). */
   const toBin = async (asset: Asset) => {
     if (await askAboutDisk([asset])) bin.mutate(asset.id);
@@ -74,10 +76,10 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
   const items = (asset: Asset): MenuItem[] => {
     const reading = detail.isLoading;
     const studio: MenuItem[] = [
-      ...(asset.kind === "image" && opener && !asset.inBin ? [{ label: "Image to video (i2v)", key: "M", icon: <Clapperboard size={14} />, note: opener.title, run: () => animate.mutate(asset) }] : []),
-      { label: "Reuse · same seed", key: "L", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => g && reuse.sameSeed(g) },
-      { label: "Reuse · new seed", key: "Shift + L", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => g && reuse.newSeed(g) },
-      { label: "Variation", key: "V", icon: <Shuffle size={14} />, note: !reading && !g ? "not generated here" : "new seed, queued", disabled: reading || !g || !recipe || asset.inBin, run: () => recipe && g && variation.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }) },
+      ...(asset.kind === "image" && opener && !asset.inBin ? [{ label: "Image to video (i2v)", icon: <Clapperboard size={14} />, note: opener.title, run: () => animate.mutate(asset) }] : []),
+      { label: "Reuse · same seed", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => g && reuse.sameSeed(g) },
+      { label: "Reuse · new seed", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => g && reuse.newSeed(g) },
+      { label: "Variation", icon: <Shuffle size={14} />, note: !reading && !g ? "not generated here" : "new seed, queued", disabled: reading || !g || !recipe || asset.inBin, run: () => recipe && g && variation.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }) },
       { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: reading || !g || !(setup.data?.comfy.online ?? false), run: () => openInComfy.mutate(asset) },
       ...timelineMenu.items(asset),
       ...moveToItems(asset),
@@ -87,15 +89,15 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
       ...(first?.(asset) ?? []),
       ...(places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }, "—" as const] : []),
       { label: "Open", icon: <Eye size={14} />, run: () => onOpen(asset) },
-      { label: asset.kept ? "Unkeep" : "Keep", key: "S", icon: <Star size={14} />, disabled: asset.inBin, run: () => keep.mutate({ id: asset.id, kept: !asset.kept }) },
+      { label: asset.kept ? "Unkeep" : "Keep", icon: <Star size={14} />, disabled: asset.inBin, run: () => keep.mutate({ id: asset.id, kept: !asset.kept }) },
       ...(onSelect ? [{ label: "Select", key: "Ctrl + Click", icon: <SquareCheck size={14} />, run: () => onSelect(asset) }] : []),
       ...(compact ? [] : ["—" as const, ...studio]),
       "—" as const,
       { label: "Rename…", icon: <Pencil size={14} />, run: () => void renameIt(asset) },
-      { label: "Download", key: "D", icon: <Download size={14} />, run: () => saveAsset(asset) },
+      { label: "Download", icon: <Download size={14} />, run: () => saveAsset(asset) },
       asset.inBin
         ? { label: "Put back", icon: <Undo2 size={14} />, run: () => restore.mutate(asset.id) }
-        : { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin(asset) },
+        : { label: "Move to the bin", icon: <Trash2 size={14} />, danger: true, run: () => void toBin(asset) },
       ...(compact ? ["—" as const, { label: "More", icon: <MoreHorizontal size={14} />, note: "i2v, reuse, timelines, projects", items: studio.filter((it, i, all) => it !== "—" || (i > 0 && i < all.length - 1 && all[i - 1] !== "—")) }] : []),
     ];
   };
@@ -131,6 +133,8 @@ export function useTimelineSubmenu(opts: {
   onStarted?(): void;
   /** Where N does something else (it folds the form in Studio: the grid, the inline viewer on the stage): "Start a timeline" shows no key. */
   noStartKey?: boolean;
+  /** Where neither A nor N reaches the item (a tile's menu): no key at all. */
+  noKeys?: boolean;
 } = {}) {
   const timelines = useTimelines();
   const last = useLast();
@@ -147,13 +151,13 @@ export function useTimelineSubmenu(opts: {
     return [{
       label: "Timeline", icon: <Film size={14} />, note: last ? `last: ${last.name}` : undefined, items: [
         ...recent.map((t): MenuItem => ({
-          label: `Add to ${t.name}`, key: t.id === last?.id ? "A" : undefined, icon: <Film size={14} />,
+          label: `Add to ${t.name}`, key: t.id === last?.id && !opts.noKeys ? "A" : undefined, icon: <Film size={14} />,
           note: t.id === last?.id ? `last used · ${end}` : `${t.clips} clip${t.clips === 1 ? "" : "s"} · ${when(t.updatedAt)}`,
           disabled: addTo.isPending, run: () => addTo.mutate({ asset, timeline: t }),
         })),
         ...(recent.length ? ["—" as const] : []),
         { label: recent.length ? "Another timeline…" : "Add to a timeline…", icon: <Search size={14} />, note: "search, by folder", run: () => setAdding(asset) },
-        { label: "Start a timeline from it", key: opts.noStartKey ? undefined : "N", icon: <Plus size={14} />, note: asset.kind === "image" ? "clip 1 opens on this picture" : "clip 1 is this video", run: () => start.mutate(asset) },
+        { label: "Start a timeline from it", key: opts.noStartKey || opts.noKeys ? undefined : "N", icon: <Plus size={14} />, note: asset.kind === "image" ? "clip 1 opens on this picture" : "clip 1 is this video", run: () => start.mutate(asset) },
       ],
     }];
   };
