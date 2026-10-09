@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { Section, Toggle } from "@afflatus/workflows";
 import { fuzzyScore } from "@afflatus/core";
 import { Dialog } from "../Dialog";
-import { Button, cx, Segmented } from "../ui";
+import { Button, Checkbox, cx, Segmented } from "../ui";
 
 /**
  * Making a section's switch: a name, whether it starts on, and the nodes that are bypassed while it is
@@ -78,7 +78,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
         {usable.length > 0 && <span className="text-xs text-ink-2">The frames the author drew around nodes, with what is inside them.</span>}
         {usable.map((f, i) => (
           <label key={i} className={cx("flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-1.5", frameOn(f) ? "border-accent/50 bg-accent-wash" : "border-line bg-ground")}>
-            <input type="checkbox" checked={frameOn(f)} onChange={(e) => setFrame(f, e.target.checked)} className="accent-accent" />
+            <Checkbox checked={frameOn(f)} onChange={(v) => setFrame(f, v)} />
             <span className="flex min-w-0 flex-col">
               <span className="font-semibold">{f.title}</span>
               <span className="truncate text-xs text-ink-2">frame · {f.nodes.length} node{f.nodes.length === 1 ? "" : "s"} · {f.nodes.slice(0, 4).map(titleOf).join(", ")}{f.nodes.length > 4 ? "…" : ""}{f.nodes.includes(resultNode) ? " · holds the output" : ""}</span>
@@ -92,7 +92,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
             <input placeholder={`Search ${nodes.length} nodes`} value={q} onChange={(e) => setQ(e.target.value)} className="h-8 rounded-md border border-line bg-panel px-2 text-xs" />
             {listed.map((n) => (
               <label key={n.id} className="flex h-7 cursor-pointer items-center gap-2 rounded px-1.5 text-xs hover:bg-hover">
-                <input type="checkbox" checked={chosen.has(n.id)} onChange={(e) => setNode(n.id, e.target.checked)} className="accent-accent" />
+                <Checkbox checked={chosen.has(n.id)} onChange={(v) => setNode(n.id, v)} />
                 <span className="min-w-0 grow truncate font-semibold">{n.title}</span>
                 <span className="shrink-0 text-ink-3">#{n.id}{n.id === resultNode ? " · output" : ""}</span>
               </label>

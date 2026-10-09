@@ -115,7 +115,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   }, [shown, hand, say]);
   // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
   const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });
-  const { kind, q, made, lora, kept, unkept, setUnkept, showTimelines, reach, assets, items, filtered } = filters;
+  const { kind, q, made, lora, kept, unkept, setUnkept, showTimelines, reach, filter, assets, items, filtered } = filters;
   // the stage (the newest large, the rest in a strip) in place of the grid, when the scope is on it; the timelines still show when asked for
   const display = displayOf(view, reach as Scope);
   const draftOnly = display === "Stage" && !showTimelines && (reach !== "draft" || Boolean(draftId));
@@ -261,7 +261,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               {/* the pages above, let go past the cap (useAssets), read again when scrolled back up to */}
               {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title}>{groupedEmpty.body}</Empty>}
-              {!showTimelines && place.type !== "bin" && <NotKeptLine items={items} only={unkept} onOnly={setUnkept} />}
+              {!showTimelines && place.type !== "bin" && <NotKeptLine items={items} filter={filter} whole={Boolean(assets.hasNextPage || assets.hasPreviousPage)} only={unkept} onOnly={setUnkept} />}
               {/* what is being made now comes first, where its result will land */}
               {!showTimelines && (
                 <JustifiedRows

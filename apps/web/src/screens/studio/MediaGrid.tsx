@@ -1,7 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock } from "lucide-react";
 import { api, type Asset } from "../../api";
+import { useProject } from "../../project";
 import { ask } from "../../Confirm";
 import { cx, ErrorNote } from "../../ui";
 import { binRange, justify, leftOf } from "../library/justify";
@@ -74,14 +75,35 @@ const ASK_OVER = 20;
  * The items of the view that nobody kept, said once above the grid rather than on every tile: how many,
  * when they go to the bin, Keep all (those shown), and Show only these. Each tile has only a small clock.
  */
-export function NotKeptLine({ items, only, onOnly }: {
+export function NotKeptLine({ items, filter, whole, only, onOnly }: {
   /** What the grid shows now (the pages read). */
   items: Asset[];
+  /** The view's filter, and whether the grid has pages it has not read: then the items not kept are asked for across the whole view. */
+  filter: Parameters<typeof api.assets>[0];
+  whole: boolean;
   /** Only the items not kept are shown (the filter this line turns on). */
   only: boolean;
   onOnly(on: boolean): void;
 }) {
-  const unkept = items.filter((a) => !a.kept && !a.inBin);
+  const project = useProject((s) => s.id);
+  // under the "assets" key: a "library" event reads it again, as it reads the grid
+  const all = useQuery({
+    queryKey: ["assets", "unkept", project, filter],
+    queryFn: async ({ signal }) => {
+      const found: Asset[] = [];
+      let after: string | undefined;
+      // the items not kept go to the bin within a day: a few pages at most
+      for (let i = 0; i < 25; i++) {
+        const page = await api.assets({ ...filter, kept: undefined, unkept: true, limit: 200, after }, { signal });
+        found.push(...page.items);
+        if (!page.next) break;
+        after = page.next;
+      }
+      return found;
+    },
+    enabled: whole && !filter.kept,
+  });
+  const unkept = (whole && all.data ? all.data : items).filter((a) => !a.kept && !a.inBin);
   const client = useQueryClient();
   const keep = useMutation({
     mutationFn: (ids: string[]) => api.bulkAssets(ids, "keep"),

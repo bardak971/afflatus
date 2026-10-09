@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { Toggle } from "@afflatus/workflows";
-import { cx, Help, SectionTitle } from "../../ui";
+import { Checkbox, cx, Help, SectionTitle } from "../../ui";
 import { keyOf, rangeOf, Step, text } from "./parts";
 import type { Mapping } from "./useMapping";
 
@@ -83,7 +83,7 @@ function SwitchList({ m }: { m: Mapping }) {
         return (
           <div key={t.id} className="flex flex-col gap-1 px-3 py-1.5">
             <div className="flex min-h-7 items-center gap-2.5">
-              <input type="checkbox" aria-label={`Add the switch ${t.label}`} checked={Boolean(ticked)} onChange={() => m.toggleSwitch(t)} className="accent-accent" />
+              <Checkbox label={`Add the switch ${t.label}`} checked={Boolean(ticked)} onChange={() => m.toggleSwitch(t)} />
               {t.help && <Help text={t.help} />}
               {ticked ? (
                 <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => m.changeSwitch(t.id, { label: e.target.value })} className={quietName} />
@@ -119,7 +119,7 @@ function StagesPick({ m }: { m: Mapping }) {
         />
       </div>
       <div className="flex min-h-11 items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-1.5">
-        <input type="checkbox" aria-label={hires ? "Add a Hires fix switch" : "Add a Run choice"} checked={on} onChange={() => set({ stages: on ? [] : found.stages })} className="accent-accent" />
+        <Checkbox label={hires ? "Add a Hires fix switch" : "Add a Run choice"} checked={on} onChange={() => set({ stages: on ? [] : found.stages })} />
         <span className={cx("min-w-0 grow", on ? "font-semibold" : "text-ink-2")}>{hires ? "Hires fix" : "Run"}</span>
         <span className="shrink-0 text-xs text-ink-3">{hires ? "a switch · on in the file" : `a choice of ${found.stages.length}`}</span>
       </div>
@@ -162,7 +162,7 @@ function WidgetList({ m }: { m: Mapping }) {
               const used = taken.has(keyOf(c.target));
               return (
                 <div key={c.id} className={cx("flex min-h-10 items-center gap-2.5 px-3 py-1.5", used && "opacity-50")}>
-                  <input type="checkbox" aria-label={`Add a control for ${c.label}`} checked={Boolean(ticked)} disabled={used} onChange={() => m.toggleControl(c)} className="accent-accent" />
+                  <Checkbox label={`Add a control for ${c.label}`} checked={Boolean(ticked)} disabled={used} onChange={() => m.toggleControl(c)} />
                   {c.help && <Help text={c.help} />}
                   {ticked ? (
                     <input aria-label="Name of the control" value={ticked.label} onChange={(e) => m.change(c.id, { label: e.target.value })} className={quietName} />

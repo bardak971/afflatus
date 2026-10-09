@@ -56,7 +56,7 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
   // "Kept" was a scope: a store kept from then still says it, and shows the folder (Kept only is in Filters now)
   const reach: Scope = view.form && draftId && SCOPES.includes(view.scope) ? view.scope : "all";
   const since48 = useMemo(() => new Date(Date.now() - 2 * 86_400_000).toISOString(), [reach]); // eslint-disable-line react-hooks/exhaustive-deps
-  const assets = useAssets({
+  const filter = {
     kind: KINDS.find((k) => k.id === kind)!.kind,
     bin: place.type === "bin" || undefined,
     // "This draft": what the draft made, wherever it landed
@@ -69,10 +69,11 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
     lora: lora || undefined,
     kept: kept || undefined,
     unkept: unkept || undefined,
-  }, true, true);
+  };
+  const assets = useAssets(filter, true, true);
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
   const filtered = Boolean(q || made || lora || kept || unkept);
-  return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines, reach, assets, items, filtered };
+  return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines, reach, filter, assets, items, filtered };
 }
 
 export type LibraryFilters = ReturnType<typeof useLibraryFilters>;

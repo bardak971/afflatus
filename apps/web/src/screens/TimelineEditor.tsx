@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type Take } from "../api";
 import { useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
@@ -294,6 +294,19 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     select(target.id);
   };
   jumpNow.current = jump;
+
+  // opened at a clip (?clip=N, from the viewer's "In … · clip N"): that clip selected, the playhead at its start
+  const [, go] = useLocation();
+  const askedClip = Number(new URLSearchParams(useSearch()).get("clip")) || 0;
+  useEffect(() => {
+    if (!askedClip || !t || !shown) return;
+    const c = clips[askedClip - 1];
+    if (c) {
+      player.current?.seek(c.atMs);
+      select(c.id);
+    }
+    go(`/timelines/${id}`, { replace: true });
+  }, [askedClip, t, shown]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Cut the clip at this moment of it and add a clip that continues from there: one step to undo (the server stops the clip

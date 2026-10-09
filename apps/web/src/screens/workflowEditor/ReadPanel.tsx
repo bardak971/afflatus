@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { ancestors, pictureId, soundId } from "@afflatus/workflows";
 import { fileLabel } from "../../format";
 import { Select } from "../../Select";
-import { cx, ErrorNote } from "../../ui";
+import { Checkbox, cx, ErrorNote } from "../../ui";
 import { BeforeItRuns } from "./BeforeItRuns";
 import { Found, keyOf, Step, text } from "./parts";
 import type { Mapping, VideoRole } from "./useMapping";
@@ -77,7 +77,7 @@ export function ReadPanel({ m }: { m: Mapping }) {
           what={found.loraPoints.length ? (b.loras.length > 1 ? `${b.loras.length} lists, one for each loader` : b.loras.length ? "one list in the form" : "none in the form") : "no model loader"}
           below={found.loraPoints.length > 0 && found.loraPoints.map((p) => (
             <label key={p.node} className="flex min-w-0 items-center gap-2">
-              <input type="checkbox" checked={b.loras.some((x) => x.node === p.node)} onChange={() => m.toggleLoras(p.node)} className="shrink-0 accent-accent" />
+              <Checkbox checked={b.loras.some((x) => x.node === p.node)} onChange={() => m.toggleLoras(p.node)} />
               {p.power
                 ? <span className="min-w-0"><span className="font-semibold">{p.label || p.title}</span> <span className="text-ink-3">#{p.node}</span> · the workflow's own list: its LoRAs start in yours</span>
                 : <span className="min-w-0 break-all">after <span className="font-semibold">{p.label}</span> <span className="text-ink-3">#{p.node}</span></span>}
@@ -106,8 +106,7 @@ function MediaRoles({ m }: { m: Mapping }) {
               const on = have.find((p) => p.target.node === i.node);
               return (
                 <label key={i.node} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={Boolean(on)}
                     onChange={() => set({ pictures: on ? have.filter((p) => p !== on) : [...have, { ...i.binding, id: pictureId(i.node), label: i.title && !/^Load ?Image/i.test(i.title) ? i.title : `Image ${n + 2}` }] })}
                   />
@@ -168,8 +167,7 @@ function MediaRoles({ m }: { m: Mapping }) {
               const on = have.find((p) => p.target.node === i.node);
               return (
                 <label key={i.node} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={Boolean(on)}
                     onChange={() => set({ otherSounds: on ? have.filter((p) => p !== on) : [...have, { ...i.binding, id: soundId(i.node), label: i.title && !/^Load ?Audio/i.test(i.title) ? i.title : `Sound ${n + 2}` }] })}
                   />
@@ -222,7 +220,7 @@ function OutputPick({ m }: { m: Mapping }) {
               <span>Shown on the way, on branches this output does not need. ComfyUI runs them all the same; what they show appears under the live preview while it renders. Leave one out to save its work:</span>
               {deadEnds.map((d) => (
                 <label key={d.node} className="flex cursor-pointer items-center gap-2">
-                  <input type="checkbox" checked={skipped.has(d.node)} onChange={(e) => setSkip(d, e.target.checked)} className="accent-accent" />
+                  <Checkbox checked={skipped.has(d.node)} onChange={(v) => setSkip(d, v)} />
                   <span className="min-w-0 grow truncate"><span className="font-semibold text-ink">{d.title}</span> #{d.node} · {d.nodes.length} node{d.nodes.length === 1 ? "" : "s"} of its own{d.steps ? `, ${d.steps} steps of sampling` : ""}</span>
                   <span className="shrink-0">{skipped.has(d.node) ? "left out" : "kept"}</span>
                 </label>

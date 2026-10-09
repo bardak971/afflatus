@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ChevronDown, Copy, Film, FolderPlus, Plus, Star, Trash2, Undo2, Wand2 } from "lucide-react";
+import { ArrowRightFromLine, AudioLines, ChevronDown, Clapperboard, Columns2, Copy, Download, Film, FlipHorizontal2, FlipVertical2, FolderPlus, ImageDown, Info, Mic, Plus, Scissors, Shuffle, SlidersHorizontal, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
 import { isShown, RANDOM_SEED, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
@@ -105,7 +105,7 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
 }
 
 /** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). */
-function Act({ label, k, pressed, onClick, disabled, title, wide }: { label: string; k?: string; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
+function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: { icon?: LucideIcon; label: string; k?: string; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
   return (
     <button
       type="button"
@@ -114,11 +114,12 @@ function Act({ label, k, pressed, onClick, disabled, title, wide }: { label: str
       data-tip={title}
       aria-pressed={pressed}
       className={cx(
-        "flex h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-3 text-left text-[13px] font-semibold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
+        "flex h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-2.5 text-left text-[13px] font-semibold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
         pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
         wide && "col-span-2",
       )}
     >
+      {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", pressed ? "text-accent" : "text-ink-2")} />}
       <span className="min-w-0 grow truncate">{label}</span>
       {k && <Kbd>{k}</Kbd>}
     </button>
@@ -488,18 +489,18 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
 
         {/* what to do with it: two columns, the item's own kind of things first */}
         <div className="grid grid-cols-2 gap-2">
-          {g && recipe && <Act label="Reuse parameters" k="L" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft." />}
-          {g && recipe && <Act label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
-          {a.kind === "image" && !a.inBin && opener && <Act wide label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
-          {a.kind === "video" && !a.inBin && carrier && <Act label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
-          {a.kind === "video" && !a.inBin && <Act label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}
-          {a.kind === "video" && !a.inBin && <Act label={saveFrame.isPending ? "Saving…" : "Save frame"} k="G" onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library." />}
-          {a.kind === "video" && !a.inBin && a.hasSound && <Act label={takeSound.isPending ? "Extracting…" : "Extract audio"} onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music." />}
-          {a.kind === "audio" && !a.inBin && follower && <Act wide label="Use as voice sample" onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample." />}
-          {a.kind !== "audio" && !a.inBin && !g && <Act label="PNG info" k="P" onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form." />}
-          {onCompare && a.kind !== "audio" && <Act label="Compare" k="X" pressed={comparing} onClick={onCompare} title="Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe" />}
-          {!a.inBin && <Act label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
-          <Act label="Download" k="D" onClick={download} title="Download the file" />
+          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse parameters" k="L" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft." />}
+          {g && recipe && <Act icon={Shuffle} label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
+          {a.kind === "image" && !a.inBin && opener && <Act wide icon={Clapperboard} label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
+          {a.kind === "video" && !a.inBin && carrier && <Act icon={ArrowRightFromLine} label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
+          {a.kind === "video" && !a.inBin && <Act icon={Scissors} label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}
+          {a.kind === "video" && !a.inBin && <Act icon={ImageDown} label={saveFrame.isPending ? "Saving…" : "Save frame"} k="G" onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library." />}
+          {a.kind === "video" && !a.inBin && a.hasSound && <Act icon={AudioLines} label={takeSound.isPending ? "Extracting…" : "Extract audio"} onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music." />}
+          {a.kind === "audio" && !a.inBin && follower && <Act wide icon={Mic} label="Use as voice sample" onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample." />}
+          {a.kind !== "audio" && !a.inBin && !g && <Act icon={Info} label="PNG info" k="P" onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form." />}
+          {onCompare && a.kind !== "audio" && <Act icon={Columns2} label="Compare" k="X" pressed={comparing} onClick={onCompare} title="Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe" />}
+          {!a.inBin && <Act icon={Star} label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
+          <Act icon={Download} label="Download" k="D" onClick={download} title="Download the file" />
         </div>
         {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="-mt-3 text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
 
@@ -537,10 +538,10 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
             <SectionTitle>Image tools</SectionTitle>
             <div className="grid grid-cols-2 gap-1.5">
               {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-                <Act key={k} label={OPS[k]!.label} k={k.toUpperCase()} disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)} />
+                <Act key={k} icon={Wand2} label={OPS[k]!.label} k={k.toUpperCase()} disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)} />
               ))}
-              <Act label="Mirror ↔" disabled={mirror.isPending} title="A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU. For a keyframe that faces the wrong way for the clip before." onClick={() => mirror.mutate("horizontal")} />
-              <Act label="Mirror ↕" disabled={mirror.isPending} title="A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." onClick={() => mirror.mutate("vertical")} />
+              <Act icon={FlipHorizontal2} label="Mirror ↔" disabled={mirror.isPending} title="A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU. For a keyframe that faces the wrong way for the clip before." onClick={() => mirror.mutate("horizontal")} />
+              <Act icon={FlipVertical2} label="Mirror ↕" disabled={mirror.isPending} title="A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." onClick={() => mirror.mutate("vertical")} />
             </div>
             {mirror.isError && <span className="text-warn-ink">{mirror.error.message}</span>}
             <ChangePicker madeWith={recipe} keys={Object.fromEntries((["i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [[toolFor(k)!.id, k]] : [])))} start={openTool} />

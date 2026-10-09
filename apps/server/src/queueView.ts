@@ -10,6 +10,15 @@ import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel
 const kindOf = (r: Pick<JobRow, "recipe_id" | "warm">) => (r.recipe_id === EXPORT_JOB ? ("export" as const) : r.recipe_id === CUT_JOB ? ("cut" as const) : r.warm ? ("load" as const) : ("render" as const));
 /** A job's inputs as the screen reads them: a render's form (a tool job's options are not one); empty when the row cannot be read. */
 const inputsOf = (r: Pick<JobRow, "recipe_id" | "inputs">) => (r.recipe_id === EXPORT_JOB || r.recipe_id === CUT_JOB ? {} : readJson<Record<string, unknown>>(r.inputs, {}));
+/** What a finish upscales with, by name (SeedVR2, RTX VSR, the upscale model's file); null for any other job. */
+const upscalerOf = (r: Pick<JobRow, "recipe_id" | "inputs">): string | null => {
+  if (r.recipe_id !== CUT_JOB) return null;
+  const o = readJson<{ action?: string; route?: string; upscaleModel?: string }>(r.inputs, {});
+  if (o.action !== "finish") return null;
+  if (o.route === "rtx") return "RTX VSR";
+  if (o.route === "model") return o.upscaleModel ? o.upscaleModel.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "") : "upscale model";
+  return "SeedVR2";
+};
 
 /** Spilling out of video memory: the memory full and twice what was expected already gone (see renders.spilled). */
 async function spillingNow(core: QueueCore): Promise<boolean> {
@@ -54,6 +63,7 @@ export async function status(core: QueueCore) {
   const plain = (r: JobRow) => ({
     id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
     kind: kindOf(r),
+    upscaler: upscalerOf(r),
     // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
     input: r.status === "failed" && kindOf(r) !== "export" && kindOf(r) !== "cut" ? inputsOf(r) : null,
     createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at,
@@ -161,6 +171,7 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
     return {
       id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id,
       kind,
+      upscaler: upscalerOf(r),
       input: r.status === "failed" && kind !== "export" && kind !== "cut" ? input : null,
       createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, tookMs,
       model: recipe ? modelOf(recipe.inputs, input) : null,

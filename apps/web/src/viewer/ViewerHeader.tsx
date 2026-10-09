@@ -149,7 +149,7 @@ export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items
             key={`${of.timeline}:${of.clip}`}
             type="button"
             data-tip={own ? `Clip ${of.clip} of ${of.timelineName}${of.takes > 1 ? `, take ${of.take} of ${of.takes}` : ""}${of.playing ? "" : " (not the take that plays)"}: open the timeline` : `A take of clip ${of.clip} of ${of.timelineName} was made from it: open the timeline`}
-            onClick={() => { onClose(); go(`/timelines/${of.timeline}`); }}
+            onClick={() => { onClose(); go(`/timelines/${of.timeline}?clip=${of.clip}`); }}
             className={chip}
           >
             <Film size={13} className="shrink-0 text-warn" />

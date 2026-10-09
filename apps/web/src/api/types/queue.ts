@@ -25,6 +25,8 @@ export interface Job {
   join: "seamless" | "latent" | "hybrid" | "pixels" | null;
   /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. "cut": a range of a video kept as new videos. */
   kind: "render" | "export" | "load" | "cut";
+  /** Of a finish: what it upscales with (SeedVR2, RTX VSR, the upscale model's name). */
+  upscaler?: string | null;
   /** Of a waiting job: about how long it will take, from past renders. */
   estimateMs: number | null;
   /** Of a failed job: what it was asked, so that a retry can change it. */
