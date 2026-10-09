@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { Check, Trash2 } from "lucide-react";
 import { PANEL, useExplain, usePanelWidth } from "./store";
 
@@ -9,22 +9,25 @@ export { cx };
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "plain" | "quiet" | "danger"; size?: "md" | "sm" };
 
-export function Button({ tone = "plain", size = "md", className, ...rest }: ButtonProps) {
-  return (
-    <button
-      type="button"
-      {...rest}
-      className={cx(
-        "inline-flex items-center justify-center gap-2 font-semibold whitespace-nowrap transition-[filter,background-color] disabled:cursor-not-allowed disabled:opacity-45",
-        size === "md" ? "h-10 rounded-[10px] px-4" : "h-8 rounded-lg px-3 text-xs",
-        tone === "primary" && "bg-accent font-bold text-accent-ink hover:brightness-110",
-        tone === "plain" && "border border-line-strong text-ink hover:bg-hover",
-        tone === "quiet" && "bg-hover text-ink hover:brightness-110",
-        tone === "danger" && "bg-warn-wash font-bold text-warn-ink hover:brightness-125",
-        className,
-      )}
-    />
+/** The look of a button of the kit, for what is not a <button>: a link (wouter's Link takes it as its className), a download. */
+export const buttonClass = ({ tone = "plain", size = "md", className }: { tone?: ButtonProps["tone"]; size?: ButtonProps["size"]; className?: string } = {}) =>
+  cx(
+    "inline-flex items-center justify-center gap-2 font-semibold whitespace-nowrap transition-[filter,background-color] disabled:cursor-not-allowed disabled:opacity-45",
+    size === "md" ? "h-10 rounded-[10px] px-4" : "h-8 rounded-lg px-3 text-xs",
+    tone === "primary" && "bg-accent font-bold text-accent-ink hover:brightness-110",
+    tone === "plain" && "border border-line-strong text-ink hover:bg-hover",
+    tone === "quiet" && "bg-hover text-ink hover:brightness-110",
+    tone === "danger" && "bg-warn-wash font-bold text-warn-ink hover:brightness-125",
+    className,
   );
+
+export function Button({ tone = "plain", size = "md", className, ...rest }: ButtonProps) {
+  return <button type="button" {...rest} className={buttonClass({ tone, size, className })} />;
+}
+
+/** A link that looks like a button of the kit: a download, a page outside the app. */
+export function ButtonLink({ tone, size, className, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { tone?: ButtonProps["tone"]; size?: ButtonProps["size"] }) {
+  return <a {...rest} className={buttonClass({ tone, size, className })} />;
 }
 
 /**
