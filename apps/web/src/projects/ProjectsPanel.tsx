@@ -263,10 +263,13 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     }),
   });
   const items = new Map<string, ItemsRead>(openFolders.map((f, i) => [f.key, { items: itemReads[i]?.data?.items ?? null, more: itemReads[i]?.data?.more ?? false }]));
+  // what the loaded lists are, by when each was read: cheap to compare on every render, unlike the lists themselves
+  const draftsRead = draftGroups.map((g, i) => `${g.id}:${draftReads[i]?.dataUpdatedAt ?? 0}:${limits[draftsKey(g.id)] ?? DRAFTS_PAGE}`).join("|");
+  const itemsRead = openFolders.map((f, i) => `${f.key}:${itemReads[i]?.dataUpdatedAt ?? 0}:${itemReads[i]?.isPlaceholderData ? 1 : 0}`).join("|");
   const rows = useMemo(
     () => (tree.data ? flatten(tree.data, { isOpen, drafts: (k) => drafts.get(k), items: (k) => items.get(k), bin: storage.data?.bin ?? null, q, kind, draftMeta, sort }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree.data, folds, searchFolded, q, kind, sort, JSON.stringify([...drafts]), JSON.stringify([...items].map(([k, v]) => [k, v.more, v.items?.map((a) => `${a.id}:${a.name}:${a.folderId}`)])), recipes.data, current, storage.data?.bin.count, storage.data?.bin.bytes],
+    [tree.data, folds, searchFolded, q, kind, sort, draftsRead, itemsRead, recipes.data, current, storage.data?.bin.count, storage.data?.bin.bytes],
   );
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
   const found = q ? rows.filter((r) => r.match).length : 0;

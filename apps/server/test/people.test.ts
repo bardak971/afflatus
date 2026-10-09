@@ -197,6 +197,24 @@ describe("people, places and styles", () => {
     expect(d.look).toEqual({ cast: [{ id: c.her, outfit: "dress" }], style: c.style, snippets: [] });
     expect((await put(`/api/drafts/${d.id}`, { look: null })).look).toBeNull();
   });
+
+  it("lose a deleted person or style from every draft, timeline and clip", async () => {
+    const c = await cast();
+    const d = (await post(t.app, "/api/drafts", { recipe: "h3.video", look: { cast: [{ id: c.her, outfit: "dress" }, { id: c.place }], style: c.style } })).json();
+    const tl = (await post(t.app, "/api/timelines", {})).json();
+    await t.app.inject({ method: "PATCH", url: `/api/timelines/${tl.id}`, payload: { look: { cast: [{ id: c.her }], style: null } } });
+    const a = (await post(t.app, `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).json().clip;
+    await t.app.inject({ method: "PATCH", url: `/api/clips/${a}`, payload: { look: { cast: [{ id: c.her }], style: c.style } } });
+
+    expect((await t.app.inject({ method: "DELETE", url: `/api/entities/${c.her}` })).statusCode).toBe(200);
+    expect((await get(t.app, `/api/drafts/${d.id}`)).json().look).toEqual({ cast: [{ id: c.place }], style: c.style, snippets: [] });
+    // a clip keeps a look of its own, now empty of her, rather than falling back to the timeline's
+    expect((await get(t.app, `/api/timelines/${tl.id}`)).json()).toMatchObject({ look: { cast: [], style: null }, clips: [{ look: { cast: [], style: c.style } }] });
+
+    await t.app.inject({ method: "DELETE", url: `/api/entities/${c.style}` });
+    expect((await get(t.app, `/api/drafts/${d.id}`)).json().look).toEqual({ cast: [{ id: c.place }], style: null, snippets: [] });
+    expect((await get(t.app, `/api/timelines/${tl.id}`)).json().clips[0].look).toMatchObject({ cast: [], style: null });
+  });
 });
 
 describe("pictures uploaded for the Prompt kit", () => {

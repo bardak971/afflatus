@@ -269,6 +269,30 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   return { input, added };
 }
 
+/**
+ * A person, place, style or snippet deleted: taken out of every draft's, timeline's and clip's look, so it
+ * neither lingers unseen nor counts toward the cast. Jobs keep theirs: that is what was sent.
+ */
+export async function dropFromLooks(db: Db, id: string): Promise<{ drafts: number; timelines: number }> {
+  let drafts = 0;
+  let timelines = 0;
+  for (const table of ["drafts", "timelines", "clips"] as const) {
+    // ids are quoted in the JSON: a rough match first, the look itself decides
+    const rows = await db.selectFrom(table).select(["id", "look"]).where("look", "like", `%"${id}"%`).execute();
+    for (const r of rows) {
+      const look = lookSchema.safeParse(JSON.parse(r.look!));
+      if (!look.success) continue;
+      const l = look.data;
+      const next: Look = { ...l, cast: l.cast.filter((c) => c.id !== id), style: l.style === id ? null : l.style, snippets: l.snippets.filter((x) => x !== id) };
+      if (JSON.stringify(next) === JSON.stringify(l)) continue;
+      await db.updateTable(table).set({ look: JSON.stringify(next) }).where("id", "=", r.id).execute();
+      if (table === "drafts") drafts++;
+      else timelines++;
+    }
+  }
+  return { drafts, timelines };
+}
+
 const body = z.strictObject({ kind: z.enum(["person", "place", "style", "preset", "snippet"]), name: z.string().trim().min(1).max(120), def: z.unknown().optional() });
 const patch = z.strictObject({ name: z.string().trim().min(1).max(120).optional(), def: z.unknown().optional() });
 
@@ -328,7 +352,9 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     if (!Number(r.numDeletedRows)) throw missing();
     // the pictures uploaded for them (not those picked from the library), wanted by no one else: to the bin
     if (row) await binUnwantedKit(s.db, picturesOf(row.def));
+    const cut = await dropFromLooks(s.db, req.params.id);
     changed();
+    if (cut.timelines) s.queue.events.emit("timeline");
     return { ok: true };
   });
 

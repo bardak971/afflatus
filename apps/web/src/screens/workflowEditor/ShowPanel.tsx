@@ -130,11 +130,22 @@ function StagesPick({ m }: { m: Mapping }) {
 
 const WIDGETS = "Every widget of the file, by node, folded until wanted. Ticked, the form gets a control for it, under a name of yours; the rest stays as it is in the file. A \"?\" by a node is its author's own note.";
 
-/** The widgets of each node, folded until wanted (a node with a ticked widget, or a search, is open). */
+/** The widgets of each node, folded until wanted (a node with a ticked widget, or a search, opens; a click folds it all the same). */
 function WidgetList({ m }: { m: Mapping }) {
   const { found, b, groups, filter, taken } = m;
-  const [openNodes, setOpenNodes] = useState<Set<string>>(new Set());
-  const flipNode = (node: string) => setOpenNodes((old) => { const n = new Set(old); if (n.has(node)) n.delete(node); else n.add(node); return n; });
+  // what was opened or folded by hand; a search starts its own, all open
+  const [flipped, setFlipped] = useState<Map<string, boolean>>(new Map());
+  const [searchFolded, setSearchFolded] = useState<{ q: string; nodes: Set<string> }>({ q: "", nodes: new Set() });
+  const folded = searchFolded.q === filter ? searchFolded.nodes : new Set<string>();
+  const isOpen = (node: string, ticked: number) => (filter ? !folded.has(node) : flipped.get(node) ?? ticked > 0);
+  const flipNode = (node: string, open: boolean) => {
+    if (filter) {
+      const nodes = new Set(folded);
+      if (open) nodes.add(node);
+      else nodes.delete(node);
+      setSearchFolded({ q: filter, nodes });
+    } else setFlipped((old) => new Map(old).set(node, !open));
+  };
   return (
     <>
       <div className="flex items-center gap-2">
@@ -143,18 +154,18 @@ function WidgetList({ m }: { m: Mapping }) {
       </div>
       {groups.map(([node, items]) => {
         const tickedHere = items.filter((c) => b.controls.some((x) => x.id === c.id)).length;
-        const open = Boolean(filter) || openNodes.has(node) || tickedHere > 0;
+        const open = isOpen(node, tickedHere);
         return (
           <div key={node} className="flex flex-col gap-1">
             {/* the node author's "?" sits beside the row's button, not in it: a button cannot hold another */}
             <div className="flex items-center gap-1.5 rounded-md text-xs hover:bg-hover">
-              <button type="button" aria-expanded={open} onClick={() => flipNode(node)} className="flex min-w-0 items-center gap-1.5 py-1 text-left">
+              <button type="button" aria-expanded={open} onClick={() => flipNode(node, open)} className="flex min-w-0 items-center gap-1.5 py-1 text-left">
                 {open ? <ChevronDown size={13} className="shrink-0 text-ink-3" /> : <ChevronRight size={13} className="shrink-0 text-ink-3" />}
                 <span className="min-w-0 truncate font-semibold">{items[0]!.title}</span>
                 <span className="shrink-0 text-ink-3">#{node}</span>
               </button>
               {found.about?.[items[0]!.classType] && <Help text={found.about[items[0]!.classType]!} />}
-              <button type="button" tabIndex={-1} aria-hidden onClick={() => flipNode(node)} className="h-6 grow" />
+              <button type="button" tabIndex={-1} aria-hidden onClick={() => flipNode(node, open)} className="h-6 grow" />
               <span className="shrink-0 py-1 text-ink-2">{tickedHere ? `${tickedHere} of ${items.length}` : `${items.length} widget${items.length === 1 ? "" : "s"}`}</span>
             </div>
             {open && <div className={cx(card, "ml-4")}>{items.map((c) => {

@@ -80,40 +80,34 @@ export function DesignerCard() {
   const notes = s?.designerInstructions ?? [];
   /** What is sent for a model that is not being changed: everything but its key, which the server keeps. */
   const kept = ({ hasApiKey: _has, ...l }: LlmInfo) => l;
-  const all = saved.length + newLlms.length;
+  const all = saved.length + newLlms.filter((n) => !saved.some((l) => l.id === n.id)).length;
   return (
     <div className="flex flex-col gap-4">
       <Card
         title={<span className="flex items-center gap-1.5">LLMs <Help title="LLMs" text="The designer writes and improves your prompts with a language model (LLM): any with an OpenAI-compatible API, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, each conversation has its own: you pick it in the designer's panel, and it stays with that draft or clip." /></span>}
         status={<span className="font-mono text-xs text-ink-3">{all || "none"}</span>}
       >
-        {saved.map((l) => (
-          <LlmEditor
-            key={l.id}
-            llm={l}
-            fresh={false}
-            only={all === 1}
-            inUse={s?.designerLlm === l.id}
-            onSave={(next) => put({ llms: saved.map((x) => (x.id === l.id ? next : kept(x))) })}
-            onUse={() => change.mutate({ designerLlm: l.id })}
-            onRemove={() => change.mutate({ llms: saved.filter((x) => x.id !== l.id).map(kept) })}
-          />
-        ))}
-        {newLlms.map((l) => (
-          <LlmEditor
-            key={l.id}
-            llm={l}
-            fresh
-            only={all === 1}
-            inUse={false}
-            onSave={async (next) => {
-              await put({ llms: [...saved.map(kept), next] });
-              setNewLlms((list) => list.filter((x) => x.id !== l.id));
-            }}
-            onUse={() => {}}
-            onRemove={() => setNewLlms((list) => list.filter((x) => x.id !== l.id))}
-          />
-        ))}
+        {/* one list, keyed by id: a new one stays the same editor once saved, so "Save and test" shows its answer */}
+        {[...saved, ...newLlms.filter((n) => !saved.some((l) => l.id === n.id))].map((l) => {
+          const fresh = !saved.some((x) => x.id === l.id);
+          return (
+            <LlmEditor
+              key={l.id}
+              llm={l}
+              fresh={fresh}
+              only={all === 1}
+              inUse={!fresh && s?.designerLlm === l.id}
+              onSave={fresh
+                ? async (next) => {
+                  await put({ llms: [...saved.map(kept), next] });
+                  setNewLlms((list) => list.filter((x) => x.id !== l.id));
+                }
+                : (next) => put({ llms: saved.map((x) => (x.id === l.id ? next : kept(x))) })}
+              onUse={() => { if (!fresh) change.mutate({ designerLlm: l.id }); }}
+              onRemove={() => (fresh ? setNewLlms((list) => list.filter((x) => x.id !== l.id)) : change.mutate({ llms: saved.filter((x) => x.id !== l.id).map(kept) }))}
+            />
+          );
+        })}
         <Block>
           <div>
             <Button onClick={() => setNewLlms((list) => [...list, { id: shortId(), name: "", baseUrl: "", model: "", hasApiKey: false, vision: false, noThinking: false, contextSize: 16384, maxOutputTokens: 3000 }])}>

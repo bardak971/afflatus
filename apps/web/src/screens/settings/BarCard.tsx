@@ -15,6 +15,12 @@ import { Block, Card, Fact, Row } from "./Rows";
 
 const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, history: false, cast: false };
 
+/** Keys every text box and screen already uses (Ctrl or the command key): refused as the bar's shortcut. */
+const RESERVED: Record<string, string> = {
+  "Ctrl+C": "Copy", "Ctrl+V": "Paste", "Ctrl+X": "Cut", "Ctrl+A": "Select all", "Ctrl+Z": "Undo", "Ctrl+Y": "Redo",
+  "Ctrl+Shift+Z": "Redo", "Ctrl+F": "Find", "Ctrl+Enter": "Render",
+};
+
 /** A key as a keycap. */
 function Cap({ children }: { children: ReactNode }) {
   return <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-raised px-2 font-mono text-xs text-ink shadow-[inset_0_-1px_0_var(--color-line-strong)]">{children}</kbd>;
@@ -45,6 +51,8 @@ function ShortcutRecorder({ value, onChange }: { value: string; onChange(shortcu
           if (!s) return;
           // a letter alone would be taken from every text box: it needs a modifier (a function key may go alone)
           if (!e.ctrlKey && !e.metaKey && !e.altKey && !/^F\d{1,2}$/.test(e.key)) return setRefused("Hold Ctrl, Alt or ⌘ with it");
+          const taken = RESERVED[s.replace(/^Meta\b/, "Ctrl")];
+          if (taken) return setRefused(`${s.replace(/^Meta\b/, "⌘")} is ${taken}: pick another`);
           setListening(false);
           setRefused(null);
           onChange(s);

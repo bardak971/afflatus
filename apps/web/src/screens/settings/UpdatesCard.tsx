@@ -18,9 +18,19 @@ export function UpdatesCard() {
   const [open, setOpen] = useState(false);
   const save = useMutation({ mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }) });
   const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(["model-updates"], r) });
+  // "Get it" per row: each row its own state, one error line for the list
+  const rowKey = (u: UpdateRow) => `${u.folder}/${u.file}`;
+  const [got, setGot] = useState<Record<string, "pending" | "started">>({});
+  const [getError, setGetError] = useState<string | null>(null);
+  const mark = (key: string, state?: "pending" | "started") => setGot((m) => {
+    const { [key]: _old, ...rest } = m;
+    return state ? { ...rest, [key]: state } : rest;
+  });
   const get = useMutation({
     mutationFn: (u: UpdateRow) => api.startDownload({ file: u.newer!.file ?? u.file, folder: u.folder, civitai: u.newer!.id, pick: u.newer!.file ?? undefined, page: { url: u.newer!.page, title: `${u.modelName} · ${u.newer!.name}` } }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
+    onMutate: (u) => { setGetError(null); mark(rowKey(u), "pending"); },
+    onSuccess: (_d, u) => { mark(rowKey(u), "started"); void client.invalidateQueries({ queryKey: ["downloads"] }); },
+    onError: (err, u) => { mark(rowKey(u)); setGetError(`${u.modelName || fileLabel(u.file)}: ${err.message}`); },
   });
   const on = Boolean(settings.data?.civitaiLookups);
   const daily = Boolean(settings.data?.updateChecks);
@@ -95,7 +105,9 @@ export function UpdatesCard() {
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <a href={u.newer!.page} target="_blank" rel="noreferrer" className="mr-2 text-xs font-semibold underline">Open</a>
-                          {fetching && <Button size="sm" onClick={() => get.mutate(u)} disabled={get.isPending} data-tip="Fetch the newer version into the same folder. The file you have stays until you remove it.">Get it</Button>}
+                          {fetching && (got[rowKey(u)] === "started"
+                            ? <span className="text-xs text-good">Started</span>
+                            : <Button size="sm" onClick={() => get.mutate(u)} disabled={got[rowKey(u)] === "pending"} data-tip="Fetch the newer version into the same folder. The file you have stays until you remove it.">{got[rowKey(u)] === "pending" ? "Starting…" : "Get it"}</Button>)}
                         </td>
                       </tr>
                     ))}
@@ -104,10 +116,10 @@ export function UpdatesCard() {
                 </table>
                 {!shown.length && <div className="p-4 text-xs text-ink-3">Nothing matches.</div>}
               </div>
-              {get.isError && <ErrorNote>{get.error.message}</ErrorNote>}
+              {getError && <ErrorNote>{getError}</ErrorNote>}
             </Dialog>
           )}
-          {(check.isError || get.isError || save.isError) && <Block><ErrorNote>{(check.error ?? get.error ?? save.error)?.message}</ErrorNote></Block>}
+          {(check.isError || save.isError) && <Block><ErrorNote>{(check.error ?? save.error)?.message}</ErrorNote></Block>}
         </>
       )}
     </Card>

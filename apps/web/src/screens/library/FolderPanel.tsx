@@ -156,6 +156,20 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   // a new folder: inside the one that is open, or at the top; or a directory of the disk to link
   const [adding, setAdding] = useState<false | "inside" | "top" | "link">(false);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  // a rename ends once: Enter or leaving the box saves it (as in the projects panel), Escape leaves the name
+  const renamed = useRef<string | null>(null);
+  const startRename = (f: { id: string; name: string }) => {
+    renamed.current = null;
+    setEditing({ id: f.id, text: f.name });
+  };
+  const endRename = (save: boolean) => {
+    if (!editing || renamed.current === editing.id) return;
+    renamed.current = editing.id;
+    const name = editing.text.trim();
+    const was = folders.data?.items.find((f) => f.id === editing.id)?.name;
+    if (save && name && name !== was) m.rename.mutate({ id: editing.id, name });
+    setEditing(null);
+  };
   const [deleting, setDeleting] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const selected = place.type === "folder" ? place.id : null;
@@ -188,7 +202,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   const folderItems = (f: Folder): MenuItem[] => [
     { label: "Open", icon: <FolderIcon size={14} />, run: () => onPlace({ type: "folder", id: f.id }) },
     ...(!f.path ? [{ label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => void askText({ title: `A folder inside ${f.name}`, value: "", placeholder: "Name", yes: "Make it" }).then((name) => name?.trim() && m.create.mutate({ name: name.trim(), parent: f.id })) }] : []),
-    ...(!f.path || f.root ? [{ label: "Rename", icon: <Pencil size={14} />, run: () => setEditing({ id: f.id, text: f.name }) }] : []),
+    ...(!f.path || f.root ? [{ label: "Rename", icon: <Pencil size={14} />, run: () => startRename(f) }] : []),
     ...moveItems(f),
     ...(f.path ? [{ label: "Rescan", icon: <RefreshCw size={14} />, note: "what changed on your disk", disabled: m.look.isPending, run: () => m.look.mutate(f.id) }] : []),
     ...(!f.path || f.root ? ["—" as const, f.path
@@ -223,8 +237,8 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       <button type="button" onClick={() => onPlace({ type: "all" })} className={row(place.type === "all", over === "all")}>All</button>
       {tree(scoped).map((f) =>
         editing?.id === f.id ? (
-          <form key={f.id} onSubmit={(e) => { e.preventDefault(); if (editing.text.trim()) m.rename.mutate({ id: f.id, name: editing.text.trim() }); setEditing(null); }} style={{ paddingLeft: f.depth * 14 }}>
-            <input autoFocus aria-label="Folder name" value={editing.text} onChange={(e) => setEditing({ id: f.id, text: e.target.value })} onBlur={() => setEditing(null)} onKeyDown={(e) => e.key === "Escape" && setEditing(null)} className={`${fieldClass} h-[34px] w-full`} />
+          <form key={f.id} onSubmit={(e) => { e.preventDefault(); endRename(true); }} style={{ paddingLeft: f.depth * 14 }}>
+            <input autoFocus aria-label="Folder name" value={editing.text} onChange={(e) => setEditing({ id: f.id, text: e.target.value })} onBlur={() => endRename(true)} onKeyDown={(e) => e.key === "Escape" && endRename(false)} className={`${fieldClass} h-[34px] w-full`} />
           </form>
         ) : (
           <FolderRow
@@ -234,7 +248,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
             over={over === f.id}
             drop={drop(f.id, f.id)}
             onOpen={() => onPlace({ type: "folder", id: f.id })}
-            onEdit={() => setEditing({ id: f.id, text: f.name })}
+            onEdit={() => startRename(f)}
             onDelete={() => setDeleting(f.id)}
             onRescan={() => m.look.mutate(f.id)}
             scanning={m.look.isPending}

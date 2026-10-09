@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import { ChevronRight, Download as DownloadIcon } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
+import { api } from "../../api";
 import { fileLabel, size } from "../../format";
 import { CivitaiMatch, civitaiSays, civitaiTip, DownloadRow, HfMatch } from "../../GetFile";
 import { Select } from "../../Select";
@@ -39,6 +41,15 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
   const moreHf = (find.data?.exact ?? []).filter((h) => `hf:${h.url}` !== best?.key);
   const moreCivitai = (find.data?.items ?? []).filter((c) => `cv:${c.url}` !== best?.key);
   const more = moreHf.length + moreCivitai.length;
+
+  // fetched: the workflow is read again, so it no longer counts as missing and "Replace with…" lists it
+  const reread = useRef<string | null>(null);
+  const done = mine?.status === "done" ? mine.id : null;
+  useEffect(() => {
+    if (!done || reread.current === done) return;
+    reread.current = done;
+    api.inspectWorkflow(m.start.editor ?? { graph: m.graph, wiring: m.wiring }).then(m.reread, () => {});
+  }, [done]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const what = [
     `Your ComfyUI does not have ${fileLabel(f.file)} (${f.label}).`,

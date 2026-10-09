@@ -28,7 +28,8 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   const entities = useEntities();
   const [showing, setShowing] = useState(false);
   const all = entities.data?.items ?? [];
-  const now = look ?? none;
+  // someone deleted from the kit is left out: not shown, not counted, and gone with the next change
+  const now = present(look ?? none, entities.data ? all : null);
   const castable = all.filter((e) => (e.kind === "person" || e.kind === "place") && !now.cast.some((c) => c.id === e.id)).sort((a, b) => a.kind.localeCompare(b.kind));
   const styles = all.filter((e) => e.kind === "style");
   const active = lookAdds(now);
@@ -134,6 +135,16 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
       )}
     </div>
   );
+}
+
+/** A look without the people, places, style and snippets no longer in the kit (as it is while the kit loads). */
+function present(look: Look, all: Entity[] | null): Look {
+  if (!all) return look;
+  const has = (id: string, kinds: Entity["kind"][]) => all.some((e) => e.id === id && kinds.includes(e.kind));
+  const cast = look.cast.filter((c) => has(c.id, ["person", "place"]));
+  const style = look.style && has(look.style, ["style"]) ? look.style : null;
+  const snippets = (look.snippets ?? []).filter((id) => has(id, ["snippet"]));
+  return cast.length === look.cast.length && style === (look.style ?? null) && snippets.length === (look.snippets ?? []).length ? look : { ...look, cast, style, snippets };
 }
 
 /** A text with the parts that came from the cast or the style in their colour. */

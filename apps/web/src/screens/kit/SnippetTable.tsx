@@ -129,7 +129,8 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
     if (only !== null && !snippets.some((s) => s.def.category === only)) setOnly(null);
   }, [only, snippets, setOnly]);
   const refresh = () => client.invalidateQueries({ queryKey: ["entities"] });
-  const chosen = snippets.filter((s) => ticked.has(s.id));
+  // what a move or a delete touches: the ticked ones still shown, never one the search or the category hides
+  const chosen = found.filter((s) => ticked.has(s.id));
   const move = useMutation({
     mutationFn: (category: string) => Promise.all(chosen.map((s) => api.saveEntity(s.id, { def: { ...s.def, category } }))),
     onSuccess: () => {
