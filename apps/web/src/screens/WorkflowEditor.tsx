@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import { Button } from "../ui";
+import { scrollInside } from "../scrollInside";
+import { Button, Chip } from "../ui";
+import { beforeItems } from "./workflowEditor/BeforeItRuns";
 import { FormPanel } from "./workflowEditor/FormPanel";
-import { Chip } from "./workflowEditor/parts";
 import { ReadPanel } from "./workflowEditor/ReadPanel";
 import { ShowPanel } from "./workflowEditor/ShowPanel";
 import { useMapping, type Editing } from "./workflowEditor/useMapping";
@@ -16,7 +17,7 @@ export type { Editing };
  */
 export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved: boolean): void }) {
   const m = useMapping(start);
-  const { found, b, graph, title, model, video, looseNotes } = m;
+  const { b, graph, title, model, video } = m;
   const client = useQueryClient();
   const save = useMutation({
     mutationFn: () => {
@@ -31,9 +32,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const canSave = title.trim() && model.trim() && !save.isPending;
 
   // the verdict: what was found, what was not, and what to see to before it runs
-  const unreplacedFiles = found.missingFiles.filter((f) => String(graph[f.node]?.inputs[f.input] ?? f.file) === f.file);
-  const unreplacedChoices = (found.missingChoices ?? []).filter((c) => String(graph[c.node]?.inputs[c.input] ?? c.value) === c.value);
-  const toCheck = (found.missingNodes.length ? 1 : 0) + unreplacedFiles.length + unreplacedChoices.length + looseNotes.length;
+  const toCheck = beforeItems(m);
   const has = [
     b.model && "model file", b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
     b.sourceVideo && "source video", b.previousVideo && "previous clip", b.nextVideo && "next clip", b.sound && "sound",
@@ -43,30 +42,49 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   ].filter((x): x is string => Boolean(x));
   const lacks = [!b.prompt && "prompt", video && !b.startImage && "first frame", !b.seeds.length && "seed", !b.size && "resolution", video && !b.length && "duration"].filter((x): x is string => Boolean(x));
 
+  const list = (items: string[]) => items.join(" · ");
+
   return (
     <div className="flex min-h-0 grow flex-col">
-      <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line px-8">
+      <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-8 py-2.5">
         <div className="flex min-w-0 flex-col">
           <h1 className="text-xl font-semibold">{start.id ? "Edit workflow" : "Import ComfyUI workflow"}</h1>
-          <div className="truncate text-xs text-ink-2">{start.source || start.title} · {found.nodeCount} nodes</div>
+          <div className="truncate text-xs text-ink-2">{start.source || start.title} · {m.found.nodeCount} nodes</div>
         </div>
         <span className="grow" />
+        {/* the verdict: three counts, each with its list in its tip; a click goes to where its items are in step 1 */}
+        <Chip tone="good" tip={list(has)} onClick={() => jump('[data-jump="found"]')}>✓ {has.length} found<Mark items={has} /></Chip>
+        {lacks.length > 0 && <Chip tone="neutral" tip={list(lacks)} onClick={() => jump("[data-jump] [data-dash]")}>– {lacks.length} not found<Mark items={lacks} /></Chip>}
+        {toCheck.length > 0 && <Chip tone="warn" tip={list(toCheck)} onClick={() => jump('[data-jump="before"]')}>⚠ {toCheck.length} before it runs<Mark items={toCheck} /></Chip>}
+        {!model.trim() && <Chip tone="warn" tip="Say which model it runs, in step 3's Model field.">Needs a model name to save</Chip>}
+        <span className="mx-1 h-6 w-px bg-line" />
         <Button onClick={() => onDone(false)}>Cancel</Button>
         <Button tone="primary" disabled={!canSave} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : start.id ? "Save changes" : "Save workflow"}</Button>
       </header>
-      {/* the verdict: one line that says where things stand */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-8 py-2">
-        <Chip tone="good">Found: {has.join(", ")}</Chip>
-        {lacks.length > 0 && <Chip tone="plain">Not found: {lacks.join(", ")}</Chip>}
-        {toCheck > 0 ? <Chip tone="warn">{toCheck} thing{toCheck === 1 ? "" : "s"} to see to before it runs</Chip> : <Chip tone="good">Everything it needs is in your ComfyUI</Chip>}
-        {!model.trim() && <Chip tone="warn">Needs a model name to save</Chip>}
-      </div>
 
-      <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_minmax(0,1fr)_460px]">
+      <div className="grid min-h-0 grow grid-cols-[400px_minmax(0,1fr)_440px]">
         <ReadPanel m={m} />
         <ShowPanel m={m} />
         <FormPanel m={m} saveError={save.error} />
       </div>
     </div>
   );
+}
+
+/** Says that a chip of the verdict has a list in its tip (and gives the list to screen readers). Not a button of its own: the chip is the button. */
+function Mark({ items }: { items: string[] }) {
+  return (
+    <>
+      <span aria-hidden className="ml-0.5 flex h-[15px] w-[15px] items-center justify-center rounded-full bg-hover text-[10px] font-bold text-ink-2">?</span>
+      <span className="sr-only">: {items.join(", ")}</span>
+    </>
+  );
+}
+
+/** Brings a place of step 1 into view, moving only its column (never the page), and marks it for a moment. */
+function jump(selector: string) {
+  const el = document.querySelector<HTMLElement>(selector);
+  if (!el) return;
+  scrollInside(el);
+  el.animate([{ boxShadow: "0 0 0 2px var(--color-accent)" }, { boxShadow: "0 0 0 2px transparent" }], { duration: 1200, easing: "ease-out" });
 }

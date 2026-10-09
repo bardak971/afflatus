@@ -3,7 +3,7 @@ import { placeablesFor, suggestSections } from "@afflatus/workflows";
 import { ask } from "../../Confirm";
 import { useRecipes } from "../../data";
 import { Form } from "../../RecipeForm";
-import { cx, ErrorNote, SectionTitle } from "../../ui";
+import { cx, ErrorNote, Help, SectionTitle } from "../../ui";
 import { FormSections } from "../FormSections";
 import { SwitchDialog } from "../SwitchDialog";
 import { Step, text } from "./parts";
@@ -40,17 +40,20 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
           <input id="wf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Portrait, two passes" className={text} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="wf-model" className="text-xs font-semibold">Model</label>
+          <span className="flex items-center gap-1.5">
+            <label htmlFor="wf-model" className="text-xs font-semibold">Model</label>
+            <Help title="Model" text="Which model it runs, as the families call them: workflows of one model share its LoRAs and saved settings." />
+          </span>
           <input id="wf-model" list="wf-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, Wan 2.2, MiniMax H3…" className={cx(text, !model.trim() && "border-warn/60")} />
           <datalist id="wf-models">{familyNames.map((n) => <option key={n} value={n} />)}</datalist>
         </div>
       </div>
-      <span className="-mt-2 text-xs text-ink-2">{model.trim() ? "Workflows of one model share its LoRAs and saved settings." : "Which model it runs, as the families call them: its LoRAs and saved settings go with that model's. Needed to save."}</span>
+      {!model.trim() && <span className="-mt-2 text-xs text-warn-ink">Model: needed to save</span>}
 
       <div className="flex flex-col gap-2">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-2">
           <SectionTitle>Sections</SectionTitle>
-          <span className="text-xs text-ink-2">chapters of the form, in your order; a section can carry a switch</span>
+          <Help title="Sections" text="Chapters of the form, in your order; a section can carry a switch. The form is the prompt, your sections in order, and Advanced with everything else. Drag a setting into a section, or under a switch; drag the Prompt and Advanced cards to move those." />
         </div>
         <FormSections
           sections={b.sections ?? []}
@@ -85,9 +88,9 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
       )}
 
       {/* the form itself, as Create will draw it: the same chapters, strip and folds as the built-ins */}
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-center gap-2">
         <SectionTitle>Preview</SectionTitle>
-        <span className="text-xs text-ink-2">the form as Create shows it</span>
+        <Help title="Preview" text="The form as Create shows it, built the same way." />
       </div>
       <div className="flex flex-col gap-2 rounded-xl border border-line bg-ground p-3.5">
         {preview.described && inputs.length > 0 && (

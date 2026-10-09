@@ -298,7 +298,6 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={add}><Plus size={14} /> Section</Button>
         <Button size="sm" onClick={onSuggest} disabled={!canSuggest} data-tip={canSuggest ? "Sections from the frames the author drew, in their order; a switch for each pass the output can do without. A proposal: edit it as you like." : "This workflow has no frames to go by."}>Suggest from the author's frames</Button>
-        <span className="text-xs text-ink-2">{real.length ? "Drag a setting into a section, or under a switch; drag the Prompt and Advanced cards to move those." : "The form is the prompt, your sections in order, and Advanced with everything else."}</span>
       </div>
     </div>
   );

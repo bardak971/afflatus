@@ -1,18 +1,18 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FileUp, Pencil, Play, Trash2 } from "lucide-react";
+import { Download, ExternalLink, FileUp, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { ask } from "../Confirm";
 import { bindings as bindingsSchema, guessModel, type Bindings } from "@afflatus/workflows";
 import { useOpenInComfy } from "../actions";
-import { api, ApiError, type WorkflowBrief } from "../api";
+import { api, ApiError, type RecipeStatus, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { notReady, recipeLabel } from "../format";
 import { saveJson } from "../download";
 import { useHandover } from "../store";
-import { Button, cx, ErrorNote, SectionTitle, TwoStep } from "../ui";
+import { Button, cx, ErrorNote, Help, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { pngText } from "./pngText";
 
@@ -99,6 +99,58 @@ async function share(w: WorkflowBrief): Promise<void> {
 
 const KIND = { image: "Image", video: "Video", audio: "Audio" } as const;
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** What the readiness chip counts, from the setup check: the missing nodes first, as notReady says them first. */
+function missingCount(status: RecipeStatus | undefined): string {
+  if (!status || status.ready) return "";
+  if (status.missingNodes.length) return ` · ${plural(status.missingNodes.length, "node")}`;
+  const files = status.missingFiles.length || status.missingSlots.length;
+  return files ? ` · ${plural(files, "file")}` : "";
+}
+
+/** Ready, or not with a count, and a ? that says why. `fix` comes after it: the page's way to put it right. */
+function Readiness({ known, why, count = "", fix }: { known: boolean; why: string | null; count?: string; fix?: ReactNode }) {
+  if (!known) return <span aria-hidden className="h-6 w-20 animate-pulse rounded-lg bg-hover" />;
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className={cx("inline-flex h-6 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11.5px] font-bold whitespace-nowrap", why ? "bg-warn-wash text-warn-ink" : "bg-good/15 text-good")}>
+        {why ? `Not ready${count}` : "Ready"}
+        {why && <Help title="Not ready" text={why} />}
+      </span>
+      {why && fix}
+    </span>
+  );
+}
+
+/** A card of rows still on its way: a few pulsing bars in the shape the rows will take. */
+function Placeholder({ rows, tall }: { rows: number; tall?: boolean }) {
+  return (
+    <div aria-busy="true" aria-label="Loading" className="overflow-hidden rounded-xl border border-line bg-panel">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className={cx("flex items-center gap-3.5 px-4", tall ? "py-3.5" : "py-3", i > 0 && "border-t border-line")}>
+          {tall && <span className="h-5 w-12 animate-pulse rounded-md bg-hover" />}
+          <span className="flex grow flex-col gap-1.5">
+            <span className="h-3.5 w-56 max-w-full animate-pulse rounded bg-hover" />
+            <span className="h-2.5 w-96 max-w-full animate-pulse rounded bg-hover/70" />
+          </span>
+          <span className="h-6 w-20 animate-pulse rounded-lg bg-hover" />
+          {tall && <span className="h-8 w-36 animate-pulse rounded-lg bg-hover" />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const HOW_TO = [
+  "1. Build it and check it works in ComfyUI, as usual.",
+  "2. Find its file: ComfyUI keeps the workflows you save in user/default/workflows. A Workflow › Export (API) file works too.",
+  "3. Drop it anywhere on this page. Afflatus shows what it found (prompt, image inputs, output, bypass switches) and you correct what is wrong.",
+  "",
+  "Prefer the file ComfyUI saves: it keeps bypassed and muted nodes, which become switches. An API export has only what was active.",
+  "A workflow shared from another Afflatus imports the same way.",
+].join("\n");
+
 export function Workflows() {
   const list = useWorkflows();
   const recipes = useRecipes();
@@ -108,6 +160,8 @@ export function Workflows() {
   const input = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [over, setOver] = useState(false);
+  // the row menu was opened from its ··· (only what the row has no button for), not by a right-click
+  const [fromMore, setFromMore] = useState(false);
 
   const open = useMutation({ mutationFn: readFile, onSuccess: setEditing });
   const edit = useMutation({ mutationFn: reopen, onSuccess: setEditing });
@@ -143,7 +197,7 @@ export function Workflows() {
     { label: "Export", icon: <Download size={14} />, note: "a file another Afflatus imports", run: () => shareIt.mutate(w) },
     { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: openInComfy.isPending || !comfyOnline, note: comfyOnline ? undefined : "ComfyUI is not running", run: () => openInComfy.mutate(w) },
     "—",
-    { label: "Remove", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => void ask({ title: `Remove ${w.title}?`, text: "What you generated with it stays in your library.", yes: "Remove" }).then((yes) => yes && remove.mutate(w.id)) },
+    { label: "Remove…", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => void ask({ title: `Remove ${w.title}?`, text: "What you generated with it stays in your library.", yes: "Remove" }).then((yes) => yes && remove.mutate(w.id)) },
   ];
   const remove = useMutation({
     mutationFn: api.deleteWorkflow,
@@ -157,13 +211,16 @@ export function Workflows() {
   const builtIn = (recipes.data?.families ?? []).filter((f) => !f.id.startsWith("workflow-"));
   const error = open.error ?? edit.error ?? shareIt.error ?? tryIt.error ?? remove.error ?? openInComfy.error ?? list.error;
 
+  // the whole page takes a dropped file; leaving for one of its own children is not leaving it
   const drop = {
     onDragOver: (e: DragEvent) => {
       if (!e.dataTransfer.types.includes("Files")) return;
       e.preventDefault();
       setOver(true);
     },
-    onDragLeave: () => setOver(false),
+    onDragLeave: (e: DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+    },
     onDrop: (e: DragEvent) => {
       e.preventDefault();
       setOver(false);
@@ -171,16 +228,26 @@ export function Workflows() {
       if (file) open.mutate(file);
     },
   };
+  // the ··· of a row: its menu under the button, or, opened from the keyboard, with its first item active
+  const more = (e: MouseEvent<HTMLButtonElement>, w: WorkflowBrief) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const keyed = e.detail === 0;
+    setFromMore(true);
+    cardMenu.open({ preventDefault: () => e.preventDefault(), clientX: keyed ? 0 : r.right - 296, clientY: keyed ? 0 : r.bottom + 4, currentTarget: e.currentTarget }, w);
+  };
+  const menuOf = cardMenu.menu?.subject;
 
   return (
-    <div className="flex min-h-0 grow flex-col overflow-y-auto px-8 pb-8">
-      <header className="flex h-20 shrink-0 items-center gap-4">
-        <div className="flex flex-col">
-          <h1 className="text-xl font-semibold">Models and workflows</h1>
-          <div className="text-ink-2">Everything Afflatus can generate images and videos with. Each one appears under "Model" in Studio's form.</div>
-        </div>
+    <div className="flex min-h-0 grow flex-col gap-5 overflow-y-auto px-8 pt-6 pb-8" {...drop}>
+      <header className="flex shrink-0 items-center gap-2.5">
+        <h1 className="text-xl font-bold">Workflows</h1>
+        <Help title="Workflows" text={"Everything Afflatus can generate images and videos with: the models built into Afflatus and the ComfyUI workflows you import. Each one appears under \"Model\" in Studio's form."} />
         <span className="grow" />
-        <Button tone="primary" onClick={() => input.current?.click()} disabled={open.isPending}>
+        <span className={cx("flex h-9 items-center gap-2 rounded-[10px] border-[1.5px] border-dashed px-3.5 text-[12.5px]", over ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2")}>
+          {over ? "Drop to import" : "Drop a .json, PNG or MP4 anywhere"}
+          <Help title="How to import a workflow from ComfyUI" text={HOW_TO} />
+        </span>
+        <Button tone="primary" className="h-9" onClick={() => input.current?.click()} disabled={open.isPending}>
           <FileUp size={15} /> {open.isPending ? "Reading…" : "Import ComfyUI workflow"}
         </Button>
         <input
@@ -196,106 +263,108 @@ export function Workflows() {
         />
       </header>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_380px] items-start gap-5">
-        <div className="flex flex-col gap-2.5">
-          {error && <ErrorNote>{error.message}</ErrorNote>}
+      {error && <ErrorNote>{error.message}</ErrorNote>}
 
-          <SectionTitle>Your workflows · {list.data?.items.length ?? 0}</SectionTitle>
-          {cardMenu.menu && <ContextMenu at={cardMenu.menu.at} label={`Actions on ${cardMenu.menu.subject.title}`} head={{ title: recipeLabel(cardMenu.menu.subject.model, cardMenu.menu.subject.title), sub: `${KIND[cardMenu.menu.subject.output]} · ${cardMenu.menu.subject.nodes} nodes` }} items={cardItems(cardMenu.menu.subject)} onClose={cardMenu.close} />}
-          {list.data?.items.map((w) => {
-            const recipe = recipes.data?.recipes.find((r) => r.id === w.id);
-            // a saved workflow that cannot be built says why; otherwise what the setup check says of its recipe
-            const problem = w.problem ?? why(w.id);
-            const pictures = recipe?.inputs.filter((i) => i.type === "image").length ?? 0;
-            const controls = recipe?.inputs.filter((i) => i.advanced).length ?? 0;
-            return (
-              <div key={w.id} className="flex flex-col gap-2 rounded-xl border border-line bg-panel px-4 py-3" onContextMenu={(e) => cardMenu.open(e, w)}>
-                <div className="flex items-center gap-3">
-                  <span className={cx("shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold", w.output === "video" ? "bg-accent-wash text-accent" : "bg-raised text-picture")}>{KIND[w.output]}</span>
-                  <div className="flex min-w-0 grow flex-col">
-                    <span className="truncate text-[15px] font-semibold">{recipeLabel(w.model, w.title)}</span>
-                    <span className="truncate text-xs text-ink-2">
-                      {w.source ? `from ${w.source} · ` : ""}{w.nodes} nodes{pictures ? ` · ${pictures} image input${pictures > 1 ? "s" : ""}` : ""} · {controls} control{controls === 1 ? "" : "s"}
-                    </span>
+      {cardMenu.menu && menuOf && (
+        <ContextMenu
+          at={cardMenu.menu.at}
+          label={`Actions on ${menuOf.title}`}
+          head={{ title: recipeLabel(menuOf.model, menuOf.title), sub: `${KIND[menuOf.output]} · ${menuOf.nodes} nodes` }}
+          // the ··· holds what the row has no button for; a right-click, everything
+          items={fromMore ? cardItems(menuOf).slice(3) : cardItems(menuOf)}
+          onClose={cardMenu.close}
+        />
+      )}
+
+      <section className="flex flex-col gap-2">
+        <SectionTitle>Your workflows{list.data ? ` · ${list.data.items.length}` : ""}</SectionTitle>
+        {list.isPending ? (
+          <Placeholder rows={3} tall />
+        ) : list.data?.items.length ? (
+          <div className="overflow-hidden rounded-xl border border-line bg-panel">
+            {list.data.items.map((w, i) => {
+              const recipe = recipes.data?.recipes.find((r) => r.id === w.id);
+              // a saved workflow that cannot be built says why; otherwise what the setup check says of its recipe
+              const problem = w.problem ?? why(w.id);
+              const status = setup.data?.recipes.find((r) => r.id === w.id);
+              const pictures = recipe?.inputs.filter((x) => x.type === "image").length ?? 0;
+              const controls = recipe?.inputs.filter((x) => x.advanced).length ?? 0;
+              const menuHere = Boolean(cardMenu.menu && fromMore && menuOf?.id === w.id);
+              return (
+                <div key={w.id} className={cx("flex flex-col gap-1.5 px-4 py-3", i > 0 && "border-t border-line")} onContextMenu={(e) => { setFromMore(false); cardMenu.open(e, w); }}>
+                  <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_160px] items-center gap-3.5">
+                    <span className={cx("justify-self-start rounded-md px-1.5 py-0.5 text-[10.5px] font-bold", w.output === "video" ? "bg-accent-wash text-accent" : "bg-raised text-picture")}>{KIND[w.output]}</span>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate font-semibold">{recipeLabel(w.model, w.title)}</span>
+                      <span className="truncate text-[11.5px] text-ink-3">
+                        {w.source ? `${w.source} · ` : ""}{plural(w.nodes, "node")}{pictures ? ` · ${plural(pictures, "image input")}` : ""} · {plural(controls, "control")}
+                      </span>
+                    </div>
+                    <Readiness known={setup.isSuccess || Boolean(w.problem)} why={problem} count={w.problem ? "" : missingCount(status)} />
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Button size="sm" tone="primary" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip="Opens the form with this workflow picked, on a new draft.">Try it</Button>
+                      <Button size="sm" tone="quiet" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>
+                      <button
+                        type="button"
+                        aria-label={`More actions on ${w.title}`}
+                        aria-haspopup="menu"
+                        aria-expanded={menuHere}
+                        data-tip="Export, Open in ComfyUI, Remove"
+                        onClick={(e) => more(e, w)}
+                        className={cx("flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink", menuHere && "bg-hover text-ink")}
+                      >
+                        <MoreHorizontal size={16} />
+                      </button>
+                    </div>
                   </div>
-                  <span className={cx("shrink-0 font-semibold", problem ? "text-warn-ink" : "text-good")}>{setup.isSuccess ? (problem ? "Not ready" : "Ready") : ""}</span>
+                  {opened?.id === w.id && !opened.direct && (
+                    <div className="pl-[70px] text-xs text-ink-2">
+                      Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: in ComfyUI, open the Workflows sidebar (key W) and pick it under "afflatus".
+                      {opened.restart
+                        ? " Restart ComfyUI once: from then on it opens straight away."
+                        : settings.data && !settings.data.comfyDir
+                          ? " To have it open straight away, set the ComfyUI folder in Settings (same computer only)."
+                          : ""}
+                    </div>
+                  )}
                 </div>
-                {problem && <div className="text-warn-ink">{problem}</div>}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip="Opens the form with this workflow picked, on a new draft.">Try it</Button>
-                  <Button size="sm" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>
-                  <Button size="sm" onClick={() => shareIt.mutate(w)}>Export</Button>
-                  <Button size="sm" onClick={() => openInComfy.mutate(w)} disabled={openInComfy.isPending || !comfyOnline} data-tip={comfyOnline ? "Writes the workflow into ComfyUI's workflows folder and opens ComfyUI: pick it in the Workflows sidebar." : "ComfyUI is not running."}>Open in ComfyUI</Button>
-                  <TwoStep label="Remove" title={`Remove ${w.title}`} note="What you generated with it stays in your library." yes="Remove" onYes={() => remove.mutate(w.id)} />
-                </div>
-                {opened?.id === w.id && !opened.direct && (
-                  <div className="text-xs text-ink-2">
-                    Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: in ComfyUI, open the Workflows sidebar (key W) and pick it under "afflatus".
-                    {opened.restart
-                      ? " Restart ComfyUI once: from then on it opens straight away."
-                      : settings.data && !settings.data.comfyDir
-                        ? " To have it open straight away, set the ComfyUI folder in Settings (same computer only)."
-                        : ""}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {list.isSuccess && !list.data.items.length && (
-            <div className="rounded-xl border border-line bg-panel px-4 py-3 text-ink-2">None yet. A workflow you build in ComfyUI can be used here like any built-in model.</div>
-          )}
-
-          <div className="pt-3"><SectionTitle>Built into Afflatus · {builtIn.length}</SectionTitle></div>
-          {builtIn.map((f) => {
-            const mine = recipes.data?.recipes.filter((r) => r.family === f.id) ?? [];
-            const problems = mine.map((r) => why(r.id)).filter(Boolean);
-            return (
-              <div key={f.id} className="flex flex-col gap-1 rounded-xl border border-line bg-panel px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[15px] font-semibold">{f.name}</span>
-                  <span className={cx("shrink-0 font-semibold", problems.length ? "text-warn-ink" : "text-good")}>{setup.isSuccess ? (problems.length ? "Not ready" : "Ready") : ""}</span>
-                </div>
-                <span className="text-ink-2">{f.summary}</span>
-                {problems[0] && <span className="text-warn-ink">{problems[0]} <Link href="/settings/models" className="font-semibold underline">Open Settings</Link></span>}
-              </div>
-            );
-          })}
-        </div>
-
-        <aside className="flex flex-col gap-4">
-          <button
-            type="button"
-            {...drop}
-            onClick={() => input.current?.click()}
-            className={cx(
-              "flex flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed px-6 py-10 text-center",
-              over ? "border-accent bg-accent-wash" : "border-line-strong hover:border-ink-3",
-            )}
-          >
-            <FileUp size={22} className="text-ink-2" />
-            <span className="text-base font-semibold">Drop a workflow file here</span>
-            <span className="text-ink-2">or click to choose one from your computer</span>
-          </button>
-
-          <div className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-[18px]">
-            <h2 className="text-[15px] font-bold">How to import a workflow from ComfyUI</h2>
-            {[
-              "Build it and check it works in ComfyUI, as usual.",
-              "Find its file: ComfyUI keeps the workflows you save in its user/default/workflows folder. A file saved with Workflow, then \"Export (API)\", works too.",
-              "Drop the file here. Afflatus shows which parts it found (the prompt, the image inputs, the output, the bypass switches) and you correct what is wrong.",
-            ].map((step, i) => (
-              <div key={step} className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-hover text-xs font-bold">{i + 1}</span>
-                <span className="text-ink-2">{step}</span>
-              </div>
-            ))}
-            <div className="text-xs text-ink-3">
-              Prefer the file ComfyUI saves: it keeps the bypassed and muted nodes, so they become switches here. An API export only has what was active.
-            </div>
-            <div className="text-xs text-ink-3">You can also import a workflow someone shared from their Afflatus.</div>
+              );
+            })}
           </div>
-        </aside>
-      </div>
+        ) : (
+          list.isSuccess && <div className="rounded-xl border border-line bg-panel px-4 py-3 text-ink-2">None yet. A workflow you build in ComfyUI can be used here like any built-in model.</div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <SectionTitle>Built into Afflatus{recipes.data ? ` · ${builtIn.length}` : ""}</SectionTitle>
+        {recipes.isPending ? (
+          <Placeholder rows={4} />
+        ) : (
+          builtIn.length > 0 && (
+            <div className="overflow-hidden rounded-xl border border-line bg-panel">
+              {builtIn.map((f, i) => {
+                const mine = recipes.data?.recipes.filter((r) => r.family === f.id) ?? [];
+                const problems = [...new Set(mine.map((r) => why(r.id)).filter((p): p is string => Boolean(p)))];
+                return (
+                  <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_110px_200px] items-center gap-3.5 px-4 py-2.5", i > 0 && "border-t border-line")}>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate font-semibold">{f.name}</span>
+                      <span className="truncate text-[11.5px] text-ink-3" data-tip={f.summary}>{f.summary}</span>
+                    </div>
+                    <span className="text-[11.5px] text-ink-2">{plural(mine.length, "operation")}</span>
+                    <Readiness
+                      known={setup.isSuccess}
+                      why={problems.length ? problems.join("\n") : null}
+                      fix={<Link href="/settings/models" className="text-xs font-semibold whitespace-nowrap text-warn-ink hover:underline">Open Settings</Link>}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+      </section>
     </div>
   );
 }
