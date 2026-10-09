@@ -1,5 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { ask } from "../Confirm";
+import { useLeaveGuard } from "../leaveGuard";
 import { scrollInside } from "../scrollInside";
 import { Button, Chip } from "../ui";
 import { beforeItems } from "./workflowEditor/BeforeItRuns";
@@ -30,6 +32,12 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     },
   });
   const canSave = title.trim() && model.trim() && !save.isPending;
+  // the mapping lives only here: Cancel, another screen or closing the tab asks before throwing it away
+  const discard = () => ask({ title: start.id ? "Discard your changes?" : "Discard this import?", text: "What you changed here is not saved.", yes: "Discard" });
+  useLeaveGuard(m.dirty && !save.isPending, discard);
+  const cancel = async () => {
+    if (!m.dirty || (await discard())) onDone(false);
+  };
 
   // the verdict: what was found, what was not, and what to see to before it runs
   const toCheck = beforeItems(m);
@@ -58,7 +66,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         {toCheck.length > 0 && <Chip tone="warn" tip={list(toCheck)} onClick={() => jump('[data-jump="before"]')}>⚠ {toCheck.length} before it runs<Mark items={toCheck} /></Chip>}
         {!model.trim() && <Chip tone="warn" tip="Say which model it runs, in step 3's Model field.">Needs a model name to save</Chip>}
         <span className="mx-1 h-6 w-px bg-line" />
-        <Button onClick={() => onDone(false)}>Cancel</Button>
+        <Button onClick={() => void cancel()}>Cancel</Button>
         <Button tone="primary" disabled={!canSave} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : start.id ? "Save changes" : "Save workflow"}</Button>
       </header>
 

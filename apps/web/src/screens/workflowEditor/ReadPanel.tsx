@@ -189,6 +189,11 @@ function MediaRoles({ m }: { m: Mapping }) {
   );
 }
 
+/** The branch only `output` needs, `keep` being what the result needs: what leaving that output out takes away. */
+function branchOf(graph: Mapping["graph"], output: string, keep: Set<string>) {
+  return [...ancestors(graph, output)].filter((id) => !keep.has(id) && id !== output);
+}
+
 /** The output, among several, and the previews on branches it does not need (ComfyUI runs them anyway, for a picture nobody keeps). */
 function OutputPick({ m }: { m: Mapping }) {
   const { found, b, set, graph } = m;
@@ -198,7 +203,7 @@ function OutputPick({ m }: { m: Mapping }) {
     return found.outputs
       .filter((o) => o.node !== b.result.node)
       .map((o) => {
-        const nodes = [...ancestors(graph, o.node)].filter((id) => !keep.has(id) && id !== o.node);
+        const nodes = branchOf(graph, o.node, keep);
         const steps = nodes.reduce((n, id) => n + (typeof graph[id]?.inputs.steps === "number" ? (graph[id]!.inputs.steps as number) : 0), 0);
         return { ...o, nodes, steps };
       })
@@ -238,7 +243,16 @@ function OutputPick({ m }: { m: Mapping }) {
           value={b.result.node}
           onChange={(node) => {
             const o = found.outputs.find((x) => x.node === node);
-            if (o) set({ result: { node: o.node, kind: o.kind, sound: o.sound } });
+            if (!o) return;
+            // what was left out was measured from the old output: measured again from the new one, and what is no
+            // longer a dead end of it (the new output itself, or a branch it needs) is kept, never cut from under it
+            const keep = ancestors(graph, o.node);
+            const skip = (b.skip ?? []).flatMap((sk) => {
+              if (sk.node === o.node || keep.has(sk.node)) return [];
+              const nodes = branchOf(graph, sk.node, keep);
+              return nodes.length ? [{ ...sk, nodes }] : [];
+            });
+            set({ result: { node: o.node, kind: o.kind, sound: o.sound }, skip });
           }}
           options={found.outputs.map((o) => ({ value: o.node, label: o.title, note: `#${o.node} · ${o.kind}` }))}
         />

@@ -31,15 +31,19 @@ export function useMapping(start: Editing) {
   const [title, setTitle] = useState(start.title);
   const [model, setModel] = useState(start.model);
   // a switch made here lives in a section: one no section holds any more (its section was removed, or saved by an older form) is dropped
-  const [b, setB] = useState<Bindings>(() => {
+  const [first] = useState<Bindings>(() => {
     const held = new Set((start.bindings.sections ?? []).flatMap((sec) => sec.items.flatMap((it) => (typeof it === "string" ? [] : [it.toggle]))));
     return { ...start.bindings, toggles: start.bindings.toggles.filter((t) => !t.made || held.has(t.id)) };
   });
+  const [b, setB] = useState<Bindings>(first);
   const [filter, setFilter] = useState("");
   // the workflow itself changes in two cases: a file it names is replaced by one this ComfyUI has, and it is read again
   const [graph, setGraph] = useState(start.graph);
   const [wiring, setWiring] = useState(start.wiring);
+  // a file replaced in the workflow is a change of its own, even when no control shows it
+  const [replaced, setReplaced] = useState(false);
   const replaceFile = (at: Target, file: string) => {
+    setReplaced(true);
     setGraph((old) => ({ ...old, [at.node]: { ...old[at.node]!, inputs: { ...old[at.node]!.inputs, [at.input]: file } } }));
     setB((old) => ({ ...old, controls: old.controls.map((c) => (keyOf(c.target) === keyOf(at) ? { ...c, default: file } : c)) }));
   };
@@ -156,12 +160,21 @@ export function useMapping(start: Editing) {
     setSwitchFor(null);
   };
   /** The switch leaves its section (its settings go back to the tray); one made here is forgotten altogether. */
-  const dropSwitch = (section: Section, toggle: string) => {
-    set({
-      toggles: b.toggles.filter((x) => x.id !== toggle || !x.made),
-      sections: (b.sections ?? []).map((s) => (s.id === section.id ? { ...s, items: s.items.filter((it) => typeof it === "string" || it.toggle !== toggle) } : s)),
+  const dropSwitch = (section: Section, toggle: string) =>
+    setB((old) => ({
+      ...old,
+      toggles: old.toggles.filter((x) => x.id !== toggle || !x.made),
+      sections: (old.sections ?? []).map((s) => (s.id === section.id ? { ...s, items: s.items.filter((it) => typeof it === "string" || it.toggle !== toggle) } : s)),
+    }));
+  /**
+   * The sections arranged anew, in one change: a switch made here that no section holds any more (its section was
+   * removed, or it was put back in the tray) is forgotten with it, as it would be on the next opening anyway.
+   */
+  const setSections = (sections: Section[]) =>
+    setB((old) => {
+      const held = new Set(sections.flatMap((sec) => sec.items.flatMap((it) => (typeof it === "string" ? [] : [it.toggle]))));
+      return { ...old, sections, toggles: old.toggles.filter((t) => !t.made || held.has(t.id)) };
     });
-  };
   const nodeList = useMemo(() => Object.entries(graph).map(([id, n]) => ({ id, title: (n as { _meta?: { title?: string } })._meta?.title ?? n.class_type, classType: n.class_type })), [graph]);
   const changeSwitch = (id: string, patch: Partial<Toggle>) => set({ toggles: b.toggles.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
 
@@ -217,10 +230,13 @@ export function useMapping(start: Editing) {
     });
   };
 
+  // something to lose: the mapping, name, model or a file differs from what the screen opened with
+  const dirty = replaced || title !== start.title || model !== start.model || (b !== first && JSON.stringify(b) !== JSON.stringify(first));
+
   return {
-    start, found, reread, authorDiff, followAuthor, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues,
+    start, dirty, found, reread, authorDiff, followAuthor, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues,
     textOptions, pickText, pickImage, modelFileOf, pickModel, videoRoleOf, setVideoRole, pickSound, toggleLoras, toggleControl, change, toggleSwitch,
-    switchFor, setSwitchFor, saveSwitch, dropSwitch, nodeList, changeSwitch, taken, groups, switches, preview, video, noteFor, looseNotes,
+    switchFor, setSwitchFor, saveSwitch, dropSwitch, setSections, nodeList, changeSwitch, taken, groups, switches, preview, video, noteFor, looseNotes,
   };
 }
 

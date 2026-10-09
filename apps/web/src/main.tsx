@@ -1,8 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Router } from "wouter";
 import { App } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { aroundNav } from "./leaveGuard";
 import { reloadOnStaleChunks } from "./reload";
 import "./styles.css";
 import { applyTheme, useThemeChoice } from "./theme/store";
@@ -18,7 +20,10 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary whole>
       <QueryClientProvider client={client}>
-        <App />
+        {/* every navigation passes the leave guard: a screen with unsaved work asks first */}
+        <Router aroundNav={aroundNav}>
+          <App />
+        </Router>
       </QueryClientProvider>
     </ErrorBoundary>
   </StrictMode>,

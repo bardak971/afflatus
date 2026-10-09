@@ -37,6 +37,7 @@ const sameSpot = (a: Over, b: Spot) => a !== null && "section" in a && a.section
 
 export function FormSections({ sections, onChange, items, toggles, onMakeSwitch, onDropSwitch, onSwitchDefault, cuts, onSuggest, canSuggest }: {
   sections: Section[];
+  /** The sections as they now are, in one change; a switch made here that none holds any more is forgotten with it. */
   onChange(sections: Section[]): void;
   /** Everything that can be placed: the form's inputs, by id. */
   items: Placeable[];
@@ -71,10 +72,8 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     next.splice(at < 0 ? next.length : at, 0, made);
     onChange(next);
   };
-  const remove = (s: Section) => {
-    for (const it of s.items) if (isGroup(it)) onDropSwitch(s, it.toggle);
-    onChange(sections.filter((x) => x.id !== s.id));
-  };
+  /** The section goes, and its switches with it (one made here is forgotten by onChange, in the same change). */
+  const remove = (s: Section) => onChange(sections.filter((x) => x.id !== s.id));
   /** Every section without `item` anywhere in it. */
   const without = (item: string): Section[] => sections.map((s) => ({ ...s, items: s.items.flatMap((it): Section["items"] => (isGroup(it) ? (it.toggle === item ? [] : [{ ...it, items: it.items.filter((x) => x !== item) }]) : it === item ? [] : [it])) }));
   /** Put an item at a spot (or out of every section when `to` is null). A switch moves with its settings; it cannot go under another switch. */

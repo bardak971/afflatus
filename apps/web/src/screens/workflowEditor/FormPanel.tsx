@@ -57,7 +57,7 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
         </div>
         <FormSections
           sections={b.sections ?? []}
-          onChange={(sections) => set({ sections })}
+          onChange={m.setSections}
           items={placeable}
           toggles={b.toggles}
           onMakeSwitch={(section, toggle) => setSwitchFor({ section, toggle })}

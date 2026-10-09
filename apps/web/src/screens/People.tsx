@@ -200,14 +200,15 @@ export function People() {
               </div>
             ) : editing ? (
               <div className="flex max-w-[820px] flex-col gap-3">
+                {/* each editor is keyed by its item: another item opens a fresh one, so an upload or a picker left open never lands on it */}
                 <ItemHeader
                   item={editing} saved={saved} failure={failure} onRename={(name) => change({ ...editing, name })} onRetry={retry}
                   onApply={() => void flush().then(() => applyInStudio(editing.id))} onDelete={() => remove.mutate(editing.id)} onClose={() => select(null)}
                 />
-                {editing.kind === "person" && <PersonEditor def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
-                {editing.kind === "place" && <PlaceEditor def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
-                {editing.kind === "style" && <StyleEditor def={editing.def} onChange={(def) => change({ ...editing, def })} />}
-                {editing.kind === "preset" && <PresetEditor id={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "person" && <PersonEditor key={editing.id} def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "place" && <PlaceEditor key={editing.id} def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "style" && <StyleEditor key={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "preset" && <PresetEditor key={editing.id} id={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}
               </div>
             ) : (
               // nothing open: the kind's icon and one line; what the kind is, behind its ?
