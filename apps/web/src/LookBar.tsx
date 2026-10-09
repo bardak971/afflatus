@@ -8,7 +8,7 @@ import { useEntities } from "./data";
 import { fileLabel } from "./format";
 import { useSettled } from "./hooks";
 import { Select } from "./Select";
-import { cx } from "./ui";
+import { cx, Help } from "./ui";
 
 const none: Look = { cast: [], style: null, snippets: [] };
 
@@ -109,7 +109,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
           </div>
         )}
         {now.cast.length >= LIMITS.cast && <span className="text-xs text-ink-3">{LIMITS.cast} is the most one image or clip takes.</span>}
-        {!castable.length && !styles.length && !now.cast.length && <span className="text-xs text-ink-3">None yet. A person is written once (reference images, a voice sample, prompt text) and used with every model.</span>}
+        {!castable.length && !styles.length && !now.cast.length && <span className="flex items-center gap-1.5 text-xs text-ink-3">No people, places or styles yet <Help title="Prompt kit" text="A person is written once in the Prompt kit (reference images, a voice sample, prompt text, a LoRA per model) and used with every model." /></span>}
       </div>
       {active && recipe && (
         <button type="button" aria-expanded={showing} onClick={() => setShowing(!showing)} className="self-start text-xs text-ink-2 underline hover:text-ink">

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { open as openFile, readFile } from "node:fs/promises";
+import { open as openFile, readFile, rm } from "node:fs/promises";
 import type { AssetLookup } from "./assets-api";
 import { probeMediaFile } from "./cut";
 import { newId, now } from "./db";
@@ -13,7 +13,7 @@ import { firstFrame } from "./video";
 
 /** A file brought into the library from the user's computer. */
 
-export function registerAssetUpload(app: FastifyInstance, s: Services, { asset, fileInLinked }: AssetLookup): void {
+export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }: AssetLookup): void {
   /**
    * A picture, a video or a sound from the user's computer, sent as the request body. It is theirs, so
    * it is kept from the start and never goes to the bin on its own.
@@ -41,28 +41,36 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset, 
     if (mask && !picture) throw httpError("the mask has to be an image");
     const id = newId();
     const mime = picture?.mime ?? media!.mime;
-    const key = `assets/${id.slice(0, 2)}/${id}.${extOf(mime)}`;
-    if (picture && bytes) await s.storage.put(key, bytes);
-    else await s.storage.putFile(key, up.path);
-    const facts = media?.facts ?? null;
-    const frame = media?.kind === "video" ? await firstFrame(up.path) : null;
-    const thumb = picture && bytes ? await makeThumb(bytes) : frame ? await makeThumb(frame) : null;
-    if (thumb) await s.storage.put(thumbKey(id), thumb);
-    const at = now();
     // into the folder named (a whole folder brought in from the computer: the folder made for each file; a drop: the folder open), else the project's root
-    const named = req.query.folder && !mask && !kit ? (await s.db.selectFrom("folders").select("id").where("id", "=", req.query.folder).executeTakeFirst())?.id ?? null : null;
-    const into = named ?? (!mask && !kit && req.query.project ? await rootFolderOf(s.db, req.query.project) : null);
-    await s.db
-      .insertInto("assets")
-      .values(newAssetRow({
-        id, kind: picture ? "image" : media!.kind, origin: mask ? "mask" : kit ? "kit" : "uploaded", name: String(req.query.name ?? "").slice(0, 200), file_key: key,
-        thumb_key: thumb ? thumbKey(id) : null, mime, bytes: up.bytes, width: picture?.width ?? facts?.width ?? null, height: picture?.height ?? facts?.height ?? null,
-        duration_ms: media?.durationMs ?? null, fps: facts?.fps ?? null, has_sound: media?.kind === "audio" || facts?.hasSound ? 1 : 0,
-        folder_id: into, generation_id: null, kept_at: at, linked_path: null, created_at: at,
-      }))
-      .execute();
-    // into a linked folder: it is a file of that directory at once
-    if (into) await fileInLinked(id);
+    const named = req.query.folder && !mask && !kit ? (await s.db.selectFrom("folders").selectAll().where("id", "=", req.query.folder).executeTakeFirst()) ?? null : null;
+    const rootId = !named && !mask && !kit && req.query.project ? await rootFolderOf(s.db, req.query.project) : null;
+    const into = named ?? (rootId ? (await s.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst()) ?? null : null);
+    // into a linked folder: written into its directory first (a folder gone, read-only or full refuses it, and nothing is
+    // imported), and registered as a reading of that directory would register it; else into Afflatus's own storage
+    const onDisk = into?.path ? await s.linked.importFile(into, up.path, String(req.query.name ?? ""), mime) : null;
+    const key = onDisk?.file_key ?? `assets/${id.slice(0, 2)}/${id}.${extOf(mime)}`;
+    try {
+      if (!onDisk && picture && bytes) await s.storage.put(key, bytes);
+      else if (!onDisk) await s.storage.putFile(key, up.path);
+      const facts = media?.facts ?? null;
+      const frame = media?.kind === "video" ? await firstFrame(up.path) : null;
+      const thumb = picture && bytes ? await makeThumb(bytes) : frame ? await makeThumb(frame) : null;
+      if (thumb) await s.storage.put(thumbKey(id), thumb);
+      const at = now();
+      await s.db
+        .insertInto("assets")
+        .values(newAssetRow({
+          id, kind: picture ? "image" : media!.kind, origin: mask ? "mask" : kit ? "kit" : "uploaded", name: onDisk?.name ?? String(req.query.name ?? "").slice(0, 200), file_key: key,
+          thumb_key: thumb ? thumbKey(id) : null, mime, bytes: onDisk?.bytes ?? up.bytes, width: picture?.width ?? facts?.width ?? null, height: picture?.height ?? facts?.height ?? null,
+          duration_ms: media?.durationMs ?? null, fps: facts?.fps ?? null, has_sound: media?.kind === "audio" || facts?.hasSound ? 1 : 0,
+          folder_id: into?.id ?? null, generation_id: null, kept_at: at, linked_path: null, created_at: onDisk?.created_at ?? at,
+        }))
+        .execute();
+    } catch (err) {
+      // the file written into the folder is not left there for a reading to pick up as an item this upload did not make
+      if (onDisk) await rm(onDisk.path, { force: true }).catch(() => {});
+      throw err;
+    }
     if (!mask && !kit) s.queue.events.emit("library");
     return assetView(await asset(id));
   });

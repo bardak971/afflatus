@@ -1,5 +1,6 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
+import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
 import { DRAFT_LIST } from "../data";
 import { size } from "../format";
@@ -7,6 +8,13 @@ import { pathOf, useFolderImport } from "../folderImport";
 import { useProject } from "../project";
 import { useBanners, useOpenDraft } from "../store";
 import { planBin, planDrop, type Moving, type Row, type Target } from "./tree";
+
+/** Before a folder of the disk is unlinked: the question both folder trees ask (the folder panel's and the Projects panel's). */
+export const askUnlink = (name: string) =>
+  ask({ title: `Unlink ${name}?`, text: "Afflatus stops showing it and its sub-folders. Nothing on your disk is touched: its files stay where they are. It can be linked again later.", yes: "Unlink" });
+/** Before one folder is deleted, from either folder tree. */
+export const askDeleteFolder = (name: string) =>
+  ask({ title: `Delete ${name}?`, text: "Its items move to the folder above it. A deleted folder cannot be restored from the bin.", yes: "Delete" });
 
 /**
  * What the Projects panel changes: moves, deletes, renames, new folders, root folders, archiving. Each
@@ -174,35 +182,9 @@ export function useTreeActions() {
       await useFolderImport.getState().start(files, at.folder, client);
       refresh();
     },
-    /** Files dropped from the computer: uploaded (pictures, videos, sounds) where they were dropped. Folders dropped are not read. */
-    async upload(files: File[], t: Target, folders: number) {
-      const media = files.filter((f) => /^(image|video|audio)\//.test(f.type));
-      const left = files.length - media.length - folders;
-      const skipped = [folders && `${folders === 1 ? "a folder" : `${folders} folders`} (use Import a folder… on its right-click menu)`, left > 0 && `${left} file${left === 1 ? "" : "s"} that ${left === 1 ? "is" : "are"} no picture, video or sound`].filter(Boolean).join(" and ");
-      if (!media.length) {
-        say({ id: `tree-up:${Date.now()}`, tone: "bad", title: `Nothing to add to ${t.name}`, text: skipped ? `Left out: ${skipped}.` : undefined, href: "/", go: "Open the Studio" });
-        return;
-      }
-      const at = await self.landing(t);
-      if (!at) return;
-      let failed = 0;
-      const queue = [...media];
-      await Promise.all(Array.from({ length: 3 }, async () => {
-        for (let f = queue.shift(); f; f = queue.shift()) {
-          try {
-            await api.upload(f, at.folder ? { folder: at.folder } : { project: null });
-          } catch {
-            failed++;
-          }
-        }
-      }));
-      refresh();
-      const added = media.length - failed;
-      say({
-        id: `tree-up:${Date.now()}`, tone: failed ? "bad" : "good", title: `${added} file${added === 1 ? "" : "s"} added to ${t.name}`,
-        text: [at.made && `${t.name} has a root folder now: they are in it.`, failed && `${failed} could not be added.`, skipped && `Left out: ${skipped}.`].filter(Boolean).join(" ") || undefined,
-        href: "/", go: "Open the Studio",
-      });
+    /** Files dropped from the computer: uploaded (pictures, videos, sounds) where they were dropped, into its directory for a folder of the disk. Folders dropped are not read. */
+    upload(files: File[], t: Target, folders: number) {
+      return bringFiles(files, { name: t.name, folders, onDisk: t.kind === "folder" && t.linked, landing: () => self.landing(t), say, done: refresh });
     },
     /** A folder of the disk linked to the top of a project or of the Inbox: used in place, nothing copied. */
     async link(t: Target) {
@@ -240,7 +222,7 @@ export function useTreeActions() {
     async unlink(r: Row) {
       const id = r.id;
       if (!id || !r.linkedRoot) return;
-      if (!(await ask({ title: `Unlink ${r.label}?`, text: "Afflatus stops showing it and its sub-folders. Nothing on your disk is touched: its files stay where they are. It can be linked again later.", yes: "Unlink" }))) return;
+      if (!(await askUnlink(r.label))) return;
       await run(`${r.label} could not be unlinked`, () => api.deleteFolder(id));
     },
     /**

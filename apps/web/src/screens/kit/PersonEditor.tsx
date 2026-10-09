@@ -17,7 +17,7 @@ import { Select } from "../../Select";
 import { localId } from "../../secureContext";
 import { AutoText, Button, cx, NumberBox } from "../../ui";
 import { Slider } from "../../Slider";
-import { field, takes } from "./shared";
+import { entryOf, field, modelRows, withEntry } from "./shared";
 
 /** A small fact of a row: what a model takes of the person. */
 function Takes({ children, tip }: { children: string; tip: string }) {
@@ -165,8 +165,9 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
 export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; onChange(def: PersonDef): void }) {
   const recipes = useRecipes();
   const setup = useSetup();
-  const families = recipes.data?.families ?? [];
-  const lorasOf = (family: string) => setup.data?.recipes.find((s) => recipes.data?.recipes.find((r) => r.id === s.id)?.family === family && s.options.loras)?.options.loras ?? [];
+  const rows = modelRows(recipes.data?.families ?? [], recipes.data?.recipes ?? []);
+  // the LoRAs of every family of a row, each once
+  const lorasOf = (ids: string[]) => [...new Set(ids.flatMap((family) => setup.data?.recipes.find((s) => recipes.data?.recipes.find((r) => r.id === s.id)?.family === family && s.options.loras)?.options.loras ?? []))];
   const setOutfit = (id: string, patch: Partial<Outfit>) => onChange({ ...def, outfits: def.outfits.map((o) => (o.id === id ? { ...o, ...patch } : o)) });
   // the words that call the person's LoRAs up, as their files or their pages give them: offered where none is written
   const words = useLoraWordsOf(Object.values(def.models).flatMap((m) => (m.lora ? [m.lora] : [])));
@@ -183,10 +184,9 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
       <Words tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
 
       <Card dense title="LoRA per model" status={<span className="text-[11.5px] text-ink-3">optional</span>} help={`A LoRA is a file you already have: Afflatus does not train one. The chips say what each model takes of ${name}: reference images, tags or natural language, the voice sample. A model that takes neither reference images nor a LoRA gets only the prompt text.`}>
-        {families.map((f) => {
-          const can = takes(f, recipes.data?.recipes ?? []);
-          const m = def.models[f.id] ?? { lora: null, weight: 0.8, trigger: "" };
-          const set = (patch: Partial<typeof m>) => onChange({ ...def, models: { ...def.models, [f.id]: { ...m, ...patch } } });
+        {rows.map(({ family: f, ids, can }) => {
+          const m = entryOf(def.models, ids) ?? { lora: null, weight: 0.8, trigger: "" };
+          const set = (patch: Partial<typeof m>) => onChange({ ...def, models: withEntry(def.models, ids, { ...m, ...patch }) });
           const refs = Math.min(3, def.pictures.length);
           const known = can.tags && m.lora && !m.trigger.trim() ? words.of(m.lora) : null;
           return (
@@ -205,7 +205,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
                   value={m.lora ?? ""}
                   onChange={(file) => set({ lora: file || null })}
                   searchHint="Search your LoRAs by name"
-                  options={[{ value: "", label: "No LoRA" }, ...lorasOf(f.id).map((file) => ({ value: file, label: fileLabel(file), note: file.split(/[\/]/).slice(0, -1).join("/") }))]}
+                  options={[{ value: "", label: "No LoRA" }, ...lorasOf(ids).map((file) => ({ value: file, label: fileLabel(file), note: file.split(/[\/]/).slice(0, -1).join("/") }))]}
                 />
               ) : (
                 <span className="flex h-8 items-center text-xs text-ink-3">{can.pictures ? "takes no LoRA" : "prompt text only"}</span>

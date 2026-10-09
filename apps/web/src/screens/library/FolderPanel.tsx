@@ -10,8 +10,9 @@ import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
 import { size } from "../../format";
 import { useFolderImport } from "../../folderImport";
 import { useProject } from "../../project";
+import { askDeleteFolder, askUnlink } from "../../projects/useTreeActions";
 import type { Place } from "../../store";
-import { cx, ErrorNote, fieldClass, TwoStep } from "../../ui";
+import { cx, ErrorNote, fieldClass, Help, TwoStep } from "../../ui";
 import { foldersOf, tree } from "./tree";
 import { useFolderMutations } from "./useFolderMutations";
 
@@ -23,7 +24,7 @@ const hoverButton = "flex h-6 w-6 items-center justify-center rounded-md bg-rais
 type DropProps = { onDragOver(e: DragEvent): void; onDragLeave(): void; onDrop(e: DragEvent): void };
 
 /** One folder: a place to go to and a place to drop on; on hover, rename, delete or unlink, rescan a folder of the disk. */
-function FolderRow({ f, selected, over, drop, onOpen, onEdit, onDelete, onRescan, scanning, deleting, onDeleted, onCancelDelete, onMenu }: {
+function FolderRow({ f, selected, over, drop, onOpen, onEdit, onDelete, onRescan, scanning, onMenu }: {
   f: Folder & { depth: number };
   selected: boolean;
   over: boolean;
@@ -33,10 +34,6 @@ function FolderRow({ f, selected, over, drop, onOpen, onEdit, onDelete, onRescan
   onDelete(): void;
   onRescan(): void;
   scanning: boolean;
-  /** The delete (or unlink) is being asked for. */
-  deleting: boolean;
-  onDeleted(): void;
-  onCancelDelete(): void;
   onMenu(e: React.MouseEvent): void;
 }) {
   return (
@@ -52,7 +49,7 @@ function FolderRow({ f, selected, over, drop, onOpen, onEdit, onDelete, onRescan
         </button>
         <span className="absolute inset-y-0 right-1 hidden items-center gap-0.5 group-hover:flex">
           {f.path && (
-            <button type="button" aria-label={`Rescan ${f.name}`} data-tip="Scan the folder on your disk again: what was added appears, what was removed is gone" disabled={scanning} onClick={onRescan} className={hoverButton}>
+            <button type="button" aria-label={`Rescan ${f.name}`} data-tip="Rescan: picks up what was added or removed on disk" disabled={scanning} onClick={onRescan} className={hoverButton}>
               <RefreshCw size={12} className={scanning ? "animate-spin" : undefined} />
             </button>
           )}
@@ -62,17 +59,12 @@ function FolderRow({ f, selected, over, drop, onOpen, onEdit, onDelete, onRescan
             </button>
           )}
           {(!f.path || f.root) && (
-            <button type="button" aria-label={f.path ? `Unlink ${f.name}` : `Delete ${f.name}`} data-tip={f.path ? "Unlink: nothing on your disk is touched" : "Delete: its items move to the parent folder"} onClick={onDelete} className={hoverButton}>
+            <button type="button" aria-label={f.path ? `Unlink ${f.name}` : `Delete ${f.name}`} data-tip={f.path ? "Unlink (disk untouched)" : "Delete (items move up)"} onClick={onDelete} className={hoverButton}>
               {f.path ? <Unlink size={12} /> : <Trash2 size={12} />}
             </button>
           )}
         </span>
       </div>
-      {deleting && (
-        <div className="py-1 pl-1.5">
-          <TwoStep open title={f.path ? `Unlink ${f.name}` : `Delete ${f.name}`} note={f.path ? "Nothing on your disk is touched." : "Its items move to the parent folder."} yes={f.path ? "Unlink" : "Delete"} onYes={onDeleted} onCancel={onCancelDelete} />
-        </div>
-      )}
       {selected && f.path && (
         // a folder of the disk: where it is
         <span className="block truncate py-1 pl-1.5 font-mono text-[11px] text-ink-3" data-tip={f.path}>{f.path}</span>
@@ -96,18 +88,22 @@ function NewFolderForm({ adding, inside, onSubmit, onDone }: { adding: "inside" 
         onBlur={() => { if (!text.trim()) onDone(); }}
         className={cx(fieldClass, "h-[34px] w-full", adding === "link" && "font-mono text-xs")}
       />
-      {adding === "link" && <span className="px-1 text-xs text-ink-3">A folder the computer Afflatus runs on can read. Its images, videos and audio files show here and are used in place; nothing is copied. Press Enter.</span>}
+      {adding === "link" && (
+        <span className="flex items-center gap-1.5 px-1 text-xs text-ink-3">
+          Enter to link <Help title="Link a local folder" text="A folder on the machine the server runs on. Its images, videos and audio show here with its sub-folders and are used in place: nothing is copied. Files dropped on it are written into it on disk; Rescan picks up changes made outside Afflatus." />
+        </span>
+      )}
     </form>
   );
 }
 
-/** The bin: a place to go to, emptied now when asked twice, and how much the library takes on the disk. */
-function BinFooter({ on, row: binRow, onOpen, empty }: { on: boolean; row: (on: boolean) => string; onOpen(): void; empty: { mutate(): void; isPending: boolean } }) {
+/** The bin: a place to go to and to drop items on, emptied now when asked twice, and how much the library takes on the disk. */
+function BinFooter({ on, row: binRow, drop, onOpen, empty }: { on: boolean; row: (on: boolean) => string; drop: DropProps; onOpen(): void; empty: { mutate(): void; isPending: boolean } }) {
   const storage = useStorage();
   return (
     <>
       <div className="my-1 border-t border-line" />
-      <button type="button" onClick={onOpen} className={binRow(on)}>
+      <button type="button" onClick={onOpen} className={binRow(on)} {...drop}>
         <span className="flex items-center gap-2"><Trash2 size={14} /> Bin</span>
         {storage.data && storage.data.bin.count > 0 && <span className="shrink-0 font-normal text-ink-2">{storage.data.bin.count}</span>}
       </button>
@@ -170,10 +166,13 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     if (save && name && name !== was) m.rename.mutate({ id: editing.id, name });
     setEditing(null);
   };
-  const [deleting, setDeleting] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const selected = place.type === "folder" ? place.id : null;
   const m = useFolderMutations({ selected, onPlace });
+  // deleted or unlinked once asked, with the question the Projects panel asks
+  const removeFolder = async (f: Folder) => {
+    if (await (f.path ? askUnlink(f.name) : askDeleteFolder(f.name))) m.remove.mutate(f.id);
+  };
   // the folders of the project the app looks at (the Inbox: those in none; All: every one)
   const project = useProject((s) => s.id);
   const scoped = foldersOf(folders.data?.items ?? [], project);
@@ -206,12 +205,12 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
     ...moveItems(f),
     ...(f.path ? [{ label: "Rescan", icon: <RefreshCw size={14} />, note: "what changed on your disk", disabled: m.look.isPending, run: () => m.look.mutate(f.id) }] : []),
     ...(!f.path || f.root ? ["—" as const, f.path
-      ? { label: "Unlink", icon: <Unlink size={14} />, danger: true, note: "nothing on your disk is touched", run: () => setDeleting(f.id) }
-      : { label: "Delete", icon: <Trash2 size={14} />, danger: true, note: "its items move to the parent folder", run: () => setDeleting(f.id) }] : []),
+      ? { label: "Unlink…", icon: <Unlink size={14} />, danger: true, note: "disk untouched", run: () => void removeFolder(f) }
+      : { label: "Delete…", icon: <Trash2 size={14} />, danger: true, note: "items move up", run: () => void removeFolder(f) }] : []),
   ];
 
-  /** A row that items can be dropped on: an item of the library, or files from the computer. */
-  const drop = (key: string, folder: string | null): DropProps => ({
+  /** A row that items can be dropped on: an item of the library, timelines, or files from the computer (into its directory, for a folder of the disk). */
+  const drop = (key: string, folder: Folder | null): DropProps => ({
     onDragOver: (e) => {
       if (!e.dataTransfer.types.includes(DRAG_TYPE) && !e.dataTransfer.types.includes(DRAG_TIMELINE) && !e.dataTransfer.types.includes("Files")) return;
       e.preventDefault();
@@ -223,11 +222,30 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       setOver(null);
       const asset = e.dataTransfer.getData(DRAG_TYPE);
       const timelines = e.dataTransfer.getData(DRAG_TIMELINE);
-      if (timelines) m.moveTimelines.mutate({ ids: timelines.split(",").filter(Boolean), folder });
-      else if (asset) m.move.mutate({ asset, folder });
-      else if (e.dataTransfer.files.length) m.bring.mutate({ files: [...e.dataTransfer.files], folder });
+      if (timelines) m.moveTimelines.mutate({ ids: timelines.split(",").filter(Boolean), folder: folder?.id ?? null });
+      else if (asset) m.move.mutate({ asset, folder: folder?.id ?? null });
+      else if (e.dataTransfer.files.length) {
+        // a folder dropped is not read (Import a folder is): what has no type and the name of a directory is left out, and counted
+        const dirs = new Set([...e.dataTransfer.items].map((i) => i.webkitGetAsEntry?.()).filter((x) => x?.isDirectory).map((x) => x!.name));
+        m.bring.mutate({ files: [...e.dataTransfer.files].filter((f) => !(dirs.has(f.name) && !f.type)), folders: dirs.size, folder });
+      }
     },
   });
+  // the Bin takes items of the library only (as the Projects panel's does): asked first for files of a linked folder
+  const binDrop: DropProps = {
+    onDragOver: (e) => {
+      if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
+      e.preventDefault();
+      setOver("bin");
+    },
+    onDragLeave: () => setOver((o) => (o === "bin" ? null : o)),
+    onDrop: (e) => {
+      e.preventDefault();
+      setOver(null);
+      const ids = e.dataTransfer.getData(DRAG_TYPE).split(",").filter(Boolean);
+      if (ids.length) m.toBin.mutate(ids);
+    },
+  };
   const error = m.error ?? folders.error;
 
   return (
@@ -246,21 +264,18 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
             f={f}
             selected={selected === f.id}
             over={over === f.id}
-            drop={drop(f.id, f.id)}
+            drop={drop(f.id, f)}
             onOpen={() => onPlace({ type: "folder", id: f.id })}
             onEdit={() => startRename(f)}
-            onDelete={() => setDeleting(f.id)}
+            onDelete={() => void removeFolder(f)}
             onRescan={() => m.look.mutate(f.id)}
             scanning={m.look.isPending}
-            deleting={deleting === f.id}
-            onDeleted={() => { m.remove.mutate(f.id); setDeleting(null); }}
-            onCancelDelete={() => setDeleting(null)}
             onMenu={(e) => folderMenu.open(e, f)}
           />
         ),
       )}
       {folderMenu.menu && <ContextMenu at={folderMenu.menu.at} label={`Folder ${folderMenu.menu.subject.name}`} head={folderHead(folderMenu.menu.subject)} items={folderItems(folderMenu.menu.subject)} onClose={folderMenu.close} />}
-      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", over === "unfiled")} {...drop("unfiled", null)} data-tip="What is in no folder and no project. Drop here to take items out of their folder">Inbox</button>
+      <button type="button" onClick={() => onPlace({ type: "unfiled" })} className={row(place.type === "unfiled", over === "unfiled")} {...drop("unfiled", null)} data-tip="Items in no folder. Drop here to take items out of their folder">No folder</button>
 
       {adding ? (
         <NewFolderForm adding={adding} inside={open?.name} onSubmit={(name) => (adding === "link" ? m.link.mutate(name) : m.create.mutate({ name, parent: adding === "inside" ? selected : null }))} onDone={() => setAdding(false)} />
@@ -291,8 +306,11 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
       />
       {error && <ErrorNote>{error.message}</ErrorNote>}
 
-      <BinFooter on={place.type === "bin"} row={(on) => row(on, over === "bin")} onOpen={() => onPlace({ type: "bin" })} empty={m.empty} />
-      <div className="px-2.5 pt-1 text-xs text-ink-3">Drag an image onto a folder to move it there: moving it by hand keeps it. What you generate while a folder is open lands in it, and still has a day to be kept.</div>
+      <BinFooter on={place.type === "bin"} row={(on) => row(on, over === "bin")} drop={binDrop} onOpen={() => onPlace({ type: "bin" })} empty={m.empty} />
+      <div className="flex items-center gap-1.5 px-2.5 pt-1 text-xs text-ink-3">
+        Drop on a folder to file
+        <Help title="Folders" text="Drop library items, timelines or files from your computer on a folder. An item moved by hand is kept. Renders made while a folder is open land in it and still get a day to be kept. Files dropped on a linked folder are written into it on disk (never over a file: name (2).png). Items dropped on the Bin go to the bin." />
+      </div>
     </div>
   );
 }

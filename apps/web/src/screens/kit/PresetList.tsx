@@ -65,7 +65,6 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
     return (
       <>
         {e.source === "shipped" && <Badge>{authorOf(e)}</Badge>}
-        {!e.def.recipe && <Badge>any model</Badge>}
         {missing > 0 ? <Badge tone="warn">{missing} file{missing > 1 ? "s" : ""} missing</Badge> : st && st.files.length > 0 ? <Badge tone="good">files ready</Badge> : null}
       </>
     );

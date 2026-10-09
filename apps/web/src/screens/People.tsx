@@ -97,7 +97,7 @@ export function People() {
   });
   /** Deleting is asked first, from the row's menu as from the item's header. */
   const askRemove = async (e: Entity) => {
-    if (await ask({ title: `Delete ${e.name}`, text: noteOfDelete(e), yes: "Delete" })) remove.mutate(e.id);
+    if (await ask({ title: `Delete ${e.name}?`, text: noteOfDelete(e), yes: "Delete" })) remove.mutate(e.id);
   };
   /** The right-click menu of a row: what the open item's header offers. */
   const rowMenu = useMenu<Entity>();
@@ -203,7 +203,7 @@ export function People() {
                 {/* each editor is keyed by its item: another item opens a fresh one, so an upload or a picker left open never lands on it */}
                 <ItemHeader
                   item={editing} saved={saved} failure={failure} onRename={(name) => change({ ...editing, name })} onRetry={retry}
-                  onApply={() => void flush().then(() => applyInStudio(editing.id))} onDelete={() => remove.mutate(editing.id)} onClose={() => select(null)}
+                  onApply={() => void flush().then(() => applyInStudio(editing.id))} onDelete={() => void askRemove(editing)} onClose={() => select(null)}
                 />
                 {editing.kind === "person" && <PersonEditor key={editing.id} def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "place" && <PlaceEditor key={editing.id} def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}

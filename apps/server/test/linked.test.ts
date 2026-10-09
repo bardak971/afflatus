@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -108,8 +108,8 @@ describe("a folder linked to a directory of the disk", () => {
   it("writes a file into the directory with the extension of what it really is, whatever its name ends with", async () => {
     const root = await link();
     const up = (await t.app.inject({ method: "POST", url: `/api/assets?name=${encodeURIComponent("run me.exe")}&folder=${root.id}`, headers: { "content-type": "image/png" }, payload: picture() })).json();
-    expect(up.path).toBe(join(dir, "run_me.png"));
-    expect(existsSync(join(dir, "run_me.exe"))).toBe(false);
+    expect(up.path).toBe(join(dir, "run me.png"));
+    expect(existsSync(join(dir, "run me.exe"))).toBe(false);
   });
 
   it("is read again on request: what was added appears, what was removed is gone", async () => {
@@ -147,8 +147,8 @@ describe("a folder linked to a directory of the disk", () => {
     expect(made).toMatchObject({ name: "new_one", path: join(dir, "new_one"), root: false });
     expect(existsSync(join(dir, "new_one"))).toBe(true);
     const up = (await t.app.inject({ method: "POST", url: `/api/assets?name=${encodeURIComponent("my shot.png")}&folder=${made.id}`, headers: { "content-type": "image/png" }, payload: picture() })).json();
-    expect(up.path).toBe(join(dir, "new_one", "my_shot.png"));
-    expect(existsSync(join(dir, "new_one", "my_shot.png"))).toBe(true);
+    expect(up.path).toBe(join(dir, "new_one", "my shot.png"));
+    expect(existsSync(join(dir, "new_one", "my shot.png"))).toBe(true);
   });
 
   it("writes a result into the directory when it is kept, under the day it was made and the start of its prompt", async () => {
@@ -264,5 +264,83 @@ describe("a linked folder whose directory moved", () => {
     } finally {
       renameSync(away, dir);
     }
+  });
+});
+
+describe("files from the computer dropped on a linked folder", () => {
+  const upload = (name: string, folder: string, bytes: Buffer = picture()) =>
+    t.app.inject({ method: "POST", url: `/api/assets?name=${encodeURIComponent(name)}&folder=${folder}`, headers: { "content-type": "image/png" }, payload: bytes });
+  const everything = async () => (await t.db.selectFrom("assets").select(["id", "file_key"]).execute()).length;
+
+  it("are written into the directory and are its items at once, as a reading of it would list them", async () => {
+    const root = await link();
+    const bytes = Buffer.from(makePng(20, 10, [1, 2, 3], [4, 5, 6]));
+    const res = await upload("my shot.png", root.id, bytes);
+    expect(res.statusCode).toBe(200);
+    const up = res.json();
+    expect(up).toMatchObject({ name: "my shot.png", kept: true, origin: "uploaded", path: join(dir, "my shot.png"), width: 20, height: 10 });
+    expect(readFileSync(join(dir, "my shot.png")).equals(bytes)).toBe(true);
+    // the row says what a reading says of the file: its key, its size and the file's own date
+    const row = await t.db.selectFrom("assets").selectAll().where("id", "=", up.id).executeTakeFirstOrThrow();
+    expect(row).toMatchObject({ file_key: `linked:${join(dir, "my shot.png")}`, folder_id: root.id, bytes: bytes.length });
+    expect(row.created_at).toBe(statSync(join(dir, "my shot.png")).mtime.toISOString());
+    // nothing of it in Afflatus's own storage but its small picture
+    expect(row.thumb_key).not.toBeNull();
+  });
+
+  it("are read again as the items they already are: no second copy, nothing measured again", async () => {
+    const root = await link();
+    const up = (await upload("my shot.png", root.id)).json();
+    const before = await everything();
+    expect((await post(t.app, `/api/folders/${root.id}/scan`, {})).json()).toEqual({ files: 3, folders: 1 });
+    expect(await everything()).toBe(before);
+    const mine = (await inFolder(root.id)).filter((a) => a.name === "my shot.png");
+    expect(mine.map((a) => a.id)).toEqual([up.id]);
+    // unchanged to the reading: what was measured of it and its small picture stay
+    const row = await t.db.selectFrom("assets").selectAll().where("id", "=", up.id).executeTakeFirstOrThrow();
+    expect(row).toMatchObject({ width: 16, height: 24 });
+    expect(row.thumb_key).not.toBeNull();
+  });
+
+  it("never write over a file: a name taken becomes \"name (2)\", \"name (3)\"…", async () => {
+    const root = await link();
+    const first = readFileSync(join(dir, "one.png"));
+    const a = (await upload("one.png", root.id, Buffer.from(makePng(8, 8, [9, 9, 9], [9, 9, 9])))).json();
+    const b = (await upload("one.png", root.id, Buffer.from(makePng(4, 4, [7, 7, 7], [7, 7, 7])))).json();
+    expect(a.path).toBe(join(dir, "one (2).png"));
+    expect(b.path).toBe(join(dir, "one (3).png"));
+    expect(readFileSync(join(dir, "one.png")).equals(first)).toBe(true);
+    expect((await inFolder(root.id)).map((x) => x.name).sort()).toEqual(["one (2).png", "one (3).png", "one.png"]);
+    // a sub-folder's directory, the same way
+    const sub = (await folders()).find((f) => f.name === "day 1")!;
+    expect((await upload("two.png", sub.id)).json().path).toBe(join(dir, "day 1", "two (2).png"));
+  });
+
+  it("keep only the file's own name: no folders it came with, no way out of the folder", async () => {
+    const root = await link();
+    const up = (await upload("../../escape.png", root.id)).json();
+    expect(up.path).toBe(join(dir, "escape.png"));
+    expect(existsSync(join(dir, "..", "escape.png"))).toBe(false);
+    expect((await upload("C:\\Users\\x\\deep.png", root.id)).json().path).toBe(join(dir, "deep.png"));
+    // a hidden name would never be read back: its dots go
+    expect((await upload(".secret.png", root.id)).json().path).toBe(join(dir, "secret.png"));
+    const before = await everything();
+    const refused = await upload("..", root.id);
+    expect(refused.statusCode).toBe(400);
+    expect(await everything()).toBe(before);
+  });
+
+  it("are refused with a reason, and nothing imported, when the folder's directory is gone", async () => {
+    const root = await link();
+    const before = await everything();
+    const stored = readdirSync(t.dir, { recursive: true }).length;
+    rmSync(dir, { recursive: true, force: true });
+    const res = await upload("late.png", root.id);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/not on the disk any more/);
+    expect(await everything()).toBe(before);
+    expect(existsSync(join(dir, "late.png"))).toBe(false);
+    // nothing was put in Afflatus's own storage either (no file, no small picture)
+    expect(readdirSync(t.dir, { recursive: true }).length).toBe(stored);
   });
 });

@@ -16,6 +16,34 @@ export function takes(family: FamilyInfo, recipes: RecipeInfo[]) {
   };
 }
 
+/**
+ * The rows of "per model" lists (a person's LoRAs, a style's text and LoRAs): one per model. A workflow's family
+ * folds into the family of the same name ("Wan 2.2" built in and a Wan 2.2 workflow: workflows of one model share
+ * its LoRAs; "Krea2" and "Krea 2" are one name), the built-in one first; the Image tools take no prompt and are
+ * left out. `ids` is every family the row stands for: what is set there is stored under each, so a render by any
+ * of them finds it, and an entry stored under one of them alone (before rows were merged) still shows.
+ */
+export function modelRows(families: FamilyInfo[], recipes: RecipeInfo[]) {
+  const rows: Array<{ family: FamilyInfo; ids: string[]; can: ReturnType<typeof takes> }> = [];
+  const key = (name: string) => name.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  for (const f of families) {
+    if (f.id === "tools") continue;
+    const can = takes(f, recipes);
+    const row = rows.find((r) => key(r.family.name) === key(f.name));
+    if (!row) {
+      rows.push({ family: f, ids: [f.id], can });
+      continue;
+    }
+    row.ids.push(f.id);
+    for (const k of Object.keys(can) as Array<keyof typeof can>) row.can[k] ||= can[k];
+  }
+  return rows;
+}
+/** A row's entry: the first of its families that has one. */
+export const entryOf = <T,>(models: Record<string, T>, ids: string[]): T | undefined => ids.map((id) => models[id]).find(Boolean);
+/** A row's entry changed: written under every family of the row. */
+export const withEntry = <T,>(models: Record<string, T>, ids: string[], entry: T): Record<string, T> => ({ ...models, ...Object.fromEntries(ids.map((id) => [id, entry])) });
+
 export const remembered = <T,>(key: string, otherwise: T): T => {
   try {
     const raw = localStorage.getItem(key);

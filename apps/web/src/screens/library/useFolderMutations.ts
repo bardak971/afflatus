@@ -1,5 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
+import { bringFiles } from "../../bringFiles";
+import { askAboutDisk } from "../../Confirm";
 import { projectForNew } from "../../project";
 import { useBanners, type Place } from "../../store";
 
@@ -43,19 +45,32 @@ export function useFolderMutations({ selected, onPlace }: { selected: string | n
     },
   });
   const look = useMutation({ mutationFn: api.scanFolder });
-  /** Files from the computer dropped on a folder: imported straight into it (pictures, videos and sounds; the rest is left to the drop tray). */
+  /** Files from the computer dropped on a folder (or on No folder): brought in as the Projects panel does it (bringFiles.ts). */
   const bring = useMutation({
-    mutationFn: async (v: { files: File[]; folder: string | null }) => {
-      const media = v.files.filter((f) => /^(image|video|audio)\//.test(f.type));
-      for (const f of media) await api.upload(f, v.folder ? { folder: v.folder } : {});
-      return { count: media.length, folder: v.folder };
-    },
-    onSuccess: (r) => {
-      if (r.count) onPlace(r.folder ? { type: "folder", id: r.folder } : { type: "unfiled" });
+    mutationFn: (v: { files: File[]; folders: number; folder: { id: string; name: string; path: string | null } | null }) =>
+      bringFiles(v.files, {
+        name: v.folder?.name ?? "No folder",
+        folders: v.folders,
+        onDisk: Boolean(v.folder?.path),
+        landing: async () => ({ folder: v.folder?.id ?? null, made: false }),
+        say,
+        done: (added, at) => {
+          if (added) onPlace(at.folder ? { type: "folder", id: at.folder } : { type: "unfiled" });
+        },
+      }),
+  });
+  /** Items of the library dropped on the Bin: to the bin, once asked when some are files of a linked folder (as the Projects panel's Bin does). */
+  const toBin = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const items = await Promise.all(ids.map((id) => api.asset(id)));
+      if (!(await askAboutDisk(items))) return;
+      await api.bulkAssets(ids, "bin");
+      const one = items.length === 1;
+      say({ id: `folder-bin:${Date.now()}`, tone: "good", title: `${one ? items[0]!.shownName || items[0]!.name || "1 item" : `${items.length} items`} moved to the bin`, text: "For a week they can be restored from it.", href: "/", go: "Open the bin", act: () => onPlace({ type: "bin" }) });
     },
   });
   // the bin, emptied now instead of waiting a week: asked twice, it cannot be undone. Clips of timelines may have played what it held
   const empty = useMutation({ mutationFn: api.emptyBin, onSuccess: () => client.invalidateQueries({ queryKey: ["timelines"] }) });
-  const error = create.error ?? rename.error ?? toProject.error ?? remove.error ?? move.error ?? bring.error ?? link.error ?? look.error ?? empty.error ?? moveTimelines.error;
-  return { create, rename, toProject, remove, moveTimelines, move, link, look, bring, empty, error };
+  const error = create.error ?? rename.error ?? toProject.error ?? remove.error ?? move.error ?? bring.error ?? toBin.error ?? link.error ?? look.error ?? empty.error ?? moveTimelines.error;
+  return { create, rename, toProject, remove, moveTimelines, move, link, look, bring, toBin, empty, error };
 }

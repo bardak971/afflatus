@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { Bookmark, ChevronDown, ChevronRight, Dices, Plus, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Dices, Plus, Puzzle, Search, X } from "lucide-react";
 import { fuzzyFilter, LIMITS } from "@afflatus/core";
 import type { Entity, Look } from "./api";
 import { useEntities } from "./data";
@@ -116,7 +116,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
         onClick={() => setOpen(!open)}
         className={cx("flex h-8 items-center gap-1.5 rounded-lg border-[1.5px] border-dashed px-3 text-xs font-semibold", tickedHere.length ? "border-accent text-ink" : "border-line-strong text-ink-2 hover:text-ink")}
       >
-        <Bookmark size={13} className="shrink-0" /> Snippets{tickedHere.length ? ` · ${tickedHere.length}` : ""}
+        <Puzzle size={13} className="shrink-0" /> Snippets{tickedHere.length ? ` · ${tickedHere.length}` : ""}
       </button>
       {rollable > 0 && (
         <button type="button" data-tip="Tick one snippet of each category at random, in place of the ones ticked now" onClick={() => set(rollSnippets(mine))} className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink" aria-label="Roll: one snippet of each category at random">

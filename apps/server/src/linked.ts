@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants, createReadStream } from "node:fs";
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
@@ -113,6 +113,32 @@ type Asset = Tables["assets"];
 
 /** A name for a file on the disk: nothing a file system refuses, and no white space. */
 const diskSafe = (name: string) => name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "").replace(/\s+/g, "_").replace(/^\.+/, "").slice(0, 120);
+/**
+ * The name a file from the user's computer keeps on the disk: its own, without the folders a browser may
+ * send with it, the characters a file system refuses, or leading dots (a hidden file is never read back).
+ * Its extension is that of what it really is ("photo.jpeg" is written "photo.jpg", what a reading takes
+ * for a picture). "." and ".." are refused: a name never leads out of the folder.
+ */
+export function uploadName(wanted: string, mime: string): string {
+  const last = wanted.split(/[\\/]/).pop()?.trim() ?? "";
+  if (last === "." || last === "..") throw httpError(`"${wanted}" is not a file name that can be written into a folder.`);
+  let name = last.replace(/[:*?"<>|\u0000-\u001f]/g, "").replace(/^[.\s]+/, "").replace(/[.\s]+$/, "");
+  if (mimeOfFile(name) !== mime) name = `${name.replace(/\.[A-Za-z0-9]{1,8}$/, "") || "file"}.${extOf(mime)}`;
+  const ext = extname(name);
+  let stem = name.slice(0, name.length - ext.length).slice(0, 120).trim() || "file";
+  // names Windows keeps for devices, whatever their extension
+  if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(stem)) stem = `_${stem}`;
+  return `${stem}${ext}`;
+}
+
+/** Why a file could not be written into a linked folder, said for the person who dropped it. */
+function writeRefused(err: NodeJS.ErrnoException, folder: Folder, dir: string, name: string): Error {
+  if (err.code === "ENOENT" || err.code === "ENOTDIR") return httpError(`"${folder.name}" is not on the disk any more (${dir}): it was moved or deleted, or its disk is not there. "${name}" was not imported.`);
+  if (err.code === "EACCES" || err.code === "EPERM" || err.code === "EROFS") return httpError(`"${folder.name}" is read-only (${dir}): "${name}" was not written there, nor imported.`);
+  if (err.code === "ENOSPC" || err.code === "EDQUOT") return httpError(`The disk of "${folder.name}" is full (${dir}): "${name}" was not written there, nor imported.`);
+  return httpError(`"${name}" could not be written into ${dir}: ${err.message}. It was not imported.`);
+}
+
 /** The start of a text as a part of a file name: lower case, words joined by dashes. */
 const slug = (text: string) => text.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
 
@@ -378,6 +404,39 @@ export class Linked {
     await writeFile(to, await this.storage.get(a.file_key));
     await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id, kept_at: a.kept_at ?? now() }).where("id", "=", a.id).execute();
     await this.storage.delete(a.file_key).catch(() => {});
+  }
+
+  /**
+   * A file from the user's computer dropped on a linked folder: copied into its directory under its own name, never
+   * over another file ("name (2).png", "name (3).png"…). Answers what a reading of the directory would register it
+   * with (its key, name, size and date), so that the row made from it now is the one the next reading finds. A
+   * folder whose directory is gone, read-only or on a full disk refuses it, and nothing of it is left there.
+   */
+  async importFile(folder: Folder, from: string, wanted: string, mime: string): Promise<{ file_key: string; name: string; bytes: number; created_at: string; path: string }> {
+    const dir = resolve(folder.path!);
+    if (!this.storage.roots.some((r) => under(dir, r))) throw httpError(`"${folder.name}" is not linked any more.`);
+    const name = uploadName(wanted, mime);
+    if (!(await stat(dir).catch(() => null))?.isDirectory()) throw writeRefused(Object.assign(new Error("gone"), { code: "ENOENT" }), folder, dir, name);
+    const ext = extname(name);
+    const stem = name.slice(0, name.length - ext.length);
+    for (let n = 1; n < 10_000; n++) {
+      const full = join(dir, n === 1 ? name : `${stem} (${n})${ext}`);
+      // the name never leads anywhere but into the folder itself
+      if (dirname(full) !== dir) throw httpError(`"${wanted}" is not a file name that can be written into a folder.`);
+      try {
+        // EXCL: a file that appeared there since is never written over, whoever made it
+        await copyFile(from, full, constants.COPYFILE_EXCL);
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        if (e.code === "EEXIST") continue;
+        // a disk that filled up half way leaves half a file: not to be read back as one
+        if (e.code === "ENOSPC" || e.code === "EDQUOT") await rm(full, { force: true }).catch(() => {});
+        throw writeRefused(e, folder, dir, name);
+      }
+      const info = await stat(full);
+      return { file_key: LINKED + full, name: basename(full), bytes: info.size, created_at: info.mtime.toISOString(), path: full };
+    }
+    throw httpError("No free name was found for this file.");
   }
 
   /** To the bin: the file leaves its directory and waits in Afflatus's storage, from where it can be put back. */

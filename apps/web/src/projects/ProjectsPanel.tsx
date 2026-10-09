@@ -9,7 +9,7 @@ import { DRAFT_LIST, useFolders, useProjects, useProjectsTree, useRecipes, useSt
 import { recipeLabel, size } from "../format";
 import { useProject } from "../project";
 import { useHandover, useOpenDraft, useStudio } from "../store";
-import { cx, ErrorNote, Help, Segmented } from "../ui";
+import { Button, cx, ErrorNote, Help, Segmented } from "../ui";
 import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, whyRefused, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
 import { useItemMenu } from "./useItemMenu";
 import { useTreeActions } from "./useTreeActions";
@@ -53,7 +53,7 @@ const ITEMS_PAGE = 50;
 /** Something open over the panel that keeps its own keys and clicks: a menu, a dialog. */
 const OVER = "[role=menu], [role=dialog][aria-modal=true]";
 const HELP =
-  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click All, the Inbox or a project to work in it (the library, the drafts and the timelines then show its own); click a folder, a timeline or a draft to open it. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click Name, Created or Size to sort each level by it, again to reverse it: folders stay first. Drafts with no prompt, no name and nothing rendered fold into one row of empty drafts; its Clear deletes them (the open draft stays).";
+  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click All, the Inbox or a project to work in it (the library, the drafts and the timelines then show its own); click a folder, a timeline or a draft to open it. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Files dropped from your computer are imported where they land; onto a linked folder they are written into it on disk (never over a file: \"name (2).png\"). Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click Name, Created or Size to sort each level by it, again to reverse it: folders stay first. Drafts with no prompt, no name and nothing rendered fold into one row of empty drafts; its Clear deletes them (the open draft stays).";
 
 const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
   all: { icon: <Globe size={16} />, tone: "text-ink-2" },
@@ -534,14 +534,14 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       setTimeout(() => ghost.remove(), 0);
     }
   };
-  /** Files from the computer go to a project, the Inbox or a folder that is not one of the disk. */
-  const takesFiles = (r: Row) => !r.archived && (r.kind === "project" || r.kind === "inbox" || (r.kind === "folder" && !r.linked)) && Boolean(r.target);
+  /** Files from the computer go to a project, the Inbox or a folder (one of the disk: written into it there). */
+  const takesFiles = (r: Row) => !r.archived && (r.kind === "project" || r.kind === "inbox" || r.kind === "folder") && Boolean(r.target);
   const dragOver = (r: Row, e: DragEvent) => {
     const fromDisk = !dragged.current && e.dataTransfer.types.includes("Files");
     if (fromDisk ? !takesFiles(r) : !dragged.current || !takes(r)) {
       if (over === r.key) setOver(null);
       // a drop refused for a reason of the disk says so, in place of the row's line
-      const why = fromDisk ? (r.kind === "folder" && r.linked ? "a folder of your disk: put files in it on your disk" : null) : dragged.current && r.target ? whyRefused(movingOf(dragged.current), r.target) : null;
+      const why = !fromDisk && dragged.current && r.target ? whyRefused(movingOf(dragged.current), r.target) : null;
       if (why ? refused?.key !== r.key || refused.why !== why : refused?.key === r.key) setRefused(why ? { key: r.key, why } : null);
       return;
     }
@@ -788,9 +788,9 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         </label>
         {/* the library's own chips: which kind of item the folders show and count */}
         <Segmented oneLine label="Items shown" value={kind ?? "all"} options={[...KINDS]} onChange={(v) => setKind(v === "all" ? null : v)} />
-        <button type="button" onClick={onNew} className="flex h-[34px] shrink-0 items-center gap-1.5 rounded-[10px] bg-accent px-3 text-sm font-bold text-accent-ink">
+        <Button tone="primary" size="sm" onClick={onNew} className="shrink-0">
           <Plus size={14} strokeWidth={2.4} /> New project
-        </button>
+        </Button>
       </div>
 
       <div
@@ -995,9 +995,9 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
           <span className="text-[13px] font-bold text-picture">{picked.size} selected</span>
           <span className="text-xs text-ink-2">drag them together, or</span>
           <span className="grow" />
-          <button type="button" onClick={(e) => openMenu(e, "picked")} className="h-[30px] rounded-lg border border-line-strong bg-raised px-3 text-xs font-semibold text-ink hover:bg-hover">Move to…</button>
-          <button type="button" onClick={() => remove([...picked.values()])} className="h-[30px] rounded-lg border border-line-strong px-3 text-xs font-semibold text-warn-ink hover:bg-hover">Delete…</button>
-          <button type="button" onClick={clearPicks} className="h-[30px] rounded-lg px-2.5 text-xs text-ink-2 hover:text-ink">Clear</button>
+          <Button size="sm" onClick={(e) => openMenu(e, "picked")}>Move to…</Button>
+          <Button size="sm" tone="danger" onClick={() => remove([...picked.values()])}>Delete…</Button>
+          <Button size="sm" tone="quiet" onClick={clearPicks}>Clear</Button>
         </div>
       )}
       <div className="flex items-center gap-3.5 border-t border-line px-4 py-2.5 text-xs text-ink-2">

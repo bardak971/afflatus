@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Bookmark, MapPin, Plus, Search, Sparkles, User, X } from "lucide-react";
+import { Bookmark, MapPin, Plus, Puzzle, Search, Sparkles, User, X } from "lucide-react";
 import type { Entity } from "../../api";
 import { Button, Segmented } from "../../ui";
 
@@ -8,7 +8,7 @@ export const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode 
   { id: "person", title: "People", add: "New person", icon: <User size={22} /> },
   { id: "place", title: "Places", add: "New place", icon: <MapPin size={22} /> },
   { id: "style", title: "Styles", add: "New style", icon: <Sparkles size={22} /> },
-  { id: "snippet", title: "Snippets", add: "New snippet", icon: <Bookmark size={22} /> },
+  { id: "snippet", title: "Snippets", add: "New snippet", icon: <Puzzle size={22} /> },
   { id: "preset", title: "Presets", add: "New preset", icon: <Bookmark size={22} /> },
 ];
 

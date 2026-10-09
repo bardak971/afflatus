@@ -1,7 +1,7 @@
 import { FileDown, Play, Trash2, X } from "lucide-react";
 import type { Entity } from "../../api";
 import { savePresetFile } from "../../presetFile";
-import { Button, Chip, TwoStep } from "../../ui";
+import { Button, Chip } from "../../ui";
 
 /** What deleting an item does, said before it is done. */
 export const noteOfDelete = (e: Entity) => (e.kind === "person" || e.kind === "place" ? "Images picked from your library stay there; images uploaded here go to the bin with it." : "It cannot be brought back.");
@@ -16,6 +16,7 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
   onRetry(): void;
   /** A preset: put in the form in Studio. */
   onApply(): void;
+  /** Asks first (the question the row's menu asks), then deletes. */
   onDelete(): void;
   onClose(): void;
 }) {
@@ -32,7 +33,7 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
           <Button size="sm" onClick={() => savePresetFile(item)} data-tip="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
         </>
       )}
-      <TwoStep title={`Delete ${item.name}`} icon={<Trash2 size={15} />} note={noteOfDelete(item)} yes="Delete" cancel="Keep" onYes={onDelete} className="h-9 w-9 rounded-lg" />
+      <button type="button" aria-label={`Delete ${item.name}`} data-tip="Delete…" onClick={onDelete} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={15} /></button>
       <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
     </div>
   );
