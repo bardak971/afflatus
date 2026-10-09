@@ -46,8 +46,8 @@ describe("the projects tree", () => {
     await item(null, 7);
     await item(loose.id, 9);
     const tl = await call("POST", "/api/timelines", { name: "Cut one", project: alpha.id });
-    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: alpha.id });
-    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img" });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: alpha.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", forms: { "sdxl.txt2img": { prompt: "x" } } });
 
     const r = await tree();
     // everything not in the bin, masks and kit pictures too
@@ -69,11 +69,13 @@ describe("the projects tree", () => {
 
   it("counts each group's unused drafts apart: no prompt, no name, nothing made from them", async () => {
     const p = await call("POST", "/api/projects", { name: "Drafty" });
-    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
     await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { steps: 30 } } });
-    const named = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    const named = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
     await call("PUT", `/api/drafts/${named.id}`, { name: "kept by its name" });
-    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img" });
+    // a blank one (nothing in it yet) is not written: not counted at all
+    await call("POST", "/api/drafts", { recipe: "sdxl.text-to-picture", project: p.id });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", forms: { "sdxl.txt2img": { prompt: "x" } } });
     const r = await tree();
     expect(r.groups.find((g: { id: string | null }) => g.id === p.id).counts).toMatchObject({ drafts: 3, unusedDrafts: 2 });
     expect(r.groups[0].counts).toMatchObject({ drafts: 1, unusedDrafts: 1 });
@@ -129,9 +131,9 @@ describe("the projects tree", () => {
     await call("POST", "/api/folders", { name: "misc", parentId: q.folderId });
     await call("POST", "/api/timelines", { name: "SUNSET cut", project: p.id });
     await call("POST", "/api/timelines", { name: "morning", project: p.id });
-    const d = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    const d = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
     await call("PUT", `/api/drafts/${d.id}`, { name: "sunset look" });
-    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
     await item(sunset.id, 11);
 
     const r = await tree("  sunset ");
@@ -155,7 +157,7 @@ describe("the projects tree", () => {
   it("moves a draft to another project or the Inbox, and nothing else with it", async () => {
     const p = await call("POST", "/api/projects", { name: "P" });
     const q = await call("POST", "/api/projects", { name: "Q" });
-    const d = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    const d = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
     const tl = await call("POST", "/api/timelines", { name: "stays", project: p.id });
     expect((await call("PUT", `/api/drafts/${d.id}`, { project: q.id })).projectId).toBe(q.id);
     let r = await tree();

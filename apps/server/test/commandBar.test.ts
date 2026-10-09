@@ -79,7 +79,8 @@ describe("the command bar's index", () => {
     expect(of(loose.id)).toMatchObject({ kind: "folder", project: null, items: 1 });
     expect(of(tl.id)).toMatchObject({ kind: "timeline", label: "Harbor cut", project: harbor.id, clips: 0, durationMs: 0, plannedMs: 0, exported: false, unusedTakes: 0, unusedBytes: 0 });
     expect(of(named.id)).toMatchObject({ kind: "draft", label: "Night market", project: harbor.id, recipe: "sdxl.text-to-picture", renders: 2 });
-    expect(of(blank.id)).toMatchObject({ kind: "draft", label: "No prompt yet", project: null, renders: 0 });
+    // a blank draft is not written, so it is nowhere to be found
+    expect(of(blank.id)).toBeUndefined();
     for (const e of entries) expect(typeof e.updatedAt).toBe("string");
   });
 

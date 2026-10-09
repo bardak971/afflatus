@@ -37,8 +37,8 @@ describe("projects", () => {
     const p = await call("POST", "/api/projects", { name: "P" });
     const q = await call("POST", "/api/projects", { name: "Q" });
     // a draft and a timeline in P, one of each in the Inbox
-    const dp = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
-    const d0 = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img" });
+    const dp = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
+    const d0 = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", forms: { "sdxl.txt2img": { prompt: "x" } } });
     const tp = await call("POST", "/api/timelines", { name: "In P", project: p.id });
     const t0 = await call("POST", "/api/timelines", { name: "Loose" });
     expect(tp.projectId).toBe(p.id);
@@ -104,7 +104,7 @@ describe("projects", () => {
 
   it("is archived and unarchived, and deleting it sends its things to the Inbox", async () => {
     const p = await call("POST", "/api/projects", { name: "Gone" });
-    const d = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    const d = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
     const tl = await call("POST", "/api/timelines", { name: "T", project: p.id });
     const arch = await call("PATCH", `/api/projects/${p.id}`, { archived: true });
     expect(arch.archivedAt).toBeTruthy();

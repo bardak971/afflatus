@@ -7,6 +7,7 @@ import { httpError } from "./errors";
 import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
 import { unusedSize, unusedTakes } from "./timelineUnused";
+import { findDraft } from "./drafts";
 
 /**
  * The command bar's side of the server (docs/command-bar.md): everything the bar can find in one small answer, a render
@@ -157,7 +158,7 @@ export async function commandEstimate(s: Services, raw: unknown): Promise<Comman
       forms.push({ recipe: recipe.id, input, times: 1 });
     }
   } else {
-    const d = await s.db.selectFrom("drafts").select(["recipe_id", "forms", "count"]).where("id", "=", q.draft!).executeTakeFirst();
+    const d = await findDraft(s.db, q.draft!);
     if (!d) throw httpError("this draft was not found", 404);
     const all = JSON.parse(d.forms) as Record<string, Record<string, unknown>>;
     forms.push({ recipe: d.recipe_id, input: all[d.recipe_id] ?? {}, times: Math.max(1, d.count) });

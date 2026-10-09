@@ -98,10 +98,15 @@ describe("thumbnails", () => {
   it("give each draft in the list its newest output and their count; unused drafts are counted and cleared, never the open one", async () => {
     const made = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "a harbor walk" } } })).json();
     const a = await render(made.id);
-    // settings picked, nothing written, nothing made: unused (the open one is kept when clearing)
-    const bare = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { steps: 30 } } })).json();
-    const open = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { steps: 20 } } })).json();
-    const named = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { steps: 20 } } })).json();
+    // written once, then its prompt rubbed out, nothing made: unused (the open one is kept when clearing)
+    const emptied = async (steps: number) => {
+      const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "for now" } } })).json();
+      await put(`/api/drafts/${d.id}`, { forms: { [RECIPE]: { steps } } });
+      return d;
+    };
+    const bare = await emptied(30);
+    const open = await emptied(20);
+    const named = await emptied(20);
     await put(`/api/drafts/${named.id}`, { name: "Kept by its name" });
 
     const list = (await get(t.app, "/api/drafts")).json();
@@ -122,8 +127,13 @@ describe("thumbnails", () => {
 
   it("clears the unused drafts of one project, or of the Inbox, and no other", async () => {
     const p = (await post(t.app, "/api/projects", { name: "Elsewhere" })).json();
-    const inProject = (await post(t.app, "/api/drafts", { recipe: RECIPE, project: p.id })).json();
-    const inInbox = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+    const emptied = async (project?: string) => {
+      const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "for now" } }, project })).json();
+      await put(`/api/drafts/${d.id}`, { forms: { [RECIPE]: {} } });
+      return d;
+    };
+    const inProject = await emptied(p.id);
+    const inInbox = await emptied();
     expect((await post(t.app, "/api/drafts/clear-unused", { project: "none" })).json()).toEqual({ deleted: 1 });
     const left = (await get(t.app, "/api/drafts")).json().items.map((d: { id: string }) => d.id);
     expect(left).toContain(inProject.id);
@@ -167,10 +177,15 @@ describe("thumbnails", () => {
   });
 });
 
-describe("drafts nothing was done in, left alone", () => {
-  it("are thrown away by the server once they are old, never while just opened (in another tab, on another device)", async () => {
-    const fresh = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
-    const old = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+describe("drafts emptied, left alone", () => {
+  it("are thrown away by the server once they are old, never while just opened (in another tab, on another device), never when something was made from them", async () => {
+    const emptied = async () => {
+      const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "for now" } } })).json();
+      await put(`/api/drafts/${d.id}`, { forms: { [RECIPE]: { steps: 30 } } });
+      return d;
+    };
+    const fresh = await emptied();
+    const old = await emptied();
     const worked = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "kept" } } })).json();
     const long = new Date(Date.now() - IDLE_DRAFT_MS - 60_000).toISOString();
     await t.db.updateTable("drafts").set({ updated_at: long }).where("id", "in", [old.id, worked.id]).execute();
@@ -184,22 +199,38 @@ describe("drafts nothing was done in, left alone", () => {
   });
 });
 
-describe("a draft nothing was done in", () => {
-  it("says so in the list, until something is set, someone is in it, or it is named", async () => {
-    const t = await makeApp();
-    try {
-      const made = (await post(t.app, "/api/drafts", { recipe: "sdxl.text-to-picture" })).json();
-      const listed = async () => (await get(t.app, "/api/drafts")).json().items.find((d: { id: string }) => d.id === made.id);
-      const put = (payload: unknown) => t.app.inject({ method: "PUT", url: `/api/drafts/${made.id}`, payload: payload as object });
-      expect((await listed()).empty).toBe(true);
-      await put({ forms: { "sdxl.text-to-picture": {} } });
-      expect((await listed()).empty).toBe(true);
-      await put({ forms: { "sdxl.text-to-picture": { steps: 30 } } });
-      expect((await listed()).empty).toBe(false);
-      await put({ forms: { "sdxl.text-to-picture": {} }, name: "Kept for later" });
-      expect((await listed()).empty).toBe(false);
-    } finally {
-      await t.close();
-    }
+describe("a draft that holds nothing yet", () => {
+  it("is not written: never listed or counted, until something worth keeping is put in it; settings alone are not", async () => {
+    const made = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+    const listed = async () => (await get(t.app, "/api/drafts")).json().items.find((d: { id: string }) => d.id === made.id);
+    const save = (payload: unknown) => put(`/api/drafts/${made.id}`, payload);
+    // the page can still open it and save into it, by its id
+    expect((await get(t.app, `/api/drafts/${made.id}`)).json()).toMatchObject({ id: made.id, title: "" });
+    expect(await listed()).toBeUndefined();
+    expect((await save({ forms: { [RECIPE]: { steps: 30, size: { width: 1024, height: 1024 } } } })).json()).toMatchObject({ forms: { [RECIPE]: { steps: 30 } } });
+    expect(await listed()).toBeUndefined();
+    expect(await t.db.selectFrom("drafts").select("id").where("id", "=", made.id).executeTakeFirst()).toBeUndefined();
+    // something written: it is written, under the same id, with what it held
+    await save({ forms: { [RECIPE]: { steps: 30, prompt: "a lighthouse in a storm" } } });
+    expect(await listed()).toMatchObject({ title: "a lighthouse in a storm" });
+    expect((await get(t.app, `/api/drafts/${made.id}`)).json().forms[RECIPE]).toMatchObject({ steps: 30 });
+  });
+
+  it("is written by a name, someone from the kit, or a render sent from it; deleted, it is gone", async () => {
+    const blank = async () => (await post(t.app, "/api/drafts", { recipe: RECIPE })).json() as { id: string };
+    const written = async (id: string) => Boolean(await t.db.selectFrom("drafts").select("id").where("id", "=", id).executeTakeFirst());
+    const named = await blank();
+    await put(`/api/drafts/${named.id}`, { name: "For later" });
+    expect(await written(named.id)).toBe(true);
+    const person = (await post(t.app, "/api/entities", { kind: "person", name: "Mara" })).json();
+    const cast = await blank();
+    await put(`/api/drafts/${cast.id}`, { look: { cast: [{ id: person.id }], snippets: [] } });
+    expect(await written(cast.id)).toBe(true);
+    const sent = await blank();
+    expect((await post(t.app, "/api/jobs", { ...job({ prompt: "sent at once" }), draft: sent.id })).statusCode).toBe(200);
+    expect(await written(sent.id)).toBe(true);
+    const left = await blank();
+    expect((await t.app.inject({ method: "DELETE", url: `/api/drafts/${left.id}` })).statusCode).toBe(200);
+    expect((await get(t.app, `/api/drafts/${left.id}`)).statusCode).toBe(404);
   });
 });

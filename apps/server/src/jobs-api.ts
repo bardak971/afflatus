@@ -4,6 +4,7 @@ import { z } from "zod";
 import { compose, lookSchema } from "./entities";
 import { notFound } from "./errors";
 import type { Services } from "./services";
+import { writeDraft } from "./drafts";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
@@ -46,6 +47,8 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     const recipe = s.registry.recipe(body.recipe);
     const ids: string[] = [];
     const seed = typedSeed(body.input.seed);
+    // sent from a blank draft: it is written now, so that what comes out is filed under it
+    if (body.draft) await writeDraft(s.db, body.draft);
     for (let i = 0; i < body.count; i++) {
       // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
       const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;

@@ -60,17 +60,69 @@ function holdsNothing(d: Tables["drafts"]): boolean {
   return Object.values(JSON.parse(d.forms) as Record<string, Record<string, unknown>>).every((form) => Object.keys(form).length === 0);
 }
 
+/** The inputs that are a form's content (what it is about); the others are its settings (model, size, steps, seed...). */
+const CONTENT = new Set(["prompt", "image", "clip", "references", "audio"]);
+const filled = (v: unknown) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
+
 /**
- * A draft nothing was done in, left alone this long, is thrown away: a "New draft" that was left at once.
- * By its age alone, on the server: a draft just opened in another tab or on another device is never taken.
+ * Worth keeping: a name, a conversation, someone or a style from the kit, or content in a form (something written,
+ * a picture, a clip, a sound). Settings alone are not: they are remembered per model anyway. A form of a recipe that
+ * is not known (any more) counts as content when it holds anything.
+ */
+function holdsSomething(registry: Services["registry"], d: Tables["drafts"]): boolean {
+  if (d.name || (d.chat && d.chat !== "[]")) return true;
+  if (!emptyLook(d.look ? (JSON.parse(d.look) as Look) : null)) return true;
+  return Object.entries(JSON.parse(d.forms) as Record<string, Record<string, unknown>>).some(([recipeId, values]) => {
+    const inputs = registry.recipe(recipeId)?.inputs as Array<{ id: string; type: string }> | undefined;
+    return Object.entries(values).some(([id, v]) => filled(v) && (!inputs || CONTENT.has(inputs.find((x) => x.id === id)?.type ?? "")));
+  });
+}
+
+/**
+ * Drafts that hold nothing yet (a blank form, "New draft") are kept in memory, never written: so never listed,
+ * counted, searched or left behind. The first thing worth keeping put in one (see holdsSomething), or a render sent
+ * from it, writes it under the same id. Per database (tests run several at once); a restart forgets them, with
+ * nothing in them to lose.
+ */
+const unwritten = new WeakMap<Db, Map<string, Tables["drafts"]>>();
+const unwrittenOf = (db: Db) => {
+  let m = unwritten.get(db);
+  if (!m) unwritten.set(db, (m = new Map()));
+  return m;
+};
+/** More than any number of tabs would leave open; the oldest go first. */
+const UNWRITTEN_MAX = 200;
+
+/** A draft by id, written or not yet; undefined when there is none. */
+export async function findDraft(db: Db, id: string): Promise<Tables["drafts"] | undefined> {
+  return (await db.selectFrom("drafts").selectAll().where("id", "=", id).executeTakeFirst()) ?? unwrittenOf(db).get(id);
+}
+
+/** A render is sent from a draft not written yet: it is written now, so that what comes out is filed under it. */
+export async function writeDraft(db: Db, id: string): Promise<void> {
+  const m = unwrittenOf(db);
+  const d = m.get(id);
+  if (!d) return;
+  m.delete(id);
+  await db.insertInto("drafts").values({ ...d, updated_at: now() }).execute();
+}
+
+/**
+ * A draft that holds nothing worth keeping, left alone this long, is thrown away: written ones from before drafts
+ * waited to hold something, or emptied since, when nothing was ever made from them; and the unwritten ones. By its
+ * age alone: a draft just opened in another tab or on another device is never taken.
  */
 export const IDLE_DRAFT_MS = 30 * 60_000;
 
-/** The drafts nothing was done in and nobody touched for `IDLE_DRAFT_MS`, deleted. */
-export async function sweepIdleDrafts(db: Db, at = Date.now()): Promise<number> {
+/** The drafts not worth keeping and nobody touched for `IDLE_DRAFT_MS`, deleted. */
+export async function sweepIdleDrafts(db: Db, registry: Services["registry"], at = Date.now()): Promise<number> {
   const before = new Date(at - IDLE_DRAFT_MS).toISOString();
-  const old = await db.selectFrom("drafts").selectAll().where("target", "=", "new").where("name", "is", null).where("updated_at", "<", before).execute();
-  const idle = old.filter(holdsNothing).map((d) => d.id);
+  const m = unwrittenOf(db);
+  for (const [id, d] of m) if (d.updated_at < before) m.delete(id);
+  const old = (await db.selectFrom("drafts").selectAll().where("target", "=", "new").where("name", "is", null).where("updated_at", "<", before).execute()).filter((d) => !holdsSomething(registry, d));
+  if (!old.length) return 0;
+  const made = new Set((await db.selectFrom("generations").select("draft_id").where("draft_id", "in", old.map((d) => d.id)).execute()).map((g) => g.draft_id));
+  const idle = old.filter((d) => !made.has(d.id)).map((d) => d.id);
   if (idle.length) await db.deleteFrom("drafts").where("id", "in", idle).execute();
   return idle.length;
 }
@@ -101,10 +153,11 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
   const notFound = () => httpError("this draft was not found", 404);
   const tooBig = () => httpError("this draft is too large to save", 413);
   const get = async (id: string) => {
-    const d = await s.db.selectFrom("drafts").selectAll().where("id", "=", id).executeTakeFirst();
+    const d = await findDraft(s.db, id);
     if (!d) throw notFound();
     return d;
   };
+  const pending = unwrittenOf(s.db);
 
   /**
    * `project`: only the drafts of that project; "none": the Inbox; left out: all. Each with its newest output (the
@@ -113,7 +166,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
    */
   app.get("/api/drafts", async (req) => {
     const { project, limit } = z.object({ project: z.string().optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query);
-    await sweepIdleDrafts(s.db);
+    await sweepIdleDrafts(s.db, s.registry);
     const rows = await inProject(s.db, project).orderBy("updated_at", "desc").limit(limit ?? LIST_LIMIT).execute();
     const outputs = rows.length
       ? await s.db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
@@ -155,7 +208,11 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
       id: newId(), owner_id: OWNER, target: body.target, recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
       name: null, forms: json, count: body.count, chat: null, look: body.look ? JSON.stringify(body.look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
     };
-    await s.db.insertInto("drafts").values(row).execute();
+    if (holdsSomething(s.registry, row)) await s.db.insertInto("drafts").values(row).execute();
+    else {
+      pending.set(row.id, row);
+      if (pending.size > UNWRITTEN_MAX) pending.delete(pending.keys().next().value!);
+    }
     return full(row);
   });
 
@@ -179,12 +236,18 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
       ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),
       ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),
     };
-    await s.db.updateTable("drafts").set(next).where("id", "=", current.id).execute();
-    return full({ ...current, ...next });
+    const saved = { ...current, ...next };
+    if (!pending.has(current.id)) await s.db.updateTable("drafts").set(next).where("id", "=", current.id).execute();
+    else if (holdsSomething(s.registry, saved)) {
+      pending.delete(current.id);
+      await s.db.insertInto("drafts").values(saved).execute();
+    } else pending.set(current.id, saved);
+    return full(saved);
   });
 
   app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
     await get(req.params.id);
+    pending.delete(req.params.id);
     await s.db.deleteFrom("drafts").where("id", "=", req.params.id).execute();
     return { ok: true };
   });
