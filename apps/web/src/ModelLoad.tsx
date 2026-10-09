@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Folder, MemoryStick } from "lucide-react";
+import { Folder } from "lucide-react";
 import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
 import { useQueue } from "./data";
@@ -70,17 +70,24 @@ export function ResultsPlace({ folder }: { folder: { name: string; path: string 
   return null;
 }
 
+/** A quiet piece of the strip: grey, a wash under it on hover. Shrinks (its name truncated) when the strip is short of room. */
+export const stripGhost = "inline-flex h-7 items-center gap-1.5 rounded-[9px] px-2 whitespace-nowrap text-ink-2 hover:bg-raised";
+/** The model's light in the strip: green when it is what renders next, grey otherwise. */
+const Light = ({ on }: { on: boolean }) => <span className={cx("size-[7px] shrink-0 rounded-full", on ? "bg-good" : "bg-ink-3")} />;
+/** A model name in the strip: the first thing to go when the strip is short of room (its light and tip stay). */
+const nameClass = "min-w-0 truncate max-xl:hidden";
+
 /** In the strip: where the results of the form on screen go. */
 export function StripPlace() {
   const place = useStrip((s) => s.place);
   if (!place) return null;
   return (
     <span
-      className="flex min-w-0 items-center gap-1.5 text-ink-2"
+      className={cx(stripGhost, "min-w-0 hover:bg-transparent")}
       data-tip={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in this folder. Kept outputs become files in ${place.path}` : "Outputs land in this folder: the one that is open, or the project's root."}
     >
       <Folder size={13} className="shrink-0" />
-      {place === "unfiled" ? <span>Output: <span className="font-semibold text-ink">Inbox</span></span> : <span className="max-w-64 truncate">Output: <span className="font-semibold text-ink">{place.name}</span></span>}
+      <span className="max-w-48 truncate font-semibold text-ink">{place === "unfiled" ? "Inbox" : place.name}</span>
     </span>
   );
 }
@@ -103,16 +110,16 @@ function Held({ name, sure = true }: { name: string | null; sure?: boolean }) {
   if (!name) return null;
   if (!sure) {
     return (
-      <span className="flex min-w-0 items-center gap-1.5 text-ink-2" data-tip={`${name}: the model ComfyUI has loaded. Whether this form renders with it cannot be told until the form is complete (a picture where one is needed).`}>
-        <MemoryStick size={13} className="shrink-0" />
-        <span className="max-w-72 truncate">{name}</span>
+      <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`${name}: the model ComfyUI has loaded. Whether this form renders with it cannot be told until the form is complete (a picture where one is needed).`}>
+        <Light on={false} />
+        <span className={cx("max-w-60", nameClass)}>{name}</span>
       </span>
     );
   }
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-ink-2" data-tip={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
-      <MemoryStick size={13} className="shrink-0 text-good" />
-      <span className="max-w-72 truncate">{name}</span>
+    <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
+      <Light on />
+      <span className={cx("max-w-60", nameClass)}>{name}</span>
     </span>
   );
 }
@@ -151,14 +158,14 @@ function OfForm({ recipe, input, look }: OpenForm) {
   if (!running && !waiting && (state === undefined || state === null) && !load.isError) return <Held name={held} sure={false} />;
   if (!running && !waiting && state) {
     return held ? <Held name={held} /> : (
-      <span className="flex items-center gap-1.5 text-ink-2" data-tip="This form's model is what ComfyUI has loaded: the render starts sampling at once.">
-        <MemoryStick size={13} className="shrink-0 text-good" /> Model loaded
+      <span className={cx(stripGhost, "hover:bg-transparent")} data-tip="This form's model is what ComfyUI has loaded: the render starts sampling at once.">
+        <Light on /> Model loaded
       </span>
     );
   }
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-ink-2">
-      <MemoryStick size={13} className="shrink-0" />
+    <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")}>
+      <Light on={false} />
       {running || waiting ? (
         <>
           <span className="truncate">{running ? "Loading model…" : "Model load queued"}</span>
@@ -167,16 +174,16 @@ function OfForm({ recipe, input, look }: OpenForm) {
       ) : (
         <>
           <span className="flex min-w-0 items-center gap-1" data-tip={held ? `${held} is the model ComfyUI has loaded. This form renders with another model.` : "ComfyUI has no model loaded by Afflatus."}>
-            {held ? <><span className="max-w-56 truncate">{held}</span><span className="shrink-0">loaded, not this form's model</span></> : "Model not loaded"}
+            {held ? <><span className={cx("max-w-56", nameClass)}>{held}</span><span className="shrink-0">· not this form's</span></> : "Model not loaded"}
           </span>
           <button
             type="button"
-            className={cx("shrink-0 font-semibold text-ink underline disabled:text-ink-3 disabled:no-underline")}
+            className="shrink-0 font-bold text-accent hover:underline disabled:text-ink-3 disabled:no-underline"
             data-tip="Load this form's checkpoint (or diffusion model, text encoder and VAE) into VRAM now, while you write. One step is run and nothing is saved; the render then starts at once."
             disabled={load.isPending}
             onClick={() => load.mutate()}
           >
-            Load model
+            Load
           </button>
         </>
       )}

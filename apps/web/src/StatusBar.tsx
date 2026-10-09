@@ -1,0 +1,206 @@
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Download } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { api, type Job, type QueueStatus, type RunningJob } from "./api";
+import { useAsset, useQueue } from "./data";
+import { useDownloads } from "./GetFile";
+import { about, elapsed, gb, phaseLabel, when } from "./format";
+import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
+import { useSystem } from "./store";
+import { cx } from "./ui";
+
+// the viewer is fetched the first time the last result is opened from here
+const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
+
+/** A number of the strip in the room of three digits. */
+const pad = (n: number) => String(Math.round(n)).padStart(3, " ");
+
+const pill = "relative inline-flex h-7 items-center gap-2 overflow-hidden rounded-[9px] bg-raised px-2.5 whitespace-nowrap";
+const dot = "size-[7px] shrink-0 rounded-full";
+const Sep = () => <span className="h-[18px] w-px shrink-0 bg-line" />;
+
+/** The strip at the bottom of every screen: on the left the one thing that matters now, on the right where outputs go, the model and the GPU. */
+export function StatusBar() {
+  const queue = useQueue();
+  const q = queue.data;
+  const load = useSystem((s) => s.load);
+  const gpu = load?.gpus[0];
+  const cpu = load?.cpu;
+  const ram = load?.ram;
+  const run = q?.running ?? null;
+  // a clock that ticks: every second while something runs (its elapsed time), every half minute otherwise ("finished 2 min ago")
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), run ? 1000 : 30_000);
+    return () => clearInterval(t);
+  }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a model being fetched into ComfyUI goes on whatever screen is open: it is said here, with the way to it
+  const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
+  const waiting = q?.waiting.length ?? 0;
+  return (
+    <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
+      {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={q?.recent.find((j) => j.status === "done") ?? null} />}
+      {run && q?.paused ? <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
+        <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
+      )}
+      {fetching.length > 0 && (
+        <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
+          <Download size={13} className="shrink-0" />
+          <span className="truncate">{fetching.length === 1 ? fetching[0]!.file.split(/[\\/]/).pop() : `${fetching.length} files`}</span>
+          {fetching.length === 1 && fetching[0]!.total > 0 && <span className="font-mono whitespace-pre">{pad(Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100))} %</span>}
+        </Link>
+      )}
+      <span className="grow" />
+      <StripPlace />
+      <StripModel />
+      {gpu && (
+        // every number keeps the room of three digits: what is beside it does not move when they change
+        <>
+          <Sep />
+          {/* the CPU only while it is busy: otherwise its figure is in the GPU meter's tip */}
+          {cpu !== undefined && cpu >= 70 && <Meter label="CPU" value={cpu} warn={cpu >= 90} className="max-[1440px]:hidden" />}
+          {gpu.load !== undefined && <Meter label="GPU" value={gpu.load} fill={run ? "bg-accent" : undefined} tip={cpu !== undefined ? `CPU ${Math.round(cpu)} %` : undefined} />}
+          {/* 90 %: little room left before a render spills out of VRAM */}
+          <Meter label="VRAM" value={gpu.vramPercent} warn={gpu.vramPercent >= 90} />
+          {ram && <Meter label="RAM" value={ram.percent} warn={ram.percent >= 90} tip={`System RAM: ${(ram.used / 2 ** 30).toFixed(1)} of ${gb(ram.total)}. When VRAM is full, ComfyUI moves models here; when this fills too, everything slows down.`} />}
+          {/* 80 °C: a temperature, the same for every card, not a figure of one card */}
+          {gpu.temperature !== undefined && <span className={cx("shrink-0 font-mono whitespace-pre text-ink-2", gpu.temperature >= 80 && "text-warn-ink")}>{pad(gpu.temperature)}°</span>}
+        </>
+      )}
+      <Sep />
+      <button type="button" data-tip="Keyboard shortcuts" aria-label="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className={cx(stripGhost, "shrink-0 px-1.5")}>
+        <span className="rounded border border-line-strong px-1 font-mono text-[10px]">?</span>
+      </button>
+    </footer>
+  );
+}
+
+/** A GPU figure: its name, a small bar and the number. */
+function Meter({ label, value, fill, warn, tip, className }: { label: string; value: number; fill?: string; warn?: boolean; tip?: string; className?: string }) {
+  return (
+    <span className={cx("inline-flex shrink-0 items-center gap-1.5 text-ink-2", warn && "text-warn-ink", className)} data-tip={tip}>
+      {label}
+      <span className="relative h-1 w-[26px] overflow-hidden rounded-[3px] bg-line-strong">
+        <span className={cx("absolute inset-y-0 left-0 rounded-[3px]", warn ? "bg-warn" : (fill ?? "bg-ink-2"))} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+      </span>
+      <span className="font-mono whitespace-pre">{pad(value)}</span>
+    </span>
+  );
+}
+
+const JOIN_TIP = {
+  seamless: "This clip continues the clip before's exact latent and is decoded as one piece with it: the join plays as a plain cut, the same as the whole chain decoded at once.",
+  latent: "This clip continues the clip before's exact latent (decoded on its own: the join is faded).",
+  hybrid: "This clip continues the clip before in the latent: its sound and run-up from its own latent, its picture guide from its re-encoded last frames (so a chain stays anchored to real pixels).",
+  pixels: "This clip starts beside pinned frames of the clip before (that model has no latent to continue from, or Frames was asked for).",
+} as const;
+const JOIN_WORD = { seamless: "seamless", latent: "latent", hybrid: "frames + latent", pixels: "pixel" } as const;
+
+/** A clip render's label ("Big Air · clip 2 · finish"): what it is ("Clip 2 · finish") and the timeline it is of. Any other job: its label whole. */
+export function splitLabel(job: Pick<Job, "label" | "clipId">): { what: string; of: string | null } {
+  const m = job.clipId ? /^(.*?) · (clip \d+.*)$/.exec(job.label) : null;
+  return m ? { what: m[2]!.charAt(0).toUpperCase() + m[2]!.slice(1), of: m[1]! } : { what: job.label, of: null };
+}
+
+/** What renders: one pill, its progress the line along its bottom edge. A click opens the Queue. */
+function Running({ run }: { run: RunningJob }) {
+  const { what, of } = splitLabel(run);
+  const pct = Math.round(run.progress * 100);
+  const ran = elapsed(run.startedAt ? Math.max(0, Date.now() - Date.parse(run.startedAt)) : 0);
+  const steps = run.steps ? `${String(run.step).padStart(String(run.steps).length, " ")}/${run.steps}` : null;
+  const left = run.eta ? about(run.eta).replace(/^about (.*) left$/, "~$1") : run.progress > 0 ? `${pad(pct)} %` : "working…";
+  return (
+    <>
+      <Link
+        href="/queue"
+        className={cx(pill, "min-w-0 hover:bg-hover")}
+        data-tip={`${run.progress > 0 ? `${pct} % of this render` : "No step count from this phase yet"}${run.eta ? ` · ${about(run.eta)}` : ""} · running for ${ran}`}
+      >
+        <span className="size-3 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent motion-reduce:animate-none" />
+        <span className="min-w-0 truncate font-semibold">{what}</span>
+        {/* the first thing to go when the strip is short of room */}
+        {of && <span className="max-w-48 min-w-0 truncate text-ink-2 max-[1440px]:hidden">{of}</span>}
+        {run.join && <span className="shrink-0 rounded-[5px] bg-accent-wash px-1.5 py-px text-[10.5px] font-bold text-accent" data-tip={JOIN_TIP[run.join]}>{JOIN_WORD[run.join]}</span>}
+        <Sep />
+        <span className="shrink-0 text-ink-2">{phaseLabel(run.phase)}</span>
+        {steps && <span className="shrink-0 font-mono whitespace-pre">{steps}</span>}
+        <span className="shrink-0 font-mono whitespace-pre text-ink-2">· {left}</span>
+        <span className={cx("absolute bottom-0 left-0 h-0.5 bg-accent transition-[width] motion-reduce:transition-none", !run.progress && "animate-pulse opacity-40")} style={{ width: `${run.progress > 0 ? Math.min(100, run.progress * 100) : 100}%` }} />
+      </Link>
+      {run.spilling && <span className="shrink-0 rounded-[5px] bg-warn-wash px-1.5 py-px font-semibold whitespace-nowrap text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together.">spilling out of VRAM</span>}
+    </>
+  );
+}
+
+/** ComfyUI does not answer: what waits, and a way to ask it again now. */
+function Offline({ q }: { q: QueueStatus }) {
+  const client = useQueryClient();
+  const retry = useMutation({
+    // the Settings test (it reads ComfyUI again), then the queue asked to look now rather than at its next try (a paused queue stays paused)
+    mutationFn: async () => {
+      const scan = await api.rescanSetup();
+      client.setQueryData(["setup"], scan);
+      if (!q.paused) await api.resume();
+    },
+    onSettled: () => void client.invalidateQueries({ queryKey: ["queue"] }),
+  });
+  return (
+    <span className={cx(pill, "shrink-0 bg-warn-wash text-warn-ink")} data-tip={`ComfyUI has not answered for ${elapsed(q.offlineForMs)}: queued jobs wait for it. Its address is in Settings › ComfyUI.`}>
+      <span className={cx(dot, "bg-warn")} />
+      <span className="font-semibold">ComfyUI offline</span>
+      {q.waiting.length > 0 && <span className="opacity-80">· {q.waiting.length} waiting</span>}
+      <button type="button" className="font-bold underline disabled:opacity-60" disabled={retry.isPending} onClick={() => retry.mutate()} data-tip="Ask ComfyUI again now">
+        {retry.isPending ? "Retrying…" : "Retry"}
+      </button>
+    </span>
+  );
+}
+
+/** The queue is paused: what waits, and the Queue screen's Resume. */
+function Paused({ waiting }: { waiting: number }) {
+  const client = useQueryClient();
+  const resume = useMutation({ mutationFn: api.resume, onSuccess: () => void client.invalidateQueries({ queryKey: ["queue"] }) });
+  return (
+    <span className={cx(pill, "shrink-0")} data-tip="Paused. The running render finishes, then nothing new goes to ComfyUI until you resume.">
+      <span className={cx(dot, "bg-warn")} />
+      <span className="font-semibold">Queue paused</span>
+      {waiting > 0 && <span className="text-ink-2">· {waiting} waiting</span>}
+      <button type="button" className="font-bold text-accent hover:underline disabled:opacity-60" disabled={resume.isPending} onClick={() => resume.mutate()} data-tip="Send what waits to ComfyUI again">Resume</button>
+    </span>
+  );
+}
+
+/** Nothing renders: said so, with the last thing that finished (opened in the viewer when it made something still in the library). */
+function Idle({ last }: { last: Job | null }) {
+  const [, go] = useLocation();
+  const [open, setOpen] = useState<string | null>(null);
+  const asset = useAsset(open);
+  // what it made is not in the queue's figures: asked for on the click alone
+  const show = useMutation({
+    mutationFn: async (job: Job) => (await api.jobs({ status: "done", limit: 10 })).items.find((j) => j.id === job.id)?.made.find((m) => !m.inBin)?.id ?? null,
+    onSuccess: (id) => (id ? setOpen(id) : go("/queue")),
+    onError: () => go("/queue"),
+  });
+  let said: ReactNode = null;
+  if (last) {
+    const { what, of } = splitLabel(last);
+    said = (
+      <button type="button" className={cx(stripGhost, "min-w-0")} disabled={show.isPending} onClick={() => show.mutate(last)} data-tip="Open the last finished render">
+        <span className="shrink-0">last:</span>
+        <span className="min-w-0 truncate font-semibold text-ink">{of ? `${of} · ${what}` : what}</span>
+        {last.finishedAt && <span className="shrink-0">· finished {when(last.finishedAt)}</span>}
+      </button>
+    );
+  }
+  return (
+    <>
+      <span className="inline-flex h-7 shrink-0 items-center gap-1.5 pl-0.5 text-ink-2">
+        <span className={cx(dot, "bg-ink-3")} />
+        Idle
+      </span>
+      {said}
+      {asset.data && <Suspense fallback={null}><Viewer asset={asset.data} onClose={() => setOpen(null)} /></Suspense>}
+    </>
+  );
+}
