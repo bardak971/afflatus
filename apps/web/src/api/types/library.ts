@@ -115,7 +115,10 @@ export interface TreeGroup {
   archived: boolean;
   /** Where its things land; null for the Inbox, and for a project that has none. Not a node of the tree: the project's row stands for it. */
   rootFolderId: string | null;
-  counts: { drafts: number; timelines: number; items: number };
+  /** When the project was made; null for the Inbox. Left out by an older server. */
+  createdAt?: string | null;
+  /** `unusedDrafts`: of its drafts, those with no prompt, no name and nothing made from them (what "Clear" deletes). */
+  counts: { drafts: number; unusedDrafts?: number; timelines: number; items: number };
   bytes: number;
   /** The children of its root folder (and folders of it left without a parent). */
   folders: FolderNode[];
@@ -137,6 +140,7 @@ export interface FolderNode {
   items: number;
   totalItems: number;
   bytes: number;
+  createdAt?: string;
   children: FolderNode[];
 }
 export interface TimelineLeaf {
@@ -145,4 +149,8 @@ export interface TimelineLeaf {
   unusedTakes: number; unusedBytes: number;
   createdAt: string; updatedAt: string;
 }
-export interface DraftLeaf { id: string; title: string; name: string | null; recipe: string; createdAt?: string; updatedAt: string }
+export interface DraftLeaf {
+  id: string; title: string; name: string | null; recipe: string; createdAt?: string; updatedAt: string;
+  /** Read from the drafts list, not the tree's search: its renders in the library and their size; no prompt, no name, nothing made from it. */
+  outputs?: number; bytes?: number; unused?: boolean;
+}

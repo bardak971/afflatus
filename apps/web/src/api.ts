@@ -288,8 +288,10 @@ export const api = {
   },
   /** Its root folder: that folder of it, or (without one) a new folder named after it. */
   setProjectRoot: (id: string, folderId?: string) => call<Project>("POST", `/projects/${id}/root`, folderId ? { folderId } : {}),
-  /** The drafts of one project (null: the Inbox), whatever project the app looks at. */
-  draftsOf: (project: string | null, o?: Asked) => call<{ items: DraftBrief[] }>("GET", `/drafts?project=${encodeURIComponent(project ?? "none")}`, undefined, o?.signal),
+  /** The drafts of one project (null: the Inbox), whatever project the app looks at: all of them, not only the recent ones. */
+  draftsOf: (project: string | null, o?: Asked) => call<{ items: DraftBrief[]; unused: number }>("GET", `/drafts?project=${encodeURIComponent(project ?? "none")}&limit=1000`, undefined, o?.signal),
+  /** The unused drafts of one project (null: the Inbox) deleted, but the open one. */
+  clearUnusedDraftsOf: (project: string | null, keep?: string) => call<{ deleted: number }>("POST", "/drafts/clear-unused", { project: project ?? "none", keep }),
   /** A draft taken to another project (null: the Inbox); nothing else moves with it. */
   moveDraft: (id: string, project: string | null) => call<Draft>("PUT", `/drafts/${id}`, { project }),
   editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),

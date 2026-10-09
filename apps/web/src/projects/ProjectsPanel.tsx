@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, 
 import { createPortal } from "react-dom";
 import { keepPreviousData, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, ChevronRight, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, FolderSymlink, Globe, Inbox, Link2, List, Music, RefreshCw, Unlink, PenLine, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, ChevronRight, CircleDashed, Eraser, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, FolderSymlink, Globe, Inbox, Link2, List, Music, RefreshCw, Unlink, PenLine, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, thumbUrl, type Asset, type DraftLeaf } from "../api";
 import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../ContextMenu";
 import { DRAFT_LIST, useFolders, useProjects, useProjectsTree, useRecipes, useStorage } from "../data";
-import { recipeLabel, size, when } from "../format";
+import { recipeLabel, size } from "../format";
 import { useProject } from "../project";
 import { useHandover, useOpenDraft, useStudio } from "../store";
 import { cx, ErrorNote, Help, Segmented } from "../ui";
@@ -37,8 +37,8 @@ const readSort = (): Sort => {
     return DEFAULT_SORT;
   }
 };
-/** The columns of a row: the name (and what it holds, at its right), when it was made, its size. */
-const COLUMNS = "grid-cols-[minmax(0,1fr)_minmax(0,270px)_76px_64px]";
+/** The columns of every row, under their heads: Name · Holds · Created · Size. */
+const COLUMNS = "grid-cols-[minmax(160px,1fr)_minmax(0,300px)_84px_72px]";
 const readFolds = (): Record<string, boolean> => {
   try {
     const v = JSON.parse(localStorage.getItem(FOLDS) ?? "{}") as unknown;
@@ -53,7 +53,7 @@ const ITEMS_PAGE = 50;
 /** Something open over the panel that keeps its own keys and clicks: a menu, a dialog. */
 const OVER = "[role=menu], [role=dialog][aria-modal=true]";
 const HELP =
-  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click All, the Inbox or a project to work in it (the library, the drafts and the timelines then show its own); click a folder, a timeline or a draft to open it. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click a column header to sort each level by it, again to reverse it: folders stay first.";
+  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click All, the Inbox or a project to work in it (the library, the drafts and the timelines then show its own); click a folder, a timeline or a draft to open it. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click Name, Created or Size to sort each level by it, again to reverse it: folders stay first. Drafts with no prompt, no name and nothing rendered fold into one row of empty drafts; its Clear deletes them (the open draft stays).";
 
 const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
   all: { icon: <Globe size={16} />, tone: "text-ink-2" },
@@ -65,7 +65,8 @@ const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
   bin: { icon: <Trash2 size={16} />, tone: "text-ink-2" },
   timeline: { icon: <Film size={16} />, tone: "text-warn-ink" },
   drafts: { icon: <List size={16} />, tone: "text-ink-2" },
-  draft: { icon: <PenLine size={16} />, tone: "text-good" },
+  draft: { icon: <PenLine size={14} />, tone: "text-ink-3" },
+  empty: { icon: <CircleDashed size={14} />, tone: "text-ink-3" },
   more: { icon: null, tone: "" },
 };
 /** A folder of the disk: its own icon and colour, on it and on every folder under it. */
@@ -131,7 +132,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       const rail = anchor.current?.closest("nav")?.getBoundingClientRect().right ?? r.right;
       const left = rail + 8;
       const top = Math.max(8, r.top - 12);
-      setPlace({ left, top, width: Math.max(320, Math.min(800, window.innerWidth - left - 8)), maxHeight: Math.min(window.innerHeight * 0.8, window.innerHeight - top - 8), arrow: r.top + r.height / 2 - top });
+      // wide screens: up to 1100 px, so long names keep more of themselves; never past 80 % of the window
+      setPlace({ left, top, width: Math.max(320, Math.min(1100, Math.round(window.innerWidth * 0.8), window.innerWidth - left - 8)), maxHeight: Math.min(window.innerHeight * 0.8, window.innerHeight - top - 8), arrow: r.top + r.height / 2 - top });
     };
     at();
     window.addEventListener("resize", at);
@@ -223,7 +225,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   const [limits, setLimits] = useState<Record<string, number>>({});
   const drafts = new Map<string, DraftsRead>(
     draftGroups.map((g, i) => {
-      const items = draftReads[i]?.data?.items.filter((d) => !d.empty || d.id === openDraftId) ?? null;
+      // every one: the unused ones (the empty "New draft" among them) fold into the group's empty-drafts row
+      const items = draftReads[i]?.data?.items ?? null;
       return [draftsKey(g.id), { items, limit: limits[draftsKey(g.id)] ?? DRAFTS_PAGE }];
     }),
   );
@@ -231,7 +234,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     const r = recipes.data?.recipes.find((x) => x.id === id);
     return r ? recipeLabel(recipes.data?.families.find((f) => f.id === r.family)?.name, r.title) : id;
   };
-  const draftMeta = (d: DraftLeaf) => `${recipeName(d.recipe)} · ${when(d.updatedAt)}`;
+  const draftMeta = (d: DraftLeaf) => `${recipeName(d.recipe)}${d.outputs ? ` · ${d.outputs} render${d.outputs === 1 ? "" : "s"}` : ""}`;
   // the items of each unfolded folder that is shown, read when it opens (the folders shown do not depend on items: they come first)
   const [itemPages, setItemPages] = useState<Record<string, number>>({});
   const openFolders = useMemo(
@@ -291,7 +294,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     if (r.kind === "all") return setProject(null);
     if (r.kind === "inbox") return setProject("none");
     if (r.kind === "project") return r.archived ? toggle(r) : setProject(r.id);
-    if (r.kind === "archive" || r.kind === "drafts") return toggle(r);
+    if (r.kind === "archive" || r.kind === "drafts" || r.kind === "empty") return toggle(r);
     if (r.kind === "more") {
       const more = r.more;
       if (!more) return;
@@ -392,6 +395,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     return [...(others ? targets.map(item) : []), ...(assets && others ? ["—" as const] : []), ...(assets ? folderTargets().map(item) : [])];
   };
   const remove = (rs: Row[]) => void actions.remove(rs).then(clearPicks);
+  /** A group's empty drafts deleted, once asked; the open one stays. */
+  const clearEmpty = (r: Row) => void actions.clearEmpty(r.group, r.drafts ?? 0, groups.find((g) => g.id === r.group)?.name ?? "the Inbox", openDraftId);
   const startRename = (r: Row) => (r.kind === "project" || (r.kind === "folder" && (!r.linked || r.linkedRoot)) || r.kind === "timeline") && r.id && setRenaming({ key: r.key, name: r.label });
 
   // the right-click menus: one per kind of row, and the selection bar's "Move to"
@@ -462,6 +467,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         ];
       case "draft":
         return [{ label: "Open", key: "Enter", icon: <PenLine size={14} />, run: () => activate(r) }, moveTo, "—", del];
+      case "empty":
+        return [{ label: `Clear ${r.label}…`, icon: <Eraser size={14} />, danger: true, note: "the open one stays", run: () => clearEmpty(r) }];
       case "item": {
         const several = pickedItems();
         return itemMenu.many(several.map((x) => x.asset!), { moveTo: moveItems(several), bin: () => void actions.bin(several).then(clearPicks) });
@@ -798,10 +805,11 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         <div className={cx("sticky top-0 z-10 -mx-2 -mt-1 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", COLUMNS)}>
           {(
             [
-              { by: "name", label: "Name", align: "justify-start" },
+              { by: "name", label: "Name", end: false },
+              // what a row holds says different things for each kind of row: nothing to sort by
               null,
-              { by: "created", label: "Created", align: "justify-end" },
-              { by: "size", label: "Size", align: "justify-end" },
+              { by: "created", label: "Created", end: true },
+              { by: "size", label: "Size", end: true },
             ] as const
           ).map((c, i) =>
             c ? (
@@ -812,13 +820,14 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                 aria-label={`Sort by ${c.label.toLowerCase()}${sort.by === c.by ? (sort.desc ? ", descending" : ", ascending") : ""}`}
                 onClick={() => sortBy(c.by)}
                 onMouseDown={(e) => e.preventDefault()}
-                className={cx("flex items-center gap-0.5 uppercase hover:text-ink", c.align, sort.by === c.by && "text-ink-2")}
+                // a right-aligned head reversed (its main start is then on the right): the arrow on the far side, the word ending where the values do
+                className={cx("flex w-full items-center justify-start gap-0.5 uppercase hover:text-ink", c.end && "flex-row-reverse", sort.by === c.by && "text-ink-2")}
               >
                 {c.label}
                 {sort.by === c.by && (sort.desc ? <ArrowDown size={11} strokeWidth={2.6} /> : <ArrowUp size={11} strokeWidth={2.6} />)}
               </button>
             ) : (
-              <span key={i} />
+              <span key={i}>Holds</span>
             ),
           )}
         </div>
@@ -952,7 +961,25 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                   </button>
                 )}
               </span>
-              <span data-tip={r.path} className={cx("min-w-0 truncate text-right text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>
+              {r.kind === "empty" && refused?.key !== r.key ? (
+                <span className="flex min-w-0 items-center">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    data-tip="Delete these drafts: no prompt, no name, nothing rendered. The open one stays."
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearEmpty(r);
+                    }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="flex h-6 items-center gap-1 rounded-md px-1.5 text-xs font-semibold text-ink-2 hover:bg-hover hover:text-warn-ink"
+                  >
+                    <Eraser size={12} /> Clear
+                  </button>
+                </span>
+              ) : (
+                <span data-tip={r.path} className={cx("min-w-0 truncate text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>
+              )}
               <span data-tip={r.created ? new Date(r.created).toLocaleString("en-GB") : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
               <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">{r.bytes !== null ? size(r.bytes) : ""}</span>
             </div>
@@ -972,8 +999,6 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       )}
       <div className="flex items-center gap-3.5 border-t border-line px-4 py-2.5 text-xs text-ink-2">
         <span className="shrink-0 font-mono whitespace-nowrap text-ink">{tree.data ? `${size(tree.data.totalBytes)} in all` : ""}</span>
-        <span className="grow" />
-        <span className="truncate">Click a project to work in it · Ctrl / Shift + click to pick several · drag to move · right-click for more</span>
       </div>
       <input
         ref={picker}

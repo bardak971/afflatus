@@ -54,17 +54,29 @@ describe("the projects tree", () => {
     expect(r.totalBytes).toBe(100 + 20 + 3 + 2000 + 7 + 9);
     expect(r.groups.map((g: { name: string }) => g.name)).toEqual(["Inbox", "Alpha", "zed", "Old"]);
     const [inbox, a, z, o] = r.groups;
-    expect(inbox).toMatchObject({ id: null, kind: "inbox", archived: false, rootFolderId: null, counts: { drafts: 1, timelines: 0, items: 2 }, bytes: 16 });
-    expect(inbox.folders).toEqual([{ id: loose.id, name: "loose", linked: false, items: 1, totalItems: 1, bytes: 9, children: [] }]);
+    expect(inbox).toMatchObject({ id: null, kind: "inbox", archived: false, rootFolderId: null, createdAt: null, counts: { drafts: 1, timelines: 0, items: 2 }, bytes: 16 });
+    expect(inbox.folders).toEqual([{ id: loose.id, name: "loose", linked: false, items: 1, totalItems: 1, bytes: 9, createdAt: expect.any(String), children: [] }]);
     expect(inbox.drafts).toBeUndefined();
     // the root is the project itself: its items count in the project, its children are the top folders
-    expect(a).toMatchObject({ id: alpha.id, kind: "project", archived: false, rootFolderId: alpha.folderId, counts: { drafts: 1, timelines: 1, items: 3 }, bytes: 123 });
+    expect(a).toMatchObject({ id: alpha.id, kind: "project", archived: false, rootFolderId: alpha.folderId, createdAt: alpha.createdAt, counts: { drafts: 1, timelines: 1, items: 3 }, bytes: 123 });
     expect(a.folders.map((f: { name: string }) => f.name)).toEqual(["boards", "shots"]);
     expect(a.folders[1]).toMatchObject({ id: shots.id, items: 1, totalItems: 2, bytes: 23, children: [{ id: close.id, items: 1, totalItems: 1, bytes: 3, children: [] }] });
     expect(a.folders[0]).toMatchObject({ id: boards.id, items: 0, totalItems: 0, bytes: 0 });
     expect(a.timelines).toEqual([{ id: tl.id, name: "Cut one", folderId: alpha.folderId, clips: 0, durationMs: 0, plannedMs: 0, bytes: 0, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: expect.any(String), updatedAt: expect.any(String) }]);
     expect(z).toMatchObject({ rootFolderId: zed.folderId, folders: [], counts: { items: 0 } });
     expect(o).toMatchObject({ archived: true });
+  });
+
+  it("counts each group's unused drafts apart: no prompt, no name, nothing made from them", async () => {
+    const p = await call("POST", "/api/projects", { name: "Drafty" });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id, forms: { "sdxl.txt2img": { steps: 30 } } });
+    const named = await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: p.id });
+    await call("PUT", `/api/drafts/${named.id}`, { name: "kept by its name" });
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img" });
+    const r = await tree();
+    expect(r.groups.find((g: { id: string | null }) => g.id === p.id).counts).toMatchObject({ drafts: 3, unusedDrafts: 2 });
+    expect(r.groups[0].counts).toMatchObject({ drafts: 1, unusedDrafts: 1 });
   });
 
   it("shows a project without a root folder with its folders at the top, and gives it one", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Asset, FolderNode, ProjectsTree, TreeGroup } from "../src/api/types/library";
-import { flatten, folderMeta, pathEnd, whyRefused, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type Moving, type Target } from "../src/projects/tree";
+import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../src/api/types/library";
+import { draftLabel, flatten, folderMeta, groupMeta, pathEnd, whyRefused, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type Moving, type Target } from "../src/projects/tree";
 
 const folder = (id: string, children: FolderNode[] = [], linked = false): FolderNode => ({ id, name: id, linked, items: 1, totalItems: 1 + children.length, bytes: 2 ** 20, children });
 const group = (id: string | null, over: Partial<TreeGroup> = {}): TreeGroup => ({
@@ -350,5 +350,48 @@ describe("a folder of the disk", () => {
     // allowed, or refused for another reason: no words
     expect(whyRefused([timeline], plain)).toBeNull();
     expect(whyRefused([{ kind: "folder", id: "f", group: null, parent: null, name: "f" }], plain)).toBeNull();
+  });
+});
+
+describe("the empty drafts", () => {
+  const leaf = (id: string, over: Partial<DraftLeaf> = {}): DraftLeaf => ({ id, title: "", name: null, recipe: "r", createdAt: `2026-10-0${id.length}T00:00:00Z`, updatedAt: "", ...over });
+  const drafts = [leaf("a", { title: "a harbor", outputs: 2, bytes: 300 }), leaf("bb", { title: "dunes", bytes: 0 }), leaf("ccc", { unused: true }), leaf("dddd", { unused: true }), leaf("eeeee", { title: "", outputs: 1, bytes: 9 })];
+  const g = group("p", { counts: { drafts: 5, unusedDrafts: 2, timelines: 1, items: 4 } });
+  const rows = (open: (k: string) => boolean, sort?: { by: "name" | "created" | "size"; desc: boolean }) =>
+    flatten({ totalBytes: 1, groups: [g] }, { isOpen: open, drafts: () => ({ items: drafts, limit: 50 }), draftMeta: (d) => `Krea${d.outputs ? ` · ${d.outputs} renders` : ""}`, ...(sort ? { sort } : {}) });
+
+  it("fold into one dim row after the others; the Drafts row and the project count the used ones", () => {
+    const shown = rows((k) => k !== "e:p");
+    expect(shown.find((r) => r.key === "d:p")?.label).toBe("Drafts · 3 · 2 empty");
+    expect(groupMeta(g)).toBe("1 timeline · 3 drafts · 4 items");
+    const under = shown.filter((r) => r.parent === "d:p");
+    expect(under.map((r) => r.label)).toEqual(["Untitled draft", "dunes", "a harbor", "2 empty drafts"]);
+    expect(under.at(-1)).toMatchObject({ kind: "empty", key: "e:p", drafts: 2, dim: true, foldable: true, open: false, group: "p" });
+  });
+  it("unfold to list them, as No prompt yet", () => {
+    const open = rows(() => true).filter((r) => r.parent === "e:p");
+    expect(open.map((r) => `${r.prefix}${r.label}`)).toEqual(["      ├─ No prompt yet", "      └─ No prompt yet"]);
+    expect(open.every((r) => r.kind === "draft" && r.moving)).toBe(true);
+  });
+  it("leave the Drafts row as it was without them, and say only them when all are empty", () => {
+    expect(flatten({ totalBytes: 1, groups: [group("p", { counts: { drafts: 2, timelines: 0, items: 0 } })] }, { isOpen: (k) => k === "g:p", drafts: () => undefined }).at(-1)?.label).toBe("Drafts · 2");
+    expect(flatten({ totalBytes: 1, groups: [group("p", { counts: { drafts: 2, unusedDrafts: 2, timelines: 0, items: 0 } })] }, { isOpen: () => true, drafts: () => undefined }).find((r) => r.key === "d:p")?.label).toBe("Drafts · 2 empty");
+  });
+  it("give a draft its model and renders in Holds, their size in Size, and sort by that size", () => {
+    const all = rows(() => true);
+    expect(all.find((r) => r.key === "dr:a")).toMatchObject({ meta: "Krea · 2 renders", bytes: 300 });
+    expect(all.find((r) => r.key === "dr:bb")).toMatchObject({ meta: "Krea", bytes: null });
+    expect(rows((k) => k !== "e:p", { by: "size", desc: true }).filter((r) => r.parent === "d:p").map((r) => r.id)).toEqual(["a", "eeeee", "bb", null]);
+    expect(draftLabel(leaf("x", { name: "mine", title: "a cat" }))).toBe("mine");
+  });
+  it("give projects and folders their Created date, and sort folders by it", () => {
+    const dated: ProjectsTree = {
+      totalBytes: 1,
+      groups: [group("p", { createdAt: "2026-09-01T00:00:00Z", folders: [{ ...folder("old"), createdAt: "2026-09-02T00:00:00Z" }, { ...folder("new"), createdAt: "2026-09-05T00:00:00Z" }] })],
+    };
+    const r = flatten(dated, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: none });
+    expect(r.find((x) => x.key === "g:p")?.created).toBe("2026-09-01T00:00:00Z");
+    expect(r.filter((x) => x.kind === "folder").map((x) => x.label)).toEqual(["new", "old"]);
+    expect(flatten(dated, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: none, sort: { by: "created", desc: false } }).filter((x) => x.kind === "folder").map((x) => x.label)).toEqual(["old", "new"]);
   });
 });

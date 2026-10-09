@@ -262,6 +262,12 @@ export function useTreeActions() {
         });
       }
     },
+    /** A group's unused drafts (no prompt, no name, no conversation, nothing made from them) deleted, once asked; the open one stays. */
+    async clearEmpty(group: string | null, count: number, where: string, keep: string | null) {
+      const many = count === 1 ? "empty draft" : `${count} empty drafts`;
+      if (!(await ask({ title: `Clear the ${many} of ${where}?`, text: "Drafts with no prompt, no name and nothing rendered go, with the settings picked in them. The open draft stays.", yes: "Clear" }))) return;
+      await run(`The empty drafts of ${where} could not be cleared`, () => api.clearUnusedDraftsOf(group, keep ?? undefined));
+    },
     /** A project's root folder: that folder, or a new one named after it. */
     async setRoot(project: { id: string; name: string }, folder?: { id: string; name: string }) {
       if (await run(`${project.name} has no root folder yet`, () => api.setProjectRoot(project.id, folder?.id))) {

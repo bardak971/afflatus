@@ -75,6 +75,21 @@ export async function sweepIdleDrafts(db: Db, at = Date.now()): Promise<number> 
   return idle.length;
 }
 
+/** The drafts of a project ("none": the Inbox; left out: all). */
+const inProject = (db: Db, project: string | undefined) => {
+  let q = db.selectFrom("drafts").selectAll();
+  if (project === "none") q = q.where("project_id", "is", null);
+  else if (project) q = q.where("project_id", "=", project);
+  return q;
+};
+/** Drafts with no prompt, no name, no conversation and nothing ever made from them: settings picked and left. `keep`: never that one. */
+export async function unusedDrafts(db: Db, project?: string, keep?: string): Promise<Array<Tables["drafts"]>> {
+  const bare = (await inProject(db, project).where("title", "=", "").where("name", "is", null).execute()).filter((d) => d.id !== keep && (!d.chat || d.chat === "[]"));
+  if (!bare.length) return [];
+  const made = new Set((await db.selectFrom("generations").select("draft_id").where("draft_id", "in", bare.map((d) => d.id)).execute()).map((g) => g.draft_id));
+  return bare.filter((d) => !made.has(d.id));
+}
+
 const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, createdAt: d.created_at, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
 const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
@@ -91,52 +106,42 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     return d;
   };
 
-  /** The drafts of a project ("none": the Inbox; left out: all), newest first. */
-  const inProject = (project: string | undefined) => {
-    let q = s.db.selectFrom("drafts").selectAll();
-    if (project === "none") q = q.where("project_id", "is", null);
-    else if (project) q = q.where("project_id", "=", project);
-    return q;
-  };
-  /** Drafts with no prompt, no name, no conversation and nothing ever made from them: settings picked and left. */
-  const unusedOf = async (project: string | undefined, keep?: string) => {
-    const bare = (await inProject(project).where("title", "=", "").where("name", "is", null).execute()).filter((d) => d.id !== keep && (!d.chat || d.chat === "[]"));
-    if (!bare.length) return [];
-    const made = new Set((await s.db.selectFrom("generations").select("draft_id").where("draft_id", "in", bare.map((d) => d.id)).execute()).map((g) => g.draft_id));
-    return bare.filter((d) => !made.has(d.id));
-  };
-
   /**
    * `project`: only the drafts of that project; "none": the Inbox; left out: all. Each with its newest output (the
-   * cover) and how many it has in the library, read in one query; and how many drafts are unused (see unusedOf).
+   * cover), how many it has in the library and their size, read in one query, and whether it is unused (see unusedDrafts);
+   * and how many drafts are unused. `limit`: more than the recent ones (the projects panel lists all of a project's).
    */
   app.get("/api/drafts", async (req) => {
-    const { project } = z.object({ project: z.string().optional() }).parse(req.query);
+    const { project, limit } = z.object({ project: z.string().optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query);
     await sweepIdleDrafts(s.db);
-    const rows = await inProject(project).orderBy("updated_at", "desc").limit(LIST_LIMIT).execute();
+    const rows = await inProject(s.db, project).orderBy("updated_at", "desc").limit(limit ?? LIST_LIMIT).execute();
     const outputs = rows.length
       ? await s.db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
-        .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind"])
+        .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind", "assets.bytes as bytes"])
         .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
         .orderBy("assets.created_at", "desc").execute()
       : [];
-    const made = new Map<string, { cover: string; coverKind: "image" | "video" | "audio"; outputs: number }>();
+    const made = new Map<string, { cover: string; coverKind: "image" | "video" | "audio"; outputs: number; bytes: number }>();
     for (const o of outputs) {
       if (!o.draft) continue;
       const m = made.get(o.draft);
-      if (m) m.outputs++;
-      else made.set(o.draft, { cover: o.id, coverKind: o.kind, outputs: 1 });
+      if (m) {
+        m.outputs++;
+        m.bytes += o.bytes;
+      } else made.set(o.draft, { cover: o.id, coverKind: o.kind, outputs: 1, bytes: o.bytes });
     }
+    const unused = await unusedDrafts(s.db, project);
+    const idle = new Set(unused.map((d) => d.id));
     return {
-      items: rows.map((d) => ({ ...brief(d), cover: made.get(d.id)?.cover ?? null, coverKind: made.get(d.id)?.coverKind ?? null, outputs: made.get(d.id)?.outputs ?? 0 })),
-      unused: (await unusedOf(project)).length,
+      items: rows.map((d) => ({ ...brief(d), cover: made.get(d.id)?.cover ?? null, coverKind: made.get(d.id)?.coverKind ?? null, outputs: made.get(d.id)?.outputs ?? 0, bytes: made.get(d.id)?.bytes ?? 0, unused: idle.has(d.id) })),
+      unused: unused.length,
     };
   });
 
-  /** The unused drafts deleted (see unusedOf), but the one open (`keep`). */
+  /** The unused drafts deleted (see unusedDrafts) of a project ("none": the Inbox; left out: all), but the one open (`keep`). */
   app.post("/api/drafts/clear-unused", async (req) => {
     const { project, keep } = z.strictObject({ project: z.string().optional(), keep: z.string().optional() }).parse(req.body ?? {});
-    const gone = (await unusedOf(project, keep)).map((d) => d.id);
+    const gone = (await unusedDrafts(s.db, project, keep)).map((d) => d.id);
     if (gone.length) await s.db.deleteFrom("drafts").where("id", "in", gone).execute();
     return { deleted: gone.length };
   });

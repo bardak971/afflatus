@@ -106,14 +106,29 @@ describe("thumbnails", () => {
 
     const list = (await get(t.app, "/api/drafts")).json();
     const byId = new Map(list.items.map((d: { id: string }) => [d.id, d]));
-    expect(byId.get(made.id)).toMatchObject({ cover: a.id, coverKind: "image", outputs: 1 });
-    expect(byId.get(bare.id)).toMatchObject({ cover: null, outputs: 0 });
+    expect(byId.get(made.id)).toMatchObject({ cover: a.id, coverKind: "image", outputs: 1, bytes: a.bytes, unused: false });
+    expect(byId.get(bare.id)).toMatchObject({ cover: null, outputs: 0, bytes: 0, unused: true });
+    expect(byId.get(named.id)).toMatchObject({ unused: false });
     expect(list.unused).toBe(2);
+    // a limit reads more than the recent ones (the projects panel), never past 1000
+    expect((await get(t.app, "/api/drafts?limit=2")).json().items).toHaveLength(2);
+    expect((await get(t.app, "/api/drafts?limit=5000")).statusCode).toBe(400);
 
     expect((await post(t.app, "/api/drafts/clear-unused", { keep: open.id })).json()).toEqual({ deleted: 1 });
     const left = (await get(t.app, "/api/drafts")).json().items.map((d: { id: string }) => d.id);
     expect(left).not.toContain(bare.id);
     expect(left).toEqual(expect.arrayContaining([made.id, open.id, named.id]));
+  });
+
+  it("clears the unused drafts of one project, or of the Inbox, and no other", async () => {
+    const p = (await post(t.app, "/api/projects", { name: "Elsewhere" })).json();
+    const inProject = (await post(t.app, "/api/drafts", { recipe: RECIPE, project: p.id })).json();
+    const inInbox = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+    expect((await post(t.app, "/api/drafts/clear-unused", { project: "none" })).json()).toEqual({ deleted: 1 });
+    const left = (await get(t.app, "/api/drafts")).json().items.map((d: { id: string }) => d.id);
+    expect(left).toContain(inProject.id);
+    expect(left).not.toContain(inInbox.id);
+    expect((await post(t.app, "/api/drafts/clear-unused", { project: p.id })).json()).toEqual({ deleted: 1 });
   });
 
   it("are made when a picture is stored, small and in WebP", async () => {

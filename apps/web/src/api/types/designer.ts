@@ -17,6 +17,10 @@ export interface DraftBrief {
   cover?: string | null;
   coverKind?: "image" | "video" | "audio" | null;
   outputs?: number;
+  /** The size of those outputs. */
+  bytes?: number;
+  /** No prompt, no name, no conversation, nothing made from it: what "Clear unused" deletes. */
+  unused?: boolean;
 }
 export interface Draft extends DraftBrief {
   /** Recipe id → the values of its form. */
