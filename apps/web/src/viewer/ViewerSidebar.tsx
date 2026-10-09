@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowRightFromLine, AudioLines, ChevronDown, Clapperboard, Columns2, Copy, Download, Film, FlipHorizontal2, FlipVertical2, FolderPlus, ImageDown, Info, Mic, Plus, Scissors, Shuffle, SlidersHorizontal, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
+import { ArrowBigUp, ArrowRightFromLine, AudioLines, ChevronDown, Clapperboard, Columns2, Copy, Download, Film, FlipHorizontal2, FlipVertical2, FolderPlus, ImageDown, Info, Mic, Plus, Scissors, Shuffle, SlidersHorizontal, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
 import { isShown, RANDOM_SEED, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
@@ -16,6 +16,7 @@ import { binRange, leftOf } from "../screens/library/justify";
 import { FieldRow } from "../fields";
 import { ModelLink } from "../ModelLink";
 import { FORMATS, mb, OPS } from "./shared";
+import { SeedButton } from "./SeedButton";
 import { ViewerHeader } from "./ViewerHeader";
 import type { ViewerActions } from "./useViewerActions";
 import { copyText } from "../secureContext";
@@ -106,7 +107,7 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
 }
 
 /** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). */
-function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: { icon?: LucideIcon; label: string; k?: string; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
+function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
   return (
     <button
       type="button"
@@ -122,7 +123,7 @@ function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: 
     >
       {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", pressed ? "text-accent" : "text-ink-2")} />}
       <span className="min-w-0 grow truncate">{label}</span>
-      {k && <Kbd>{k}</Kbd>}
+      {k && <span className="shrink-0 whitespace-nowrap"><Kbd>{k}</Kbd></span>}
     </button>
   );
 }
@@ -208,7 +209,7 @@ function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>;
     <>
       {texts.map((i) => <Sent key={i.id} title={i.label} text={text(i.id)} folded={i !== main} />)}
       <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
-        {typeof g.resolved.seed === "number" && <Cell label="Seed">{g.resolved.seed}</Cell>}
+        {typeof g.resolved.seed === "number" && <Cell label="Seed"><SeedButton seed={g.resolved.seed} /></Cell>}
         {cells}
         {refs.length > 0 && <Cell label={refs.length > 1 ? "References" : "Reference"}>{[...new Set(refs.map((r) => r.role))].map((role) => { const n = refs.filter((r) => r.role === role).length; return n > 1 ? `${role} ×${n}` : role; }).join(" · ")}</Cell>}
       </div>
@@ -247,11 +248,12 @@ function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>;
  * A row of small pictures that open the item they show: under each its name (whose it is, in accent, when it is
  * a prompt-kit picture) and what it was to the render. No name: what it was, alone.
  */
-function Strip({ items, onOpen }: { items: Array<{ asset: Asset; name?: string; kit?: boolean; caption?: string }>; onOpen(asset: Asset): void }) {
+/** `crumb`: what the item is called in the trail's breadcrumb once opened (its name when none). */
+function Strip({ items, onOpen }: { items: Array<{ asset: Asset; name?: string; kit?: boolean; caption?: string; crumb?: string }>; onOpen(asset: Asset, crumb: string): void }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {items.map(({ asset, name, kit, caption }) => (
-        <button key={`${asset.id}${caption}`} type="button" onClick={() => onOpen(asset)} aria-label={`Open: ${[name, caption].filter(Boolean).join(", ") || "item"}`} data-tip={name && caption ? `${name} · ${caption}` : undefined} className="flex w-[76px] flex-col gap-0.5 text-left">
+      {items.map(({ asset, name, kit, caption, crumb }) => (
+        <button key={`${asset.id}${caption}`} type="button" onClick={() => onOpen(asset, crumb ?? name ?? "")} aria-label={`Open: ${[name, caption].filter(Boolean).join(", ") || "item"}`} data-tip={name && caption ? `${name} · ${caption}` : undefined} className="flex w-[76px] flex-col gap-0.5 text-left">
           {asset.kind === "audio"
             ? <span className="flex h-[76px] w-[76px] items-center justify-center rounded-lg border border-line bg-raised text-ink-2">Audio</span>
             : <img src={thumbUrl(asset.id)} alt="" loading="lazy" className={cx("h-[76px] w-[76px] rounded-lg border object-cover hover:border-accent", kit ? "border-accent/70" : "border-line")} />}
@@ -463,16 +465,22 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, recipe, recipes, keep, restore, leave, again, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, mirror, between, extendHere, toolFor, openTool, queued, quick, toBin, download } = acts;
+  const { a, g, recipe, recipes, keep, restore, leave, reuse, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, mirror, between, extendHere, toolFor, openTool, queued, quick, toBin, download } = acts;
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "edited" ? "Edited copy" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
   const sources = detail.data?.id === a.id ? detail.data.sources : [];
   const usedIn = detail.data?.id === a.id ? detail.data.usedIn : [];
   const kitNames = useKitNames();
+  // what each step of the trail is called in the breadcrumb: a source by its name or its role ("first frame"), a kit picture by whose it is ("Her · person")
+  const [crumbs, setCrumbs] = useState<Record<string, string>>({});
+  const stepTo = (next: Asset, crumb: string) => {
+    if (crumb) setCrumbs((c) => ({ ...c, [next.id]: crumb }));
+    setTrail([...trail, next]);
+  };
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
-      <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />
+      <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} crumbs={crumbs} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />
       <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-5 py-3.5">
         {a.inBin ? (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2.5 text-warn-ink">
@@ -493,7 +501,8 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
 
         {/* what to do with it: two columns, the item's own kind of things first */}
         <div className="grid grid-cols-2 gap-2">
-          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse parameters" k="L" onClick={() => again.mutate(g)} disabled={again.isPending} title="Open the form with the same generation parameters, as a new draft." />}
+          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · same seed" k="L" onClick={() => reuse.sameSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and the same seed, as a new draft." />}
+          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · new seed" k={<span className="inline-flex items-center"><ArrowBigUp size={10} aria-label="Shift" />L</span>} onClick={() => reuse.newSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and a new seed, as a new draft (Shift+L)." />}
           {g && recipe && <Act icon={Shuffle} label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
           {a.kind === "image" && !a.inBin && opener && <Act wide icon={Clapperboard} label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
           {a.kind === "video" && !a.inBin && carrier && <Act icon={ArrowRightFromLine} label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
@@ -506,7 +515,7 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
           {!a.inBin && <Act icon={Star} label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
           <Act icon={Download} label="Download" k="D" onClick={download} title="Download the file" />
         </div>
-        {(saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="-mt-3 text-warn-ink">{(saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
+        {(reuse.error || saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="-mt-3 text-warn-ink">{(reuse.error ?? saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
 
         {g && (
           <div className="flex flex-col gap-3">
@@ -523,17 +532,18 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
                 ...sources.map((s) => {
                   // a prompt-kit picture says whose it is; any other, its own name
                   const kit = kitNames.get(s.asset.id);
-                  return kit ? { asset: s.asset, name: kit.name, kit: true, caption: kit.what } : { asset: s.asset, name: s.asset.shownName || s.asset.name || undefined, caption: ROLES[s.role] ?? s.role };
+                  const name = s.asset.shownName || s.asset.name || undefined;
+                  return kit ? { asset: s.asset, name: kit.name, kit: true, caption: kit.what, crumb: `${kit.name} · ${kit.what}` } : { asset: s.asset, name, caption: ROLES[s.role] ?? s.role, crumb: name ?? ROLES[s.role] ?? s.role };
                 }),
               ]}
-              onOpen={(next) => setTrail([...trail, next])}
+              onOpen={stepTo}
             />
           </div>
         )}
         {usedIn.length > 0 && (
           <div className="flex flex-col gap-2">
             <SectionTitle>Used in</SectionTitle>
-            <Strip items={usedIn.map((u) => ({ asset: u }))} onOpen={(next) => setTrail([...trail, next])} />
+            <Strip items={usedIn.map((u) => ({ asset: u }))} onOpen={stepTo} />
           </div>
         )}
 

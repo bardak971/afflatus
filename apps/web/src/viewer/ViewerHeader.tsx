@@ -7,7 +7,9 @@ import { openProjects } from "../bar/bridge";
 import { assetKey, useFolders, useProjects, type useAsset } from "../data";
 import { Kbd } from "../Keys";
 import { cx } from "../ui";
+import { tileName } from "../screens/Library";
 import { factsOf, placesOf } from "./facts";
+import { SeedButton } from "./SeedButton";
 import type { ViewerActions } from "./useViewerActions";
 
 const chip = "flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-line bg-raised px-2.5 py-1 text-xs text-ink hover:border-line-strong hover:bg-hover";
@@ -69,10 +71,30 @@ function NameField({ value, onSave, onCancel }: { value: string; onSave(name: st
 }
 
 /**
- * The top of the viewer's side: where it is in the list and the way out, the item's name (F2 or a click
+ * The trail followed from the item the viewer was opened on ("made from", "used to make"), as a breadcrumb:
+ * each step goes back to it; the one shown is plain text.
+ */
+function Trail({ steps, crumbs, onStep }: { steps: Asset[]; crumbs: Record<string, string>; onStep(index: number): void }) {
+  const label = (x: Asset, i: number) => (i > 0 && crumbs[x.id]) || tileName(x);
+  return (
+    <nav aria-label="Trail" className="flex min-w-0 flex-wrap items-center gap-1">
+      {steps.map((x, i) => (
+        <span key={`${i}:${x.id}`} className="flex min-w-0 items-center gap-1">
+          {/* the › goes with the step before it: a line that wraps starts on a step */}
+          {i < steps.length - 1
+            ? <><button type="button" data-tip={`Back to ${label(x, i)}`} onClick={() => onStep(i)} className="flex h-6 min-w-0 max-w-[150px] items-center rounded-md border border-line bg-raised px-2 font-semibold text-ink-2 hover:border-line-strong hover:bg-hover hover:text-ink"><span className="truncate">{label(x, i)}</span></button><span aria-hidden className="text-ink-3">›</span></>
+            : <span aria-current="page" className="max-w-[150px] truncate px-0.5 font-semibold text-ink">{label(x, i)}</span>}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * The top of the viewer's side: where it is in the list (or the trail followed) and the way out, the item's name (F2 or a click
  * renames it in place), what it is in one line, and where it lives: its folder and the timeline clips it is in.
  */
-export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items, naming, onNaming, onClose }: {
+export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, onTrail, items, naming, onNaming, onClose }: {
   acts: ViewerActions;
   /** The item as it was listed: what the listing knows of it (its timeline clip) before its details are read. */
   asset: Asset;
@@ -80,13 +102,15 @@ export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items
   /** What made it: shown in place of a name it has not been given. */
   title: string;
   trail: Asset[];
+  /** What a step of the trail was to the one before it (a source's role, a kit picture's owner), by its id. */
+  crumbs?: Record<string, string>;
   onTrail(trail: Asset[]): void;
   items?: Asset[];
   naming: boolean;
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, at, more, move } = acts;
+  const { a, g, at, more, move, first } = acts;
   const qc = useQueryClient();
   const [, go] = useLocation();
   const rename = useMutation({
@@ -108,9 +132,7 @@ export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-b border-line px-5 pt-3.5 pb-3.5">
       <div className="flex items-center gap-2.5 text-xs text-ink-3">
-        {trail.length > 0 && (
-          <button type="button" aria-label="Back to the previous item" data-tip="Back to the previous item" onClick={() => onTrail(trail.slice(0, -1))} className={button}><ChevronLeft size={14} /></button>
-        )}
+        {trail.length > 0 && <Trail steps={[first, ...trail]} crumbs={crumbs} onStep={(i) => onTrail(trail.slice(0, i))} />}
         {count > 0 && (
           <>
             <span data-tip={more ? "Arrow keys: previous and next item; past the last one loaded, the next page is read" : "Arrow keys: previous and next item"}>{at + 1} of {count}{more ? "+" : ""}</span>
@@ -140,7 +162,10 @@ export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items
       )}
       {rename.isError && <span className="text-xs text-warn-ink">{rename.error.message}</span>}
 
-      <span className="text-[12.5px] text-ink-2">{factsOf(a, g, a.shownName || a.name ? title : "")}</span>
+      <span className="text-[12.5px] text-ink-2">
+        {factsOf(a, g, a.shownName || a.name ? title : "")}
+        {typeof g?.resolved.seed === "number" && <> · seed <SeedButton seed={g.resolved.seed} /></>}
+      </span>
 
       <div className="mt-1 flex flex-wrap gap-1.5">
         <PlaceChip a={a} onLeave={onClose} />

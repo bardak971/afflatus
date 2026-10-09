@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronsLeftRight } from "lucide-react";
 import { fileUrl, type Asset } from "../api";
 import { Kbd } from "../Keys";
-import { Button } from "../ui";
-import { Slider } from "../Slider";
+import { Button, cx } from "../ui";
 import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
 
@@ -43,6 +42,66 @@ function useInStep(master: RefObject<HTMLVideoElement | null>, other: RefObject<
 }
 
 /**
+ * The wipe's line on the two pictures: dragged anywhere on them (a press moves it there), or by its round
+ * handle with the keyboard: ←/→ a step, Shift ten, Home/End the edges. Its arrows are not the viewer's.
+ */
+function Wipe({ pinned, other, at, onAt }: { pinned: Asset; other: Asset; at: number; onAt(at: number): void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const clamp = (v: number) => Math.max(0, Math.min(100, v));
+  const toPointer = (clientX: number) => {
+    const r = box.current?.getBoundingClientRect();
+    if (r && r.width > 0) onAt(clamp(Math.round(((clientX - r.left) / r.width) * 1000) / 10));
+  };
+  const label = "absolute bottom-2.5 max-w-[45%] truncate rounded-md bg-black/60 px-1.5 py-0.5 font-mono text-[11px] text-white";
+  return (
+    // the two pictures in one box: the second drawn over the first and cut at the line
+    <div
+      ref={box}
+      className={cx("relative max-h-full max-w-full touch-none select-none", dragging ? "cursor-grabbing" : "cursor-ew-resize")}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setDragging(true);
+        toPointer(e.clientX);
+      }}
+      onPointerMove={(e) => dragging && toPointer(e.clientX)}
+      onPointerUp={() => setDragging(false)}
+      onPointerCancel={() => setDragging(false)}
+    >
+      <img src={fileUrl(pinned.id)} alt="" draggable={false} className="max-h-[calc(100vh-150px)] max-w-full rounded-lg object-contain" />
+      <img src={fileUrl(other.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full rounded-lg object-contain" style={{ clipPath: `inset(0 0 0 ${at}%)` }} />
+      <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_6px_rgba(0,0,0,.5)]" style={{ left: `${at}%` }} />
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label="Wipe: where the second picture takes over"
+        aria-orientation="horizontal"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(at)}
+        aria-valuetext={`${Math.round(at)} %`}
+        data-tip="Drag the wipe (← →)"
+        onKeyDown={(e) => {
+          const step = e.shiftKey ? 10 : 1;
+          const next = e.key === "ArrowLeft" ? at - step : e.key === "ArrowRight" ? at + step : e.key === "Home" ? 0 : e.key === "End" ? 100 : null;
+          if (next === null) return;
+          // the viewer's own arrows (another item) wait while the handle has the keys
+          e.preventDefault();
+          onAt(clamp(Math.round(next)));
+        }}
+        className="absolute top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-[#151515] shadow-[0_2px_10px_rgba(0,0,0,.5)] outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
+        style={{ left: `${at}%` }}
+      >
+        <ChevronsLeftRight size={16} aria-hidden />
+      </div>
+      <span className={cx(label, "left-2.5")}>Pinned{pinned.name ? ` · ${pinned.name}` : ""}</span>
+      <span className={cx(label, "right-2.5")}>This one{other.name ? ` · ${other.name}` : ""}</span>
+    </div>
+  );
+}
+
+/**
  * Two items side by side: the one pinned, and the one the arrow keys move through. Videos play in step
  * from the pinned one's controls; two pictures can also be laid over each other with a wipe.
  */
@@ -74,20 +133,14 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
           {pane(other, right, "This one")}
         </div>
       ) : (
-        // the two pictures in one box: the second drawn over the first and cut at the slider's line
         <div className="flex min-h-0 grow items-center justify-center">
-          <div className="relative max-h-full max-w-full">
-            <img src={fileUrl(pinned.id)} alt="" className="max-h-[calc(100vh-150px)] max-w-full rounded-lg object-contain" />
-            <img src={fileUrl(other.id)} alt="" className="absolute inset-0 h-full w-full rounded-lg object-contain" style={{ clipPath: `inset(0 0 0 ${wipe}%)` }} />
-            <div className="pointer-events-none absolute inset-y-0 w-px bg-white/80" style={{ left: `${wipe}%` }} />
-          </div>
+          <Wipe pinned={pinned} other={other} at={wipe} onAt={setWipe} />
         </div>
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
         {pictures && <Button size="sm" tone={wipe !== null ? "primary" : "plain"} aria-pressed={wipe !== null} data-tip="The two pictures over each other, the second cut at a line you move" onClick={() => setWipe((w) => (w === null ? 50 : null))}>Wipe</Button>}
-        {pictures && wipe !== null && <Slider box={false} min={0} max={100} value={wipe} label="Where the second picture takes over" format={(v) => `${v} %`} onChange={setWipe} className="w-64" />}
         <Button size="sm" data-tip="The pinned one becomes the one you move through, and the other way round" onClick={onSwap}>Swap</Button>
-        <span className="flex items-center gap-1 text-xs text-ink-3"><Kbd><ArrowLeft size={10} className="inline" /></Kbd><Kbd><ArrowRight size={10} className="inline" /></Kbd> change the right one</span>
+        <span className="flex items-center gap-1 text-xs text-ink-3"><Kbd><ArrowLeft size={10} className="inline" /></Kbd><Kbd><ArrowRight size={10} className="inline" /></Kbd> another one on the right · drag the line on the picture</span>
         <Button size="sm" onClick={onClose}>Done <Kbd>X</Kbd></Button>
       </div>
     </div>

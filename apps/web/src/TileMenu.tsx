@@ -12,6 +12,7 @@ import { formPlaces, useFormTarget } from "./formTarget";
 import { useAsset, useDrafts, useFamilies, useRecipes, useSetup, useTimelines } from "./data";
 import { saveAsset } from "./download";
 import { useOpenNewDraft } from "./draft";
+import { useReuse } from "./reuse";
 import { clock, when } from "./format";
 import { useItemMutations } from "./itemMutations";
 import { usedLast } from "./picker";
@@ -62,11 +63,7 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
     onSuccess: toForm,
     onError: failed("Could not open it in a form"),
   });
-  const again = useMutation({
-    mutationFn: () => api.createDraft({ recipe: g!.recipe, forms: { [g!.recipe]: { ...g!.inputs, seed: RANDOM_SEED } } }),
-    onSuccess: toForm,
-    onError: failed("Could not reuse its parameters"),
-  });
+  const reuse = useReuse({ onError: failed("Could not reuse its parameters") });
   const variation = useQueueVariation(into);
   const timelineMenu = useTimelineSubmenu();
   /** To the bin; a file of a linked folder leaves its folder on the disk, which is asked first (as the viewer and a selection do). */
@@ -77,7 +74,8 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
     const reading = detail.isLoading;
     const studio: MenuItem[] = [
       ...(asset.kind === "image" && opener && !asset.inBin ? [{ label: "Image to video (i2v)", key: "M", icon: <Clapperboard size={14} />, note: opener.title, run: () => animate.mutate(asset) }] : []),
-      { label: "Reuse parameters", key: "L", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => again.mutate() },
+      { label: "Reuse · same seed", key: "L", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => g && reuse.sameSeed(g) },
+      { label: "Reuse · new seed", key: "Shift + L", icon: <Copy size={14} />, disabled: reading || !g || !recipe, note: !reading && !g ? "not generated here" : undefined, run: () => g && reuse.newSeed(g) },
       { label: "Variation", key: "V", icon: <Shuffle size={14} />, note: !reading && !g ? "not generated here" : "new seed, queued", disabled: reading || !g || !recipe || asset.inBin, run: () => recipe && g && variation.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }) },
       { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: reading || !g || !(setup.data?.comfy.online ?? false), run: () => openInComfy.mutate(asset) },
       ...timelineMenu.items(asset),

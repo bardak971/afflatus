@@ -1,9 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
-import { RANDOM_SEED, secondsInput } from "@afflatus/core";
+import { secondsInput } from "@afflatus/core";
 import type { Range } from "../Trim";
 import { api, type Asset, type AssetDetail, type Look, type RecipeInfo } from "../api";
 import { useDrafts, useFamilies, useRecipes, useSetup, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
+import { useReuse } from "../reuse";
 import { carryOver, followOn, modelGroups, usedLast } from "../picker";
 import { OPS, ownInputs } from "./shared";
 
@@ -24,7 +25,7 @@ function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeIn
 const castOf = (d: AssetDetail | undefined): Look | null => (d?.id && d.look && (d.look.cast.length || d.look.style) ? { cast: d.look.cast, style: d.look.style ?? null, snippets: [] } : null);
 
 /**
- * What the viewer opens a new draft with, on the item shown: the same settings again, a clip that carries
+ * What the viewer opens a new draft with, on the item shown: the same settings again (the seed kept or not), a clip that carries
  * on from it or starts at one of its moments, a video of a picture, a tool's form with the picture in place,
  * a model that follows a person or a voice. `leave` is called before the form opens.
  */
@@ -39,11 +40,8 @@ export function useNewDraftActions({ asset, detail, leave }: { asset: Asset; det
   const g = detail.data?.id === asset.id ? detail.data.generation : null;
   const a: Asset = detail.data?.id === asset.id ? detail.data : asset;
   const recipe = recipes.data?.recipes.find((r) => r.id === g?.recipe);
-  /** The same settings with a new seed, as a new draft: what is being written elsewhere is not touched. */
-  const again = useMutation({
-    mutationFn: (g: NonNullable<AssetDetail["generation"]>) => api.createDraft({ recipe: g.recipe, forms: { [g.recipe]: { ...g.inputs, seed: RANDOM_SEED } } }),
-    onSuccess: toForm,
-  });
+  /** The same settings as a new draft, its seed kept (L) or a new one (Shift+L). */
+  const reuse = useReuse({ leave });
 
   // a new clip that carries on from this video, on the model the video was made with and with its settings: with
   // the video in its "carries on from" slot when that model can join a clip, else opening on the video's last
@@ -146,5 +144,5 @@ export function useNewDraftActions({ asset, detail, leave }: { asset: Asset; det
     onSuccess: toForm,
   });
 
-  return { a, g, recipe, recipes, again, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool };
+  return { a, g, recipe, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool };
 }

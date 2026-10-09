@@ -51,7 +51,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   // what a video gives besides itself: the frame it is paused on, and its sound; both open here once made
   const player = useRef<HTMLVideoElement>(null);
   const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, more, detail, into, inline, player, trim, setTrim, setInfo, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
-  const { a, g, recipe, keep, leave, again, queued, quick, toolFor, openTool, opener, openerName, animate, carrier, fromLastFrame, carryOn, saveFrame, move, toBin, download, videoItems, imageItems } = acts;
+  const { a, g, recipe, keep, leave, reuse, queued, quick, toolFor, openTool, opener, openerName, animate, carrier, fromLastFrame, carryOn, saveFrame, move, toBin, download, videoItems, imageItems } = acts;
 
   const act = useRef<(e: KeyboardEvent) => void>(() => {});
   act.current = (e) => {
@@ -90,7 +90,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     else if (k === "s") keep.mutate(!a.kept);
     else if (e.key === "Delete") void toBin();
     else if (k === "d") download();
-    else if (k === "l" && g && recipe) again.mutate(g);
+    // L: the same parameters in the form, its seed kept; Shift+L: with a new seed
+    else if (k === "l" && g && recipe) (e.shiftKey ? reuse.newSeed : reuse.sameSeed)(g);
     else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" });
     else if (a.kind === "image" && (k === "u" || k === "f" || k === "b")) quick(k);
     else if (a.kind === "image" && (k === "i" || k === "e" || k === "r") && toolFor(k)) openTool.mutate(toolFor(k)!.id);

@@ -57,7 +57,7 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
   };
   const drafts = useNewDraftActions({ asset, detail, leave });
   const media = useMediaExtract({ asset, trim, player, onOpened });
-  const { a, g, recipe, again, carrier, carryOn, opener, openerName, animate, toolFor, toolInput, openTool } = drafts;
+  const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, toolFor, toolInput, openTool } = drafts;
 
   /** Queue something at once, and say so. */
   const queued = useQueueVariation(into);
@@ -111,7 +111,8 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
   // ---- the menus: every action the buttons and keys offer
   const sameAgain = (): MenuItem[] => (g && recipe ? [
     { label: "Variation: same parameters, new seed", key: "V", icon: <Shuffle size={14} />, run: () => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }) },
-    { label: "Reuse parameters in the form", key: "L", icon: <Wand2 size={14} />, run: () => again.mutate(g) },
+    { label: "Reuse · same seed", key: "L", icon: <Wand2 size={14} />, note: "in the form", run: () => reuse.sameSeed(g) },
+    { label: "Reuse · new seed", key: "Shift + L", icon: <Wand2 size={14} />, note: "in the form", run: () => reuse.newSeed(g) },
   ] : []);
   const videoItems = (): MenuItem[] => [
     { label: a.kept ? "Unkeep" : "Keep", key: "S", icon: <Star size={14} />, run: () => keep.mutate(!a.kept) },
@@ -147,7 +148,7 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
     ];
   };
 
-  return { ...drafts, ...media, keep, restore, leave, queued, quick, at, more: Boolean(more?.has), move, toBin, download, videoItems, imageItems };
+  return { ...drafts, ...media, first, keep, restore, leave, queued, quick, at, more: Boolean(more?.has), move, toBin, download, videoItems, imageItems };
 }
 
 /** What `useViewerActions` gives: handed whole to the parts of the viewer. */
