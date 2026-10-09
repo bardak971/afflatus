@@ -136,6 +136,14 @@ export function useDraft(firstRecipe: string | undefined) {
   useEffect(() => {
     if (loaded.data && loaded.data.id !== draft?.id) setDraft(loaded.data);
   }, [loaded.data, draft?.id]);
+  // a rename (from the header or the command bar) is not a form edit: its name is taken at once, the edits on screen kept
+  useEffect(() => {
+    if (loaded.data && loaded.data.id === draft?.id && loaded.data.name !== draft.name) {
+      const name = loaded.data.name;
+      setDraft((d) => (d && d.id === loaded.data!.id ? { ...d, name } : d));
+      if (unsaved.current && unsaved.current.id === loaded.data.id) unsaved.current = { ...unsaved.current, name };
+    }
+  }, [loaded.data, draft?.id, draft?.name]);
 
   // the project it is in is remembered as where it was last open; opened from another project, the app follows it there
   useEffect(() => {

@@ -165,24 +165,41 @@ export function keyQuery(text: string): { exact: string[]; prefix: string | null
   return { exact, prefix };
 }
 
-/** Whether a row's keys answer a key search, and which of its caps to light: exact matches, then by the start of the name. */
-export function matchKeys(text: string, q: { exact: string[]; prefix: string | null }): { rank: number; hits: string[] } | null {
+/**
+ * A cap a key search lit: its key as the row writes it, in which way of the row and which chord of that way. Said by
+ * place, not by name: "ctrl z" lights the Ctrl of Ctrl+Shift+Z, never the Ctrl of its other way, Ctrl+Y.
+ */
+export interface KeyHit {
+  way: number;
+  chord: number;
+  key: string;
+}
+
+/**
+ * Whether a row's keys answer a key search, and which of its caps to light: exact matches, then by the start of the
+ * name. Only the chords that answer best are lit, every one of them when several answer as well.
+ */
+export function matchKeys(text: string, q: { exact: string[]; prefix: string | null }): { rank: number; hits: KeyHit[] } | null {
   const p = parseKeys(text);
   if (!p || "code" in p) return null;
   const same = (a: string, b: string) => a === b || ((a === "Ctrl" || a === "Meta") && (b === "Ctrl" || b === "Meta"));
-  let best: { rank: number; hits: string[] } | null = null;
-  for (const way of p.ways) {
-    if (way.mouse) continue;
-    for (const chord of way.pair) {
+  let best: { rank: number; hits: KeyHit[] } | null = null;
+  const answer = (rank: number, hits: KeyHit[]) => {
+    if (!best || rank < best.rank) best = { rank, hits };
+    else if (rank === best.rank) best.hits.push(...hits);
+  };
+  p.ways.forEach((way, w) => {
+    if (way.mouse) return;
+    way.pair.forEach((chord, c) => {
       // every key asked for is in this chord: a direct answer (exactly that chord ranks first)
-      if (q.exact.every((k) => chord.some((c) => same(c, k)))) {
-        const rank = chord.length === q.exact.length ? 0 : 1;
-        if (!best || rank < best.rank) best = { rank, hits: q.exact };
+      if (q.exact.every((k) => chord.some((key) => same(key, k)))) {
+        const hits = chord.filter((key) => q.exact.some((k) => same(key, k))).map((key) => ({ way: w, chord: c, key }));
+        answer(chord.length === q.exact.length ? 0 : 1, hits);
       } else if (q.prefix) {
-        const hit = chord.find((c) => c.length > 1 && !isMouse(c) && c.toLowerCase().startsWith(q.prefix!));
-        if (hit && (!best || best.rank > 2)) best = { rank: 2, hits: [hit] };
+        const hit = chord.find((key) => key.length > 1 && !isMouse(key) && key.toLowerCase().startsWith(q.prefix!));
+        if (hit) answer(2, [{ way: w, chord: c, key: hit }]);
       }
-    }
-  }
+    });
+  });
   return best;
 }

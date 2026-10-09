@@ -28,9 +28,10 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
   const rename = useMutation({
     mutationFn: (v: { id: string; name: string }) => api.saveDraft(v.id, { name: v.name }),
     onError: failed("renamed"),
-    onSettled: () => {
+    onSettled: (_d, _e, v) => {
       setNaming(null);
-      return client.invalidateQueries({ queryKey: DRAFT_LIST });
+      // the open draft takes its new name from its own query (see useDraft), the list from the list
+      return Promise.all([client.invalidateQueries({ queryKey: DRAFT_LIST }), client.invalidateQueries({ queryKey: ["drafts", v.id] })]);
     },
   });
   // Escape leaves the name box without keeping what was typed: the blur that follows must not save it

@@ -59,12 +59,24 @@ describe("the keys grammar", () => {
 
   it("answers a key search: exact chords first, then keys by the start of their name", () => {
     const s = keyQuery("s")!;
-    expect(matchKeys("S | Ctrl+B", s)).toEqual({ rank: 0, hits: ["S"] });
-    expect(matchKeys("Shift+Z", s)).toEqual({ rank: 2, hits: ["Shift"] });
-    expect(matchKeys("Ctrl+Z", keyQuery("ctrl z")!)).toEqual({ rank: 0, hits: ["Ctrl", "Z"] });
+    expect(matchKeys("S | Ctrl+B", s)).toEqual({ rank: 0, hits: [{ way: 0, chord: 0, key: "S" }] });
+    expect(matchKeys("Shift+Z", s)).toEqual({ rank: 2, hits: [{ way: 0, chord: 0, key: "Shift" }] });
+    expect(matchKeys("Ctrl+Z", keyQuery("ctrl z")!)).toEqual({ rank: 0, hits: [{ way: 0, chord: 0, key: "Ctrl" }, { way: 0, chord: 0, key: "Z" }] });
     expect(matchKeys("Ctrl+Shift+Z | Ctrl+Y", keyQuery("ctrl z")!)?.rank).toBe(1);
     expect(matchKeys("Ctrl+Z", keyQuery("cmd z")!)?.rank).toBe(0);
     expect(keyQuery("split")).toBeNull();
+  });
+
+  it("lights only the caps of the chords that answer, not the same key in another way", () => {
+    // Redo: "ctrl z" is in its first way; the Ctrl of Ctrl+Y stays unlit
+    expect(matchKeys("Ctrl+Shift+Z | Ctrl+Y", keyQuery("ctrl z")!)!.hits).toEqual([{ way: 0, chord: 0, key: "Ctrl" }, { way: 0, chord: 0, key: "Z" }]);
+    expect(matchKeys("Ctrl+Shift+Z | Ctrl+Y", keyQuery("ctrl y")!)!.hits).toEqual([{ way: 1, chord: 0, key: "Ctrl" }, { way: 1, chord: 0, key: "Y" }]);
+    // the chord that answers exactly wins over one that only holds the keys among others
+    expect(matchKeys("Ctrl+Shift+Z | Ctrl+Z", keyQuery("ctrl z")!)).toEqual({ rank: 0, hits: [{ way: 1, chord: 0, key: "Ctrl" }, { way: 1, chord: 0, key: "Z" }] });
+    // a searched Ctrl lights the cap written Meta, as it is written
+    expect(matchKeys("Meta+K", keyQuery("ctrl k")!)!.hits).toEqual([{ way: 0, chord: 0, key: "Meta" }, { way: 0, chord: 0, key: "K" }]);
+    // every chord that answers as well is lit: both halves of a pair
+    expect(matchKeys("Alt+[ Alt+]", keyQuery("alt")!)!.hits).toEqual([{ way: 0, chord: 0, key: "Alt" }, { way: 0, chord: 1, key: "Alt" }]);
   });
 });
 

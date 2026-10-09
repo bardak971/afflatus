@@ -438,7 +438,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         return [{
           label: c.path ? `Link ${c.path} to ${name}` : `Link a folder of your disk to ${name}…`, icon: <Link2 size={14} />, note: "used in place, nothing copied",
           run: () => (c.path
-            ? api.linkFolder(c.path, undefined, group).then((m) => { void client.invalidateQueries({ queryKey: ["projects"] }); good(`${m.name} linked: ${m.files ?? 0} files`, "Its files are used where they are; nothing was copied."); }, failed(`${c.path} could not be linked`))
+            ? api.linkFolder(c.path, undefined, group).then((m) => { void client.invalidateQueries({ queryKey: ["projects"] }); good(`${m.name} linked: ${m.files ?? 0} ${(m.files ?? 0) === 1 ? "file" : "files"}`, "Its files are used where they are; nothing was copied."); }, failed(`${c.path} could not be linked`))
             : tree.link(t)),
         }];
       }
@@ -495,7 +495,9 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     const g = subjectDetail.data?.id === a.id ? subjectDetail.data.generation : null;
     const list = (a.kind === "image" ? viewer.imageItems() : viewer.videoItems())
       // Trim needs the viewer on screen; a sound has no frame to save
-      .filter((it) => it === "—" || (it.key !== "T" && !(a.kind === "audio" && it.key === "G")));
+      .filter((it) => it === "—" || (it.key !== "T" && !(a.kind === "audio" && it.key === "G")))
+      // with no player open, the frame saved is the video's first one: said so (the viewer keeps "Save frame")
+      .map((it) => (it !== "—" && it.key === "G" ? { ...it, label: "Save the first frame" } : it));
     const last = list.at(-1);
     const seed = typedSeed(g?.resolved.seed);
     const seedItem: MenuItem[] = seed !== null ? [{ label: "Copy the seed", icon: <Copy size={14} />, note: String(seed), run: () => copyText(String(seed)).then(() => onCopied(`the seed ${seed}`), () => onCopied("")) }] : [];

@@ -257,7 +257,7 @@ export function CommandBar() {
       "group-queue": ["Group by model", queueNow?.saves ? `saves ${plural(queueNow.saves, "load")} · same model together` : "Grouping saves no load"],
     };
     const [label, meta] = words[c.cmd];
-    return { key: `cmd:${c.cmd}${recipe ? `:${recipe.id}` : ""}${preset ? `:${preset.id}` : ""}`, kind: "command", label, meta, group: "Commands", verb: "run", p: prepare(label), command: c, recipe, preset, keys: commandKeys(c, selectedClip, aim?.id) };
+    return { key: `cmd:${c.cmd}${recipe ? `:${recipe.id}` : ""}${preset ? `:${preset.id}` : ""}`, kind: "command", label, meta, group: "Commands", verb: "run", p: prepare(label), command: c, recipe, preset, keys: commandKeys(c) };
   };
   const applies = (id: CommandId): boolean =>
     id === "split" || id === "previous-take" || id === "next-take" ? Boolean(selectedClip)

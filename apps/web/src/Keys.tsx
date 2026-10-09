@@ -1,5 +1,5 @@
 import { Fragment, useEffect, type ReactNode } from "react";
-import { capText, onMac, parseKeys } from "./keys/grammar";
+import { capText, onMac, parseKeys, type KeyHit } from "./keys/grammar";
 
 /** Drawn for a Mac (Ctrl as ⌘, Alt as ⌥) or for the rest. */
 export const MAC = onMac();
@@ -14,14 +14,14 @@ const CAP = {
 /**
  * Keys as keycaps, written with the one grammar of `keys/grammar.ts`: "Ctrl+Shift+Z | Ctrl+Y" draws two chords with
  * an "or" between them, "← →" a pair side by side, "Ctrl+click" a mouse move as text, "{a|b|c}" code. `hits`: the
- * keys to light (a search's match).
+ * caps to light (a search's match), each by its way and chord.
  */
-export function Keys({ keys, size = "md", hits, className }: { keys: string; size?: "md" | "sm"; hits?: readonly string[]; className?: string }) {
+export function Keys({ keys, size = "md", hits, className }: { keys: string; size?: "md" | "sm"; hits?: readonly KeyHit[]; className?: string }) {
   const parsed = parseKeys(keys);
   const box = `inline-flex shrink-0 items-center ${className ?? ""}`;
   if (!parsed) return <span className={`${box} font-mono text-[11px] text-ink-2`}>{keys}</span>;
   if ("code" in parsed) return <code className={`${box} font-mono text-[12px] text-accent`}>{parsed.code}</code>;
-  const lit = (k: string) => Boolean(hits?.some((h) => h === k || ((h === "Ctrl" || h === "Meta") && (k === "Ctrl" || k === "Meta"))));
+  const lit = (way: number, chord: number, k: string) => Boolean(hits?.some((h) => h.way === way && h.chord === chord && h.key === k));
   return (
     <span className={box}>
       {parsed.ways.map((way, i) => (
@@ -35,7 +35,7 @@ export function Keys({ keys, size = "md", hits, className }: { keys: string; siz
               {way.pair.map((chord, j) => (
                 <kbd key={j} className="inline-flex items-center gap-0.5">
                   {chord.map((k, n) => (
-                    <kbd key={n} className={`inline-flex items-center justify-center border font-mono leading-none font-normal ${CAP[size]} ${lit(k) ? "border-accent! text-accent!" : ""}`}>{capText(k, MAC)}</kbd>
+                    <kbd key={n} className={`inline-flex items-center justify-center border font-mono leading-none font-normal ${CAP[size]} ${lit(i, j, k) ? "border-accent! text-accent!" : ""}`}>{capText(k, MAC)}</kbd>
                   ))}
                 </kbd>
               ))}

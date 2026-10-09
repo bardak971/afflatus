@@ -42,8 +42,15 @@ describe("the bar's ? mode", () => {
     const first = found.keys[0]!;
     expect(first.place.id).toBe("editor");
     expect(first.row.does).toBe("Split at the playhead");
-    expect(found.keys.findIndex((f) => f.hits?.[0] === "Shift")).toBeGreaterThan(found.keys.findIndex((f) => f.place.id === "viewer"));
-    expect(keyItems([first], "Ctrl+K")[0]!.keyRow!.hits).toEqual(["S"]);
+    expect(found.keys.findIndex((f) => f.hits?.[0]?.key === "Shift")).toBeGreaterThan(found.keys.findIndex((f) => f.place.id === "viewer"));
+    expect(keyItems([first], "Ctrl+K")[0]!.keyRow!.hits).toEqual([{ way: 0, chord: 0, key: "S" }]);
+  });
+
+  it("lights Redo's Ctrl+Shift+Z for ctrl z, not its other way Ctrl+Y", () => {
+    const found = searchKeys("ctrl z", ["everywhere"], "Ctrl+K")!;
+    const redo = found.keys.find((f) => f.row.keys === "Ctrl+Shift+Z | Ctrl+Y");
+    expect(redo, "a row Ctrl+Shift+Z | Ctrl+Y in the table").toBeDefined();
+    expect(redo!.hits!.every((h) => h.way === 0)).toBe(true);
   });
 
   it("draws the bar's own row with the shortcut the settings recorded", () => {
@@ -61,22 +68,18 @@ describe("the keys on the bar's rows", () => {
     for (const [cmd, at] of Object.entries(COMMAND_KEYS)) expect(rowKeys(at!.row, at!.half), cmd).toBeTruthy();
   });
 
-  it("gives split, the takes and Generate the keys the app uses for them", () => {
+  it("gives split and the takes the keys the app uses for them", () => {
     expect(commandKeys({ cmd: "split" })).toBe("S | Ctrl+B");
     expect(commandKeys({ cmd: "previous-take" })).toBe("Alt+[");
     expect(commandKeys({ cmd: "next-take" })).toBe("Alt+]");
-    expect(commandKeys({ cmd: "generate" })).toBe("Ctrl+Enter");
     expect(commandKeys({ cmd: "pause" })).toBeUndefined();
     expect(commandKeys({ cmd: "export" })).toBeUndefined();
   });
 
-  it("gives Ctrl+Enter to rendering clips only for the one clip selected in the open editor", () => {
-    const selected = { timeline: "t1", number: 3 };
-    expect(commandKeys({ cmd: "render-clips", clips: [3] }, selected, "t1")).toBe("Ctrl+Enter");
-    expect(commandKeys({ cmd: "render-clips", clips: [3, 4] }, selected, "t1")).toBeUndefined();
-    expect(commandKeys({ cmd: "render-clips", clips: [2] }, selected, "t1")).toBeUndefined();
-    expect(commandKeys({ cmd: "render-clips", clips: [3] }, selected, "t2")).toBeUndefined();
-    expect(commandKeys({ cmd: "render-clips", clips: [3] }, null, "t1")).toBeUndefined();
+  it("says no Ctrl+Enter on Generate and rendering a clip: in the bar it runs a row's second action", () => {
+    expect(commandKeys({ cmd: "generate" })).toBeUndefined();
+    expect(commandKeys({ cmd: "render-clips", clips: [3] })).toBeUndefined();
+    expect(Object.values(COMMAND_KEYS).map((at) => rowKeys(at!.row, at!.half))).not.toContain("Ctrl+Enter");
   });
 
   it("puts the keys on the command and place rows that have one", () => {

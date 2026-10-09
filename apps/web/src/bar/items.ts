@@ -3,6 +3,7 @@ import { clock, size, when } from "../format";
 import type { CalcCard } from "./calc";
 import { prepare, type Prepared } from "./match";
 import { COMMANDS, type Command, type CommandId } from "./parse";
+import type { KeyHit } from "../keys/grammar";
 import { keysOfRow, type Found, type KeysAsk } from "../keys/search";
 import { rowKeys, type RowId } from "../keys/table";
 import { pageLabel, type SettingCtx, type SettingEntry, valueSaid } from "./settingsRegistry";
@@ -43,7 +44,7 @@ export interface Item {
   /** The key that does the same in the app (from the key table), drawn on the row's right. */
   keys?: string;
   /** A row of the key table (`?`): Enter opens the sheet on it; `hits` are the caps a key search lit. */
-  keyRow?: KeysAsk & { hits?: string[] };
+  keyRow?: KeysAsk & { hits?: KeyHit[] };
 }
 
 export const GROUP_OF: Record<Kind, Group> = {
@@ -129,24 +130,19 @@ export function navItems(tabs: ReadonlyArray<{ id: string; label: string; href: 
 
 /**
  * The key table's row that does what a command does, when pressing it does that in the place the command acts on:
- * split and the takes in the timeline editor (a clip selected), Generate in the Studio's form. Read from the table,
- * never a second copy of a chord; `half` is one chord of a pair (Alt+[ for the previous take, Alt+] for the next).
+ * split and the takes in the timeline editor (a clip selected). Read from the table, never a second copy of a chord;
+ * `half` is one chord of a pair (Alt+[ for the previous take, Alt+] for the next). Generate and rendering a clip have
+ * none: their key is Ctrl+Enter, which inside the bar runs a row's second action, so the row would say a key that does
+ * something else there.
  */
 export const COMMAND_KEYS: Partial<Record<CommandId, { row: RowId; half?: 0 | 1 }>> = {
   split: { row: "split" },
   "previous-take": { row: "take", half: 0 },
   "next-take": { row: "take", half: 1 },
-  generate: { row: "generate" },
 };
 
-/**
- * A command's key, said on its row. Rendering clips by number has one only when the number is the clip selected in the
- * open editor: Ctrl+Enter there renders that clip, and no other.
- */
-export function commandKeys(c: Command | { cmd: CommandId }, selected?: { timeline: string; number: number } | null, aim?: string | null): string | undefined {
-  if (c.cmd === "render-clips" && "clips" in c) {
-    return selected && aim === selected.timeline && c.clips.length === 1 && c.clips[0] === selected.number ? rowKeys("render-clip") : undefined;
-  }
+/** A command's key, said on its row. */
+export function commandKeys(c: Command | { cmd: CommandId }): string | undefined {
   const at = COMMAND_KEYS[c.cmd];
   return at ? rowKeys(at.row, at.half) : undefined;
 }

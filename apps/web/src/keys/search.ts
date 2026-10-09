@@ -1,4 +1,4 @@
-import { keyQuery, matchKeys } from "./grammar";
+import { keyQuery, matchKeys, type KeyHit } from "./grammar";
 import { hereNow } from "./here";
 import { PLACES, type KeyGroup, type KeyPlace, type KeyRow, type PlaceId } from "./table";
 
@@ -44,7 +44,7 @@ export interface Found {
   /** Its place is open now (Everywhere never counts: it is always open). */
   here: boolean;
   /** The caps a key search lit. */
-  hits?: string[];
+  hits?: KeyHit[];
 }
 
 export interface Searched {
