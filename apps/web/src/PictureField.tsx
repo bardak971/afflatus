@@ -42,10 +42,11 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
   const q = useSettled(typed.trim());
   const project = useProject((s) => s.id);
   const [all, setAll] = useState(false);
-  const assets = useAssets({ kind, q: q || undefined, all: all || undefined });
+  // capped as the library is: a long scroll holds a few pages, the ones above are read again on the way back up
+  const assets = useAssets({ kind, q: q || undefined, all: all || undefined }, true, true);
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
   // where a sound is asked for, a video that has sound will do: its sound is what is used (the videos are only read then)
-  const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined }, kind === "audio");
+  const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined }, kind === "audio", true);
   const sounding = kind === "audio" ? (videos.data?.pages.flatMap((p) => p.items) ?? []).filter((a) => a.hasSound) : [];
   const file = useRef<HTMLInputElement>(null);
   const upload = useUpload((a) => onPick(a.id), kit);
@@ -86,6 +87,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
         <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
           {upload.isError && <ErrorNote>{upload.error.message}</ErrorNote>}
           {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
+          <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />
           {assets.isSuccess && !items.length && !sounding.length && (
             <Empty title={`No ${WORD[kind]}s in your library yet`}>Bring one in with "From your computer"{kind === "audio" ? "." : ", or make one in Studio."}</Empty>
           )}
@@ -103,6 +105,11 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
           {sounding.length > 0 && (
             <>
               <div className="pt-2 text-xs font-semibold text-ink-2">Or the audio of a video</div>
+              {videos.hasPreviousPage && (
+                <div className="flex justify-center">
+                  <Button size="sm" onClick={() => videos.fetchPreviousPage()} disabled={videos.isFetchingPreviousPage || videos.isFetchingNextPage}>Newer videos</Button>
+                </div>
+              )}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2.5">
                 {sounding.map((a) => (
                   <button key={a.id} type="button" aria-label={a.name ? `Use the audio of ${a.name}` : "Use the audio of this video"} onClick={() => onPick(a.id)} className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent">
@@ -113,7 +120,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
               </div>
               {videos.hasNextPage && (
                 <div className="flex justify-center">
-                  <Button size="sm" onClick={() => videos.fetchNextPage()} disabled={videos.isFetchingNextPage}>More videos</Button>
+                  <Button size="sm" onClick={() => videos.fetchNextPage()} disabled={videos.isFetchingNextPage || videos.isFetchingPreviousPage}>More videos</Button>
                 </div>
               )}
             </>
@@ -132,7 +139,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
               </button>
             ))}
           </div>
-          <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage} onMore={() => void assets.fetchNextPage()} />
+          <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage || assets.isFetchingPreviousPage} onMore={() => void assets.fetchNextPage()} />
         </div>
     </Dialog>
   );

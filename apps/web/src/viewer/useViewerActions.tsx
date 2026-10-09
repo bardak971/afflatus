@@ -1,4 +1,4 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Camera, Clapperboard, Download, FlipHorizontal2, Music, Scissors, Shuffle, Star, Trash2, Wand2 } from "lucide-react";
 import { RANDOM_SEED } from "@afflatus/core";
 import { useQueueVariation } from "../actions";
@@ -10,12 +10,19 @@ import { FORMATS, OPS } from "./shared";
 import { useMediaExtract } from "./useMediaExtract";
 import { useNewDraftActions } from "./useNewDraftActions";
 
+/** The pages of the list past what is loaded: whether there are more, whether one is being read, and reading the next. */
+export interface ViewerMore {
+  has: boolean;
+  busy: boolean;
+  load(): void;
+}
+
 /**
  * Everything the viewer does to the item: its mutations, the tools by key, the menus, and the item as it is
  * known. The new drafts it opens are `useNewDraftActions`; what a video gives besides itself (frames, its
  * sound, ranges) is `useMediaExtract`.
  */
-export function useViewerActions({ asset, first, trailed, items, detail, into, inline, player, trim, setTrim, setInfo, onOpen, onClose, onOpened }: {
+export function useViewerActions({ asset, first, trailed, items, more, detail, into, inline, player, trim, setTrim, setInfo, onOpen, onClose, onOpened }: {
   /** The item shown: the end of the trail, or the one the viewer was opened on. */
   asset: Asset;
   /** The item the viewer was opened on, whose place in `items` the arrows step from. */
@@ -24,6 +31,8 @@ export function useViewerActions({ asset, first, trailed, items, detail, into, i
   trailed: boolean;
   /** The list it was opened from: the arrow keys go to the item before and after. */
   items?: Asset[];
+  /** The list has more pages than `items` holds: the arrow past the last one reads the next page and steps on. */
+  more?: ViewerMore;
   detail: ReturnType<typeof useAsset>;
   /** What is queued from here belongs to this draft and lands in this folder. */
   into?: { draft?: string; folder?: string };
@@ -57,11 +66,37 @@ export function useViewerActions({ asset, first, trailed, items, detail, into, i
   };
   /** The item before or after in the list it was opened from. */
   const at = !trailed && items ? items.findIndex((x) => x.id === first.id) : -1;
+  // past the last one loaded: the next page is read, and the step lands once it is here (`from` and its place then)
+  const [awaiting, setAwaiting] = useState<{ from: string; index: number } | null>(null);
+  const askedFor = useRef<Asset[] | undefined>(undefined);
   const move = (by: -1 | 1) => {
     const next = at >= 0 ? items![at + by] : undefined;
+    setAwaiting(null);
     if (next) onOpen?.(next);
+    else if (by === 1 && at >= 0 && more?.has && onOpen) {
+      setAwaiting({ from: first.id, index: at });
+      askedFor.current = items;
+      if (!more.busy) more.load();
+      return true;
+    }
     return Boolean(next);
   };
+  useEffect(() => {
+    if (!awaiting || !items || more?.busy) return;
+    const i = items.findIndex((x) => x.id === awaiting.from);
+    // gone meanwhile (binned on the way): the one that took its place
+    const next = i >= 0 ? items[i + 1] : items[awaiting.index];
+    if (next) {
+      setAwaiting(null);
+      onOpen?.(next);
+    } else if (!more?.has) setAwaiting(null);
+    // the page landed elsewhere (a grouped list): one more
+    else if (items !== askedFor.current) {
+      askedFor.current = items;
+      more.load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaiting, items, more?.busy, more?.has]);
   const toBin = async () => {
     // a file of a linked folder leaves its folder on the disk: asked first
     if (!(await askAboutDisk([a]))) return;
@@ -115,7 +150,7 @@ export function useViewerActions({ asset, first, trailed, items, detail, into, i
     ];
   };
 
-  return { ...drafts, ...media, keep, restore, leave, queued, quick, at, move, toBin, download, videoItems, imageItems };
+  return { ...drafts, ...media, keep, restore, leave, queued, quick, at, more: Boolean(more?.has), move, toBin, download, videoItems, imageItems };
 }
 
 /** What `useViewerActions` gives: handed whole to the parts of the viewer. */

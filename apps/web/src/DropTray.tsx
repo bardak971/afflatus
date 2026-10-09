@@ -24,7 +24,8 @@ const ICONS: Record<Zone, ReactNode> = { library: <ImagePlus size={22} />, timel
 export function DropTray() {
   const [kind, setKind] = useState<Kind | null>(null);
   const [over, setOver] = useState<Zone | null>(null);
-  const [said, setSaid] = useState<{ text: string; bad?: boolean } | null>(null);
+  // `busy`: work under way, it stays up until it is done
+  const [said, setSaid] = useState<{ text: string; bad?: boolean; busy?: boolean } | null>(null);
   const [found, setFound] = useState<{ file: File; data: Embedded } | null>(null);
   const depth = useRef(0);
   const [path, go] = useLocation();
@@ -63,19 +64,34 @@ export function DropTray() {
     };
   }, []);
   useEffect(() => {
-    if (!said) return;
+    if (!said || said.busy) return;
     const t = setTimeout(() => setSaid(null), said.bad ? 9000 : 4000);
     return () => clearTimeout(t);
   }, [said]);
 
   const fail = (err: unknown) => setSaid({ text: (err as Error).message, bad: true });
   const media = (files: File[]) => files.filter((f) => ["image", "video", "audio"].includes(fileKind(f)));
-  const bringIn = async (files: File[]) => {
+  /** Each file in turn, one that fails does not stop the others; `verb` says the progress ("Importing 3 of 10…"). */
+  const bringIn = async (files: File[], verb: string) => {
     const added: Asset[] = [];
+    const failed: string[] = [];
     // into the folder that is open in the library, else the current project's root folder
     // the server says each with a "library" event: the lists follow by themselves
-    for (const f of files) added.push(await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() }));
-    return added;
+    for (const [i, f] of files.entries()) {
+      if (files.length > 1) setSaid({ text: `${verb} ${i + 1} of ${files.length}…`, busy: true });
+      try {
+        added.push(await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() }));
+      } catch (err) {
+        failed.push(`${f.name}: ${(err as Error).message}`);
+      }
+    }
+    return { added, failed };
+  };
+  /** "8 of 10 imported, 2 failed" and the first failure (one file: its failure alone), else `done`. */
+  const outcome = (n: number, ok: number, failed: string[], verb: string, done: string) => {
+    if (!failed.length) return setSaid({ text: done });
+    const more = failed.length > 1 ? ` (and ${failed.length - 1} more)` : "";
+    setSaid({ text: n > 1 ? `${ok} of ${n} ${verb}, ${failed.length} failed · ${failed[0]}${more}` : failed[0]!, bad: true });
   };
 
   const act = async (zone: Zone, files: File[]) => {
@@ -85,12 +101,12 @@ export function DropTray() {
       if (zone === "library") {
         const good = media(files);
         if (!good.length) return setSaid({ text: "The library takes images, videos and audio files.", bad: true });
-        setSaid({ text: good.length > 1 ? `Importing ${good.length} files…` : "Importing…" });
-        const added = await bringIn(good);
+        setSaid({ text: "Importing…", busy: true });
+        const { added, failed } = await bringIn(good, "Importing");
         // one file: shown large right away, with everything that can be done with it
         if (added.length === 1) hand({ show: added[0]!.id });
-        go("/");
-        setSaid({ text: added.length > 1 ? `${added.length} files imported into your library.` : "Imported into your library." });
+        if (added.length) go("/");
+        outcome(good.length, added.length, failed, "imported", added.length > 1 ? `${added.length} files imported into your library.` : "Imported into your library.");
       } else if (zone === "settings") {
         setSaid({ text: "Reading generation parameters…" });
         const data = await api.embedded(first);
@@ -109,13 +125,20 @@ export function DropTray() {
       } else if (zone === "timeline" && timeline) {
         const good = media(files);
         if (!good.length) return setSaid({ text: "A timeline takes images, videos and audio files.", bad: true });
-        setSaid({ text: "Adding…" });
-        for (const a of await bringIn(good)) {
-          if (a.kind === "audio") await api.editTimeline(timeline, { music: { asset: a.id } });
-          else await api.addClip(timeline, { asset: a.id, ...(a.kind === "image" ? { as: "still" as const } : {}) });
+        setSaid({ text: "Adding…", busy: true });
+        const { added, failed } = await bringIn(good, "Adding");
+        let ok = 0;
+        for (const a of added) {
+          try {
+            if (a.kind === "audio") await api.editTimeline(timeline, { music: { asset: a.id } });
+            else await api.addClip(timeline, { asset: a.id, ...(a.kind === "image" ? { as: "still" as const } : {}) });
+            ok++;
+          } catch (err) {
+            failed.push(`${a.name || a.id}: ${(err as Error).message}`);
+          }
         }
         await client.invalidateQueries({ queryKey: ["timelines"] });
-        setSaid({ text: "Added to the timeline." });
+        outcome(good.length, ok, failed, "added", "Added to the timeline.");
       }
     } catch (err) {
       fail(err);

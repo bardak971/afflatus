@@ -128,7 +128,11 @@ export function assetHead(a: Asset): MenuHead {
  * recent timelines of the project straight, one click adding the item at the end (the last one used first, on A);
  * any other through a dialog with a search and the folders; or a new timeline from it. Pictures and videos only.
  */
-export function useTimelineSubmenu(opts: { onStarted?(): void } = {}) {
+export function useTimelineSubmenu(opts: {
+  onStarted?(): void;
+  /** The inline viewer on the stage: N folds the form there, so "Start a timeline" shows no key. */
+  noStartKey?: boolean;
+} = {}) {
   const timelines = useTimelines();
   const last = useLast();
   const [adding, setAdding] = useState<Asset | null>(null);
@@ -150,7 +154,7 @@ export function useTimelineSubmenu(opts: { onStarted?(): void } = {}) {
         })),
         ...(recent.length ? ["—" as const] : []),
         { label: recent.length ? "Another timeline…" : "Add to a timeline…", icon: <Search size={14} />, note: "search, by folder", run: () => setAdding(asset) },
-        { label: "Start a timeline from it", key: "N", icon: <Plus size={14} />, note: asset.kind === "image" ? "clip 1 opens on this picture" : "clip 1 is this video", run: () => start.mutate(asset) },
+        { label: "Start a timeline from it", key: opts.noStartKey ? undefined : "N", icon: <Plus size={14} />, note: asset.kind === "image" ? "clip 1 opens on this picture" : "clip 1 is this video", run: () => start.mutate(asset) },
       ],
     }];
   };

@@ -86,7 +86,7 @@ export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, at, move } = acts;
+  const { a, g, at, more, move } = acts;
   const qc = useQueryClient();
   const [, go] = useLocation();
   const rename = useMutation({
@@ -113,9 +113,9 @@ export function ViewerHeader({ acts, asset, detail, title, trail, onTrail, items
         )}
         {count > 0 && (
           <>
-            <span data-tip="Arrow keys: previous and next item">{at + 1} of {count}</span>
+            <span data-tip={more ? "Arrow keys: previous and next item; past the last one loaded, the next page is read" : "Arrow keys: previous and next item"}>{at + 1} of {count}{more ? "+" : ""}</span>
             <button type="button" aria-label="Previous" data-tip="Previous (←)" disabled={at <= 0} onClick={() => move(-1)} className={button}><ChevronLeft size={14} /></button>
-            <button type="button" aria-label="Next" data-tip="Next (→)" disabled={at >= count - 1} onClick={() => move(1)} className={button}><ChevronRight size={14} /></button>
+            <button type="button" aria-label="Next" data-tip="Next (→)" disabled={at >= count - 1 && !more} onClick={() => move(1)} className={button}><ChevronRight size={14} /></button>
           </>
         )}
         <span className="grow" />

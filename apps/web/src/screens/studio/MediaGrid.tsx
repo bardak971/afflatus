@@ -86,46 +86,44 @@ export function NotKeptLine({ items, filter, whole, only, onOnly }: {
   onOnly(on: boolean): void;
 }) {
   const project = useProject((s) => s.id);
-  // under the "assets" key: a "library" event reads it again, as it reads the grid
+  const view = { ...filter, kept: undefined, unkept: true, after: undefined, before: undefined };
+  // across the whole view, summed up by the server (how many, when they go); under the "assets" key: a "library"
+  // event reads it again, as it reads the grid
   const all = useQuery({
     queryKey: ["assets", "unkept", project, filter],
-    queryFn: async ({ signal }) => {
-      const found: Asset[] = [];
-      let after: string | undefined;
-      // the items not kept go to the bin within a day: a few pages at most
-      for (let i = 0; i < 25; i++) {
-        const page = await api.assets({ ...filter, kept: undefined, unkept: true, limit: 200, after }, { signal });
-        found.push(...page.items);
-        if (!page.next) break;
-        after = page.next;
-      }
-      return found;
-    },
+    queryFn: ({ signal }) => api.unkept(view, false, { signal }),
     enabled: whole && !filter.kept,
   });
-  const unkept = (whole && all.data ? all.data : items).filter((a) => !a.kept && !a.inBin);
+  const shown = items.filter((a) => !a.kept && !a.inBin);
+  const summed = whole && all.data ? all.data : null;
+  const count = summed ? summed.count : shown.length;
   const client = useQueryClient();
   const keep = useMutation({
-    mutationFn: (ids: string[]) => api.bulkAssets(ids, "keep"),
+    // the ids across the view asked for only now; a few hundred at a time, as the server takes them
+    mutationFn: async (across: boolean) => {
+      const ids = across ? (await api.unkept(view, true)).ids ?? [] : shown.map((a) => a.id);
+      for (let i = 0; i < ids.length; i += 500) await api.bulkAssets(ids.slice(i, i + 500), "keep");
+    },
     onSuccess: () => {
       // nothing is left to show only: the whole view comes back
       onOnly(false);
       return client.invalidateQueries({ queryKey: ["assets"] });
     },
   });
-  if (!unkept.length && !only) return null;
+  if (!count && !only) return null;
   const keepAll = async () => {
-    const ids = unkept.map((a) => a.id);
-    if (ids.length > ASK_OVER && !(await ask({ title: `Keep all ${ids.length}?`, text: `The ${ids.length} items not kept in this view stay until you bin them. Unkeep any of them later to put it back on its day.`, yes: `Keep ${ids.length}` }))) return;
-    keep.mutate(ids);
+    if (count > ASK_OVER && !(await ask({ title: `Keep all ${count}?`, text: `The ${count} items not kept in this view stay until you bin them. Unkeep any of them later to put it back on its day.`, yes: `Keep ${count}` }))) return;
+    keep.mutate(Boolean(summed));
   };
-  const range = binRange(unkept.map((a) => leftOf(a)));
+  const range = summed
+    ? binRange([summed.from, summed.to].flatMap((at) => (at ? [leftOf({ countdownFrom: null, createdAt: at })] : [])))
+    : binRange(shown.map((a) => leftOf(a)));
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-panel px-3.5 py-2 text-sm">
       <Clock size={15} className="shrink-0 text-warn" aria-hidden />
-      {unkept.length ? (
+      {count ? (
         <span>
-          <span className="font-bold">{unkept.length} not kept</span>
+          <span className="font-bold">{count} not kept</span>
           <span className="text-ink-2"> · they go to the bin in {range}</span>
         </span>
       ) : (
@@ -133,7 +131,7 @@ export function NotKeptLine({ items, filter, whole, only, onOnly }: {
       )}
       <span className="grow" />
       {keep.isError && <ErrorNote>{keep.error.message}</ErrorNote>}
-      {unkept.length > 0 && (
+      {count > 0 && (
         <button type="button" disabled={keep.isPending} onClick={() => void keepAll()} data-tip="Keep every item of this view that is not kept: they stay until you bin them" className="h-7 rounded-lg bg-warn px-3 text-xs font-bold text-warn-on hover:brightness-110 disabled:opacity-45">
           {keep.isPending ? "Keeping…" : "Keep all"}
         </button>

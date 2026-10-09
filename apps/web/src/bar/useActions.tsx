@@ -8,7 +8,7 @@ import {
 import { api, type Asset, type CommandEntry, type RecipeInfo } from "../api";
 import { ask, askText } from "../Confirm";
 import type { MenuItem } from "../ContextMenu";
-import { assetKey, DRAFT_LIST, useModelSettings, useProjects, useQueue, useSetup } from "../data";
+import { assetKey, DRAFT_LIST, useModelSettings, useProjects, useSetup } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { formDefaults, mainTextOf } from "../form";
 import { useFormTarget } from "../formTarget";
@@ -17,6 +17,7 @@ import { useProject } from "../project";
 import type { Moving, Row, Target } from "../projects/tree";
 import { useTreeActions } from "../projects/useTreeActions";
 import { atTop, moved } from "../screens/queue/order";
+import { useQueueOf } from "../screens/studio/queueOf";
 import { useBanners, useHandover, useOpenDraft, useStudio } from "../store";
 import { useTileMenu } from "../TileMenu";
 import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, type TimelineRequest } from "./bridge";
@@ -78,7 +79,8 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const say = useBanners((b) => b.push);
   const tree = useTreeActions();
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
-  const queue = useQueue();
+  // what the queue rows need of the queue: not its progress, which changes at every step
+  const queue = { data: useQueueOf((q) => ({ paused: q.paused, waiting: q.waiting.map((w) => ({ id: w.id })) })) };
   const setup = useSetup();
   const modelSettings = useModelSettings();
   const openNew = useOpenNewDraft();

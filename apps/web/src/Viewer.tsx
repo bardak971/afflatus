@@ -8,7 +8,7 @@ import { Kbd, plainKey } from "./Keys";
 import { Button } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { OPS } from "./viewer/shared";
-import { useViewerActions } from "./viewer/useViewerActions";
+import { useViewerActions, type ViewerMore } from "./viewer/useViewerActions";
 import { assetHead, useItemExtras, useTimelineSubmenu } from "./TileMenu";
 import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
@@ -18,10 +18,12 @@ import { ViewerSidebar } from "./viewer/ViewerSidebar";
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
 
 /** One item, large, with how it was made and what can be done with it. */
-export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails, into }: {
+export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onDetails, into }: {
   asset: Asset;
   /** The list it was opened from: the arrow keys go to the item before and after. */
   items?: Asset[];
+  /** The list has more pages: the arrow past the last item loaded reads the next one and carries on. */
+  more?: ViewerMore;
   onOpen?(asset: Asset): void;
   onClose(): void;
   /** Drawn in place instead of over the screen: the item large, and under it what can be done with it. Its keys work the same. */
@@ -48,7 +50,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   const detail = useAsset(asset.id);
   // what a video gives besides itself: the frame it is paused on, and its sound; both open here once made
   const player = useRef<HTMLVideoElement>(null);
-  const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, detail, into, inline, player, trim, setTrim, setInfo, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
+  const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, more, detail, into, inline, player, trim, setTrim, setInfo, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
   const { a, g, recipe, keep, leave, again, queued, quick, toolFor, openTool, opener, openerName, animate, carrier, fromLastFrame, carryOn, saveFrame, move, toBin, download, videoItems, imageItems } = acts;
 
   const act = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -57,6 +59,8 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
     if (e.defaultPrevented) return;
     // drawn in place, it leaves the keys to whatever is open over the screen
     if (inline && document.querySelector("[role=dialog][aria-modal=true]")) return;
+    // while trimming, L (loop) and Esc (close Trim) are Trim's own; this listener runs first
+    if (trim && (e.key === "Escape" || e.key.toLowerCase() === "l")) return;
     if (e.key === "Escape") {
       if (pinned) {
         setPinned(null);
@@ -105,7 +109,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   }, []);
 
   // the timelines: the same submenu as a tile's (recent ones straight, another one, a new one); a new one closes the viewer
-  const timelineMenu = useTimelineSubmenu({ onStarted: onClose });
+  const timelineMenu = useTimelineSubmenu({ onStarted: onClose, noStartKey: inline });
   const tileExtras = useItemExtras();
   const canCompare = Boolean(items && items.length > 1 && onOpen && a.kind !== "audio");
   const toggleCompare = () => {

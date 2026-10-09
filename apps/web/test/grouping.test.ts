@@ -39,6 +39,15 @@ describe("the grid in sections", () => {
     expect(groupItems([asset("t", { createdAt: today })], "day", new Set())[0]!.label).toBe("Today");
   });
 
+  it("splits the days at the local midnight, not the UTC one", () => {
+    const early = new Date();
+    early.setHours(0, 30, 0, 0);
+    const late = new Date(early);
+    late.setHours(-1);
+    const s = groupItems([asset("e", { createdAt: early.toISOString() }), asset("l", { createdAt: late.toISOString() })], "day", new Set());
+    expect(s.map((x) => x.label)).toEqual(["Today", "Yesterday"]);
+  });
+
   it("names the days, counts the items of a section, and keeps their order", () => {
     const yesterday = new Date(Date.now() - 86_400_000).toISOString();
     const s = groupItems([asset("n1", { createdAt: yesterday }), asset("n2", { createdAt: yesterday })], "day", new Set());

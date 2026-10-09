@@ -25,10 +25,15 @@ export interface Section {
   entries: Entry[];
 }
 
-const dayOf = (iso: string) => iso.slice(0, 10);
+/** The local day (YYYY-MM-DD), not the UTC one: a render at 00:30 belongs to today. */
+const localDay = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dayOf = (iso: string) => localDay(new Date(iso));
 const dayLabel = (day: string) => {
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const today = localDay(new Date());
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  const yesterday = localDay(y);
   if (day === today) return "Today";
   if (day === yesterday) return "Yesterday";
   return new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });

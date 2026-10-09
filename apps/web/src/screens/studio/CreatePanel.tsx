@@ -111,10 +111,13 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
 
       <ScrollColumn className="flex flex-col gap-2 px-3 pt-2 pb-3">
         {recipes.isError && <ErrorNote>{recipes.error.message}</ErrorNote>}
-        <span className={cx("flex items-center gap-2 px-1 text-xs", d.saving === "failed" ? "text-warn-ink" : "text-ink-3")}>
-          {d.saving === "saved" ? "Draft saved" : d.saving === "saving" ? "Saving…" : `Could not save the draft${d.failure ? ` (${d.failure})` : ""}: what is on screen is kept here until it is.`}
-          {d.saving === "failed" && <button type="button" onClick={d.retry} className="font-semibold underline underline-offset-2">Retry</button>}
-        </span>
+        {/* no draft open (yet): nothing is saved, nothing said */}
+        {(draft || d.saving !== "saved") && (
+          <span className={cx("flex items-center gap-2 px-1 text-xs", d.saving === "failed" ? "text-warn-ink" : "text-ink-3")}>
+            {d.saving === "saved" ? "Draft saved" : d.saving === "saving" ? "Saving…" : `Could not save the draft${d.failure ? ` (${d.failure})` : ""}: what is on screen is kept here until it is.`}
+            {d.saving === "failed" && <button type="button" onClick={d.retry} className="font-semibold underline underline-offset-2">Retry</button>}
+          </span>
+        )}
         {recipe && draft && (
           <CastPictures recipe={recipe} input={whole} look={draft.look}>
           <CardPrompt.Provider value>

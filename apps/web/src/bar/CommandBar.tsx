@@ -6,7 +6,8 @@ import {
   Calculator, ChevronRight, Film, Folder, FolderKanban, Image as ImageIcon, ListOrdered, Music, PenLine, Quote, Search, SlidersHorizontal, User, Video, Zap,
 } from "lucide-react";
 import { api, type Entity, type RecipeInfo, type Settings } from "../api";
-import { useAsset, useEntities, useFamilies, useQueue, useRecipes, useSettings } from "../data";
+import { useAsset, useEntities, useFamilies, useRecipes, useSettings } from "../data";
+import { useQueueOf } from "../screens/studio/queueOf";
 import { aboutMs } from "../format";
 import { useProject } from "../project";
 import { useExplain, useHoverPlay, useNotify } from "../store";
@@ -86,7 +87,6 @@ export function CommandBar() {
   const recipes = useRecipes().data?.recipes ?? [];
   const families = useFamilies();
   const settings = useSettings();
-  const queue = useQueue();
   const entities = useEntities();
   const currentProject = useProject((s) => s.id);
   const index = useQuery({ queryKey: BAR_INDEX, queryFn: ({ signal }) => api.commandIndex({ signal }), staleTime: Infinity });
@@ -144,13 +144,14 @@ export function CommandBar() {
     },
   }), [settings.data, client]);
   // the switches kept in this browser: the bar is drawn again when one changes, so that a switch flipped here shows it
-  useHoverPlay();
-  useExplain();
-  useThemeChoice();
-  useNotify();
+  const kept = [useHoverPlay(), useExplain(), useThemeChoice(), useNotify()];
   const bar = settings.data?.bar;
   const selectedClip = useSelectedClip((c) => c.clip);
   const { mode, text } = modeOf(typed, { history: Boolean(bar?.history), cast: Boolean(bar?.cast) });
+  // the queue only while open, and in full only in the queue mode (its jobs live): the bar does not draw again
+  // at every sampler step for the counts it says elsewhere
+  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length } : null));
+  const queueFull = useQueueOf((q) => (open && mode === "queue" ? q : null));
 
   // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed
   const entries = index.data?.entries ?? [];
@@ -170,7 +171,8 @@ export function CommandBar() {
   }, [path, byKey, ranks, base]);
 
   const templates = useMemo(templateItems, []);
-  const settingRows = settingItems([...SETTINGS, ...PAGES], settingCtx);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
   const recipeItems = useMemo(() => recipes.map((r) => ({ r, p: prepare(`${r.family} ${r.title}`) })), [recipes]);
 
   /** A command read from what is typed, as a row: its words, what it touches and how many. */
@@ -187,8 +189,8 @@ export function CommandBar() {
       length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
       load: [`Load ${recipe?.title ?? (c.cmd === "load" ? c.model : "")}`, recipe ? `${recipe.family.toUpperCase()} · its models into ComfyUI, ahead of a render` : "No model by that name"],
       "new-draft": [`New draft on ${recipe?.title ?? (c.cmd === "new-draft" ? c.recipe : "")}`, recipe ? `${recipe.family.toUpperCase()} · opens in the Studio` : "No model by that name"],
-      pause: ["Pause the queue", queue.data ? `${queue.data.running ? "1 running" : "nothing running"}, ${queue.data.waiting.length} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
-      resume: ["Resume the queue", `${queue.data?.waiting.length ?? 0} waiting`],
+      pause: ["Pause the queue", queueNow ? `${queueNow.running ? "1 running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
+      resume: ["Resume the queue", `${queueNow?.waiting ?? 0} waiting`],
       "empty-bin": ["Empty the bin", "Asked first · cannot be undone"],
       "bin-unused": [`Bin the unused takes of ${t}`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} take${aim.entry.unusedTakes === 1 ? "" : "s"} · asked first` : "It has none") : "Asked first"],
       "link-folder": [c.cmd === "link-folder" && c.path ? `Link ${c.path}` : "Link a folder of your disk", "Used in place, nothing copied"],
@@ -246,11 +248,11 @@ export function CommandBar() {
             recent.push(...latest.slice(0, 6 - recent.length));
           }
           const suggested: Item[] = [];
-          const qd = queue.data;
+          const qd = queueNow;
           if (qd?.paused) suggested.push(commandRow({ cmd: "resume" }));
-          else if (qd?.running || qd?.waiting.length) suggested.push(commandRow({ cmd: "pause" }));
+          else if (qd?.running || qd?.waiting) suggested.push(commandRow({ cmd: "pause" }));
           if (aim?.entry?.unusedTakes) suggested.push(commandRow({ cmd: "bin-unused" }));
-          const failed = qd?.recent.filter((j) => j.status === "failed").length ?? 0;
+          const failed = qd?.failed ?? 0;
           if (failed) suggested.push({ ...commandRow({ cmd: "pause" }), key: "suggest:queue", label: `${failed} failed in the queue`, meta: "Type ! to see them, Tab on one to retry", complete: "!", verb: "show", command: undefined });
           return [
             { group: "Recent", rows: recent.map((r) => ({ ...r, group: "Recent" as const })) },
@@ -287,7 +289,7 @@ export function CommandBar() {
         return [{ group: "Calculator", rows: cards.map((c, i) => ({ key: `calc:${i}`, kind: "calc" as const, label: c.value, meta: `${c.label} · ${c.note}`, group: "Calculator" as const, verb: "copy", p: prepare(c.value), card: c })) }].filter((s) => s.rows.length);
       }
       case "queue": {
-        const qd = queue.data;
+        const qd = queueFull;
         const jobs: Item[] = [];
         if (qd?.running) jobs.push({ key: `job:${qd.running.id}`, kind: "job", label: qd.running.label, group: "Queue", verb: "open", p: prepare(qd.running.label), job: { job: qd.running, state: "running" }, meta: `running · ${qd.running.steps ? `step ${qd.running.step} of ${qd.running.steps}` : `${Math.round(qd.running.progress * 100)} %`}${qd.running.eta ? ` · ${aboutMs(qd.running.eta * 1000)} left` : ""}` });
         qd?.waiting.forEach((w, i) => jobs.push({ key: `job:${w.id}`, kind: "job", label: w.label, group: "Queue", verb: "open", p: prepare(w.label), job: { job: w, state: "waiting", position: i + 1 }, meta: `waiting · ${i === 0 ? "next" : `${i + 1}${["st", "nd", "rd"][i] ?? "th"}`}${w.estimateMs ? ` · ${aboutMs(w.estimateMs)}` : ""} · Tab → to the top` }));
@@ -308,7 +310,7 @@ export function CommandBar() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, text, base, ranks, learn, queue.data, aim, settingRows.map((s) => s.meta).join("|"), estimateSaid, history.data, entities.data, recipeItems, selectedClip]);
+  }, [open, mode, text, base, ranks, learn, queueNow, queueFull, aim, settingRows, estimateSaid, history.data, entities.data, recipeItems, selectedClip]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
   const at = Math.min(sel, Math.max(0, flat.length - 1));

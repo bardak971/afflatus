@@ -44,6 +44,30 @@ const listQuery = z.object({
   dir: z.enum(["asc", "desc"]).optional(),
 });
 
+type ListQuery = z.infer<typeof listQuery>;
+
+/** The library by a list's filters (bin, kind, folder or project, kept, since, family, draft), before any order, page or search. */
+async function filterAssets(s: Services, q: ListQuery) {
+  let query = s.db.selectFrom("assets").where("deleted_at", q.bin ? "is not" : "is", null).where("origin", "not in", NOT_IN_LIBRARY);
+  if (q.kind) query = query.where("kind", "=", q.kind);
+  if (q.folder === "none") query = query.where("folder_id", "is", null);
+  else if (q.folder) query = query.where("folder_id", "=", q.folder);
+  else if (q.project === "none") {
+    const inbox = await folderIdsOf(s.db, "none");
+    query = query.where((eb) => (inbox.length ? eb.or([eb("folder_id", "is", null), eb("folder_id", "in", inbox)]) : eb("folder_id", "is", null)));
+  } else if (q.project) {
+    const own = await folderIdsOf(s.db, q.project);
+    query = own.length ? query.where("folder_id", "in", own) : query.where("folder_id", "=", "-");
+  }
+  if (q.kept === "0") query = query.where("kept_at", "is", null);
+  else if (q.kept) query = query.where("kept_at", "is not", null);
+  if (q.since) query = query.where("created_at", ">=", q.since);
+  if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
+  if (q.draft) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("draft_id", "=", q.draft));
+  return query;
+}
+type Filtered = Awaited<ReturnType<typeof filterAssets>>;
+
 /** What is kept but not shown in the library: a painted mask, a picture uploaded for the Prompt kit. */
 export const NOT_IN_LIBRARY = ["mask", "kit"] as const;
 
@@ -87,40 +111,33 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     return { models: [...models], loras: [...new Set(loras)], words };
   };
 
+  /** What a search by words or files finds among the rows the filters let through: the most recent SEARCHED, best match first. */
+  const searched = async (filtered: Filtered, q: ListQuery) => {
+    // found by its name and by every text of the form it was made with; and by the files it was made with
+    let query = filtered.selectAll();
+    if (q.model || q.lora) query = query.where("generation_id", "is not", null);
+    let rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(SEARCHED).execute();
+    const ids = [...new Set(rows.map((r) => r.generation_id).filter((x): x is string => Boolean(x)))];
+    // only the generations not read before are fetched
+    const unread = ids.filter((id) => !readings.has(id));
+    for (let i = 0; i < unread.length; i += 500) {
+      for (const g of await s.db.selectFrom("generations").select(["id", "recipe_id", "inputs", "resolved"]).where("id", "in", unread.slice(i, i + 500)).execute()) readingOf(g);
+    }
+    const reading = (id: string | null) => (id ? readings.get(id) : undefined);
+    if (q.model || q.lora) rows = rows.filter((r) => {
+      const w = reading(r.generation_id);
+      return w && (!q.model || w.models.includes(q.model)) && (!q.lora || w.loras.includes(q.lora));
+    });
+    return q.q?.trim() ? fuzzyFilter(rows, q.q, (a) => `${a.name} ${reading(a.generation_id)?.words ?? ""}`) : rows;
+  };
+  const searching = (q: ListQuery) => Boolean(q.q?.trim() || q.model || q.lora);
+
   app.get("/api/assets", async (req) => {
     const q = listQuery.parse(req.query);
-    let query = s.db.selectFrom("assets").selectAll().where("deleted_at", q.bin ? "is not" : "is", null).where("origin", "not in", NOT_IN_LIBRARY);
-    if (q.kind) query = query.where("kind", "=", q.kind);
-    if (q.folder === "none") query = query.where("folder_id", "is", null);
-    else if (q.folder) query = query.where("folder_id", "=", q.folder);
-    else if (q.project === "none") {
-      const inbox = await folderIdsOf(s.db, "none");
-      query = query.where((eb) => (inbox.length ? eb.or([eb("folder_id", "is", null), eb("folder_id", "in", inbox)]) : eb("folder_id", "is", null)));
-    } else if (q.project) {
-      const own = await folderIdsOf(s.db, q.project);
-      query = own.length ? query.where("folder_id", "in", own) : query.where("folder_id", "=", "-");
-    }
-    if (q.kept === "0") query = query.where("kept_at", "is", null);
-    else if (q.kept) query = query.where("kept_at", "is not", null);
-    if (q.since) query = query.where("created_at", ">=", q.since);
-    if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
-    if (q.draft) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("draft_id", "=", q.draft));
-    if (q.q?.trim() || q.model || q.lora) {
-      // found by its name and by every text of the form it was made with; and by the files it was made with
-      if (q.model || q.lora) query = query.where("generation_id", "is not", null);
-      let rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(SEARCHED).execute();
-      const ids = [...new Set(rows.map((r) => r.generation_id).filter((x): x is string => Boolean(x)))];
-      // only the generations not read before are fetched
-      const unread = ids.filter((id) => !readings.has(id));
-      for (let i = 0; i < unread.length; i += 500) {
-        for (const g of await s.db.selectFrom("generations").select(["id", "recipe_id", "inputs", "resolved"]).where("id", "in", unread.slice(i, i + 500)).execute()) readingOf(g);
-      }
-      const reading = (id: string | null) => (id ? readings.get(id) : undefined);
-      if (q.model || q.lora) rows = rows.filter((r) => {
-        const w = reading(r.generation_id);
-        return w && (!q.model || w.models.includes(q.model)) && (!q.lora || w.loras.includes(q.lora));
-      });
-      const found = q.q?.trim() ? fuzzyFilter(rows, q.q, (a) => `${a.name} ${reading(a.generation_id)?.words ?? ""}`) : rows;
+    const filtered = await filterAssets(s, q);
+    let query = filtered.selectAll();
+    if (searching(q)) {
+      const found = await searched(filtered, q);
       // a search pages by offset: `before` is where the page below starts
       const end = q.before !== undefined ? Math.min(Number(q.before) || 0, found.length) : undefined;
       const from = end !== undefined ? Math.max(0, end - q.limit) : Number(q.after) || 0;
@@ -162,6 +179,25 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     // a page after a cursor has that cursor's item (and what is above it) above
     return { items: await placedViews(page), next: rows.length > q.limit && tail ? cursor(tail) : null, prev: q.after && page[0] ? cursor(page[0]) : null };
   });
+  /**
+   * The items not kept of a view (the list's filters; kept and bin are set here): how many, when the countdown of the
+   * first and of the last of them started (`from`, `to`: they go to the bin a day after), and their ids when asked (`ids=1`, for Keep all).
+   */
+  app.get("/api/assets/unkept", async (req) => {
+    const q = { ...listQuery.parse(req.query), bin: undefined, kept: "0" };
+    const withIds = (req.query as { ids?: string }).ids === "1";
+    const filtered = await filterAssets(s, q);
+    if (searching(q)) {
+      const rows = await searched(filtered, q);
+      const starts = rows.map((r) => r.countdown_from ?? r.created_at).sort();
+      return { count: rows.length, from: starts[0] ?? null, to: starts.at(-1) ?? null, ...(withIds ? { ids: rows.map((r) => r.id) } : {}) };
+    }
+    const start = sql<string>`coalesce(countdown_from, created_at)`;
+    const sum = await filtered.select((eb) => [eb.fn.countAll().as("count"), eb.fn.min(start).as("from"), eb.fn.max(start).as("to")]).executeTakeFirst();
+    const ids = withIds ? (await filtered.select("id").orderBy("created_at", "desc").execute()).map((r) => r.id) : undefined;
+    return { count: Number(sum?.count ?? 0), from: sum?.from ?? null, to: sum?.to ?? null, ...(ids ? { ids } : {}) };
+  });
+
   /** The listed items; a video that is a take of a timeline clip says which (`clipOf`). */
   async function placedViews(rows: Tables["assets"][]) {
     const videos = rows.filter((r) => r.kind === "video").map((r) => r.id);

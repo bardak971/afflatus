@@ -308,7 +308,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
           />
         </Popover>
       )}
-      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={visible} onOpen={setOpen} onClose={() => setOpen(null)} />}
+      {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={visible} more={{ has: Boolean(assets.hasNextPage), busy: assets.isFetchingNextPage || assets.isFetchingPreviousPage, load: () => void assets.fetchNextPage() }} onOpen={setOpen} onClose={() => setOpen(null)} />}
       {gridMenu.element}
     </div>
   );
