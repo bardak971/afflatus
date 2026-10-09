@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ChevronDown, Copy, Film, Music, Plus, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, Copy, Film, Music, Plus, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
@@ -110,7 +110,9 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
 }
 
 /** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). A long label wraps to a second line rather than being cut ("Reuse · new seed", "Remove background"). */
-function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
+function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
+  // just queued: a check and the ok look for a moment (itemActions.tsx `done`)
+  const Icon = done ? Check : icon;
   return (
     <button
       type="button"
@@ -120,11 +122,11 @@ function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: 
       aria-pressed={pressed}
       className={cx(
         "flex min-h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-2.5 py-1 text-left text-[13px] font-semibold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
-        pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
+        done ? "m-ok border-good/50 bg-good/15 text-good" : pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
         wide && "col-span-2",
       )}
     >
-      {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", pressed ? "text-accent" : "text-ink-2")} />}
+      {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", done ? "text-good" : pressed ? "text-accent" : "text-ink-2")} />}
       <span className="line-clamp-2 min-w-0 grow leading-tight">{label}</span>
       {k && <span className="shrink-0 whitespace-nowrap"><Kbd>{k}</Kbd></span>}
     </button>
@@ -473,7 +475,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             <SectionTitle>{groupTitle(group, a.kind)}</SectionTitle>
             <div className="grid grid-cols-2 gap-1.5">
               {actions.map((x) => (
-                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={() => x.run?.()} />
+                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={() => x.run?.()} />
               ))}
             </div>
             {group === "passes" && !a.inBin && <MorePasses madeWith={recipe} shown={passTools} start={openTool} />}

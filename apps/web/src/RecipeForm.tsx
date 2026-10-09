@@ -1,7 +1,7 @@
-import { useContext, useMemo, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isShown, type InputSpec } from "@afflatus/core";
-import { api, type RecipeInfo, type RecipeStatus } from "./api";
+import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
 import { changedIn, countOf, formDefaults, layoutOf, matchesText, settingsOnly, summariesOf } from "./form";
@@ -10,9 +10,10 @@ import { MissingModel } from "./PresetFiles";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
-import { CardPrompt, FormSearching, Part, TextFold, useParts } from "./recipeForm/Part";
+import { CardPrompt, FormSearching, Part, TextFold, useFormAim, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
 import { useFormSearch } from "./recipeForm/useFormSearch";
+import { scrollInside } from "./scrollInside";
 
 /** The words the form's search knows the screen's own tools by: the prompt's helpers, the model picker, the cast. */
 const HELPER_WORDS = "snippets snippet designer llm roll random wildcards prompt helpers";
@@ -88,10 +89,44 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const madeHit = Boolean(q && made) && matchesText(`${MADE_WORDS} ${recipe.title}`, q);
   const lookHit = Boolean(q && look) && matchesText(LOOK_WORDS, q);
 
+  // opened for one of its inputs (a picture handed over by Image to video, Extend, a tool): the Inputs part opens on
+  // its tab, the slot comes into view and is ringed once, so the picture is seen where it went
+  useEffect(() => {
+    const input = useFormAim.getState().take(recipe.id);
+    if (!input) return;
+    setPart("inputs:references", refs.some((i) => i.id === input));
+    setPart("inputs", true, true);
+    // once the opened part is drawn
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-input-id="${CSS.escape(input)}"]`);
+      if (!el) return;
+      scrollInside(el, "center");
+      el.classList.remove("m-aim");
+      void el.offsetWidth;
+      el.classList.add("m-aim");
+      el.addEventListener("animationend", () => el.classList.remove("m-aim"), { once: true });
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per recipe shown: the aim is taken, not watched
+  }, [recipe.id]);
+
+  // the Inputs part's folded line shows the frames chosen as small pictures before their names: a frame handed over
+  // is seen at a glance without opening the part
+  const chosenThumbs = said.framesChosen.flatMap((i) => {
+    const v = values[i.id];
+    const id = typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { asset?: unknown }).asset === "string" ? (v as { asset: string }).asset : null;
+    return id ? [{ key: i.id, id, label: i.label }] : [];
+  });
+  const inputsSummary = chosenThumbs.length ? (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {chosenThumbs.map((t) => <img key={t.key} src={thumbUrl(t.id)} alt={t.label} draggable={false} className="h-5 w-5 shrink-0 rounded object-cover" />)}
+      <span className="truncate">{said.inputsSaid}</span>
+    </span>
+  ) : said.inputsSaid;
+
   const card = useContext(CardPrompt);
   // (bare: true only; .map() passes its index in that place)
   const render = (i: InputSpec, bare?: unknown) => (
-    <div key={i.id} className="flex flex-col gap-1">
+    <div key={i.id} data-input-id={i.id} className="flex flex-col gap-1 rounded-lg">
       <Field
         bare={bare === true}
         standard={defaults[i.id]}
@@ -169,7 +204,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
       )}
       {!promptMoved && promptBlock}
       <InputsPart
-        frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} summary={said.inputsSaid} missing={said.missing}
+        frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} summary={inputsSummary} missing={said.missing}
         look={look} lookHit={lookHit} frameExtra={frameExtra} q={q} render={render}
       />
       {chapters.map((ch) => {

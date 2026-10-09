@@ -52,6 +52,11 @@ export interface Banner {
   go?: string;
   /** What a click does in place of going to `href` (a reload). */
   act?(): void;
+  /**
+   * A button of its own beside the words (Undo, Retry): what it says, the key shown with it, what it does. `undo`: Ctrl+Z
+   * presses it while the banner is up (the newest such banner), on a screen whose own Ctrl+Z does nothing else.
+   */
+  action?: { label: string; key?: string; undo?: boolean; run(): void };
 }
 /** How many banners show at once: past it, the oldest good news goes first. Bad news is never dropped unread. */
 const BANNERS = 5;

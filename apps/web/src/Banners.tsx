@@ -5,6 +5,7 @@ import type { Job } from "./api";
 import { useQueue } from "./data";
 import { useDownloads } from "./GetFile";
 import { moves } from "./leave";
+import { Kbd } from "./Keys";
 import { OUT_MS } from "./motion";
 import { useBanners, type Banner } from "./store";
 import { cx } from "./ui";
@@ -123,6 +124,23 @@ export function Banners() {
     return () => clearTimeout(t);
   }, [items, dismiss]);
 
+  // Ctrl+Z undoes what the newest banner with an Undo said was done, but where Ctrl+Z is the screen's own (the timeline
+  // editor's history, a dialog such as the mask painter) or the cursor is in a field, whose own undo it is
+  const undoable = [...items].reverse().find((b) => b.action?.undo);
+  useEffect(() => {
+    if (!undoable) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z" || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("input, textarea, select, [contenteditable]") || document.querySelector("[role=dialog][aria-modal=true]") || path.startsWith("/timelines/")) return;
+      e.preventDefault();
+      dismiss(undoable.id);
+      undoable.action!.run();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undoable, dismiss, path]);
+
   const drawn = useLeaving(items);
   if (!drawn.length) return null;
   return (
@@ -154,6 +172,18 @@ export function Banners() {
             </button>
           ) : (
             <div className="flex min-w-0 grow flex-col gap-0.5 pt-px">{said}</div>
+          )}
+          {b.action && (
+            <button
+              type="button"
+              onClick={() => {
+                dismiss(b.id);
+                b.action!.run();
+              }}
+              className="flex h-7 shrink-0 items-center gap-1.5 self-center rounded-md border border-line-strong px-2.5 text-xs font-semibold hover:bg-hover"
+            >
+              {b.action.label} {b.action.key && <Kbd>{b.action.key}</Kbd>}
+            </button>
           )}
           <button type="button" aria-label="Close" onClick={() => dismiss(b.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-hover"><X size={14} /></button>
         </div>

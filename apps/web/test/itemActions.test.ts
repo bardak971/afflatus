@@ -155,3 +155,18 @@ describe("the viewer's side", () => {
     expect(groups.at(-1)!.actions.map((a) => a.id)).toEqual(["compare", "details", "download"]);
   });
 });
+
+describe("a pass just queued", () => {
+  it("says Queued on its own button for a moment, the others as they were", () => {
+    const list = itemActions(facts("image", { queued: { upscale: true } }), runs);
+    expect(list.find((a) => a.id === "upscale")).toMatchObject({ label: "Queued", done: true, disabled: false });
+    expect(list.find((a) => a.id === "face")).toMatchObject({ label: "Face detailer" });
+    expect(list.find((a) => a.id === "face")!.done).toBeUndefined();
+  });
+
+  it("does not say it where the action is off now (the item went to the bin meanwhile)", () => {
+    const up = itemActions(facts("image", { inBin: true, queued: { upscale: true } }), runs).find((a) => a.id === "upscale")!;
+    expect(up.label).toBe("Upscale 2x");
+    expect(up.done).toBeUndefined();
+  });
+});

@@ -1,10 +1,9 @@
 import { useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronLeft, ChevronRight, Film, Folder, FolderPlus, FolderTree, X } from "lucide-react";
-import { api, type Asset, type AssetDetail } from "../api";
+import type { Asset } from "../api";
 import { openProjects } from "../bar/bridge";
-import { assetKey, useFolders, useProjects, type useAsset } from "../data";
+import { useFolders, useProjects, type useAsset } from "../data";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { Keys } from "../Keys";
 import { cx } from "../ui";
@@ -127,19 +126,11 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
   onClose(): void;
 }) {
   const { a, g, at, more, move, first } = acts;
-  const qc = useQueryClient();
   const [, go] = useLocation();
-  const rename = useMutation({
-    mutationFn: (v: { id: string; name: string }) => api.renameAsset(v.id, v.name),
-    onSuccess: (_, v) => {
-      // the new name at once; the lists read theirs again
-      qc.setQueryData<AssetDetail>(assetKey(v.id), (d) => (d ? { ...d, name: v.name } : d));
-      void qc.invalidateQueries({ queryKey: ["assets"] });
-    },
-  });
   const save = (name: string) => {
     onNaming(false);
-    if (name !== a.name) rename.mutate({ id: a.id, name });
+    // the new name shows as Enter is pressed, here and in the lists; a refusal brings the old one back (assetChange.tsx)
+    if (name !== a.name) acts.mutations.rename(a.id, name);
   };
   const own = detail.data?.id === a.id ? detail.data : undefined;
   const places = placesOf(own?.clipOf ?? (asset.id === a.id ? asset.clipOf : undefined), own?.usedIn ?? []);
@@ -176,7 +167,6 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
           {!a.inBin && <span className="shrink-0 text-[11px] font-medium text-ink-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"><Keys keys="F2" size="sm" /></span>}
         </button>
       )}
-      {rename.isError && <span className="text-xs text-warn-ink">{rename.error.message}</span>}
 
       <span className="text-[12.5px] text-ink-2">
         {/* the seed is in its cell under the prompt, once */}

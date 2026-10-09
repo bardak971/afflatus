@@ -193,20 +193,20 @@ function SelectionBar({ place, items, selection, compact }: { place: Place; item
       <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
       {picked.length < items.length && <button type="button" data-tip={compact ? `Select all ${items.length}` : undefined} onClick={() => setPicked(items.map((a) => a.id))} className="text-xs whitespace-nowrap text-ink-2 underline hover:text-ink">{compact ? "all" : `select all ${items.length}`}</button>}
       {place.type === "bin" ? (
-        <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Restore</Button>
+        <Button size="sm" onClick={() => bulk("restore")}><Undo2 size={13} /> Restore</Button>
       ) : (
         <>
           {ordered.length > 0 && <Button size="sm" aria-label={compact ? "Make a timeline of these" : undefined} disabled={make.isPending} data-tip="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} />{!compact && (make.isPending ? " Making…" : " Make a timeline of these")}</Button>}
           <div className={compact ? "w-32" : "w-44"}>
             <Select
               size="sm" label="Move the selected items to a folder" placeholder="Move to folder" searchHint="Search folders" value=""
-              onChange={(to) => moveTo.mutate(to === "__none__" ? null : to)}
+              onChange={(to) => moveTo(to === "__none__" ? null : to)}
               options={folderOptions}
             />
           </div>
-          {chosen.some((a) => !a.kept) && <Button size="sm" aria-label={compact ? "Keep" : undefined} data-tip={compact ? "Keep them" : undefined} disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} />{!compact && " Keep"}</Button>}
-          {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} data-tip="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Unkeep</Button>}
-          <Button size="sm" aria-label={compact ? "Bin" : undefined} disabled={bulk.isPending} data-tip="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} />{!compact && " Bin"}</Button>
+          {chosen.some((a) => !a.kept) && <Button size="sm" aria-label={compact ? "Keep" : undefined} data-tip={compact ? "Keep them" : undefined} onClick={() => bulk("keep")}><Star size={13} />{!compact && " Keep"}</Button>}
+          {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" data-tip="They go back on the one-day countdown" onClick={() => bulk("unkeep")}>Unkeep</Button>}
+          <Button size="sm" aria-label={compact ? "Bin" : undefined} data-tip="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} />{!compact && " Bin"}</Button>
         </>
       )}
       <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { askAboutDisk } from "../Confirm";
-import { api, type Asset } from "../api";
-import { useAssetAction, type useAsset } from "../data";
+import type { Asset } from "../api";
+import type { useAsset } from "../data";
 import { saveAsset } from "../download";
 import type { ActionId, ItemFacts, Runs } from "../itemActions";
 import { useItemActions } from "../useItemActions";
@@ -40,16 +40,13 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
   /** An item made here (a frame, a sound), shown in its turn. */
   onOpened(asset: Asset): void;
 }) {
-  const keep = useAssetAction((kept: boolean) => api.keep(asset.id, kept));
-  const bin = useAssetAction(() => api.bin(asset.id));
-  const restore = useAssetAction(() => api.restore(asset.id));
   /** Over the screen, it steps aside when one of its actions opens a form: the form is what is looked at next. */
   const leave = () => {
     if (!inline) onClose();
   };
   // what every list of an item does (useItemActions), on the item shown: its frame is the player's, a form it opens steps the viewer aside
   const core = useItemActions({ asset, detail, leave, onOpened, into, player, trim, timeline: { onStarted: onClose, noStartKey: inline } });
-  const { a, queued, quick } = core;
+  const { a, queued, quick, mutations } = core;
   /** The item before or after in the list it was opened from. */
   const at = !trailed && items ? items.findIndex((x) => x.id === first.id) : -1;
   // past the last one loaded: the next page is read, and the step lands once it is here (`from` and its place then)
@@ -86,7 +83,8 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
   const toBin = async () => {
     // a file of a linked folder leaves its folder on the disk: asked first
     if (!(await askAboutDisk([a]))) return;
-    bin.mutate(undefined);
+    // it leaves the list on screen at once (assetChange.tsx), just after this step is taken from where it was
+    mutations.bin([a.id]);
     // on to the next one: sorting a batch is keep, bin, keep, bin
     if (!(move(1) || move(-1))) onClose();
   };
@@ -98,12 +96,11 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
    * the next one); `facts` and `overrides` are Viewer.tsx's own (Open, Trim, Compare, Details, the name).
    */
   const list = (facts: Partial<ItemFacts> = {}, overrides: Runs = {}, notes: Partial<Record<ActionId, string>> = {}) => core.list(facts, {
-    keep: () => keep.mutate(!a.kept),
-    bin: a.inBin ? () => restore.mutate(undefined) : () => void toBin(),
+    bin: a.inBin ? () => mutations.restore([a.id]) : () => void toBin(),
     ...overrides,
   }, notes);
 
-  return { ...core, first, keep, restore, leave, queued, quick, at, more: Boolean(more?.has), move, toBin, download, list };
+  return { ...core, first, leave, queued, quick, at, more: Boolean(more?.has), move, toBin, download, list };
 }
 
 /** What `useViewerActions` gives: handed whole to the parts of the viewer. */

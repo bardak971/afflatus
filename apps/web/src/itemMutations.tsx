@@ -5,6 +5,7 @@ import { Film, Folder, FolderKanban, Inbox, Music, Plus, Search } from "lucide-r
 import { useAddTo, useLast, useOpenInComfy, useStartTimeline } from "./actions";
 import { AddToTimeline } from "./AddToTimeline";
 import { api, type Asset, type TimelineBrief } from "./api";
+import { useAssetChange } from "./assetChange";
 import { askText } from "./Confirm";
 import type { MenuItem } from "./ContextMenu";
 import { useFolders, useProjects, useTimelines } from "./data";
@@ -20,9 +21,9 @@ export function useSayFailed() {
 }
 
 /**
- * What the menus of an item change on it (a tile's, the viewer's, the stage's), the one body each. The
- * server says each change with a "library" event (live.ts reads the lists again), except a keep of one
- * item, which is read again here. What fails is said in a banner.
+ * What the menus of an item change on it (a tile's, the viewer's, the stage's), the one body each. Keep, rename,
+ * the bin, put back and Move to show at once and are sent behind (assetChange.tsx: a refusal puts them back and says
+ * why, with Retry; a move or a bin says so with Undo). What else fails is said in a banner.
  */
 export function useItemMutations() {
   const client = useQueryClient();
@@ -30,21 +31,17 @@ export function useItemMutations() {
   const say = useBanners((b) => b.push);
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
   const folders = useFolders().data?.items ?? [];
-  // a name of the user's own, asked for in a box; the library shows it and the search goes by it
-  const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.renameAsset(v.id, v.name), onError: failed("Could not rename it") });
+  const change = useAssetChange();
+  /** A name of the user's own, asked for in a box; the library shows it and the search goes by it. */
+  const rename = (id: string, name: string) => void change({ kind: "rename", ids: [id], name });
   const renameIt = async (of: Asset) => {
     const name = await askText({ title: "Rename", value: of.name, placeholder: "A name for it", yes: "Rename" });
-    if (name !== null && name !== of.name) rename.mutate({ id: of.id, name });
+    if (name !== null && name !== of.name) rename(of.id, name);
   };
-  const keep = useMutation({ mutationFn: (v: { id: string; kept: boolean }) => api.keep(v.id, v.kept), onSuccess: () => client.invalidateQueries({ queryKey: ["assets"] }), onError: failed("Could not keep it") });
-  const bin = useMutation({ mutationFn: (id: string) => api.bin(id), onError: failed("Could not move it to the bin") });
-  const restore = useMutation({ mutationFn: (id: string) => api.restore(id), onError: failed("Could not put it back") });
-  // the projects' counts are not under "assets": read again after a move
-  const moveTo = useMutation({
-    mutationFn: (v: { ids: string[]; folder: string | null }) => api.moveAssets(v.ids, v.folder),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["projects"] }),
-    onError: failed("Could not move it"),
-  });
+  const keep = (ids: string[], kept: boolean) => void change({ kind: "keep", ids, kept });
+  const bin = (ids: string[]) => void change({ kind: "bin", ids });
+  const restore = (ids: string[]) => void change({ kind: "restore", ids });
+  const moveTo = (ids: string[], folder: string | null) => void change({ kind: "move", ids, folder });
   // a folder made on the spot, the item moved into it at once
   const makeFolder = useMutation({
     mutationFn: async (v: { ids: string[]; name: string; parent: string | null; project: string | null }) => {
@@ -60,7 +57,7 @@ export function useItemMutations() {
    */
   const moves = (asset: Pick<Asset, "id" | "folderId">, ids: string[] = [asset.id]): MenuItem[] => {
     const here = (folder: string | null) => ids.length === 1 && asset.folderId === folder;
-    const go = (folder: string | null) => () => moveTo.mutate({ ids, folder });
+    const go = (folder: string | null) => () => moveTo(ids, folder);
     return [
       ...projects.map((p): MenuItem => {
         // the folders under its root folder, in reading order; a folder inside another shows where it is
@@ -97,7 +94,7 @@ export function useItemMutations() {
     () => say({ id: `seed:${Date.now()}`, tone: "good", title: `Seed ${seed} copied` }),
     (err: Error) => failed("Could not copy the seed")(err),
   );
-  return { renameIt, keep, bin, restore, moves, moveTo, newFolderFor, openInComfy, copySeed, failed };
+  return { rename, renameIt, keep, bin, restore, moves, moveTo, newFolderFor, openInComfy, copySeed, failed };
 }
 
 /**

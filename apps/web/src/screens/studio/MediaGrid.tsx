@@ -1,4 +1,6 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { leavingNow } from "../../assetChange";
+import { leaveCopy } from "../../leave";
 import { cx } from "../../ui";
 import { justify } from "../library/justify";
 
@@ -59,10 +61,25 @@ export function JustifiedRows({ places, rowHeight, className, under = 0, rows: m
     <div ref={box} className={cx("relative min-w-0", className)} style={{ height: laid.height }}>
       {places.map((p, i) => {
         const at = laid.at[i];
-        return at ? <div key={p.key} className="absolute" style={at}>{p.render()}</div> : null;
+        return at ? <PlaceBox key={p.key} id={p.key} at={at}>{p.render()}</PlaceBox> : null;
       })}
     </div>
   );
+}
+
+/**
+ * One tile's place. An item that leaves the list on purpose (moved, binned: assetChange.ts) fades out where it was rather
+ * than vanish; a list changed for another reason (another folder, a search) is not played out. `data-item-id`: where a
+ * refused change shakes the item back.
+ */
+function PlaceBox({ id, at, children }: { id: string; at: CSSProperties; children: ReactNode }) {
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    return () => {
+      if (leavingNow.has(id)) leaveCopy(el, "m-out");
+    };
+  }, [id]);
+  return <div ref={ref} data-item-id={id} className="absolute" style={at}>{children}</div>;
 }
 
 /** The shapes the loading placeholders take, in turn: a library's usual mix of landscape, portrait and square. */

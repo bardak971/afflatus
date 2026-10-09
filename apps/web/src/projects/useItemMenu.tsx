@@ -28,12 +28,6 @@ export function useItemMenu({ onView, onStudio }: { onView(asset: Asset): void; 
   // the viewer opens on the item alone here: Compare says so
   const tile = useTileMenu({ onOpen: onView, first: extras, place: "projects", listed: false });
 
-  // several picked items, in the order they show
-  const bulk = useMutation({
-    mutationFn: (v: { ids: string[]; action: "keep" | "unkeep" }) => api.bulkAssets(v.ids, v.action),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["assets"] }),
-    onError: (err) => say({ id: `tree-bulk:${Date.now()}`, tone: "bad", title: "Could not change them", text: err.message, href: "/", go: "Open the library" }),
-  });
   const addAll = useMutation({
     mutationFn: async (v: { assets: Asset[]; timeline: { id: string; name: string } | null }): Promise<{ id: string; name: string }> => {
       const t: { id: string; name: string } = v.timeline ?? (await api.createTimeline().then((x) => ({ id: x.id, name: x.name })));
@@ -51,8 +45,8 @@ export function useItemMenu({ onView, onStudio }: { onView(asset: Asset): void; 
     const ids = assets.map((a) => a.id);
     const playable = assets.filter((a) => a.kind !== "audio" && !a.inBin);
     return [
-      { label: `Keep ${assets.length}`, key: "S", icon: <Star size={14} />, disabled: bulk.isPending, run: () => bulk.mutate({ ids, action: "keep" }) },
-      { label: `Unkeep ${assets.length}`, icon: <StarOff size={14} />, disabled: bulk.isPending, run: () => bulk.mutate({ ids, action: "unkeep" }) },
+      { label: `Keep ${assets.length}`, key: "S", icon: <Star size={14} />, run: () => keep(ids, true) },
+      { label: `Unkeep ${assets.length}`, icon: <StarOff size={14} />, run: () => keep(ids, false) },
       { label: `Download ${assets.length}`, icon: <Download size={14} />, note: "one file each", run: () => assets.forEach((a) => saveAsset(a)) },
       "—",
       {
