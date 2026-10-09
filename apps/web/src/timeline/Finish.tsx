@@ -86,7 +86,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
           {v.route === "latent" && (
             <>
               <FieldRow label="Denoise" note="Re-sample denoise. 0.2 adds detail and keeps the clip; 0.25 and up invent small things (a bird, a moon); past 0.4 faces change">
-                <NumberBox label="Re-sample denoise" value={v.latentDenoise} min={0.05} max={0.6} step={0.05} onCommit={(latentDenoise) => setV({ ...v, latentDenoise })} />
+                <NumberBox label="Re-sample denoise" value={v.latentDenoise} min={0.05} max={0.6} step={0.01} onCommit={(latentDenoise) => setV({ ...v, latentDenoise })} />
               </FieldRow>
               <FieldRow label="Steps" note="Re-sample steps: each step is a pass over the whole clip">
                 <NumberBox label="Re-sample steps" value={v.latentSteps} min={1} max={6} step={1} onCommit={(latentSteps) => setV({ ...v, latentSteps: Math.round(latentSteps) })} />

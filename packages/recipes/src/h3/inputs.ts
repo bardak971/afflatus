@@ -140,7 +140,7 @@ export const h3Inputs: InputSpec[] = [
   },
   ...upscaleInputs({ latent: true }),
   {
-    id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.05, default: 0.3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
+    id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.01, default: 0.3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
     note: "denoising strength of the re-sampling: 0.2 keeps the clip as it is, 0.3 to 0.4 draws real detail into it, higher invents more. A plain resize of the latent (no H3 latent upscaler file) needs 0.3 or more, else it stays soft",
   },
   { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling: 1 only sharpens, 3 to 4 add detail; each step is a pass over the whole clip" },
