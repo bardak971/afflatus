@@ -21,6 +21,12 @@ export interface Tracking {
    * counts them; without them it is the steps left at the pace so far.
    */
   expect?: { laterMs?: number; finishMs?: number };
+  /**
+   * The steps a process that followed this prompt before had counted (saved on its job): a render picked up
+   * again mid-way starts its count there, where which pass is running cannot say it (one node sampling chunk
+   * after chunk, a graph without passes).
+   */
+  stepsDone?: number;
 }
 
 /** What was measured while a prompt ran: what the record of render times is made of. */
@@ -68,6 +74,8 @@ interface Tracked extends Tracking {
   executing: string | null;
   samplingAt: number | null;
   stepsAtStart: number;
+  /** The saved count of a prompt picked up again (Tracking.stepsDone), within the total; 0 when there is none. */
+  resumed: number;
   preview: Preview;
   /** What the prompt showed on the way: each preview or save node's pictures, in the order they came. */
   stages: Stage[];
@@ -188,9 +196,10 @@ export class Monitor {
 
   track(t: Tracking): void {
     if (this.tracked.has(t.promptId)) return;
+    const totalSteps = Math.max(1, t.totalSteps);
     this.tracked.set(t.promptId, {
-      ...t, totalSteps: Math.max(1, t.totalSteps), done: 0, node: null, value: 0, max: 0, phase: "waiting",
-      executing: null, samplingAt: null, stepsAtStart: 0, preview: { seq: 0 }, stages: [],
+      ...t, totalSteps, done: 0, node: null, value: 0, max: 0, phase: "waiting",
+      executing: null, samplingAt: null, stepsAtStart: 0, resumed: Math.min(totalSteps, Math.max(0, Math.floor(t.stepsDone ?? 0))), preview: { seq: 0 }, stages: [],
       clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null,
     });
     if (t.clientId && t.clientId !== this.client.clientId) this.listenAs(t.clientId, t.promptId);
@@ -259,7 +268,8 @@ export class Monitor {
   progress(promptId: string): Progress {
     const r = this.tracked.get(promptId);
     if (!r) return { progress: 0, eta: 0, phase: "waiting", step: 0, steps: 0 };
-    const steps = r.done + r.value;
+    // picked up again: the saved count shows from the start, before the first step is heard
+    const steps = Math.max(r.done + r.value, r.resumed);
     // the time left comes from the sampling rate alone: a cold model load would inflate it wildly
     let eta = 0;
     if (r.samplingAt && steps > r.stepsAtStart) {
@@ -382,6 +392,9 @@ export class Monitor {
       }
       this.catchUp(r, node);
       const value = Number(d.value ?? 0);
+      // the first step heard after a pick-up: the count goes on from the saved one (the pace is timed from here, over
+      // the steps seen from here), unless which pass runs already says more
+      if (r.resumed && !r.node) r.done = Math.max(r.done, r.resumed - value);
       // a new node reporting steps means the previous sampler is finished
       if (r.node && node !== r.node && r.max > 0 && r.value >= r.max) r.done += r.max;
       // the same node counting from the start again: a node that samples piece by piece (H3's latent re-sample,

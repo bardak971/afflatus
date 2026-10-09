@@ -62,6 +62,11 @@ export interface Resume {
   /** What was sent otherwise than asked (a latent join made on frames, a whole sound for its part): said on the job. */
   warnings?: string[];
   /**
+   * The steps counted so far, saved now and then while it runs (QueueOptions.stepsSaveMs): a process started again
+   * mid-render picks the count up there instead of at the start of the pass that runs.
+   */
+  stepsDone?: number;
+  /**
    * Saved just before the prompt went to ComfyUI, under the id it is sent with: a process that stops before
    * hearing back asks ComfyUI for that id when it starts again, and follows the prompt instead of sending it twice.
    */
@@ -75,6 +80,8 @@ export interface QueueOptions {
   offlineExpiryMs: number;
   maxAttempts: number;
   wait: Pick<WaitOptions, "timeoutMs" | "pollMs" | "offlineMs" | "queueCheckEvery">;
+  /** At most how often the running render's step count is saved on its job (Resume.stepsDone); 5 s when left out. */
+  stepsSaveMs?: number;
 }
 export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
   offlineRetryMs: 15_000,

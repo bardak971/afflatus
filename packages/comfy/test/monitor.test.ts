@@ -172,6 +172,53 @@ describe("Monitor", () => {
     expect(monitor.progress("p1")).toMatchObject({ step: 20, steps: 20, phase: "refining", progress: 0.99 });
   });
 
+  it("goes on from the step count saved on a prompt picked up again, when one node samples chunk after chunk", async () => {
+    // a finish's refine run per chunk: 9 chunks of 10 steps on one node, joined after the third
+    const clock = { now: 1_000 };
+    const timed = new Monitor(new ComfyClient(fake.url), { now: () => clock.now });
+    await timed.ready();
+    try {
+      timed.track({ promptId: "p1", totalSteps: 90, phases: { "8": "refining" }, passes: [{ node: "8", steps: 90 }], expect: { finishMs: 2000 }, stepsDone: 30 });
+      // shown before a step is heard
+      expect(timed.progress("p1")).toMatchObject({ step: 30, steps: 90 });
+      let heard = 0;
+      timed.onChange = () => heard++;
+      fake.send("executing", { prompt_id: "p1", node: "8" });
+      fake.send("progress", { prompt_id: "p1", node: "8", value: 5, max: 10 });
+      await until(() => heard === 2);
+      expect(timed.progress("p1")).toMatchObject({ step: 30, phase: "refining" });
+      clock.now += 100;
+      fake.send("progress", { prompt_id: "p1", node: "8", value: 6, max: 10 });
+      await until(() => timed.progress("p1").step === 31);
+      // the pace is timed from the pick-up, over the one step seen since: 59 left at 0.1 s, then the finishing
+      expect(timed.progress("p1").eta).toBeCloseTo(59 * 0.1 + 2, 6);
+      // the same node starting its next chunk does not set the count back
+      for (const value of [7, 8, 9, 10, 1, 2]) fake.send("progress", { prompt_id: "p1", node: "8", value, max: 10 });
+      await until(() => timed.progress("p1").step === 37);
+      expect(timed.progress("p1").step).toBe(37);
+    } finally {
+      timed.close();
+    }
+  });
+
+  it("keeps a saved count within the total, and takes what the running pass says when that is more", async () => {
+    monitor.track({ promptId: "p1", totalSteps: 30, phases: tracking.phases, stepsDone: 500 });
+    expect(monitor.progress("p1")).toMatchObject({ step: 30, steps: 30, progress: 0.99 });
+    // saved a little before the restart: the second pass running says more
+    monitor.track({ promptId: "p2", totalSteps: 30, phases: tracking.phases, passes: [{ node: "5", steps: 20 }, { node: "8", steps: 10 }], stepsDone: 18 });
+    fake.send("executing", { prompt_id: "p2", node: "8" });
+    fake.send("progress", { prompt_id: "p2", node: "8", value: 3, max: 10 });
+    await until(() => monitor.progress("p2").step === 23);
+  });
+
+  it("without a saved count (a job from before it was saved), infers the steps done from the pass that runs", async () => {
+    monitor.track({ ...tracking, passes: [{ node: "5", steps: 20 }, { node: "8", steps: 10 }] });
+    fake.send("executing", { prompt_id: "p1", node: "8" });
+    fake.send("progress", { prompt_id: "p1", node: "8", value: 3, max: 10 });
+    await until(() => monitor.progress("p1").step === 23);
+    expect(monitor.progress("p1")).toMatchObject({ step: 23, steps: 30, phase: "refining" });
+  });
+
   it("does not count the tiles of a decode or an upscale model as steps, but shows their phase", async () => {
     monitor.track({ ...tracking, passes: [{ node: "5", steps: 20 }, { node: "8", steps: 10 }] });
     fake.send("execution_start", { prompt_id: "p1" });

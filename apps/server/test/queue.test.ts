@@ -330,6 +330,37 @@ describe("when ComfyUI goes away", () => {
     expect(submitted()).toHaveLength(1);
     await second.close();
   });
+
+  it("keeps its step count on the job while it runs, and goes on from it after a restart", async () => {
+    const db = openSqlite(":memory:");
+    const first = await makeApp({ db, comfyUrl: fake.url });
+    await first.services.queue.start();
+    const id = (await post(first.app, "/api/jobs", job({ steps: 12, hires: true, hiresSteps: 8 }))).json().ids[0] as string;
+    await until(() => submitted().length === 1);
+    const promptId = submitted()[0]!;
+    const samplers = Object.entries(fake.prompts.get(promptId)!).filter(([, n]) => n.class_type === "KSampler").map(([nodeId]) => nodeId);
+    const saved = async () => JSON.parse((await db.selectFrom("jobs").select("resume").where("id", "=", id).executeTakeFirstOrThrow()).resume!).stepsDone;
+    fake.send("progress", { prompt_id: promptId, node: samplers[0], value: 7, max: 12 });
+    await until(async () => (await saved()) === 7);
+    first.services.queue.stop();
+    await first.services.queue.idle();
+    await first.app.close();
+
+    const second = await makeApp({ db, dir: first.dir, comfyUrl: fake.url });
+    await second.services.queue.start();
+    // the saved count shows from the pick-up, where the pass running (the first) would have said 0
+    await until(async () => (await get(second.app, "/api/queue")).json().running?.steps === 20);
+    expect((await get(second.app, "/api/queue")).json().running).toMatchObject({ step: 7, steps: 20 });
+    await new Promise((r) => setTimeout(r, 30));
+    fake.send("progress", { prompt_id: promptId, node: samplers[0], value: 8, max: 12 });
+    await until(async () => (await get(second.app, "/api/queue")).json().running?.step === 8);
+    await until(async () => (await saved()) === 8);
+
+    complete(fake, promptId);
+    await until(async () => (await db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
+    expect(submitted()).toHaveLength(1);
+    await second.close();
+  });
 });
 
 describe("a prompt sent just before the process died", () => {

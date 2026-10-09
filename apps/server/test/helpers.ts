@@ -18,6 +18,8 @@ export const NOWHERE = "http://127.0.0.1:9";
 export const FAST: QueueOptions = {
   offlineRetryMs: 20, offlineExpiryMs: 150, maxAttempts: 3,
   wait: { timeoutMs: 5000, pollMs: 2, offlineMs: 100, queueCheckEvery: 1 },
+  // every new step count saved on its job at once
+  stepsSaveMs: 0,
 };
 
 export const CHECKPOINT = "illustrious.safetensors";

@@ -35,6 +35,8 @@ const PAUSED_KEY = "queue.paused";
 const MODEL_KEY = "queue.model";
 /** The base models the last job had ComfyUI load, kept across restarts of this app (ComfyUI keeps running through them). */
 const LOADS_KEY = "queue.loads";
+/** At most how often a running render's step count is saved on its job, when the options do not say. */
+const STEPS_SAVE_MS = 5_000;
 
 /** Whether a job needs ComfyUI: a render, a finish and a RIFE slow-motion do; an export and a cut by ffmpeg do not. */
 const needsComfy = (r: JobRow) => r.recipe_id !== EXPORT_JOB && (r.recipe_id !== CUT_JOB || tools.usesGpu(r));
@@ -559,14 +561,21 @@ export class Queue {
       }
       comfy.monitor.ensure();
       // after a restart this process has a new client id: the monitor then listens under the one that queued it
-      comfy.monitor.track({ promptId: resume.promptId, totalSteps: resume.totalSteps, phases: resume.phases, passes: resume.passes, clientId: resume.clientId, expect: resume.timing?.expect });
-      comfy.monitor.onChange = () => this.events.emit("progress");
+      // and its step count goes on from the one saved: which pass runs cannot tell it when one node samples chunk after chunk
+      comfy.monitor.track({ promptId: resume.promptId, totalSteps: resume.totalSteps, phases: resume.phases, passes: resume.passes, clientId: resume.clientId, expect: resume.timing?.expect, stepsDone: resume.stepsDone });
+      const saving = this.stepsSaver(row.id, resume, comfy);
+      comfy.monitor.onChange = () => {
+        this.events.emit("progress");
+        saving.check();
+      };
       let outputs;
       try {
         outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal });
       } finally {
         measured = comfy.monitor.measured(resume.promptId);
         comfy.monitor.untrack(resume.promptId);
+        // a save under way lands before the job is closed or queued again, never over what that writes
+        await saving.settled();
       }
       const tookMs = Date.now() - resume.startedAt;
       if (row.warm) {
@@ -586,6 +595,28 @@ export class Queue {
       this.running = null;
       void this.armIdle();
     }
+  }
+
+  /**
+   * Keeps the running render's step count on its job (Resume.stepsDone) for a process started again mid-render: at most
+   * every few seconds (QueueOptions.stepsSaveMs), only when it went up, one write at a time: never a write per step.
+   */
+  private stepsSaver(jobId: string, resume: Resume, comfy: Comfy) {
+    const every = this.opts.stepsSaveMs ?? STEPS_SAVE_MS;
+    let kept = { steps: resume.stepsDone ?? 0, at: 0 };
+    let writing: Promise<unknown> = Promise.resolve();
+    return {
+      check: () => {
+        const steps = comfy.monitor.progress(resume.promptId).step;
+        if (steps <= kept.steps || Date.now() - kept.at < every) return;
+        kept = { steps, at: Date.now() };
+        const saved = JSON.stringify({ ...resume, stepsDone: steps });
+        writing = writing
+          .then(() => this.db.updateTable("jobs").set({ resume: saved, updated_at: now() }).where("id", "=", jobId).where("status", "=", "running").execute())
+          .catch(() => {});
+      },
+      settled: () => writing,
+    };
   }
 
   /**
