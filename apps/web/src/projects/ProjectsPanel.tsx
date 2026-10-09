@@ -867,10 +867,11 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         onDragOver={edgeScroll}
         // no ring around the whole list: the row the keys are on has its own (the app's :focus-visible outline would beat a class)
         style={{ outline: "none" }}
-        className="relative min-h-0 grow overflow-y-auto border-t border-line px-2 py-1"
+        // no padding above or below: a sticky row stops at the padding's edge, so the rows scrolled past would show in it, above the column heads and under the Bin
+        className="relative min-h-0 grow overflow-y-auto border-t border-line px-2"
       >
         {/* the columns: a click sorts each level by it, again turns it around */}
-        <div ref={head} className={cx("sticky top-0 z-10 -mx-2 -mt-1 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", COLUMNS)}>
+        <div ref={head} className={cx("sticky top-0 z-10 -mx-2 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", COLUMNS)}>
           {(
             [
               { by: "name", label: "Name", end: false },
@@ -942,12 +943,13 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                 COLUMNS,
                 top ? "h-10" : "h-[33px]",
                 r.kind === "archive" && "mt-2 rounded-t-none border-t border-line",
-                // the Bin stays in sight at the foot of the list, however far the tree scrolls: always there to drop on
-                r.kind === "bin" && "sticky bottom-0 z-10 mt-2 rounded-t-none border-t border-line bg-panel",
+                // the Bin stays in sight at the foot of the list, however far the tree scrolls: always there to drop on (square, so no row shows past its corners)
+                r.kind === "bin" && "sticky bottom-0 z-10 mt-2 rounded-none border-t border-line bg-panel",
+                // the Bin's tints are mixed into the panel's colour: see-through, the rows under it would show
                 over === r.key
-                  ? "bg-accent/15 shadow-[inset_0_0_0_1.5px_var(--color-accent)]"
+                  ? cx(r.kind === "bin" ? "bg-[color-mix(in_oklab,var(--color-accent)_15%,var(--color-panel))]" : "bg-accent/15", "shadow-[inset_0_0_0_1.5px_var(--color-accent)]")
                   : isPicked
-                    ? "bg-picture/15 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-picture)_55%,transparent)]"
+                    ? cx(r.kind === "bin" ? "bg-[color-mix(in_oklab,var(--color-picture)_15%,var(--color-panel))]" : "bg-picture/15", "shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-picture)_55%,transparent)]")
                     : here
                       ? "bg-accent/10 shadow-[inset_3px_0_0_var(--color-accent)]"
                       : "hover:bg-hover",
