@@ -121,12 +121,16 @@ export const api = {
   /** What the form becomes with its cast and style worked in. Nothing is queued. */
   compose: (recipe: string, input: Record<string, unknown>, look: Look) => call<Composed>("POST", "/compose", { recipe, input, look }),
   cancel: (id: string) => call<{ ok: true }>("POST", `/jobs/${id}/cancel`),
+  /** Every waiting job cancelled in one request; with `ids`, only those of them that still wait. The running job goes on. */
+  cancelWaiting: (ids?: string[]) => call<{ cancelled: number }>("POST", "/queue/cancel-waiting", ids ? { ids } : {}),
   /** The waiting jobs, in the order they should run. */
   queueOrder: (ids: string[]) => call<QueueStatus>("POST", "/queue/order", { ids }),
   /** A finished job again; `input` changes some of what it was asked. */
   retryJob: (id: string, input?: Record<string, unknown>) => call<{ id: string }>("POST", `/jobs/${id}/retry`, input ? { input } : {}),
   /** Finished jobs off the history, several in one request (a batch's row); what they made stays in the library. */
   dismissJobs: (ids: string[]) => call<{ dismissed: number }>("POST", "/jobs/dismiss", { ids }),
+  /** Finished jobs again, several in one request ("Retry all"), in the order given; with `dismiss`, the ones queued again leave the history. */
+  retryJobs: (ids: string[], dismiss = false) => call<{ ids: string[]; failed: number }>("POST", "/jobs/retry", { ids, dismiss }),
   estimates: (o?: Asked) => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates", undefined, o?.signal),
   /** A tool's usual pace from its own record: milliseconds per pixel × frame it makes (null until it has run). */
   renderPace: (tool: string) => call<{ msPerWork: number | null }>("GET", `/renders/pace?tool=${encodeURIComponent(tool)}`),

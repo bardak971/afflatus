@@ -19,9 +19,10 @@ export const HATCHED: CSSProperties = {
 /**
  * A job that failed: one row tinted in the bad colour, the error on one line, a Retry and a menu of the
  * other ways to run it again. A click on the row opens the whole error under it, with a link to the place
- * in the app that fixes it when the error names one.
+ * in the app that fixes it when the error names one. `quiet`: an older failure in the history's time order, a
+ * render having worked since: not tinted, the error alone in the bad colour.
  */
-export function FailedRow({ job }: { job: HistoryJob }) {
+export function FailedRow({ job, quiet = false }: { job: HistoryJob; quiet?: boolean }) {
   const [open, setOpen] = useState(false);
   const recipes = useRecipes();
   const modelOf = useModelName();
@@ -60,11 +61,11 @@ export function FailedRow({ job }: { job: HistoryJob }) {
         }}
         onContextMenu={(e) => menu.open(e, true)}
         data-tip={job.prompt || undefined}
-        className={cx(ROW, "cursor-pointer rounded-xl bg-warn-wash py-2 inset-ring inset-ring-warn/30 hover:inset-ring-warn/55 focus-visible:outline-2 focus-visible:outline-warn")}
+        className={cx(ROW, "cursor-pointer rounded-xl py-2 focus-visible:outline-2 focus-visible:outline-warn", quiet ? "py-1.5 hover:bg-hover" : "bg-warn-wash inset-ring inset-ring-warn/30 hover:inset-ring-warn/55")}
       >
-        <span className="h-9 w-16 rounded-[7px]" style={HATCHED} />
+        <span className={cx("h-9 w-16 rounded-[7px]", quiet && "opacity-40")} style={HATCHED} />
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-[13.5px] font-bold">{job.label}</span>
+          <span className={cx("truncate text-[13.5px]", quiet ? "font-semibold text-ink-2" : "font-bold")}>{job.label}</span>
           <span className="truncate text-xs text-warn-ink">{error}</span>
         </span>
         <span className="truncate text-[12.5px] text-ink-2" data-tip={job.model ? fileLabel(job.model) : undefined}>{modelOf(job)}</span>

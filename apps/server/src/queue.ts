@@ -345,6 +345,52 @@ export class Queue {
     return Number(r.numDeletedRows);
   }
 
+  /**
+   * Several finished jobs again, in the order given (a "Retry all failed"): one request, each queued as `again` does it.
+   * With `dismiss`, the ones queued again leave the history in the same go. A job not finished is left alone; one that
+   * cannot be queued again (its workflow was deleted) is counted, not thrown.
+   */
+  async againAll(ids: readonly string[], opts: { dismiss?: boolean } = {}): Promise<{ ids: string[]; failed: number }> {
+    if (!ids.length) return { ids: [], failed: 0 };
+    const finished = new Set((await this.db.selectFrom("jobs").select("id").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).execute()).map((r) => r.id));
+    const queued: string[] = [];
+    const retried: string[] = [];
+    let failed = 0;
+    for (const id of ids) {
+      if (!finished.has(id)) continue;
+      try {
+        queued.push(await this.again(id));
+        retried.push(id);
+      } catch {
+        failed++;
+      }
+    }
+    if (opts.dismiss && retried.length) await this.dismissAll(retried);
+    return { ids: queued, failed };
+  }
+
+  /**
+   * Every waiting job cancelled in one statement (or, with `ids`, those of them that still wait: what the page showed
+   * when it was asked); how many were. What continues from one of them fails, as with a single cancel. The running job goes on.
+   */
+  async cancelWaiting(ids?: readonly string[]): Promise<number> {
+    let picked = this.db.selectFrom("jobs").select("id").where("status", "=", "queued");
+    if (ids) picked = picked.where("id", "in", ids.length ? [...ids] : [""]);
+    const waiting = (await picked.execute()).map((r) => r.id);
+    if (!waiting.length) return 0;
+    const r = await this.db
+      .updateTable("jobs")
+      .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
+      .where("id", "in", waiting)
+      .where("status", "=", "queued")
+      .executeTakeFirst();
+    // one left out of `ids` may continue one cancelled now: it can never run
+    for (const id of waiting) await this.failDependents(id);
+    this.events.emit("queue");
+    this.events.emit("timeline");
+    return Number(r.numUpdatedRows);
+  }
+
   private known: (Usual & { at: number }) | null = null;
   /** How long things usually take, worked out at most twice a minute. */
   private async usual() {
@@ -566,6 +612,7 @@ export class Queue {
       // a fresh render learns how long it should take only once it is sent: the spilling warning needs it from the first run on
       this.running.expectedMs ??= resume.timing?.expectedMs ?? null;
       this.running.startedAt = resume.startedAt;
+      this.running.seed = resume.seed;
       if (abort.signal.aborted) {
         await comfy.client.interrupt(resume.promptId).catch(() => {});
         throw new ComfyCancelled();

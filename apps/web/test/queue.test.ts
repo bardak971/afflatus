@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { bar, brushWindow, ceiling, curve, stackSeries, statOf } from "../src/screens/queue/chartMath";
-import { byModel, dropped, modelSwitches, moved } from "../src/screens/queue/order";
+import { betterPlace, byModel, dropped, groupingSaves, modelSwitches, moved } from "../src/screens/queue/order";
+import { dayLabel, pinnedFailures, reasonOf, reasonsOf } from "../src/screens/queue/failures";
+import { StepClock } from "../src/screens/queue/stepRate";
 import { brushSpan } from "../src/screens/queue/useBrush";
 import { presetOf, typedWindow } from "../src/screens/queue/useTimesView";
 import { windowOf } from "../src/data";
@@ -94,6 +96,85 @@ describe("the waiting jobs' order", () => {
     expect(byModel([w("l", "y", "load"), w("a", "x"), w("e", "t", "export"), w("b", "y"), w("c", "x")])).toEqual(["l", "b", "a", "c", "e"]);
     expect(modelSwitches(byModel([w("a", "x"), w("b", "y"), w("c", "x")]).map((id) => ({ kind: "render" as const, recipe: id === "b" ? "y" : "x" })))).toBe(1);
     expect(byModel([])).toEqual([]);
+  });
+  it("puts the running job's model first when it groups, so that it is not loaded again", () => {
+    const w = (id: string, recipe: string) => ({ id, recipe, kind: "render" as const, label: id, status: "queued" as const });
+    expect(byModel([w("a", "x"), w("b", "y"), w("c", "x")], { kind: "render", recipe: "y" })).toEqual(["b", "a", "c"]);
+    // a running model nothing waits for changes nothing
+    expect(byModel([w("a", "x"), w("b", "y")], { kind: "render", recipe: "z" })).toEqual(["a", "b"]);
+    expect(groupingSaves([w("a", "x"), w("b", "y"), w("c", "x")], { kind: "render", recipe: "y" })).toBe(2);
+    expect(groupingSaves([w("a", "x"), w("c", "x")], null)).toBe(0);
+  });
+  it("finds where one job saves loads: a picture between two video clips goes after the video jobs", () => {
+    const w = (id: string, recipe: string) => ({ id, recipe, kind: "render" as const });
+    const line = [w("v1", "h3"), w("p", "sdxl"), w("v2", "h3")];
+    expect(betterPlace(line, "p", { kind: "render", recipe: "h3" })).toEqual({ to: 2, after: line[2], saves: 1 });
+    expect(betterPlace(line, "p", null)).toEqual({ to: 2, after: line[2], saves: 1 });
+    // already in the best place, or not a render: nothing offered
+    expect(betterPlace([w("a", "x"), w("b", "x"), w("c", "y")], "c", null)).toBeNull();
+    expect(betterPlace([{ id: "e", recipe: "e", kind: "export" as const }, w("a", "x")], "e", null)).toBeNull();
+  });
+});
+
+describe("the running render's s/it", () => {
+  it("measures seconds per step from the step changes, not from the step first seen mid-way", () => {
+    const c = new StepClock();
+    c.note("j", 3, 0);
+    expect(c.rate("j")).toBeNull();
+    c.note("j", 4, 1000);
+    expect(c.rate("j")).toBeNull();
+    c.note("j", 4, 1400);
+    c.note("j", 5, 3000);
+    expect(c.rate("j")).toBeCloseTo(2);
+    // over the last 5 steps only
+    for (let s = 6; s <= 12; s++) c.note("j", s, 3000 + (s - 5) * 500);
+    expect(c.rate("j")).toBeCloseTo(0.5);
+    // several steps in one event count as what they are
+    c.note("j", 16, 3000 + 7 * 500 + 1000);
+    expect(c.rate("j")).toBeLessThan(0.5);
+  });
+  it("starts over for another job, and when the count goes back (a new pass)", () => {
+    const c = new StepClock();
+    c.note("a", 1, 0);
+    c.note("a", 2, 1000);
+    c.note("a", 3, 2000);
+    expect(c.rate("a")).toBeCloseTo(1);
+    expect(c.rate("b")).toBeNull();
+    c.note("a", 0, 2500);
+    expect(c.rate("a")).toBeNull();
+    c.note("b", 1, 3000);
+    expect(c.rate("a")).toBeNull();
+  });
+});
+
+describe("the history's pinned failures", () => {
+  const job = (id: string, status: "done" | "failed" | "cancelled", at: string, kind: "render" | "export" = "render") => ({ id, status, kind, finishedAt: at, createdAt: at, error: status === "failed" ? "CUDA out of memory. Tried to allocate 2 GiB" : null });
+  it("pins only the failures since the last render done, or since the page opened when none is loaded", () => {
+    const items = [
+      job("f3", "failed", "2026-10-09T14:30:00Z"),
+      job("x", "done", "2026-10-09T14:25:00Z", "export"),
+      job("f2", "failed", "2026-10-09T14:20:00Z"),
+      job("d", "done", "2026-10-09T14:02:00Z"),
+      job("f1", "failed", "2026-10-09T11:10:00Z"),
+    ];
+    const pins = pinnedFailures(items);
+    expect(pins.pinned.map((j) => j.id)).toEqual(["f3", "f2"]);
+    expect(pins.since).toBe(Date.parse("2026-10-09T14:02:00Z"));
+    const none = pinnedFailures([job("f1", "failed", "2026-10-09T11:10:00Z"), job("f0", "failed", "2026-10-09T09:00:00Z")], Date.parse("2026-10-09T10:00:00Z"));
+    expect(none.pinned.map((j) => j.id)).toEqual(["f1"]);
+  });
+  it("says the reasons short, the most frequent first", () => {
+    expect(reasonOf("CUDA out of memory. Tried to allocate 2 GiB")).toBe("CUDA out of memory");
+    expect(reasonOf(null)).toBe("failed");
+    expect(reasonsOf([{ error: "missing LoRA" }, { error: "out of memory." }, { error: "out of memory" }])).toBe("out of memory ×2 · missing LoRA");
+    expect(reasonsOf([{ error: "a" }, { error: "b" }, { error: "c" }, { error: "d" }], 2)).toBe("a · b · +2");
+  });
+  it("names a day Today, Yesterday or by its date", () => {
+    const now = new Date(2026, 9, 9, 15);
+    expect(dayLabel("2026-10-09", now)).toBe("Today");
+    expect(dayLabel("2026-10-08", now)).toBe("Yesterday");
+    expect(dayLabel("2026-10-01", now)).toBe("01/10");
+    expect(dayLabel("2025-12-31", now)).toBe("31/12/2025");
   });
 });
 

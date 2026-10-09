@@ -35,6 +35,8 @@ export interface Running {
   /** What it was expected to take, and when it started on the GPU: a run at twice that with the memory full is spilling. */
   expectedMs?: number | null;
   startedAt?: number;
+  /** The seed the graph was built with, once it is sent: said on the running card. */
+  seed?: number;
 }
 
 /** What is stored once ComfyUI accepted the graph: enough to wait for it again after a restart. */

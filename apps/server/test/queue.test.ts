@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { openSqlite, OWNER } from "../src/db";
-import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
 let t: TestApp;
@@ -291,6 +291,26 @@ describe("stopping a job", () => {
     expect((await post(t.app, `/api/jobs/${id}/cancel`)).statusCode).toBe(404);
   });
 
+  it("cancels every waiting job in one request, or only the ones named; the running one goes on", async () => {
+    const running = await enqueue();
+    await until(() => submitted().length === 1);
+    // the running card says the seed it was sent with
+    await until(async () => typeof (await queue()).running?.seed === "number");
+    await post(t.app, "/api/queue/pause");
+    const [w1, w2, w3] = [await enqueue({ prompt: "one" }), await enqueue({ prompt: "two" }), await enqueue({ prompt: "three" })];
+    // what the page showed: one named, the others stay
+    expect((await post(t.app, "/api/queue/cancel-waiting", { ids: [w1, running, "gone"] })).json()).toEqual({ cancelled: 1 });
+    expect((await queue()).waiting.map((w: { id: string }) => w.id)).toEqual([w2, w3]);
+    let events = 0;
+    t.services.queue.events.on("queue", () => events++);
+    expect((await post(t.app, "/api/queue/cancel-waiting", {})).json()).toEqual({ cancelled: 2 });
+    expect(events).toBe(1);
+    expect((await statusOf(w3)).status).toBe("cancelled");
+    expect((await statusOf(running)).status).toBe("running");
+    expect((await queue()).waiting).toEqual([]);
+    expect((await post(t.app, "/api/queue/cancel-waiting", {})).json()).toEqual({ cancelled: 0 });
+  });
+
   it("interrupts the running one on ComfyUI", async () => {
     const id = await enqueue();
     await until(() => submitted().length === 1);
@@ -565,6 +585,31 @@ describe("dismissing from the history", () => {
     const left = (await t.db.selectFrom("jobs").select("id").execute()).map((r) => r.id);
     expect(left).toEqual(["w"]);
     expect((await post(t.app, "/api/jobs/dismiss", { ids: [] })).statusCode).toBe(400);
+  });
+
+  it("queues several finished jobs again in one request, in the order given, and takes them off the list when asked", async () => {
+    const at = new Date().toISOString();
+    const row = (id: string, status: "done" | "failed" | "queued") => ({
+      id, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", label: id, inputs: JSON.stringify({ prompt: id, checkpoint: CHECKPOINT }),
+      status, warm: 0, look: null, priority: 0, depends_on: null, attempts: 1, resume: null, error: status === "failed" ? "out of memory" : null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: null,
+      draft_id: null, folder_id: null, finished_from: null, created_at: at, started_at: at, finished_at: status === "queued" ? null : at, updated_at: at,
+    });
+    await t.services.queue.setPaused(true);
+    await t.db.insertInto("jobs").values([row("f1", "failed"), row("f2", "failed"), row("d", "done"), row("w", "queued")]).execute();
+    const res = (await post(t.app, "/api/jobs/retry", { ids: ["f2", "f1", "w", "gone"], dismiss: true })).json();
+    expect(res.ids).toHaveLength(2);
+    expect(res.failed).toBe(0);
+    // the waiting one is not queued twice; the failed ones left the history, the done one stays
+    const left = await t.db.selectFrom("jobs").select(["id", "label", "status"]).orderBy("priority").orderBy("created_at").execute();
+    expect(left.filter((r) => r.status === "queued").map((r) => r.label).sort()).toEqual(["f1", "f2", "w"]);
+    expect(left.map((r) => r.id)).not.toContain("f1");
+    expect(left.map((r) => r.id)).toContain("d");
+    expect((await statusOf(res.ids[0])).label).toBe("f2");
+    // without dismiss the finished one stays where it is
+    const kept = (await post(t.app, "/api/jobs/retry", { ids: ["d"] })).json();
+    expect(kept.ids).toHaveLength(1);
+    expect((await statusOf("d")).status).toBe("done");
+    expect((await post(t.app, "/api/jobs/retry", { ids: [] })).statusCode).toBe(400);
   });
 
   it("says a timeline changed when a clip's job ends, not when a picture's does", async () => {

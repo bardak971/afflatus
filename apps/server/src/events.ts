@@ -33,7 +33,7 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     lastProgress = Date.now();
     void s.queue
       .progress()
-      .then((r) => send("progress", r ? { id: r.id, progress: r.progress, eta: r.eta, phase: r.phase, step: r.step, steps: r.steps, previewSeq: r.previewSeq, stages: r.stages, previewMime: r.previewMime ?? null, spilling: r.spilling } : undefined))
+      .then((r) => send("progress", r ? { id: r.id, progress: r.progress, eta: r.eta, phase: r.phase, step: r.step, steps: r.steps, previewSeq: r.previewSeq, stages: r.stages, previewMime: r.previewMime ?? null, seed: r.seed, spilling: r.spilling } : undefined))
       .catch(() => send("progress"));
   };
   // one send at most every PROGRESS_EVERY_MS, and one after the last of a burst: the last figures (the "Decoding" phase) always go out

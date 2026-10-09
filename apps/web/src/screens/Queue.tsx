@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Job, type QueueStatus, type RunningJob } from "../api";
+import { api, type QueueStatus } from "../api";
 import { useQueue } from "../data";
 import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
 import { useBanners } from "../store";
-import { aboutMs } from "../format";
 import { Button, cx, ErrorNote, Help, SectionTitle, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { ComfyLog } from "./queue/Log";
 import { MachineMeters } from "./queue/MachineMeters";
-import { modelSwitches } from "./queue/order";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 
@@ -35,13 +33,6 @@ function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: {
       )}
     </>
   );
-}
-
-/** What the waiting jobs come to: about how long in all (with what the running job has left), and how many times the model changes on the way from the running one. */
-function waitingSaid(waiting: Job[], running: RunningJob | null): string {
-  const ms = waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) + (running?.eta ?? 0) * 1000;
-  const switches = modelSwitches(waiting, running);
-  return [ms ? `${aboutMs(ms)} in all` : "", switches ? `${switches} model switch${switches > 1 ? "es" : ""}` : ""].filter(Boolean).join(" · ");
 }
 
 /**
@@ -104,12 +95,10 @@ export function Queue() {
               </div>
             )}
             <section aria-label="Now" className="flex max-h-[55%] shrink-0 flex-col gap-1.5 overflow-y-auto">
-              <div className="flex items-baseline justify-between gap-2">
-                <SectionTitle>{[q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running", q.waiting.length ? `next ${q.waiting.length}` : ""].filter(Boolean).join(" · ")}</SectionTitle>
-                {q.waiting.length > 0 && <span className="truncate text-xs text-ink-2">{waitingSaid(q.waiting, q.running)}</span>}
-              </div>
+              <SectionTitle>{q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running"}</SectionTitle>
               <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />
-              <WaitingList waiting={q.waiting} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} />
+              {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
+              <WaitingList waiting={q.waiting} running={q.running} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} />
             </section>
             <History />
           </div>

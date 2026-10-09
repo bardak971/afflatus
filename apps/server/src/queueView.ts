@@ -73,7 +73,9 @@ export async function status(core: QueueCore) {
   if (run) {
     const own = core.running?.id === run.id ? core.running : null;
     const monitor = (await core.comfy()).monitor;
-    running = { ...brief(run), ...figures(monitor, own, own?.promptId, run.recipe_id === EXPORT_JOB ? "exporting" : run.recipe_id === CUT_JOB ? "cutting" : "waiting"), spilling: await spillingNow(core) };
+    // the seed it was built with, once sent: from memory, or from the job when another process sent it
+    const seed = own?.seed ?? readJson<Partial<Resume>>(run.resume, {}).seed ?? null;
+    running = { ...brief(run), seed, ...figures(monitor, own, own?.promptId, run.recipe_id === EXPORT_JOB ? "exporting" : run.recipe_id === CUT_JOB ? "cutting" : "waiting"), spilling: await spillingNow(core) };
   }
   return {
     paused: core.paused,
@@ -106,7 +108,7 @@ function figures(monitor: Comfy["monitor"], running: QueueCore["running"], promp
 export async function progress(core: QueueCore) {
   const run = core.running;
   if (!run) return null;
-  return { id: run.id, ...figures((await core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), spilling: await spillingNow(core) };
+  return { id: run.id, ...figures((await core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), seed: run.seed ?? null, spilling: await spillingNow(core) };
 }
 
 /** One picture a node of the running job showed on the way (stage `n`, its first file), fetched from ComfyUI. */

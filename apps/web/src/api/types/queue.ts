@@ -64,13 +64,15 @@ export interface RunningJob extends Job {
   stages?: Array<{ n: number; node: string; title: string | null; count: number }>;
   /** Out of video memory, it seems: the memory full and twice what was expected already gone. Much slower than usual. */
   spilling?: boolean;
+  /** The seed its graph was built with, once it is sent to ComfyUI; null before, and for a job with none (an export, a cut). */
+  seed?: number | null;
 }
 /**
  * What a "progress" live event carries: the running job's id and the figures that moved. The job in
  * the queue on screen is changed in place with them (live.ts), so a render that reports every step
  * costs no request. The id is the job's, not ComfyUI's prompt id.
  */
-export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime" | "spilling">;
+export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime" | "spilling" | "seed">;
 export interface QueueStatus {
   paused: boolean;
   /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */

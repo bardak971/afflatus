@@ -121,6 +121,11 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     return { ok: true };
   });
 
+  /** Every waiting job cancelled in one request ("Cancel all waiting"); with `ids`, only those of them that still wait. The running job goes on. */
+  app.post("/api/queue/cancel-waiting", async (req) => {
+    const { ids } = z.strictObject({ ids: z.array(z.string().min(1).max(64)).max(500).optional() }).parse(req.body ?? {});
+    return { cancelled: await s.queue.cancelWaiting(ids) };
+  });
   app.post<{ Params: { id: string } }>("/api/jobs/:id/cancel", async (req) => {
     if (!(await s.queue.cancel(req.params.id))) throw notFound("a job to cancel");
     return { ok: true };
