@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type Take } from "../api";
+import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type Take, type Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
 import { clock as mmss, notReady } from "../format";
@@ -11,17 +11,18 @@ import { layout, moveAfter, otherShape, pinInputs, SHAPES, shapeOf, splitPoint, 
 import { Player, type PlayerHandle } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
 import { Track, type TrackKeys } from "../timeline/Track";
-import { ErrorNote, PanelEdge } from "../ui";
+import { ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
 import { ContextMenu, useMenu, type MenuHead } from "../ContextMenu";
-import { useBanners, usePanelWidth } from "../store";
+import { useBanners, useEditorColumn } from "../store";
 import { CastDialog } from "../timeline/CastDialog";
 import { ClipDesigner } from "../timeline/ClipDesigner";
 import { TimelineHeader, Transport } from "../timeline/EditorBars";
 import { ExportDialog, type ExportAsk } from "../timeline/ExportDialog";
 import { clipMenuItems, musicMenuItems, placeItems, soundMenuItems, type ClipMenuActions } from "../timeline/menus";
-import { Overview } from "../timeline/Overview";
+import { Overview, useAttention } from "../timeline/Overview";
+import { ColumnEdge, FoldButton, FoldedStrip } from "../timeline/column";
 import { RangeBar } from "../timeline/RangeBar";
 import { StartPanel } from "../timeline/StartPanel";
 import { useClipEdits } from "../timeline/useClipEdits";
@@ -47,7 +48,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   // only which clip renders: the queue changes at every step of a render, and the parts that show its progress read it themselves
   const running = useQueueOf((q) => q.running?.clipId ?? null) ?? null;
   const settings = useModelSettings();
-  const panelWidth = usePanelWidth((st) => st.width);
+  const panelWidth = useEditorColumn((st) => st.width);
+  const folded = useEditorColumn((st) => st.folded);
 
   const [selected, setSelected] = useState<string | null>(null);
   /** The clips picked with Ctrl + click on the track, to render together. */
@@ -592,7 +594,15 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         />
         </div>
 
-        {musicOpen && t.music ? (
+        {folded ? (
+          <FoldedColumn
+            timeline={t}
+            clips={clips}
+            label={musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
+            renderable={(c) => c.kind === "video" && !c.job && Boolean(ready(c).input)}
+            msOf={takes}
+          />
+        ) : musicOpen && t.music ? (
           <MusicPanel timeline={t} onEdit={(p) => edit.mutate(p)} onClose={() => setMusicOpen(false)} />
         ) : current ? (
           <Inspector
@@ -644,8 +654,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         ) : (
           // as wide as the clip's panel, and widened the same way: the stage keeps its size from one to the other
           <aside style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel text-ink-2">
-            <PanelEdge side="left" />
-            <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
+            <ColumnEdge />
+            {/* a container: the Overview's rows lay out by the column's width, which can go down to 320 px */}
+            <div className="@container/column flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
             {/* its name is in the header's field: said here only as the start's invitation */}
             {!clips.length && <span className="text-[17px] font-bold text-ink">Start your video</span>}
             {clips.length ? (
@@ -671,6 +682,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 picked={picked}
                 onRenderPicked={() => { render.mutate({ clips: clips.filter(renderable) }); setPicked(new Set()); }}
                 rendering={render.isPending || fix.isPending}
+                fold={<FoldButton words />}
               />
             ) : (
               <StartPanel busy={add.isPending} planning={plan.isPending} onPickImage={() => setPicking(true)} onPlan={(idea, count) => plan.mutate({ idea, clips: count })} onNewClip={() => newClip()} />
@@ -731,4 +743,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       {opened && <Viewer asset={opened} onClose={() => setOpened(null)} />}
     </div>
   );
+}
+
+/** The right column folded: its strip, with the count of what Needs attention lists (the Overview's rows, worked out the same way). */
+function FoldedColumn({ timeline, clips, label, renderable, msOf }: { timeline: Timeline; clips: Clip[]; label: string; renderable(c: Clip): boolean; msOf(c: Clip): number | null }) {
+  const { rows } = useAttention(timeline, clips, renderable, msOf);
+  return <FoldedStrip label={label} attention={rows.length} />;
 }

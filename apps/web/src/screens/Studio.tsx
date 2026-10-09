@@ -6,7 +6,6 @@ import { useFolders, useProjects, useTimelines } from "../data";
 import { useProject } from "../project";
 import { plainKey } from "../Keys";
 import { useKeysHere } from "../keys/here";
-import { Popover } from "../Popover";
 import { displayOf, useBanners, useHandover, useOpenDraft, useStudio, type Scope } from "../store";
 import { cx, Empty, ErrorNote } from "../ui";
 import { Viewer } from "../Viewer";
@@ -20,7 +19,7 @@ import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
-import { JustifiedRows, NotKeptLine, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
+import { JustifiedRows, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
 import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
@@ -87,19 +86,21 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   const folders = useFolders();
   const place = view.place;
   const projectId = useProject((s) => s.id);
-  // a folder that is gone is no place to be, nor one of another project once the rail looks at a project (or the Inbox)
+  // a folder that is gone is no place to be, nor one of another project than the one worked in (or the Inbox)
   useEffect(() => {
     if (place.type !== "folder" || !folders.isSuccess) return;
     const open = folders.data.items.find((f) => f.id === place.id);
-    const elsewhere = open && projectId !== null && (projectId === "none" ? open.projectId !== null : open.projectId !== projectId);
+    const elsewhere = open && (projectId === "none" ? open.projectId !== null : open.projectId !== projectId);
     if (!open || elsewhere) view.set({ place: { type: "all" } });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, folders.data, projectId]);
   // the folder what is made lands in: the one that is open, else the root of the project the app looks at
   const projectsList = useProjects();
-  const rootId = projectId && projectId !== "none" ? projectsList.data?.items.find((p) => p.id === projectId)?.folderId ?? null : null;
+  const worked = projectId !== "none" ? projectsList.data?.items.find((p) => p.id === projectId) : undefined;
+  const rootId = worked?.folderId ?? null;
   const folder = place.type === "folder" ? folders.data?.items.find((f) => f.id === place.id) : rootId ? folders.data?.items.find((f) => f.id === rootId) : undefined;
-  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "No folder" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
+  // the whole of the place worked in is named after it: the project, or the Inbox
+  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "No folder" : place.type === "folder" ? folder?.name ?? "Folder" : projectId === "none" ? "Inbox" : worked?.name ?? "Project";
 
   const draftId = useOpenDraft((s) => s.id);
   const openDraft = useOpenDraft((s) => s.open);
@@ -116,7 +117,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   }, [shown, hand, say]);
   // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
   const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });
-  const { kind, q, made, lora, kept, unkept, setUnkept, showTimelines, reach, filter, assets, items, filtered } = filters;
+  const { kind, q, made, lora, kept, unkept, showTimelines, reach, assets, items, filtered } = filters;
   // the stage (the newest large, the rest in a strip) in place of the grid, when the scope is on it; the timelines still show when asked for
   const display = displayOf(view, reach as Scope);
   const draftOnly = display === "Stage" && !showTimelines && (reach !== "draft" || Boolean(draftId));
@@ -140,8 +141,8 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // whether a render runs, and from which draft: not its progress, which would draw the whole screen again at every step
   const running = useQueueOf((q) => (q.running?.kind === "render" ? { draftId: q.running.draftId } : q.running ? { draftId: null as string | null, other: true } : null)) ?? null;
 
-  // the folders: a panel under their button, which also opens by itself while something is dragged, to drop it on a folder
-  const folderButton = useRef<HTMLButtonElement>(null);
+  // the project's tree: under the breadcrumb, which also opens by itself while something is dragged, to drop it on a folder
+  const folderButton = useRef<HTMLDivElement>(null);
   const [foldersOpen, setFoldersOpen] = useState<false | "click" | "drag">(false);
   useEffect(() => {
     // after the drag has started (see dragging.ts): opened in the dragstart itself, the drag was sometimes cancelled
@@ -247,7 +248,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     <div className="flex min-h-0 min-w-0 grow">
       {view.form ? <CreatePanel folder={panelFolder} onClose={closePanel} /> : <FormRail onOpen={() => view.set({ form: true })} />}
       <div className="flex min-w-0 grow flex-col">
-        <LibraryHeader place={place} placeName={placeName} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} items={visible} filters={filters} selection={selection} />
+        <LibraryHeader place={place} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} items={visible} filters={filters} selection={selection} />
 
         <div className={cx("min-h-0 grow px-5 pt-1.5", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
           {draftOnly ? (
@@ -263,18 +264,17 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                 <Empty
                   title={filtered ? "No match" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}
                   help={filtered
-                    ? "Nothing here matches this search, model, LoRA or Kept filter. Change the search or the filters."
+                    ? "Nothing here matches this search, model, LoRA, Kept or Expiring filter. Change the search or the filters."
                     : place.type === "bin"
                       ? "Items you bin wait here a week before they are deleted for good."
                       : place.type === "folder"
-                        ? "What you generate while it is open lands in it. Or drag images onto it from All."
+                        ? "What you generate while it is open lands in it. Or drag items onto it in the project's tree, under the breadcrumb."
                         : "Images and videos you generate appear here. Start with Create."}
                 />
               )}
               {/* the pages above, let go past the cap (useAssets), read again when scrolled back up to */}
               {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title} help={groupedEmpty.body} />}
-              {!showTimelines && place.type !== "bin" && <NotKeptLine items={items} filter={filter} whole={Boolean(assets.hasNextPage || assets.hasPreviousPage)} only={unkept} onOnly={setUnkept} />}
               {/* what is being made now comes first, where its result will land */}
               {!showTimelines && (
                 <JustifiedRows
@@ -302,16 +302,16 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
       </div>
 
       {foldersOpen && (
-        <Popover anchor={folderButton} onClose={() => setFoldersOpen(false)} label="Folders" width={300} height={520}>
-          <FolderPanel
-            place={place}
-            dragging={foldersOpen === "drag"}
-            onPlace={(p) => {
-              view.set({ place: p });
-              setFoldersOpen(false);
-            }}
-          />
-        </Popover>
+        <FolderPanel
+          place={place}
+          anchor={folderButton}
+          dragging={foldersOpen === "drag"}
+          onClose={() => setFoldersOpen(false)}
+          onPlace={(p) => {
+            view.set({ place: p });
+            setFoldersOpen(false);
+          }}
+        />
       )}
       {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={visible} more={{ has: Boolean(assets.hasNextPage), busy: assets.isFetchingNextPage || assets.isFetchingPreviousPage, load: () => void assets.fetchNextPage() }} onOpen={setOpen} onClose={() => setOpen(null)} />}
       {gridMenu.element}

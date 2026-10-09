@@ -3,11 +3,12 @@ import { Check, Clock, Film, Play, VolumeX } from "lucide-react";
 import { HoverAudio, HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
 import type { Asset } from "../api";
-import { clock, left as timeLeft, when } from "../format";
+import { clock, when } from "../format";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import { useHoverPlay } from "../store";
 import { cx } from "../ui";
 import { leftOf, SOON_MS } from "./library/justify";
+import { leftWords } from "./studio/expiring";
 import { SoundWave } from "./library/SoundWave";
 
 /** The pieces of the library that several screens use: a tile, what dragging one carries, and the folders. The screen itself is Studio. */
@@ -72,10 +73,11 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
   const length = asset.durationMs ? clock(asset.durationMs, { decimals: asset.kind === "video" ? 1 : 0 }) : "";
   // over a video that scrubs: the time under the pointer leads the facts
   const facts = asset.kind === "video" && at !== null && asset.durationMs ? `${((at * asset.durationMs) / 1000).toFixed(1)} s of ${length} · ${tileFacts(asset)}` : tileFacts(asset);
-  // not kept: a small clock in the corner, in the warning colour in its last hours; the line above the grid says the rest
+  // expiring (nobody kept it): a small clock in the corner, in the warning colour in its last hours, the exact time in
+  // its tip; the status bar's expiring chip says the rest
   const ms = !asset.kept && !asset.inBin ? leftOf(asset) : null;
   const clockMark = ms !== null && (
-    <span data-tip={`${timeLeft(ms)}: it goes to the bin then unless you keep it`} aria-label={`Not kept: ${timeLeft(ms)}`} className={cx("flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ground/60", ms < SOON_MS ? "text-warn" : "text-ink-2")}>
+    <span data-tip={`Expires in ${leftWords(ms)} · S keeps it`} aria-label={`Expires in ${leftWords(ms)}`} className={cx("flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ground/60", ms < SOON_MS ? "text-warn" : "text-ink-2")}>
       <Clock size={11} strokeWidth={2.6} />
     </span>
   );

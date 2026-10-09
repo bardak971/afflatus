@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type RefObject } from "react";
-import { ChevronDown, Film, Folder as FolderIcon, Search, SlidersHorizontal, Star, Trash2, Undo2, X } from "lucide-react";
+import { Clock, Film, Search, SlidersHorizontal, Star, Trash2, Undo2, X } from "lucide-react";
 import { Popover } from "../../Popover";
 import { useFit } from "../../useFit";
 import { useLocation } from "wouter";
@@ -8,9 +8,10 @@ import type { Asset } from "../../api";
 import { useAssetFamilies, useAssetModels, useFolders, useRecipes, useProjects } from "../../data";
 import { fileLabel } from "../../format";
 import { Select } from "../../Select";
-import { Button, Checkbox, cx, SectionTitle, Segmented } from "../../ui";
+import { Button, Checkbox, cx, Help, SectionTitle, Segmented } from "../../ui";
 import type { Place } from "../Library";
 import { displayOf, type Scope, type useStudio } from "../../store";
+import { PlaceCrumbs } from "../library/FolderPanel";
 import { KINDS, type LibraryFilters } from "./useLibraryFilters";
 import type { Selection } from "./useSelection";
 
@@ -28,14 +29,14 @@ const GROUP_HINT = {
 } as const;
 
 /**
- * The library's top row: the place (folders, bin, no folder), what the grid shows beside an open form, the
+ * The library's top row: the place (a breadcrumb inside the project worked in), what the grid shows beside an open form, the
  * kinds, and either the search and filters or, with items ticked, what is done with them together.
  */
-export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onFolders: setFoldersOpen, view, draftId, draftOnly, items, filters, selection }: {
+export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: setFoldersOpen, view, draftId, draftOnly, items, filters, selection }: {
   place: Place;
-  placeName: string;
-  folderButton: RefObject<HTMLButtonElement | null>;
-  /** The folders panel: opened by its button, or by itself while something is dragged. */
+  /** The breadcrumb: the project's tree opens under it. */
+  folderButton: RefObject<HTMLDivElement | null>;
+  /** The project's tree: opened from the breadcrumb, or by itself while something is dragged. */
   foldersOpen: false | "click" | "drag";
   onFolders(open: false | "click" | "drag"): void;
   view: ReturnType<typeof useStudio.getState>;
@@ -51,32 +52,27 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
   // the scope the display is remembered for: with the form closed, the grid is the folder's
   const scopeNow = reach as Scope;
   const { picked } = selection;
-  // one line, always: what does not fit folds, step by step (useFit): 1 the kinds into a menu, 2 the search into an icon
+  // one line, always: what does not fit folds, step by step (useFit): 1 the kinds into a menu, 2 the search into an icon,
+  // 3 the breadcrumb narrower (its middle folds to "…"), 4 the display into a menu, 5 Media/Timelines into a menu, 6 the
+  // results shown into a menu. With the form open the header is 760–920 px wide and the breadcrumb alone took a third.
   const bar = useRef<HTMLElement>(null);
-  const fold = useFit(bar, 2);
+  const fold = useFit(bar, 6);
   const [searching, setSearching] = useState(false);
   // model, LoRA, Kept only and the grouping: set now and then, so in a panel; the button says how many are on
   const filtersButton = useRef<HTMLButtonElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const active = [made && "model", lora && "LoRA", kept && "Kept only", filters.unkept && "not kept only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
+  const active = [made && "model", lora && "LoRA", kept && "Kept only", filters.unkept && "Expiring only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
   return (
     <header ref={bar} className="flex h-[60px] shrink-0 flex-nowrap items-center gap-2 overflow-hidden px-5">
       <h1 className="sr-only">Studio</h1>
-      <button
-        ref={folderButton}
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={Boolean(foldersOpen)}
-        data-tip="Folders, items in no folder, and the bin"
-        onClick={() => setFoldersOpen(foldersOpen ? false : "click")}
-        className={cx("flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-lg border bg-raised px-3 text-sm font-semibold", foldersOpen ? "border-accent" : "border-line-strong")}
-      >
-        {place.type === "bin" ? <Trash2 size={15} className="shrink-0" /> : <FolderIcon size={15} className="shrink-0" />}
-        <span className="truncate">{placeName}</span>
-        <ChevronDown size={14} className="shrink-0 text-ink-2" />
-      </button>
+      <PlaceCrumbs place={place} onPlace={(p) => view.set({ place: p })} anchor={folderButton} open={Boolean(foldersOpen)} onOpen={(o) => setFoldersOpen(o ? "click" : false)} className={fold >= 3 ? "w-[clamp(110px,9vw,140px)]!" : undefined} />
       {/* what the library shows: media, or the timelines (the rail's Timelines entry lands on the second) */}
-      {place.type !== "bin" && (
+      {place.type !== "bin" && fold >= 5 && (
+        <div className="w-28 shrink-0">
+          <Select size="sm" className="h-9" label="Show" value={showTimelines ? "timelines" : "media"} onChange={(v) => setKind(v === "timelines" ? "timeline" : "all")} options={[{ value: "media", label: "Media" }, { value: "timelines", label: "Timelines" }]} />
+        </div>
+      )}
+      {place.type !== "bin" && fold < 5 && (
         <Segmented
           oneLine
           label="Show"
@@ -85,7 +81,13 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
           onChange={(v) => setKind(v === "timelines" ? "timeline" : "all")}
         />
       )}
-      {!showTimelines && view.form && draftId && <Segmented oneLine label="Results shown" value={scopeNow} options={SCOPES} onChange={(sc) => view.set({ scope: sc })} />}
+      {!showTimelines && view.form && draftId && (fold >= 6 ? (
+        <div className="w-24 shrink-0">
+          <Select size="sm" className="h-9" label="Results shown" value={scopeNow} onChange={(sc) => view.set({ scope: sc as Scope })} options={SCOPES} />
+        </div>
+      ) : (
+        <Segmented oneLine label="Results shown" value={scopeNow} options={SCOPES} onChange={(sc) => view.set({ scope: sc })} />
+      ))}
       {/* the display sits right after the scopes, so it stays put whatever the rest of the header holds */}
       {showTimelines ? (
         <>
@@ -94,6 +96,10 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
             <Select size="sm" className="h-9" label="Sort timelines" value={view.timelineSort ?? "recent"} onChange={(v) => view.set({ timelineSort: v as "recent" | "name" | "length" })} options={[{ value: "recent", label: "Recent first" }, { value: "name", label: "By name" }, { value: "length", label: "Longest first" }]} />
           </div>
         </>
+      ) : fold >= 4 ? (
+        <div className="w-24 shrink-0">
+          <Select size="sm" className="h-9" label="Display" value={displayOf(view, scopeNow)} onChange={(d) => view.set({ displays: { ...view.displays, [scopeNow]: d as "Stage" | "S" | "M" | "L" }, ...(d === "Stage" ? {} : { size: d as "S" | "M" | "L" }) })} options={[{ value: "Stage", label: "Stage" }, { value: "S", label: "S" }, { value: "M", label: "M" }, { value: "L", label: "L" }]} />
+        </div>
       ) : (
         <Segmented
           oneLine
@@ -104,7 +110,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
         />
       )}
       {!showTimelines && !draftOnly && picked.length === 0 && (fold >= 1 ? (
-        <div className="w-32 shrink-0">
+        <div className="w-28 shrink-0">
           <Select size="sm" className={cx("h-9", kind !== "all" && "border-accent")} label="Kind" value={kind} onChange={(k) => setKind(k as typeof kind)} options={MEDIA_KINDS.map((k) => ({ value: k.id, label: k.label }))} />
         </div>
       ) : (
@@ -131,7 +137,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
             type="button"
             aria-haspopup="dialog"
             aria-expanded={filtersOpen}
-            data-tip={active.length ? `Filters and grouping: ${active.join(", ")}` : "Filter by model, LoRA or Kept, and group the grid"}
+            data-tip={active.length ? `Filters and grouping: ${active.join(", ")}` : "Filter by model, LoRA, Kept or Expiring, and group the grid"}
             onClick={() => setFiltersOpen(!filtersOpen)}
             className={cx("flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", active.length || filtersOpen ? "border-accent text-ink" : "border-line text-ink-2 hover:text-ink")}
           >
@@ -199,15 +205,15 @@ function SelectionBar({ place, items, selection }: { place: Place; items: Asset[
   );
 }
 
-/** Model, LoRA, Kept only and the grouping: set now and then, so in a panel under the Filters button. */
+/** Model, LoRA, Kept only, Expiring only and the grouping: set now and then, so in a panel under the Filters button. */
 function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefObject<HTMLButtonElement | null>; onClose(): void; view: ReturnType<typeof useStudio.getState>; filters: LibraryFilters; /** Something is set: "Clear all" is offered. */ active: boolean }) {
-  const { made, setMade, lora, setLora, kept, setKept, setUnkept, showTimelines } = filters;
+  const { made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines } = filters;
   const usedModels = useAssetModels();
   const families = useAssetFamilies();
   const recipes = useRecipes();
   const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
   return (
-    <Popover anchor={anchor} onClose={onClose} label="Filters" width={300} height={340}>
+    <Popover anchor={anchor} onClose={onClose} label="Filters" width={300} height={380}>
       <div className="flex flex-col gap-3 p-3">
         {!showTimelines && (
           <div className="flex flex-col gap-1">
@@ -244,6 +250,13 @@ function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefO
           <Checkbox checked={kept} onChange={setKept} className="h-8 text-xs font-semibold">
             <Star size={13} fill={kept ? "currentColor" : "none"} className={kept ? "text-accent" : "text-ink-2"} /> Kept only
           </Checkbox>
+          {/* the same filter as "Show them" on the status bar's expiring chip */}
+          <span className="flex items-center gap-1.5">
+            <Checkbox checked={unkept} onChange={setUnkept} className="h-8 text-xs font-semibold">
+              <Clock size={13} className={unkept ? "text-accent" : "text-ink-2"} /> Expiring only
+            </Checkbox>
+            <Help text="Renders nobody kept go to the bin by themselves a day after they were made. S keeps one." />
+          </span>
         </div>
         {active && (
           <button type="button" onClick={() => { setMade(""); setLora(""); setKept(false); setUnkept(false); view.set({ groupBy: "none" }); }} className="self-start text-xs text-ink-2 underline hover:text-ink">Clear all</button>

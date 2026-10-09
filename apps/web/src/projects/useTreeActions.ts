@@ -132,7 +132,9 @@ export function useTreeActions() {
       if (!r.id || r.kind !== "project") return;
       if (!(await ask({ title: `Delete ${r.label}?`, text: "Its drafts, timelines and folders go to the Inbox. Nothing is removed from the library.", yes: "Delete" }))) return;
       const id = r.id;
-      if (await run(`${r.label} could not be deleted`, () => api.deleteProject(id)) && useProject.getState().id === id) useProject.getState().set(null);
+      if (await run(`${r.label} could not be deleted`, () => api.deleteProject(id)) && useProject.getState().id === id) useProject.getState().set("none");
+      // the server took it out of the rail's pins
+      void client.invalidateQueries({ queryKey: ["settings"] });
     },
     rename(r: Row, name: string) {
       const id = r.id;
@@ -146,8 +148,47 @@ export function useTreeActions() {
       if (!id) return;
       void run(`${r.label} could not be ${archived ? "archived" : "unarchived"}`, async () => {
         await api.editProject(id, { archived });
-        if (archived && useProject.getState().id === id) useProject.getState().set(null);
+        if (archived && useProject.getState().id === id) useProject.getState().set("none");
+        // archived, it left the rail's pins on the server
+        if (archived) void client.invalidateQueries({ queryKey: ["settings"] });
       });
+    },
+    /**
+     * Items or timelines of the library (the grid's drag) dropped on a row of the tree: items into a folder, a project's
+     * root folder, or out of every folder (the Inbox's No folder row: `t` null); timelines filed in a folder or at the top
+     * of a project. Refused where the tree refuses it: timelines into a folder of the disk, items onto a project without a
+     * root folder. Answers whether it was taken.
+     */
+    async fromLibrary(what: { assets: string[]; timelines: string[] }, t: Target | null) {
+      const into = t === null ? null : t.kind === "folder" ? t.id : t.root;
+      const assets = what.assets.length && (t === null || into !== null) ? what.assets : [];
+      const timelines = what.timelines.length && t !== null && !(t.kind === "folder" && t.linked) ? what.timelines : [];
+      if (!assets.length && !timelines.length) return false;
+      const name = t === null ? "No folder" : t.name;
+      const n = assets.length + timelines.length;
+      const ok = await run(`${n === 1 ? "It" : `These ${n}`} could not be moved to ${name}`, async () => {
+        if (assets.length) await api.moveAssets(assets, into);
+        for (const id of timelines) await api.editTimeline(id, t!.kind === "folder" ? { project: t!.group, folder: t!.id } : { project: t!.group, folder: null });
+      });
+      if (ok) say({ id: `tree-moved:${Date.now()}`, tone: "good", title: `${n === 1 ? (timelines.length ? "1 timeline" : "1 item") : `${n} ${timelines.length && !assets.length ? "timelines" : "items"}`} moved to ${name}`, href: "/", go: "Open the Studio" });
+      return ok;
+    },
+    /** Items of the library dropped on the Bin: to the bin, once asked when some are files of a linked folder. */
+    async binLibrary(ids: string[]) {
+      if (!ids.length) return;
+      const items = await Promise.all(ids.map((id) => api.asset(id)));
+      if (!(await askAboutDisk(items.map((a) => ({ name: a.shownName || a.name || "Item", path: a.path }))))) return;
+      if (await run(ids.length === 1 ? "It could not go to the bin" : "They could not go to the bin", () => api.bulkAssets(ids, "bin"))) {
+        say({ id: `tree-bin:${Date.now()}`, tone: "good", title: `${ids.length === 1 ? "1 item" : `${ids.length} items`} moved to the bin`, text: "For a week they can be restored from it.", href: "/", go: "Open the Studio" });
+      }
+    },
+    /** The bin emptied now instead of after its week, once asked: it cannot be undone. Clips of timelines may have played what it held. */
+    async emptyBin() {
+      if (!(await ask({ title: "Empty the bin?", text: "Everything in the bin is erased now, files and all, instead of after its 7 days. This cannot be undone.", yes: "Erase" }))) return;
+      let erased = 0;
+      if (await run("The bin could not be emptied", async () => { erased = (await api.emptyBin()).erased; })) {
+        say({ id: `tree-empty:${Date.now()}`, tone: "good", title: `${erased} item${erased === 1 ? "" : "s"} erased` });
+      }
     },
     /** A folder asked a name for, inside a folder, at the top of a project (in its root) or of the Inbox. Answers whether one was made. */
     async newFolder(where: { name: string; parent: string | null; project: string | null }) {

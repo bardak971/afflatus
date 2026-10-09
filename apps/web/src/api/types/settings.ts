@@ -70,4 +70,6 @@ export interface Settings {
   /** Once a day, Civitai is asked for newer versions of the models here (lookups on; hashes are sent). */
   updateChecks: boolean;  /** The command bar's shortcut and its optional parts. */
   bar: BarSettings;
+  /** The projects pinned to the rail under the one worked in, in their order there (four at most). */
+  pinnedProjects: string[];
 }

@@ -1,16 +1,19 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { Clock, Download } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { api, type Job, type QueueStatus, type RunningJob } from "./api";
-import { useAsset, useQueue, useSettings } from "./data";
+import { useAsset, useProjects, useQueue, useSettings } from "./data";
 import { Keys } from "./Keys";
 import { BAR_DEFAULT } from "./keys/table";
 import { useDownloads } from "./GetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
-import { useLive, useSystem } from "./store";
-import { Chip, cx } from "./ui";
+import { Popover } from "./Popover";
+import { useProject } from "./project";
+import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "./screens/studio/expiring";
+import { useLive, useStudio, useSystem } from "./store";
+import { Button, Chip, cx, ErrorNote, Help } from "./ui";
 
 // the viewer is fetched the first time the last result is opened from here
 const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
@@ -51,6 +54,7 @@ export function StatusBar() {
       {run && q?.paused ? <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
         <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
       )}
+      <Expiring />
       {fetching.length > 0 && (
         <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
           <Download size={13} className="shrink-0" />
@@ -214,6 +218,72 @@ function Idle({ last }: { last: Job | null }) {
       </span>
       {said}
       {asset.data && <Suspense fallback={null}><Viewer asset={asset.data} onClose={() => setOpen(null)} /></Suspense>}
+    </>
+  );
+}
+
+/** What the expiring chip's ? says: the rule, once. */
+const EXPIRING_HELP = "Renders nobody kept go to the bin by themselves a day after they were made (or unkept), and are deleted a week later. S keeps one; what is on a timeline is always kept.";
+
+/**
+ * The renders of the project that nobody kept, which go to the bin by themselves: how many and when the next goes
+ * ("23 expiring · 3 h"), in the warning colour when it goes within the hour; nothing when there are none. Its panel
+ * says when the last goes, shows only them in the library, or keeps them all.
+ */
+function Expiring() {
+  const sum = useExpiring().data;
+  const project = useProject((s) => s.id);
+  const projects = useProjects();
+  const anchor = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const { keep, keepAll } = useKeepAllExpiring(() => setOpen(false));
+  const [, go] = useLocation();
+  const count = sum?.count ?? 0;
+  const said = sum ? expiringSaid(sum) : null;
+  if (!count || !said) return null;
+  const where = project === null ? "the library" : project === "none" ? "the Inbox" : (projects.data?.items.find((p) => p.id === project)?.name ?? "this project");
+  const show = () => {
+    // the whole project's media, as the count is: not one folder's, nor the timelines
+    useExpiringOnly.getState().set(true);
+    useStudio.getState().set({ place: { type: "all" } });
+    setOpen(false);
+    go("/");
+  };
+  return (
+    <>
+      <button
+        ref={anchor}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        data-tip={`${count} renders nobody kept go to the bin by themselves, the next in ${said.next}`}
+        onClick={() => setOpen(!open)}
+        className={cx(
+          "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs whitespace-nowrap transition-colors hover:brightness-125",
+          said.soon ? "bg-warn-wash text-warn-ink" : "bg-hover text-ink-2",
+          open && "ring-1 ring-accent",
+        )}
+      >
+        <Clock size={12} aria-hidden className="shrink-0" />
+        <span className={cx("font-semibold", !said.soon && "text-ink")}>{count} expiring</span>
+        <span>· {said.next}</span>
+      </button>
+      {open && (
+        <Popover anchor={anchor} onClose={() => setOpen(false)} label="Expiring renders" width={340} height={150}>
+          <div className="flex flex-col gap-2.5 p-3.5">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold">{count} expiring in {where}</span>
+              <Help text={EXPIRING_HELP} />
+            </div>
+            <span className="text-xs text-ink-2">{said.next === said.last ? `They go to the bin in ${said.next}` : `The next goes to the bin in ${said.next}, the last in ${said.last}`}</span>
+            {keep.isError && <ErrorNote>{keep.error.message}</ErrorNote>}
+            <div className="flex gap-2">
+              <Button size="sm" tone="primary" onClick={show} data-tip="The library, showing only what expires (Filters › Expiring only)">Show them</Button>
+              <Button size="sm" disabled={keep.isPending} onClick={() => void keepAll(count)} data-tip="They stay until you bin them">{keep.isPending ? "Keeping…" : `Keep all ${count}`}</Button>
+            </div>
+          </div>
+        </Popover>
+      )}
     </>
   );
 }

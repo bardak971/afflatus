@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bar, brushWindow, ceiling, curve, stackSeries, statOf } from "../src/screens/queue/chartMath";
 import { betterPlace, byModel, dropped, groupingSaves, loadsAt, modelSwitches, moved } from "../src/screens/queue/order";
-import { dayLabel, pinnedFailures, reasonOf, reasonsOf } from "../src/screens/queue/failures";
+import { dayLabel, foldFailures, pinnedFailures, readableError, reasonOf, reasonsOf } from "../src/screens/queue/failures";
 import { StepClock } from "../src/screens/queue/stepRate";
 import { brushSpan } from "../src/screens/queue/useBrush";
 import { presetOf, typedWindow } from "../src/screens/queue/useTimesView";
@@ -178,6 +178,24 @@ describe("the history's pinned failures", () => {
     expect(reasonOf(null)).toBe("failed");
     expect(reasonsOf([{ error: "missing LoRA" }, { error: "out of memory." }, { error: "out of memory" }])).toBe("out of memory ×2 · missing LoRA");
     expect(reasonsOf([{ error: "a" }, { error: "b" }, { error: "c" }, { error: "d" }], 2)).toBe("a · b · +2");
+  });
+  it("says a failure in one readable sentence: a model file ComfyUI does not offer is a missing file, with where it was asked for", () => {
+    const missing = readableError("ComfyUI rejected the job: Prompt outputs failed validation; UNETLoader: Value not in list unet_name: 'video\\DasiwaMinimaxH3_v3.safetensors' not in ['a.safetensors', 'b.gguf']");
+    expect(missing).toEqual({ text: "Missing model file DasiwaMinimaxH3_v3.safetensors (UNETLoader · unet_name)", missing: { file: "DasiwaMinimaxH3_v3.safetensors", node: "UNETLoader", input: "unet_name" } });
+    expect(readableError("ComfyUI rejected the job: Prompt outputs failed validation; KSampler: Value not in list sampler_name: 'x' not in ['euler']")).toEqual({ text: "KSampler does not offer sampler_name 'x'", missing: null });
+    // Afflatus's own check before submitting, worded its way
+    expect(readableError('this cannot run on your ComfyUI: 3 UNETLoader: ComfyUI has no file "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors" for "unet_name".')).toEqual({
+      text: "Missing model file DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors (UNETLoader · unet_name)",
+      missing: { file: "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors", node: "UNETLoader", input: "unet_name" },
+    });
+    expect(readableError("CUDA out of memory. Tried to allocate 2 GiB", "vram").text).toBe("Out of VRAM");
+    expect(readableError("Joining clips needs ffmpeg. Install it.").text).toBe("Joining clips needs ffmpeg.");
+    expect(readableError(null).text).toBe("Failed.");
+  });
+  it("folds the same failure (same error, workflow and model) into one group, in the order of its newest", () => {
+    const f = (id: string, error: string, model: string | null = "m") => ({ id, error, recipe: "r", model });
+    const groups = foldFailures([f("a", "missing"), f("b", "oom"), f("c", "missing"), f("d", "missing", "other"), f("e", "oom")]);
+    expect(groups.map((g) => g.map((j) => j.id))).toEqual([["a", "c"], ["b", "e"], ["d"]]);
   });
   it("names a day Today, Yesterday or by its date", () => {
     const now = new Date(2026, 9, 9, 15);

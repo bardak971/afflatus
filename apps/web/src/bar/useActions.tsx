@@ -1,12 +1,11 @@
-import { lazy, Suspense, useRef, useState, type ReactNode, type SetStateAction } from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
   Archive, ArchiveRestore, ArrowUpToLine, Clapperboard, Copy, Eye, FileOutput, Film, FolderInput, FolderKanban, FolderOpen, Pause, PenLine, Play,
   RotateCcw, Square, Trash2, UserPlus, X, Pencil, ListOrdered, Settings2, Sparkles, Link2, FolderPlus, MemoryStick, Layers, Split, ChevronLeft, ChevronRight,
-  RefreshCw, Upload, Download, ExternalLink, FileUp, Wand2, Bookmark, Plug, Navigation, Keyboard,
+  RefreshCw, Upload, Download, ExternalLink, FileUp, Wand2, Bookmark, Plug, Navigation, Keyboard, Plus, Pin, PinOff,
 } from "lucide-react";
-import { typedSeed } from "@afflatus/core";
 import { useOpenInComfy } from "../actions";
 import { api, type Asset, type CommandEntry, type Entity, type RecipeInfo } from "../api";
 import { ask, askText } from "../Confirm";
@@ -14,7 +13,7 @@ import type { MenuItem } from "../ContextMenu";
 import { assetKey, DRAFT_LIST, useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { formDefaults, mainTextOf } from "../form";
-import { useFormTarget } from "../formTarget";
+import { formPlaces, useFormTarget } from "../formTarget";
 import { size } from "../format";
 import { projectForNew, useProject } from "../project";
 import type { Moving, Row, Target } from "../projects/tree";
@@ -28,11 +27,13 @@ import { settingHref } from "../screens/settings/settingsIndex";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { copyText } from "../secureContext";
 import { useBanners, useHandover, useOpenDraft, useStudio } from "../store";
-import { useItemExtras, useTimelineSubmenu } from "../TileMenu";
 import { openKeys } from "../keys/search";
 import { rowKeys } from "../keys/table";
-import { useViewerActions } from "../viewer/useViewerActions";
+import { NO_ASSET, useItemActions } from "../useItemActions";
+import { placeMenu } from "../itemActions";
+import { askViewer } from "../viewer/ask";
 import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, useWorkflowsRequest, type TimelineRequest } from "./bridge";
+import { usePins } from "../projects/pins";
 import { castPlace, withPerson } from "./castTo";
 import type { Item } from "./items";
 import { KIT_OF, type Command, type KitNew } from "./parse";
@@ -40,7 +41,6 @@ import { pageLabel, type SettingCtx } from "./settingsRegistry";
 import { BAR_INDEX } from "./store";
 
 const Viewer = lazy(() => import("../Viewer").then((m) => ({ default: m.Viewer })));
-const PngInfo = lazy(() => import("../PngInfo").then((m) => ({ default: m.PngInfo })));
 
 /** One thing a result can have done to it: Enter does the first, Ctrl + Enter the second, Tab lists them all. */
 export interface Action {
@@ -68,8 +68,6 @@ type FolderEntry = Extract<CommandEntry, { kind: "folder" }>;
 type Preset = Extract<Entity, { kind: "preset" }>;
 type Person = Extract<Entity, { kind: "person" }>;
 
-/** The viewer's actions are worked out for the selected render alone: while none is, they are worked out for nothing. */
-const NO_ASSET = { id: "", kind: "image" } as Asset;
 const KIT_WORD = { person: "person", place: "place", style: "style", preset: "preset", snippet: "snippet" } as const;
 
 /** A submenu of the app's own menus, laid flat: "Timeline › Add to Harbor walk". */
@@ -102,6 +100,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const say = useBanners((b) => b.push);
   const tree = useTreeActions();
   const allProjects = useProjects().data?.items ?? [];
+  const pins = usePins();
   const projects = allProjects.filter((p) => !p.archivedAt);
   // what the queue rows need of the queue: not its progress, which changes at every step
   const queue = {
@@ -120,20 +119,13 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const selectedClip = useSelectedClip((c) => c.clip);
   const draftOpen = useOpenDraft((d) => Boolean(d.id));
   const [viewing, setViewing] = useState<Asset | null>(null);
-  const [info, setInfo] = useState<Asset | null>(null);
 
-  // the selected render's actions are the viewer's own (its quick passes, Extend, Save frame, PNG info…), without what
-  // needs the viewer on screen (Trim, Compare); what they make opens in the viewer
+  // the selected render's actions are the item's list (itemActions.tsx), worked out for it alone (for nothing while
+  // none is selected); Trim and Details open the viewer with them, what they make opens in the viewer
   const subjectDetail = useAsset(subject?.id ?? null);
-  const noPlayer = useRef<HTMLVideoElement | null>(null);
-  const viewer = useViewerActions({
-    asset: subject ?? NO_ASSET, first: subject ?? NO_ASSET, trailed: false, detail: subjectDetail, inline: true, player: noPlayer, trim: false,
-    setTrim: () => {},
-    setInfo: (v: SetStateAction<boolean>) => setInfo((typeof v === "function" ? v(false) : v) ? subject : null),
-    onClose: () => {}, onOpened: setViewing,
-  });
-  const timelineMenu = useTimelineSubmenu({ noKeys: true });
-  const extras = useItemExtras();
+  const item = useItemActions({ asset: subject ?? NO_ASSET, detail: subjectDetail, enabled: Boolean(subject), onOpened: setViewing, sayErrors: true, timeline: { noStartKey: true } });
+  const timelineMenu = item.timeline;
+  const formTarget = useFormTarget((st) => st.target);
   const openWorkflow = useOpenInComfy((w: { id: string; title: string }) => api.openWorkflow(w.id), {
     onSuccess: (r, w) => good(`${w.title} is in ComfyUI`, r.direct ? undefined : `Saved as ${r.path ?? "a workflow"}: in ComfyUI, open the Workflows sidebar (W) and pick it under "afflatus".`, "/workflows", "Open Workflows"),
     onError: (err) => failed("Could not open it in ComfyUI")(err),
@@ -161,9 +153,9 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     useStudio.getState().set({ form: true });
     go("/");
   });
+  // an item of another project is shown where it lives: working in that project (there is no "All" to look from)
   const lookingAt = (project: string | null) => {
-    const current = useProject.getState().id;
-    if (current !== null && current !== (project ?? "none")) useProject.getState().set(project ?? "none");
+    if (useProject.getState().id !== (project ?? "none")) useProject.getState().set(project ?? "none");
   };
   const openFolder = (id: string, project: string | null) => {
     lookingAt(project);
@@ -490,18 +482,29 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     }
   };
 
-  /** The selected render's actions, as the viewer's menu lists them: the open form first, the viewer's own, the seed, the timelines, the rest, the bin last. */
-  const renderActions = (a: Asset): Action[] => {
-    const g = subjectDetail.data?.id === a.id ? subjectDetail.data.generation : null;
-    const list = (a.kind === "image" ? viewer.imageItems() : viewer.videoItems())
-      // Trim needs the viewer on screen; a sound has no frame to save
-      .filter((it) => it === "—" || (it.key !== "T" && !(a.kind === "audio" && it.key === "G")))
-      // with no player open, the frame saved is the video's first one: said so (the viewer keeps "Save frame")
-      .map((it) => (it !== "—" && it.key === "G" ? { ...it, label: "Save the first frame" } : it));
-    const last = list.at(-1);
-    const seed = typedSeed(g?.resolved.seed);
-    const seedItem: MenuItem[] = seed !== null ? [{ label: "Copy the seed", icon: <Copy size={14} />, note: String(seed), run: () => copyText(String(seed)).then(() => onCopied(`the seed ${seed}`), () => onCopied("")) }] : [];
-    const out = flatten([...extras.first(a), ...list.slice(0, -1), ...seedItem, ...timelineMenu.items(a), ...extras.more(a, Boolean(g)), ...(last ? [last] : [])]);
+  /**
+   * The selected render's actions: the item's list (itemActions.tsx), as every place shows it, with the viewer's keys
+   * named. Open first (Enter opens it, as Open's key says), then the bar's own section (Show in its folder, on Ctrl +
+   * Enter as before; Use in this draft), then the rest of the list. Trim and Details open the viewer with them.
+   */
+  const renderActions = (a: Asset, project: string | null): Action[] => {
+    const openWith = (what: "trim" | "details") => () => {
+      askViewer(a.id, what);
+      setViewing(a);
+    };
+    const list = item.list({}, {
+      open: () => setViewing(a),
+      trim: openWith("trim"),
+      details: openWith("details"),
+      "copy-seed": () => item.seed !== null && copyText(String(item.seed)).then(() => onCopied(`the seed ${item.seed}`), () => onCopied("")),
+    }, { "save-frame": "the first frame" });
+    const places = formPlaces(formTarget, a);
+    const own: MenuItem[] = [
+      { label: "Show in its folder", icon: <FolderOpen size={14} />, note: "in the Studio", run: () => void showInFolder(a.id, project).catch(failed("Could not show it")) },
+      ...(places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : []),
+    ];
+    const [open, ...rest] = placeMenu([], list, "command");
+    const out = flatten([open!, ...own, ...rest]);
     // the seed copied, the bar stays (as a figure of the calculator)
     return out.map((x) => (x.label === "Copy the seed" ? { ...x, stay: true } : x));
   };
@@ -589,11 +592,12 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
       }
       case "render": {
         const a = e as Extract<CommandEntry, { kind: "asset" }>;
-        const own = subject && subject.id === a.id ? renderActions(subject) : [];
+        // read in full first (its generation): until then Open and Show in its folder, which need nothing more
+        if (subject && subject.id === a.id) return renderActions(subject, a.project);
         return [
-          { label: a.assetKind === "audio" ? "Open" : "View", icon: <Eye size={14} />, run: () => view(a.id).catch(failed("Could not open it")) },
+          { label: "Open", icon: <Eye size={14} />, keys: "Enter", run: () => view(a.id).catch(failed("Could not open it")) },
           { label: "Show in its folder", icon: <FolderOpen size={14} />, note: "in the Studio", run: () => showInFolder(a.id, a.project).catch(failed("Could not show it")) },
-          ...(own.length ? own : [{ label: "Reading what was made with it…", disabled: true, run: () => {} }]),
+          { label: "Reading what was made with it…", disabled: true, run: () => {} },
         ];
       }
       case "project": {
@@ -603,6 +607,9 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         return [
           { label: p.archived ? "Unarchive it to work in it" : "Work in it", icon: <FolderKanban size={14} />, disabled: p.archived, note: "the library, drafts and timelines show its own", run: () => useProject.getState().set(p.id) },
           { label: "Show in Projects", icon: <FolderKanban size={14} />, run: () => openProjects(p.label) },
+          pins.has(p.id)
+            ? { label: "Unpin from the rail", icon: <PinOff size={14} />, run: () => pins.unpin(p.id) }
+            : { label: "Pin to the rail", icon: <Pin size={14} />, disabled: p.archived || pins.full, note: p.archived ? "archived" : pins.full ? "the rail holds four" : undefined, run: () => pins.pin(p.id) },
           // as the Projects panel's menu on a project
           { label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => tree.newFolder({ name: p.label, parent: root, project: p.id }) },
           { label: "Import a folder here…", icon: <Upload size={14} />, note: root ? "copies it in" : "makes its root folder first", run: () => importInto({ kind: "group", group: p.id, root, name: p.label }) },
@@ -728,7 +735,6 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     <>
       {timelineMenu.element}
       {viewing && <Suspense fallback={null}><Viewer asset={viewing} onClose={() => setViewing(null)} /></Suspense>}
-      {info && <Suspense fallback={null}><PngInfo name={info.name || "Untitled"} read={(recipe) => api.assetEmbedded(info.id, recipe)} onClose={() => setInfo(null)} onSent={() => setInfo(null)} /></Suspense>}
       <input
         ref={picker}
         type="file"

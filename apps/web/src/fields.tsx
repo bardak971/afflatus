@@ -188,7 +188,9 @@ export function Field({ spec, value, values, options, family, model, onChange, o
 export function FieldRow({ label, note, htmlFor, children }: { label: string; note?: string; htmlFor?: string; children: ReactNode }) {
   const explain = useExplain((st) => st.on);
   return (
-    <div className="grid min-h-11 grid-cols-[124px_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+    // in the timeline editor's column dragged narrow (its container, "column"), the control goes under its label: side
+    // by side, a switch or a picker beside a 124 px label was cut
+    <div className="grid min-h-11 grid-cols-[124px_minmax(0,1fr)] items-center gap-x-3 gap-y-1 @max-[21rem]/column:grid-cols-1 @max-[21rem]/column:py-1">
       <span className="flex min-w-0 items-center justify-between gap-1.5">
         {htmlFor ? <label htmlFor={htmlFor} className="truncate font-semibold">{label}</label> : <span className="truncate font-semibold">{label}</span>}
         {/* pinned to the column's right edge: the ?s of a card line up */}

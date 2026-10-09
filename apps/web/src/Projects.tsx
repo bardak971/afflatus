@@ -1,6 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderPlus, Globe, Inbox } from "lucide-react";
+import type { Reveal } from "./bar/bridge";
+import { FolderPlus, Inbox } from "lucide-react";
 import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
@@ -8,6 +9,7 @@ import { FieldRow } from "./fields";
 import { Keys } from "./Keys";
 import { useKeysHere } from "./keys/here";
 import { useProject } from "./project";
+import { usePins } from "./projects/pins";
 import { Button, cx, ErrorNote, fieldClass } from "./ui";
 
 // the panel loads on its first opening: it is not needed to draw the app
@@ -24,10 +26,92 @@ export function projectTone(id: string): string {
   return `var(${TONES[h % TONES.length]})`;
 }
 
+/** What a project's square shows: its initial (the name beside or in the tip says it), the Inbox its icon. */
+export function Initial({ name, inbox, size = 15 }: { name: string; inbox?: boolean; size?: number }) {
+  return inbox ? <Inbox size={size} /> : <>{(Array.from(name.trim())[0] ?? "…").toUpperCase()}</>;
+}
+
+/** The type of a pin dragged along the rail: only the rail's own pins take it. */
+const DRAG_PIN = "application/x-afflatus-pin";
+
 /**
- * The project the app looks at, shown in the rail: everything, the Inbox, or one project. One choice for
- * the whole app. The button opens the Projects panel beside the rail, where it is changed, and where
- * projects, their folders, timelines and drafts are made, moved, renamed, archived and deleted.
+ * The projects pinned to the rail, under the one worked in: one click works in each, the active one outlined. Dragged
+ * along the rail they change places; they are pinned and unpinned from the Projects panel's row menu.
+ */
+function Pins({ current }: { current: string }) {
+  const pins = usePins();
+  const projects = useProjects();
+  const set = useProject((s) => s.set);
+  // where a dragged pin would land: before the pin at this index (the count: after the last)
+  const [over, setOver] = useState<number | null>(null);
+  const dragged = useRef<string | null>(null);
+  if (!pins.ids.length) return null;
+  const nameOf = (id: string) => (id === "none" ? "Inbox" : projects.data?.items.find((p) => p.id === id)?.name ?? "…");
+  const dragOver = (i: number, e: DragEvent) => {
+    if (!dragged.current || !e.dataTransfer.types.includes(DRAG_PIN)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    // the upper half of a square: before it; the lower half: after it
+    const box = e.currentTarget.getBoundingClientRect();
+    const at = e.clientY < box.top + box.height / 2 ? i : i + 1;
+    if (over !== at) setOver(at);
+  };
+  const end = () => {
+    dragged.current = null;
+    setOver(null);
+  };
+  return (
+    <div role="list" aria-label="Pinned projects" className="mt-0.5 flex shrink-0 flex-col items-center gap-1.5 border-y border-line px-3 py-2">
+      {pins.ids.map((id, i) => {
+        const on = id === current;
+        const tone = id === "none" ? "var(--color-ink-2)" : projectTone(id);
+        const name = nameOf(id);
+        return (
+          <button
+            key={id}
+            type="button"
+            role="listitem"
+            draggable
+            aria-current={on ? "true" : undefined}
+            aria-label={`${name} (pinned)`}
+            data-tip-head={name}
+            data-tip={on ? "Working in it. Drag to reorder the pins." : "Click to work in it. Drag to reorder the pins."}
+            onClick={() => set(id)}
+            onDragStart={(e) => {
+              dragged.current = id;
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData(DRAG_PIN, id);
+            }}
+            onDragOver={(e) => dragOver(i, e)}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = dragged.current;
+              const at = over;
+              end();
+              if (from && at !== null) pins.move(from, at);
+            }}
+            onDragEnd={end}
+            className={cx(
+              "relative flex h-[30px] w-[30px] items-center justify-center rounded-[8px] border bg-hover text-[13px] font-extrabold transition-[border-color,box-shadow] duration-150 motion-reduce:transition-none",
+              on ? "border-[1.5px]" : "border-line-strong hover:border-ink-3",
+              // the line a dragged pin lands on: above this square, or below the last one
+              over === i && "before:absolute before:-top-[5px] before:h-0.5 before:w-7 before:rounded-full before:bg-accent",
+              over === i + 1 && i === pins.ids.length - 1 && "after:absolute after:-bottom-[5px] after:h-0.5 after:w-7 after:rounded-full after:bg-accent",
+            )}
+            style={on ? { borderColor: tone, color: tone, boxShadow: `0 0 0 2px color-mix(in srgb, ${tone} 25%, transparent)` } : { color: tone }}
+          >
+            <Initial name={name} inbox={id === "none"} size={14} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The project the app works in, shown in the rail: the Inbox or one project, then the projects pinned under it. One choice
+ * for the whole app. The button opens the Projects panel beside the rail, where it is changed, where projects are pinned,
+ * and where projects, their folders, timelines and drafts are made, moved, renamed, archived and deleted.
  */
 export function ProjectSwitch() {
   const projects = useProjects();
@@ -39,24 +123,29 @@ export function ProjectSwitch() {
   const [making, setMaking] = useState(false);
   // an item opened from the panel: large in the Viewer, the panel kept (hidden) underneath and back when it closes
   const [viewing, setViewing] = useState<Asset | null>(null);
-  const picked = current && current !== "none" ? projects.data?.items.find((p) => p.id === current) : undefined;
-  // a project that is gone, or archived, is no place to look at (judged on a list that is up to date, not one being read again)
+  const inbox = current === "none";
+  const picked = inbox ? undefined : projects.data?.items.find((p) => p.id === current);
+  // a project that is gone, or archived, is no place to work in: the Inbox then (judged on a list that is up to date, not one being read again)
   useEffect(() => {
-    if (current && current !== "none" && projects.isSuccess && !projects.isFetching && (!picked || picked.archivedAt)) set(null);
-  }, [current, projects.isSuccess, projects.isFetching, picked, set]);
+    if (!inbox && projects.isSuccess && !projects.isFetching && (!picked || picked.archivedAt)) set("none");
+  }, [inbox, projects.isSuccess, projects.isFetching, picked, set]);
   // the lists follow by themselves: the library, the drafts and the timelines carry the project in their query keys (data.ts)
-  const label = current === null ? "All" : current === "none" ? "Inbox" : picked?.name ?? "…";
-  // a project in its own colour (projects have none of their own: one picked from the id); All and the Inbox in the quiet ink
+  const label = inbox ? "Inbox" : picked?.name ?? "…";
+  // a project in its own colour (projects have none of their own: one picked from the id); the Inbox in the quiet ink
   const tone = picked ? projectTone(picked.id) : "var(--color-ink-3)";
   const [search, setSearch] = useState<string | undefined>(undefined);
+  const [reveal, setReveal] = useState<Reveal | undefined>(undefined);
   const close = useCallback(() => {
     setOpen(false);
     setSearch(undefined);
+    setReveal(undefined);
   }, []);
   // opened from elsewhere (the command bar's "Show in Projects"), its search on what to find
   useEffect(() => {
     const on = (e: Event) => {
-      setSearch((e as CustomEvent<{ search?: string }>).detail?.search);
+      const d = (e as CustomEvent<{ search?: string; reveal?: Reveal }>).detail;
+      setSearch(d?.search);
+      setReveal(d?.reveal);
       setOpen(true);
     };
     window.addEventListener("afflatus:projects", on);
@@ -70,8 +159,8 @@ export function ProjectSwitch() {
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((o) => !o)}
-        data-tip={`Working in: ${label}. The library, the drafts and the timelines are those of ${current === null ? "every project" : current === "none" ? "the Inbox" : "this project"}. Click for your projects.`}
-        className={cx("mt-2.5 flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-[12px] pt-1.5 pb-[7px] text-[10.5px] font-semibold", open || current ? "text-ink" : "text-ink-2 hover:text-ink")}
+        data-tip={`Working in: ${label}. The library, the drafts and the timelines are those of ${inbox ? "the Inbox" : "this project"}, and what you make lands in it. Click for your projects.`}
+        className={cx("mt-2.5 flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-[12px] pt-1.5 pb-[7px] text-[10.5px] font-semibold", open || !inbox ? "text-ink" : "text-ink-2 hover:text-ink")}
       >
         {/* the name under it says it: the initial is only a picture */}
         <span
@@ -79,11 +168,12 @@ export function ProjectSwitch() {
           className={cx("flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border-[1.5px] bg-hover text-[13px] font-extrabold", open && "shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
           style={{ borderColor: tone, color: tone }}
         >
-          {current === null ? <Globe size={15} /> : current === "none" ? <Inbox size={15} /> : (Array.from(picked?.name.trim() ?? "")[0] ?? "…").toUpperCase()}
+          <Initial name={picked?.name ?? ""} inbox={inbox} />
         </span>
         <span className="w-full truncate px-0.5 text-center">{label}</span>
       </button>
-      {open && <Suspense fallback={null}><ProjectsPanel key={search ?? ""} search={search} anchor={button} onClose={close} onNew={() => setMaking(true)} onView={setViewing} hidden={Boolean(viewing)} /></Suspense>}
+      <Pins current={current} />
+      {open && <Suspense fallback={null}><ProjectsPanel key={`${search ?? ""}|${reveal?.asset ?? ""}`} search={search} reveal={reveal} anchor={button} onClose={close} onNew={() => setMaking(true)} onView={setViewing} hidden={Boolean(viewing)} /></Suspense>}
       {viewing && <Suspense fallback={null}><Viewer asset={viewing} onClose={() => setViewing(null)} /></Suspense>}
       {making && <NewProject onClose={() => setMaking(false)} onMade={(p) => { setMaking(false); set(p.id); }} />}
     </>

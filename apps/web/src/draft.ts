@@ -41,13 +41,13 @@ export async function remade(d: Draft): Promise<Draft> {
 }
 
 /**
- * What becomes of the open draft, of project `draftProject` (null: the Inbox), while the app looks at `project`
- * (null: everything, which takes any draft): "keep" when it is there; "follow" (the app looks at its project)
- * when it was opened from another project since the last switch, `under` being the project looked at then; else
- * "leave" for that project's own draft (`pickFor`): the project was switched to since, or the draft was moved.
+ * What becomes of the open draft, of project `draftProject` (null: the Inbox), while the app works in `project`
+ * ("none": the Inbox): "keep" when it is there; "follow" (the app works in its project) when it was opened from
+ * another project since the last switch, `under` being the project worked in then (null: "everything", a place there
+ * is no more); else "leave" for that project's own draft (`pickFor`): the project was switched to since, or the draft was moved.
  */
-export function draftFate(draftProject: string | null, under: ProjectChoice | undefined, project: ProjectChoice): "keep" | "follow" | "leave" {
-  if (project === null || (draftProject ?? "none") === project) return "keep";
+export function draftFate(draftProject: string | null, under: ProjectChoice | null | undefined, project: ProjectChoice): "keep" | "follow" | "leave" {
+  if ((draftProject ?? "none") === project) return "keep";
   return under === project ? "follow" : "leave";
 }
 

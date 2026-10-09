@@ -6,8 +6,11 @@ import { size } from "../format";
  * branch prefix (├─ └─ │). Pure: the panel hands it the tree, what is open and the drafts read so far.
  */
 
-/** `empty`: a group's unused drafts (no prompt, no name, nothing rendered) folded into one row. */
-export type RowKind = "all" | "inbox" | "project" | "archive" | "folder" | "item" | "timeline" | "drafts" | "draft" | "empty" | "more" | "bin";
+/**
+ * `empty`: a group's unused drafts (no prompt, no name, nothing rendered) folded into one row. `loose`: the Inbox's items in
+ * no folder, a row of the one-project tree only (an item in no folder is in no project).
+ */
+export type RowKind = "inbox" | "project" | "archive" | "folder" | "item" | "timeline" | "drafts" | "draft" | "empty" | "more" | "bin" | "loose";
 
 /** Something a row can be moved as: its place now, to tell a move from staying put. */
 export type Moving =
@@ -22,7 +25,7 @@ export type Target =
   | { kind: "folder"; id: string; group: string | null; linked: boolean; /** Its folders above, nearest last. */ ancestors: string[]; name: string };
 
 export interface Row {
-  /** Unique among the rows: "all", "g:<id|inbox>", "archived", "f:<id>", "a:<id>", "t:<id>", "d:<group>", "e:<group>", "dr:<id>", "more:<d:group|f:id>". */
+  /** Unique among the rows: "g:<id|inbox>", "archived", "f:<id>", "a:<id>", "t:<id>", "d:<group>", "e:<group>", "dr:<id>", "more:<d:group|f:id>". */
   key: string;
   kind: RowKind;
   /** What it is on the server (a project, folder, timeline or draft id); null for the others. */
@@ -37,7 +40,7 @@ export interface Row {
   open: boolean;
   /** The row it is under. */
   parent: string | null;
-  /** The group it belongs to: a project id, null for the Inbox (and for All and Archived). */
+  /** The group it belongs to: a project id, null for the Inbox (and for Archived and the Bin). */
   group: string | null;
   linked?: boolean;
   /** A folder of the disk that was linked itself (not one of its sub-folders). */
@@ -186,6 +189,11 @@ export function flatten(tree: ProjectsTree, s: {
   draftMeta?(d: DraftLeaf): string;
   /** The order of each level's folders, timelines and drafts (the items come in order from the server). Newest first when not said. */
   sort?: Sort;
+  /**
+   * One project's tree (or the Inbox's: null), for the library's breadcrumb: its own row first (the whole project), its
+   * root folder's sub-folders brought up beside the root, the Inbox's loose items as a "No folder" row, then the Bin.
+   */
+  only?: { group: string | null };
 }): Row[] {
   const q = (s.q ?? "").trim().toLowerCase();
   const order = s.sort ?? DEFAULT_SORT;
@@ -228,7 +236,7 @@ export function flatten(tree: ProjectsTree, s: {
     ];
   };
 
-  const groupNode = (g: TreeGroup): Node => {
+  const groupNode = (g: TreeGroup, hoist = false): Node => {
     const key = groupKey(g);
     const dk = draftsKey(g.id);
     const searched = q ? g.drafts ?? [] : null;
@@ -261,12 +269,23 @@ export function flatten(tree: ProjectsTree, s: {
       if (t.folderId && shown.has(t.folderId)) filed.set(t.folderId, [...(filed.get(t.folderId) ?? []), t]);
       else loose.push(t);
     }
+    // the one-project tree: the root folder first, as "Name (root)" with its own items, and its sub-folders beside it rather than
+    // under it (the project's row stands for the whole of it, so the root is one more level for nothing)
+    const root = hoist ? g.folders.find((f) => f.id === g.rootFolderId && !f.linked) : undefined;
+    const tops = (): Node[] =>
+      root
+        ? [
+            ...folderNodes(g, [{ ...root, name: `${root.name} (root)`, children: [] }], null, [], false, filed),
+            ...folderNodes(g, root.children, root.id, [root.id], false, filed),
+            ...folderNodes(g, g.folders.filter((f) => f !== root), null, [], false, filed),
+          ]
+        : folderNodes(g, g.folders, null, [], false, filed);
     const kids = (): Node[] => [
-      ...folderNodes(g, g.folders, null, [], false, filed),
+      ...tops(),
       ...timelinesIn(loose).map((t) => timelineNode(g, t)),
       ...(draftCount ? [{ row: { key: dk, kind: "drafts" as const, id: null, label: draftsLabel, meta: "", bytes: null, group: g.id, archived: g.archived }, count: draftCount, kids: draftRows }] : []),
     ];
-    const count = g.folders.length + loose.length + (draftCount ? 1 : 0);
+    const count = g.folders.length + (root ? root.children.length : 0) + loose.length + (draftCount ? 1 : 0);
     return {
       row: {
         key, kind: g.kind, id: g.id, label: g.name, meta: groupMeta(g), bytes: g.bytes, ...(g.createdAt ? { created: g.createdAt } : {}), group: g.id, archived: g.archived, noRoot: g.kind === "project" && !g.rootFolderId,
@@ -297,14 +316,27 @@ export function flatten(tree: ProjectsTree, s: {
 
   const active = tree.groups.filter((g) => !g.archived);
   const archived = tree.groups.filter((g) => g.archived);
-  const top: Node[] = [
-    { row: { key: "all", kind: "all", id: null, label: "All", meta: "everything, every project", bytes: tree.totalBytes, group: null }, count: 0, kids: () => [] },
-    ...active.map(groupNode),
-    ...(archived.length
-      ? [{ row: { key: "archived", kind: "archive" as const, id: null, label: `Archived (${archived.length})`, meta: plural(archived.length, "project"), bytes: archived.reduce((n, g) => n + g.bytes, 0), group: null }, count: archived.length, kids: () => archived.map(groupNode) }]
-      : []),
-    ...(s.bin ? [{ row: { key: "bin", kind: "bin" as const, id: null, label: "Bin", meta: s.bin.count ? `${plural(s.bin.count, "item")} · kept a week` : "empty", bytes: s.bin.bytes, group: null }, count: 0, kids: () => [] }] : []),
-  ];
+  const bin: Node[] = s.bin ? [{ row: { key: "bin", kind: "bin" as const, id: null, label: "Bin", meta: s.bin.count ? `${plural(s.bin.count, "item")} · kept a week` : "empty", bytes: s.bin.bytes, group: null }, count: 0, kids: () => [] }] : [];
+  const one = s.only ? tree.groups.find((g) => g.id === s.only!.group) : undefined;
+  // the one-project tree: its row is the whole of it (a place, never folded), what it holds is the top level
+  const scoped = (g: TreeGroup): Node[] => {
+    const n = groupNode(g, true);
+    const inbox = g.kind === "inbox";
+    return [
+      { row: { ...n.row, meta: `${inbox ? "the whole Inbox" : "the whole project"} · ${n.row.meta}` }, count: 0, kids: () => [] },
+      ...n.kids(),
+      ...(inbox ? [{ row: { key: "loose", kind: "loose" as const, id: null, label: "No folder", meta: "items in no folder", bytes: null, group: null }, count: 0, kids: () => [] }] : []),
+    ];
+  };
+  const top: Node[] = s.only
+    ? [...(one ? scoped(one) : []), ...bin]
+    : [
+        ...active.map((g) => groupNode(g)),
+        ...(archived.length
+          ? [{ row: { key: "archived", kind: "archive" as const, id: null, label: `Archived (${archived.length})`, meta: plural(archived.length, "project"), bytes: archived.reduce((n, g) => n + g.bytes, 0), group: null }, count: archived.length, kids: () => archived.map((g) => groupNode(g)) }]
+          : []),
+        ...bin,
+      ];
 
   /** With a search: it, or something under it, matches. */
   const lit = (n: Node): boolean => Boolean(n.row.match) || n.kids().some((k) => k.row.kind !== "more" && lit(k));

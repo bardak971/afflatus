@@ -103,4 +103,6 @@ export const useWorkflowsRequest = create<{ request: WorkflowsRequest | null; as
 }));
 
 /** Open the Projects panel from elsewhere, its search on `search` (a name to find). */
-export const openProjects = (search?: string) => window.dispatchEvent(new CustomEvent("afflatus:projects", { detail: { search } }));
+export const openProjects = (search?: string, reveal?: Reveal) => window.dispatchEvent(new CustomEvent("afflatus:projects", { detail: { search, reveal } }));
+/** An item the Projects panel opens on: its project and folders unfolded, its row picked and in sight. */
+export type Reveal = { asset: string; folder: string | null; group: string | null };

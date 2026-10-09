@@ -152,9 +152,13 @@ export function Note({ text, className }: { text?: string; className?: string })
   return on ? <span className={cx("text-xs text-ink-2", className)}>{text}</span> : <Help text={text} className={className} />;
 }
 
-/** The edge of a side panel: dragged, it makes the panel wider or narrower (remembered). `side`: which edge of the panel it is. */
-export function PanelEdge({ side }: { side: "left" | "right" }) {
-  const set = usePanelWidth((s) => s.set);
+/**
+ * The edge of a side panel: dragged, it makes the panel wider or narrower (remembered). `side`: which edge of the
+ * panel it is. `size`: a panel with a width of its own (the timeline editor's column); the form's panel otherwise.
+ */
+export function PanelEdge({ side, size }: { side: "left" | "right"; size?: { get(): number; set(width: number): void; usual: number } }) {
+  const setPanel = usePanelWidth((s) => s.set);
+  const set = size?.set ?? setPanel;
   return (
     <div
       role="separator"
@@ -163,7 +167,7 @@ export function PanelEdge({ side }: { side: "left" | "right" }) {
       data-tip="Drag to make the panel wider or narrower"
       onPointerDown={(e) => {
         const startX = e.clientX;
-        const startWidth = usePanelWidth.getState().width;
+        const startWidth = size ? size.get() : usePanelWidth.getState().width;
         const target = e.currentTarget;
         target.setPointerCapture(e.pointerId);
         const move = (ev: PointerEvent) => set(startWidth + (side === "right" ? ev.clientX - startX : startX - ev.clientX));
@@ -174,7 +178,7 @@ export function PanelEdge({ side }: { side: "left" | "right" }) {
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
       }}
-      onDoubleClick={() => set(PANEL.usual)}
+      onDoubleClick={() => set(size?.usual ?? PANEL.usual)}
       className={cx("absolute top-0 bottom-0 z-20 w-1.5 cursor-col-resize hover:bg-accent/40 active:bg-accent/60", side === "right" ? "-right-0.5" : "-left-0.5")}
     />
   );

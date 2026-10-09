@@ -1,27 +1,32 @@
 import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Film, Folder, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Film, Folder, FolderPlus, FolderTree, X } from "lucide-react";
 import { api, type Asset, type AssetDetail } from "../api";
 import { openProjects } from "../bar/bridge";
 import { assetKey, useFolders, useProjects, type useAsset } from "../data";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { Keys } from "../Keys";
 import { cx } from "../ui";
 import { tileName } from "../screens/Library";
 import { factsOf, placesOf } from "./facts";
-import { SeedButton } from "./SeedButton";
 import type { ViewerActions } from "./useViewerActions";
 
 const chip = "flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-line bg-raised px-2.5 py-1 text-xs text-ink hover:border-line-strong hover:bg-hover";
 
-/** Where it is filed: its project and folder, "root folder" for the project's own, the Inbox when in none. Opens the Projects panel searched on it. */
-function PlaceChip({ a, onLeave }: { a: Asset; onLeave(): void }) {
+/**
+ * Where it is filed: its project and folder, "root folder" for the project's own, the Inbox when in none. A picker: the
+ * item's Move to (project › folder, the Inbox), a new folder for it, and the way to it in the Projects panel. The one
+ * place of the side where the folder is shown and changed.
+ */
+function PlaceChip({ a, acts, onLeave }: { a: Asset; acts: ViewerActions; onLeave(): void }) {
   const folders = useFolders();
   const projects = useProjects();
+  const menu = useMenu<true>();
   const all = folders.data?.items ?? [];
   const folder = a.folderId ? all.find((f) => f.id === a.folderId) : undefined;
-  // a folder not read yet: nothing rather than a wrong "Inbox"
-  if (a.folderId && !folder) return null;
+  // a folder not read yet: a quiet chip of the same size rather than a wrong "Inbox" (no jump when it is read)
+  if (a.folderId && !folder) return <span aria-hidden className={cx(chip, "w-24 animate-pulse")}>&nbsp;</span>;
   const project = folder?.projectId ? projects.data?.items.find((p) => p.id === folder.projectId) : undefined;
   const root = Boolean(project && project.folderId === folder?.id);
   // a folder inside another shows where it is, up to the project's root folder
@@ -30,12 +35,23 @@ function PlaceChip({ a, onLeave }: { a: Asset; onLeave(): void }) {
     return !f || f.id === project?.folderId ? [] : [...pathOf(f.parentId), f.name];
   };
   const label = !folder ? "Inbox" : `${project?.name ?? "Inbox"} › ${root ? "root folder" : pathOf(folder.id).join(" › ")}`;
-  const search = !folder ? undefined : root ? project!.name : folder.name;
+  const items: MenuItem[] = a.inBin
+    ? [{ label: "Show in Projects", icon: <FolderTree size={14} />, run: () => { onLeave(); openProjects(undefined, { asset: a.id, folder: a.folderId ?? null, group: folder?.projectId ?? null }); } }]
+    : [
+        ...acts.mutations.moves(a),
+        { label: "New folder…", icon: <FolderPlus size={14} />, note: "and move it there", run: () => void acts.mutations.newFolderFor(a) },
+        "—",
+        { label: "Show in Projects", icon: <FolderTree size={14} />, run: () => { onLeave(); openProjects(undefined, { asset: a.id, folder: a.folderId ?? null, group: folder?.projectId ?? null }); } },
+      ];
   return (
-    <button type="button" data-tip="Show it in the Projects panel" onClick={() => { onLeave(); openProjects(search); }} className={chip}>
-      <Folder size={13} className="shrink-0 text-accent" />
-      <span className="truncate">{label}</span>
-    </button>
+    <>
+      <button type="button" aria-haspopup="menu" data-tip="Where it is filed: move it to another project or folder" onClick={(e) => menu.open(e, true)} className={chip}>
+        <Folder size={13} className="shrink-0 text-accent" />
+        <span className="truncate">{label}</span>
+        <ChevronDown size={12} className="shrink-0 text-ink-3" />
+      </button>
+      {menu.menu && <ContextMenu at={menu.menu.at} label="Move to" items={items} onClose={menu.close} />}
+    </>
   );
 }
 
@@ -163,12 +179,12 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
       {rename.isError && <span className="text-xs text-warn-ink">{rename.error.message}</span>}
 
       <span className="text-[12.5px] text-ink-2">
+        {/* the seed is in its cell under the prompt, once */}
         {factsOf(a, g, a.shownName || a.name ? title : "")}
-        {typeof g?.resolved.seed === "number" && <> · seed <SeedButton seed={g.resolved.seed} /></>}
       </span>
 
       <div className="mt-1 flex flex-wrap gap-1.5">
-        <PlaceChip a={a} onLeave={onClose} />
+        <PlaceChip a={a} acts={acts} onLeave={onClose} />
         {places.slice(0, 4).map(({ of, own }) => (
           <button
             key={`${of.timeline}:${of.clip}`}

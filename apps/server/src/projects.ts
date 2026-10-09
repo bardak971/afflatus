@@ -7,6 +7,7 @@ import type { Services } from "./services";
 import { NOT_IN_LIBRARY } from "./assetSearch";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { unusedDrafts } from "./drafts";
+import { readSettings, writeSettings } from "./settings";
 
 /**
  * Projects: what drafts, timelines and folders are grouped under. A project has a root folder, where its
@@ -133,6 +134,12 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
   return { totalBytes: Number(total?.b ?? 0), groups: groups.filter((g): g is TreeGroup => g !== null) };
 }
 
+/** A project that is gone or archived is no place to switch to: it leaves the rail's pins (the setting `pinnedProjects`). */
+async function unpin(db: Db, id: string): Promise<void> {
+  const pins = (await readSettings(db)).pinnedProjects;
+  if (pins.includes(id)) await writeSettings(db, { pinnedProjects: pins.filter((p) => p !== id) });
+}
+
 export function registerProjects(app: FastifyInstance, s: Services): void {
   const mustExist = async (id: string) => {
     const p = await s.db.selectFrom("projects").selectAll().where("id", "=", id).executeTakeFirst();
@@ -211,6 +218,7 @@ export function registerProjects(app: FastifyInstance, s: Services): void {
       .execute();
     // the root folder keeps the project's name, unless it is a directory of the disk (its name is the directory's)
     if (body.name !== undefined && p.folder_id) await s.db.updateTable("folders").set({ name: body.name }).where("id", "=", p.folder_id).where("path", "is", null).execute();
+    if (body.archived) await unpin(s.db, p.id);
     s.queue.events.emit("library");
     return view(await mustExist(p.id));
   });
@@ -224,6 +232,7 @@ export function registerProjects(app: FastifyInstance, s: Services): void {
       await tx.updateTable("timelines").set({ project_id: null }).where("project_id", "=", p.id).execute();
       await tx.deleteFrom("projects").where("id", "=", p.id).execute();
     });
+    await unpin(s.db, p.id);
     s.queue.events.emit("library");
     return { ok: true };
   });

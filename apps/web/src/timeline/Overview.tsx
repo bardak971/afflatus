@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, X } from "lucide-react";
 import { create } from "zustand";
@@ -28,11 +28,34 @@ import { Estimate } from "./estimate";
 const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabled:opacity-40";
 
 /**
+ * What Needs attention lists for a timeline, each row with the action that mends it, the rows set aside left out
+ * (until their clips play another take); with the joins' figures it is worked out from, one request per clip that
+ * flows on and has a take (cached a minute, as the tooltip's). Shared by the Overview and the folded column's
+ * count: the same requests either way.
+ */
+export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) => boolean, msOf: (c: Clip) => number | null) {
+  const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
+  const joinQueries = useQueries({
+    queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => api.joins(c.id), staleTime: 60_000 })),
+  });
+  const joinItems = new Map<string, JoinFigures | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data?.items]));
+  const joinsOf = new Map<string, number | null | undefined>(joined.map((c) => {
+    const items = joinItems.get(c.id);
+    return [c.id, items ? (items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined];
+  }));
+  const listed = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill });
+  const dismissed = useDismissed();
+  const kept = new Set(dismissed.by[t.id] ?? []);
+  const rows = listed.filter((r) => !(canDismiss(r) && kept.has(dismissKey(r, clips))));
+  return { joined, joinsOf, listed, rows, kept, dismissed };
+}
+
+/**
  * The timeline as a whole, shown while no clip is selected: what it is, what needs attention (each line
  * with its clips, which select the clip, and the action that mends it; Fix all runs them all), its music,
  * its cast and look.
  */
-export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked }: {
+export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked, fold }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
   /** `short`: what its switch says ("16:9"), where four words would not fit on one row of the panel. */
   aspect: { value: string; options: Array<{ value: string; label: string; short?: string; note?: string; detail?: string }>; onChange(value: string): void };
@@ -53,6 +76,8 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   /** The clips picked with Ctrl + click on the track, rendered together. */
   picked: Set<string>;
   onRenderPicked(): void;
+  /** The column's fold button, at the end of the first row. */
+  fold?: ReactNode;
 }) {
   const projects = useProjects();
   const folders = useFolders();
@@ -76,16 +101,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
     // the library hears of the move from the server (its library event); the timeline shows where its takes now are
     onSuccess: () => void client.invalidateQueries({ queryKey: ["timelines", t.id] }),
   });
-  // the joins' figures, one request per clip that flows on and has a take (cached a minute, as the tooltip's)
-  const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
-  const joinQueries = useQueries({
-    queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => api.joins(c.id), staleTime: 60_000 })),
-  });
-  const joinItems = new Map<string, JoinFigures | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data?.items]));
-  const joinsOf = new Map<string, number | null | undefined>(joined.map((c) => {
-    const items = joinItems.get(c.id);
-    return [c.id, items ? (items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined];
-  }));
+  const { joined, joinsOf, listed, rows, kept, dismissed } = useAttention(t, clips, renderable, msOf);
   const measured = clips.filter((c) => c.take?.renderMs);
   const renderMs = measured.reduce((sum, c) => sum + (c.take!.renderMs ?? 0), 0);
   const rendered = measured.length;
@@ -105,12 +121,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   const loading = joined.some((c) => joinsOf.get(c.id) === undefined);
   const worst = figured.reduce<Clip | null>((w, c) => (!w || joinsOf.get(c.id)! > joinsOf.get(w.id)! ? c : w), null);
 
-  // what needs attention, one row each with the action that mends it; Fix all once two rows or more have one
-  const listed = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill });
-  // the ones set aside stay out, Fix all included, until their clips play another take
-  const dismissed = useDismissed();
-  const kept = new Set(dismissed.by[t.id] ?? []);
-  const rows = listed.filter((r) => !(canDismiss(r) && kept.has(dismissKey(r, clips))));
+  // what needs attention, one row each with the action that mends it (useAttention); Fix all once two rows or more have one
   const setAside = listed.length - rows.length;
   // only the keys of rows still listed are kept: a take changed, its old key goes
   const dismiss = (r: Row) => dismissed.set(t.id, [...listed.filter((x) => kept.has(dismissKey(x, clips))).map((x) => dismissKey(x, clips)), dismissKey(r, clips)]);
@@ -144,6 +155,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
             {project.name} <ChevronRight size={12} className="-ml-1" />
           </Chip>
         )}
+        {fold && <span className="ml-auto">{fold}</span>}
       </div>
 
       {rows.length > 0 ? (
@@ -206,7 +218,8 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
                 label="Aspect ratio"
                 value={aspect.value}
                 onChange={aspect.onChange}
-                options={aspect.options.map((o) => ({ value: o.value, label: o.value === "first" ? "First clip" : o.short ?? o.label, tip: o.detail ?? (o.note ? `${o.label} · ${o.note}` : undefined) }))}
+                // "Clip 1", not "First clip": four short labels hold one row in the column at its default width
+                options={aspect.options.map((o) => ({ value: o.value, label: o.value === "first" ? "Clip 1" : o.short ?? o.label, tip: o.value === "first" ? `As clip 1${o.detail ? ` · ${o.detail}` : ""}` : o.detail ?? (o.note ? `${o.label} · ${o.note}` : undefined) }))}
               />
             ) : (
               <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
