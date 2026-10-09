@@ -22,6 +22,8 @@ const Queue = lazy(() => import("./screens/Queue").then((m) => ({ default: m.Que
 const Setup = lazy(() => import("./screens/Setup").then((m) => ({ default: m.Setup })));
 const TimelineEditor = lazy(() => import("./screens/TimelineEditor").then((m) => ({ default: m.TimelineEditor })));
 const Workflows = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.Workflows })));
+const WorkflowEdit = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.WorkflowEdit })));
+const WorkflowImport = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.WorkflowImport })));
 // the list of keys too: it is fetched with the page, but not in its first chunk
 const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysHelp })));
 import { NavRail } from "./NavRail";
@@ -70,6 +72,9 @@ export function App() {
           <Route path="/timelines"><Studio key="timelines" timelines /></Route>
           <Route path="/timelines/:id" component={TimelineEditor} />
           <Route path="/workflows" component={Workflows} />
+          {/* the workflow editor: a saved workflow by its id, a fresh import (no id until it is saved) held in memory */}
+          <Route path="/workflows/:id/edit" component={WorkflowEdit} />
+          <Route path="/workflows/new" component={WorkflowImport} />
           <Route path="/queue" component={Queue} />
           <Route path="/settings" component={Setup} />
           <Route path="/settings/:tab" component={Setup} />

@@ -5,7 +5,7 @@ import { api, type Asset } from "../api";
 import { useBanners } from "../store";
 
 /**
- * What a video gives besides itself: the frame it is paused on, a frame at a moment, its sound, its shots,
+ * What a video gives besides itself: the frame it is paused on, its sound, its shots,
  * and ranges of it as new videos (copied, split out, removed, slowed). Frames and sounds open in the viewer
  * once made (`onOpened`); ranges are jobs of the queue, said in a banner.
  */
@@ -28,8 +28,6 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
   const takeSound = useMutation({ mutationFn: () => api.takeSound(asset.id), onSuccess: onOpened });
   // a picture mirrored: the copy opens in the viewer, beside the original in its folder
   const mirror = useMutation({ mutationFn: (axis: "horizontal" | "vertical") => api.mirror(asset.id, axis), onSuccess: onOpened });
-  // a frame at a moment picked in Trim: opened here once made
-  const frameAt = useMutation({ mutationFn: (atMs: number) => api.frame(asset.id, Math.round(atMs)), onSuccess: onOpened });
   // the range as new videos: a job of the queue; the library shows them when it is done
   const cutRange = useMutation({
     mutationFn: (v: { range: Range; action: "copy" | "split" | "remove" | "slow"; crf: number; factor?: 2 | 4 }) => api.range(asset.id, { startMs: Math.round(v.range.startMs), endMs: Math.round(v.range.endMs), action: v.action, crf: v.crf, factor: v.factor }),
@@ -43,5 +41,5 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
       say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? "Splitting the video" : "Removing the range", text: `In the queue; it needs no GPU. The new video${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : "; this one goes to the bin then"}.`, href: "/queue", go: "Open queue" });
     },
   });
-  return { scenes, everyScene, saveFrame, takeSound, frameAt, cutRange, mirror };
+  return { scenes, everyScene, saveFrame, takeSound, cutRange, mirror };
 }

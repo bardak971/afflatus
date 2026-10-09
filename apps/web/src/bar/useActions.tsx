@@ -32,7 +32,7 @@ import { rowKeys } from "../keys/table";
 import { NO_ASSET, useItemActions } from "../useItemActions";
 import { placeMenu } from "../itemActions";
 import { askViewer } from "../viewer/ask";
-import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, useWorkflowsRequest, type TimelineRequest } from "./bridge";
+import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, useWorkflowsRequest, workflowEditHref, type TimelineRequest } from "./bridge";
 import { usePins } from "../projects/pins";
 import { castPlace, withPerson } from "./castTo";
 import type { Item } from "./items";
@@ -641,7 +641,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         const online = setup.data?.comfy.online ?? false;
         return [
           { label: "Try it", icon: <Play size={14} />, disabled: !ready, note: ready ? "the form, on a new draft" : "it cannot be built as mapped", run: () => api.createDraft({ recipe: w.id }).then(openNew, failed("Could not make the draft")) },
-          { label: "Edit", icon: <Pencil size={14} />, note: "its mapping and form", run: () => { useWorkflowsRequest.getState().ask({ do: "edit", id: w.id }); go("/workflows"); } },
+          { label: "Edit", icon: <Pencil size={14} />, note: "its mapping and form", run: () => go(workflowEditHref(w.id)) },
           { label: "Export", icon: <Download size={14} />, note: "a file another Afflatus imports", run: () => import("../screens/Workflows").then((m) => m.share({ id: w.id, title: w.label })).catch(failed("Could not export it")) },
           { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: !online, note: online ? undefined : "ComfyUI is not running", run: () => openWorkflow.mutate({ id: w.id, title: w.label }) },
           {

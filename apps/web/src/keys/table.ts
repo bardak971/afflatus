@@ -274,6 +274,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "I O", does: "In / Out at the playhead" },
           { keys: "L", does: "Loop the range" },
           { keys: "Z", does: "Zoom into the range", note: "again: the whole video" },
+          { keys: "G", does: "Save frame", note: "the one at the playhead, as a picture" },
         ],
       },
       {

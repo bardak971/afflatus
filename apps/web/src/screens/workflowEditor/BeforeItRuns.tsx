@@ -70,7 +70,7 @@ export function BeforeItRuns({ m }: { m: Mapping }) {
                   options={c.options.map((o) => ({ value: o, label: o }))}
                 />
               </div>
-              {!replaced && c.nearest && <Button size="sm" tone="primary" className="shrink-0" data-tip={`${c.nearest} is the closest match`} onClick={() => replaceFile(c, c.nearest!)}>Use {c.nearest}</Button>}
+              {!replaced && c.nearest && <Button size="sm" className="shrink-0" data-tip={`${c.nearest} is the closest match`} onClick={() => replaceFile(c, c.nearest!)}>Use {c.nearest}</Button>}
             </div>
           </div>
         );

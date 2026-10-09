@@ -42,6 +42,14 @@ export const guardedLocation: BaseLocationHook = (opts?: { ssrPath?: string }) =
   return [held?.path ?? path, navigate];
 };
 
+/**
+ * The screen's own way out, its question already answered (Cancel, then Discard): the guard comes down at once, so
+ * the move to another address that follows is not asked again.
+ */
+export function releaseLeaveGuard() {
+  disarm();
+}
+
 /** While `dirty`, leaving the screen asks `question` first (true: leave), and the browser asks before the tab closes. */
 export function useLeaveGuard(dirty: boolean, question: Guard) {
   const ref = useRef(question);
