@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { Camera, Clapperboard, Download, FlipHorizontal2, Music, Scissors, Shuffle, Star, Trash2, Wand2 } from "lucide-react";
+import { Camera, Clapperboard, Download, FlipHorizontal2, Info, Music, Scissors, Shuffle, Star, Trash2, Undo2, Wand2 } from "lucide-react";
 import { RANDOM_SEED } from "@afflatus/core";
 import { useQueueVariation } from "../actions";
 import { askAboutDisk } from "../Confirm";
@@ -108,35 +108,41 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
   // saved under the one name rule of the app (the library's menu and the selection save the same way)
   const download = () => saveAsset(a);
 
-  // ---- the menus: every action the buttons and keys offer
+  // ---- the menus: every action the buttons and keys offer. In the bin only D (and the arrows, X) still act, so
+  // the menus there drop Keep and what makes something new, take the reuse keys off, and end on Put back (no key).
   const sameAgain = (): MenuItem[] => (g && recipe ? [
-    { label: "Variation: same parameters, new seed", key: "V", icon: <Shuffle size={14} />, run: () => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }) },
-    { label: "Reuse · same seed", key: "L", icon: <Wand2 size={14} />, note: "in the form", run: () => reuse.sameSeed(g) },
-    { label: "Reuse · new seed", key: "Shift + L", icon: <Wand2 size={14} />, note: "in the form", run: () => reuse.newSeed(g) },
+    { label: "Variation: same parameters, new seed", key: a.inBin ? undefined : "V", icon: <Shuffle size={14} />, run: () => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }) },
+    { label: "Reuse · same seed", key: a.inBin ? undefined : "L", icon: <Wand2 size={14} />, note: "in the form", run: () => reuse.sameSeed(g) },
+    { label: "Reuse · new seed", key: a.inBin ? undefined : "Shift + L", icon: <Wand2 size={14} />, note: "in the form", run: () => reuse.newSeed(g) },
   ] : []);
+  const keepItem = (): MenuItem[] => (a.inBin ? [] : [{ label: a.kept ? "Unkeep" : "Keep", key: "S", icon: <Star size={14} />, run: () => keep.mutate(!a.kept) }]);
+  /** The menu's last entry: out of the bin, or into it. */
+  const binItem = (): MenuItem => (a.inBin
+    ? { label: "Put back", icon: <Undo2 size={14} />, run: () => restore.mutate(undefined) }
+    : { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin() });
   const videoItems = (): MenuItem[] => [
-    { label: a.kept ? "Unkeep" : "Keep", key: "S", icon: <Star size={14} />, run: () => keep.mutate(!a.kept) },
+    ...keepItem(),
     { label: "Download the file", key: "D", icon: <Download size={14} />, run: download },
     ...sameAgain(),
     "—" as const,
-    { label: "Save this frame as an image", key: "G", icon: <Camera size={14} />, run: () => media.saveFrame.mutate() },
+    ...(!a.inBin ? [{ label: "Save this frame as an image", key: "G", icon: <Camera size={14} />, run: () => media.saveFrame.mutate() }] : []),
     ...(!a.inBin ? [{ label: trim ? "Close Trim" : "Trim: pick a range", key: "T", icon: <Scissors size={14} />, run: () => setTrim(!trim) }] : []),
-    ...(carrier ? [{ label: "Extend: a new clip that carries on", key: "C", icon: <Clapperboard size={14} />, run: () => carryOn.mutate() }] : []),
+    ...(carrier && !a.inBin ? [{ label: "Extend: a new clip that carries on", key: "C", icon: <Clapperboard size={14} />, run: () => carryOn.mutate() }] : []),
     ...(a.hasSound && !a.inBin ? [{ label: "Extract audio", icon: <Music size={14} />, note: "its sound as a file of its own", run: () => media.takeSound.mutate() }] : []),
     "—" as const,
-    { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin() },
+    binItem(),
   ];
   /** The picture's menu: every action its buttons and keys offer. */
   const imageItems = (): MenuItem[] => {
     const now = a.inBin ? [] : ["u", "f", "b"].flatMap((k): MenuItem[] => (toolFor(k) ? [{ label: OPS[k]!.label, key: k.toUpperCase(), run: () => quick(k) }] : []));
     const forms = a.inBin ? [] : ["i", "e", "r"].flatMap((k): MenuItem[] => { const tool = toolFor(k); return tool ? [{ label: tool.title, key: k.toUpperCase(), run: () => openTool.mutate(tool.id) }] : []; });
     return [
-      { label: a.kept ? "Unkeep" : "Keep", key: "S", icon: <Star size={14} />, run: () => keep.mutate(!a.kept) },
+      ...keepItem(),
       { label: "Download the file", key: "D", icon: <Download size={14} />, run: download },
       ...sameAgain(),
-      ...(!g ? [{ label: "Details", key: "P", run: () => setInfo(true) }] : []),
+      ...(!g && !a.inBin ? [{ label: "PNG info", key: "P", icon: <Info size={14} />, run: () => setInfo(true) }] : []),
       "—" as const,
-      ...(opener && !a.inBin ? [{ label: `Make a video of it (${openerName})`, key: "M", icon: <Clapperboard size={14} />, run: () => animate.mutate() }] : []),
+      ...(opener && !a.inBin ? [{ label: "Image to video (i2v)", key: "M", icon: <Clapperboard size={14} />, note: openerName, run: () => animate.mutate() }] : []),
       ...(now.length ? [{ label: "Queue now", icon: <Wand2 size={14} />, note: "with its own parameters", items: now }] : []),
       ...(forms.length ? [{ label: "Open in a form", icon: <Wand2 size={14} />, note: "a new draft", items: forms }] : []),
       ...(!a.inBin ? [{ label: "Mirror", icon: <FlipHorizontal2 size={14} />, note: "a mirrored copy", items: [
@@ -144,7 +150,7 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
         { label: "Top and bottom", run: () => media.mirror.mutate("vertical") },
       ] }] : []),
       "—" as const,
-      { label: "Move to the bin", key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => void toBin() },
+      binItem(),
     ];
   };
 

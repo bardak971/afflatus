@@ -7,7 +7,7 @@ import { Dialog, DialogFoot, DialogHead } from "./Dialog";
 import { useOpenNewDraft } from "./draft";
 import { fileLabel, recipeLabel } from "./format";
 import { GetFile } from "./GetFile";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
 import { Select } from "./Select";
 import { useHandover } from "./store";
 import { Button, cx, ErrorNote } from "./ui";
@@ -112,7 +112,7 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
         {/* the foot's own margins undo this padding: it runs edge to edge under the scrolling part */}
         <footer className="shrink-0 px-5 pb-5">
           <DialogFoot>
-            <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+            <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
             {data?.workflow ? (
               <Button onClick={() => { hand({ workflow: workflowFile(name, data.workflow) }); onClose(); go("/workflows"); }}>Import embedded workflow</Button>
             ) : null}

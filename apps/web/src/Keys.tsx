@@ -1,8 +1,55 @@
-import { useEffect, type ReactNode } from "react";
+import { Fragment, useEffect, type ReactNode } from "react";
+import { capText, onMac, parseKeys } from "./keys/grammar";
 
-/** A key, as it is drawn next to what it does. */
+/** Drawn for a Mac (Ctrl as ⌘, Alt as ⌥) or for the rest. */
+export const MAC = onMac();
+
+const CAP = {
+  // the sheet, the tips: a keycap on a panel
+  md: "h-5 min-w-5 rounded-[5px] border-line-strong bg-ground px-[5px] text-[11px] text-ink shadow-[inset_0_-1px_0_var(--color-line)]",
+  // menus and buttons: the colour of what it sits in, so it reads on a primary button as on a menu
+  sm: "h-4 min-w-4 rounded-[4px] border-current/30 bg-current/[0.06] px-1 text-[10px] text-current",
+};
+
+/**
+ * Keys as keycaps, written with the one grammar of `keys/grammar.ts`: "Ctrl+Shift+Z | Ctrl+Y" draws two chords with
+ * an "or" between them, "← →" a pair side by side, "Ctrl+click" a mouse move as text, "{a|b|c}" code. `hits`: the
+ * keys to light (a search's match).
+ */
+export function Keys({ keys, size = "md", hits, className }: { keys: string; size?: "md" | "sm"; hits?: readonly string[]; className?: string }) {
+  const parsed = parseKeys(keys);
+  const box = `inline-flex shrink-0 items-center ${className ?? ""}`;
+  if (!parsed) return <span className={`${box} font-mono text-[11px] text-ink-2`}>{keys}</span>;
+  if ("code" in parsed) return <code className={`${box} font-mono text-[12px] text-accent`}>{parsed.code}</code>;
+  const lit = (k: string) => Boolean(hits?.some((h) => h === k || ((h === "Ctrl" || h === "Meta") && (k === "Ctrl" || k === "Meta"))));
+  return (
+    <span className={box}>
+      {parsed.ways.map((way, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span className={size === "md" ? "mx-[5px] text-[11px] text-ink-3" : "mx-1 text-[10px] opacity-60"}>or</span>}
+          {way.mouse ? (
+            // a mouse move is words, not caps: "Ctrl + click"
+            <span className={size === "md" ? "text-xs whitespace-nowrap text-ink-2" : "text-[11px] whitespace-nowrap opacity-75"}>{way.pair[0]!.map((k) => capText(k, MAC)).join(" + ")}</span>
+          ) : (
+            <span className={size === "md" ? "inline-flex items-center gap-1" : "inline-flex items-center gap-[3px]"}>
+              {way.pair.map((chord, j) => (
+                <kbd key={j} className="inline-flex items-center gap-0.5">
+                  {chord.map((k, n) => (
+                    <kbd key={n} className={`inline-flex items-center justify-center border font-mono leading-none font-normal ${CAP[size]} ${lit(k) ? "border-accent! text-accent!" : ""}`}>{capText(k, MAC)}</kbd>
+                  ))}
+                </kbd>
+              ))}
+            </span>
+          )}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+/** A key, as it is drawn next to what it does: the small `<Keys>` (a menu, a button). */
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded border border-current px-1 font-sans text-[10px] leading-4 font-semibold opacity-60">{children}</kbd>;
+  return typeof children === "string" ? <Keys keys={children} size="sm" /> : <kbd className={`inline-flex items-center justify-center border font-mono leading-none ${CAP.sm}`}>{children}</kbd>;
 }
 
 /** The key was pressed in a box being typed in. */

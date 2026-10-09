@@ -3,7 +3,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { api, type Job, type QueueStatus, type RunningJob } from "./api";
-import { useAsset, useQueue } from "./data";
+import { useAsset, useQueue, useSettings } from "./data";
+import { Keys } from "./Keys";
+import { BAR_DEFAULT } from "./keys/table";
 import { useDownloads } from "./GetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
@@ -42,6 +44,7 @@ export function StatusBar() {
   const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   const waiting = q?.waiting.length ?? 0;
   const liveDown = useLive((s) => s.down);
+  const barKey = useSettings().data?.bar?.shortcut ?? BAR_DEFAULT;
   return (
     <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
       {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
@@ -75,8 +78,12 @@ export function StatusBar() {
         </>
       )}
       <Sep />
-      <button type="button" data-tip="Keyboard shortcuts" aria-label="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className={cx(stripGhost, "shrink-0 px-1.5")}>
-        <span className="rounded border border-line-strong px-1 font-mono text-[10px]">?</span>
+      {/* the command bar opened with the mouse: its own key, the one set in Settings › Command bar, drawn as the chip */}
+      <button type="button" data-tip={`Command bar (${barKey})`} aria-label="Command bar" onClick={() => window.dispatchEvent(new CustomEvent("afflatus:bar", { detail: {} }))} className={cx(stripGhost, "shrink-0 px-1.5")}>
+        <Keys keys={barKey} size="sm" />
+      </button>
+      <button type="button" data-tip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className={cx(stripGhost, "shrink-0 px-1.5")}>
+        <Keys keys="?" size="sm" />
       </button>
     </footer>
   );

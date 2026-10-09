@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
 import { createPortal } from "react-dom";
 import { cx } from "./ui";
 
@@ -14,6 +14,15 @@ import { cx } from "./ui";
 
 /** The dialogs open now, the innermost last. */
 const stack: symbol[] = [];
+
+/**
+ * A modal open over `el`: one on the page that does not hold it (the keyboard shortcuts, a question asked). The
+ * keys of what `el` belongs to are then off, though `el` may itself sit in a modal (Trim in the viewer). Without
+ * `el` (not drawn yet), any modal counts.
+ */
+export function dialogOver(el: Element | null | undefined): boolean {
+  return [...document.querySelectorAll("[role=dialog][aria-modal=true]")].some((d) => !el || !d.contains(el));
+}
 
 /** Something open over the dialog that keeps its own keys: a dropdown's list, a menu, a popover. */
 const OVER = "[role=listbox], [role=menu], [data-floating]";
@@ -113,7 +122,7 @@ export function DialogHead({ icon, title, sub, tone = "accent", onClose }: { ico
       </span>
       {onClose && (
         <>
-          <Kbd>Esc</Kbd>
+          <Keys keys="Esc" size="sm" />
           <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
             <X size={15} />
           </button>

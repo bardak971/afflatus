@@ -4,7 +4,7 @@ import { fuzzyFilter } from "@afflatus/core";
 import { thumbUrl, type DraftBrief } from "../../api";
 import { useRecipes } from "../../data";
 import { when } from "../../format";
-import { Kbd } from "../../Keys";
+import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
 import { cx, TwoStep } from "../../ui";
 
@@ -135,7 +135,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
               aria-label="Search drafts"
               className="min-w-0 grow bg-transparent text-sm outline-none placeholder:text-ink-3"
             />
-            <Kbd>Esc</Kbd>
+            <Keys keys="Esc" size="sm" />
           </label>
           <button type="button" onClick={() => { close(); onNew(); }} className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-3 text-left font-semibold hover:bg-hover">
             <span className="flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-line-strong text-ink-2"><Plus size={14} /></span>

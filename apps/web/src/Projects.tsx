@@ -5,7 +5,8 @@ import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { FieldRow } from "./fields";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
+import { useKeysHere } from "./keys/here";
 import { useProject } from "./project";
 import { Button, cx, ErrorNote, fieldClass } from "./ui";
 
@@ -34,6 +35,7 @@ export function ProjectSwitch() {
   const set = useProject((s) => s.set);
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  useKeysHere("projects", open);
   const [making, setMaking] = useState(false);
   // an item opened from the panel: large in the Viewer, the panel kept (hidden) underneath and back when it closes
   const [viewing, setViewing] = useState<Asset | null>(null);
@@ -115,8 +117,8 @@ function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): 
         </FieldRow>
         {make.isError && <ErrorNote>{make.error.message}</ErrorNote>}
         <DialogFoot>
-          <Button tone="quiet" type="button" onClick={onClose}>Cancel <Kbd>Esc</Kbd></Button>
-          <Button tone="primary" type="submit" disabled={!name.trim() || make.isPending}>Create <Kbd>↵</Kbd></Button>
+          <Button tone="quiet" type="button" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
+          <Button tone="primary" type="submit" disabled={!name.trim() || make.isPending}>Create <Keys keys="Enter" size="sm" /></Button>
         </DialogFoot>
       </form>
     </Dialog>

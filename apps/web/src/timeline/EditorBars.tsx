@@ -74,13 +74,13 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         <span className="flex min-w-0 max-w-sm items-center gap-1.5" onPointerEnter={() => onHold?.(true)} onPointerLeave={() => onHold?.(false)}>
           <span className={error ? "truncate text-warn-ink" : "truncate text-ink-2"} data-tip={error?.message ?? note?.text}>{error?.message ?? note?.text}</span>
           {!error && note?.more && <Help text={note.more} />}
-          {!error && note?.undo && t.undo && <Button size="sm" tone="quiet" className="h-6 shrink-0 px-2" disabled={undo.pending} data-tip={`Undo: ${t.undo}`} data-tip-keys="Ctrl Z" onClick={undo.run}>Undo</Button>}
+          {!error && note?.undo && t.undo && <Button size="sm" tone="quiet" className="h-6 shrink-0 px-2" disabled={undo.pending} data-tip={`Undo: ${t.undo}`} data-tip-keys="Ctrl+Z" onClick={undo.run}>Undo</Button>}
         </span>
       ) : null}
-      <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl Z" onClick={undo.run}>
+      <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl+Z" onClick={undo.run}>
         <Undo2 size={15} /> Undo
       </Button>
-      <Button className="px-3" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl Shift Z" onClick={redo.run}>
+      <Button className="px-3" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl+Shift+Z | Ctrl+Y" onClick={redo.run}>
         <Redo2 size={15} /> Redo
       </Button>
       {missing.length > 0 && (

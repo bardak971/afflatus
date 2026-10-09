@@ -485,7 +485,7 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
         {a.inBin ? (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2.5 text-warn-ink">
             <span>In the bin.</span>
-            <Button size="sm" tone="danger" onClick={() => restore.mutate(undefined)}><Undo2 size={14} /> Restore</Button>
+            <Button size="sm" tone="danger" onClick={() => restore.mutate(undefined)}><Undo2 size={14} /> Put back</Button>
           </div>
         ) : (
           !a.kept && (
@@ -499,11 +499,11 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
           )
         )}
 
-        {/* what to do with it: two columns, the item's own kind of things first */}
+        {/* what to do with it: two columns, the item's own kind of things first. In the bin the keys of the reuses are off (only D works there), so their keys are not shown */}
         <div className="grid grid-cols-2 gap-2">
-          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · same seed" k="L" onClick={() => reuse.sameSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and the same seed, as a new draft." />}
-          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · new seed" k={<span className="inline-flex items-center"><ArrowBigUp size={10} aria-label="Shift" />L</span>} onClick={() => reuse.newSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and a new seed, as a new draft (Shift+L)." />}
-          {g && recipe && <Act icon={Shuffle} label="Variation" k="V" onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
+          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · same seed" k={a.inBin ? undefined : "L"} onClick={() => reuse.sameSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and the same seed, as a new draft." />}
+          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · new seed" k={a.inBin ? undefined : <span className="inline-flex items-center"><ArrowBigUp size={10} aria-label="Shift" />L</span>} onClick={() => reuse.newSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and a new seed, as a new draft (Shift+L)." />}
+          {g && recipe && <Act icon={Shuffle} label="Variation" k={a.inBin ? undefined : "V"} onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
           {a.kind === "image" && !a.inBin && opener && <Act wide icon={Clapperboard} label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
           {a.kind === "video" && !a.inBin && carrier && <Act icon={ArrowRightFromLine} label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
           {a.kind === "video" && !a.inBin && <Act icon={Scissors} label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}

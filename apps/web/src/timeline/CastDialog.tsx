@@ -2,7 +2,7 @@ import { Users } from "lucide-react";
 import type { Timeline, TimelinePatch } from "../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
 import { LookBar } from "../LookBar";
 import { AutoText, Button, cx, Help } from "../ui";
 
@@ -45,7 +45,7 @@ export function CastDialog({ timeline: t, mood, onMood: setMood, onEdit, onClose
           />
         </FieldRow>
         <DialogFoot>
-          <Button tone="quiet" onClick={close}>Close <Kbd>Esc</Kbd></Button>
+          <Button tone="quiet" onClick={close}>Close <Keys keys="Esc" size="sm" /></Button>
         </DialogFoot>
     </Dialog>
   );

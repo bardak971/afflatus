@@ -2,7 +2,7 @@ import { Download, Film } from "lucide-react";
 import { fileUrl, type Asset, type Clip, type Timeline } from "../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
 import { Button, ButtonLink, Chip, ErrorNote, Segmented, Toggle } from "../ui";
 import { stamp } from "./model";
 import type { TimeRange } from "./Track";
@@ -49,7 +49,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
           <>
             <span>Done. <span className="font-semibold text-ink">{exportDone.name}</span> is in your library{exportDone.width ? `, ${exportDone.width} × ${exportDone.height}` : ""}{exportDone.durationMs ? `, ${stamp(exportDone.durationMs)}` : ""}.</span>
             <DialogFoot>
-              <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+              <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
               <Button onClick={() => { onOpen(exportDone); onClose(); }}>Open</Button>
               <ButtonLink tone="primary" href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`}><Download size={15} /> Download</ButtonLink>
             </DialogFoot>
@@ -58,7 +58,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
           <>
             <span>{t.exporting?.status === "queued" ? "Queued, after the renders that were asked for before it." : "Exporting."} It runs in the queue, you can keep working.</span>
             <DialogFoot>
-              <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+              <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
             </DialogFoot>
           </>
         ) : (
@@ -112,7 +112,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
               )}
             </div>
             <DialogFoot info={size || undefined}>
-              <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+              <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
               <Button tone="primary" autoFocus onClick={() => { setExp({ ...exp, asked: true, before: t.exported?.id ?? null }); onExport({ scale: exp.scale, music: exp.music, smooth: exp.smooth, range: exp.range && range ? { inMs: range.inMs, outMs: range.outMs } : undefined, blend: exp.blend, match: exp.match, fit: exp.fit, ...(exp.web ? { webMb: exp.web } : {}) }); }}>{exp.web ? "Export a web copy" : "Export"}</Button>
             </DialogFoot>
           </>

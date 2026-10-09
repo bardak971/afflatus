@@ -59,16 +59,17 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         e.preventDefault();
         toggle();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !typing && canUndo) {
+      // a dialog, a list or a menu open over the editor (the keyboard shortcuts) keeps the keys: nothing is undone behind it
+      const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !typing && !open && canUndo) {
         e.preventDefault();
         undo();
       }
       // Ctrl+Shift+Z or Ctrl+Y does again what Undo took back
-      if ((e.ctrlKey || e.metaKey) && !typing && canRedo && ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y")) {
+      if ((e.ctrlKey || e.metaKey) && !typing && !open && canRedo && ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y")) {
         e.preventDefault();
         redo();
       }
-      const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
       // Escape belongs to what is open, and to a panel that takes it (the designer in the inspector closes on it)
       const held = open || Boolean(document.querySelector("[data-takes-escape]"));
       // not from the designer's box (Enter there sends the message), nor once something else took the key

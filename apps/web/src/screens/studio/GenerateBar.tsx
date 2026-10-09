@@ -6,7 +6,7 @@ import { useEstimates } from "../../data";
 import { BATCH } from "../../draft";
 import { estimateFor } from "../../estimate";
 import { aboutMs } from "../../format";
-import { Kbd } from "../../Keys";
+import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { Button, ErrorNote, Help } from "../../ui";
 import { useQueueOf } from "./queueOf";
@@ -53,7 +53,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
         </div>
         <Button tone="primary" className="h-11 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || send.isPending} onClick={() => send.mutate()}>
           <span>{send.isPending ? "Queuing…" : `Generate ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>
-          <Kbd>Ctrl ↵</Kbd>
+          <Keys keys="Ctrl+Enter" size="sm" />
         </Button>
       </div>
     </div>

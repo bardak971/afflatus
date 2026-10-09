@@ -90,7 +90,7 @@ export function useTileMenu({ onOpen, onSelect, into, first, compact, subject }:
       ...(places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }, "—" as const] : []),
       { label: "Open", icon: <Eye size={14} />, run: () => onOpen(asset) },
       { label: asset.kept ? "Unkeep" : "Keep", icon: <Star size={14} />, disabled: asset.inBin, run: () => keep.mutate({ id: asset.id, kept: !asset.kept }) },
-      ...(onSelect ? [{ label: "Select", key: "Ctrl + Click", icon: <SquareCheck size={14} />, run: () => onSelect(asset) }] : []),
+      ...(onSelect ? [{ label: "Select", key: "Ctrl+click", icon: <SquareCheck size={14} />, run: () => onSelect(asset) }] : []),
       ...(compact ? [] : ["—" as const, ...studio]),
       "—" as const,
       { label: "Rename…", icon: <Pencil size={14} />, run: () => void renameIt(asset) },

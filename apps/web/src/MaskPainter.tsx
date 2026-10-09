@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "./api";
+import { dialogOver } from "./Dialog";
+import { useKeysHere } from "./keys/here";
 import { nameFor } from "./maskName";
 import { PainterToolbar } from "./maskPainter/PainterToolbar";
 import { useBrushCanvas, type Tool } from "./maskPainter/useBrushCanvas";
@@ -17,6 +19,7 @@ const KEEP_IN_SIGHT = 80;
  * `useBrushCanvas`; this is the room the picture sits in, brought closer and moved around.
  */
 export function MaskPainter({ picture, mask, onDone, onClose }: { picture: string; mask: string | null; onDone(id: string): void; onClose(): void }) {
+  useKeysHere("mask", true, { over: true });
   const [tool, setTool] = useState<Tool>("paint");
   // how close the picture is, and where it was moved to (in screen pixels from its place in the middle)
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
@@ -47,6 +50,8 @@ export function MaskPainter({ picture, mask, onDone, onClose }: { picture: strin
   useEffect(() => {
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement && e.target.type !== "range";
     const onKey = (e: KeyboardEvent) => {
+      // a modal over the painter (the keyboard shortcuts) has the keys: no stroke undone, no pan behind it
+      if (dialogOver(room.current)) return;
       if (e.key === "Escape") now.current.onClose();
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();

@@ -9,6 +9,7 @@ import { AutoText, cx, Help } from "../ui";
 import { field, Label } from "./Label";
 import { useLoraWords } from "./Loras";
 import { useSnippetKeys } from "../bar/SnippetKeys";
+import { useKeysHere } from "../keys/here";
 
 /**
  * Under a prompt written in tags: one short line when some of its tags are not danbooru tags (what anime
@@ -104,6 +105,8 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
  * selected: (red dress:1.1). In a prompt of sentences only a selection is weighed.
  */
 export function PromptField({ spec, id, value, values, onChange, bare }: { spec: Extract<InputSpec, { type: "prompt" }>; id: string; value: string; values?: Record<string, unknown>; onChange(value: string): void; bare?: boolean }) {
+  // the keys sheet's "Here now": a prompt box is on screen (its weights, snippets, wildcards)
+  useKeysHere("form");
   const settings = useSettings();
   const checked = spec.style === "tags" && !spec.optional && Boolean(settings.data?.tagCheck);
   const ignore = useLoraWords(checked ? values : undefined);

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
 import { cx } from "./ui";
 
 export interface Option {
@@ -229,9 +229,9 @@ export function Select({ value, options, onChange, label, placeholder = "Choose�
           </div>
           {footer && <div className="shrink-0 border-t border-line p-1.5">{footer(() => close())}</div>}
           <div aria-hidden className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-[11px] text-ink-3">
-            <span className="flex items-center gap-1"><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span>
-            <span className="flex items-center gap-1"><Kbd>↵</Kbd> pick</span>
-            <span className="flex items-center gap-1"><Kbd>Esc</Kbd> close</span>
+            <span className="flex items-center gap-1"><Keys keys="↑" size="sm" /><Keys keys="↓" size="sm" /> move</span>
+            <span className="flex items-center gap-1"><Keys keys="Enter" size="sm" /> pick</span>
+            <span className="flex items-center gap-1"><Keys keys="Esc" size="sm" /> close</span>
           </div>
         </div>,
         document.body,

@@ -102,14 +102,18 @@ describe("the app's tooltip", () => {
   });
 
   it("draws the keys a text ends with in brackets as keycaps", () => {
-    expect(trailingKeys("Close (Esc)")).toEqual({ text: "Close", keys: ["Esc"] });
-    expect(trailingKeys("Undo the last stroke (Ctrl+Z)")).toEqual({ text: "Undo the last stroke", keys: ["Ctrl", "Z"] });
-    expect(trailingKeys("Back to the results (Tab or Esc)")).toEqual({ text: "Back to the results", keys: ["Tab", "or", "Esc"] });
-    expect(trailingKeys("Keyboard shortcuts (?)")).toEqual({ text: "Keyboard shortcuts", keys: ["?"] });
-    expect(trailingKeys("Zoom in (Ctrl++)")).toEqual({ text: "Zoom in", keys: ["Ctrl", "+"] });
+    expect(trailingKeys("Close (Esc)")).toEqual({ text: "Close", keys: "Esc" });
+    expect(trailingKeys("Undo the last stroke (Ctrl+Z)")).toEqual({ text: "Undo the last stroke", keys: "Ctrl+Z" });
+    expect(trailingKeys("Back to the results (Tab or Esc)")).toEqual({ text: "Back to the results", keys: "Tab or Esc" });
+    expect(trailingKeys("Keyboard shortcuts (?)")).toEqual({ text: "Keyboard shortcuts", keys: "?" });
+    expect(trailingKeys("Zoom in (Ctrl++)")).toEqual({ text: "Zoom in", keys: "Ctrl++" });
+    // a pair, as Compare's tip writes it
+    expect(trailingKeys("Drag the wipe (← →)")).toEqual({ text: "Drag the wipe", keys: "← →" });
     // words in brackets are words
     expect(trailingKeys("Seconds per step (s/it)")).toBeNull();
     expect(trailingKeys("One frame back (Shift: ten)")).toBeNull();
     expect(trailingKeys("Image to video (i2v)")).toBeNull();
+    expect(trailingKeys("Ten frames (G does the same)")).toBeNull();
+    expect(trailingKeys("Pick it (Ctrl+click)")).toBeNull();
   });
 });

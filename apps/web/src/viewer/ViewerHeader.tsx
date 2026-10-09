@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Film, Folder, X } from "lucide-react";
 import { api, type Asset, type AssetDetail } from "../api";
 import { openProjects } from "../bar/bridge";
 import { assetKey, useFolders, useProjects, type useAsset } from "../data";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
 import { cx } from "../ui";
 import { tileName } from "../screens/Library";
 import { factsOf, placesOf } from "./facts";
@@ -157,7 +157,7 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
         >
           {/* a name worked out from where it came from (its own says nothing) is dim, as no name is */}
           <span className={cx("min-w-0 break-words", (a.shownName || !a.name) && "text-ink-3")}>{a.shownName || a.name || title}</span>
-          {!a.inBin && <span className="shrink-0 text-[11px] font-medium text-ink-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"><Kbd>F2</Kbd></span>}
+          {!a.inBin && <span className="shrink-0 text-[11px] font-medium text-ink-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"><Keys keys="F2" size="sm" /></span>}
         </button>
       )}
       {rename.isError && <span className="text-xs text-warn-ink">{rename.error.message}</span>}

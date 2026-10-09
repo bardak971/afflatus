@@ -6,7 +6,8 @@ import type { Asset, Timeline } from "../api";
 import { useAssets, useFolders, useProjects } from "../data";
 import { clock } from "../format";
 import { useSettled } from "../hooks";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
+import { useKeysHere } from "../keys/here";
 import { LoadMore } from "../LoadMore";
 import { Popover } from "../Popover";
 import { useProject } from "../project";
@@ -58,6 +59,7 @@ export function MediaOverlay({ timeline, placeItems }: {
 }) {
   const open = useMediaOpen((s) => s.open);
   const setOpen = useMediaOpen((s) => s.set);
+  useKeysHere("media", open);
   const place = useStudio((s) => s.place);
   const setStudio = useStudio((s) => s.set);
   const [scope, setScope] = useState<Scope>("folder");
@@ -232,7 +234,7 @@ export function MediaOverlay({ timeline, placeItems }: {
           <button type="button" aria-pressed={kept} aria-label="Kept only" data-tip={kept ? "Kept only: on. Show everything again" : "Kept only"} onClick={() => setKept(!kept)} className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
             <Star size={14} fill={kept ? "currentColor" : "none"} />
           </button>
-          <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap text-ink-3"><Kbd>Esc</Kbd> close</span>
+          <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap text-ink-3"><Keys keys="Esc" size="sm" /> close</span>
         </div>
         <div className="min-h-0 grow overflow-y-auto px-4 py-3.5">
           {(fetched ? assets.isSuccess : true) && !items.length && (

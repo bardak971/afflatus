@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { Camera, Clapperboard, Copy, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { Asset } from "./api";
 import { clock } from "./format";
+import { dialogOver } from "./Dialog";
 import { Kbd } from "./Keys";
 import { Select } from "./Select";
 import { Button, cx } from "./ui";
@@ -170,8 +171,11 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   // playhead moves with every frame decoded; a listener re-bound each time would be the dearest part of playing)
   const now = useRef({ at, range, zoom, toggleLoop, onClose });
   now.current = { at, range, zoom, toggleLoop, onClose };
+  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // a modal over Trim (the keyboard shortcuts, a question) has the keys: the arrows must not step the video behind it
+      if (dialogOver(root.current)) return;
       const el = e.target as Partial<HTMLElement> | null;
       if (typeof el?.closest === "function" && el.closest("input, textarea, select, [contenteditable], [role=listbox]")) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -330,7 +334,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   };
 
   return (
-    <div className={cx("flex w-full shrink-0 flex-col rounded-xl border border-line-strong bg-panel", compact ? "gap-1.5 p-2" : "gap-2 p-3")} onClick={(e) => e.stopPropagation()}>
+    <div ref={root} className={cx("flex w-full shrink-0 flex-col rounded-xl border border-line-strong bg-panel", compact ? "gap-1.5 p-2" : "gap-2 p-3")} onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 text-xs text-ink-2">
         <Scissors size={14} className="text-accent" />
         <span className="font-semibold text-ink">Trim</span>
@@ -353,8 +357,8 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         <Button size="sm" tone={playing ? "primary" : "plain"} aria-pressed={playing} aria-label="Play / pause" onClick={() => { const v = player.current; if (!v) return; if (v.paused) void v.play(); else v.pause(); }} data-tip="Play / pause (Space)">{playing ? <Pause size={13} /> : <Play size={13} />}</Button>
         <Button size="sm" onClick={() => moveIn(at)} data-tip="Set in at the playhead">In <Kbd>I</Kbd></Button>
         <Button size="sm" onClick={() => moveOut(at)} data-tip="Set out at the playhead">Out <Kbd>O</Kbd></Button>
-        <Button size="sm" onClick={() => { player.current?.pause(); seek(at - frameMs); }} data-tip="One frame back (Shift: ten)"><Kbd>,</Kbd></Button>
-        <Button size="sm" onClick={() => { player.current?.pause(); seek(at + frameMs); }} data-tip="One frame forward (Shift: ten)"><Kbd>.</Kbd></Button>
+        <Button size="sm" onClick={() => { player.current?.pause(); seek(at - frameMs); }} data-tip="One frame back (Shift + ←: ten)"><Kbd>,</Kbd></Button>
+        <Button size="sm" onClick={() => { player.current?.pause(); seek(at + frameMs); }} data-tip="One frame forward (Shift + →: ten)"><Kbd>.</Kbd></Button>
         <Button size="sm" tone={looping ? "primary" : "plain"} aria-pressed={looping} onClick={toggleLoop} data-tip={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
         <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : roomy(range))} data-tip={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} {zoom ? "Whole" : "Zoom to range"} <Kbd>Z</Kbd></Button>
         <span className="grow" />

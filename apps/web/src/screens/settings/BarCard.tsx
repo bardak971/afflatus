@@ -1,30 +1,21 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Plus } from "lucide-react";
 import { api, type BarSettings } from "../../api";
 import { save as saveRanks } from "../../bar/rank";
 import { slugOf } from "../../bar/snippets";
-import { shortcutOf, shortcutParts, useBar } from "../../bar/store";
+import { shortcutOf, useBar } from "../../bar/store";
 import { useEntities, useRecipes, useSettings } from "../../data";
+import { Keys } from "../../Keys";
 import { mainTextOf } from "../../form";
 import { NewSnippet } from "../../snippets/NewSnippet";
 import { useOpenDraft } from "../../store";
 import { Button, buttonClass, cx, ErrorNote, Toggle } from "../../ui";
+import { refusal } from "./reservedKeys";
 import { Block, Card, Fact, Row } from "./Rows";
 
 const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, history: false, cast: false };
-
-/** Keys every text box and screen already uses (Ctrl or the command key): refused as the bar's shortcut. */
-const RESERVED: Record<string, string> = {
-  "Ctrl+C": "Copy", "Ctrl+V": "Paste", "Ctrl+X": "Cut", "Ctrl+A": "Select all", "Ctrl+Z": "Undo", "Ctrl+Y": "Redo",
-  "Ctrl+Shift+Z": "Redo", "Ctrl+F": "Find", "Ctrl+Enter": "Render",
-};
-
-/** A key as a keycap. */
-function Cap({ children }: { children: ReactNode }) {
-  return <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-raised px-2 font-mono text-xs text-ink shadow-[inset_0_-1px_0_var(--color-line-strong)]">{children}</kbd>;
-}
 
 /**
  * The shortcut, changed by pressing the keys: a click starts listening, the next key held with Ctrl, Alt or
@@ -51,15 +42,16 @@ function ShortcutRecorder({ value, onChange }: { value: string; onChange(shortcu
           if (!s) return;
           // a letter alone would be taken from every text box: it needs a modifier (a function key may go alone)
           if (!e.ctrlKey && !e.metaKey && !e.altKey && !/^F\d{1,2}$/.test(e.key)) return setRefused("Hold Ctrl, Alt or ⌘ with it");
-          const taken = RESERVED[s.replace(/^Meta\b/, "Ctrl")];
-          if (taken) return setRefused(`${s.replace(/^Meta\b/, "⌘")} is ${taken}: pick another`);
+          // a key the app or the browser already uses (reservedKeys.ts): said what it does
+          const taken = refusal(s, e.code);
+          if (taken) return setRefused(taken);
           setListening(false);
           setRefused(null);
           onChange(s);
         }}
         className={cx("flex h-9 items-center gap-1 rounded-lg border px-2", listening ? "border-accent bg-accent/10" : "border-transparent hover:border-line-strong")}
       >
-        {listening ? <span className="px-1 text-xs font-semibold text-accent">Press the keys…</span> : shortcutParts(value).map((p) => <Cap key={p}>{p}</Cap>)}
+        {listening ? <span className="px-1 text-xs font-semibold text-accent">Press the keys…</span> : <Keys keys={value} />}
       </button>
       {refused && <span className="text-xs text-warn-ink">{refused}</span>}
     </span>
@@ -112,7 +104,7 @@ export function BarCard() {
         <Row setting="bar.preview" label="Preview" help="The selected result shown beside the list; Shift shows or hides it. Kept in this browser.">
           <Toggle bare on={preview} onChange={setPreview} label="Preview" />
         </Row>
-        <Row label="Forget what I used" sub={forgot ? "Forgotten: recents and ranking start over." : undefined} help="Recents and ranking start over.">
+        <Row setting="bar.forget" label="Forget what I used" sub={forgot ? "Forgotten: recents and ranking start over." : undefined} help="Recents and ranking start over.">
           <Button size="sm" disabled={forgot} onClick={() => { saveRanks({}); setForgot(true); }}>Forget</Button>
         </Row>
       </Card>
@@ -146,7 +138,7 @@ export function BarCard() {
         <Row setting="bar.history" label="Prompt history" help={`Type " in the bar to search every prompt you rendered, with its render.`}>
           <Toggle bare on={bar.history} onChange={(history) => saveBar({ history })} label="Prompt history" />
         </Row>
-        <Row setting="bar.cast" label="Cast with @" help="Type @ in the bar to add a person of the Prompt kit to the open draft.">
+        <Row setting="bar.cast" label="Cast with @" help="Type @ in the bar to add a person of the Prompt kit to the clip selected in the timeline editor, else to the open draft.">
           <Toggle bare on={bar.cast} onChange={(cast) => saveBar({ cast })} label="Cast with @" />
         </Row>
         {error && <Block><ErrorNote>{error}</ErrorNote></Block>}

@@ -7,7 +7,7 @@ import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { aboutMs, fileLabel } from "../format";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
 import { Select } from "../Select";
 import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
 
@@ -110,7 +110,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         {go.isError && <ErrorNote>{go.error.message}</ErrorNote>}
         {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
         <DialogFoot info={estimateMs ? <span data-tip="From your past finishes with this route.">{aboutMs(estimateMs)} in all</span> : forecast.isSuccess ? <span data-tip="This route has not run here: the first finish teaches it.">No time estimate yet</span> : undefined}>
-          <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
+          <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
           <Button disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
           <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {todo.length} clip{todo.length === 1 ? "" : "s"}</Button>
         </DialogFoot>

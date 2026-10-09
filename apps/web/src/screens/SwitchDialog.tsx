@@ -3,7 +3,7 @@ import type { Section, Toggle } from "@afflatus/workflows";
 import { fuzzyScore } from "@afflatus/core";
 import { ToggleRight } from "lucide-react";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
 import { Button, Checkbox, cx, fieldClass, Help, Segmented } from "../ui";
 
 /**
@@ -134,10 +134,10 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
         )}
 
         <DialogFoot info={chosen.size ? `${chosen.size} node${chosen.size === 1 ? "" : "s"} bypassed while off` : existing ? "no node: saving removes the switch" : "no node chosen"}>
-          <Button tone="quiet" onClick={onClose}>Cancel <Kbd>Esc</Kbd></Button>
+          <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
           {existing && !chosen.size
             ? <Button tone="danger" onClick={onRemove}>Remove the switch</Button>
-            : <Button type="submit" tone="primary" disabled={!ready}>{existing ? "Save the switch" : "Make the switch"} <Kbd>↵</Kbd></Button>}
+            : <Button type="submit" tone="primary" disabled={!ready}>{existing ? "Save the switch" : "Make the switch"} <Keys keys="Enter" size="sm" /></Button>}
         </DialogFoot>
       </form>
     </Dialog>

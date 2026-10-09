@@ -2,7 +2,7 @@ import { useState } from "react";
 import { create } from "zustand";
 import { CircleAlert, PenLine } from "lucide-react";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
 import { Button, cx, fieldClass } from "./ui";
 
 /**
@@ -90,8 +90,8 @@ function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
         className={cx(fieldClass, "w-full py-2")}
       />
       <DialogFoot>
-        <Button onClick={() => open.answer(null)}>Cancel <Kbd>Esc</Kbd></Button>
-        <Button tone="primary" onClick={send}>{open.yes} <Kbd>↵</Kbd></Button>
+        <Button onClick={() => open.answer(null)}>Cancel <Keys keys="Esc" size="sm" /></Button>
+        <Button tone="primary" onClick={send}>{open.yes} <Keys keys="Enter" size="sm" /></Button>
       </DialogFoot>
     </Dialog>
   );
@@ -108,7 +108,7 @@ export function ConfirmHost() {
       <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
       <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
       <DialogFoot>
-        <Button autoFocus onClick={() => open.answer(false)}>Keep <Kbd>Esc</Kbd></Button>
+        <Button autoFocus onClick={() => open.answer(false)}>Keep <Keys keys="Esc" size="sm" /></Button>
         <Button tone="danger" onClick={() => open.answer(true)}>{open.yes}</Button>
       </DialogFoot>
     </Dialog>

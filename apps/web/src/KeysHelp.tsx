@@ -1,116 +1,41 @@
-import { useEffect, useState } from "react";
-import { Keyboard, X } from "lucide-react";
-import { Dialog, DialogHead } from "./Dialog";
-import { Kbd, typing } from "./Keys";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Search, X } from "lucide-react";
+import { Dialog } from "./Dialog";
+import { Keys, MAC, typing } from "./Keys";
+import { keyQuery } from "./keys/grammar";
+import { keysOfRow as keysWith, opened, rowId, searchKeys, wordsRe, type Found, type KeysAsk } from "./keys/search";
+import { BAR_DEFAULT, PLACES, placeById, rowCount, type KeyRow, type PlaceId } from "./keys/table";
 import { useSettings } from "./data";
-import { Segmented } from "./ui";
+import { scrollInside } from "./scrollInside";
+import { cx } from "./ui";
 
-/** Where the list says the command bar's shortcut: the one set in Settings › Command bar is written there. */
-const BAR_KEY = "Ctrl + K";
+/** The last place picked, for this browser tab's session, with the places that were open then. */
+const REMEMBER = "afflatus:keys-place";
 
-/** Keys held together are written with " + " between them; keys that do the two halves of one thing with two spaces. */
-const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> }> = [
-  {
-    where: "Command bar",
-    note: "Everything Afflatus holds and does, from any screen. The shortcut can be changed in Settings › Command bar.",
-    keys: [
-      [BAR_KEY, "Open or close the bar, a text box included"], ["↑  ↓", "Move through the results"], ["PgUp  PgDn", "Eight results up or down"], ["Enter", "The result's first action (open, run, switch)"], ["Ctrl + Enter", "Its second action"],
-      ["Tab", "The result's whole list of actions (a command still missing its figures: written in the bar); Tab or Esc goes back"], ["Shift", "Show or hide the preview"], ["Esc", "Clear what is typed, then close"],
-      [">  #  /", "Commands · projects and folders · settings"], ["=  !", "The calculator · the queue"], ['"  @', "Prompt history · the cast (each when turned on in Settings › Command bar)"],
-    ],
-  },
-  {
-    where: "Viewer (any item)",
-    note: "An image, a video or an audio file: opened from the grid, or shown large under \"Draft\".",
-    keys: [
-      ["←  →", "Previous item, next item"], ["X", "Compare: pin this one, the arrow keys change the other"], ["N", "Start a timeline from it (opened large; under \"Draft\" N folds the form)"], ["A", "Add to the timeline last added to"], ["S", "Keep / unkeep"], ["Del", "Move to the bin, and go to the next one"], ["D", "Download the file"], ["F2", "Rename it"],
-      ["L", "Reuse · same seed: open the form with the same generation parameters and seed"], ["Shift + L", "Reuse · new seed: the same generation parameters in the form, with a new seed"], ["V", "Variation: same parameters, new seed, queued at once"],
-      ["Esc", "Close"],
-    ],
-  },
-  {
-    where: "Viewer (image)",
-    note: "What is queued at once uses the model the image was generated with, and its generation parameters.",
-    keys: [
-      ["U", "Upscale 2x, queued at once"], ["F", "Face detailer, queued at once"], ["B", "Remove background, queued at once"],
-      ["I", "Inpaint: a new draft in the form"], ["E", "Edit / img2img: a new draft in the form"], ["R", "Outpaint to another aspect ratio: a new draft in the form"],
-      ["M", "Image to video (i2v)"], ["P", "PNG info (for an imported file)"],
-    ],
-  },
-  { where: "Viewer (video)", keys: [["C", "Extend: a new clip that carries on from this one"], ["G", "Save frame as an image"], ["T", "Trim: an in and an out on the video, and what to do with the part between"]] },
-  {
-    where: "Trim (on a video)",
-    note: "Pick an in and an out; the actions work on what is between them.",
-    keys: [["I  O", "Set in / out at the playhead"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["L", "Loop the range"], ["Z", "Zoom into the range (the mouse wheel on a strip zooms too)"], ["Space", "Play / pause"], ["Home  End", "Start / end"], ["Esc", "Leave Trim"]],
-  },
-  {
-    where: "Grid, in Studio",
-    note: "Selecting several items: to move, keep or bin them together.",
-    keys: [
-      ["Ctrl + Click", "Select an item (or click the circle on it)"], ["Shift + Click", "Select the range from the last selected item to this one"],
-      ["Ctrl + A", "Select all shown"], ["Del", "Move the selection to the bin"], ["Esc", "Clear selection"], ["Right-click", "The menu of the item under the pointer"],
-    ],
-  },
-  {
-    where: "Timelines, in Studio",
-    keys: [["Click", "Open the timeline"], ["Ctrl + Click", "Select it (Shift + Click: the range)"], ["F2", "Rename the selected timeline"], ["Del", "Delete the selected timelines (the videos stay)"], ["Esc", "Clear selection"], ["Drag", "Onto a folder on the left: the timeline is listed there, its renders land there"], ["Right-click", "Open, rename, put in a folder, move to a project, delete"]],
-  },
-  {
-    where: "Projects panel",
-    note: "The projects with their folders, timelines and drafts, as a tree: opened from the project button on the rail.",
-    keys: [
-      ["↑  ↓", "Walk the tree"], ["→  ←", "Open a folder; fold it, or go up to the one it is in"], ["Home  End", "First row, last row"], ["Enter", "Open the row"], ["Space", "Pick it too (as Ctrl + Click)"],
-      ["F2", "Rename the row"], ["S", "Keep / unkeep an item"], ["Del", "An item to the bin; anything else asks first"], ["Shift + F10", "The row's menu"], ["Ctrl + F", "Search the tree (or just type)"], ["Esc", "Clear the search, then the picks, then close"],
-    ],
-  },
-  { where: "Folders, in Studio", keys: [["Drag", "Items or timelines onto a folder to move them there"], ["Right-click", "Open, a folder inside, rename, rescan (a folder of the disk), delete or unlink"]] },
-  { where: "Form, in Studio", keys: [["N", "Open the form, or fold it away to its rail"], ["Ctrl + Enter", "Generate"]] },
-  {
-    where: "Prompt",
-    keys: [["Ctrl + ↑  ↓", "The weight of the tag under the cursor, or of the selection: (red dress:1.1)"], ["{a|b|c}", "Wildcard in the prompt: one option is picked for each output"], [";", "A snippet of the Prompt kit by name (when turned on in Settings › Command bar): ↑ ↓, then Tab or Enter puts it in"]],
-  },
-  { where: "Timeline", keys: [["Space", "Play / pause; with a range, play it, stopping at Out"], ["←  →", "One frame back / forward (Shift: ten)"], [",  .", "One frame back / forward"], ["Home  End", "Start / end of the video"], ["I  O", "In / Out at the playhead, exactly (no snapping); alone, In reaches to the end, Out from the start"], ["Shift + drag", "On the ruler: In and Out in one go"], ["Shift + Click", "On a clip: the range reaches to it"], ["Shift + I  O", "Go to In / Out"], ["L", "Loop the range"], ["[  ]", "The clip before / after"], ["Alt + [  ]", "The selected clip plays its previous / next take (stops at the first / last)"], ["S  Ctrl + B", "Split the clip at the playhead: only inside a clip, never on a cut; both halves keep the take, trimmed"], ["Alt + ←  →", "Move the selected clip one place earlier / later (Undo puts it back)"], ["Ctrl + Enter", "Render the selected clip (a new take)"], ["Esc", "Clear the range"], ["Del", "Remove the selected clip (Undo brings it back)"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z  Ctrl + Y", "Redo"], ["Ctrl + Click", "On a clip: pick it too; Del removes the picked clips"], ["-  =", "Zoom the track out / in, around the playhead"], ["Shift + Z", "Fit the whole video"], ["Ctrl + wheel", "Zoom the track around the pointer; the wheel scrolls it"], ["Right-click", "The menu of the clip under the pointer, of the range, of a clip's audio or of the music"]] },
-  {
-    where: "Media library, in a timeline",
-    note: "The library opened over the stage from the Media tab.",
-    keys: [["Click", "Open the item in the viewer"], ["Drag", "Onto the track to place it; onto a clip's first frame, keyframe, last frame, references or voice sample in its form; a sound onto a clip's audio or the music"], ["Right-click", "Use in the selected clip (the last one when none is), place on the timeline, and the item's own actions"], ["Esc", "Fold the library away"]],
-  },
-  { where: "Queue", keys: [["Drag", "A waiting job up or down to change the order"], ["Right-click", "A waiting job: move it or remove it; the running one: stop it; a finished one: open, requeue, remove"]] },
-  { where: "Prompt kit", keys: [["Right-click", "A person, place, style or preset: open, apply the preset in Studio, save it as a file, delete; a snippet: tick, copy its text, delete"]] },
-  { where: "Workflows", keys: [["Right-click", "A workflow: try it, edit, export, open in ComfyUI, remove"]] },
-  { where: "Menus", keys: [["↑  ↓", "Walk the menu"], ["Enter", "Run the item, or open its submenu"], ["→", "Open the submenu"], ["←", "Back to the menu above"], ["Esc", "Close"]] },
-  { where: "Everywhere", keys: [["/  :", "The search nearest the mouse (a form's settings, the library, the Prompt kit, the workflow editor); pressed again inside one, the next"], ["?", "Keyboard shortcuts"], ["Esc", "Close what is open"]] },
-];
-
-/** The cards of a whole screen, put first when it is the one open (Trim goes before the viewer it is in). */
-const SCREENS = ["Viewer", "Timeline", "Grid", "Timelines", "Queue", "Workflows", "Prompt kit"];
-/** The cards that hold on every screen: after the screen's own. */
-const GENERAL = ["Command bar", "Projects panel", "Menus", "Everywhere"];
-
-/** A key as a cap, as on a keyboard. */
-const cap = "inline-flex h-7 min-w-7 items-center justify-center rounded-md border border-line-strong bg-ground px-2 font-mono text-xs text-ink shadow-[inset_0_-2px_0_var(--color-line)]";
-
-/** "Ctrl + ↑  ↓" as caps: Ctrl, a plus, then the two arrows side by side. */
-function Caps({ keys }: { keys: string }) {
-  const held = keys.split(" + ");
-  return (
-    <span className="flex flex-wrap items-center gap-1">
-      {held.map((group, i) => (
-        <span key={group} className="flex items-center gap-1">
-          {i > 0 && <span className="text-ink-3">+</span>}
-          {group.split(/\s{2,}/).map((k) => <kbd key={k} className={cap}>{k}</kbd>)}
-        </span>
-      ))}
-    </span>
-  );
+function remembered(here: PlaceId[]): PlaceId | null {
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(REMEMBER) ?? "null") as { place: PlaceId; here: string } | null;
+    return kept && kept.here === here.join() && PLACES.some((p) => p.id === kept.place) ? kept.place : null;
+  } catch {
+    return null;
+  }
 }
 
-/** The list of keys, opened with "?" from anywhere (or the strip's Shortcuts button): every place of the app as a card, side by side. */
+function remember(place: PlaceId, here: PlaceId[]) {
+  try {
+    sessionStorage.setItem(REMEMBER, JSON.stringify({ place, here: here.join() }));
+  } catch {
+    /* nowhere to keep it: the sheet opens on the place on top */
+  }
+}
+
+/** The keyboard shortcuts, opened with "?" from anywhere (or the status bar's "?"). */
 export function KeysHelp() {
   const [open, setOpen] = useState(false);
-  const [all, setAll] = useState(false);
-  // "Ctrl+K" as the list writes keys: "Ctrl + K"
-  const barKey = (useSettings().data?.bar?.shortcut ?? "Ctrl+K").split("+").join(" + ");
+  // asked to open on a row (the command bar's "?" mode): the place and the row, and a count that opens the sheet afresh
+  // when it is up already
+  const [ask, setAsk] = useState<{ at?: KeysAsk; n: number }>({ n: 0 });
+  const barKey = useSettings().data?.bar?.shortcut ?? BAR_DEFAULT;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // "?" is Shift with another key on most keyboards: the character is what counts
@@ -119,7 +44,11 @@ export function KeysHelp() {
         setOpen((o) => !o);
       }
     };
-    const onAsk = () => setOpen(true);
+    const onAsk = (e: Event) => {
+      const at = (e as CustomEvent<KeysAsk | undefined>).detail;
+      setAsk((a) => ({ at: at && PLACES.some((p) => p.id === at.place) ? at : undefined, n: a.n + 1 }));
+      setOpen(true);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("afflatus:keys", onAsk);
     return () => {
@@ -128,59 +57,278 @@ export function KeysHelp() {
     };
   }, []);
   if (!open) return null;
-  // the cards that apply to what is on screen: a viewer that is open, a trim bar, the timeline's track, a form, the Studio grid
-  const has = (sel: string) => Boolean(document.querySelector(sel));
-  const viewer = has('[role=dialog][aria-label="Item"]');
-  const onPage = (where: string) => {
-    if (where.startsWith("Viewer")) return viewer;
-    if (where.startsWith("Trim")) return has('[data-bar="whole"]');
-    if (where === "Timeline") return has("[data-designer-floor]");
-    if (where.startsWith("Grid")) return (location.pathname === "/" || location.pathname === "/create") && !viewer;
-    if (where.startsWith("Media library")) return has("input[data-search=media]");
-    if (where.startsWith("Timelines")) return location.pathname.startsWith("/timelines") && !has("[data-designer-floor]") && !viewer;
-    if (where.startsWith("Folders")) return (location.pathname === "/" || location.pathname.startsWith("/timelines") || location.pathname === "/create") && !has("[data-designer-floor]") && !viewer;
-    if (where === "Queue") return location.pathname.startsWith("/queue");
-    if (where === "Workflows") return location.pathname.startsWith("/workflows");
-    if (where === "Prompt kit") return location.pathname.startsWith("/kit");
-    if (where.startsWith("Form")) return has("input[data-search=form], button[data-search-opener]");
-    if (where === "Prompt") return has("textarea");
-    // the rest hold on every screen: the Projects panel among them (the rail's project button opens it anywhere; while it is open, "?" types in its search)
-    return true;
+  return <Sheet key={ask.n} barKey={barKey} at={ask.at} onClose={() => setOpen(false)} />;
+}
+
+function Sheet({ barKey, at, onClose }: { barKey: string; at?: KeysAsk; onClose(): void }) {
+  // what is open is read once, as the sheet opens: what is under it does not change while it is up
+  const [{ here, kind }] = useState(opened);
+  const elsewhere = useMemo(() => PLACES.filter((p) => !here.includes(p.id)).map((p) => p.id), [here]);
+  const order = useMemo(() => [...here, ...elsewhere], [here, elsewhere]);
+  const [place, setPlace] = useState<PlaceId>(() => {
+    if (!at) return remembered(here) ?? here[0]!;
+    remember(at.place, here);
+    return at.place;
+  });
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  // opened on a row: it is lit as a picked search result is
+  const [flash, setFlash] = useState<string | null>(at?.row ?? null);
+  const search = useRef<HTMLInputElement>(null);
+  const pane = useRef<HTMLDivElement>(null);
+  const keysOfRow = (row: KeyRow) => keysWith(row, barKey);
+
+  const pick = (id: PlaceId) => {
+    setPlace(id);
+    remember(id, here);
   };
-  // the screen's own card first (Trim over the viewer it is in), then the parts of it, then what works everywhere; every screen: the rest after
-  const rank = (where: string) => (where.startsWith("Trim") ? 0 : SCREENS.some((s) => where.startsWith(s)) ? 1 : GENERAL.includes(where) ? 3 : 2);
-  const here = KEYS.filter((g) => onPage(g.where)).sort((a, b) => rank(a.where) - rank(b.where));
-  const shown = all ? [...here, ...KEYS.filter((g) => !here.includes(g))] : here;
+
+  // the search: a key first (across every place, the open ones first), then words (keys/search.ts, the bar's "?" mode too)
+  const q = query.trim();
+  const found = useMemo(() => searchKeys(q, here, barKey), [q, here, barKey]);
+
+  useEffect(() => setActive(0), [q]);
+  useEffect(() => search.current?.focus({ preventScroll: true }), []);
+  // a result picked: its place shown, the row brought into view and lit a moment
+  useLayoutEffect(() => {
+    if (!flash || q) return;
+    scrollInside(pane.current?.querySelector(`[data-row="${CSS.escape(flash)}"]`), "center");
+    const t = setTimeout(() => setFlash(null), 1600);
+    return () => clearTimeout(t);
+  }, [flash, q]);
+  useEffect(() => {
+    if (!q && !flash) pane.current?.scrollTo({ top: 0 });
+  }, [place, q, flash]);
+  // the active result kept in view as the arrows walk the list
+  useEffect(() => {
+    if (found) scrollInside(pane.current?.querySelector(`[data-result="${active}"]`), "center");
+  }, [active, found]);
+
+  // Escape with a search typed clears it before it closes the sheet: put on in a layout effect, which runs before the
+  // dialog's own (a passive effect), so this listener comes first
+  useLayoutEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !search.current?.value) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setQuery("");
+      search.current.focus();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
+  const choose = (f: Found | undefined) => {
+    if (!f) return;
+    pick(f.place.id);
+    setQuery("");
+    setFlash(f.id);
+  };
+
+  const onKeys = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const inSearch = e.target === search.current;
+    if (found && (e.key === "ArrowDown" || e.key === "ArrowUp") && inSearch) {
+      e.preventDefault();
+      const n = found.all.length;
+      if (n) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : -1) + n) % n);
+      return;
+    }
+    if (found && e.key === "Enter" && inSearch) {
+      e.preventDefault();
+      choose(found.all[active]);
+      return;
+    }
+    if (!found && (e.key === "ArrowDown" || e.key === "ArrowUp") && inSearch) {
+      e.preventDefault();
+      const i = order.indexOf(place) + (e.key === "ArrowDown" ? 1 : -1);
+      pick(order[(i + order.length) % order.length]!);
+      return;
+    }
+    // typing anywhere in the sheet goes to the search
+    if (!inSearch && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === "Backspace") && e.key !== " " && e.key !== "?") {
+      search.current?.focus({ preventScroll: true });
+    }
+  };
+
+  const nav = (id: PlaceId) => {
+    const p = placeById(id);
+    const on = id === place;
+    const label = id === "viewer" && kind && kind !== "audio" && here.includes("viewer") ? `Viewer · ${kind}` : p.name;
+    return (
+      <button
+        key={id}
+        type="button"
+        tabIndex={-1}
+        aria-current={on || undefined}
+        onClick={() => {
+          pick(id);
+          search.current?.focus({ preventScroll: true });
+        }}
+        className={cx("flex h-[30px] shrink-0 items-center gap-2 rounded-[7px] px-2.5 text-left text-[13px]", on ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover/60 hover:text-ink")}
+      >
+        <span className={cx("h-1.5 w-1.5 shrink-0 rounded-full", on ? "bg-accent" : "bg-transparent")} />
+        <span className="min-w-0 grow truncate">{label}</span>
+        <span className="font-mono text-[11px] text-ink-3">{rowCount(p)}</span>
+      </button>
+    );
+  };
+
+  const shown = placeById(place);
+  // the viewer: the open item's own keys first, the other kind's dimmed at the end
+  const groups = place === "viewer" && kind && here.includes("viewer")
+    ? [...shown.groups.filter((g) => !g.kind || g.kind === kind), ...shown.groups.filter((g) => g.kind && g.kind !== kind)]
+    : shown.groups;
+
   return (
-    <Dialog label="Keyboard shortcuts" onClose={() => setOpen(false)} z="z-[90]" className="flex max-h-full w-full max-w-[1500px] flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
-        {/* the head, with the switch between it and the way out */}
-        <header data-keys-help className="flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-3.5">
-          <span className="min-w-0 grow">
-            <DialogHead icon={<Keyboard size={16} />} title="Keyboard shortcuts" sub={all ? "Every screen's keys. They act when the focus is not in a text field." : "The keys of what is on screen now. They act when the focus is not in a text field."} />
-          </span>
-          <Segmented size="sm" oneLine label="Which keys" value={all ? "all" : "here"} onChange={(v) => setAll(v === "all")} options={[{ value: "here", label: "This screen" }, { value: "all", label: "Every screen" }]} />
-          <Kbd>Esc</Kbd>
-          <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={() => setOpen(false)} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+    <Dialog label="Keyboard shortcuts" onClose={onClose} z="z-[90]" className="flex h-[min(760px,100%)] w-full max-w-[1140px] flex-col overflow-hidden rounded-2xl border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+      <div className="flex min-h-0 grow flex-col" onKeyDown={onKeys}>
+        {/* the head: the search is the first thing, and has the focus */}
+        <header data-keys-help className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5">
+          <h2 className="m-0 shrink-0 text-[15px] font-bold">Keyboard shortcuts</h2>
+          <label className="relative ml-3 flex min-w-0 grow items-center">
+            <Search size={14} className="pointer-events-none absolute left-3 text-ink-3" />
+            <input
+              ref={search}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search the shortcuts"
+              placeholder="A key or what it does: “split”, “Ctrl Z”, “S”"
+              spellCheck={false}
+              autoComplete="off"
+              className="h-[34px] w-full rounded-[9px] border border-line-strong bg-raised pr-3 pl-8 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
+            />
+          </label>
+          {found && <span className="shrink-0 text-xs text-ink-3">{found.kq ? `${found.keys.length} ${found.keys.length === 1 ? "key" : "keys"} · ` : ""}{found.said.length} {found.said.length === 1 ? "word" : "words"}</span>}
+          <Keys keys="Esc" />
+          <button type="button" tabIndex={-1} aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-ink-2 hover:bg-hover hover:text-ink">
+            <X size={15} />
+          </button>
         </header>
-        {/* two wide columns of cards: each row has the keys in a column of one width, and the words beside them on one line or two */}
-        <div className="grid min-h-0 content-start gap-4 overflow-y-auto p-5 lg:grid-cols-2">
-          {shown.map((group) => (
-            <section key={group.where} className="flex flex-col rounded-xl border border-line bg-raised px-4 pt-3.5 pb-1.5">
-              <div className="flex flex-col gap-0.5 pb-2">
-                <h3 className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{group.where}</h3>
-                {group.note && <span className="text-xs text-ink-2">{group.note}</span>}
+
+        {found ? (
+          <Results found={found} active={active} onActive={setActive} onChoose={choose} keysOfRow={keysOfRow} pane={pane} query={q} />
+        ) : (
+          <div className="flex min-h-0 grow">
+            {/* left: the places open now on top, the rest under */}
+            <nav aria-label="Places" className="flex w-[230px] shrink-0 flex-col gap-px overflow-y-auto border-r border-line px-2 py-3">
+              <span className="px-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Here now</span>
+              {here.map(nav)}
+              <span className="px-2.5 pt-3.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Everything else</span>
+              {elsewhere.map(nav)}
+            </nav>
+            {/* right: the place's groups flowing in two columns; what it does on the left, its keys on the right */}
+            <div ref={pane} tabIndex={0} aria-label={`${shown.name}: keys`} className="min-w-0 grow overflow-y-auto px-4 py-3.5 outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50">
+              <div className="flex items-baseline gap-2.5 px-2.5 pb-3">
+                <h3 className="m-0 text-[15px] font-bold">{shown.name}</h3>
+                <span className="truncate text-[13px] text-ink-3">{shown.about ?? "act when no text box has the focus"}</span>
               </div>
-              <dl>
-                {group.keys.map(([key, what]) => (
-                  <div key={key} className="grid grid-cols-[12rem_minmax(0,1fr)] items-center gap-x-4 border-t border-line/70 py-2 first:border-0">
-                    <dt><Caps keys={key === BAR_KEY ? barKey : key} /></dt>
-                    <dd className="text-[13px] leading-snug text-ink">{what}</dd>
-                  </div>
+              <div className="columns-1 gap-[22px] lg:columns-2">
+                {groups.map((g) => (
+                  <section key={g.name} className={cx("mb-3.5 break-inside-avoid", place === "viewer" && kind && g.kind && g.kind !== kind && here.includes("viewer") && "opacity-55")}>
+                    <h4 className="m-0 px-2.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{g.name}</h4>
+                    {[...g.rows.map((row, i) => ({ row, i }))]
+                      .sort((a, b) => Number(Boolean(a.row.mouse)) - Number(Boolean(b.row.mouse)))
+                      .map(({ row, i }) => {
+                        const id = rowId(shown, g, i);
+                        return (
+                          <div key={id} data-row={id} className={cx("flex min-h-[30px] items-center gap-3 rounded-[7px] px-2.5 py-1 transition-colors hover:bg-hover/60", flash === id && "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]")}>
+                            <Does row={row} />
+                            <Keys keys={keysOfRow(row)} />
+                          </div>
+                        );
+                      })}
+                  </section>
                 ))}
-              </dl>
-            </section>
-          ))}
-        </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <footer className="flex shrink-0 items-center gap-3.5 border-t border-line px-4 py-2.5 text-xs text-ink-3">
+          {found ? (
+            <span className="flex items-center gap-1.5"><Keys keys="↑ ↓" /> results · <Keys keys="Enter" /> opens its place</span>
+          ) : (
+            <span className="flex items-center gap-1.5"><Keys keys="↑ ↓" /> places · <Keys keys="Tab" /> to the list</span>
+          )}
+          <span className="grow" />
+          <span>{MAC ? "⌘ is Ctrl on Windows and Linux" : "Ctrl is ⌘ on a Mac"}</span>
+          <span>·</span>
+          <span className="flex items-center gap-1.5">Command bar <Keys keys={barKey} /></span>
+        </footer>
+      </div>
     </Dialog>
+  );
+}
+
+/** What a row does, its short note dimmer after it; a word search's match lit. */
+function Does({ row, query }: { row: KeyRow; query?: string }) {
+  const lit = (text: string): ReactNode => {
+    if (!query) return text;
+    const m = wordsRe(query).exec(text);
+    if (!m) return text;
+    const at = m.index + m[1]!.length;
+    return (
+      <>
+        {text.slice(0, at)}
+        <mark className="rounded-[3px] bg-accent/20 px-px text-accent">{text.slice(at, at + m[2]!.length)}</mark>
+        {text.slice(at + m[2]!.length)}
+      </>
+    );
+  };
+  return (
+    <span className={cx("min-w-0 grow text-[13px] leading-snug", row.mouse ? "text-ink-2" : "text-ink")}>
+      {lit(row.does)}
+      {row.note && <span className="text-xs text-ink-3"> · {lit(row.note)}</span>}
+    </span>
+  );
+}
+
+/** A search's rows: the keys that match, then the words, each with its place; Enter or a click opens the place. */
+function Results({ found, active, onActive, onChoose, keysOfRow, pane, query }: {
+  found: { kq: ReturnType<typeof keyQuery>; keys: Found[]; said: Found[] };
+  active: number;
+  onActive(i: number): void;
+  onChoose(f: Found): void;
+  keysOfRow(row: KeyRow): string;
+  pane: RefObject<HTMLDivElement | null>;
+  query: string;
+}) {
+  const row = (f: Found, i: number, words: boolean) => (
+    <button
+      key={f.id}
+      type="button"
+      tabIndex={-1}
+      data-result={i}
+      onMouseMove={() => onActive(i)}
+      onClick={() => onChoose(f)}
+      className={cx("flex min-h-8 w-full items-center gap-3 rounded-[7px] px-3 py-1 text-left", i === active && "bg-hover")}
+    >
+      <span className="flex w-[170px] shrink-0 items-center gap-1.5 truncate text-xs text-ink-3">
+        <span className="truncate">{f.place.name}{f.group.kind ? ` · ${f.group.kind}` : ""}</span>
+        {f.here && <span className="shrink-0 rounded-[5px] bg-accent px-1.5 text-[10.5px] font-bold text-accent-ink">here</span>}
+      </span>
+      <Does row={f.row} query={words ? query : undefined} />
+      <Keys keys={keysOfRow(f.row)} hits={f.hits} />
+    </button>
+  );
+  const head = (text: string) => <h4 className="m-0 px-3 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{text}</h4>;
+  const kq = found.kq;
+  return (
+    <div ref={pane} tabIndex={0} aria-label="Results" className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-4 py-3 outline-none">
+      {kq && found.keys.length > 0 && (
+        <div>
+          {head(`The ${kq.exact.length > 1 ? "keys" : "key"} ${kq.exact.join("+")}`)}
+          {found.keys.map((f, i) => row(f, i, false))}
+        </div>
+      )}
+      {found.said.length > 0 && (
+        <div>
+          {head("Words")}
+          {found.said.map((f, i) => row(f, found.keys.length + i, true))}
+        </div>
+      )}
+      {!found.keys.length && !found.said.length && <span className="px-3 py-6 text-center text-[13px] text-ink-3">No key does that. Try another word, or a key: “S”, “Ctrl Z”.</span>}
+    </div>
   );
 }

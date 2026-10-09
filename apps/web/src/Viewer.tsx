@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Camera, Clapperboard, Columns2, Link2, Scissors, Star, Trash2 } from "lucide-react";
+import { Camera, Clapperboard, Columns2, Link2, Scissors, Star, Trash2, Undo2 } from "lucide-react";
 import { RANDOM_SEED } from "@afflatus/core";
 import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
+import { dialogOver } from "./Dialog";
 import { Kbd, plainKey } from "./Keys";
 import { Button } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
@@ -51,14 +52,16 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   // what a video gives besides itself: the frame it is paused on, and its sound; both open here once made
   const player = useRef<HTMLVideoElement>(null);
   const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, more, detail, into, inline, player, trim, setTrim, setInfo, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
-  const { a, g, recipe, keep, leave, reuse, queued, quick, toolFor, openTool, opener, openerName, animate, carrier, fromLastFrame, carryOn, saveFrame, move, toBin, download, videoItems, imageItems } = acts;
+  const { a, g, recipe, keep, restore, leave, reuse, queued, quick, toolFor, openTool, opener, openerName, animate, carrier, fromLastFrame, carryOn, saveFrame, move, toBin, download, videoItems, imageItems } = acts;
 
   const act = useRef<(e: KeyboardEvent) => void>(() => {});
+  // what the viewer draws: a modal that does not hold it is over it (drawn in place, any modal is)
+  const root = useRef<HTMLDivElement>(null);
   act.current = (e) => {
     // a key already taken by another part of the screen is not taken twice
     if (e.defaultPrevented) return;
-    // drawn in place, it leaves the keys to whatever is open over the screen
-    if (inline && document.querySelector("[role=dialog][aria-modal=true]")) return;
+    // it leaves the keys to whatever is open over it (the keyboard shortcuts, a question asked)
+    if (dialogOver(root.current)) return;
     // while trimming, L (loop) and Esc (close Trim) are Trim's own; this listener runs first
     if (trim && (e.key === "Escape" || e.key.toLowerCase() === "l")) return;
     if (e.key === "Escape") {
@@ -83,13 +86,14 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (e.key === "ArrowLeft" && !inPlayer && !trim) move(-1);
     else if (e.key === "ArrowRight" && !inPlayer && !trim) move(1);
     else if (k === "x" && canCompare) toggleCompare();
+    // a download is harmless in the bin too; the keys after it act on items that are not binned
+    else if (k === "d") download();
     else if (a.inBin) return;
     // drawn in place (the Studio's stage), N is the Studio's own (it folds the form): a timeline starts from the menus there
     else if (k === "n" && !inline && a.kind !== "audio") timelineMenu.startFrom(a);
     else if (k === "a" && a.kind !== "audio" && timelineMenu.addToLast) timelineMenu.addToLast(a);
     else if (k === "s") keep.mutate(!a.kept);
     else if (e.key === "Delete") void toBin();
-    else if (k === "d") download();
     // L: the same parameters in the form, its seed kept; Shift+L: with a new seed
     else if (k === "l" && g && recipe) (e.shiftKey ? reuse.newSeed : reuse.sameSeed)(g);
     else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" });
@@ -153,37 +157,42 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   );
   if (inline) {
     return (
-      <div className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
+      <div ref={root} className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
         {menuElement}
         {timelineMenu.element}
         {compare ?? media(false)}
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
           {canCompare && <Button size="sm" tone={comparing ? "primary" : "plain"} aria-pressed={comparing} data-tip="Compare: pin this one and move to another with the arrow keys; videos play in step, two pictures also with a wipe" onClick={toggleCompare}><Columns2 size={13} /> Compare <Kbd>X</Kbd></Button>}
-          <Button size="sm" onClick={() => keep.mutate(!a.kept)} tone={a.kept ? "primary" : "plain"} aria-pressed={a.kept} data-tip={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
-            <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
-          </Button>
-          {g && recipe && (
-            <Button size="sm" disabled={queued.isPending} data-tip="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })}>Variation <Kbd>V</Kbd></Button>
+          {/* a binned item is put back, not kept; its keys (S, V, the tools) are off there, so are their buttons, as in the side panel */}
+          {!a.inBin && (
+            <Button size="sm" onClick={() => keep.mutate(!a.kept)} tone={a.kept ? "primary" : "plain"} aria-pressed={a.kept} data-tip={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
+              <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
+            </Button>
           )}
-          {a.kind === "image" && (["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
+          {g && recipe && (
+            <Button size="sm" disabled={queued.isPending} data-tip="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })}>Variation {!a.inBin && <Kbd>V</Kbd>}</Button>
+          )}
+          {a.kind === "image" && !a.inBin && (["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
             <Button key={k} size="sm" disabled={queued.isPending} data-tip={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
           ))}
-          {a.kind === "image" && (["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
+          {a.kind === "image" && !a.inBin && (["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
             <Button key={k} size="sm" disabled={openTool.isPending} data-tip={`${OPS[k]!.label}: a new draft in the form, with this image as the source.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
           ))}
-          {a.kind === "image" && opener && <Button size="sm" disabled={animate.isPending} data-tip={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
-          {a.kind === "video" && carrier && <Button size="sm" disabled={carryOn.isPending} data-tip={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
-          {a.kind === "video" && <Button size="sm" disabled={saveFrame.isPending} data-tip="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
+          {a.kind === "image" && !a.inBin && opener && <Button size="sm" disabled={animate.isPending} data-tip={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
+          {a.kind === "video" && !a.inBin && carrier && <Button size="sm" disabled={carryOn.isPending} data-tip={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
+          {a.kind === "video" && !a.inBin && <Button size="sm" disabled={saveFrame.isPending} data-tip="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
           {a.kind === "video" && !a.inBin && <Button size="sm" tone={trim ? "primary" : "plain"} aria-pressed={trim} data-tip="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." onClick={() => setTrim(!trim)}><Scissors size={13} /> Trim <Kbd>T</Kbd></Button>}
           {onDetails && <Button size="sm" onClick={onDetails} data-tip="Generation parameters, folder, lineage and every action">Details</Button>}
-          <Button size="sm" onClick={() => void toBin()} data-tip="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>
+          {a.inBin
+            ? <Button size="sm" disabled={restore.isPending} data-tip="Out of the bin, back where it was" onClick={() => restore.mutate(undefined)}><Undo2 size={13} /> Put back</Button>
+            : <Button size="sm" onClick={() => void toBin()} data-tip="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>}
         </div>
       </div>
     );
   }
 
   return (
-    <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-stage/95">
+    <div ref={root} data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-stage/95">
       {menuElement}
       {timelineMenu.element}
       {compare ?? media(true)}

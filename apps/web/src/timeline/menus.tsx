@@ -46,15 +46,15 @@ const splitHere = (c: Clip, act: ClipMenuActions): MenuItem => {
   const onIt = act.onClip(c);
   const cut = onIt ? splitPoint(c, onIt.assetMs) : null;
   const at = cut && "at" in cut ? cut.at : null;
-  return { label: "Split at the playhead", key: "S  Ctrl + B", icon: <Split size={14} />, disabled: at === null || act.pending.split, note: !onIt ? "put the playhead on this clip" : at === null ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => at !== null && act.split(c.id, at) };
+  return { label: "Split at the playhead", key: "S | Ctrl+B", icon: <Split size={14} />, disabled: at === null || act.pending.split, note: !onIt ? "put the playhead on this clip" : at === null ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => at !== null && act.split(c.id, at) };
 };
 
 /** The take before or after the one that plays (Alt [ and Alt ]): the clip panel's list of takes, from the keyboard. */
 const takeSteps = (c: Clip, act: ClipMenuActions): MenuItem[] => {
   const i = c.takes.findIndex((x) => x.id === c.take?.id);
   return [
-    { label: "Previous take", key: "Alt + [", icon: <ChevronLeft size={14} />, disabled: i <= 0, note: i <= 0 ? "the first take plays" : `take ${i} of ${c.takes.length}`, run: () => act.stepTake(c.id, -1) },
-    { label: "Next take", key: "Alt + ]", icon: <ChevronRight size={14} />, disabled: i < 0 || i >= c.takes.length - 1, note: i >= c.takes.length - 1 ? "the last take plays" : `take ${i + 2} of ${c.takes.length}`, run: () => act.stepTake(c.id, 1) },
+    { label: "Previous take", key: "Alt+[", icon: <ChevronLeft size={14} />, disabled: i <= 0, note: i <= 0 ? "the first take plays" : `take ${i} of ${c.takes.length}`, run: () => act.stepTake(c.id, -1) },
+    { label: "Next take", key: "Alt+]", icon: <ChevronRight size={14} />, disabled: i < 0 || i >= c.takes.length - 1, note: i >= c.takes.length - 1 ? "the last take plays" : `take ${i + 2} of ${c.takes.length}`, run: () => act.stepTake(c.id, 1) },
   ];
 };
 
@@ -65,7 +65,7 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
   const canCarry = Boolean(recipe && index > 0 && recipe.inputs.some((i) => (i.type === "clip" && i.role === "previous") || (i.type === "image" && i.role === "start")));
   const video = c.take?.asset ?? null;
   return [
-    ...(c.kind === "video" && recipe ? [{ label: c.take ? "New take" : "Render this clip", key: "Ctrl + Enter", icon: <Wand2 size={14} />, disabled: Boolean(c.job) || act.pending.render, run: () => act.render(c) }] : []),
+    ...(c.kind === "video" && recipe ? [{ label: c.take ? "New take" : "Render this clip", key: "Ctrl+Enter", icon: <Wand2 size={14} />, disabled: Boolean(c.job) || act.pending.render, run: () => act.render(c) }] : []),
     ...(canCarry ? [c.joined === "continue"
       ? { label: "Make it a cut", icon: <Scissors size={14} />, note: `from clip ${index}`, run: () => act.patch(c.id, { joined: "cut" }) }
       : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => act.patch(c.id, { joined: "continue" }) }]
@@ -78,8 +78,8 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
     { label: "Set range to this clip", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => act.setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
     { label: "Duplicate clip", icon: <Copy size={14} />, disabled: act.pending.duplicate, note: "a copy right after it, with its takes", run: () => act.duplicate(c.id) },
     // the same as dragging it along the track, from the keyboard too
-    { label: "Move earlier", key: "Alt + ←", icon: <ArrowLeft size={14} />, disabled: index <= 0, run: () => act.move(c.id, -1) },
-    { label: "Move later", key: "Alt + →", icon: <ArrowRight size={14} />, disabled: index >= act.clips.length - 1, run: () => act.move(c.id, 1) },
+    { label: "Move earlier", key: "Alt+←", icon: <ArrowLeft size={14} />, disabled: index <= 0, run: () => act.move(c.id, -1) },
+    { label: "Move later", key: "Alt+→", icon: <ArrowRight size={14} />, disabled: index >= act.clips.length - 1, run: () => act.move(c.id, 1) },
     // a clip that plays round: its last frame pinned to its first (the model has to take a last frame)
     ...(c.kind === "video" && recipe && pinInputs(recipe).end ? (() => {
       const pins = pinInputs(recipe);

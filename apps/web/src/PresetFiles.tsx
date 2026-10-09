@@ -7,7 +7,7 @@ import { useSettings } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { fileLabel, gb } from "./format";
 import { DownloadRow, GetFile, useDownloads } from "./GetFile";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
 import { Button, cx, ErrorNote } from "./ui";
 
 /**
@@ -117,7 +117,7 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
               {def.licence.note ? ` ${def.licence.note}` : ""}
             </div>
             <DialogFoot info={<span data-tip="Accepting it is between you and the files' authors; Afflatus only remembers that you did, and asks once.">Between you and the files' authors · asked once</span>}>
-              <Button tone="quiet" onClick={() => setLicence(false)}>Not now <Kbd>Esc</Kbd></Button>
+              <Button tone="quiet" onClick={() => setLicence(false)}>Not now <Keys keys="Esc" size="sm" /></Button>
               <Button tone="primary" onClick={() => { setLicence(false); fetchAll.mutate(true); }}>I accept, fetch the files</Button>
             </DialogFoot>
         </Dialog>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { thumbUrl } from "./api";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
 import { cx } from "./ui";
 
 /**
@@ -12,7 +12,7 @@ import { cx } from "./ui";
 export type MenuItem =
   | {
       label: string;
-      /** The key that does the same, as the Keys list writes it ("S", "Del", "Ctrl + Enter"). */
+      /** The key that does the same, in the keys grammar ("S", "Del", "Ctrl+Enter", "S | Ctrl+B"). */
       key?: string;
       icon?: ReactNode;
       /** A few quiet words after the label. */
@@ -191,7 +191,7 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
             >
               <span className={cx("flex w-4 shrink-0 items-center justify-center", it.danger ? "text-warn-ink" : "text-ink-2")}>{it.icon}</span>
               <span className="min-w-0 grow truncate">{it.label}{it.note && <span className="ml-1.5 text-xs text-ink-3">{it.note}</span>}</span>
-              {it.key && <span className="flex shrink-0 gap-1">{it.key.split("  ").map((k) => <Kbd key={k}>{k}</Kbd>)}</span>}
+              {it.key && <Keys keys={it.key} size="sm" className="text-ink-2" />}
               {it.items && <ChevronRight size={14} className="shrink-0 text-ink-2" />}
             </button>
           ),

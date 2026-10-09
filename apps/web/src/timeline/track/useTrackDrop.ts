@@ -4,12 +4,12 @@ import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../../screens/L
 import { DRAG_CLIP, pinInputs, type Slot } from "../model";
 
 /** What is done on the track, as keys and their words: the line under it while nothing is dragged. */
-export const LEGEND: ReadonlyArray<{ keys: string[]; words: string }> = [
-  { keys: ["Drag"], words: "media onto the track" },
-  { keys: ["Click"], words: "a clip" },
-  { keys: ["Right-click"], words: "its menu" },
-  { keys: ["I", "O"], words: "a range" },
-  { keys: ["Ctrl"], words: "+ click picks clips" },
+export const LEGEND: ReadonlyArray<{ keys: string; words: string }> = [
+  { keys: "drag", words: "media onto the track" },
+  { keys: "click", words: "a clip" },
+  { keys: "right-click", words: "its menu" },
+  { keys: "I O", words: "a range" },
+  { keys: "Ctrl+click", words: "picks clips" },
 ];
 
 /** What a drop would do, worked out while something is dragged over the track. */
@@ -112,7 +112,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   const n = (id: string) => clips.findIndex((c) => c.id === id) + 1;
   const hint = !dragging
     ? clips.length
-      ? LEGEND.map((l) => `${l.keys.join(" ")} ${l.words}`).join(" · ")
+      ? LEGEND.map((l) => `${l.keys.replace("+", " + ")} ${l.words}`).join(" · ")
       : "Your clips will line up here, left to right, in the order they play."
     : !over
       ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : "Drop it on the timeline."

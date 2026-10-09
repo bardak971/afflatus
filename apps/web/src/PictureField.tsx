@@ -6,7 +6,7 @@ import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, thumbUrl, type Asset } from "./api";
 import { Dialog, DialogHead } from "./Dialog";
-import { Kbd } from "./Keys";
+import { Keys } from "./Keys";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
 import { Viewer } from "./Viewer";
@@ -86,7 +86,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
               e.target.value = "";
             }}
           />
-          <Kbd>Esc</Kbd>
+          <Keys keys="Esc" size="sm" />
           <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
         </header>
         <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">

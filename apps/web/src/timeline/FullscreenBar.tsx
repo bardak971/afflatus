@@ -3,6 +3,7 @@ import { Minimize, Pause, Play, Repeat, SkipBack, SkipForward, Volume2, VolumeX 
 import { useQueryClient } from "@tanstack/react-query";
 import { fileUrl, type Clip, type Timeline } from "../api";
 import { clock as clockText } from "../format";
+import { Keys } from "../Keys";
 import { cx } from "../ui";
 import { Slider } from "../Slider";
 import { useClock, type Clock } from "./clock";
@@ -169,11 +170,11 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
           {!live && tag && <span className="flex h-[22px] shrink-0 items-center rounded-[7px] bg-accent/20 px-2 text-xs font-bold text-accent">{tag}</span>}
         </div>
         <div className="absolute top-[22px] right-7 flex gap-3.5 text-[11.5px] text-ink-2">
-          <Keys keys={["Space"]} does="play" />
-          {seeks && <Keys keys={["←", "→"]} does="frame" />}
-          {seeks && c.onJump && <Keys keys={["[", "]"]} does="clip" />}
-          {c.loop && <Keys keys={["L"]} does="loop" />}
-          <Keys keys={["Esc"]} does="leave" />
+          <KeyHint keys="Space" does="play" />
+          {seeks && <KeyHint keys="← →" does="frame" />}
+          {seeks && c.onJump && <KeyHint keys="[ ]" does="clip" />}
+          {c.loop && <KeyHint keys="L" does="loop" />}
+          <KeyHint keys="Esc" does="leave" />
         </div>
       </div>
       {/* the bottom, deeper: the controls read over a bright frame */}
@@ -216,10 +217,10 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
 }
 
 /** A key and what it does, for the top's legend. */
-function Keys({ keys, does }: { keys: string[]; does: string }) {
+function KeyHint({ keys, does }: { keys: string; does: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      {keys.map((k) => <kbd key={k} className="rounded border border-ink-3 px-1 font-sans text-[10px]">{k}</kbd>)}
+      <Keys keys={keys} size="sm" />
       {does}
     </span>
   );

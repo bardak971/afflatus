@@ -749,6 +749,12 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         }
         return;
       default:
+        // "?" is the keyboard shortcuts everywhere, the tree included: this listener runs first and stops the key, so it asks for them itself
+        if (e.key === "?") {
+          stop();
+          window.dispatchEvent(new Event("afflatus:keys"));
+          return;
+        }
         // a letter typed on the tree starts a search with it ("/" only goes to the box)
         if (e.key.length === 1) {
           stop();

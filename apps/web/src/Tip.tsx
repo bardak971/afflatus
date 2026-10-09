@@ -1,13 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Keys } from "./Keys";
+import { parseKeys } from "./keys/grammar";
 
 /**
  * The one tooltip of the app, in place of the browser's white `title` ones. Anything with a `data-tip`
  * attribute has it: one listener on the document reads the attribute of what the pointer rests on, so a
  * button only says what its tip is (`data-tip="Zoom in"`), and hundreds of them cost nothing.
  *
- * - `data-tip-keys="Ctrl +"`: keys drawn as keycaps after the text, split on spaces. A text that ends in
- *   keys in brackets ("Close (Esc)", "Undo (Ctrl+Z)") has them drawn as keycaps too.
+ * - `data-tip-keys="Ctrl+Z"`: keys drawn as keycaps after the text, in the grammar of `keys/grammar.ts`
+ *   ("Ctrl+Shift+Z | Ctrl+Y", "← →"). A text that ends in keys in brackets ("Close (Esc)", "Undo (Ctrl+Z)",
+ *   "Back (Tab or Esc)") has them drawn as keycaps too.
  * - `data-tip-head="Join"`: a bold first line, `data-tip` the dim line under it. A long text that starts
  *   with a few words and a colon ("Compare: pin this one…") is shown the same way.
  *
@@ -26,30 +29,23 @@ const GAP = 8;
 /** Bigger than this, what the tip is about is a panel or a tile: the tip goes by the pointer, not by it. */
 const BIG_PX = 64;
 
-/** The keys a text may end with in brackets: names of keys, and single capitals or signs. */
-const KEY = /^(Esc|Tab|Enter|Space|Del|Delete|Backspace|Shift|Ctrl|Alt|Cmd|Home|End|PgUp|PgDn|F\d{1,2}|[A-Z]|[/?,.+\-[\]←→↑↓])$/;
-
-/** "Close (Esc)" → "Close" and its keys; "Back (Tab or Esc)" → "Back", Tab, "or", Esc. Null when it does not end in keys. */
-export function trailingKeys(text: string): { text: string; keys: string[] } | null {
+/**
+ * "Close (Esc)" → "Close" and its keys; "Back (Tab or Esc)" → "Back" and "Tab or Esc". Null when the brackets do not
+ * hold keys in the grammar ("(i2v)", "(Shift: ten)"), or hold a mouse move or code: those are words.
+ */
+export function trailingKeys(text: string): { text: string; keys: string } | null {
   const m = /^(.*\S)\s+\(([^()]+)\)$/s.exec(text);
   if (!m) return null;
-  const keys: string[] = [];
-  for (const alt of m[2]!.split(" or ")) {
-    const combo = alt.trim().split("+");
-    // "Ctrl++" is Ctrl and the plus key
-    const parts = combo.length > 2 && combo.at(-1) === "" ? [...combo.slice(0, -2), "+"] : combo;
-    if (!parts.every((k) => KEY.test(k.trim()))) return null;
-    if (keys.length) keys.push("or");
-    keys.push(...parts.map((k) => k.trim()));
-  }
-  return { text: m[1]!, keys };
+  const parsed = parseKeys(m[2]!);
+  if (!parsed || "code" in parsed || parsed.ways.some((w) => w.mouse)) return null;
+  return { text: m[1]!, keys: m[2]!.trim() };
 }
 
 /** What a tip says, read from the element: a bold head (or none), the text, the keys. */
-export function readTip(el: HTMLElement): { head?: string; text: string; keys: string[] } {
+export function readTip(el: HTMLElement): { head?: string; text: string; keys: string } {
   let text = el.dataset.tip ?? "";
   let head = el.dataset.tipHead;
-  let keys = el.dataset.tipKeys?.split(/\s+/).filter(Boolean) ?? [];
+  let keys = el.dataset.tipKeys?.trim() ?? "";
   // "Rename (F2): a name of your own…": a few words and a colon start a long text, they are its head
   const colon = text.indexOf(": ");
   if (!head && colon > 0 && colon <= 32 && text.length > 56 && text.slice(0, colon).split(" ").length <= 4) {
@@ -66,12 +62,7 @@ export function readTip(el: HTMLElement): { head?: string; text: string; keys: s
   return { head, text, keys };
 }
 
-/** A key, as a cap: the command bar's keycap, a step lighter, as it sits on a raised panel. */
-function Cap({ children }: { children: ReactNode }) {
-  return <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] bg-hover px-1.5 font-mono text-[11px] leading-none font-normal text-ink shadow-[inset_0_-1px_0_var(--color-line-strong)]">{children}</kbd>;
-}
-
-type Shown = { el: HTMLElement; head?: string; text: string; keys: string[]; at: { x: number; y: number }; fresh: boolean };
+type Shown = { el: HTMLElement; head?: string; text: string; keys: string; at: { x: number; y: number }; fresh: boolean };
 
 /** What the pointer or the focus is on that has a tip, taking over a `title` on the way. */
 function tipped(target: EventTarget | null): HTMLElement | null {
@@ -238,11 +229,7 @@ export function Tips() {
 
   if (!shown) return null;
   const { head, text, keys, fresh } = shown;
-  const caps = keys.length > 0 && (
-    <span className="ml-auto flex shrink-0 items-center gap-1 pl-1">
-      {keys.map((k, i) => (k === "or" ? <span key={i} className="text-[11px] text-ink-3">or</span> : <Cap key={i}>{k}</Cap>))}
-    </span>
-  );
+  const caps = keys.length > 0 && <Keys keys={keys} className="ml-auto pl-1" />;
   const long = (head ?? "").length + text.length > 48 || text.includes("\n");
   return createPortal(
     <div

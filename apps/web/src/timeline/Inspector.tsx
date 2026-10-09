@@ -18,7 +18,7 @@ import { Select } from "../Select";
 import { AutoText, Bar, Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
 import { FieldRow } from "../fields";
 import { RangeSlider } from "../RangeSlider";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
 import { usePanelWidth } from "../store";
 import { Slider } from "../Slider";
 import { Wave } from "./track/Wave";
@@ -577,7 +577,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
               {busy ? "Sending…" : `${count > 1 ? `Render ${count} takes` : take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
               {/* Ctrl+Enter renders one take: said only when that is what the button does */}
-              {!busy && count === 1 && <Kbd>Ctrl ↵</Kbd>}
+              {!busy && count === 1 && <Keys keys="Ctrl+Enter" size="sm" />}
             </Button>
           )}
         </div>

@@ -245,11 +245,11 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       { label: "A new section…", run: () => intoNew(id) },
       "—",
       ...(at ? [
-        { label: `Earlier in ${where}`, key: "Alt + ←", disabled: at.index === 0, run: () => shift(id, -1) },
-        { label: `Later in ${where}`, key: "Alt + →", disabled: at.index >= at.size - 1, run: () => shift(id, 1) },
+        { label: `Earlier in ${where}`, key: "Alt+←", disabled: at.index === 0, run: () => shift(id, -1) },
+        { label: `Later in ${where}`, key: "Alt+→", disabled: at.index >= at.size - 1, run: () => shift(id, 1) },
       ] : []),
-      { label: "Section up", key: "Alt + ↑", disabled: stops.indexOf(at?.section.id ?? ADVANCED) <= 0, run: () => hop(id, -1) },
-      { label: "Section down", key: "Alt + ↓", disabled: (() => { const next = stops[stops.indexOf(at?.section.id ?? ADVANCED) + 1]; return !next || (next === ADVANCED && forgets(id)); })(), run: () => hop(id, 1) },
+      { label: "Section up", key: "Alt+↑", disabled: stops.indexOf(at?.section.id ?? ADVANCED) <= 0, run: () => hop(id, -1) },
+      { label: "Section down", key: "Alt+↓", disabled: (() => { const next = stops[stops.indexOf(at?.section.id ?? ADVANCED) + 1]; return !next || (next === ADVANCED && forgets(id)); })(), run: () => hop(id, 1) },
     ];
   };
   /** What a setting (or a switch) is pressed and walked by: its name, as a button that opens "move to". */
@@ -314,8 +314,8 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     const bottom = i >= cards.length - 1;
     const sec = id === PROMPT || id === ADVANCED ? undefined : sections.find((s) => s.id === id);
     return [
-      { label: "Move up", key: "Alt + ↑", disabled: top, run: () => moveCard(id, "up") },
-      { label: "Move down", key: "Alt + ↓", disabled: bottom, run: () => moveCard(id, "down") },
+      { label: "Move up", key: "Alt+↑", disabled: top, run: () => moveCard(id, "up") },
+      { label: "Move down", key: "Alt+↓", disabled: bottom, run: () => moveCard(id, "down") },
       { label: "To the top", disabled: top, run: () => moveCard(id, "top") },
       { label: "To the bottom", disabled: bottom, run: () => moveCard(id, "bottom") },
       // the head's own buttons, as menu items (its name is the box beside the handle)

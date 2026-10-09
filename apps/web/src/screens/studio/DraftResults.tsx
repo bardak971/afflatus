@@ -3,7 +3,7 @@ import { Images, Square, X } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets } from "../../data";
 import { clock, phaseLabel, timeLeft } from "../../format";
-import { Kbd } from "../../Keys";
+import { Keys } from "../../Keys";
 import { useStudio } from "../../store";
 import { LivePreview, StageStrip } from "../../LivePreview";
 import { useStop } from "../../ModelLoad";
@@ -196,7 +196,7 @@ function NothingYet() {
       <Images size={28} strokeWidth={1.5} className="text-ink-3" />
       <span className="text-[15px] font-semibold">Nothing made in this draft yet</span>
       <span className="flex items-center gap-1.5 text-ink-2">
-        <Kbd>Ctrl</Kbd><Kbd>↵</Kbd> generates
+        <Keys keys="Ctrl+Enter" size="sm" /> generates
         <span className="text-line-strong">·</span>
         <button type="button" onClick={() => set({ scope: "all" })} className="font-semibold text-accent hover:underline">Folder</button> shows the rest
       </span>

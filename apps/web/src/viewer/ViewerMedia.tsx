@@ -1,4 +1,5 @@
 import { lazy, Suspense, type RefObject } from "react";
+import { useKeysHere } from "../keys/here";
 import type { Range } from "../Trim";
 import { fileUrl, type Asset } from "../api";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
@@ -39,6 +40,9 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   /** Over the screen: a click beside the item. */
   onClose?(): void;
 }) {
+  // the keys sheet's "Here now": the viewer's keys for this kind of item, and Trim's while it is open
+  useKeysHere("viewer", true, { kind: acts.a.kind, over: overlay });
+  useKeysHere("trim", acts.a.kind === "video" && trim, { over: overlay });
   const { a, g, recipe, scenes, everyScene, between, extendHere, opener, carrier, frameAt, cutRange } = acts;
   const mainText = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
   const prompt = typeof g?.inputs[mainText] === "string" ? (g.inputs[mainText] as string) : "";

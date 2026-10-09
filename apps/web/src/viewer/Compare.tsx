@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ArrowLeft, ArrowRight, ChevronsLeftRight } from "lucide-react";
+import { ChevronsLeftRight } from "lucide-react";
 import { fileUrl, type Asset } from "../api";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
+import { useKeysHere } from "../keys/here";
 import { Button, cx } from "../ui";
 import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
@@ -111,6 +112,8 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
   // pictures laid over each other: where the second one takes over, in percent of the width; null = side by side
   const [wipe, setWipe] = useState<number | null>(null);
   useInStep(left, right, `${pinned.id}:${other.id}`);
+  // the keys sheet's "Here now": comparing is the viewer's (its arrows change the other one)
+  useKeysHere("viewer", true, { kind: other.kind });
   const pictures = pinned.kind === "image" && other.kind === "image";
   const pane = (a: Asset, ref: RefObject<HTMLVideoElement | null>, label: string) => (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-1.5">
@@ -140,8 +143,8 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
         {pictures && <Button size="sm" tone={wipe !== null ? "primary" : "plain"} aria-pressed={wipe !== null} data-tip="The two pictures over each other, the second cut at a line you move" onClick={() => setWipe((w) => (w === null ? 50 : null))}>Wipe</Button>}
         <Button size="sm" data-tip="The pinned one becomes the one you move through, and the other way round" onClick={onSwap}>Swap</Button>
-        <span className="flex items-center gap-1 text-xs text-ink-3"><Kbd><ArrowLeft size={10} className="inline" /></Kbd><Kbd><ArrowRight size={10} className="inline" /></Kbd> another one on the right{wipe !== null && pictures ? " · drag the line on the picture" : ""}</span>
-        <Button size="sm" onClick={onClose}>Done <Kbd>X</Kbd></Button>
+        <span className="flex items-center gap-1 text-xs text-ink-3"><Keys keys="← →" size="sm" /> another one on the right{wipe !== null && pictures ? " · drag the line on the picture" : ""}</span>
+        <Button size="sm" onClick={onClose}>Done <Keys keys="X" size="sm" /></Button>
       </div>
     </div>
   );

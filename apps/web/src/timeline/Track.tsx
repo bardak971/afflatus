@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { Minus, Plus } from "lucide-react";
 import type { ClipMusic } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
-import { Kbd } from "../Keys";
+import { Keys } from "../Keys";
+import { useKeysHere } from "../keys/here";
 import { cx } from "../ui";
 import { layout, NEW_CLIP, otherShape, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
 import type { Clock } from "./clock";
@@ -94,6 +95,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   /** Filled here for the editor's keys: - and = zoom around the playhead, Shift+Z fits the whole video. */
   keys?: RefObject<TrackKeys | null>;
 }) {
+  // the keys sheet's "Here now": the track is the timeline editor's, its keys act while it is shown
+  useKeysHere("editor");
   const clips = timeline.clips;
   const floor = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -372,14 +375,14 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
           // the keys and their words; the line said in full for a screen reader
           <span className="flex min-w-0 grow items-center gap-3.5 overflow-hidden text-[11.5px] whitespace-nowrap text-ink-3">
             <span className="sr-only">{hint}</span>
-            {LEGEND.map((l) => <span key={l.words} aria-hidden className="flex shrink-0 items-center gap-1.5">{l.keys.map((k) => <Kbd key={k}>{k}</Kbd>)}{l.words}</span>)}
+            {LEGEND.map((l) => <span key={l.words} aria-hidden className="flex shrink-0 items-center gap-1.5"><Keys keys={l.keys} size="sm" />{l.words}</span>)}
           </span>
         ) : (
           <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
         )}
         <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => onZoom(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
         <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => onZoom(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
-        <button type="button" data-tip="The whole video in view" data-tip-keys="Shift Z" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
+        <button type="button" data-tip="The whole video in view" data-tip-keys="Shift+Z" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
       </div>
     </div>
   );

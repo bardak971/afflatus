@@ -5,6 +5,7 @@ import { api, type Asset } from "../api";
 import { useFolders, useProjects, useTimelines } from "../data";
 import { useProject } from "../project";
 import { plainKey } from "../Keys";
+import { useKeysHere } from "../keys/here";
 import { Popover } from "../Popover";
 import { displayOf, useBanners, useHandover, useOpenDraft, useStudio, type Scope } from "../store";
 import { cx, Empty, ErrorNote } from "../ui";
@@ -119,6 +120,9 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // the stage (the newest large, the rest in a strip) in place of the grid, when the scope is on it; the timelines still show when asked for
   const display = displayOf(view, reach as Scope);
   const draftOnly = display === "Stage" && !showTimelines && (reach !== "draft" || Boolean(draftId));
+  // the keys sheet's "Here now": N works on both lists; the grid's own keys only on the items
+  useKeysHere("form");
+  useKeysHere("grid", !showTimelines);
   const stageOfDraft = draftOnly && reach === "draft";
   const timelines = useTimelines();
   // the timelines of the place that is open: a folder lists those whose renders land in it, the Inbox those in none,

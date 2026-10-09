@@ -11,6 +11,7 @@ import { useFolders, useProjects, useProjectsTree } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
 import { clock, when } from "../../format";
 import { plainKey } from "../../Keys";
+import { useKeysHere } from "../../keys/here";
 import { projectForNew } from "../../project";
 import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
@@ -38,6 +39,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   /** The list is a search's: an empty one says so. */
   searched?: boolean;
 }) {
+  useKeysHere("timelines");
   const [, go] = useLocation();
   const client = useQueryClient();
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
