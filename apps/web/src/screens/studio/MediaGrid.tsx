@@ -4,7 +4,7 @@ import { Clock } from "lucide-react";
 import { api, type Asset } from "../../api";
 import { useProject } from "../../project";
 import { ask } from "../../Confirm";
-import { cx, ErrorNote } from "../../ui";
+import { Button, cx, ErrorNote, Toggle } from "../../ui";
 import { binRange, justify, leftOf } from "../library/justify";
 
 /** The height a row aims for, by the display's size; the gap between tiles. */
@@ -124,7 +124,7 @@ export function NotKeptLine({ items, filter, whole, only, onOnly }: {
       {count ? (
         <span>
           <span className="font-bold">{count} not kept</span>
-          <span className="text-ink-2"> · they go to the bin in {range}</span>
+          <span className="text-ink-2"> · bin in {range}</span>
         </span>
       ) : (
         <span className="text-ink-2">Nothing here is waiting to go to the bin.</span>
@@ -132,13 +132,11 @@ export function NotKeptLine({ items, filter, whole, only, onOnly }: {
       <span className="grow" />
       {keep.isError && <ErrorNote>{keep.error.message}</ErrorNote>}
       {count > 0 && (
-        <button type="button" disabled={keep.isPending} onClick={() => void keepAll()} data-tip="Keep every item of this view that is not kept: they stay until you bin them" className="h-7 rounded-lg bg-warn px-3 text-xs font-bold text-warn-on hover:brightness-110 disabled:opacity-45">
+        <Button size="sm" tone="primary" disabled={keep.isPending} onClick={() => void keepAll()} data-tip="Keep every item of this view that is not kept: they stay until you bin them">
           {keep.isPending ? "Keeping…" : "Keep all"}
-        </button>
+        </Button>
       )}
-      <button type="button" aria-pressed={only} onClick={() => onOnly(!only)} className={cx("h-7 rounded-lg border px-3 text-xs", only ? "border-accent text-accent" : "border-line-strong text-ink hover:bg-hover")}>
-        {only ? "Show everything" : "Show only these"}
-      </button>
+      <Toggle on={only} onChange={onOnly} label="Only these" />
     </div>
   );
 }

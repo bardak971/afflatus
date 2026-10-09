@@ -40,6 +40,12 @@ export function clock(ms: number, opts: { decimals?: 0 | 1 | 2 } = {}): string {
   return `${base}.${String(part).padStart(decimals, "0")}`;
 }
 
+/**
+ * What is left of a running job, ComfyUI's own estimate from its steps: "1:05 left". The one way it is said, wherever
+ * it shows (status bar, Queue, tab, draft stage, inspector); a job not yet started keeps its "about" (`aboutMs`).
+ */
+export const timeLeft = (seconds: number) => `${clock(seconds * 1000)} left`;
+
 /** How long something has been going, to the second below: "0:59", "12:05" (minutes past the hour go on counting). */
 export function elapsed(ms: number): string {
   const s = Math.floor(Math.max(0, ms) / 1000);

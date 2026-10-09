@@ -5,7 +5,7 @@ import { api } from "../../api";
 import { useQueue } from "../../data";
 import { logRows, type LogLine, type LogRow } from "./logRows";
 import { copyText } from "../../secureContext";
-import { Button, cx, ErrorNote } from "../../ui";
+import { Button, Chip, cx, ErrorNote, Toggle } from "../../ui";
 
 /**
  * ComfyUI's terminal, live: its last few hundred lines are read every two seconds and kept here as
@@ -90,19 +90,17 @@ export function ComfyLog({ online }: { online: boolean }) {
   return (
     <div className="flex min-h-0 grow flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex h-8 w-72 items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
+        <label className="flex h-8 w-72 items-center gap-2 rounded-[10px] border border-line bg-raised px-2.5 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--color-accent-wash)]">
           <Search size={13} className="shrink-0 text-ink-3" />
-          <input data-search="log" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find in the log" className="min-w-0 grow bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
+          <input data-search="log" aria-label="Find in the log" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find in the log" className="min-w-0 grow bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
         </label>
-        <button type="button" aria-pressed={onlyTrouble} onClick={() => setOnlyTrouble((v) => !v)} className={cx("h-8 rounded-lg border px-2.5 font-semibold", onlyTrouble ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>
-          Errors and warnings{trouble ? ` · ${trouble}` : ""}
-        </button>
+        <Toggle on={onlyTrouble} onChange={setOnlyTrouble} label={`Errors and warnings${trouble ? ` · ${trouble}` : ""}`} />
         <Button size="sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)} data-tip={paused ? "Read the log again every two seconds" : "Stop reading: what is here stays put"}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? "Resume" : "Pause"}</Button>
         <Button size="sm" onClick={() => { setLines([]); seen.current.clear(); }} data-tip="Empty this view. ComfyUI keeps its own log."><Eraser size={13} /> Clear view</Button>
         {onlyJob && (
-          <button type="button" onClick={() => setOnlyJob(null)} data-tip="Show every job's lines again" className="flex h-8 max-w-72 items-center gap-1.5 rounded-lg border border-accent bg-accent-wash px-2.5 font-semibold text-accent">
+          <Chip tone="link" onClick={() => setOnlyJob(null)} tip="Show every job's lines again" className="max-w-72">
             <span className="truncate">Only {onlyJob.label}</span> <X size={12} className="shrink-0" />
-          </button>
+          </Chip>
         )}
         <Button size="sm" onClick={() => void copyText(shown.flatMap(raw).map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} data-tip="Copy the lines shown (tracebacks whole)"><Copy size={13} /> Copy</Button>
         {!stuck && <Button size="sm" tone="primary" onClick={() => { setStuck(true); if (box.current) box.current.scrollTop = box.current.scrollHeight; }}><ArrowDownToLine size={13} /> Follow the end</Button>}

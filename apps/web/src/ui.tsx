@@ -335,11 +335,11 @@ export function Bar({ value, tone = "accent" }: { value: number; tone?: "accent"
   );
 }
 
-/** Shown where a list has nothing in it yet: says what will appear and how to get it there. */
-export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+/** Shown where a list has nothing in it yet: says what will appear and how to get it there. `help`: the why and the how, behind a "?" beside the title. */
+export function Empty({ title, help, children }: { title: string; help?: string; children?: ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-line-strong px-8 py-14 text-center">
-      <div className="text-base font-semibold">{title}</div>
+      <div className="flex items-center gap-2 text-base font-semibold">{title}{help && <Help text={help} />}</div>
       {children && <div className="max-w-md text-ink-2">{children}</div>}
     </div>
   );

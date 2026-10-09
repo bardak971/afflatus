@@ -5,7 +5,7 @@ import { Link, useLocation } from "wouter";
 import { api, type Job, type QueueStatus, type RunningJob } from "./api";
 import { useAsset, useQueue } from "./data";
 import { useDownloads } from "./GetFile";
-import { about, elapsed, gb, phaseLabel, when } from "./format";
+import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { useLive, useSystem } from "./store";
 import { Chip, cx } from "./ui";
@@ -115,13 +115,13 @@ function Running({ run }: { run: RunningJob }) {
   const pct = Math.round(run.progress * 100);
   const ran = elapsed(run.startedAt ? Math.max(0, Date.now() - Date.parse(run.startedAt)) : 0);
   const steps = run.steps ? `${String(run.step).padStart(String(run.steps).length, " ")}/${run.steps}` : null;
-  const left = run.eta ? about(run.eta).replace(/^about (.*) left$/, "~$1") : run.progress > 0 ? `${pad(pct)} %` : "working…";
+  const left = run.eta ? timeLeft(run.eta) : run.progress > 0 ? `${pad(pct)} %` : "working…";
   return (
     <>
       <Link
         href="/queue"
         className={cx(pill, "min-w-0 hover:bg-hover")}
-        data-tip={`${run.progress > 0 ? `${pct} % of this render` : "No step count from this phase yet"}${run.eta ? ` · ${about(run.eta)}` : ""} · running for ${ran}`}
+        data-tip={`${run.progress > 0 ? `${pct} % of this render` : "No step count from this phase yet"}${run.eta ? ` · ${timeLeft(run.eta)}` : ""} · running for ${ran}`}
       >
         <span className="size-3 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent motion-reduce:animate-none" />
         <span className="min-w-0 truncate font-semibold">{what}</span>

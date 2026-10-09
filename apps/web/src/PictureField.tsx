@@ -15,7 +15,7 @@ import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
-import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note } from "./ui";
+import { Button, cx, Empty, ErrorNote, NumberBox, Help, Note, Segmented } from "./ui";
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
 import { VideoPlayer } from "./VideoPlayer";
@@ -58,14 +58,19 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
           <span className="min-w-0 grow">
             <DialogHead icon={kind === "audio" ? <Music size={16} /> : kind === "video" ? <Film size={16} /> : <ImagePlus size={16} />} title={title} sub="Pick one from your library, or bring one in" />
           </span>
-          <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
+          {/* the kit's text box look, its ring on the box that holds the glass and the input */}
+          <label className="flex h-9 w-64 items-center gap-2 rounded-[10px] border border-line bg-raised px-2.5 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--color-accent-wash)]">
             <Search size={13} className="shrink-0 text-ink-3" />
-            <input autoFocus data-search="picker" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className="min-w-0 grow bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
+            <input autoFocus data-search="picker" aria-label={`Search ${WORD[kind]}s by prompt or name`} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className="min-w-0 grow bg-transparent text-sm text-ink outline-none placeholder:text-ink-3" />
           </label>
           {project !== null && (
-            <button type="button" aria-pressed={all} onClick={() => setAll((v) => !v)} className={cx("h-9 rounded-lg border px-3 text-xs font-semibold", all ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")} data-tip={all ? "Showing every project. Click for the one the switcher looks at." : "Showing what the switcher looks at. Click for every project."}>
-              {all ? "Everything" : project === "none" ? "Inbox" : "This project"}
-            </button>
+            <Segmented
+              size="sm" oneLine label="Where to look" value={all ? "all" : "here"} onChange={(v) => setAll(v === "all")}
+              options={[
+                { value: "here", label: project === "none" ? "Inbox" : "This project", tip: "What the project switcher looks at" },
+                { value: "all", label: "Everything", tip: "Every project" },
+              ]}
+            />
           )}
           <Button onClick={() => file.current?.click()} disabled={upload.isPending}>
             <Upload size={15} /> {upload.isPending ? "Adding…" : "From your computer"}

@@ -1,13 +1,26 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { AlertTriangle, Check, X } from "lucide-react";
+import type { Job } from "./api";
 import { useQueue } from "./data";
 import { useDownloads } from "./GetFile";
 import { useBanners } from "./store";
 import { cx } from "./ui";
 
-/** A finished render is only announced where its result does not show up by itself. */
-const showsResults = (path: string) => path === "/create" || path.startsWith("/timelines/");
+/** A finished render is only announced where its result does not show up by itself (the Queue lists it as it ends). */
+const showsResults = (path: string) => path === "/create" || path === "/queue" || path.startsWith("/timelines/");
+
+/** What ended while its banner is up, folded into it: a batch says "8 done" once, not eight times. */
+interface Fold {
+  count: number;
+  labels: Set<string>;
+  exports: number;
+  last: string | null;
+}
+const noFold = (): Fold => ({ count: 0, labels: new Set(), exports: 0, last: null });
+/** "Portrait done", "8 done", "8 done · Portrait" (one name for the whole batch). */
+const foldTitle = (f: Fold, word: string) => (f.count === 1 ? `${[...f.labels][0]} ${word}` : `${f.count} ${word}`);
+const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels][0] : f.count > 1 ? `Last: ${f.last}` : undefined);
 
 /**
  * What failed or finished, said on whatever screen is open: a render that failed (it stays until it is
@@ -21,18 +34,39 @@ export function Banners() {
   // what was already finished when the page opened is old news
   const seenJobs = useRef<Set<string> | null>(null);
   const seenDownloads = useRef<Map<string, string> | null>(null);
+  const folds = useRef({ done: noFold(), failed: noFold() });
 
   useEffect(() => {
     const recent = queue.data?.recent;
     if (!recent) return;
     const over = recent.filter((j) => j.status === "done" || j.status === "failed");
     if (seenJobs.current) {
+      // a fold whose banner was closed (or went by itself) starts again from nothing
+      const up = new Set(useBanners.getState().items.map((b) => b.id));
+      if (!up.has("jobs:done")) folds.current.done = noFold();
+      if (!up.has("jobs:failed")) folds.current.failed = noFold();
+      const add = (f: Fold, j: Job) => {
+        f.count++;
+        f.labels.add(j.label);
+        f.last = j.label;
+        if (j.kind === "export") f.exports++;
+      };
       for (const j of over) {
         if (seenJobs.current.has(j.id)) continue;
-        if (j.status === "failed") push({ id: `job:${j.id}`, tone: "bad", title: `${j.label} failed`, text: j.error ?? undefined, href: "/queue", go: "Open queue" });
+        if (j.status === "failed") {
+          const f = folds.current.failed;
+          add(f, j);
+          // one failure says its error; several send to the Queue, where each one's is
+          push({ id: "jobs:failed", tone: "bad", title: foldTitle(f, "failed"), text: f.count === 1 ? j.error ?? undefined : foldText(f), href: "/queue", go: "Open queue" });
+        }
         // a model loaded ahead has nothing to show: the form says it is loaded
         else if (j.kind === "load") continue;
-        else if (!showsResults(path)) push({ id: `job:${j.id}`, tone: "good", title: `${j.label} done`, href: j.kind === "export" ? "/timelines" : "/", go: j.kind === "export" ? "Open timelines" : "Open library" });
+        else if (!showsResults(path)) {
+          const f = folds.current.done;
+          add(f, j);
+          const allExports = f.exports === f.count;
+          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), href: allExports ? "/timelines" : "/", go: allExports ? "Open timelines" : "Open library" });
+        }
       }
     }
     seenJobs.current = new Set(over.map((j) => j.id));

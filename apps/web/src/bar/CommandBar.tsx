@@ -8,7 +8,7 @@ import {
 import { api, type Entity, type RecipeInfo, type Settings } from "../api";
 import { useAsset, useEntities, useFamilies, useRecipes, useSettings } from "../data";
 import { useQueueOf } from "../screens/studio/queueOf";
-import { aboutMs } from "../format";
+import { aboutMs, timeLeft } from "../format";
 import { useProject } from "../project";
 import { useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
@@ -291,7 +291,7 @@ export function CommandBar() {
       case "queue": {
         const qd = queueFull;
         const jobs: Item[] = [];
-        if (qd?.running) jobs.push({ key: `job:${qd.running.id}`, kind: "job", label: qd.running.label, group: "Queue", verb: "open", p: prepare(qd.running.label), job: { job: qd.running, state: "running" }, meta: `running · ${qd.running.steps ? `step ${qd.running.step} of ${qd.running.steps}` : `${Math.round(qd.running.progress * 100)} %`}${qd.running.eta ? ` · ${aboutMs(qd.running.eta * 1000)} left` : ""}` });
+        if (qd?.running) jobs.push({ key: `job:${qd.running.id}`, kind: "job", label: qd.running.label, group: "Queue", verb: "open", p: prepare(qd.running.label), job: { job: qd.running, state: "running" }, meta: `running · ${qd.running.steps ? `step ${qd.running.step} of ${qd.running.steps}` : `${Math.round(qd.running.progress * 100)} %`}${qd.running.eta ? ` · ${timeLeft(qd.running.eta)}` : ""}` });
         qd?.waiting.forEach((w, i) => jobs.push({ key: `job:${w.id}`, kind: "job", label: w.label, group: "Queue", verb: "open", p: prepare(w.label), job: { job: w, state: "waiting", position: i + 1 }, meta: `waiting · ${i === 0 ? "next" : `${i + 1}${["st", "nd", "rd"][i] ?? "th"}`}${w.estimateMs ? ` · ${aboutMs(w.estimateMs)}` : ""} · Tab → to the top` }));
         for (const f of qd?.recent.filter((j) => j.status === "failed") ?? []) jobs.push({ key: `job:${f.id}`, kind: "job", label: f.label, group: "Queue", verb: "open", p: prepare(f.label), job: { job: f, state: "failed" }, meta: `failed${f.finishedAt ? ` ${new Date(f.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}${f.error ? ` · ${f.error.slice(0, 80)}` : ""} · Ctrl+Enter retries` });
         const found = q ? search(jobs, q, LIMIT).map((x) => x.item) : jobs;

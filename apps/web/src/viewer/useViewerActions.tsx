@@ -3,10 +3,11 @@ import { Camera, Clapperboard, Download, FlipHorizontal2, Music, Scissors, Shuff
 import { RANDOM_SEED } from "@afflatus/core";
 import { useQueueVariation } from "../actions";
 import { askAboutDisk } from "../Confirm";
-import { api, fileUrl, type Asset } from "../api";
+import { api, type Asset } from "../api";
 import { useAssetAction, type useAsset } from "../data";
+import { saveAsset } from "../download";
 import type { MenuItem } from "../ContextMenu";
-import { FORMATS, OPS } from "./shared";
+import { OPS } from "./shared";
 import { useMediaExtract } from "./useMediaExtract";
 import { useNewDraftActions } from "./useNewDraftActions";
 
@@ -104,12 +105,8 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
     // on to the next one: sorting a batch is keep, bin, keep, bin
     if (!(move(1) || move(-1))) onClose();
   };
-  const download = () => {
-    const link = document.createElement("a");
-    link.href = fileUrl(asset.id);
-    link.download = a.name || `${asset.id}.${(FORMATS[a.mime] ?? "bin").toLowerCase()}`;
-    link.click();
-  };
+  // saved under the one name rule of the app (the library's menu and the selection save the same way)
+  const download = () => saveAsset(a);
 
   // ---- the menus: every action the buttons and keys offer
   const sameAgain = (): MenuItem[] => (g && recipe ? [

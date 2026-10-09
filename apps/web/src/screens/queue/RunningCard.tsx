@@ -2,7 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import type { RunningJob } from "../../api";
 import { ContextMenu, useMenu } from "../../ContextMenu";
-import { about, phaseLabel } from "../../format";
+import { phaseLabel, timeLeft } from "../../format";
 import { LivePreview, StageStrip } from "../../LivePreview";
 import { Bar, Button } from "../../ui";
 import { useModelName } from "./modelName";
@@ -41,7 +41,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
               running.kind === "load" ? `loading ${modelOf(running)}` : modelOf(running),
               phaseLabel(running.phase).toLowerCase(),
               running.steps ? `step ${running.step} of ${running.steps}` : running.kind === "export" || running.kind === "cut" ? "no GPU needed" : "",
-              running.eta ? about(running.eta) : "",
+              running.eta ? timeLeft(running.eta) : "",
             ].filter(Boolean).join(" · ")}
             {running.spilling && <span className="font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together."> · spilling out of VRAM, much slower than usual</span>}
           </span>

@@ -2,7 +2,7 @@ import { lazy, Suspense, useMemo, useState, type ComponentProps } from "react";
 import type { TimesSummary, TopRender } from "../../api";
 import { useAsset } from "../../data";
 import { brief, long, took } from "../../format";
-import { cx, Empty, ErrorNote } from "../../ui";
+import { cx, Empty, ErrorNote, Segmented } from "../../ui";
 import { TimeChart, useChartColors } from "./Chart";
 import { flagsOf } from "./flagRules";
 import { Flags } from "./Flags";
@@ -177,14 +177,10 @@ function UpscaleChart({ chart, upscale, tones }: { chart: ChartBase; upscale: No
         format={(v) => (tab === "video" ? `${v.toFixed(v < 10 ? 1 : 0)} min/s` : `${v.toFixed(v < 10 ? 1 : 0)} s/MP`)}
         series={lines.map((l, i) => ({ name: l.name, values: l.points, color: tones[i % tones.length] }))}
       >
-        <div className="flex gap-1">
-          {(["video", "pictures"] as const).map((k) => (
-            <button key={k} type="button" aria-pressed={tab === k} disabled={!(k === "video" ? upscale.video : upscale.pictures).length} onClick={() => setTab(k)}
-              className={cx("rounded-md px-2 py-0.5 text-xs disabled:opacity-40", tab === k ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}>
-              {k === "video" ? "Video" : "Pictures"}
-            </button>
-          ))}
-        </div>
+        {/* a choice only when both have runs: the note under the title says which one is drawn */}
+        {upscale.video.length > 0 && upscale.pictures.length > 0 && (
+          <Segmented<"video" | "pictures"> size="sm" oneLine label="Upscales of" value={tab} onChange={setTab} options={[{ value: "video", label: "Video" }, { value: "pictures", label: "Pictures" }]} />
+        )}
       </TimeChart>
     </div>
   );

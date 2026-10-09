@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Job, type QueueStatus, type RunningJob } from "../api";
 import { useQueue } from "../data";
-import { NotifyToggle, notifyNote } from "../NotifyToggle";
+import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
 import { useBanners } from "../store";
 import { aboutMs } from "../format";
-import { Button, cx, ErrorNote, SectionTitle, Segmented } from "../ui";
+import { Button, cx, ErrorNote, Help, SectionTitle, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { ComfyLog } from "./queue/Log";
@@ -98,8 +98,9 @@ export function Queue() {
         <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_280px] gap-8">
           <div className="flex min-h-0 flex-col gap-5">
             {q.paused && (
-              <div className="shrink-0 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
-                Paused. The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: no GPU.
+              <div className="flex shrink-0 items-center gap-2 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
+                Paused · nothing new goes to ComfyUI
+                <Help text="The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: they need no GPU." />
               </div>
             )}
             <section aria-label="Now" className="flex max-h-[55%] shrink-0 flex-col gap-1.5 overflow-y-auto">
@@ -115,8 +116,15 @@ export function Queue() {
 
           <div className="flex min-h-0 flex-col gap-5 overflow-y-auto pb-4">
             <div className="flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
-              <NotifyToggle what="whenEmpty" onRefused={setRefused} />
-              <span className="text-xs text-ink-2">{notifyNote(refused)}</span>
+              <div className="flex items-center gap-2">
+                <NotifyToggle what="whenEmpty" onRefused={setRefused} />
+                <Help text={NOTIFY_HELP} />
+              </div>
+              {refused && (
+                <span className="flex items-center gap-1.5 text-xs text-warn-ink">
+                  {NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} />
+                </span>
+              )}
             </div>
             <MachineMeters />
           </div>

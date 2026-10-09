@@ -53,9 +53,23 @@ export interface Banner {
   /** What a click does in place of going to `href` (a reload). */
   act?(): void;
 }
+/** How many banners show at once: past it, the oldest good news goes first. Bad news is never dropped unread. */
+const BANNERS = 5;
 export const useBanners = create<{ items: Banner[]; push(b: Banner): void; dismiss(id: string): void }>((set) => ({
   items: [],
-  push: (b) => set((s) => (s.items.some((x) => x.id === b.id) ? s : { items: [...s.items.slice(-4), b] })),
+  // the same id again: that banner said anew in its place (a fold of a batch counting up, "3 done" → "4 done")
+  push: (b) =>
+    set((s) => {
+      const was = s.items.find((x) => x.id === b.id);
+      if (was) return was.title === b.title && was.text === b.text ? s : { items: s.items.map((x) => (x === was ? b : x)) };
+      const items = [...s.items, b];
+      while (items.length > BANNERS) {
+        const old = items.findIndex((x) => x.tone === "good");
+        if (old < 0) break;
+        items.splice(old, 1);
+      }
+      return { items };
+    }),
   dismiss: (id) => set((s) => ({ items: s.items.filter((x) => x.id !== id) })),
 }));
 

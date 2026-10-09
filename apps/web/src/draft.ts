@@ -13,6 +13,9 @@ const holdsNothing = (d: Draft) =>
   !d.name && !d.chat.length && !lookAdds(d.look) && Object.values(d.forms).every((form) => Object.keys(form).length === 0);
 
 /** What a save sends: the whole of what the page holds of the draft. */
+/** How many renders one Generate asks for: the batch count's bounds (the stepper stops at them). */
+export const BATCH = { least: 1, most: 8 } as const;
+
 export const saveBodyOf = (d: Draft) => ({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer });
 
 /**
@@ -259,7 +262,7 @@ export function useDraft(firstRecipe: string | undefined) {
         const target = recipe ?? d.recipe;
         return { ...d, recipe: target, forms: { ...d.forms, [target]: { ...d.forms[target], ...form } }, look: lookAdds(look) ? look : d.look };
       }),
-    setCount: (count: number) => change((d) => ({ ...d, count: Math.max(1, Math.min(8, count)) })),
+    setCount: (count: number) => change((d) => ({ ...d, count: Math.max(BATCH.least, Math.min(BATCH.most, count)) })),
     async switchTo(id: string) {
       await flush();
       open(id);

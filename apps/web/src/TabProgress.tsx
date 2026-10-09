@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Job } from "./api";
 import { useQueue } from "./data";
-import { clock } from "./format";
+import { clock, timeLeft } from "./format";
 import { MARK_SMALL } from "./logo";
 import { useThemeChoice } from "./theme/store";
 
@@ -145,7 +145,7 @@ export function TabProgress() {
   // a whole percent at a time: the icon is not redrawn for every event of a render
   const percent = run ? Math.round(run.progress * 100) : null;
   const paused = Boolean(queue.data?.paused) && !run;
-  const left = run?.eta ? `${clock(run.eta * 1000)} left` : null;
+  const left = run?.eta ? timeLeft(run.eta) : null;
   const what = run ? shortName(run.label) : null;
   // redrawn in a new theme or accent
   const theme = useThemeChoice();

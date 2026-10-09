@@ -98,7 +98,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   const projectsList = useProjects();
   const rootId = projectId && projectId !== "none" ? projectsList.data?.items.find((p) => p.id === projectId)?.folderId ?? null : null;
   const folder = place.type === "folder" ? folders.data?.items.find((f) => f.id === place.id) : rootId ? folders.data?.items.find((f) => f.id === rootId) : undefined;
-  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "Inbox" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
+  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "No folder" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
 
   const draftId = useOpenDraft((s) => s.id);
   const openDraft = useOpenDraft((s) => s.open);
@@ -256,19 +256,20 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               {(bulk.isError || moveTo.isError) && <ErrorNote>{(bulk.error ?? moveTo.error)?.message}</ErrorNote>}
               {showTimelines && <TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} />}
               {!showTimelines && assets.isSuccess && !items.length && !running && (
-                <Empty title={filtered ? "No match" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}>
-                  {filtered
+                <Empty
+                  title={filtered ? "No match" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}
+                  help={filtered
                     ? "Nothing here matches this search, model, LoRA or Kept filter. Change the search or the filters."
                     : place.type === "bin"
                       ? "Items you bin wait here a week before they are deleted for good."
                       : place.type === "folder"
                         ? "What you generate while it is open lands in it. Or drag images onto it from All."
                         : "Images and videos you generate appear here. Start with Create."}
-                </Empty>
+                />
               )}
               {/* the pages above, let go past the cap (useAssets), read again when scrolled back up to */}
               {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
-              {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title}>{groupedEmpty.body}</Empty>}
+              {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title} help={groupedEmpty.body} />}
               {!showTimelines && place.type !== "bin" && <NotKeptLine items={items} filter={filter} whole={Boolean(assets.hasNextPage || assets.hasPreviousPage)} only={unkept} onOnly={setUnkept} />}
               {/* what is being made now comes first, where its result will land */}
               {!showTimelines && (

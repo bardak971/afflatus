@@ -2,7 +2,7 @@ import { fileUrl, type Asset } from "./api";
 
 /** A file into the browser's downloads: one helper for a file of the server, an item of the library, or a file made here. */
 
-const FORMATS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "audio/flac": "flac" };
+const FORMATS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/wav": "wav", "audio/ogg": "ogg", "audio/flac": "flac" };
 
 /** The name an item is saved under: its own, else its id with the extension of its type. */
 export const downloadName = (asset: Pick<Asset, "id" | "name" | "mime">) => asset.name || `${asset.id}.${FORMATS[asset.mime] ?? "bin"}`;

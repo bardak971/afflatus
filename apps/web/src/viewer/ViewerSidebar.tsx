@@ -11,7 +11,8 @@ import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
 import { clock, fileLabel, notReady, recipeLabel, took, when } from "../format";
 import { Select } from "../Select";
-import { Button, cx, fieldClass, SectionTitle } from "../ui";
+import { Button, cx, fieldClass, Help, SectionTitle } from "../ui";
+import { binRange, leftOf } from "../screens/library/justify";
 import { FieldRow } from "../fields";
 import { ModelLink } from "../ModelLink";
 import { FORMATS, mb, OPS } from "./shared";
@@ -481,7 +482,10 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
         ) : (
           !a.kept && (
             <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2.5 text-warn-ink">
-              <span>Not kept: it goes to the bin after a day.</span>
+              <span className="flex items-center gap-1.5">
+                Not kept · bin in {binRange([leftOf(a)])}
+                <Help text="What nobody kept goes to the bin a day after it was made (or unkept). Keep holds it until you bin it." />
+              </span>
               <Button size="sm" tone="danger" onClick={() => keep.mutate(true)}>Keep</Button>
             </div>
           )
@@ -565,8 +569,8 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
             {a.width && a.height ? <Row label="Resolution">{a.width} × {a.height}</Row> : null}
             {a.kind === "video" && a.durationMs ? <Row label="Duration">{(a.durationMs / 1000).toFixed(1)} s{a.fps ? `, ${Math.round(a.fps)} fps` : ""}</Row> : null}
             {a.kind === "video" && a.durationMs ? <Row label="Audio">{a.hasSound ? "Yes" : "No"}</Row> : null}
-            {g?.resolved.overlap?.headMs ? <Row label="Head overlap">The first {(g.resolved.overlap.headMs / 1000).toFixed(1)} s repeat the end of the previous clip. A timeline skips them.</Row> : null}
-            {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap">The last {(g.resolved.overlap.tailMs / 1000).toFixed(1)} s repeat the start of the next clip. A timeline skips them.</Row> : null}
+            {g?.resolved.overlap?.headMs ? <Row label="Head overlap"><span className="inline-flex items-center gap-1.5">{(g.resolved.overlap.headMs / 1000).toFixed(1)} s <Help text="The first seconds repeat the end of the previous clip. A timeline skips them." /></span></Row> : null}
+            {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap"><span className="inline-flex items-center gap-1.5">{(g.resolved.overlap.tailMs / 1000).toFixed(1)} s <Help text="The last seconds repeat the start of the next clip. A timeline skips them." /></span></Row> : null}
             <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
             {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
             <Row label="Created">{made.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>

@@ -17,8 +17,7 @@ export function NotifyToggle({ what, onRefused }: { what: What; onRefused(refuse
   return <Toggle on={notify[what]} onChange={(on) => void set(on)} label={LABELS[what]} />;
 }
 
-/** What is said under the switches: why one did not turn on, or what they do. */
-export const notifyNote = (refused: boolean) =>
-  refused
-    ? "Your browser does not allow notifications from this page. Allow them in its settings, next to the address."
-    : "A notification from your browser, while an Afflatus tab is open in it (one tab says it, however many are open). Nothing leaves your computer. This is set per browser.";
+/** What the switches do, behind a "?" beside them. */
+export const NOTIFY_HELP = "A notification from your browser, while an Afflatus tab is open in it (one tab says it, however many are open). Nothing leaves your computer. Set per browser.";
+/** Why one did not turn on: said in a few words, the way out behind a "?". */
+export const NOTIFY_REFUSED = { said: "Blocked by the browser", help: "Your browser does not allow notifications from this page. Allow them in its site settings, next to the address." };

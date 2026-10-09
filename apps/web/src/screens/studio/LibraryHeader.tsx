@@ -8,7 +8,7 @@ import type { Asset } from "../../api";
 import { useAssetFamilies, useAssetModels, useFolders, useRecipes, useProjects } from "../../data";
 import { fileLabel } from "../../format";
 import { Select } from "../../Select";
-import { Button, cx, Segmented } from "../../ui";
+import { Button, Checkbox, cx, SectionTitle, Segmented } from "../../ui";
 import type { Place } from "../Library";
 import { displayOf, type Scope, type useStudio } from "../../store";
 import { KINDS, type LibraryFilters } from "./useLibraryFilters";
@@ -19,6 +19,7 @@ import type { Selection } from "./useSelection";
 const SCOPES: Array<{ value: Scope; label: string }> = [{ value: "draft", label: "Draft" }, { value: "all", label: "Folder" }, { value: "recent", label: "Recent" }];
 // the kinds of media, the Timelines being a view of their own (Media · Timelines)
 const MEDIA_KINDS = KINDS.filter((k) => k.id !== "timeline");
+// what each grouping keeps: on its choice's tooltip
 const GROUP_HINT = {
   none: "Everything, newest first.",
   timeline: "Only takes of a timeline's clips, the takes of a clip stacked.",
@@ -210,17 +211,16 @@ function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefO
       <div className="flex flex-col gap-3 p-3">
         {!showTimelines && (
           <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Group by</span>
+            <SectionTitle>Group by</SectionTitle>
             <Segmented
               label="Group by" value={view.groupBy ?? "none"}
               onChange={(g) => view.set({ groupBy: g })}
-              options={[{ value: "none", label: "None" }, { value: "timeline", label: "Timeline" }, { value: "draft", label: "Draft" }, { value: "day", label: "Day" }]}
+              options={[{ value: "none", label: "None", tip: GROUP_HINT.none }, { value: "timeline", label: "Timeline", tip: GROUP_HINT.timeline }, { value: "draft", label: "Draft", tip: GROUP_HINT.draft }, { value: "day", label: "Day", tip: GROUP_HINT.day }]}
             />
-            <span className="text-xs text-ink-3">{GROUP_HINT[view.groupBy ?? "none"]}</span>
           </div>
         )}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Filter</span>
+          <SectionTitle>Filter</SectionTitle>
       {(families.data?.items.length ?? 0) > 0 && (
         <div>
           <Select
@@ -241,9 +241,9 @@ function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefO
           />
         </div>
       )}
-          <button type="button" aria-pressed={kept} onClick={() => setKept(!kept)} className={cx("flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
-            <Star size={13} fill={kept ? "currentColor" : "none"} /> Kept only
-          </button>
+          <Checkbox checked={kept} onChange={setKept} className="h-8 text-xs font-semibold">
+            <Star size={13} fill={kept ? "currentColor" : "none"} className={kept ? "text-accent" : "text-ink-2"} /> Kept only
+          </Checkbox>
         </div>
         {active && (
           <button type="button" onClick={() => { setMade(""); setLora(""); setKept(false); setUnkept(false); view.set({ groupBy: "none" }); }} className="self-start text-xs text-ink-2 underline hover:text-ink">Clear all</button>

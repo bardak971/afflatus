@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Images, Square, X } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets } from "../../data";
-import { about, clock, phaseLabel } from "../../format";
+import { clock, phaseLabel, timeLeft } from "../../format";
 import { Kbd } from "../../Keys";
 import { useStudio } from "../../store";
 import { LivePreview, StageStrip } from "../../LivePreview";
@@ -67,8 +67,8 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   const shown = chosen ?? (live ? undefined : items[0]);
 
   if (assets.isSuccess && !items.length && !running && !waiting) {
-    if (!draft && empty) return <Empty title={empty.title}>{empty.body}</Empty>;
-    if (!draft) return <Empty title="Nothing here yet">Nothing in this view. Another scope or folder may have what you are looking for.</Empty>;
+    if (!draft && empty) return <Empty title={empty.title} help={empty.body} />;
+    if (!draft) return <Empty title="Nothing here yet" help="Nothing in this view. Another scope or folder may have what you are looking for." />;
     return <NothingYet />;
   }
   return (
@@ -168,7 +168,7 @@ function LiveProgress({ id }: { id: string }) {
   if (!job) return null;
   return (
     <>
-      <span className="font-semibold">{phaseLabel(job.phase)}{job.steps ? ` · step ${job.step} of ${job.steps}` : ""}{job.eta ? ` · ${about(job.eta)}` : ""}</span>
+      <span className="font-semibold">{phaseLabel(job.phase)}{job.steps ? ` · step ${job.step} of ${job.steps}` : ""}{job.eta ? ` · ${timeLeft(job.eta)}` : ""}</span>
       <div className="w-full"><Bar value={job.progress * 100} /></div>
     </>
   );
