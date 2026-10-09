@@ -10,7 +10,7 @@ import { recipeLabel, size } from "../format";
 import { useProject } from "../project";
 import { useHandover, useOpenDraft, useStudio } from "../store";
 import { Button, cx, ErrorNote, Help, Segmented } from "../ui";
-import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, whyRefused, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
+import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, rowHeight, rowOffsets, rowWindow, shortDate, siblings, step, whyRefused, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
 import { useItemMenu } from "./useItemMenu";
 import { useTreeActions } from "./useTreeActions";
 
@@ -50,6 +50,10 @@ const readFolds = (): Record<string, boolean> => {
 const DRAFTS_PAGE = 50;
 /** A folder's items are read 50 at a time. */
 const ITEMS_PAGE = 50;
+/** Rows drawn above and below those in sight: a long list draws only these (a folder of thousands of items stays quick). */
+const OVERSCAN = 10;
+/** How near the top or the foot of the list a drag scrolls it, in px. */
+const EDGE = 32;
 /** Something open over the panel that keeps its own keys and clicks: a menu, a dialog. */
 const OVER = "[role=menu], [role=dialog][aria-modal=true]";
 const HELP =
@@ -104,6 +108,17 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  // the part of the list in sight, from its first row's top: a long list draws only the rows there
+  const head = useRef<HTMLDivElement>(null);
+  const firstGap = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 1200 });
+  const measure = () => {
+    const el = list.current;
+    if (!el) return;
+    const top = el.scrollTop - (firstGap.current?.offsetTop ?? 0);
+    const height = el.clientHeight;
+    setView((v) => (v.top === top && v.height === height ? v : { top, height }));
+  };
   const search = useRef<HTMLInputElement>(null);
   const [, go] = useLocation();
   const current = useProject((s) => s.id);
@@ -272,6 +287,12 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     [tree.data, folds, searchFolded, q, kind, sort, draftsRead, itemsRead, recipes.data, current, storage.data?.bin.count, storage.data?.bin.bytes],
   );
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
+  // the list drawn in a window: where each row sits, its place among its own (said to screen readers: rows out of sight are not drawn)
+  const indexOf = useMemo(() => new Map(rows.map((r, i) => [r.key, i])), [rows]);
+  const offsets = useMemo(() => rowOffsets(rows), [rows]);
+  const sibs = useMemo(() => siblings(rows), [rows]);
+  // the Bin stays in sight at the foot of the list: what it covers is not in sight
+  const footHeight = rows.at(-1)?.kind === "bin" ? rowHeight(rows.at(-1)!) : 0;
   const found = q ? rows.filter((r) => r.match).length : 0;
 
   // picked rows (kept with what they are, so that one folded away still moves with the others), the last one picked, the row the keys are on
@@ -507,6 +528,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
 
   // dragging rows onto a project, the Inbox or a folder: what is dragged, the row it is over, a folded one opening after a moment
   const dragged = useRef<Row[] | null>(null);
+  // the row a drag started on stays drawn while it lasts, out of sight too: its dragend comes to it
+  const dragFrom = useRef<string | null>(null);
   /** Whether what is dragged can be dropped on that row: moved there, or (the Bin) thrown away. */
   const takes = (r: Row) => {
     const moving = dragged.current ? movingOf(dragged.current) : [];
@@ -523,6 +546,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     if (!r.moving || renaming) return e.preventDefault();
     const rs = picked.has(r.key) ? [...picked.values()] : [r];
     dragged.current = rs;
+    dragFrom.current = r.key;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/x-afflatus-tree", rs.map((x) => x.key).join(","));
     if (rs.length > 1) {
@@ -580,6 +604,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   };
   const dragEnd = () => {
     dragged.current = null;
+    dragFrom.current = null;
     setOver(null);
     setRefused(null);
     setOverBadge(null);
@@ -744,11 +769,45 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   useEffect(() => {
     if (!focused && rows.length && hereKey) setFocused(hereKey);
   }, [rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (focused) list.current?.querySelector(`[data-key="${CSS.escape(focused)}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [focused]);
+  // the list's size followed: more rows drawn when it grows
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (!el) return;
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [place === null]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the row the keys are on brought into sight inside the list (never the page), clear of the column heads and of the Bin at its foot
+  useLayoutEffect(() => {
+    const el = list.current;
+    const i = focused ? indexOf.get(focused) : undefined;
+    if (!el || i === undefined || rows[i]!.kind === "bin") return;
+    const start = firstGap.current?.offsetTop ?? 0;
+    const above = head.current?.offsetHeight ?? 0;
+    const top = start + offsets[i]!;
+    const bottom = start + offsets[i + 1]!;
+    // the first row: the list from its very top, as it opens
+    if (top < el.scrollTop + above) el.scrollTop = i === 0 ? 0 : top - above;
+    else if (bottom > el.scrollTop + el.clientHeight - footHeight) el.scrollTop = bottom - el.clientHeight + footHeight;
+    measure();
+  }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!place) return null;
+  // the rows drawn: those in sight and a few more, the row the keys are on, the one renamed or dragged, the Bin (it stays at the foot)
+  const keep = [focused, renaming?.key, dragFrom.current, footHeight ? "bin" : null].map((k) => (k ? indexOf.get(k) ?? -1 : -1));
+  const drawn = rowWindow(offsets, view.top, view.height, OVERSCAN, keep).flatMap((p): ({ gap: number } | { r: Row; i: number })[] => ("gap" in p ? [p] : rows.slice(p.from, p.to).map((r, k) => ({ r, i: p.from + k }))));
+  /** A drag near the top or the foot of the list scrolls it, so rows out of sight can be reached; over the Bin it stays put (a place to drop). */
+  const edgeScroll = (e: DragEvent) => {
+    const el = list.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const up = box.top + (head.current?.offsetHeight ?? 0) + EDGE - e.clientY;
+    const foot = box.bottom - footHeight;
+    const down = e.clientY - (foot - EDGE);
+    if (up > 0) el.scrollTop -= Math.min(24, up);
+    else if (down > 0 && e.clientY < foot) el.scrollTop += Math.min(24, down);
+  };
   const commitRename = async () => {
     const cur = renameRef.current;
     if (!cur) return;
@@ -800,12 +859,14 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         aria-multiselectable
         aria-activedescendant={focused ? `tree-${focused}` : undefined}
         tabIndex={0}
+        onScroll={measure}
+        onDragOver={edgeScroll}
         // no ring around the whole list: the row the keys are on has its own (the app's :focus-visible outline would beat a class)
         style={{ outline: "none" }}
-        className="min-h-0 grow overflow-y-auto border-t border-line px-2 py-1"
+        className="relative min-h-0 grow overflow-y-auto border-t border-line px-2 py-1"
       >
         {/* the columns: a click sorts each level by it, again turns it around */}
-        <div className={cx("sticky top-0 z-10 -mx-2 -mt-1 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", COLUMNS)}>
+        <div ref={head} className={cx("sticky top-0 z-10 -mx-2 -mt-1 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", COLUMNS)}>
           {(
             [
               { by: "name", label: "Name", end: false },
@@ -837,7 +898,10 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         {tree.isError && <div className="p-3"><ErrorNote>{tree.error.message}</ErrorNote></div>}
         {tree.isPending && <div className="p-4 text-ink-2">Reading your projects…</div>}
         {tree.isSuccess && q && !groups.length && <div className="py-10 text-center text-ink-2">Nothing called “{q}”. The search looks at projects, folders, timelines and drafts.</div>}
-        {rows.map((r) => {
+        {drawn.map((d, n) => {
+          // the rows not drawn, as tall as they are; never what the browser keeps in place on a change (it grows as the list scrolls)
+          if ("gap" in d) return <div key={`gap-${n}`} ref={n === 0 ? firstGap : undefined} aria-hidden style={{ height: d.gap, overflowAnchor: "none" }} />;
+          const { r, i } = d;
           const top = r.depth === 0;
           const isPicked = picked.has(r.key);
           const here = r.key === hereKey;
@@ -850,6 +914,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
               data-key={r.key}
               role="treeitem"
               aria-level={r.depth + 1}
+              aria-setsize={sibs.size[i]}
+              aria-posinset={sibs.pos[i]}
               aria-expanded={r.foldable ? r.open : undefined}
               aria-selected={isPicked}
               draggable={Boolean(r.moving) && !isRenaming}

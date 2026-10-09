@@ -417,6 +417,68 @@ export function step(rows: Row[], from: string | null, by: 1 | -1): string | nul
   return rows[Math.max(0, Math.min(rows.length - 1, i + by))]!.key;
 }
 
+/** A row's height in the list, as the panel draws it: 40 px at the top level, 33 under it; Archived and the Bin 8 more (the space above their line). */
+export const rowHeight = (r: Pick<Row, "depth" | "kind">) => (r.depth === 0 ? 40 : 33) + (r.kind === "archive" || r.kind === "bin" ? 8 : 0);
+
+/** Where each row starts, from the top of the first; one more at the end: the height of them all. */
+export function rowOffsets(rows: Pick<Row, "depth" | "kind">[]): number[] {
+  const out = [0];
+  for (const r of rows) out.push(out.at(-1)! + rowHeight(r));
+  return out;
+}
+
+/** A part of a long list as drawn: rows `from` to `to` (not included), or the height of those left out. */
+export type Piece = { from: number; to: number } | { gap: number };
+
+/**
+ * The rows of a long list that are drawn: those in sight from `top` for `height` px (measured from the first row's
+ * top), `over` more above and below, and the `keep` ones wherever they are (the row the keys are on, one being
+ * renamed or dragged, the Bin). Those left out are gaps of their height, so the list is as tall and scrolls the
+ * same. It starts and ends with a gap, of 0 when there is none.
+ */
+export function rowWindow(offsets: number[], top: number, height: number, over: number, keep: number[] = []): Piece[] {
+  const n = offsets.length - 1;
+  if (n <= 0) return [{ gap: 0 }, { gap: 0 }];
+  // the first row that reaches below `top`, the first that starts at or past the end of the view
+  const first = (y: number) => {
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (offsets[mid + 1]! <= y) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const from = Math.max(0, first(top) - over);
+  const to = Math.min(n, first(top + Math.max(0, height)) + 1 + over);
+  const shown = new Set<number>();
+  for (let i = from; i < to; i++) shown.add(i);
+  for (const i of keep) if (i >= 0 && i < n) shown.add(i);
+  const order = [...shown].sort((a, b) => a - b);
+  const pieces: Piece[] = [{ gap: offsets[order[0]!]! }];
+  for (let i = 0; i < order.length; ) {
+    let j = i;
+    while (j + 1 < order.length && order[j + 1] === order[j]! + 1) j++;
+    if (i > 0) pieces.push({ gap: offsets[order[i]!]! - offsets[order[i - 1]! + 1]! });
+    pieces.push({ from: order[i]!, to: order[j]! + 1 });
+    i = j + 1;
+  }
+  pieces.push({ gap: offsets[n]! - offsets[order.at(-1)! + 1]! });
+  return pieces;
+}
+
+/** Where each row sits among the rows under the same one (1 on), and how many those are: for aria-posinset and aria-setsize, as the rows not drawn still count. */
+export function siblings(rows: Pick<Row, "parent">[]): { pos: number[]; size: number[] } {
+  const counts = new Map<string | null, number>();
+  const pos = rows.map((r) => {
+    const n = (counts.get(r.parent) ?? 0) + 1;
+    counts.set(r.parent, n);
+    return n;
+  });
+  return { pos, size: rows.map((r) => counts.get(r.parent)!) };
+}
+
 /**
  * What a drop on the Bin does: items go to the bin (restorable for a week); folders, timelines and drafts
  * are deleted (a folder's items go to the folder above it). Null when there is nothing to drop; projects

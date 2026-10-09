@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../src/api/types/library";
-import { draftLabel, flatten, folderMeta, groupMeta, pathEnd, whyRefused, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, shortDate, step, type Moving, type Target } from "../src/projects/tree";
+import { draftLabel, flatten, folderMeta, groupMeta, pathEnd, whyRefused, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, rowHeight, rowOffsets, rowWindow, shortDate, siblings, step, type Moving, type Piece, type Target } from "../src/projects/tree";
 
 const folder = (id: string, children: FolderNode[] = [], linked = false): FolderNode => ({ id, name: id, linked, items: 1, totalItems: 1 + children.length, bytes: 2 ** 20, children });
 const group = (id: string | null, over: Partial<TreeGroup> = {}): TreeGroup => ({
@@ -393,5 +393,43 @@ describe("the empty drafts", () => {
     expect(r.find((x) => x.key === "g:p")?.created).toBe("2026-09-01T00:00:00Z");
     expect(r.filter((x) => x.kind === "folder").map((x) => x.label)).toEqual(["new", "old"]);
     expect(flatten(dated, { isOpen: () => true, items: () => ({ items: [], more: false }), drafts: none, sort: { by: "created", desc: false } }).filter((x) => x.kind === "folder").map((x) => x.label)).toEqual(["old", "new"]);
+  });
+});
+
+describe("a long list drawn in a window", () => {
+  // the top row, 300 rows under it, the Bin at the foot: 40 + 300 × 33 + 48
+  const list = [{ depth: 0, kind: "project" as const }, ...Array.from({ length: 300 }, () => ({ depth: 1, kind: "item" as const })), { depth: 0, kind: "bin" as const }];
+  const at = rowOffsets(list);
+  const height = (ps: Piece[]) => ps.reduce((n, p) => n + ("gap" in p ? p.gap : at[p.to]! - at[p.from]!), 0);
+  const drawn = (ps: Piece[]) => ps.flatMap((p) => ("gap" in p ? [] : Array.from({ length: p.to - p.from }, (_, i) => p.from + i)));
+
+  it("gives each row its height: 40 at the top, 33 under it, 8 more above Archived and the Bin", () => {
+    expect([rowHeight({ depth: 0, kind: "project" }), rowHeight({ depth: 2, kind: "item" }), rowHeight({ depth: 0, kind: "archive" }), rowHeight({ depth: 0, kind: "bin" })]).toEqual([40, 33, 48, 48]);
+    expect(at.at(-1)).toBe(40 + 300 * 33 + 48);
+  });
+  it("draws the rows in sight and 10 more each side, the rest as gaps of their height", () => {
+    // 330 px from the first row, 330 px tall: rows 9 (from 304 px) to 19 (from 634 px) in sight, 0 to 29 drawn
+    const ps = rowWindow(at, 330, 330, 10);
+    expect(drawn(ps)).toEqual(Array.from({ length: 30 }, (_, i) => i));
+    expect(ps[0]).toEqual({ gap: 0 });
+    expect(height(ps)).toBe(at.at(-1));
+    const far = rowWindow(at, 5000, 400, 10);
+    expect(drawn(far).length).toBeLessThan(40);
+    expect(far[0]).toEqual({ gap: at[drawn(far)[0]!] });
+    expect(height(far)).toBe(at.at(-1));
+  });
+  it("keeps the rows asked for wherever they are, between gaps, in order", () => {
+    const ps = rowWindow(at, 0, 300, 10, [301, 250, -1, 999]);
+    expect(drawn(ps).slice(-2)).toEqual([250, 301]);
+    expect(ps.at(-1)).toEqual({ gap: 0 });
+    expect(ps.filter((p) => "gap" in p && p.gap > 0)).toHaveLength(2);
+    expect(height(ps)).toBe(at.at(-1));
+  });
+  it("draws everything when the list is short, and nothing but two empty gaps when there is no row", () => {
+    expect(rowWindow(at.slice(0, 6), 0, 1000, 10)).toEqual([{ gap: 0 }, { from: 0, to: 5 }, { gap: 0 }]);
+    expect(rowWindow([0], 0, 1000, 10)).toEqual([{ gap: 0 }, { gap: 0 }]);
+  });
+  it("says where each row sits among those under the same one", () => {
+    expect(siblings([{ parent: null }, { parent: "a" }, { parent: "a" }, { parent: null }, { parent: "b" }])).toEqual({ pos: [1, 1, 2, 2, 1], size: [2, 2, 2, 2, 1] });
   });
 });
