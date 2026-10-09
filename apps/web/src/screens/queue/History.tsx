@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useMemo, useState } from "react";
 import { Clipboard, Eye, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import type { HistoryJob } from "../../api";
@@ -22,9 +22,9 @@ type Status = "all" | "done" | "failed" | "cancelled";
  * What the queue has done, as a list: each finished job a row with a thumbnail of what it made, its name,
  * the model, how long it took and when; failed ones first, tinted, with their error and a retry; cancelled
  * ones folded away. Jobs asked for together ("Make 4") are one row. A click on a thumbnail opens the
- * result as the library does.
+ * result as the library does. Held apart from the queue above it: a progress event redraws the running card, not these rows.
  */
-export function History() {
+export const History = memo(function History() {
   const [status, setStatus] = useState<Status>("all");
   const [typed, setTyped] = useState("");
   const [model, setModel] = useState("");
@@ -116,7 +116,7 @@ export function History() {
       {asset.data && <Suspense fallback={null}><Viewer asset={asset.data} onClose={() => setOpen(null)} /></Suspense>}
     </section>
   );
-}
+});
 
 /** A row's thumbnail: what it made (a picture, or a video that plays on hover); neutral for a cut, an export or nothing made. */
 function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): void }) {
@@ -155,7 +155,7 @@ function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): vo
     ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
     ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => void navigator.clipboard?.writeText(String(head.seed)).catch(() => {}) }] : []),
     "—",
-    { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => jobs.forEach((j) => dismiss.mutate(j.id)) },
+    { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => dismiss.mutate(jobs.map((j) => j.id)) },
   ];
   const tip = [head.prompt, name !== head.label ? head.label : "", head.seed !== null && jobs.length === 1 ? `seed ${head.seed}` : ""].filter(Boolean).join("\n");
   return (
@@ -178,7 +178,7 @@ function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): vo
           {head.draftId && (
             <button type="button" data-tip="Open its draft in Studio" aria-label="Open the draft" onClick={() => toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>
           )}
-          <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => jobs.forEach((j) => dismiss.mutate(j.id))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
+          <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => dismiss.mutate(jobs.map((j) => j.id))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
         </span>
       </span>
       <span className="truncate text-[12.5px] text-ink-2" data-tip={head.model ? fileLabel(head.model) : undefined}>{modelOf(head)}</span>

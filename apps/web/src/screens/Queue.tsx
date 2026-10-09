@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Job, type QueueStatus } from "../api";
+import { api, type Job, type QueueStatus, type RunningJob } from "../api";
 import { useQueue } from "../data";
 import { NotifyToggle, notifyNote } from "../NotifyToggle";
+import { useBanners } from "../store";
 import { aboutMs } from "../format";
 import { Button, cx, ErrorNote, SectionTitle, Segmented } from "../ui";
 import { History } from "./queue/History";
@@ -36,10 +37,10 @@ function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: {
   );
 }
 
-/** What the waiting jobs come to: about how long in all, and how many times the model changes on the way. */
-function waitingSaid(waiting: Job[]): string {
-  const ms = waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0);
-  const switches = modelSwitches(waiting);
+/** What the waiting jobs come to: about how long in all (with what the running job has left), and how many times the model changes on the way from the running one. */
+function waitingSaid(waiting: Job[], running: RunningJob | null): string {
+  const ms = waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) + (running?.eta ?? 0) * 1000;
+  const switches = modelSwitches(waiting, running);
   return [ms ? `${aboutMs(ms)} in all` : "", switches ? `${switches} model switch${switches > 1 ? "es" : ""}` : ""].filter(Boolean).join(" · ");
 }
 
@@ -52,14 +53,22 @@ export function Queue() {
   const queue = useQueue();
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: ["queue"] });
-  const pause = useMutation({ mutationFn: (paused: boolean) => (paused ? api.pause() : api.resume()), onSuccess: refresh });
-  const free = useMutation({ mutationFn: api.freeMemory });
-  const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh });
-  const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q) });
+  // what fails is said in a banner, as the history's actions do: it goes away, and does not stay on the screen
+  const say = useBanners((b) => b.push);
+  const failed = (title: string) => (err: Error) => say({ id: `queue:${Date.now()}`, tone: "bad", title, text: err.message, href: "/queue", go: "Open queue" });
+  const pause = useMutation({ mutationFn: (paused: boolean) => (paused ? api.pause() : api.resume()), onSuccess: refresh, onError: failed("Could not pause or resume the queue") });
+  const free = useMutation({ mutationFn: api.freeMemory, onError: failed("Could not unload the models") });
+  const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh, onError: failed("Could not cancel it") });
+  const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q), onError: failed("Could not reorder the queue") });
   const [refused, setRefused] = useState(false);
   const [tab, setTab] = useState<"queue" | "times" | "log">("queue");
   const q = queue.data;
-  const error = queue.error ?? free.error ?? pause.error ?? cancel.error ?? order.error;
+  // "Models unloaded" holds until a model is loaded again
+  const loaded = q?.model;
+  const resetFree = free.reset;
+  useEffect(() => {
+    if (loaded) resetFree();
+  }, [loaded, resetFree]);
 
   return (
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
@@ -70,19 +79,21 @@ export function Queue() {
         </div>
         <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2">
           <span className="flex shrink-0 items-center gap-1.5">
-            <span className={cx("h-2 w-2 rounded-full", q?.online ? "bg-good" : "bg-warn")} />
-            {q?.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
+            {/* not read yet, or could not be: nothing is said about ComfyUI */}
+            <span className={cx("h-2 w-2 rounded-full", !q ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
+            {!q ? "…" : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
           </span>
           {q?.model && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>
         <QueueControls q={q} free={free} pause={pause} />
       </header>
 
-      {error && <ErrorNote>{error.message}</ErrorNote>}
+      {queue.error && <ErrorNote>Could not read the queue: {queue.error.message}</ErrorNote>}
 
       {tab === "times" && <div className="min-h-0 grow overflow-y-auto"><RenderTimes /></div>}
       {tab === "log" && <ComfyLog online={Boolean(q?.online)} />}
 
+      {tab === "queue" && !q && !queue.error && <p className="text-sm text-ink-3">…</p>}
       {tab === "queue" && q && (
         <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_280px] gap-8">
           <div className="flex min-h-0 flex-col gap-5">
@@ -94,7 +105,7 @@ export function Queue() {
             <section aria-label="Now" className="flex max-h-[55%] shrink-0 flex-col gap-1.5 overflow-y-auto">
               <div className="flex items-baseline justify-between gap-2">
                 <SectionTitle>{[q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running", q.waiting.length ? `next ${q.waiting.length}` : ""].filter(Boolean).join(" · ")}</SectionTitle>
-                {q.waiting.length > 0 && <span className="truncate text-xs text-ink-2">{waitingSaid(q.waiting)}</span>}
+                {q.waiting.length > 0 && <span className="truncate text-xs text-ink-2">{waitingSaid(q.waiting, q.running)}</span>}
               </div>
               <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />
               <WaitingList waiting={q.waiting} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} />

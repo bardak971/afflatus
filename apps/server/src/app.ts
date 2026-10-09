@@ -17,6 +17,7 @@ import { httpError } from "./errors";
 import { registerEvents } from "./events";
 import { registerFolders } from "./folders";
 import { allowedHosts, ANY_HOST, crossSite, hostAllowed, marked, UPLOAD_TYPE } from "./hostCheck";
+import { registerHistory } from "./history-api";
 import { registerJobs } from "./jobs-api";
 import { registerLookup } from "./lookup-api";
 import { registerMetrics } from "./metrics";
@@ -137,6 +138,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerEvents(app, s, VERSION);
   registerLookup(app, s);
   registerJobs(app, s);
+  registerHistory(app, s);
   registerAssets(app, s);
 
   return app;

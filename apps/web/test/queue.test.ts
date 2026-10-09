@@ -82,6 +82,10 @@ describe("the waiting jobs' order", () => {
   it("counts the model loads down the line of renders, not the exports between them", () => {
     expect(modelSwitches([{ kind: "render", recipe: "x" }, { kind: "export", recipe: "e" }, { kind: "render", recipe: "x" }, { kind: "render", recipe: "y" }])).toBe(1);
     expect(modelSwitches([])).toBe(0);
+    // from the running job's model: the first waiting render of another model is a switch
+    expect(modelSwitches([{ kind: "render", recipe: "y" }], { kind: "render", recipe: "x" })).toBe(1);
+    expect(modelSwitches([{ kind: "render", recipe: "x" }], { kind: "load", recipe: "x" })).toBe(0);
+    expect(modelSwitches([{ kind: "render", recipe: "y" }], { kind: "export", recipe: "e" })).toBe(0);
   });
   it("groups the waiting jobs by model, the first job's model first, each model's jobs in their order", () => {
     const w = (id: string, recipe: string, kind: "render" | "export" | "load" | "cut" = "render") => ({ id, recipe, kind });

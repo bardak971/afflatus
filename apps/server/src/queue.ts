@@ -330,10 +330,19 @@ export class Queue {
 
   /** Take a finished job off the list. What it made stays in the library. */
   async dismiss(id: string): Promise<boolean> {
-    const r = await this.db.deleteFrom("jobs").where("id", "=", id).where("status", "in", ["done", "failed", "cancelled"]).executeTakeFirst();
+    return (await this.dismissAll([id])) > 0;
+  }
+
+  /** Take several finished jobs off the list in one go (one event for all); how many went. Jobs not finished stay. */
+  async dismissAll(ids: readonly string[]): Promise<number> {
+    if (!ids.length) return 0;
+    const finished = this.db.selectFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]);
+    // a clip's job, a cut or an export is seen on its timeline too
+    const timeline = await finished.select("id").where((eb) => eb.or([eb("clip_id", "is not", null), eb("timeline_id", "is not", null)])).executeTakeFirst();
+    const r = await this.db.deleteFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).executeTakeFirst();
     this.events.emit("queue");
-    this.events.emit("timeline");
-    return Number(r.numDeletedRows) > 0;
+    if (timeline) this.events.emit("timeline");
+    return Number(r.numDeletedRows);
   }
 
   private known: (Usual & { at: number }) | null = null;
@@ -455,7 +464,9 @@ export class Queue {
     await q.execute();
     if (status !== "done") await this.failDependents(id);
     this.events.emit("queue");
-    this.events.emit("timeline");
+    // only a clip's render, a cut or an export changes a timeline: a picture's end does not read them again
+    const of = await this.db.selectFrom("jobs").select(["clip_id", "timeline_id"]).where("id", "=", id).executeTakeFirst();
+    if (of?.clip_id || of?.timeline_id) this.events.emit("timeline");
   }
 
   /** The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended. */

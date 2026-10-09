@@ -120,7 +120,8 @@ export function TabProgress() {
   const lastFailed = useRef<string | null | undefined>(undefined);
   const run = queue.data?.running ?? null;
   const waiting = queue.data?.waiting.length ?? 0;
-  const failedJob = queue.data?.recent.find((j) => j.status === "failed") ?? null;
+  // a model loaded ahead (a "load") is not a render: never the one said as done or failed
+  const failedJob = queue.data?.recent.find((j) => j.status === "failed" && j.kind !== "load") ?? null;
   const failed = failedJob?.id ?? null;
 
   useEffect(() => {
@@ -128,7 +129,7 @@ export function TabProgress() {
     if (run || waiting) wasBusy.current = true;
     else if (wasBusy.current) {
       wasBusy.current = false;
-      if (document.hidden) setUnseen((u) => u ?? { mark: "done", job: queue.data!.recent.find((j) => j.status === "done") ?? null });
+      if (document.hidden) setUnseen((u) => u ?? { mark: "done", job: queue.data!.recent.find((j) => j.status === "done" && j.kind !== "load") ?? null });
     }
     // a render that failed since the page was last looked at
     if (lastFailed.current !== undefined && failed && failed !== lastFailed.current && document.hidden) setUnseen({ mark: "failed", job: failedJob });

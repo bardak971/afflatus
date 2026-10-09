@@ -132,15 +132,14 @@ export async function preview(core: QueueCore, jobId: string) {
 /**
  * The finished jobs, newest first, with what each made: for the queue's history. `q` looks in the
  * label and the inputs (the prompt is there), `model` in the inputs too (the model file's name).
- * Counts say how many of each status there are in all, so that a filter can show its number.
+ * Counts say how many of each status match the search and the model, so that a filter can show its number.
  */
 export async function history(core: QueueCore, opts: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number } = {}) {
   const { db } = core;
   const limit = Math.min(200, Math.max(1, opts.limit ?? 60));
   const offset = Math.max(0, opts.offset ?? 0);
   // a job that only loaded a model made nothing: not part of the history
-  let query = db.selectFrom("jobs").selectAll().where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0);
-  if (opts.status) query = query.where("status", "=", opts.status);
+  let query = db.selectFrom("jobs").where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0);
   // the text looked for, as a LIKE pattern: its own %, _ and \ made literal with a backslash, which the clause then names as
   // the escape character (SQLite has none by default; the clause reads the same on Postgres). Model files are full of underscores.
   // Both sides in lower case: SQLite's LIKE ignores case, Postgres's does not, and the search is the same on both
@@ -150,7 +149,10 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
     query = query.where(sql<boolean>`(lower(label) like ${pattern} escape '\\' or lower(inputs) like ${pattern} escape '\\')`);
   }
   if (opts.model?.trim()) query = query.where(sql<boolean>`lower(inputs) like ${like(opts.model)} escape '\\'`);
-  const rows = await query.orderBy("finished_at", "desc").orderBy("created_at", "desc").limit(limit + 1).offset(offset).execute();
+  // the counts follow the search and the model, not the status picked: each status chip says what it would show
+  const counted = query;
+  if (opts.status) query = query.where("status", "=", opts.status);
+  const rows = await query.selectAll().orderBy("finished_at", "desc").orderBy("created_at", "desc").limit(limit + 1).offset(offset).execute();
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
   // what each made, and how it was settled
@@ -159,7 +161,7 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
   const made = genIds.length
     ? await db.selectFrom("assets").select(["id", "generation_id", "kind", "width", "height", "duration_ms", "kept_at", "deleted_at", "name"]).where("generation_id", "in", genIds).where("origin", "!=", "mask").orderBy("created_at").execute()
     : [];
-  const counts = Object.fromEntries((await db.selectFrom("jobs").select(["status", (eb) => eb.fn.countAll<number>().as("n")]).where("status", "in", ["done", "failed", "cancelled"]).where("warm", "=", 0).groupBy("status").execute()).map((c) => [c.status, Number(c.n)])) as Partial<Record<"done" | "failed" | "cancelled", number>>;
+  const counts = Object.fromEntries((await counted.select(["status", (eb) => eb.fn.countAll<number>().as("n")]).groupBy("status").execute()).map((c) => [c.status, Number(c.n)])) as Partial<Record<"done" | "failed" | "cancelled", number>>;
   const items = page.map((r) => {
     const recipe = core.registry.recipe(r.recipe_id);
     const input = inputsOf(r);

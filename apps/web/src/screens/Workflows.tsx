@@ -204,12 +204,16 @@ export function Workflows() {
     onSuccess: () => Promise.all(["recipes", "setup", "workflows"].map((key) => client.invalidateQueries({ queryKey: [key] }))),
   });
 
-  if (editing) return <WorkflowEditor key={`${editing.id}:${editing.source}`} start={editing} onDone={() => setEditing(null)} />;
+  // back from the editor: the import or reopen that led there is done with
+  if (editing) return <WorkflowEditor key={`${editing.id}:${editing.source}`} start={editing} onDone={() => { open.reset(); edit.reset(); setEditing(null); }} />;
 
   const comfyOnline = setup.data?.comfy.online ?? false;
   const why = (recipeId: string) => (setup.isSuccess ? notReady(setup.data.recipes.find((r) => r.id === recipeId), comfyOnline) : null);
   const builtIn = (recipes.data?.families ?? []).filter((f) => !f.id.startsWith("workflow-"));
-  const error = open.error ?? edit.error ?? shareIt.error ?? tryIt.error ?? remove.error ?? openInComfy.error ?? list.error;
+  // the error of the last action only: one that went through since clears an older one
+  const last = [open, edit, shareIt, tryIt, remove, openInComfy].reduce((a, m) => (m.submittedAt > a.submittedAt ? m : a));
+  // the list's own error is said in its place, under "Your workflows"
+  const error = last.error;
 
   // the whole page takes a dropped file; leaving for one of its own children is not leaving it
   const drop = {
@@ -280,6 +284,8 @@ export function Workflows() {
         <SectionTitle>Your workflows{list.data ? ` · ${list.data.items.length}` : ""}</SectionTitle>
         {list.isPending ? (
           <Placeholder rows={3} tall />
+        ) : list.isError && !list.data ? (
+          <ErrorNote>Could not read your workflows: {list.error.message}</ErrorNote>
         ) : list.data?.items.length ? (
           <div className="overflow-hidden rounded-xl border border-line bg-panel">
             {list.data.items.map((w, i) => {

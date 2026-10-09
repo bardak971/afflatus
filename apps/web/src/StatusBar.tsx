@@ -20,6 +20,9 @@ const pill = "relative inline-flex h-7 items-center gap-2 overflow-hidden rounde
 const dot = "size-[7px] shrink-0 rounded-full";
 const Sep = () => <span className="h-[18px] w-px shrink-0 bg-line" />;
 
+/** The last job that made something: a model loaded ahead (a "load") is not a render that finished. */
+const lastMade = (q: QueueStatus | undefined) => q?.recent.find((j) => j.status === "done" && j.kind !== "load") ?? null;
+
 /** The strip at the bottom of every screen: on the left the one thing that matters now, on the right where outputs go, the model and the GPU. */
 export function StatusBar() {
   const queue = useQueue();
@@ -41,7 +44,7 @@ export function StatusBar() {
   const liveDown = useLive((s) => s.down);
   return (
     <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
-      {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={q?.recent.find((j) => j.status === "done") ?? null} />}
+      {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
       {run && q?.paused ? <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
         <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
       )}

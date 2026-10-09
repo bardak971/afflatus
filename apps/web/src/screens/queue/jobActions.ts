@@ -13,7 +13,8 @@ export function useJobActions() {
   const say = useBanners((b) => b.push);
   const failed = (title: string) => (err: Error) => say({ id: `history:${Date.now()}`, tone: "bad", title, text: err.message, href: "/queue", go: "Open queue" });
   const again = useMutation({ mutationFn: (v: { id: string; input?: Record<string, unknown> }) => api.retryJob(v.id, v.input), onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }), onError: failed("Could not queue it again") });
-  const dismiss = useMutation({ mutationFn: api.dismissJob, onSuccess: () => client.invalidateQueries({ queryKey: HISTORY }), onError: failed("Could not remove it from the history") });
+  // one job or a batch's row: one request and one read of the history either way
+  const dismiss = useMutation({ mutationFn: (ids: string | string[]) => api.dismissJobs(typeof ids === "string" ? [ids] : ids), onSuccess: () => client.invalidateQueries({ queryKey: HISTORY }), onError: failed("Could not remove it from the history") });
   const openDraft = useOpenDraft((s) => s.open);
   const [, go] = useLocation();
   const toDraft = (id: string) => {

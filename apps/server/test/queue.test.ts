@@ -192,6 +192,30 @@ describe("while a job renders", () => {
     await readUntil("event: queue");
     abort.abort();
   });
+
+  it("passes a burst of progress on at most four times a second, and always its last", async () => {
+    await t.app.listen({ host: "127.0.0.1", port: 0 });
+    const address = t.app.server.address() as { port: number };
+    const abort = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${address.port}/api/events`, { signal: abort.signal });
+    const reader = res.body!.getReader();
+    let text = "";
+    const count = () => text.split("event: progress").length - 1;
+    void (async () => {
+      for (;;) {
+        const { value, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
+        if (done) return;
+        text += new TextDecoder().decode(value);
+      }
+    })();
+    await until(() => text.includes("event: hello"));
+    // five in a row: the first goes at once, the last after the wait, the ones between are folded
+    for (let i = 0; i < 5; i++) t.services.queue.events.emit("progress");
+    await until(() => count() === 2);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(count()).toBe(2);
+    abort.abort();
+  });
 });
 
 describe("what is refused before anything is queued", () => {
@@ -493,6 +517,9 @@ describe("the queue's history", () => {
     expect((await get(t.app, "/api/jobs?status=failed")).json().items).toHaveLength(0);
     expect((await get(t.app, "/api/jobs?q=cat")).json().items).toHaveLength(1);
     expect((await get(t.app, "/api/jobs?q=zebra")).json().items).toHaveLength(0);
+    // the counts follow the search and the model
+    expect((await get(t.app, "/api/jobs?q=zebra")).json().counts).toEqual({ done: 0, failed: 0, cancelled: 0 });
+    expect((await get(t.app, "/api/jobs?q=cat&status=failed")).json().counts).toEqual({ done: 1, failed: 0, cancelled: 0 });
   });
 
   it("finds a model whose file name has an underscore in it, as nearly every model file has", async () => {
@@ -513,6 +540,41 @@ describe("the queue's history", () => {
     // the underscore is that letter, not any one letter; a percent sign is not any run of them
     expect((await get(t.app, "/api/jobs?model=sdxlXbase")).json().items).toHaveLength(0);
     expect((await get(t.app, "/api/jobs?q=sdxl%25base")).json().items).toHaveLength(0);
+  });
+});
+
+describe("dismissing from the history", () => {
+  it("takes several finished jobs off in one request and one event, and leaves a job that is not finished", async () => {
+    const at = new Date().toISOString();
+    const row = (id: string, status: "done" | "failed" | "cancelled" | "queued") => ({
+      id, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", label: id, inputs: JSON.stringify({ prompt: id }),
+      status, warm: 0, look: null, priority: 0, depends_on: null, attempts: 1, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: null,
+      draft_id: null, folder_id: null, finished_from: null, created_at: at, started_at: at, finished_at: status === "queued" ? null : at, updated_at: at,
+    });
+    await t.services.queue.setPaused(true);
+    await t.db.insertInto("jobs").values([row("a", "done"), row("b", "failed"), row("c", "cancelled"), row("w", "queued")]).execute();
+    let events = 0;
+    let timeline = 0;
+    t.services.queue.events.on("queue", () => events++);
+    t.services.queue.events.on("timeline", () => timeline++);
+    const res = await post(t.app, "/api/jobs/dismiss", { ids: ["a", "b", "c", "w", "gone"] });
+    expect(res.json()).toEqual({ dismissed: 3 });
+    expect(events).toBe(1);
+    // none of them was a clip's: no timeline to read again
+    expect(timeline).toBe(0);
+    const left = (await t.db.selectFrom("jobs").select("id").execute()).map((r) => r.id);
+    expect(left).toEqual(["w"]);
+    expect((await post(t.app, "/api/jobs/dismiss", { ids: [] })).statusCode).toBe(400);
+  });
+
+  it("says a timeline changed when a clip's job ends, not when a picture's does", async () => {
+    let timeline = 0;
+    t.services.queue.events.on("timeline", () => timeline++);
+    const id = await enqueue();
+    await until(() => submitted().length === 1);
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(id)).status === "done");
+    expect(timeline).toBe(0);
   });
 });
 

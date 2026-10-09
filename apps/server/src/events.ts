@@ -27,14 +27,26 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
   s.queue.events.setMaxListeners(0);
   for (const name of RELAYED) s.queue.events.on(name, () => send(name));
   let lastProgress = 0;
-  s.queue.events.on("progress", () => {
-    if (Date.now() - lastProgress < PROGRESS_EVERY_MS) return;
+  let trailing: NodeJS.Timeout | null = null;
+  // with the running job's figures (from memory: no query per event): the page changes its queue in place and asks for nothing (live.ts)
+  const sendProgress = () => {
     lastProgress = Date.now();
-    // with the running job's figures (from memory: no query per event): the page changes its queue in place and asks for nothing (live.ts)
     void s.queue
       .progress()
       .then((r) => send("progress", r ? { id: r.id, progress: r.progress, eta: r.eta, phase: r.phase, step: r.step, steps: r.steps, previewSeq: r.previewSeq, stages: r.stages, previewMime: r.previewMime ?? null, spilling: r.spilling } : undefined))
       .catch(() => send("progress"));
+  };
+  // one send at most every PROGRESS_EVERY_MS, and one after the last of a burst: the last figures (the "Decoding" phase) always go out
+  s.queue.events.on("progress", () => {
+    const wait = PROGRESS_EVERY_MS - (Date.now() - lastProgress);
+    if (wait <= 0) {
+      if (trailing) clearTimeout(trailing);
+      trailing = null;
+      sendProgress();
+    } else trailing ??= setTimeout(() => {
+      trailing = null;
+      sendProgress();
+    }, wait);
   });
 
   let timer: NodeJS.Timeout | null = null;
@@ -51,6 +63,7 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     timer = beat = null;
   };
   app.addHook("onClose", () => {
+    clearTimeout(trailing ?? undefined);
     clearInterval(timer ?? undefined);
     clearInterval(beat ?? undefined);
     timer = beat = null;

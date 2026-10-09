@@ -64,6 +64,31 @@ interface PackState { id: string; state: "pending" | "done" | "failed"; message?
 /** What a query hands its function: its signal (see call). `queryFn: api.queue` passes it as it is. */
 type Asked = { signal?: AbortSignal };
 
+/** A list of the library: its filters, its page and its order. */
+export type AssetFilter = { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" };
+/** The query of a list of the library (`api.assets`), and of what sums one up (`api.unkept`). */
+function assetParams(opts: AssetFilter): URLSearchParams {
+  const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
+  // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
+  if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
+  if (opts.since) q.set("since", opts.since);
+  if (opts.kind) q.set("kind", opts.kind);
+  if (opts.bin) q.set("bin", "1");
+  if (opts.folder) q.set("folder", opts.folder);
+  if (opts.after) q.set("after", opts.after);
+  if (opts.before) q.set("before", opts.before);
+  if (opts.q?.trim()) q.set("q", opts.q.trim());
+  if (opts.family) q.set("family", opts.family);
+  if (opts.kept) q.set("kept", "1");
+  else if (opts.unkept) q.set("kept", "0");
+  if (opts.model) q.set("model", opts.model);
+  if (opts.lora) q.set("lora", opts.lora);
+  if (opts.draft) q.set("draft", opts.draft);
+  if (opts.sort) q.set("sort", opts.sort);
+  if (opts.dir) q.set("dir", opts.dir);
+  return q;
+}
+
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
   setup: (o?: Asked) => call<Scan>("GET", "/setup", undefined, o?.signal),
@@ -100,7 +125,8 @@ export const api = {
   queueOrder: (ids: string[]) => call<QueueStatus>("POST", "/queue/order", { ids }),
   /** A finished job again; `input` changes some of what it was asked. */
   retryJob: (id: string, input?: Record<string, unknown>) => call<{ id: string }>("POST", `/jobs/${id}/retry`, input ? { input } : {}),
-  dismissJob: (id: string) => call<{ ok: true }>("DELETE", `/jobs/${id}`),
+  /** Finished jobs off the history, several in one request (a batch's row); what they made stays in the library. */
+  dismissJobs: (ids: string[]) => call<{ dismissed: number }>("POST", "/jobs/dismiss", { ids }),
   estimates: (o?: Asked) => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates", undefined, o?.signal),
   /** A tool's usual pace from its own record: milliseconds per pixel × frame it makes (null until it has run). */
   renderPace: (tool: string) => call<{ msPerWork: number | null }>("GET", `/renders/pace?tool=${encodeURIComponent(tool)}`),
@@ -161,26 +187,13 @@ export const api = {
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
-  assets: (opts: { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" }, o?: Asked) => {
-    const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
-    // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
-    if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
-    if (opts.since) q.set("since", opts.since);
-    if (opts.kind) q.set("kind", opts.kind);
-    if (opts.bin) q.set("bin", "1");
-    if (opts.folder) q.set("folder", opts.folder);
-    if (opts.after) q.set("after", opts.after);
-    if (opts.before) q.set("before", opts.before);
-    if (opts.q?.trim()) q.set("q", opts.q.trim());
-    if (opts.family) q.set("family", opts.family);
-    if (opts.kept) q.set("kept", "1");
-    else if (opts.unkept) q.set("kept", "0");
-    if (opts.model) q.set("model", opts.model);
-    if (opts.lora) q.set("lora", opts.lora);
-    if (opts.draft) q.set("draft", opts.draft);
-    if (opts.sort) q.set("sort", opts.sort);
-    if (opts.dir) q.set("dir", opts.dir);
-    return call<{ items: Asset[]; next: string | null; prev: string | null }>("GET", `/assets?${q}`, undefined, o?.signal);
+  assets: (opts: AssetFilter, o?: Asked) =>
+    call<{ items: Asset[]; next: string | null; prev: string | null }>("GET", `/assets?${assetParams(opts)}`, undefined, o?.signal),
+  /** The items not kept of a list (its filters; the page and the order do not count): how many, when the countdown of the first and of the last started, their ids with `ids`. */
+  unkept: (opts: AssetFilter, ids: boolean, o?: Asked) => {
+    const q = assetParams(opts);
+    if (ids) q.set("ids", "1");
+    return call<{ count: number; from: string | null; to: string | null; ids?: string[] }>("GET", `/assets/unkept?${q}`, undefined, o?.signal);
   },
   asset: (id: string, o?: Asked) => call<AssetDetail>("GET", `/assets/${id}`, undefined, o?.signal),
   keep: (id: string, kept: boolean) => call<Asset>("POST", `/assets/${id}/keep`, { kept }),
