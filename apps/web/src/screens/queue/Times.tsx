@@ -13,6 +13,7 @@ import { RenderList } from "./RenderList";
 import { spanSaid, SummaryTiles } from "./SummaryTiles";
 import { DAY, HOUR, useTimesView } from "./useTimesView";
 import { WindowBar } from "./WindowBar";
+import { scrollInside } from "../../scrollInside";
 
 // the viewer is fetched the first time a render's result is opened here
 const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewer })));
@@ -53,7 +54,7 @@ export function RenderTimes() {
   const toJobs = (key: string, which: "all" | "trouble") => {
     setModel(key);
     setOnly(which);
-    requestAnimationFrame(() => document.getElementById("render-list")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    requestAnimationFrame(() => scrollInside(document.getElementById("render-list")));
   };
 
   return (

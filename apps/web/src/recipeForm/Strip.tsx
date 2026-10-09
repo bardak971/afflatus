@@ -3,6 +3,7 @@ import { ChevronDown, Search, X } from "lucide-react";
 import { ContextMenu, useMenu } from "../ContextMenu";
 import { useFit } from "../useFit";
 import { cx } from "../ui";
+import { scrollInside } from "../scrollInside";
 
 /**
  * The strip at the top of a form: its parts in the order they are touched, the one in view marked;
@@ -38,7 +39,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
     open(id);
     pinned.current = true;
     setCurrent(id);
-    requestAnimationFrame(() => document.querySelector(`[data-part="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    requestAnimationFrame(() => scrollInside(document.querySelector(`[data-part="${CSS.escape(id)}"]`)));
   };
   useEffect(() => {
     // the nearest thing that scrolls: the form's parts scroll inside it

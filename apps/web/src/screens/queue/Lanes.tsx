@@ -4,6 +4,7 @@ import { took } from "../../format";
 import { cx } from "../../ui";
 import { useChartColors } from "./Chart";
 import { useBrush } from "./useBrush";
+import { scrollInside } from "../../scrollInside";
 
 /**
  * The renders of the window as bars, one lane per model, each as long as it took and where it ran: what
@@ -85,7 +86,7 @@ export function Lanes({ items, from, to, models, names, only, timeLabel, onZoom,
                 onClick={(e) => {
                   e.stopPropagation();
                   if (r.assetId) onOpen(r.assetId);
-                  else document.getElementById(`render-${r.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  else scrollInside(document.getElementById(`render-${r.id}`), "center");
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className={cx("absolute rounded-sm", r.status !== "done" && "opacity-60 outline outline-1 outline-warn", only && only !== r.recipe && "opacity-20")}

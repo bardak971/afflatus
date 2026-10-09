@@ -43,6 +43,8 @@ html,
 body,
 #root {
   height: 100%;
+  /* the app scrolls inside its own panels: the page itself never does, not even when something asks it to */
+  overflow: clip;
 }
 body {
   margin: 0;
