@@ -300,13 +300,22 @@ export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): st
   return looksLikeFiles([spec.default, ...offered]) && !spec.prefer ? spec.default : offered[0]!;
 }
 
-/** Whether an input is in play, given the values of the others. */
-export function isShown(spec: InputSpec, values: Record<string, unknown>): boolean {
+/**
+ * Whether an input is in play, given the values of the others. With the recipe's inputs, the input it depends on must
+ * be in play too: the edge thresholds follow "Follow", which itself shows only with a guide picture, and its default
+ * ("Edges") must not bring them on screen without one.
+ */
+export function isShown(spec: InputSpec, values: Record<string, unknown>, specs?: readonly InputSpec[], seen: ReadonlySet<string> = new Set()): boolean {
   const w = spec.showWhen;
   if (!w) return true;
   // a list that is empty is "off", like a switch
   const on = (v: unknown) => (Array.isArray(v) ? v.length > 0 : Boolean(v));
-  return typeof w === "string" ? on(values[w]) : w.in.includes(values[w.input]);
+  const id = typeof w === "string" ? w : w.input;
+  if (!(typeof w === "string" ? on(values[id]) : w.in.includes(values[id]))) return false;
+  const parent = specs?.find((s) => s.id === id);
+  // a loop in a recipe's conditions stops here rather than recursing for ever
+  if (!parent || seen.has(parent.id)) return true;
+  return isShown(parent, values, specs, new Set([...seen, spec.id]));
 }
 
 /** The input that says how long a video is, in seconds, when a recipe has one. */

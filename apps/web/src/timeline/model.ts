@@ -90,10 +90,10 @@ export function titleOf(clip: Clip, recipe: RecipeInfo | undefined): string {
 export type Shape = "tall" | "wide" | "square";
 export const shapeOf = (width: number, height: number): Shape => (Math.abs(width / height - 1) < 0.04 ? "square" : width > height ? "wide" : "tall");
 /** The frames a timeline can be given by name. A model fits its own size inside them. */
-export const SHAPES: Record<Shape, { label: string; width: number; height: number }> = {
-  tall: { label: "Portrait", width: 576, height: 1024 },
-  wide: { label: "Landscape", width: 1024, height: 576 },
-  square: { label: "Square", width: 768, height: 768 },
+export const SHAPES: Record<Shape, { label: string; ratio: string; width: number; height: number }> = {
+  tall: { label: "Portrait", ratio: "9:16", width: 576, height: 1024 },
+  wide: { label: "Landscape", ratio: "16:9", width: 1024, height: 576 },
+  square: { label: "Square", ratio: "1:1", width: 768, height: 768 },
 };
 
 /** Whether what a clip shows has another shape than the timeline's frame (it is then shown with bars, or fills it). */

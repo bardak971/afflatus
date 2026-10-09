@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Brush } from "lucide-react";
 import { thumbUrl } from "./api";
 import { useAsset } from "./data";
+import { dropMask, wantsMask } from "./handoff";
 import { nameFor } from "./maskName";
 import { Button, Note, Help } from "./ui";
 import { useExplain } from "./store";
@@ -22,7 +23,12 @@ export function MaskField({ label, note, picture, value, onChange }: {
   onChange(value: string | undefined): void;
 }) {
   const explain = useExplain((st) => st.on);
-  const [painting, setPainting] = useState(false);
+  // Inpaint from a picture opens the painter straight away (handMask): the mask is what that form is for
+  const [painting, setPainting] = useState(() => !value && wantsMask(picture));
+  useEffect(() => {
+    if (painting) dropMask();
+  }, [painting]);
+  const root = useRef<HTMLDivElement>(null);
   const mask = useAsset(value);
   // painted on another picture than the one in the form now: it no longer says anything
   const stale = Boolean(value && picture && mask.data && mask.data.name !== nameFor(picture));
@@ -32,7 +38,7 @@ export function MaskField({ label, note, picture, value, onChange }: {
   const has = Boolean(value && picture && !stale);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div ref={root} className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         {explain && <Note text={note} />}
@@ -66,10 +72,21 @@ export function MaskField({ label, note, picture, value, onChange }: {
             onDone={(id) => {
               onChange(id);
               setPainting(false);
+              // the mask says where; the prompt says what goes there: it is written next
+              requestAnimationFrame(() => promptNear(root.current)?.focus());
             }}
           />
         </Suspense>
       )}
     </div>
   );
+}
+
+/** The main prompt of the form a field is in: the nearest one up from it. */
+function promptNear(from: HTMLElement | null): HTMLTextAreaElement | null {
+  for (let el = from?.parentElement; el; el = el.parentElement) {
+    const box = el.querySelector<HTMLTextAreaElement>('[data-part="prompt"] textarea');
+    if (box) return box;
+  }
+  return null;
 }

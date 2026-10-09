@@ -8,12 +8,18 @@ import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
 import { cx, TwoStep } from "../../ui";
 
-/** When a draft was last changed, short: "4 h ago" today, else the day ("03/10"), with the year when it is not this one. */
-function changed(iso: string): string {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/**
+ * When a draft was last changed (or started), short: "4 h ago" today, "3 d ago" within the week, then the day ("3 Oct"),
+ * with the year when it is not this one. Never "03/10": which is the day and which the month is not the same everywhere.
+ */
+export function changed(iso: string, now = Date.now()): string {
   const d = new Date(iso);
-  if (Date.now() - d.getTime() < 86_400_000) return when(iso);
-  const day = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
-  return d.getFullYear() === new Date().getFullYear() ? day : `${day}/${String(d.getFullYear()).slice(2)}`;
+  const ago = now - d.getTime();
+  if (ago < 86_400_000) return when(iso);
+  if (ago < 7 * 86_400_000) return `${Math.floor(ago / 86_400_000)} d ago`;
+  const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return d.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${d.getFullYear()}`;
 }
 
 const OUTPUT_WORD = { image: ["picture", "pictures"], video: ["take", "takes"], audio: ["sound", "sounds"] } as const;
@@ -63,9 +69,24 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
   const nameOf = (d: DraftBrief) => titleOf(d) || `${familyOf(d.recipe) || "Untitled"} draft`;
   const countOf = (d: DraftBrief) => {
     const n = d.outputs ?? 0;
-    if (!n) return "—";
+    if (!n) return "empty";
     const words = OUTPUT_WORD[recipeOf(d.recipe)?.output ?? d.coverKind ?? "image"];
     return `${n} ${n === 1 ? words[0] : words[1]}`;
+  };
+
+  // drafts that read the same (three "Wan 2.2 draft", one prompt sent twice): their dim line tells them apart by
+  // the prompt when they were named alike, else by when they were started
+  const repeats = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const d of drafts) seen.set(nameOf(d), (seen.get(nameOf(d)) ?? 0) + 1);
+    return seen;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drafts, recipes.data]);
+  const subLine = (d: DraftBrief) => {
+    if ((repeats.get(nameOf(d)) ?? 0) < 2) return modelLine(d);
+    const prompt = d.title.trim();
+    if (d.name && prompt && prompt !== nameOf(d)) return `${modelLine(d)} · ${prompt}`;
+    return d.createdAt ? `${modelLine(d)} · started ${changed(d.createdAt)}` : modelLine(d);
   };
 
   const list = useMemo(
@@ -140,7 +161,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
           <button type="button" onClick={() => { close(); onNew(); }} className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-3 text-left font-semibold hover:bg-hover">
             <span className="flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-line-strong text-ink-2"><Plus size={14} /></span>
             <span className="grow">New draft</span>
-            <span className="text-xs font-normal text-ink-3">this one is kept</span>
+            <span className="text-xs font-normal text-ink-3">the open one stays in the list</span>
           </button>
           <div className="min-h-0 overflow-y-auto py-1">
             <div className="px-3 pt-1.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{query ? `${list.length} found` : "Recent"}</div>
@@ -166,7 +187,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
                     <Cover d={d} size={36} />
                     <span className="flex min-w-0 grow flex-col gap-0.5">
                       <span className={cx("truncate font-semibold", !named && "text-ink-2")}>{nameOf(d)}</span>
-                      <span className="truncate text-xs text-ink-3">{modelLine(d)}{isOpen ? " · open" : ""}</span>
+                      <span className="truncate text-xs text-ink-3">{subLine(d)}{isOpen ? " · open" : ""}</span>
                     </span>
                     <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-[11px]">
                       <span className="text-ink-2">{countOf(d)}</span>

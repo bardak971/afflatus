@@ -6,10 +6,11 @@ import { api, type Clip, type FinishSettings } from "../api";
 import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
-import { aboutMs, fileLabel } from "../format";
+import { fileLabel } from "../format";
 import { Keys } from "../Keys";
 import { Select } from "../Select";
 import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
+import { est } from "./estimate";
 
 const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: string }> = [
   { value: "seedvr", label: "SeedVR2 (restores + enlarges)", detail: "any clip; the whole clip in view, so no flicker; compression and softness repaired too. Minutes per clip" },
@@ -61,7 +62,8 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
   });
   const estimateMs = forecast.data?.ms ?? null;
   return (
-    <Dialog label="Finish all clips" onClose={onClose} className={cx(DIALOG, "max-w-lg")}>
+    // wider than the kit's card: its subtitle, its labels and the foot's three buttons each on one line
+    <Dialog label="Finish all clips" onClose={onClose} className={cx(DIALOG, "max-w-xl")}>
         <DialogHead icon={<Sparkles size={16} />} title="Finish all clips" sub="Each clip's take to its final quality · one job per clip, in order" onClose={onClose} />
         <div className="flex flex-wrap gap-1.5">
           <Chip tone="accent">{todo.length} clip{todo.length === 1 ? "" : "s"} to finish</Chip>
@@ -81,8 +83,12 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
               <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
                 <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
               </FieldRow>
-              <FieldRow label="Frames together" note="SeedVR2 frames together. 0: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl">
-                <NumberBox label="SeedVR2 frames together" value={v.seedvrFrames ?? 0} min={0} max={49} step={4} onCommit={(seedvrFrames) => setV({ ...v, seedvrFrames: Math.round(seedvrFrames) })} />
+              <FieldRow label="Batch size" note="SeedVR2's batch size: how many frames it restores together. 0 is auto: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl">
+                {/* 0 said as what it does, beside the box: a bare 0 read as off */}
+                <span className="flex items-center gap-2">
+                  <NumberBox label="SeedVR2 batch size (0 is auto)" value={v.seedvrFrames ?? 0} min={0} max={49} step={4} onCommit={(seedvrFrames) => setV({ ...v, seedvrFrames: Math.round(seedvrFrames) })} />
+                  <span className="text-xs text-ink-3">{v.seedvrFrames ? "frames" : "auto, by the frame's size"}</span>
+                </span>
               </FieldRow>
             </>
           )}
@@ -109,7 +115,13 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         </div>
         {go.isError && <ErrorNote>{go.error.message}</ErrorNote>}
         {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-        <DialogFoot info={estimateMs ? <span data-tip="From your past finishes with this route.">{aboutMs(estimateMs)} in all</span> : forecast.isSuccess ? <span data-tip="This route has not run here: the first finish teaches it.">No time estimate yet</span> : undefined}>
+        {/* the estimate on its own line over the foot, so the foot's buttons keep one row; held while it is worked out, so nothing jumps */}
+        {todo.length > 0 && (
+          <span className="-mb-1.5 min-h-4 self-end text-xs text-ink-3">
+            {estimateMs ? <span data-tip="From your past finishes with this route.">{est(estimateMs)} in all</span> : forecast.isSuccess ? <span data-tip="This route has not run here: the first finish teaches it.">No time estimate yet</span> : forecast.isError ? null : "Working out the time…"}
+          </span>
+        )}
+        <DialogFoot>
           <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
           <Button disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
           <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {todo.length} clip{todo.length === 1 ? "" : "s"}</Button>

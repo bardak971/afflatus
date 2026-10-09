@@ -118,6 +118,8 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
   const pane = (a: Asset, ref: RefObject<HTMLVideoElement | null>, label: string) => (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-1.5">
       <span className="max-w-full truncate text-xs text-ink-3">{label}{a.name ? ` · ${a.name}` : ""}</span>
+      {/* each one in the middle of its half, whatever its shape and kind: a picture beside a video lines up with it */}
+      <div className="flex min-h-0 w-full grow items-center justify-center">
       {a.kind === "video" ? (
         // the pinned one has the controls and the sound; the other follows it, silent
         <VideoPlayer asset={a.id} sound={a.hasSound} video={ref} controls={ref === left} barRoom muted={ref === right} className="h-full w-full justify-center" />
@@ -126,6 +128,7 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
       ) : (
         <AudioPlayer key={a.id} asset={a.id} className="w-full max-w-[520px]" />
       )}
+      </div>
     </div>
   );
   return (

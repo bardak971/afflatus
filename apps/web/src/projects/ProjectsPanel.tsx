@@ -457,7 +457,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
           r.archived
             ? { label: "Unarchive", icon: <ArchiveRestore size={14} />, note: "show it again", run: () => actions.archive(r, false) }
             : { label: "Archive", icon: <Archive size={14} />, note: "hides it, keeps everything", run: () => actions.archive(r, true) },
-          { label: "Delete…", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "its things go to the Inbox", run: () => void actions.removeProject(r) },
+          { label: "Delete…", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "its items go to the Inbox", run: () => void actions.removeProject(r) },
         ];
       }
       case "folder":

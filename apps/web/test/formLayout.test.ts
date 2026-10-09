@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InputSpec } from "@afflatus/core";
 import type { RecipeInfo } from "../src/api";
-import { layoutOf, matchesQuery, notFilled, sentForm, settingsOnly, summariesOf, upscaledFrame } from "../src/form";
+import { layoutOf, matchesQuery, matchesText, notFilled, sentForm, settingsOnly, summariesOf, upscaledFrame } from "../src/form";
 
 const recipe = (inputs: InputSpec[], output: RecipeInfo["output"] = "image"): RecipeInfo =>
   ({ id: "test.recipe", family: "test", version: 1, title: "Test", summary: "A test.", output, inputs, traits: null });
@@ -82,5 +82,20 @@ describe("what stops a form from being sent", () => {
   });
   it("is checked on the whole form as sent: defaults, then what the draft holds, less what the recipe no longer has", () => {
     expect(sentForm(clip, { prompt: "", voice: undefined }, { prompt: "hi", gone: 2 })).toEqual({ prompt: "hi" });
+  });
+});
+
+describe("the form's search on the screen's own tools", () => {
+  // Snippets, the Designer, Presets and the cast are not settings, but they are looked for by name
+  const helpers = "snippets snippet designer llm roll random wildcards prompt helpers";
+  it("finds them by a word or its start", () => {
+    expect(matchesText(helpers, "snippet")).toBe(true);
+    expect(matchesText(helpers, "sni")).toBe(true);
+    expect(matchesText(helpers, "designer")).toBe(true);
+    expect(matchesText("model family operation presets preset", "preset")).toBe(true);
+  });
+  it("does not find them for an unrelated word", () => {
+    expect(matchesText(helpers, "steps")).toBe(false);
+    expect(matchesText(helpers, "")).toBe(true);
   });
 });

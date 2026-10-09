@@ -133,6 +133,7 @@ export function Help({ text, title, className }: { text: string; title?: string;
     <span className={cx("inline-flex shrink-0 items-center", className)}>
       <button
         type="button"
+        data-help=""
         aria-label={title ? `${title}: ${text}` : text}
         data-tip={text}
         data-tip-head={title}
@@ -356,9 +357,11 @@ export function ErrorNote({ children }: { children: ReactNode }) {
  * otherwise), named by `title`. With `open`, the asking is held from outside (a menu item asked it): only
  * the two buttons show while it is true, and `onCancel` folds it back.
  */
-export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYes, onAsk, onCancel, open, disabled, busy, className }: {
+export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYes, onAsk, onCancel, open, disabled, busy, tone, className }: {
   /** What the button says before it asks; left out, a small icon button. */
   label?: ReactNode;
+  /** "danger" for what erases for good (emptying the bin, forgetting every render time): it looks it before it asks. */
+  tone?: "danger";
   icon?: ReactNode;
   title: string;
   /** What happens, in a few words, shown beside the two buttons. */
@@ -408,7 +411,7 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
     );
   }
   return (
-    <Button size="sm" data-tip={title} disabled={disabled} onClick={ask} className={className}>
+    <Button size="sm" tone={tone} data-tip={title} disabled={disabled} onClick={ask} className={className}>
       {icon}
       {label}
     </Button>

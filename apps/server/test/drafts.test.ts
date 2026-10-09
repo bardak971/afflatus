@@ -22,6 +22,20 @@ describe("a draft's name", () => {
     expect((await get(t.app, "/api/drafts")).json().items[0]).toMatchObject({ name: "Harbour, version 2" });
     expect((await put(`/api/drafts/${d.id}`, { name: "" })).json()).toMatchObject({ name: null });
   });
+
+  it("is what a job sent from it is called (the toast, the status bar, the Queue), not its recipe's title; a label given wins", async () => {
+    const labelOf = async (id: string) => (await t.db.selectFrom("jobs").select("label").where("id", "=", id).executeTakeFirstOrThrow()).label;
+    const named = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+    await put(`/api/drafts/${named.id}`, { name: "zz-test harbour" });
+    const [a] = (await post(t.app, "/api/jobs", { ...job(), draft: named.id })).json().ids;
+    expect(await labelOf(a)).toBe("zz-test harbour");
+    // no name: the start of its prompt, as its results are named
+    const unnamed = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
+    const [b] = (await post(t.app, "/api/jobs", { ...job({ prompt: "a lighthouse in a storm" }), draft: unnamed.id })).json().ids;
+    expect(await labelOf(b)).toBe("a lighthouse in a storm");
+    const [c] = (await post(t.app, "/api/jobs", { ...job(), label: "Given", draft: named.id })).json().ids;
+    expect(await labelOf(c)).toBe("Given");
+  });
 });
 
 describe("drafts", () => {

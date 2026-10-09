@@ -424,7 +424,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         return [{ label: "Resume queue", icon: <Play size={14} />, disabled: queue.data ? !queue.data.paused : false, note: queue.data && !queue.data.paused ? "it is running" : undefined, run: () => api.resume().then((q) => client.setQueryData(["queue"], q), failed("Could not resume the queue")) }];
       case "empty-bin":
         return [{
-          label: "Empty bin…", icon: <Trash2 size={14} />, danger: true, note: "asked first; cannot be undone",
+          label: "Empty the bin…", icon: <Trash2 size={14} />, danger: true, note: "asked first; cannot be undone",
           run: async () => {
             if (!(await ask({ title: "Empty the bin?", text: "Everything in the bin is erased now, files and all, instead of after its 7 days. This cannot be undone.", yes: "Erase" }))) return;
             await api.emptyBin().then((r) => { void client.invalidateQueries({ queryKey: ["timelines"] }); good(`${r.erased} item${r.erased === 1 ? "" : "s"} erased`, r.inUse ? `${r.inUse} still in use stayed.` : undefined); }, failed("Could not empty the bin"));

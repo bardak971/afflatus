@@ -105,7 +105,8 @@ export function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, on
       {raw && r?.raw && <pre className="max-h-48 overflow-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-[11px] leading-normal break-words whitespace-pre-wrap text-ink-2">{r.raw}</pre>}
       {last && r && r.options.length > 0 && (
         <span className="flex flex-wrap gap-1.5">
-          {r.options.map((o) => <button key={o} type="button" disabled={busy} onClick={() => onOption(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-left text-xs hover:bg-hover disabled:opacity-45">{o}</button>)}
+          {/* the model writes its suggestions as it likes ("even more"): they read as the composer's chips do ("More detail") */}
+          {r.options.map((o) => <button key={o} type="button" disabled={busy} onClick={() => onOption(o)} className="rounded-full border border-line-strong px-2.5 py-1 text-left text-xs hover:bg-hover disabled:opacity-45">{o.charAt(0).toUpperCase() + o.slice(1)}</button>)}
         </span>
       )}
     </div>

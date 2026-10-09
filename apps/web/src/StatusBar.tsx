@@ -141,7 +141,7 @@ function Running({ run }: { run: RunningJob }) {
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">· {left}</span>
         <span className={cx("absolute bottom-0 left-0 h-0.5 bg-accent transition-[width] motion-reduce:transition-none", !run.progress && "animate-pulse opacity-40")} style={{ width: `${run.progress > 0 ? Math.min(100, run.progress * 100) : 100}%` }} />
       </Link>
-      {run.spilling && <span className="shrink-0 rounded-[5px] bg-warn-wash px-1.5 py-px font-semibold whitespace-nowrap text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together.">spilling out of VRAM</span>}
+      {run.spilling && <span className="shrink-0 rounded-[5px] bg-warn-wash px-1.5 py-px font-semibold whitespace-nowrap text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or give SeedVR2 a smaller batch size (Finish).">spilling out of VRAM</span>}
     </>
   );
 }

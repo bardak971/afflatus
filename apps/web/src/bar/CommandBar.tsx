@@ -243,7 +243,7 @@ export function CommandBar() {
       "new-draft": [`New draft on ${recipe?.title ?? (c.cmd === "new-draft" ? c.recipe : "")}`, recipe ? `${recipe.family.toUpperCase()} · opens in the Studio` : "No model by that name"],
       pause: ["Pause queue", queueNow ? `${queueNow.running ? "1 running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
       resume: ["Resume queue", `${queueNow?.waiting ?? 0} waiting`],
-      "empty-bin": ["Empty bin…", "Asked first · cannot be undone"],
+      "empty-bin": ["Empty the bin…", "Asked first · cannot be undone"],
       "bin-unused": [`Bin unused takes of ${t}…`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} take${aim.entry.unusedTakes === 1 ? "" : "s"} · asked first` : "It has none") : "Asked first"],
       "link-folder": [c.cmd === "link-folder" && c.path ? `Link ${c.path}` : "Link a folder of your disk", "Used in place, nothing copied"],
       "new-project": [`New project “${c.cmd === "new-project" ? c.name : ""}”`, "Made, and worked in"],

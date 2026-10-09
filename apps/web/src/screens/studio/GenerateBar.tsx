@@ -12,6 +12,15 @@ import { Button, ErrorNote, Help } from "../../ui";
 import { useQueueOf } from "./queueOf";
 import type { useGenerate } from "./useGenerate";
 
+/**
+ * Why Generate waits on a form that redoes a painted part (Inpaint): its mask is not painted yet. A mask the recipe
+ * can do without (optional) never holds it back.
+ */
+export function maskMissing(recipe: RecipeInfo | undefined, whole: Record<string, unknown>): string | null {
+  const mask = recipe?.inputs.find((i) => i.type === "image" && i.role === "mask" && !i.optional && !whole[i.id]);
+  return mask ? `Paint the ${mask.label.toLowerCase()} first (Inputs).` : null;
+}
+
 /** The foot of the Create panel: what stops the form, where its results go, the batch count, and Generate with what it will take. */
 export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCount }: {
   recipe: RecipeInfo | undefined;
@@ -29,6 +38,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
   // the model ComfyUI holds, alone: the panel is not drawn again at every sampler step
   const loadedNow = useQueueOf((q) => q.model) ?? null;
   const each = estimateFor(estimates.data, recipe, whole, loadedNow);
+  const unmasked = maskMissing(recipe, whole);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
       {send.isError && <ErrorNote>{send.error.message}</ErrorNote>}
@@ -45,15 +55,24 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
       )}
       {recipe && draft && !blocked && <FormModel recipe={recipe} input={whole} look={draft.look} />}
       <ResultsPlace folder={folder} />
-      <div className="flex items-center gap-2.5">
+      {/* a container: on a narrow panel the keys leave the button (they stay in its tip) before the label is cut */}
+      <div className="@container flex items-center gap-2.5">
         <div role="group" aria-label="Batch count" data-tip={`Batch count, ${BATCH.least} to ${BATCH.most}`} className="flex h-11 shrink-0 items-center gap-0.5 rounded-lg border border-line px-1.5">
           <Button tone="quiet" size="sm" className="w-8 px-0!" aria-label="Batch count: one fewer" disabled={count <= BATCH.least} onClick={() => onCount(count - 1)}><Minus size={14} /></Button>
           <span aria-live="polite" className="w-6 text-center font-mono font-bold">{count}</span>
           <Button tone="quiet" size="sm" className="w-8 px-0!" aria-label="Batch count: one more" disabled={count >= BATCH.most} onClick={() => onCount(count + 1)}><Plus size={14} /></Button>
         </div>
-        <Button tone="primary" className="h-11 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || send.isPending} onClick={() => send.mutate()}>
-          <span>{send.isPending ? "Queuing…" : `Generate ${count} ${noun}${count > 1 ? "s" : ""}${each ? ` · ${aboutMs(each.ms * count + each.loadMs)}` : ""}`}</span>
-          <Keys keys="Ctrl+Enter" size="sm" />
+        {/* the label gives way before the panel's edge does: the keys go first, then the estimate is cut, then the rest */}
+        <Button tone="primary" className="h-11 min-w-0 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || Boolean(unmasked) || send.isPending} data-tip={unmasked ?? "Generate"} data-tip-keys="Ctrl+Enter" onClick={() => send.mutate()}>
+          {send.isPending ? (
+            <span className="truncate">Queuing…</span>
+          ) : (
+            <span className="flex min-w-0">
+              <span className="truncate">{`Generate ${count} ${noun}${count > 1 ? "s" : ""}`}</span>
+              {each && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {aboutMs(each.ms * count + each.loadMs)}</span>}
+            </span>
+          )}
+          <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />
         </Button>
       </div>
     </div>

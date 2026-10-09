@@ -11,7 +11,7 @@ import { useEntities, useFolders, useProjects } from "../data";
 import { FieldRow } from "../fields";
 
 import { lookWords } from "../LookBar";
-import { aboutMs, clock } from "../format";
+import { clock, spell } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
@@ -22,12 +22,10 @@ const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string
   persist((set) => ({ by: {}, set: (timeline, keys) => set((s) => ({ by: { ...s.by, [timeline]: keys } })) }), { name: "afflatus.attention-kept" }),
 );
 import { otherShape } from "./model";
+import { Estimate } from "./estimate";
 
 /** A quiet action in a card's head or row: accent words, no box. */
 const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabled:opacity-40";
-
-/** A render estimate as a button says it: "~7 min". */
-const about = (ms: number) => aboutMs(ms).replace(/^about /, "~");
 
 /**
  * The timeline as a whole, shown while no clip is selected: what it is, what needs attention (each line
@@ -36,7 +34,8 @@ const about = (ms: number) => aboutMs(ms).replace(/^about /, "~");
  */
 export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
-  aspect: { value: string; options: Array<{ value: string; label: string; note?: string; detail?: string }>; onChange(value: string): void };
+  /** `short`: what its switch says ("16:9"), where four words would not fit on one row of the panel. */
+  aspect: { value: string; options: Array<{ value: string; label: string; short?: string; note?: string; detail?: string }>; onChange(value: string): void };
   timeline: Timeline;
   clips: Clip[];
   /** A video clip with its form filled, not already in the queue. */
@@ -159,18 +158,26 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
           </div>
           {rows.map((r) => (
             <div key={r.key} className="flex min-h-[34px] flex-wrap items-center gap-1.5 px-3 py-1">
-              <span className={cx("flex min-w-0 grow items-center gap-1.5 text-sm", r.warn ? "text-warn-ink" : "text-ink")}>
+              <span className={cx("flex min-w-0 grow flex-wrap items-center gap-x-1.5 text-sm", r.warn ? "text-warn-ink" : "text-ink")}>
                 {LABEL[r.kind]}
+                {/* which clips, said in words with links ("clip 5", "clips 2, 3"): a boxed number beside the row read as a count */}
+                <span className="text-xs text-ink-3">·</span>
+                <span className="text-xs text-ink-2">
+                  {r.ids.length === 1 ? "clip " : "clips "}
+                  {r.ids.slice(0, 8).map((id, k) => (
+                    <span key={id}>
+                      {k > 0 && ", "}
+                      <button type="button" onClick={() => onPick(id)} data-tip={`Open clip ${number(id)}`} className="font-semibold text-accent underline-offset-2 hover:underline">{number(id)}</button>
+                    </span>
+                  ))}
+                  {r.ids.length > 8 && ` and ${r.ids.length - 8} more`}
+                  {r.figure !== undefined && <span className="ml-1 font-mono text-[11px]">×{r.figure.toFixed(1)}</span>}
+                </span>
                 {r.reasons && <Help title={r.reasons.length === 1 ? "Why it failed" : "Why they failed"} text={r.reasons.map((x) => (r.reasons!.length === 1 ? x.why : `Clip ${number(x.clip)}: ${x.why}`)).join("\n")} />}
               </span>
-              {r.ids.slice(0, 8).map((id) => (
-                <button key={id} type="button" onClick={() => onPick(id)} data-tip={`Clip ${number(id)}`} className="flex h-[22px] min-w-[22px] items-center justify-center rounded-[7px] border border-line-strong px-1.5 font-mono text-[11.5px] text-ink-2 hover:border-accent hover:text-ink">
-                  {number(id)}{r.figure !== undefined && ` ×${r.figure.toFixed(1)}`}
-                </button>
-              ))}
               {r.act && <ActButton act={r.act} kind={r.kind} disabled={rendering} onClick={() => run(r.act!)} />}
               {canDismiss(r) && (
-                <button type="button" aria-label="Keep as it is" data-tip="Keep as it is: not listed again until its clips play another take" onClick={() => dismiss(r)} className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink">
+                <button type="button" aria-label="Hide this row" data-tip="Hide this row: nothing changes on the timeline, and it is not listed again until its clips play another take" onClick={() => dismiss(r)} className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink">
                   <X size={13} />
                 </button>
               )}
@@ -181,7 +188,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
       ) : (
         <section className="flex flex-col gap-1 rounded-xl border border-line px-3 py-2.5 shadow-card">
           <PartHead>Needs attention</PartHead>
-          <span className="text-sm text-good">{setAside ? "Nothing else: the rest is kept as it is." : "Every clip is rendered and every join holds."}</span>
+          <span className="text-sm text-good">{setAside ? "Nothing else: the rest is hidden." : "Every clip is rendered and every join holds."}</span>
           {setAside > 0 && <ShowAgain n={setAside} onClick={() => dismissed.set(t.id, [])} />}
         </section>
       )}
@@ -199,7 +206,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
                 label="Aspect ratio"
                 value={aspect.value}
                 onChange={aspect.onChange}
-                options={aspect.options.map((o) => ({ value: o.value, label: o.value === "first" ? "First clip" : o.label, tip: o.detail ?? o.note }))}
+                options={aspect.options.map((o) => ({ value: o.value, label: o.value === "first" ? "First clip" : o.short ?? o.label, tip: o.detail ?? (o.note ? `${o.label} · ${o.note}` : undefined) }))}
               />
             ) : (
               <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
@@ -250,7 +257,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             {figured.length > 0 && <Fact label="Joins that hold" value={loading ? "…" : `${figured.filter((c) => !badJoin(c)).length} of ${figured.length}`} />}
             {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > SHOWS} />}
-            {renderMs > 0 && <Fact label="Rendered in" value={aboutMs(renderMs).replace(/^about /, "~")} />}
+            {renderMs > 0 && <Fact label="Rendered in" value={spell(renderMs)} />}
             {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${videos} clip${videos === 1 ? "" : "s"}`} />}
           </div>
         )}
@@ -291,11 +298,11 @@ function Fact({ label, value, warn }: { label: string; value: string; warn?: boo
   );
 }
 
-/** The rows set aside, said at the foot of Needs attention: a click lists them again. */
+/** The rows hidden with their ×, said at the foot of Needs attention: a click lists them again. */
 function ShowAgain({ n, onClick }: { n: number; onClick(): void }) {
   return (
     <button type="button" onClick={onClick} className="self-start px-3 pt-1 text-xs text-ink-3 underline-offset-2 hover:text-ink hover:underline">
-      {n} kept as {n === 1 ? "it is" : "they are"} · show
+      {n} hidden · show
     </button>
   );
 }
@@ -309,11 +316,6 @@ const LABEL: Record<Row["kind"], string> = {
   shape: "Another aspect ratio",
 };
 
-/** A render estimate inside a button, dimmed. */
-function Estimate({ ms }: { ms: number }) {
-  return <span className="font-mono text-[11px] font-medium opacity-75">{about(ms)}</span>;
-}
-
 /** A row's action: quiet, or warn-washed where something went wrong (the clip before changed, a failed render). */
 function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind"]; disabled: boolean; onClick(): void }) {
   const warn = kind === "stale" || kind === "failed";
@@ -322,7 +324,7 @@ function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind
     act.do === "take" ? [`Use take ${act.number}`, `Take ${act.number} comes in at ×${act.figure.toFixed(1)}: it plays instead (Undo puts the other back)`]
     : act.do === "fill" ? ["Fill the frame", `Crop ${act.clips.length === 1 ? "the clip" : `the ${act.clips.length} clips`} to the video's aspect ratio instead of bars (one Undo step each)`]
     : kind === "missing" ? [`Render ${n}`, `Renders the ${n} clip${n === 1 ? "" : "s"} with no take yet, in order`]
-    : kind === "stale" ? ["Re-render", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
+    : kind === "stale" ? ["New take", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
     : kind === "failed" ? ["Retry", `Queues ${n === 1 ? "the clip" : `the ${n} clips`} again`]
     : ["New take", `No other take comes in at ×${SHOWS} or under: render another`];
   return (

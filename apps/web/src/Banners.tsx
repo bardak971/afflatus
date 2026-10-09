@@ -65,7 +65,9 @@ export function Banners() {
           const f = folds.current.done;
           add(f, j);
           const allExports = f.exports === f.count;
-          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), href: allExports ? "/timelines" : "/", go: allExports ? "Open timelines" : "Open library" });
+          // on the library itself what was made is already in sight: nowhere to send it
+          const there = allExports ? path === "/timelines" : path === "/";
+          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...(there ? {} : allExports ? { href: "/timelines", go: "Open timelines" } : { href: "/", go: "Open library" }) });
         }
       }
     }
@@ -95,26 +97,39 @@ export function Banners() {
 
   if (!items.length) return null;
   return (
-    <div className="pointer-events-none fixed top-3 left-1/2 z-[65] flex w-[480px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2">
-      {items.map((b) => (
-        <div key={b.id} role={b.tone === "bad" ? "alert" : "status"} className={cx("pointer-events-auto flex items-start gap-2.5 rounded-xl border py-2.5 pr-2 pl-3.5 shadow-2xl", b.tone === "bad" ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>
-          <span className="pt-0.5">{b.tone === "bad" ? <AlertTriangle size={16} /> : <Check size={16} className="text-good" />}</span>
-          <button
-            type="button"
-            onClick={() => {
-              dismiss(b.id);
-              if (b.act) b.act();
-              else go(b.href);
-            }}
-            className="flex min-w-0 grow flex-col gap-0.5 text-left"
-          >
+    // top centre, under the screens' headers: over the stage's or the player's empty top, never over a header's
+    // controls (as it was at the very top) nor the stage's action bar and the status bar at the foot
+    <div className="pointer-events-none fixed top-16 left-1/2 z-[65] flex w-[440px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2">
+      {items.map((b) => {
+        const said = (
+          <>
             <span className="font-semibold break-words">{b.title}</span>
             {b.text && <span className="line-clamp-3 text-xs break-words">{b.text}</span>}
-            <span className="text-xs font-semibold underline">{b.go}</span>
-          </button>
+            {b.go && <span className="text-xs font-semibold underline">{b.go}</span>}
+          </>
+        );
+        return (
+        <div key={b.id} role={b.tone === "bad" ? "alert" : "status"} className={cx("pointer-events-auto flex items-start gap-2.5 rounded-xl border py-2.5 pr-2 pl-3.5 shadow-2xl", b.tone === "bad" ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>
+          <span className="pt-0.5">{b.tone === "bad" ? <AlertTriangle size={16} /> : <Check size={16} className="text-good" />}</span>
+          {b.act || b.href ? (
+            <button
+              type="button"
+              onClick={() => {
+                dismiss(b.id);
+                if (b.act) b.act();
+                else if (b.href) go(b.href);
+              }}
+              className="flex min-w-0 grow flex-col gap-0.5 text-left"
+            >
+              {said}
+            </button>
+          ) : (
+            <div className="flex min-w-0 grow flex-col gap-0.5 pt-px">{said}</div>
+          )}
           <button type="button" aria-label="Close" onClick={() => dismiss(b.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-hover"><X size={14} /></button>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

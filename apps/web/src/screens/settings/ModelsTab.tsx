@@ -198,6 +198,15 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
 }
 
 /**
+ * The head of "What is ready": what it counts, said. A bare "15 of 15 ready" under a list of families that
+ * are off with files missing read as "everything is fine"; the count is of the operations of the families on.
+ */
+export function readySaid(families: number, ready: number, operations: number): string {
+  const on = `${families} famil${families === 1 ? "y" : "ies"} on`;
+  return ready === operations ? `${on} · all ready` : `${on} · ${ready} of ${operations} operations ready`;
+}
+
+/**
  * What is ready, by model family: one line per family that says how many of its operations can run,
  * open when something is missing, folded when all is well. Only the families that are on are listed.
  */
@@ -215,7 +224,7 @@ export function ReadyList() {
       id="ready"
       setting="models.ready"
       title={<span className="flex items-center gap-1.5">What is ready <Help title="What is ready" text="Every operation of the families that are on, by family: open when something is missing (files, custom nodes), folded when all is well. Models that are off are not listed." /></span>}
-      status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{ready} of {listed.length} ready</span> : null}
+      status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{readySaid(groups.length, ready, listed.length)}</span> : null}
     >
       {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
       {setup.data && !listed.length && (

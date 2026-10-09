@@ -36,6 +36,19 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
   });
   // Escape leaves the name box without keeping what was typed: the blur that follows must not save it
   const cancelledNaming = useRef(false);
+  // the delete asked first takes the whole row: the question with its two buttons, rather than squeezed in beside the menu
+  const [deleting, setDeleting] = useState(false);
+  if (deleting && draft) {
+    return (
+      <div className="flex h-[60px] shrink-0 items-center gap-2 border-b border-line px-3">
+        <span className="flex min-w-0 grow flex-col">
+          <span className="truncate font-semibold">Delete this draft?</span>
+          <span className="truncate text-xs text-ink-2">Its outputs stay in your library.</span>
+        </span>
+        <TwoStep title="Delete this draft" open yes="Delete" cancel="Keep" onCancel={() => setDeleting(false)} onYes={() => { setDeleting(false); void d.remove(draft.id).catch(failed("deleted")); }} />
+      </div>
+    );
+  }
   return (
     <div className="flex h-[60px] shrink-0 items-center gap-1.5 border-b border-line px-3">
       {naming !== null && draft ? (
@@ -84,17 +97,8 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
       )}
       <button type="button" aria-label="Rename this draft" data-tip="Rename this draft" disabled={!draft} onClick={() => { cancelledNaming.current = false; setNaming(draft?.name ?? ""); }} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
       {/* deleted as everything else is: asked first (its conversation with the designer goes with it) */}
-      <TwoStep
-        title="Delete this draft"
-        icon={<Trash2 size={13} />}
-        note="Its outputs stay in your library."
-        yes="Delete"
-        cancel="Keep"
-        disabled={!draft}
-        onYes={() => draft && void d.remove(draft.id).catch(failed("deleted"))}
-        className="h-9 w-8 rounded-lg"
-      />
-      <button type="button" data-tip="New draft: an empty form. This one is kept." onClick={() => void d.startNew().catch(failed("started"))} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
+      <button type="button" aria-label="Delete this draft" data-tip="Delete this draft" disabled={!draft} onClick={() => setDeleting(true)} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Trash2 size={13} /></button>
+      <button type="button" data-tip="New draft: an empty form. The open one stays in the drafts list." onClick={() => void d.startNew().catch(failed("started"))} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
       <button type="button" aria-label="Close the form" data-tip="Fold the form away: the library takes the whole width. N opens it again." onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 text-accent hover:bg-accent-wash"><ChevronLeft size={15} /></button>
     </div>
   );

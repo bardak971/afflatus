@@ -43,8 +43,8 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
         </button>
         {test.isSuccess && !dirty && <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-good"><span className="h-2 w-2 rounded-full bg-good" /> Answering</span>}
         {!only && (inUse
-          ? <Chip tone="accent" tip="A new conversation with the designer starts with this one. Each conversation keeps the one it was given.">New conversations</Chip>
-          : <Button size="sm" disabled={fresh} onClick={onUse} data-tip="New conversations with the designer start with this one">Start with this one</Button>)}
+          ? <Chip tone="accent" tip="A new conversation with the designer starts with this one. Each conversation keeps the one it was given.">Default</Chip>
+          : <Button size="sm" disabled={fresh} onClick={onUse} data-tip="New conversations with the designer start with this one">Make default</Button>)}
         <Button size="sm" tone="quiet" onClick={() => setOpen(!open)}>{open ? "Close" : "Change"}</Button>
       </div>
       {open && (

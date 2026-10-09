@@ -4,6 +4,7 @@ import type { Range } from "../Trim";
 import { api, type Asset, type AssetDetail, type Look, type RecipeInfo } from "../api";
 import { useDrafts, useFamilies, useRecipes, useSetup, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
+import { handMask } from "../handoff";
 import { useReuse } from "../reuse";
 import { carryOver, followOn, modelGroups, usedLast } from "../picker";
 import { OPS, ownInputs } from "./shared";
@@ -141,7 +142,11 @@ export function useNewDraftActions({ asset, detail, leave }: { asset: Asset; det
       const look = castOf(detail.data);
       return api.createDraft({ recipe: tool.id, forms: { [tool.id]: toolInput(tool, Boolean(look)) }, look });
     },
-    onSuccess: toForm,
+    onSuccess: (d, id) => {
+      // a tool that redoes a painted part (Inpaint) opens on its painter: painting the mask is the next step anyway
+      if (all.find((r) => r.id === id)?.inputs.some((i) => i.type === "image" && i.role === "mask")) handMask(asset.id);
+      toForm(d);
+    },
   });
 
   return { a, g, recipe, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool };

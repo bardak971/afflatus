@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Camera, Download, Link2, Maximize, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
 import type { Clip, Timeline } from "../api";
-import { aboutMs, clock } from "../format";
+import { clock } from "../format";
+import { est, Estimate } from "./estimate";
 import { Button, Chip, cx, Help } from "../ui";
 import { Slider } from "../Slider";
 import type { Clock } from "./clock";
@@ -62,7 +63,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           </span>
         )}
       </Chip>
-      {missing.length > 0 && <Chip tone="warn">{missing.length} to render{allMs ? ` · ${aboutMs(allMs).replace(/^about /, "~")}` : ""}</Chip>}
+      {missing.length > 0 && <Chip tone="warn">{missing.length} to render{allMs ? ` · ${est(allMs)}` : ""}</Chip>}
       <span className="grow" />
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again
@@ -85,7 +86,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
       </Button>
       {missing.length > 0 && (
         <Button tone="primary" disabled={rendering} data-tip="Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order." onClick={onRenderMissing}>
-          Render all ({missing.length}){allMs ? ` · ${aboutMs(allMs)}` : ""}
+          Render all ({missing.length})<Estimate ms={allMs} />
         </Button>
       )}
       {picked.size > 0 && (

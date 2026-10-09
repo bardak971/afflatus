@@ -195,16 +195,17 @@ export function ComfyLog({ online }: { online: boolean }) {
 
 /** The rows drawn, each in a box of its own that is measured (its margin inside it): held apart, so that a scroll that keeps the same rows does not draw them again. */
 const LogBody = memo(function LogBody({ rows, open, onToggle, onOnly }: { rows: LogRow[]; open: Set<string>; onToggle(key: string): void; onOnly(job: { id: string; label: string }): void }) {
-  const toneClass = (l: Line) => (l.tone === "error" ? "text-warn-ink" : l.tone === "warn" ? "text-picture" : l.tone === "mark" ? "text-accent" : "text-ink-2");
+  // the marks of a job's course (got prompt, executed, loaded) in the full ink, a step above the rest: the coral read as an error
+  const toneClass = (l: Line) => (l.tone === "error" ? "text-warn-ink" : l.tone === "warn" ? "text-picture" : l.tone === "mark" ? "text-ink" : "text-ink-2");
   const one = (r: LogRow) => {
     if (r.kind === "start") {
       return (
-        <div className="mt-1.5 flex gap-3 border-t border-line pt-1.5 whitespace-pre-wrap break-all text-accent">
+        <div className="mt-1.5 flex gap-3 border-t border-line pt-1.5 whitespace-pre-wrap break-all font-semibold text-ink">
           <span className="shrink-0 select-none text-ink-3">{clock(r.line.t)}</span>
           <span className="flex min-w-0 items-center gap-2">
             {r.line.m}
             {r.job && r.label && (
-              <button type="button" onClick={() => onOnly({ id: r.job!, label: r.label! })} data-tip="Only this job's lines" className="truncate rounded-md bg-accent-wash px-1.5 font-sans text-[11px] font-semibold hover:brightness-110">
+              <button type="button" onClick={() => onOnly({ id: r.job!, label: r.label! })} data-tip="Only this job's lines" className="truncate rounded-md bg-hover px-1.5 font-sans text-[11px] font-semibold text-ink-2 hover:text-ink">
                 {r.label}
               </button>
             )}

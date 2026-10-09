@@ -94,7 +94,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "link-folder", name: "Link folder…", typed: "link folder ", example: "link folder D:\\shoots", what: "Used in place, nothing copied" },
   { id: "pause", name: "Pause queue", typed: "pause queue", example: "pause queue", what: "What runs finishes; nothing new starts" },
   { id: "resume", name: "Resume queue", typed: "resume queue", example: "resume queue", what: "What waits starts again" },
-  { id: "empty-bin", name: "Empty bin…", typed: "empty bin", example: "empty bin", what: "Erases what is in the bin, asked first" },
+  { id: "empty-bin", name: "Empty the bin…", typed: "empty the bin", example: "empty the bin", what: "Erases what is in the bin, asked first" },
   { id: "bin-unused", name: "Bin unused takes…", typed: "bin unused takes", example: "bin unused takes", what: "Of the open timeline, asked first" },
   { id: "split", name: "Split clip at playhead", typed: "split", example: "split", what: "The clip selected in the open timeline, as its key in the editor" },
   { id: "previous-take", name: "Previous take", typed: "previous take", example: "prev take", what: "The selected clip plays its take before, as its key in the editor" },
