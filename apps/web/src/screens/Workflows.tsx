@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
-import { Link } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation } from "wouter";
+import { create } from "zustand";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FileUp, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { ask } from "../Confirm";
@@ -12,7 +13,7 @@ import { useOpenNewDraft } from "../draft";
 import { notReady, recipeLabel } from "../format";
 import { saveJson } from "../download";
 import { useHandover } from "../store";
-import { useWorkflowsRequest } from "../bar/bridge";
+import { useWorkflowsRequest, workflowEditHref } from "../bar/bridge";
 import { Button, Chip, cx, ErrorNote, Help, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { pngText } from "./pngText";
@@ -98,6 +99,77 @@ export async function share(w: Pick<WorkflowBrief, "id" | "title">): Promise<voi
   saveJson(def, `${w.title.replace(/[^\w .-]+/g, "").trim() || "workflow"}.afflatus.json`);
 }
 
+/**
+ * A fresh import until it is saved. It has no id yet, so /workflows/new draws it from here, and it lives in this
+ * tab's memory only: a reload finds it gone. `note` is what the list says on its return from an editor that could
+ * not be drawn (the import lost to a reload, a saved workflow that could not be read).
+ */
+export const useWorkflowDraft = create<{ draft: Editing | null; note: string | null }>(() => ({ draft: null, note: null }));
+
+/** The editor's shape while the saved workflow is read: its header and nothing more, so nothing jumps once it is there. */
+function EditorLoading() {
+  return (
+    <div aria-busy="true" aria-label="Loading" className="flex min-h-0 grow flex-col">
+      <header className="flex min-h-16 shrink-0 items-center border-b border-line px-8 py-2.5">
+        <span className="flex flex-col gap-1.5">
+          <span className="h-5 w-40 animate-pulse rounded bg-hover" />
+          <span className="h-3 w-56 animate-pulse rounded bg-hover/70" />
+        </span>
+      </header>
+    </div>
+  );
+}
+
+/**
+ * /workflows/:id/edit: a saved workflow in the editor. It is read afresh each time it is opened (nothing kept
+ * once it is left), so the editor starts from what is saved; one that cannot be read returns to the list, which says why.
+ */
+export function WorkflowEdit({ params }: { params: { id: string } }) {
+  const id = params.id;
+  const [, navigate] = useLocation();
+  const q = useQuery({ queryKey: ["workflow-edit", id], queryFn: () => reopen(id), staleTime: Infinity, gcTime: 0, retry: false, refetchOnWindowFocus: false });
+  useEffect(() => {
+    useWorkflowDraft.setState({ note: null });
+  }, []);
+  useEffect(() => {
+    if (!q.error) return;
+    useWorkflowDraft.setState({ note: `Could not open it in the editor: ${q.error.message}` });
+    navigate("/workflows", { replace: true });
+  }, [q.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!q.data) return <EditorLoading />;
+  return <WorkflowEditor key={id} start={q.data} onDone={() => navigate("/workflows")} />;
+}
+
+/**
+ * /workflows/new: the import just read, until it is saved. Opened with nothing in memory (a reload, a link), it was
+ * lost: the list says so, in place of this address in the history. Whether it was lost is settled once, when the
+ * screen opens, so that the draft let go on Save or Cancel does not read as lost on the way out.
+ */
+export function WorkflowImport() {
+  const draft = useWorkflowDraft((s) => s.draft);
+  const [lost] = useState(() => !useWorkflowDraft.getState().draft);
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    if (!lost) {
+      useWorkflowDraft.setState({ note: null });
+      return;
+    }
+    useWorkflowDraft.setState({ note: "The import was not saved and the page was reloaded: drop its file again." });
+    navigate("/workflows", { replace: true });
+  }, [lost]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!draft) return null;
+  return (
+    <WorkflowEditor
+      key={`${draft.source}:${draft.title}`}
+      start={draft}
+      onDone={() => {
+        navigate("/workflows");
+        useWorkflowDraft.setState({ draft: null });
+      }}
+    />
+  );
+}
+
 const KIND = { image: "Image", video: "Video", audio: "Audio" } as const;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -172,13 +244,21 @@ export function Workflows() {
   const settings = useSettings();
   const client = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
-  const [editing, setEditing] = useState<Editing | null>(null);
   const [over, setOver] = useState(false);
   // the row menu was opened from its ··· (only what the row has no button for), not by a right-click
   const [fromMore, setFromMore] = useState(false);
 
-  const open = useMutation({ mutationFn: readFile, onSuccess: setEditing });
-  const edit = useMutation({ mutationFn: reopen, onSuccess: setEditing });
+  const [, navigate] = useLocation();
+  // the editor has an address of its own: a fresh import is held in memory under /workflows/new, a saved workflow is read at its own
+  const open = useMutation({
+    mutationFn: readFile,
+    onSuccess: (draft) => {
+      useWorkflowDraft.setState({ draft, note: null });
+      navigate("/workflows/new");
+    },
+  });
+  const editIt = (id: string) => navigate(workflowEditHref(id));
+  const note = useWorkflowDraft((s) => s.note);
   // a workflow taken out of a picture or a video that was dropped on the app
   const handed = useHandover((h) => h.workflow);
   const hand = useHandover((h) => h.set);
@@ -187,13 +267,12 @@ export function Workflows() {
     hand({ workflow: null });
     open.mutate(handed);
   }, [handed]); // eslint-disable-line react-hooks/exhaustive-deps
-  // what the command bar asked of this screen: a workflow opened in the editor, or the file picker of the Import button
+  // what the command bar asked of this screen: the file picker of the Import button (its Edit goes to the editor's address)
   const asked = useWorkflowsRequest((r) => r.request);
   useEffect(() => {
     if (!asked) return;
     const r = useWorkflowsRequest.getState().take();
-    if (r?.do === "edit") edit.mutate(r.id);
-    else if (r?.do === "import") input.current?.click();
+    if (r?.do === "import") input.current?.click();
   }, [asked]); // eslint-disable-line react-hooks/exhaustive-deps
   const shareIt = useMutation({ mutationFn: share });
   // the workflow in ComfyUI's editor: written into its workflows folder, then ComfyUI opened in a new tab.
@@ -214,7 +293,7 @@ export function Workflows() {
   const cardMenu = useMenu<WorkflowBrief>();
   const cardItems = (w: WorkflowBrief): MenuItem[] => [
     { label: "Try it", icon: <Play size={14} />, note: "the form, on a new draft", disabled: tryIt.isPending, run: () => tryIt.mutate(w.id) },
-    { label: "Edit", icon: <Pencil size={14} />, note: "its mapping and form", disabled: edit.isPending, run: () => edit.mutate(w.id) },
+    { label: "Edit", icon: <Pencil size={14} />, note: "its mapping and form", run: () => editIt(w.id) },
     "—",
     { label: "Export", icon: <Download size={14} />, note: "a file another Afflatus imports", run: () => shareIt.mutate(w) },
     { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: openInComfy.isPending || !comfyOnline, note: comfyOnline ? undefined : "ComfyUI is not running", run: () => openInComfy.mutate(w) },
@@ -226,16 +305,14 @@ export function Workflows() {
     onSuccess: () => Promise.all(["recipes", "setup", "workflows"].map((key) => client.invalidateQueries({ queryKey: [key] }))),
   });
 
-  // back from the editor: the import or reopen that led there is done with
-  if (editing) return <WorkflowEditor key={`${editing.id}:${editing.source}`} start={editing} onDone={() => { open.reset(); edit.reset(); setEditing(null); }} />;
-
   const comfyOnline = setup.data?.comfy.online ?? false;
   const why = (recipeId: string) => (setup.isSuccess ? notReady(setup.data.recipes.find((r) => r.id === recipeId), comfyOnline) : null);
   const builtIn = (recipes.data?.families ?? []).filter((f) => !f.id.startsWith("workflow-"));
   // the error of the last action only: one that went through since clears an older one
-  const last = [open, edit, shareIt, tryIt, remove, openInComfy].reduce((a, m) => (m.submittedAt > a.submittedAt ? m : a));
-  // the list's own error is said in its place, under "Your workflows"
-  const error = last.error;
+  const last = [open, shareIt, tryIt, remove, openInComfy].reduce((a, m) => (m.submittedAt > a.submittedAt ? m : a));
+  // the list's own error is said in its place, under "Your workflows". What an editor that could not open left to say
+  // stands until the first action here.
+  const error = last.error?.message ?? (last.submittedAt ? null : note);
 
   // the whole page takes a dropped file; leaving for one of its own children is not leaving it
   const drop = {
@@ -289,7 +366,7 @@ export function Workflows() {
         />
       </header>
 
-      {error && <ErrorNote>{error.message}</ErrorNote>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {cardMenu.menu && menuOf && (
         <ContextMenu
@@ -333,10 +410,10 @@ export function Workflows() {
                     </div>
                     <Readiness known={setup.isSuccess || Boolean(w.problem)} why={problem} count={w.problem ? "" : missingCount(status)} />
                     <div className="flex items-center justify-end gap-1.5">
-                      {fix && <Button size="sm" tone="primary" onClick={() => edit.mutate(w.id)} disabled={edit.isPending} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
+                      {fix && <Button size="sm" tone="primary" onClick={() => editIt(w.id)} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
                       <Button size="sm" tone={fix ? "quiet" : "primary"} onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip={fix ? "Opens the form with this workflow picked, on a new draft. It renders once it is ready." : "Opens the form with this workflow picked, on a new draft."} className="whitespace-nowrap">Try it</Button>
                       {/* the fix opens the editor already: a second button for it would say the same */}
-                      {!fix && <Button size="sm" tone="quiet" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>}
+                      {!fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)}>Edit</Button>}
                       <button
                         type="button"
                         aria-label={`More actions on ${w.title}`}

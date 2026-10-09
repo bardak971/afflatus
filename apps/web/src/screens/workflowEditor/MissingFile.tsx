@@ -75,8 +75,9 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
             options={[...(replaced ? [{ value: "", label: "Back to the file the workflow names" }] : []), ...f.options.map((o) => ({ value: o, label: fileLabel(o), note: o.split(/[\\/]/).slice(0, -1).join("/") || undefined }))]}
           />
         </div>
+        {/* plain, not primary: there can be one per missing file, and the header's Save is the screen's one primary action */}
         {!replaced && best && (
-          <Button size="sm" tone="primary" disabled={busy || noManager} data-tip={why ?? best.tip} onClick={() => download(best.from)} className="shrink-0">
+          <Button size="sm" disabled={busy || noManager} data-tip={why ?? best.tip} onClick={() => download(best.from)} className="shrink-0">
             <DownloadIcon size={13} /> Download{best.bytes ? ` · ${size(best.bytes)}` : ""}
           </Button>
         )}

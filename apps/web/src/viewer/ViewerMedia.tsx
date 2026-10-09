@@ -42,7 +42,7 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   // the keys sheet's "Here now": the viewer's keys for this kind of item, and Trim's while it is open
   useKeysHere("viewer", true, { kind: acts.a.kind, over: overlay });
   useKeysHere("trim", acts.a.kind === "video" && trim, { over: overlay });
-  const { a, g, recipe, scenes, everyScene, between, extendHere, opener, carrier, frameAt, cutRange } = acts;
+  const { a, g, recipe, scenes, everyScene, between, extendHere, opener, carrier, cutRange } = acts;
   const mainText = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
   const prompt = typeof g?.inputs[mainText] === "string" ? (g.inputs[mainText] as string) : "";
   return (
@@ -80,12 +80,11 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
           key={a.id}
           asset={a}
           player={player}
-          busy={cutRange.isPending || frameAt.isPending || between.isPending || extendHere.isPending}
+          busy={cutRange.isPending || between.isPending || extendHere.isPending}
           onCopy={(range, crf) => cutRange.mutate({ range, action: "copy", crf })}
           onSplit={(range, crf) => cutRange.mutate({ range, action: "split", crf })}
           onRemove={(range, crf) => cutRange.mutate({ range, action: "remove", crf })}
           onSlow={(range, factor) => cutRange.mutate({ range, action: "slow", crf: 16, factor })}
-          onFrame={(atMs) => frameAt.mutate(atMs)}
           onBetween={opener ? (range) => between.mutate(range) : undefined}
           onExtendHere={carrier || opener ? (atMs) => extendHere.mutate(atMs) : undefined}
           onRange={setTrimRange}

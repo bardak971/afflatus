@@ -14,10 +14,11 @@ export const buttonClass = ({ tone = "plain", size = "md", className }: { tone?:
   cx(
     "inline-flex items-center justify-center gap-2 font-semibold whitespace-nowrap transition-[filter,background-color] disabled:cursor-not-allowed disabled:opacity-45",
     size === "md" ? "h-10 rounded-[10px] px-4" : "h-8 rounded-lg px-3 text-xs",
-    tone === "primary" && "bg-accent font-bold text-accent-ink hover:brightness-110",
-    tone === "plain" && "border border-line-strong text-ink hover:bg-hover",
-    tone === "quiet" && "bg-hover text-ink hover:brightness-110",
-    tone === "danger" && "bg-warn-wash font-bold text-warn-ink hover:brightness-125",
+    // off, a button does not answer the mouse either: a hover that still lights it would read as half on
+    tone === "primary" && "bg-accent font-bold text-accent-ink hover:brightness-110 disabled:hover:brightness-100",
+    tone === "plain" && "border border-line-strong text-ink hover:bg-hover disabled:hover:bg-transparent",
+    tone === "quiet" && "bg-hover text-ink hover:brightness-110 disabled:hover:brightness-100",
+    tone === "danger" && "bg-warn-wash font-bold text-warn-ink hover:brightness-125 disabled:hover:brightness-100",
     className,
   );
 

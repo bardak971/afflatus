@@ -45,7 +45,8 @@ function FollowAuthor({ m }: { m: Mapping }) {
       {authorDiff.add.length > 0 && (
         <div className="flex items-start gap-2">
           <span className="min-w-0 grow pt-1.5"><span className="text-ink-2">Author's front, not on the form:</span> <span className="font-semibold">{names(authorDiff.add)}</span></span>
-          <Button size="sm" tone="primary" onClick={() => followAuthor("add")} className="shrink-0">Add {authorDiff.add.length}</Button>
+          {/* quiet like its Remove: the header's Save is the screen's one primary action */}
+          <Button size="sm" tone="quiet" onClick={() => followAuthor("add")} className="shrink-0">Add {authorDiff.add.length}</Button>
           <Help className="mt-2" title="Saved differently" text={EXPLAIN} />
         </div>
       )}

@@ -88,10 +88,13 @@ export function formWhenOpen(draft: string | null, open: () => void, waitMs = 40
 }
 
 /**
- * What the bar asks of the Workflows screen, which does it with its own buttons: a saved workflow opened in the editor
- * ("Edit"), or the file picker of "Import ComfyUI workflow". Left here, the bar goes to /workflows and the screen takes it.
+ * What the bar asks of the Workflows screen, which does it with its own button: the file picker of "Import ComfyUI
+ * workflow". Left here, the bar goes to /workflows and the screen takes it.
  */
-export type WorkflowsRequest = { do: "edit"; id: string } | { do: "import" };
+export type WorkflowsRequest = { do: "import" };
+
+/** The address of a saved workflow in the editor (the list's Edit, the bar's): it opens again on a reload, and Back returns to it. */
+export const workflowEditHref = (id: string) => `/workflows/${encodeURIComponent(id)}/edit`;
 export const useWorkflowsRequest = create<{ request: WorkflowsRequest | null; ask(r: WorkflowsRequest): void; take(): WorkflowsRequest | null }>((set, get) => ({
   request: null,
   ask: (request) => set({ request }),

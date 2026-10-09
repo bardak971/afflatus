@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { ask } from "../Confirm";
-import { useLeaveGuard } from "../leaveGuard";
+import { releaseLeaveGuard, useLeaveGuard } from "../leaveGuard";
 import { scrollInside } from "../scrollInside";
 import { Button, Chip } from "../ui";
 import { beforeItems } from "./workflowEditor/BeforeItRuns";
@@ -36,7 +36,10 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const discard = () => ask({ title: start.id ? "Discard your changes?" : "Discard this import?", text: "What you changed here is not saved.", yes: "Discard" });
   useLeaveGuard(m.dirty && !save.isPending, discard);
   const cancel = async () => {
-    if (!m.dirty || (await discard())) onDone(false);
+    if (m.dirty && !(await discard())) return;
+    // answered here: the way back to the list, an address of its own, is not asked again
+    releaseLeaveGuard();
+    onDone(false);
   };
 
   // the verdict: what was found, what was not, and what to see to before it runs

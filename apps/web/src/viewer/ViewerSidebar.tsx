@@ -423,7 +423,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, recipe, recipes, leave, reuse, saveFrame, takeSound, animate, carryOn, cutRange, between, extendHere, frameAt, mirror, follow, toolFor, openTool } = acts;
+  const { a, g, recipe, recipes, leave, reuse, saveFrame, takeSound, animate, carryOn, cutRange, between, extendHere, mirror, follow, toolFor, openTool } = acts;
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "edited" ? "Edited copy" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
@@ -440,7 +440,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   const keep = byId("keep");
   const bin = byId("bin");
   const passTools = new Set((["u", "f", "b", "i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [toolFor(k)!.id] : [])));
-  const failed = reuse.error ?? saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error ?? mirror.error ?? follow.error ?? openTool.error;
+  const failed = reuse.error ?? saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? mirror.error ?? follow.error ?? openTool.error;
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
       <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} crumbs={crumbs} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />

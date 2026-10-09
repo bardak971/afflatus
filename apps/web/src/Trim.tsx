@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Camera, Clapperboard, Copy, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Clapperboard, Copy, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { Asset } from "./api";
 import { clock } from "./format";
 import { dialogOver } from "./Dialog";
@@ -58,7 +58,7 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
  * it over (its native controls are off while trimming). Keys: I / O set in and out at the playhead,
  * , and . step one frame, ← and → too (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
  */
-export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onFrame, onBetween, onExtendHere, onRange, scenes, onEveryScene, onClose }: {
+export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onBetween, onExtendHere, onRange, scenes, onEveryScene, onClose }: {
   asset: Asset;
   player: RefObject<HTMLVideoElement | null>;
   busy?: boolean;
@@ -73,7 +73,6 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   onRemove?(range: Range, crf: number): void;
   /** The range slowed down ×2 or ×4, as a new video (RIFE on the GPU when ComfyUI has it, else ffmpeg). */
   onSlow?(range: Range, factor: 2 | 4): void;
-  onFrame(atMs: number): void;
   /** A new clip from the frame at in to the frame at out. */
   onBetween?(range: Range): void;
   /** A new clip that starts at the playhead's moment. */
@@ -353,42 +352,61 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* two rows of groups, each group kept whole when the room runs out (a group wraps, never one button of it):
+          the playhead and the range with what makes a new clip from them; then what is cut out of the video. The
+          frame at the playhead is Save frame (G), which the viewer's own list keeps while Trim is open */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <Button size="sm" tone={playing ? "primary" : "plain"} aria-pressed={playing} aria-label="Play / pause" onClick={() => { const v = player.current; if (!v) return; if (v.paused) void v.play(); else v.pause(); }} data-tip="Play / pause (Space)">{playing ? <Pause size={13} /> : <Play size={13} />}</Button>
-        <Button size="sm" onClick={() => moveIn(at)} data-tip="Set in at the playhead">In <Kbd>I</Kbd></Button>
-        <Button size="sm" onClick={() => moveOut(at)} data-tip="Set out at the playhead">Out <Kbd>O</Kbd></Button>
-        <Button size="sm" onClick={() => { player.current?.pause(); seek(at - frameMs); }} data-tip="One frame back (Shift + ←: ten)"><Kbd>,</Kbd></Button>
-        <Button size="sm" onClick={() => { player.current?.pause(); seek(at + frameMs); }} data-tip="One frame forward (Shift + →: ten)"><Kbd>.</Kbd></Button>
-        <Button size="sm" tone={looping ? "primary" : "plain"} aria-pressed={looping} onClick={toggleLoop} data-tip={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
-        <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : roomy(range))} data-tip={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} {zoom ? "Whole" : "Zoom to range"} <Kbd>Z</Kbd></Button>
-        <span className="grow" />
-        <div className="w-52">
-          <Select size="sm" className="h-8" label="Quality of the cut" value={crf} onChange={choose} options={CRFS} />
+        <div role="group" aria-label="Range" className="flex items-center gap-1">
+          <Button size="sm" onClick={() => moveIn(at)} data-tip="Set in at the playhead">In <Kbd>I</Kbd></Button>
+          <Button size="sm" onClick={() => moveOut(at)} data-tip="Set out at the playhead">Out <Kbd>O</Kbd></Button>
         </div>
+        <div role="group" aria-label="Frames" className="flex items-center gap-1">
+          <Button size="sm" aria-label="One frame back" onClick={() => { player.current?.pause(); seek(at - frameMs); }} data-tip="One frame back (Shift + ←: ten)"><Kbd>,</Kbd></Button>
+          <Button size="sm" aria-label="One frame forward" onClick={() => { player.current?.pause(); seek(at + frameMs); }} data-tip="One frame forward (Shift + →: ten)"><Kbd>.</Kbd></Button>
+          <Button size="sm" tone={looping ? "primary" : "plain"} aria-pressed={looping} onClick={toggleLoop} data-tip={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
+          {/* one label whether zoomed or not, so that the row does not move when it is pressed */}
+          <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : roomy(range))} data-tip={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} Zoom <Kbd>Z</Kbd></Button>
+        </div>
+        {!actions && (onBetween || onExtendHere) && (
+          <>
+            <span className="grow" />
+            <div role="group" aria-label="New clip" className="flex items-center gap-1">
+              {onBetween && <Button size="sm" disabled={busy} data-tip="A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range." onClick={() => onBetween(range)}><Clapperboard size={13} /> Generate between</Button>}
+              {onExtendHere && <Button size="sm" disabled={busy} data-tip="A new clip that starts at the playhead's moment (H3 carries the motion on from there; the others open on that frame). Extend (C) carries on from the end instead." onClick={() => onExtendHere(at)}><Link2 size={13} /> Extend from here</Button>}
+            </div>
+          </>
+        )}
       </div>
 
       {actions ? (
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">{actions({ range, at, crf: crfN, whole })}</div>
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
+          {actions({ range, at, crf: crfN, whole })}
+          <span className="grow" />
+          <div className="w-44">
+            <Select size="sm" className="h-8" label="Quality of the cut" value={crf} onChange={choose} options={CRFS} />
+          </div>
+        </div>
       ) : (
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
-        <Button size="sm" tone="primary" disabled={busy || whole} data-tip={whole ? "The whole video: there is nothing to cut." : "The range as a new video in your library; this one stays."} onClick={() => onCopy?.(range, crfN)}><Copy size={13} /> Copy to library</Button>
-        <Button size="sm" disabled={busy || whole} data-tip="Three videos: before the range, the range, after it. This one goes to the bin." onClick={() => onSplit?.(range, crfN)}><Split size={13} /> Split</Button>
-        <Button size="sm" disabled={busy || whole} data-tip="One video without the range. This one goes to the bin." onClick={() => onRemove?.(range, crfN)}><Scissors size={13} /> Remove range</Button>
-        {onEveryScene && scenes && scenes.length > 0 && (
-          <Button size="sm" disabled={busy} data-tip={`${scenes.length + 1} shots found by their cuts: each copied out as its own video. This one stays.`} onClick={() => onEveryScene(scenes, crfN)}><Split size={13} /> Extract every scene ({scenes.length + 1})</Button>
-        )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-2">
+        <div role="group" aria-label="Cut" className="flex items-center gap-1">
+          {/* the main action only when it can act: off, it reads as off, not as a faded call to action */}
+          <Button size="sm" tone={busy || whole ? "plain" : "primary"} disabled={busy || whole} data-tip={whole ? "The whole video: there is nothing to cut." : "The range as a new video in your library; this one stays."} onClick={() => onCopy?.(range, crfN)}><Copy size={13} /> Copy to library</Button>
+          <Button size="sm" disabled={busy || whole} data-tip={whole ? "The whole video: there is nothing to cut." : "Three videos: before the range, the range, after it. This one goes to the bin."} onClick={() => onSplit?.(range, crfN)}><Split size={13} /> Split</Button>
+          <Button size="sm" disabled={busy || whole} data-tip={whole ? "The whole video: there is nothing to cut." : "One video without the range. This one goes to the bin."} onClick={() => onRemove?.(range, crfN)}><Scissors size={13} /> Remove range</Button>
+          {onEveryScene && scenes && scenes.length > 0 && (
+            <Button size="sm" disabled={busy} data-tip={`${scenes.length + 1} shots found by their cuts: each copied out as its own video. This one stays.`} onClick={() => onEveryScene(scenes, crfN)}><Split size={13} /> Extract scenes ({scenes.length + 1})</Button>
+          )}
+          <div className="w-44">
+            <Select size="sm" className="h-8" label="Quality of the cut" value={crf} onChange={choose} options={CRFS} />
+          </div>
+        </div>
         {onSlow && (
-          <>
-            <span className="mx-1 h-5 border-l border-line" />
+          <div role="group" aria-label="Slow motion" className="flex items-center gap-1">
             <Button size="sm" disabled={busy} data-tip="The range at half speed, as a new video, its sound slowed with it (pitch kept): RIFE on the GPU through the queue when ComfyUI has it, else ffmpeg's motion interpolation on the processor, which is slow." onClick={() => onSlow(range, 2)}><Gauge size={13} /> Slow ×2</Button>
-            <Button size="sm" disabled={busy} data-tip="The range at a quarter speed, as a new video, its sound slowed with it." onClick={() => onSlow(range, 4)}><Gauge size={13} /> ×4</Button>
-          </>
+            <Button size="sm" disabled={busy} data-tip="The range at a quarter speed, as a new video, its sound slowed with it." onClick={() => onSlow(range, 4)}><Gauge size={13} /> Slow ×4</Button>
+          </div>
         )}
-        <span className="mx-1 h-5 border-l border-line" />
-        <Button size="sm" disabled={busy} data-tip="The frame at the playhead, as an image in your library (G does the same)" onClick={() => onFrame(at)}><Camera size={13} /> Frame at playhead <Kbd>G</Kbd></Button>
-        <span className="mx-1 h-5 border-l border-line" />
-        {onBetween && <Button size="sm" disabled={busy} data-tip="A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range." onClick={() => onBetween(range)}><Clapperboard size={13} /> Generate between</Button>}
-        {onExtendHere && <Button size="sm" disabled={busy} data-tip="A new clip that starts at the playhead's moment (H3 carries the motion on from there; the others open on that frame)." onClick={() => onExtendHere(at)}><Link2 size={13} /> Extend from here</Button>}
       </div>
       )}
     </div>
