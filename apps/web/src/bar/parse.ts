@@ -32,7 +32,14 @@ export type Command =
   | { cmd: "empty-bin" }
   | { cmd: "bin-unused" }
   | { cmd: "link-folder"; path: string }
-  | { cmd: "new-project"; name: string };
+  | { cmd: "new-project"; name: string }
+  | { cmd: "split" }
+  | { cmd: "previous-take" }
+  | { cmd: "next-take" }
+  | { cmd: "cancel-waiting" }
+  | { cmd: "retry-failed" }
+  | { cmd: "dismiss-failed" }
+  | { cmd: "group-queue" };
 export type CommandId = Command["cmd"];
 
 /**
@@ -56,6 +63,13 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "bin-unused", name: "Bin unused takes", typed: "bin unused takes", example: "bin unused takes", what: "Of the open timeline, asked first" },
   { id: "link-folder", name: "Link a folder of your disk", typed: "link folder ", example: "link folder D:\\shoots", what: "Used in place, nothing copied" },
   { id: "new-project", name: "New project", typed: "new project ", example: "new project Harbor", what: "Made and worked in", needs: true },
+  { id: "split", name: "Split the clip at the playhead", typed: "split", example: "split", what: "The clip selected in the open timeline, as S" },
+  { id: "previous-take", name: "Previous take", typed: "previous take", example: "prev take", what: "The selected clip plays its take before, as Alt+[" },
+  { id: "next-take", name: "Next take", typed: "next take", example: "next take", what: "The selected clip plays its take after, as Alt+]" },
+  { id: "cancel-waiting", name: "Cancel all waiting", typed: "cancel waiting", example: "cancel waiting", what: "Every waiting job, asked first; the running one goes on" },
+  { id: "retry-failed", name: "Retry all failed", typed: "retry failed", example: "retry failed", what: "The failed jobs the queue lists, queued again oldest first" },
+  { id: "dismiss-failed", name: "Dismiss all failed", typed: "dismiss failed", example: "dismiss failed", what: "The failed jobs the queue lists, off the history, asked first" },
+  { id: "group-queue", name: "Group the queue by model", typed: "group by model", example: "group by model", what: "Same model together, the loaded one first" },
 ];
 
 const NUMBER = String.raw`(-?\d+(?:[.,]\d+)?)`;
@@ -125,5 +139,12 @@ export function parseCommand(input: string): Command | null {
   if (/^bin (?:the )?unused(?: takes)?$/.test(low)) return { cmd: "bin-unused" };
   if ((m = /^link (?:a )?folder(?: (.+))?$/i.exec(t))) return { cmd: "link-folder", path: (m[1] ?? "").trim() };
   if ((m = /^new project (.+)$/i.exec(t))) return { cmd: "new-project", name: m[1]!.trim().slice(0, 120) };
+  if (/^split(?: (?:the )?clip)?(?: at (?:the )?playhead)?$/.test(low)) return { cmd: "split" };
+  if (/^(?:prev|previous) take$/.test(low)) return { cmd: "previous-take" };
+  if (/^next take$/.test(low)) return { cmd: "next-take" };
+  if (/^cancel (?:all )?(?:the )?waiting(?: jobs)?$/.test(low)) return { cmd: "cancel-waiting" };
+  if (/^retry (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "retry-failed" };
+  if (/^dismiss (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "dismiss-failed" };
+  if (/^group (?:the )?(?:queue )?by model$/.test(low)) return { cmd: "group-queue" };
   return null;
 }

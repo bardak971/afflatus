@@ -33,7 +33,6 @@ export interface SettingEntry {
 }
 
 export const pageLabel = (tab: Tab) => TABS.find((t) => t.id === tab)?.label ?? "Settings";
-export const pageHref = (tab: Tab) => (tab === "comfyui" ? "/settings" : `/settings/${tab}`);
 
 const server = (key: "tagCheck" | "civitaiLookups" | "downloadModels" | "updateChecks", label: string, page: Tab, about: string, words?: string): SettingEntry => ({
   id: `server.${key}`, label, page, about, words, scope: "Afflatus", kind: "switch",
@@ -82,10 +81,17 @@ export const SETTINGS: SettingEntry[] = [
   barPart("cast", "Cast with @", "Type @ in the bar to add a person of the Prompt kit to the open draft.", "command bar person people kit"),
 ];
 
-/** Every other setting of the Settings screen: found, and opened on its page. */
+/** Every other setting of the Settings screen: found, and opened on its page at its row (its id is the index's key: `settingHref`). */
 export const PAGES: SettingEntry[] = INDEX.filter((i) => !SETTINGS.some((s) => s.label.toLowerCase() === i.label.toLowerCase())).map((i) => ({
-  id: `page.${i.tab}.${i.label}`, label: i.label, page: i.tab, words: i.words, kind: "page" as const,
+  id: i.key, label: i.label, page: i.tab, words: i.words, kind: "page" as const,
 }));
+
+/** A rank learned under a page setting's old id ("set:page.<tab>.<label>", before they took the index's key): its key now, else as it was. */
+export function settingKeyNow(key: string): string {
+  if (!key.startsWith("set:page.")) return key;
+  const page = PAGES.find((p) => key === `set:page.${p.page}.${p.label}`);
+  return page ? `set:${page.id}` : key;
+}
 
 /** A setting's value, said: on/off, the choice's name. */
 export function valueSaid(s: SettingEntry, ctx: SettingCtx): string {

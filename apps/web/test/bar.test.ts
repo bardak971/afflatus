@@ -5,7 +5,9 @@ import { arithmetic, calc, gridFramesAtLeast, ratioOf, sizeFor, type Grid } from
 import { indexItems, timelineLength } from "../src/bar/items";
 import { highlight, pieces, prepare, QUALITY, score, search } from "../src/bar/match";
 import { clipList, modeOf, parseCommand, sizeOf } from "../src/bar/parse";
-import { bonus, bumped, frecency, HALF_LIFE_MS, KEPT, recentKeys } from "../src/bar/rank";
+import { bonus, bumped, frecency, HALF_LIFE_MS, KEPT, recentKeys, renamed } from "../src/bar/rank";
+import { PAGES, SETTINGS, settingKeyNow } from "../src/bar/settingsRegistry";
+import { settingHref } from "../src/screens/settings/settingsIndex";
 import { expandSnippet, slugOf, snippetsFor, typedTrigger } from "../src/bar/snippets";
 
 const H3: Grid = { name: "H3", fps: 24, frames: { step: 17, offset: 5 }, size: 32 };
@@ -86,6 +88,19 @@ describe("learned rank", () => {
     for (let i = 0; i < KEPT + 20; i++) r = bumped(r, `k${i}`, now + 10 + i);
     expect(Object.keys(r).length).toBe(KEPT);
   });
+  it("keeps what was learned of a result whose key changed", () => {
+    const r = renamed({ "set:page.storage.Back up now": { n: 3, t: now }, "timeline:a": { n: 1, t: now } }, settingKeyNow);
+    expect(r).toEqual({ "set:storage.backup": { n: 3, t: now }, "timeline:a": { n: 1, t: now } });
+    expect(renamed({ a: { n: 1, t: now }, b: { n: 2, t: now + 5 } }, () => "c")).toEqual({ c: { n: 3, t: now + 5 } });
+  });
+});
+
+describe("a setting picked in the bar", () => {
+  it("lands on its own row of Settings, whichever it is", () => {
+    for (const s of [...SETTINGS, ...PAGES]) expect(settingHref(s.id, s.page), s.id).toMatch(/\?find=/);
+    expect(settingHref("theme.night")).toBe("/settings/interface?find=interface.theme");
+    expect(settingHref("comfy.url")).toBe("/settings?find=comfy.url");
+  });
 });
 
 describe("modes and commands", () => {
@@ -132,6 +147,14 @@ describe("modes and commands", () => {
     expect(parseCommand("link folder D:\\shoots")).toEqual({ cmd: "link-folder", path: "D:\\shoots" });
     expect(parseCommand("link folder")).toEqual({ cmd: "link-folder", path: "" });
     expect(parseCommand("new project Harbor")).toEqual({ cmd: "new-project", name: "Harbor" });
+    expect(parseCommand("split")).toEqual({ cmd: "split" });
+    expect(parseCommand("split clip at the playhead")).toEqual({ cmd: "split" });
+    expect(parseCommand("prev take")).toEqual({ cmd: "previous-take" });
+    expect(parseCommand("next take")).toEqual({ cmd: "next-take" });
+    expect(parseCommand("cancel all waiting")).toEqual({ cmd: "cancel-waiting" });
+    expect(parseCommand("retry failed")).toEqual({ cmd: "retry-failed" });
+    expect(parseCommand("dismiss all failed jobs")).toEqual({ cmd: "dismiss-failed" });
+    expect(parseCommand("group the queue by model")).toEqual({ cmd: "group-queue" });
     expect(parseCommand("render")).toBeNull();
     expect(parseCommand("make it pop")).toBeNull();
   });

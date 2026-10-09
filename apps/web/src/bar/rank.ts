@@ -35,6 +35,17 @@ export function bumped(ranks: Ranks, key: string, now: number): Ranks {
   return Object.fromEntries(kept.map((k) => [k, next[k]!]));
 }
 
+/** The ranks with some keys renamed (a result whose key changed keeps what was learned of it); two that meet add up, the later use kept. */
+export function renamed(ranks: Ranks, rename: (key: string) => string): Ranks {
+  const out: Ranks = {};
+  for (const [k, u] of Object.entries(ranks)) {
+    const to = rename(k);
+    const had = out[to];
+    out[to] = had ? { n: had.n + u.n, t: Math.max(had.t, u.t) } : u;
+  }
+  return out;
+}
+
 /** The keys last used, newest first. */
 export const recentKeys = (ranks: Ranks, n: number): string[] =>
   Object.entries(ranks)

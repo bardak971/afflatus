@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { api, type Entity, type RecipeInfo, type Settings } from "../api";
 import { useAsset, useEntities, useFamilies, useRecipes, useSettings } from "../data";
+import { groupingSaves } from "../screens/queue/bulk";
+import { stepRateSaid, useStepRate } from "../screens/queue/stepRate";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { aboutMs, timeLeft } from "../format";
 import { useProject } from "../project";
@@ -16,10 +18,10 @@ import { cx } from "../ui";
 import { calc, type Grid } from "./calc";
 import { grouped, indexItems, settingItems, templateItems, type Item, type Kind } from "./items";
 import { highlight, pieces, prepare, search } from "./match";
-import { COMMANDS, modeOf, parseCommand, type Command, type Mode } from "./parse";
+import { COMMANDS, modeOf, parseCommand, type Command, type CommandId, type Mode } from "./parse";
 import { Preview } from "./Preview";
-import { bonus, bumped, load, recentKeys, save, type Ranks } from "./rank";
-import { PAGES, SETTINGS, type SettingCtx } from "./settingsRegistry";
+import { bonus, bumped, load, recentKeys, renamed, save, type Ranks } from "./rank";
+import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegistry";
 import { useSelectedClip } from "./bridge";
 import { castPlace } from "./castTo";
 import { BAR_INDEX, useBar } from "./store";
@@ -73,6 +75,19 @@ function gridOf(recipes: RecipeInfo[], prefer: string | undefined): Grid {
   };
 }
 
+/** What this browser learned, with the keys of results that were renamed since carried over. */
+const loadRanks = () => renamed(load(), settingKeyNow);
+
+/** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
+const LIVE: CommandId[] = ["split", "previous-take", "next-take", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
+const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
+
+/** The running render's s/it, after its row's detail: its own subscription, so that only it draws again at each step. */
+function StepRateSaid({ id }: { id: string }) {
+  const rate = useStepRate();
+  return rate && rate.id === id ? <> · {stepRateSaid(rate.secondsPerStep)}</> : null;
+}
+
 const said = (c: Command): string => c.cmd === "render-clips" ? `${c.clips.length > 1 ? "Render clips" : "Render clip"} ${c.clips.length > 2 && c.clips.at(-1)! - c.clips[0]! === c.clips.length - 1 ? `${c.clips[0]}–${c.clips.at(-1)}` : c.clips.join(", ")}` : "";
 
 /**
@@ -95,7 +110,7 @@ export function CommandBar() {
   const [sel, setSel] = useState(0);
   /** Tab: the selected result's actions, filtered by what is typed in their place. */
   const [acting, setActing] = useState<{ item: Item; text: string; sel: number } | null>(null);
-  const [ranks, setRanks] = useState<Ranks>(load);
+  const [ranks, setRanks] = useState<Ranks>(loadRanks);
   const [flash, setFlash] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -114,7 +129,7 @@ export function CommandBar() {
     setSel(0);
     setActing(null);
     setFlash(null);
-    setRanks(load());
+    setRanks(loadRanks());
     input.current?.focus({ preventScroll: true });
     // marked old by a live event while closed: read now (the old one shows meanwhile)
     if (index.isStale && !index.isFetching) void index.refetch();
@@ -150,7 +165,7 @@ export function CommandBar() {
   const { mode, text } = modeOf(typed, { history: Boolean(bar?.history), cast: Boolean(bar?.cast) });
   // the queue only while open, and in full only in the queue mode (its jobs live): the bar does not draw again
   // at every sampler step for the counts it says elsewhere
-  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length } : null));
+  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running) } : null));
   const queueFull = useQueueOf((q) => (open && mode === "queue" ? q : null));
 
   // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed
@@ -170,11 +185,11 @@ export function CommandBar() {
     return last ? pick(last.entry!.id) : null;
   }, [path, byKey, ranks, base]);
 
-  const templates = useMemo(templateItems, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
   const recipeItems = useMemo(() => recipes.map((r) => ({ r, p: prepare(`${r.family} ${r.title}`) })), [recipes]);
 
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   /** A command read from what is typed, as a row: its words, what it touches and how many. */
   const commandRow = (c: Command, recipe?: RecipeInfo): Item => {
     const t = aim?.name ?? "the open timeline";
@@ -195,10 +210,31 @@ export function CommandBar() {
       "bin-unused": [`Bin the unused takes of ${t}`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} take${aim.entry.unusedTakes === 1 ? "" : "s"} · asked first` : "It has none") : "Asked first"],
       "link-folder": [c.cmd === "link-folder" && c.path ? `Link ${c.path}` : "Link a folder of your disk", "Used in place, nothing copied"],
       "new-project": [`New project “${c.cmd === "new-project" ? c.name : ""}”`, "Made, and worked in"],
+      split: [selectedClip ? `Split clip ${selectedClip.number} at the playhead` : "Split the clip at the playhead", selectedClip ? `${selectedClip.timelineName} · as S` : "No clip selected in an open timeline"],
+      "previous-take": [selectedClip ? `Clip ${selectedClip.number}: previous take` : "Previous take", selectedClip ? `${selectedClip.timelineName} · as Alt+[` : "No clip selected in an open timeline"],
+      "next-take": [selectedClip ? `Clip ${selectedClip.number}: next take` : "Next take", selectedClip ? `${selectedClip.timelineName} · as Alt+]` : "No clip selected in an open timeline"],
+      "cancel-waiting": ["Cancel all waiting…", queueNow?.waiting ? `${queueNow.waiting} waiting · asked first · the running one goes on` : "Nothing waits"],
+      "retry-failed": ["Retry all failed", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · the same jobs, oldest first` : "None failed"],
+      "dismiss-failed": ["Dismiss all failed…", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · off the history, asked first` : "None failed"],
+      "group-queue": ["Group the queue by model", queueNow?.saves ? `saves ${plural(queueNow.saves, "load")} · same model together` : "Grouping saves no load"],
     };
     const [label, meta] = words[c.cmd];
     return { key: `cmd:${c.cmd}${recipe ? `:${recipe.id}` : ""}`, kind: "command", label, meta, group: "Commands", verb: "run", p: prepare(label), command: c, recipe };
   };
+  const applies = (id: CommandId): boolean =>
+    id === "split" || id === "previous-take" || id === "next-take" ? Boolean(selectedClip)
+    : id === "cancel-waiting" ? Boolean(queueNow?.waiting)
+    : id === "retry-failed" || id === "dismiss-failed" ? Boolean(queueNow?.failed)
+    : id === "group-queue" ? Boolean(queueNow?.saves)
+    : true;
+  /** A command that needs no figures, as a row ready to run (its clip and counts said), when it applies. */
+  const liveRow = (id: CommandId): Item[] => (applies(id) ? [commandRow({ cmd: id } as Command)] : []);
+  // the commands that depend on the moment are offered with what they act on, and only when they apply
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const templates = useMemo(() => templateItems().flatMap((t) => {
+    const id = t.key.slice(4) as CommandId;
+    return LIVE.includes(id) ? liveRow(id).map((r) => ({ ...r, p: t.p })) : [t];
+  }), [selectedClip, queueNow]);
 
   // the render estimate of a render command, learned from this machine's renders (none said when nothing is learned)
   const parsed = mode === "command" ? parseCommand(text) : null;
@@ -252,6 +288,8 @@ export function CommandBar() {
           if (qd?.paused) suggested.push(commandRow({ cmd: "resume" }));
           else if (qd?.running || qd?.waiting) suggested.push(commandRow({ cmd: "pause" }));
           if (aim?.entry?.unusedTakes) suggested.push(commandRow({ cmd: "bin-unused" }));
+          // a clip selected in the open editor: what its keys do to it
+          suggested.push(...liveRow("split"), ...liveRow("previous-take"), ...liveRow("next-take"), ...liveRow("group-queue"));
           const failed = qd?.failed ?? 0;
           if (failed) suggested.push({ ...commandRow({ cmd: "pause" }), key: "suggest:queue", label: `${failed} failed in the queue`, meta: "Type ! to see them, Tab on one to retry", complete: "!", verb: "show", command: undefined });
           return [
@@ -295,7 +333,10 @@ export function CommandBar() {
         qd?.waiting.forEach((w, i) => jobs.push({ key: `job:${w.id}`, kind: "job", label: w.label, group: "Queue", verb: "open", p: prepare(w.label), job: { job: w, state: "waiting", position: i + 1 }, meta: `waiting · ${i === 0 ? "next" : `${i + 1}${["st", "nd", "rd"][i] ?? "th"}`}${w.estimateMs ? ` · ${aboutMs(w.estimateMs)}` : ""} · Tab → to the top` }));
         for (const f of qd?.recent.filter((j) => j.status === "failed") ?? []) jobs.push({ key: `job:${f.id}`, kind: "job", label: f.label, group: "Queue", verb: "open", p: prepare(f.label), job: { job: f, state: "failed" }, meta: `failed${f.finishedAt ? ` ${new Date(f.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}${f.error ? ` · ${f.error.slice(0, 80)}` : ""} · Ctrl+Enter retries` });
         const found = q ? search(jobs, q, LIMIT).map((x) => x.item) : jobs;
-        return [{ group: "Queue", rows: withRanges(found, q) }].filter((s) => s.rows.length);
+        // what is done to the whole queue, after its jobs (Enter on the first row opens one, never cancels them all)
+        const bulk = QUEUE_BULK.flatMap(liveRow);
+        const bulkFound = q ? search(bulk, q, LIMIT).map((x) => x.item) : bulk;
+        return [{ group: "Queue", rows: withRanges(found, q) }, { group: "Commands", rows: withRanges(bulkFound, q) }].filter((s) => s.rows.length);
       }
       case "history": {
         const rows = (history.data?.items ?? []).map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${new Date(h.createdAt).toLocaleDateString("en-GB")}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
@@ -587,7 +628,7 @@ export function CommandBar() {
                                   {pieces(it.label, it.ranges ?? []).map((p, n) => (p.hit ? <span key={n} className="text-accent">{p.text}</span> : <span key={n}>{p.text}</span>))}
                                 </span>
                                 {running !== null && <span className="my-1 block h-1 overflow-hidden rounded-full bg-raised"><span className="block h-full rounded-full bg-good transition-[width] duration-500" style={{ width: `${Math.round(running * 100)}%` }} /></span>}
-                                <span className="truncate text-xs text-ink-2">{it.meta}</span>
+                                <span className="truncate text-xs text-ink-2">{it.meta}{it.job?.state === "running" && <StepRateSaid id={it.job.job.id} />}</span>
                               </span>
                               {toggle !== null && (
                                 <span aria-hidden className={cx("h-5 w-[34px] shrink-0 rounded-full p-[3px] transition-colors", toggle ? "bg-accent" : "bg-line-strong")}>

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
   Archive, ArchiveRestore, ArrowUpToLine, Clapperboard, Copy, Eye, FileOutput, Film, FolderInput, FolderKanban, FolderOpen, Pause, PenLine, Play,
-  RotateCcw, Square, Trash2, UserPlus, X, Pencil, ListOrdered, Settings2, Sparkles, Link2, FolderPlus, MemoryStick, Layers,
+  RotateCcw, Square, Trash2, UserPlus, X, Pencil, ListOrdered, Settings2, Sparkles, Link2, FolderPlus, MemoryStick, Layers, Split, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { api, type Asset, type CommandEntry, type RecipeInfo } from "../api";
 import { ask, askText } from "../Confirm";
@@ -16,7 +16,10 @@ import { size } from "../format";
 import { useProject } from "../project";
 import type { Moving, Row, Target } from "../projects/tree";
 import { useTreeActions } from "../projects/useTreeActions";
+import { useQueueBulk } from "../screens/queue/bulk";
 import { atTop, moved } from "../screens/queue/order";
+import { kitHref } from "../screens/kit/link";
+import { settingHref } from "../screens/settings/settingsIndex";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { useBanners, useHandover, useOpenDraft, useStudio } from "../store";
 import { useTileMenu } from "../TileMenu";
@@ -24,7 +27,7 @@ import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, type T
 import { castPlace, withPerson } from "./castTo";
 import type { Item } from "./items";
 import type { Command } from "./parse";
-import { pageHref, pageLabel, type SettingCtx } from "./settingsRegistry";
+import { pageLabel, type SettingCtx } from "./settingsRegistry";
 
 const Viewer = lazy(() => import("../Viewer").then((m) => ({ default: m.Viewer })));
 
@@ -80,7 +83,8 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const tree = useTreeActions();
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
   // what the queue rows need of the queue: not its progress, which changes at every step
-  const queue = { data: useQueueOf((q) => ({ paused: q.paused, waiting: q.waiting.map((w) => ({ id: w.id })) })) };
+  const queue = { data: useQueueOf((q) => ({ paused: q.paused, waiting: q.waiting.map((w) => ({ id: w.id })), failed: q.recent.filter((j) => j.status === "failed").map((j) => j.id) })) };
+  const bulk = useQueueBulk();
   const setup = useSetup();
   const modelSettings = useModelSettings();
   const openNew = useOpenNewDraft();
@@ -250,6 +254,45 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
             : tree.link(t)),
         }];
       }
+      case "split":
+      case "previous-take":
+      case "next-take": {
+        const clip = selectedClip;
+        if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
+        // the editor is on screen (a clip is selected in it): it does it as its keys do, and says in its note when it cannot
+        const request: TimelineRequest = c.cmd === "split" ? { timeline: clip.timeline, do: "split" } : { timeline: clip.timeline, do: "take", by: c.cmd === "next-take" ? 1 : -1 };
+        const run = () => useTimelineRequest.getState().ask(request);
+        if (c.cmd === "split") return [{ label: `Split clip ${clip.number} at the playhead`, icon: <Split size={14} />, note: "as S", run }];
+        const next = c.cmd === "next-take";
+        return [{ label: `Clip ${clip.number}: ${next ? "next" : "previous"} take`, icon: next ? <ChevronRight size={14} /> : <ChevronLeft size={14} />, note: next ? "as Alt+]" : "as Alt+[", run }];
+      }
+      case "cancel-waiting": {
+        const ids = queue.data?.waiting.map((w) => w.id) ?? [];
+        return [{
+          label: "Cancel all waiting…", icon: <Trash2 size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · asked first · the running one goes on` : "nothing waits",
+          run: () => bulk.cancelAllWaiting({ ids }).then((n) => n && good(`${n} waiting job${n === 1 ? "" : "s"} cancelled`, "In the history as cancelled: Requeue brings one back.", "/queue", "Open queue")),
+        }];
+      }
+      case "retry-failed": {
+        // the failures the queue lists (newest first, as `!` shows them): queued again oldest first
+        const ids = queue.data?.failed ?? [];
+        return [{
+          label: "Retry all failed", icon: <RotateCcw size={14} />, disabled: !ids.length, note: ids.length ? `${ids.length} · the same jobs, oldest first` : "none failed",
+          run: () => bulk.retryAllFailed(ids).then((r) => r?.ids.length && good(`${r.ids.length} failed job${r.ids.length === 1 ? "" : "s"} queued again`, undefined, "/queue", "Open queue")),
+        }];
+      }
+      case "dismiss-failed": {
+        const ids = queue.data?.failed ?? [];
+        return [{
+          label: "Dismiss all failed…", icon: <X size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · off the history, asked first` : "none failed",
+          run: () => bulk.dismissAllFailed({ ids, ask: true }).then((n) => n && good(`${n} failed job${n === 1 ? "" : "s"} dismissed`, "Nothing left the library.", "/queue", "Open queue")),
+        }];
+      }
+      case "group-queue":
+        return [{
+          label: "Group the queue by model", icon: <Layers size={14} />, note: "same model together, the loaded one first",
+          run: () => bulk.groupQueueByModel().then((done) => (done ? good("Queue grouped by model", "Same model together, the loaded one first.", "/queue", "Open queue") : done === false && good("Grouping saves no load", "The queue stays as it is.", "/queue", "Open queue"))),
+        }];
       case "new-project":
         return [{
           label: `New project “${c.name}”`, icon: <FolderPlus size={14} />, note: "and work in it",
@@ -327,7 +370,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         return [];
       case "setting": {
         const s = it.setting!;
-        const open: Action = { label: `Open Settings › ${pageLabel(s.page)}`, icon: <Settings2 size={14} />, run: () => go(pageHref(s.page)) };
+        const open: Action = { label: `Open Settings › ${pageLabel(s.page)}`, icon: <Settings2 size={14} />, run: () => go(settingHref(s.id, s.page)) };
         if (s.kind === "switch") {
           const on = Boolean(s.get?.(settingCtx));
           return [{ label: on ? "Switch off" : "Switch on", icon: <Square size={14} />, stay: true, run: () => s.set?.(settingCtx, !on) }, open];
@@ -412,7 +455,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         return [
           ...toClip,
           ...(!clip || draftOpen ? [toDraft] : []),
-          { label: "Open the Prompt kit", icon: <Clapperboard size={14} />, run: () => go("/kit") },
+          { label: `Open ${p.name} in the Prompt kit`, icon: <Clapperboard size={14} />, run: () => go(kitHref("person", p.id)) },
         ];
       }
     }
