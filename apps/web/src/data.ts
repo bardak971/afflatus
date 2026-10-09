@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type TimesPeriod, type TimesWindow } from "./api";
+import { api, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
 import { useProject } from "./project";
 
 /**
@@ -63,7 +63,17 @@ export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: api
 /** The Projects panel's tree, searched by `q` (empty: all of it), counted for one kind of item or all. Under "projects": what reads the projects again reads it too. */
 export const useProjectsTree = (q: string, kind: "image" | "video" | "audio" | null = null) =>
   useQuery({ queryKey: ["projects", "tree", q, kind], queryFn: ({ signal }) => api.projectsTree(q, kind, { signal }), placeholderData: keepPreviousData });
-export const useTimeline = (id: string | undefined) => useQuery({ queryKey: ["timelines", id], queryFn: ({ signal }) => api.timeline(id!, { signal }), enabled: Boolean(id) });
+/**
+ * A timeline as the page reads it. A server older than the page (not restarted since an update) leaves the newer fields
+ * out: they are given their defaults here, so the page shows the song from 0:00, with clip 1, and no clip's own music,
+ * not NaN.
+ */
+const withDefaults = (t: Timeline): Timeline => ({
+  ...t,
+  music: t.music ? { ...t.music, fromMs: t.music.fromMs ?? 0, startClip: t.music.startClip ?? null } : t.music,
+  clips: t.clips.map((c) => (c.music === undefined ? { ...c, music: null } : c)),
+});
+export const useTimeline = (id: string | undefined) => useQuery({ queryKey: ["timelines", id], queryFn: ({ signal }) => api.timeline(id!, { signal }), enabled: Boolean(id), select: withDefaults });
 export const useEntities = () => useQuery({ queryKey: ["entities"], queryFn: api.entities });
 export const useWorkflows = () => useQuery({ queryKey: ["workflows"], queryFn: api.workflows });
 // read once per file by the server, then kept: the "models" live event says when more has arrived
