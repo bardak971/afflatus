@@ -52,11 +52,12 @@ function RunningTile({ onDraft }: { onDraft(id: string): void }) {
 /** The form folded away: a rail at the left edge, as the timeline's media shelf folds, with the way to open it. */
 function FormRail({ onOpen }: { onOpen(): void }) {
   return (
-    <aside aria-label="Create (folded)" className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-line bg-panel py-2">
-      <button type="button" aria-label="Create: open the form" data-tip="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink hover:brightness-110">
+    <aside aria-label="Create (folded)" className="flex w-[46px] shrink-0 flex-col items-center gap-2.5 border-r border-line bg-panel py-3.5">
+      <button type="button" aria-label="Create: open the form" data-tip="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-accent text-accent-ink shadow-[0_4px_12px_color-mix(in_srgb,var(--color-accent)_30%,transparent)] hover:brightness-110">
         <Plus size={16} strokeWidth={2.6} />
       </button>
-      <span aria-hidden className="mt-1 text-[10px] font-semibold tracking-wide text-ink-3 uppercase [writing-mode:vertical-rl]">Create</span>
+      {/* read bottom to top, as a spine */}
+      <span aria-hidden className="rotate-180 text-[11px] font-bold tracking-[.1em] text-ink-2 uppercase [writing-mode:vertical-rl]">Create</span>
     </aside>
   );
 }

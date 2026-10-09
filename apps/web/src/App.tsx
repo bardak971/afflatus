@@ -1,9 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
-import type { ReactNode } from "react";
 import { Link, Redirect, Route, Switch, useLocation } from "wouter";
-import { Film, LayoutGrid, ListOrdered, Settings2, Users, Workflow } from "lucide-react";
 import { Banners } from "./Banners";
 import { useSearchKey } from "./Keys";
 import { TabProgress } from "./TabProgress";
@@ -26,19 +24,8 @@ const TimelineEditor = lazy(() => import("./screens/TimelineEditor").then((m) =>
 const Workflows = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.Workflows })));
 // the list of keys too: it is fetched with the page, but not in its first chunk
 const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysHelp })));
-import { ProjectSwitch } from "./Projects";
-import { ThemeFlip } from "./theme/Appearance";
+import { NavRail } from "./NavRail";
 import { useTheme } from "./theme/store";
-import { cx } from "./ui";
-
-const NAV: Array<{ href: string; label: string; icon: ReactNode }> = [
-  { href: "/", label: "Studio", icon: <LayoutGrid size={18} /> },
-  { href: "/timelines", label: "Timelines", icon: <Film size={18} /> },
-  { href: "/kit", label: "Prompt kit", icon: <Users size={18} /> },
-  { href: "/workflows", label: "Workflows", icon: <Workflow size={18} /> },
-  { href: "/queue", label: "Queue", icon: <ListOrdered size={18} /> },
-  { href: "/settings", label: "Settings", icon: <Settings2 size={18} /> },
-];
 
 /** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
 function useMissingTools() {
@@ -68,26 +55,7 @@ export function App() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">
-        <nav aria-label="Main" className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-3">
-          <div className="flex h-9 items-center text-[15px] font-bold tracking-tight">Afflatus</div>
-          <ProjectSwitch />
-          {NAV.map((n) => {
-            const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
-            return (
-              <Link
-                key={n.href}
-                href={n.href}
-                aria-current={on ? "page" : undefined}
-                className={cx("flex h-14 w-16 flex-col items-center justify-center gap-1 rounded-[10px] text-[11px] font-semibold", on ? "bg-hover text-ink-strong" : "text-ink-2 hover:text-ink")}
-              >
-                {n.icon}
-                {n.label}
-              </Link>
-            );
-          })}
-          <span className="grow" />
-          <ThemeFlip />
-        </nav>
+        <NavRail />
         <Suspense fallback={<div className="grow p-8 text-ink-2">Loading…</div>}>
         {/* a screen that fails takes only itself down; going to another screen starts afresh */}
         <ErrorBoundary key={path.split("/")[1]}>

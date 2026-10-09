@@ -126,7 +126,8 @@ export function ThemeFlip() {
       aria-label={light ? "Switch to the dark theme" : "Switch to the light theme"}
       data-tip={light ? "Dark theme" : "Light theme"}
       onClick={() => choice.set({ mode: light ? "dark" : "light" })}
-      className="flex h-10 w-10 items-center justify-center rounded-[10px] text-ink-2 hover:bg-hover hover:text-ink"
+      // small and quiet at the foot of the rail, a pill like the screens above it
+      className="my-1 flex h-[26px] w-12 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink"
     >
       {light ? <Moon size={17} /> : <Sun size={17} />}
     </button>

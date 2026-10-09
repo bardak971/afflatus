@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderKanban, FolderPlus } from "lucide-react";
+import { FolderPlus, Globe, Inbox } from "lucide-react";
 import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
@@ -13,6 +13,15 @@ import { Button, cx, ErrorNote, fieldClass } from "./ui";
 const ProjectsPanel = lazy(() => import("./projects/ProjectsPanel").then((m) => ({ default: m.ProjectsPanel })));
 // the Viewer too: fetched the first time an item is opened from the panel
 const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
+
+/** The theme's colours a project can wear in the rail: tokens, so that it follows the theme. */
+const TONES = ["--color-picture", "--color-good", "--color-warn-ink", "--color-accent", "--color-warn"];
+/** A project's colour, the same every time: picked from its id. */
+export function projectTone(id: string): string {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `var(${TONES[h % TONES.length]})`;
+}
 
 /**
  * The project the app looks at, shown in the rail: everything, the Inbox, or one project. One choice for
@@ -35,6 +44,8 @@ export function ProjectSwitch() {
   }, [current, projects.isSuccess, projects.isFetching, picked, set]);
   // the lists follow by themselves: the library, the drafts and the timelines carry the project in their query keys (data.ts)
   const label = current === null ? "All" : current === "none" ? "Inbox" : picked?.name ?? "…";
+  // a project in its own colour (projects have none of their own: one picked from the id); All and the Inbox in the quiet ink
+  const tone = picked ? projectTone(picked.id) : "var(--color-ink-3)";
   const [search, setSearch] = useState<string | undefined>(undefined);
   const close = useCallback(() => {
     setOpen(false);
@@ -58,10 +69,17 @@ export function ProjectSwitch() {
         aria-haspopup="dialog"
         onClick={() => setOpen((o) => !o)}
         data-tip={`Working in: ${label}. The library, the drafts and the timelines are those of ${current === null ? "every project" : current === "none" ? "the Inbox" : "this project"}. Click for your projects.`}
-        className={cx("mb-1 flex h-9 w-[64px] flex-col items-center justify-center gap-0.5 rounded-[10px] px-1 text-[10px] font-semibold", open ? "bg-accent-wash text-accent shadow-[inset_0_0_0_1px_var(--color-accent)]" : current ? "bg-accent-wash text-accent" : "text-ink-2 hover:text-ink")}
+        className={cx("mt-2.5 flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-[12px] pt-1.5 pb-[7px] text-[10.5px] font-semibold", open || current ? "text-ink" : "text-ink-2 hover:text-ink")}
       >
-        <FolderKanban size={14} />
-        <span className="w-full truncate text-center">{label}</span>
+        {/* the name under it says it: the initial is only a picture */}
+        <span
+          aria-hidden
+          className={cx("flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border-[1.5px] bg-hover text-[13px] font-extrabold", open && "shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
+          style={{ borderColor: tone, color: tone }}
+        >
+          {current === null ? <Globe size={15} /> : current === "none" ? <Inbox size={15} /> : (Array.from(picked?.name.trim() ?? "")[0] ?? "…").toUpperCase()}
+        </span>
+        <span className="w-full truncate px-0.5 text-center">{label}</span>
       </button>
       {open && <Suspense fallback={null}><ProjectsPanel key={search ?? ""} search={search} anchor={button} onClose={close} onNew={() => setMaking(true)} onView={setViewing} hidden={Boolean(viewing)} /></Suspense>}
       {viewing && <Suspense fallback={null}><Viewer asset={viewing} onClose={() => setViewing(null)} /></Suspense>}
