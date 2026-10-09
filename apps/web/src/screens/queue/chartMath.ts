@@ -85,3 +85,18 @@ export function bar(x: number, width: number, y0: number, y1: number, r: number)
   if (!k) return `M${f(x)},${f(y0)}V${f(y1)}H${f(x + width)}V${f(y0)}Z`;
   return `M${f(x)},${f(y0)}V${f(y1 + k)}Q${f(x)},${f(y1)} ${f(x + k)},${f(y1)}H${f(x + width - k)}Q${f(x + width)},${f(y1)} ${f(x + width)},${f(y1 + k)}V${f(y0)}Z`;
 }
+
+/**
+ * The left axis's labels: the chart's own format, unless two come out the same (gridlines close together, rounded
+ * alike: "3 min/s" on every line). Then the number in each is written with more decimals, up to three, until they differ;
+ * the words around it stay.
+ */
+export function axisLabels(values: number[], format: (v: number) => string): string[] {
+  const labels = values.map(format);
+  if (new Set(labels).size === labels.length) return labels;
+  for (let decimals = 1; decimals <= 3; decimals++) {
+    const finer = values.map((v, i) => labels[i]!.replace(/-?\d+(?:[.,]\d+)?/, () => v.toFixed(decimals)));
+    if (new Set(finer).size === finer.length) return finer;
+  }
+  return labels;
+}

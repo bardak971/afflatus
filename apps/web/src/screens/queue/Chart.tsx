@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../../ui";
 import { themeInUse, useThemeChoice } from "../../theme/store";
-import { bar, brushWindow, curve, statOf } from "./chartMath";
+import { axisLabels, bar, brushWindow, curve, statOf } from "./chartMath";
 import { useBrush } from "./useBrush";
 import { PLOT, useChartScale, type Series } from "./useChartScale";
 
@@ -82,6 +82,8 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
   const { L, T } = PLOT;
   const filled = fill ?? (stacked || series.length <= 3);
   const onAxis = axisFormat ?? format;
+  const GRID = [0, 0.25, 0.5, 0.75, 1];
+  const gridLabels = axisLabels(GRID.map((g) => bottom + (max - bottom) * g), onAxis);
   // as many labels along the bottom as fit without touching, for labels of the length these are
   const labelWidth = Math.max(60, (n ? timeLabel(times[0]!).length : 8) * 6.5 + 24);
   const ticks = Math.max(2, Math.min(n, Math.floor(W / labelWidth)));
@@ -127,10 +129,10 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
               </linearGradient>
             ))}
           </defs>
-          {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+          {GRID.map((g, gi) => (
             <g key={g}>
               <line x1={L} x2={L + W} y1={y(bottom + (max - bottom) * g)} y2={y(bottom + (max - bottom) * g)} className="stroke-line" strokeWidth="1" strokeDasharray={g ? "2 4" : undefined} />
-              <text x={L - 8} y={y(bottom + (max - bottom) * g) + 3.5} textAnchor="end" className="fill-ink-3 font-mono text-[10px]">{onAxis(bottom + (max - bottom) * g)}</text>
+              <text x={L - 8} y={y(bottom + (max - bottom) * g) + 3.5} textAnchor="end" className="fill-ink-3 font-mono text-[10px]">{gridLabels[gi]}</text>
             </g>
           ))}
           {Array.from({ length: ticks }, (_x, k) => Math.round((k / (ticks - 1)) * (n - 1))).map((i, k) => (
