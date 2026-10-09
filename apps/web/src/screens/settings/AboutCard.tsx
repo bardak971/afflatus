@@ -21,7 +21,7 @@ export function AboutCard() {
         title={<span className="flex items-center gap-1.5">About <Help title="About" text="Afflatus runs in front of your own ComfyUI. Nothing leaves your computer unless you ask for a download or a lookup." /></span>}
         status={health.data && <span className="font-mono text-xs text-ink-3">{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</span>}
       >
-        <Row label="Afflatus"><span className="font-mono text-xs">{health.data ? `version ${health.data.version}` : "…"}</span></Row>
+        <Row setting="about.version" label="Afflatus"><span className="font-mono text-xs">{health.data ? `version ${health.data.version}` : "…"}</span></Row>
         <Row label="Database"><span className="font-mono text-xs">{health.data?.database ?? "…"}</span></Row>
         <Row label="ComfyUI"><span className="truncate font-mono text-xs">{comfy?.online ? `${comfy.version} · ${comfy.nodes} node types · ${comfy.device}` : comfy ? "not answering" : "…"}</span></Row>
         <Row label="License"><span className="font-mono text-xs">AGPL-3.0</span></Row>
@@ -30,6 +30,7 @@ export function AboutCard() {
       </Card>
 
       <Card
+        setting="about.checks"
         title={<span className="flex items-center gap-1.5">On this computer <Help title="On this computer" text={`What Afflatus needs where it runs, checked when it started${checked ? ` (${checked})` : ""}. ComfyUI is checked on its own tab.`} /></span>}
         status={<Button size="sm" onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? "Checking…" : checks.length ? "Check again" : "Check now"}</Button>}
       >

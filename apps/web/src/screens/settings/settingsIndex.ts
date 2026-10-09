@@ -15,43 +15,73 @@ export type Tab = (typeof TABS)[number]["id"];
 /** Tabs that were merged into another: an old address (/settings/appearance) still opens the right one. */
 export const MOVED: Record<string, Tab> = { appearance: "interface", notifications: "interface" };
 
-/** Every setting, by the words someone would look for: what the search box finds, and the tab it is on. */
-export const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
-  { tab: "comfyui", label: "ComfyUI URL", words: "address connection test port 8188" },
-  { tab: "comfyui", label: "Folder on this computer", words: "comfyui folder open in comfyui directory main.py" },
-  { tab: "comfyui", label: "Node pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
-  { tab: "comfyui", label: "Unload models after", words: "vram free idle minutes never" },
-  { tab: "models", label: "Models", words: "models on or off in the lists families switch hide" },
-  { tab: "models", label: "What is ready", words: "missing files nodes operations" },
-  { tab: "models", label: "Civitai API key", words: "token" },
-  { tab: "models", label: "Search Hugging Face and Civitai", words: "civitai lookups search trigger words model pages lora names missing" },
-  { tab: "models", label: "Download missing models", words: "download missing files into comfyui manager" },
-  { tab: "models", label: "Download a model from a URL", words: "link hugging face civitai get" },
-  { tab: "models", label: "Newer versions on Civitai", words: "newer versions of your models update check once a day lora checkpoint version" },
-  { tab: "designer", label: "LLMs", words: "language model base url api key vision openai" },
-  { tab: "designer", label: "System prompts", words: "instructions designer standing" },
-  { tab: "prompts", label: "Prompting guides", words: "prompting guides per model designer rules examples family guide" },
-  { tab: "designer", label: "Context size", words: "llm tokens context window" },
-  { tab: "designer", label: "Max output tokens", words: "llm thinking answer length" },
-  { tab: "designer", label: "Clear every conversation", words: "forget every conversation chat history" },
-  { tab: "prompts", label: "Danbooru tag check", words: "typo tags" },
-  { tab: "interface", label: "Theme", words: "appearance dark light system accent catppuccin mocha macchiato frappe latte rose pine moon dawn studio neutral grey tokyo night day kanagawa wave lotus" },
-  { tab: "interface", label: "Accent colour", words: "appearance color" },
-  { tab: "interface", label: "Explain every setting in the forms", words: "help tooltips" },
-  { tab: "interface", label: "Play videos on hover", words: "mouse card preview" },
-  { tab: "interface", label: "Play sound on hover", words: "audio mouse card" },
-  { tab: "bar", label: "Shortcut", words: "command bar shortcut ctrl k keyboard palette search" },
-  { tab: "bar", label: "Learn what I use", words: "command bar ranking recent" },
-  { tab: "bar", label: "Prompt snippets", words: "typed by name command bar ; expand" },
-  { tab: "bar", label: "Prompt history", words: "in the bar command bar quote" },
-  { tab: "bar", label: "Cast with @", words: "command bar person people" },
-  { tab: "storage", label: "Disk", words: "disk usage space size" },
-  { tab: "storage", label: "Bin", words: "empty the bin trash delete" },
-  { tab: "storage", label: "Takes that never play", words: "idle" },
-  { tab: "storage", label: "Render times kept for", words: "history retention days forget" },
-  { tab: "storage", label: "Back up now", words: "backup zip export restore database files" },
-  { tab: "interface", label: "Notify when the queue is empty", words: "notifications browser" },
-  { tab: "interface", label: "Notify after each render", words: "notifications browser" },
-  { tab: "about", label: "Version", words: "about license source github" },
-  { tab: "about", label: "Start-up checks: ffmpeg, ffprobe, Node, data folder", words: "tools missing install path preflight" },
+/**
+ * Every setting, by the words someone would look for: what the search box finds, and the tab it is on. `key`: the
+ * anchor its row carries (`data-setting`, see `settingHref`); `also`: the command bar's ids of the same setting,
+ * found on the same row; `near`: where to land when the row is not shown (the key only shows with lookups on).
+ */
+export interface SettingSpot {
+  tab: Tab;
+  label: string;
+  key: string;
+  also?: string[];
+  near?: string;
+  words?: string;
+}
+
+export const INDEX: SettingSpot[] = [
+  { tab: "comfyui", label: "ComfyUI URL", key: "comfy.url", words: "address connection test port 8188" },
+  { tab: "comfyui", label: "Folder on this computer", key: "comfy.folder", words: "comfyui folder open in comfyui directory main.py" },
+  { tab: "comfyui", label: "Node pack", key: "comfy.pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
+  { tab: "comfyui", label: "Unload models after", key: "comfy.unload", words: "vram free idle minutes never" },
+  { tab: "models", label: "Models", key: "models.families", words: "models on or off in the lists families switch hide" },
+  { tab: "models", label: "What is ready", key: "models.ready", words: "missing files nodes operations" },
+  { tab: "models", label: "Civitai API key", key: "models.civitaiKey", near: "server.civitaiLookups", words: "token" },
+  { tab: "models", label: "Search Hugging Face and Civitai", key: "server.civitaiLookups", words: "civitai lookups search trigger words model pages lora names missing" },
+  { tab: "models", label: "Download missing models", key: "server.downloadModels", words: "download missing files into comfyui manager" },
+  { tab: "models", label: "Download a model from a URL", key: "models.link", words: "link hugging face civitai get" },
+  { tab: "models", label: "Newer versions on Civitai", key: "models.updates", also: ["server.updateChecks"], words: "newer versions of your models update check once a day lora checkpoint version" },
+  { tab: "designer", label: "LLMs", key: "designer.llms", words: "language model base url api key vision openai" },
+  { tab: "designer", label: "System prompts", key: "designer.notes", words: "instructions designer standing" },
+  { tab: "prompts", label: "Prompting guides", key: "prompts.guides", words: "prompting guides per model designer rules examples family guide" },
+  { tab: "designer", label: "Context size", key: "designer.context", near: "designer.llms", words: "llm tokens context window" },
+  { tab: "designer", label: "Max output tokens", key: "designer.tokens", near: "designer.llms", words: "llm thinking answer length" },
+  { tab: "designer", label: "Clear every conversation", key: "designer.forget", words: "forget every conversation chat history" },
+  { tab: "prompts", label: "Danbooru tag check", key: "server.tagCheck", words: "typo tags" },
+  { tab: "interface", label: "Theme", key: "interface.theme", also: ["theme.mode", "theme.night", "theme.day"], words: "appearance dark light system accent catppuccin mocha macchiato frappe latte rose pine moon dawn studio neutral grey tokyo night day kanagawa wave lotus" },
+  { tab: "interface", label: "Accent colour", key: "interface.accent", words: "appearance color" },
+  { tab: "interface", label: "Explain every setting in the forms", key: "explain", words: "help tooltips" },
+  { tab: "interface", label: "Play videos on hover", key: "hover.video", words: "mouse card preview" },
+  { tab: "interface", label: "Play sound on hover", key: "hover.sound", words: "audio mouse card" },
+  { tab: "bar", label: "Shortcut", key: "bar.shortcut", words: "command bar shortcut ctrl k keyboard palette search" },
+  { tab: "bar", label: "Learn what I use", key: "bar.learn", words: "command bar ranking recent" },
+  { tab: "bar", label: "Preview in the bar", key: "bar.preview", words: "command bar shift side" },
+  { tab: "bar", label: "Prompt snippets", key: "bar.snippets", words: "typed by name command bar ; expand" },
+  { tab: "bar", label: "Prompt history", key: "bar.history", words: "in the bar command bar quote" },
+  { tab: "bar", label: "Cast with @", key: "bar.cast", words: "command bar person people" },
+  { tab: "storage", label: "Disk", key: "storage.disk", words: "disk usage space size" },
+  { tab: "storage", label: "Bin", key: "storage.bin", words: "empty the bin trash delete" },
+  { tab: "storage", label: "Takes that never play", key: "storage.idle", near: "storage.disk", words: "idle" },
+  { tab: "storage", label: "Render times kept for", key: "storage.renderTimes", words: "history retention days forget" },
+  { tab: "storage", label: "Back up now", key: "storage.backup", words: "backup zip export restore database files" },
+  { tab: "interface", label: "Notify when the queue is empty", key: "notify.empty", words: "notifications browser" },
+  { tab: "interface", label: "Notify after each render", key: "notify.each", words: "notifications browser" },
+  { tab: "about", label: "Version", key: "about.version", words: "about license source github" },
+  { tab: "about", label: "Start-up checks: ffmpeg, ffprobe, Node, data folder", key: "about.checks", words: "tools missing install path preflight" },
 ];
+
+/** A tab's address: ComfyUI's is Settings itself. */
+export const tabHref = (tab: Tab) => (tab === "comfyui" ? "/settings" : `/settings/${tab}`);
+
+/** The setting of a key (or of one of the command bar's ids in `also`). */
+export const spotOf = (key: string) => INDEX.find((i) => i.key === key || i.also?.includes(key));
+
+/**
+ * Where a setting is: its tab with `?find=<key>`. Settings opens the tab, scrolls to the row that carries
+ * `data-setting="<key>"` and outlines it until the next click. A key it does not know opens `tab` (or Settings).
+ */
+export function settingHref(key: string, tab?: Tab): string {
+  const spot = spotOf(key);
+  if (!spot) return tabHref(tab ?? "comfyui");
+  return `${tabHref(spot.tab)}?find=${encodeURIComponent(spot.key)}`;
+}

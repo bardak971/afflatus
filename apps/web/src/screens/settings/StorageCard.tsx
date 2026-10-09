@@ -23,7 +23,7 @@ export function StorageCard() {
   ] : [];
   return (
     <div className="flex flex-col gap-4">
-      <Card title="Disk" status={s && <span className="font-mono text-xs text-ink-2">{size(s.total)} used</span>}>
+      <Card setting="storage.disk" title="Disk" status={s && <span className="font-mono text-xs text-ink-2">{size(s.total)} used</span>}>
         {storage.isError && <Block><ErrorNote>{storage.error.message}</ErrorNote></Block>}
         {s && (
           <Block className="gap-3 py-4">
@@ -44,12 +44,13 @@ export function StorageCard() {
           </Block>
         )}
         {s && s.idleTakes.count > 0 && (
-          <Row label="Takes that never play" sub={`${s.idleTakes.count} take${s.idleTakes.count > 1 ? "s" : ""}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. In the bin they are kept 7 days, then deleted.`}>
+          <Row setting="storage.idle" label="Takes that never play" sub={`${s.idleTakes.count} take${s.idleTakes.count > 1 ? "s" : ""}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. In the bin they are kept 7 days, then deleted.`}>
             <Button size="sm" disabled={idle.isPending} onClick={() => idle.mutate()}>Move {s.idleTakes.count > 1 ? "them" : "it"} to the bin · {size(s.idleTakes.bytes)}</Button>
           </Row>
         )}
         {s && (
           <Row
+            setting="storage.bin"
             label="Bin"
             sub={s.bin.count > 0 ? `${s.bin.count} thing${s.bin.count > 1 ? "s" : ""} · ${size(s.bin.bytes)}` : "empty"}
             help={`Kept 7 days before it is deleted. Outputs you do not keep go to the bin after 24 hours${s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.`}
@@ -74,6 +75,7 @@ function Backup() {
   return (
     <Card title="Backup">
       <Row
+        setting="storage.backup"
         label="Back up now"
         sub={p ? `${p.files} files${p.database ? " and the database" : ""}` : undefined}
         help={`One zip, made while Afflatus runs: ${p?.database ? "the database (a consistent copy) and " : ""}every file of the library. Not in it: the files of linked folders, which stay on your disk, and ComfyUI's models. To restore, stop Afflatus, unpack the zip into an empty data folder (pnpm restore <zip> <folder> does it, and refuses a folder that is not empty), and start it again with DATA_DIR pointing there.${p && !p.database ? " With Postgres, back the database up with Postgres's own tools." : ""}`}
@@ -98,6 +100,7 @@ function RenderRecord() {
   return (
     <Card title="Render times" status={r && <span className="font-mono text-xs text-ink-3">{size(r.bytes)}</span>}>
       <Row
+        setting="storage.renderTimes"
         label="Render times kept for"
         sub={r ? `${r.renders} render${r.renders === 1 ? "" : "s"} one by one${r.days ? `, ${r.days} day${r.days === 1 ? "" : "s"} as figures` : ""}` : undefined}
         help={`What the Queue's "Render times" and the estimates on the buttons are made from. Older renders are folded into one line per model and day, kept for good: the charts still reach back, the list does not.`}

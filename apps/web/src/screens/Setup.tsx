@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useLocation, useParams } from "wouter";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useParams, useSearch } from "wouter";
 import { Search, X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
 import { api } from "../api";
 import { useFamilies, useRecipes, useSetup, useStorage } from "../data";
 import { size } from "../format";
+import { scrollInside } from "../scrollInside";
 import { cx, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
@@ -18,7 +19,7 @@ import { PromptsCard, WritingCard } from "./settings/PromptsCard";
 import { StorageCard } from "./settings/StorageCard";
 import { UpdatesCard } from "./settings/UpdatesCard";
 import { BarCard } from "./settings/BarCard";
-import { INDEX, MOVED, TABS, type Tab } from "./settings/settingsIndex";
+import { INDEX, MOVED, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
 
 /** What each tab says at a glance, beside its name: ComfyUI answering, operations not ready, the disk used, the version. */
 function useTabMarks(): Partial<Record<Tab, ReactNode>> {
@@ -39,7 +40,54 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   };
 }
 
-/** Settings, in tabs: one for each thing being set up. The address carries the tab. */
+/**
+ * `?find=<key>` (settingHref): the row that carries the key is scrolled to and outlined until the next click, then
+ * the address loses it (so the same setting can be found again). A row whose card waits for its data is looked for
+ * again when the reads settle; one that is not shown at all lands on its `near` one.
+ */
+function useFind(box: RefObject<HTMLElement | null>, tab: Tab) {
+  const find = new URLSearchParams(useSearch()).get("find");
+  const [path, go] = useLocation();
+  const client = useQueryClient();
+  // only to look again when a read ends: whether one is running is asked of the client itself, after the cards mounted
+  const fetching = useIsFetching();
+  const [row, setRow] = useState<HTMLElement | null>(null);
+  const done = useRef<string | null>(null);
+  // the address when the click comes: the outline is cleared by it, and the address loses its ?find=
+  const here = useRef({ path, find });
+  here.current = { path, find };
+  useEffect(() => {
+    if (!find) {
+      done.current = null;
+      setRow(null);
+      return;
+    }
+    if (done.current === find || !box.current) return;
+    const at = (key: string) => box.current!.querySelector<HTMLElement>(`[data-setting~="${CSS.escape(key)}"]`);
+    let found = at(find);
+    if (!found && client.isFetching() > 0) return;
+    const near = spotOf(find)?.near;
+    if (!found && near) found = at(near);
+    done.current = find;
+    setRow(found);
+  }, [find, tab, fetching, box, client]);
+  useEffect(() => {
+    if (!row) return;
+    scrollInside(row, "center");
+    row.setAttribute("data-found", "");
+    const clear = () => {
+      setRow(null);
+      if (here.current.find) go(here.current.path, { replace: true });
+    };
+    document.addEventListener("pointerdown", clear, { capture: true, once: true });
+    return () => {
+      document.removeEventListener("pointerdown", clear, { capture: true });
+      row.removeAttribute("data-found");
+    };
+  }, [row, go]);
+}
+
+/** Settings, in tabs: one for each thing being set up. The address carries the tab, and the setting found (`?find=`). */
 export function Setup() {
   const params = useParams<{ tab?: string }>();
   const [, go] = useLocation();
@@ -50,7 +98,12 @@ export function Setup() {
     if (moved) go(`/settings/${moved}`, { replace: true });
   }, [moved, go]);
   const marks = useTabMarks();
+  const scroller = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useFind(scroller, tab);
   const [typed, setTyped] = useState("");
+  // the list closes on a pick and the words stay: typing again reopens it, Esc clears them (the place is kept)
+  const [picked, setPicked] = useState(false);
   // each word typed is in the entry as typed, or as letters in order from the start of one of its words
   // ("civit" finds Civitai; "bin" does not find "github")
   const found = useMemo(() => {
@@ -62,9 +115,11 @@ export function Setup() {
     };
     return INDEX.filter((i) => matches(`${i.label} ${i.words ?? ""} ${TABS.find((t) => t.id === i.tab)!.label}`)).slice(0, 8);
   }, [typed]);
-  const open = (t: Tab) => {
-    go(t === "comfyui" ? "/settings" : `/settings/${t}`);
-    setTyped("");
+  const open = (t: Tab) => go(tabHref(t));
+  const pick = (key: string) => {
+    go(settingHref(key));
+    setPicked(true);
+    input.current?.focus();
   };
   return (
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
@@ -75,14 +130,14 @@ export function Setup() {
         <div className="relative">
           <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
             <Search size={14} className="shrink-0 text-ink-3" />
-            <input data-search aria-label="Find a setting" placeholder="Find a setting" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) open(found[0].tab); }} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
+            <input ref={input} data-search aria-label="Find a setting" placeholder="Find a setting" value={typed} onChange={(e) => { setTyped(e.target.value); setPicked(false); }} onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) pick(found[0].key); }} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
             {typed && <button type="button" aria-label="Clear" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
           </label>
-          {typed.trim() && (
+          {typed.trim() && !picked && (
             <div role="listbox" aria-label="Settings found" className="absolute right-0 z-20 mt-1 flex w-80 flex-col overflow-hidden rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60">
               {found.length === 0 && <span className="px-3 py-2 text-xs text-ink-2">No setting matches “{typed}”.</span>}
               {found.map((f) => (
-                <button key={`${f.tab}:${f.label}`} type="button" role="option" aria-selected={false} onClick={() => open(f.tab)} className="flex items-baseline gap-2 px-3 py-1.5 text-left hover:bg-hover">
+                <button key={f.key} type="button" role="option" aria-selected={false} onClick={() => pick(f.key)} className="flex items-baseline gap-2 px-3 py-1.5 text-left hover:bg-hover">
                   <span className="min-w-0 grow truncate text-sm">{f.label}</span>
                   <span className="shrink-0 text-xs text-ink-3">{TABS.find((t) => t.id === f.tab)!.label}</span>
                 </button>
@@ -93,7 +148,7 @@ export function Setup() {
       </header>
 
       {/* one column of cards, every setting one row */}
-      <div className="min-h-0 grow overflow-y-auto pb-4">
+      <div ref={scroller} className="min-h-0 grow overflow-y-auto pb-4">
         <div className="flex max-w-[860px] flex-col gap-4">
           {tab === "comfyui" && <ComfyCard />}
           {tab === "models" && (

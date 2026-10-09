@@ -35,6 +35,7 @@ export function ModelSwitches() {
   return (
     <Card
       id="model-switches"
+      setting="models.families"
       title={<span className="flex items-center gap-1.5">Models <Help title="Models" text="One switch per model family: off, it is left out of the model lists (Studio, a clip's model on a timeline, the tools under a picture). What you generated with it stays. Left alone a family follows its model files; set by hand it stays as set." /></span>}
       status={<span className="font-mono text-xs text-ink-3">{shown.length - offCount} of {shown.length} on</span>}
     >
@@ -212,6 +213,7 @@ export function ReadyList() {
   return (
     <Card
       id="ready"
+      setting="models.ready"
       title={<span className="flex items-center gap-1.5">What is ready <Help title="What is ready" text="Every operation of the families that are on, by family: open when something is missing (files, custom nodes), folded when all is well. Models that are off are not listed." /></span>}
       status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{ready} of {listed.length} ready</span> : null}
     >

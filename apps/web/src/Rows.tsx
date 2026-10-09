@@ -15,9 +15,9 @@ const Dense = createContext(false);
  * `dense`: the Prompt kit's look, an 11px upper-case head and 150px names. `help`: what the card is for,
  * behind a ? at the end of its head.
  */
-export function Card({ title, status, help, dense, id, label, children }: { title?: ReactNode; status?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; children: ReactNode }) {
+export function Card({ title, status, help, dense, id, label, setting, children }: { title?: ReactNode; status?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string; children: ReactNode }) {
   return (
-    <section id={id} aria-label={label} className="overflow-hidden rounded-[14px] border border-line bg-panel shadow-card">
+    <section id={id} aria-label={label} data-setting={setting} className="overflow-hidden rounded-[14px] border border-line bg-panel shadow-card">
       {title && (
         <div className={cx("flex items-center gap-2.5 border-b border-line", dense ? "min-h-[42px] px-4 py-2" : "min-h-[48px] px-[18px] py-2.5")}>
           <h2 className={cx("grow", dense ? "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase" : "text-[14px] font-bold")}>{title}</h2>
@@ -45,21 +45,22 @@ export function Status({ ok, children }: { ok: boolean; children?: ReactNode }) 
 /**
  * One setting. `help`: what it does, behind the ? after its name. `sub`: a short state under the name (a key
  * that is saved). `start`: the control reads from the left (chips of facts) rather than sitting on the right.
- * `tone="warn"`: something to do, said by the name and its button.
+ * `tone="warn"`: something to do, said by the name and its button. `setting`: the Settings search's anchor(s), see settingHref.
  */
-export function Row({ label, help, htmlFor, sub, start, tone, children }: {
+export function Row({ label, help, htmlFor, sub, start, tone, setting, children }: {
   label: ReactNode;
   help?: string;
   htmlFor?: string;
   sub?: ReactNode;
   start?: boolean;
   tone?: "warn";
+  setting?: string;
   children?: ReactNode;
 }) {
   const dense = useContext(Dense);
   const name = typeof label === "string" ? label : undefined;
   return (
-    <div className={cx("grid items-center", dense ? "min-h-[48px] grid-cols-[150px_minmax(0,1fr)] gap-3.5 px-4 py-1.5" : "min-h-[52px] grid-cols-[230px_minmax(0,1fr)] gap-4 px-[18px] py-2", tone === "warn" && "bg-warn-wash/50")}>
+    <div data-setting={setting} className={cx("grid items-center", dense ? "min-h-[48px] grid-cols-[150px_minmax(0,1fr)] gap-3.5 px-4 py-1.5" : "min-h-[52px] grid-cols-[230px_minmax(0,1fr)] gap-4 px-[18px] py-2", tone === "warn" && "bg-warn-wash/50")}>
       <span className="flex min-w-0 flex-col">
         <span className={cx("flex min-w-0 items-center gap-1.5 text-[13px]", dense && "font-semibold", tone === "warn" && "font-semibold text-warn-ink")}>
           {htmlFor ? <label htmlFor={htmlFor} className="min-w-0">{label}</label> : <span className="min-w-0">{label}</span>}
@@ -73,9 +74,9 @@ export function Row({ label, help, htmlFor, sub, start, tone, children }: {
 }
 
 /** What is not one setting: a list, an editor, an error. Full width, padded like the rows. */
-export function Block({ children, className }: { children: ReactNode; className?: string }) {
+export function Block({ children, className, setting }: { children: ReactNode; className?: string; setting?: string }) {
   const dense = useContext(Dense);
-  return <div className={cx("flex flex-col gap-2", dense ? "px-4 py-3" : "px-[18px] py-3", className)}>{children}</div>;
+  return <div data-setting={setting} className={cx("flex flex-col gap-2", dense ? "px-4 py-3" : "px-[18px] py-3", className)}>{children}</div>;
 }
 
 /** A fact in a row: a version, a size, a count. */

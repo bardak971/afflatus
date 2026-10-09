@@ -53,7 +53,7 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <SectionTitle>Sections</SectionTitle>
-          <Help title="Sections" text="Chapters of the form, in your order; a section can carry a switch. The form is the prompt, your sections in order, and Advanced with everything else. Drag a setting into a section, or under a switch; drag the Prompt and Advanced cards to move those." />
+          <Help title="Sections" text="Chapters of the form, in your order; a section can carry a switch. The form is the prompt, your sections in order, and Advanced with everything else. Drag a setting into a section, or under a switch; drag the Prompt and Advanced cards to move those. From the keyboard: Tab to a setting, Enter (or the menu key) lists where it can go; Alt + ← → moves it within its section, Alt + ↑ ↓ to the section before or after." />
         </div>
         <FormSections
           sections={b.sections ?? []}

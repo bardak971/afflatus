@@ -91,6 +91,7 @@ export function DesignerCard() {
   return (
     <div className="flex flex-col gap-4">
       <Card
+        setting="designer.llms"
         title={<span className="flex items-center gap-1.5">LLMs <Help title="LLMs" text="The designer writes and improves your prompts with a language model (LLM): any with an OpenAI-compatible API, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, each conversation has its own: you pick it in the designer's panel, and it stays with that draft or clip." /></span>}
         status={<span className="font-mono text-xs text-ink-3">{all || "none"}</span>}
       >
@@ -126,6 +127,7 @@ export function DesignerCard() {
       </Card>
 
       <Card
+        setting="designer.notes"
         title={<span className="flex items-center gap-1.5">System prompts <Help title="System prompts" text={`Standing instructions of your own, each under a name, picked in the designer's panel for a draft or a clip; the one picked holds for every answer of that conversation. They are added after the model's prompting guide (Settings › Prompts) and WIN over it: an instruction that says "always name the focal length" brings the lens back into every prompt, which the guides now avoid unless the picture calls for it. Say what the guide cannot know: your taste, your subject matter, your limits.`} /></span>}
         status={<span className="font-mono text-xs text-ink-3">{notes.length || "none"}</span>}
       >
@@ -166,6 +168,7 @@ export function DesignerCard() {
 
       <Card title="Conversation history">
         <Row
+          setting="designer.forget"
           label="Clear every conversation"
           sub={forget.isSuccess ? `Cleared: ${forget.data.forgotten} conversation${forget.data.forgotten === 1 ? "" : "s"}.` : undefined}
           help={`Clears every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is cleared with "Start over" in the designer's panel.`}

@@ -50,7 +50,7 @@ export function LinkCard() {
   const already = found?.have[file];
   const field = `h-10 min-w-0 text-xs ${fieldClass}`;
   return (
-    <Card title={<span className="flex items-center gap-1.5">Download a model from a URL <Help title="Download a model from a URL" text="Paste the URL of a model page on Civitai (civitai.com or civitai.red), or of a file on Hugging Face. Afflatus shows what it is and downloads the file you pick into the ComfyUI models folder you choose." /></span>}>
+    <Card setting="models.link" title={<span className="flex items-center gap-1.5">Download a model from a URL <Help title="Download a model from a URL" text="Paste the URL of a model page on Civitai (civitai.com or civitai.red), or of a file on Hugging Face. Afflatus shows what it is and downloads the file you pick into the ComfyUI models folder you choose." /></span>}>
       <Row label="Model URL">
         <form
           className="flex min-w-0 grow gap-2"

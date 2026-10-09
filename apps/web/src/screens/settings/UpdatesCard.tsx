@@ -45,7 +45,7 @@ export function UpdatesCard() {
   const groups = KINDS.map((k) => ({ ...k, items: shown.filter((u) => u.folder === k.id) })).filter((g) => g.items.length);
   const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB") : "");
   return (
-    <Card title="Newer versions on Civitai" status={on && newer.length > 0 ? <span className="font-mono text-xs text-accent">{newer.length} newer</span> : undefined}>
+    <Card setting="models.updates" title="Newer versions on Civitai" status={on && newer.length > 0 ? <span className="font-mono text-xs text-accent">{newer.length} newer</span> : undefined}>
       {!on ? (
         // the switch itself, here too: a check asks Civitai, which only this switch allows
         <Row label="Search Hugging Face and Civitai" sub="needed to check" help="A check asks Civitai, which only this switch allows. The same switch as in Missing models.">

@@ -102,14 +102,14 @@ export function BarCard() {
   return (
     <div className="flex flex-col gap-4">
       <Card title="The bar" label="The bar">
-        <Row label="Shortcut" help="Opens the bar from anywhere, a text box included. Click it, then press the keys of the new one; Escape leaves it as it was.">
+        <Row setting="bar.shortcut" label="Shortcut" help="Opens the bar from anywhere, a text box included. Click it, then press the keys of the new one; Escape leaves it as it was.">
           {bar.shortcut !== DEFAULT.shortcut && <Button size="sm" tone="quiet" onClick={() => saveBar({ shortcut: DEFAULT.shortcut })}>Back to Ctrl+K</Button>}
           <ShortcutRecorder value={bar.shortcut || DEFAULT.shortcut} onChange={(shortcut) => saveBar({ shortcut })} />
         </Row>
-        <Row label="Learn what I use" help="What you open often and lately comes first. Kept in this browser.">
+        <Row setting="bar.learn" label="Learn what I use" help="What you open often and lately comes first. Kept in this browser.">
           <Toggle bare on={learn} onChange={setLearn} label="Learn what I use" />
         </Row>
-        <Row label="Preview" help="The selected result shown beside the list; Shift shows or hides it. Kept in this browser.">
+        <Row setting="bar.preview" label="Preview" help="The selected result shown beside the list; Shift shows or hides it. Kept in this browser.">
           <Toggle bare on={preview} onChange={setPreview} label="Preview" />
         </Row>
         <Row label="Forget what I used" sub={forgot ? "Forgotten: recents and ranking start over." : undefined} help="Recents and ranking start over.">
@@ -118,7 +118,7 @@ export function BarCard() {
       </Card>
 
       <Card title="Optional parts" label="Optional parts" status={<span className="text-xs text-ink-3">off until you turn them on</span>}>
-        <Row label="Prompt snippets" help="Type ;name in any prompt box, then a space or Tab: the snippet's text goes there.">
+        <Row setting="bar.snippets" label="Prompt snippets" help="Type ;name in any prompt box, then a space or Tab: the snippet's text goes there.">
           <Toggle bare on={bar.snippets} onChange={(snippets) => saveBar({ snippets })} label="Prompt snippets" />
         </Row>
         {bar.snippets && (
@@ -143,10 +143,10 @@ export function BarCard() {
             </div>
           </Block>
         )}
-        <Row label="Prompt history" help={`Type " in the bar to search every prompt you rendered, with its render.`}>
+        <Row setting="bar.history" label="Prompt history" help={`Type " in the bar to search every prompt you rendered, with its render.`}>
           <Toggle bare on={bar.history} onChange={(history) => saveBar({ history })} label="Prompt history" />
         </Row>
-        <Row label="Cast with @" help="Type @ in the bar to add a person of the Prompt kit to the open draft.">
+        <Row setting="bar.cast" label="Cast with @" help="Type @ in the bar to add a person of the Prompt kit to the open draft.">
           <Toggle bare on={bar.cast} onChange={(cast) => saveBar({ cast })} label="Cast with @" />
         </Row>
         {error && <Block><ErrorNote>{error}</ErrorNote></Block>}

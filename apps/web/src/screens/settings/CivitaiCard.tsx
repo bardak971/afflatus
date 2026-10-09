@@ -30,6 +30,7 @@ export function CivitaiCard() {
   return (
     <Card title="Missing models">
       <Row
+        setting="server.downloadModels"
         label="Download missing models"
         sub="through ComfyUI-Manager"
         help={`On: a missing model file gets a "Download" button, from the URL the workflow's author gave, or from Civitai once it is found there. ComfyUI-Manager saves it in the right models folder; the file passes through Afflatus, which shows the progress. Nothing is downloaded until you press the button. Off: Afflatus never asks ComfyUI to download anything; missing models only get links to open in your browser.`}
@@ -49,13 +50,14 @@ export function CivitaiCard() {
         </Block>
       )}
       <Row
+        setting="server.civitaiLookups"
         label="Search Hugging Face and Civitai"
         help={`On: when a model file is missing, "Search" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. Only the filename is sent, and only when you press the button. What is found is shown with a link, and with a Download button when downloading is on. Off: Afflatus never contacts Hugging Face or Civitai; missing models still get links that open a search in your browser.`}
       >
         <Toggle bare on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Search Hugging Face and Civitai for missing models" />
       </Row>
       {on && (
-        <Row label="Civitai API key" sub={settings.data?.hasCivitaiKey ? "one is saved" : undefined} help="Only needed for models Civitai hides from visitors without an account. Kept by Afflatus, never shown again.">
+        <Row setting="models.civitaiKey" label="Civitai API key" sub={settings.data?.hasCivitaiKey ? "one is saved" : undefined} help="Only needed for models Civitai hides from visitors without an account. Kept by Afflatus, never shown again.">
           <input type="password" aria-label="Civitai API key" value={key} autoComplete="off" placeholder={settings.data?.hasCivitaiKey ? "leave empty to keep it" : "none"} onChange={(e) => setKey(e.target.value)} className={cx("h-10 min-w-0 grow font-mono text-xs placeholder:font-sans", fieldClass)} />
           <Button onClick={() => save.mutate({ civitaiKey: key })} disabled={!key || save.isPending}>Save</Button>
           {settings.data?.hasCivitaiKey && <Button onClick={() => save.mutate({ civitaiKey: "" })} disabled={save.isPending}>Remove key</Button>}

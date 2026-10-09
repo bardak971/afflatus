@@ -24,23 +24,23 @@ export function InterfaceTab() {
         title={<span className="flex items-center gap-1.5">Appearance <Help title="Appearance" text="Kept in this browser, so that another screen can look another way. Studio is the app's own neutral grey; Catppuccin, Rosé Pine, Tokyo Night and Kanagawa use their authors' palettes." /></span>}
         status={<div className="w-64"><ThemeMode /></div>}
       >
-        <Block className="gap-3.5 py-4"><ThemePickers /></Block>
-        <Row label="Explain every setting in the forms" help="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting.">
+        <Block setting="interface.theme interface.accent" className="gap-3.5 py-4"><ThemePickers /></Block>
+        <Row setting="explain" label="Explain every setting in the forms" help="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting.">
           <Toggle bare on={explain.on} onChange={explain.set} label="Explain every setting in the forms" />
         </Row>
-        <Row label="Play videos on hover" help="A video card plays, muted unless the next switch is on, while the mouse rests on it. Off: it shows its frame until you open it.">
+        <Row setting="hover.video" label="Play videos on hover" help="A video card plays, muted unless the next switch is on, while the mouse rests on it. Off: it shows its frame until you open it.">
           <Toggle bare on={hover.video} onChange={(video) => hover.set({ video })} label="Play videos when the mouse rests on a card" />
         </Row>
-        <Row label="Play sound on hover" help="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened.">
+        <Row setting="hover.sound" label="Play sound on hover" help="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened.">
           <Toggle bare on={hover.sound} onChange={(sound) => hover.set({ sound })} label="Play sound on hover" />
         </Row>
       </Card>
 
       <Card title="Notifications" id="notifications">
-        <Row label="Notify after each render" help={`A browser notification when a render finishes or fails. ${BROWSER}`}>
+        <Row setting="notify.each" label="Notify after each render" help={`A browser notification when a render finishes or fails. ${BROWSER}`}>
           <Toggle bare on={notify.eachRender} onChange={(on) => void setNotify("eachRender", on)} label="Notify when a render finishes" />
         </Row>
-        <Row label="Notify when the queue is empty" help={`A browser notification when everything that was waiting is done. ${BROWSER}`}>
+        <Row setting="notify.empty" label="Notify when the queue is empty" help={`A browser notification when everything that was waiting is done. ${BROWSER}`}>
           <Toggle bare on={notify.whenEmpty} onChange={(on) => void setNotify("whenEmpty", on)} label="Notify when the queue is empty" />
         </Row>
         {refused && (

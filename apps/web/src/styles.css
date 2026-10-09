@@ -70,6 +70,15 @@ a {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+/* a setting found by the Settings search (?find=): outlined in the accent until the next click */
+[data-found] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+div[data-found] {
+  border-radius: 10px;
+}
 /* a text field marks its own focus (its accent ring, or the pill a search bar sits in): no second rectangle
    inside it. This rule sits outside Tailwind's layers, so a field's outline-none could not undo it */
 input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible,

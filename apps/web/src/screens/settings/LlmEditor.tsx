@@ -64,10 +64,10 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
           <Row label="API key" sub={llm.hasApiKey ? "one is saved" : "if it asks for one"}>
             <input type="password" aria-label="API key" value={form.apiKey} placeholder={llm.hasApiKey ? "leave empty to keep it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={cx(field, "grow")} />
           </Row>
-          <Row label="Context size" help="How much the model can read at once. A long conversation is cut to what fits, oldest part first.">
+          <Row setting="designer.context" label="Context size" help="How much the model can read at once. A long conversation is cut to what fits, oldest part first.">
             <NumberBox label="Context size, in tokens" value={form.contextSize} min={2048} max={2000000} unit="tokens" onCommit={(v) => setForm({ ...form, contextSize: v })} className="[&_input]:w-24" />
           </Row>
-          <Row label="Max output tokens" help="The longest answer it may write. A model that thinks before it answers spends these on thinking too: give it more.">
+          <Row setting="designer.tokens" label="Max output tokens" help="The longest answer it may write. A model that thinks before it answers spends these on thinking too: give it more.">
             <NumberBox label="Max output tokens" value={form.maxOutputTokens} min={256} max={65536} unit="tokens" onCommit={(v) => setForm({ ...form, maxOutputTokens: v })} className="[&_input]:w-24" />
           </Row>
           <Row label="Vision (reads images)" help={form.vision ? "The designer is shown the image a form opens on before it writes. Turn this off if the model answers with an error about images." : "Off: it works from your text only, and says so."}>
