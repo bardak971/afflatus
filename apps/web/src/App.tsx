@@ -61,8 +61,9 @@ export function App() {
         <NavRail />
         {/* while a screen's code loads: the timeline editor's own shape for the editor (it then lands in place), else a line */}
         <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
-        {/* a screen that fails takes only itself down; going to another screen starts afresh ("/create" is the Studio's own address with its form open, the same screen) */}
-        <ErrorBoundary key={path === "/create" ? "" : path.split("/")[1]}>
+        {/* a screen that fails takes only itself down; going to another screen starts afresh ("/create" and "/timelines" are
+            the Studio's own addresses, with its form open or its timelines shown: the same screen; a timeline's editor is not) */}
+        <ErrorBoundary key={path === "/create" || path === "/timelines" ? "" : path.split("/")[1]}>
         <Switch>
           <Route path="/"><Studio key="studio" /></Route>
           {/* the Studio with its form open: the same screen (the same key, so opening the form keeps what is on it), the address following the form */}
@@ -71,7 +72,8 @@ export function App() {
           {/* the screen's old address still leads to it */}
           <Route path="/people"><Redirect to="/kit" /></Route>
           {/* the rail's Timelines entry: the Studio, on the timelines of the place it looks at */}
-          <Route path="/timelines"><Studio key="timelines" timelines /></Route>
+          {/* the same Studio as / and /create (one key): Media / Timelines is a switch inside it, so its highlight travels and nothing is drawn afresh */}
+          <Route path="/timelines"><Studio key="studio" timelines /></Route>
           <Route path="/timelines/:id" component={TimelineEditor} />
           <Route path="/workflows" component={Workflows} />
           {/* the workflow editor: a saved workflow by its id, a fresh import (no id until it is saved) held in memory */}

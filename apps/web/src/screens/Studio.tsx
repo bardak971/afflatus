@@ -133,6 +133,11 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   useKeysHere("form");
   useKeysHere("grid", !showTimelines);
   const stageOfDraft = draftOnly && reach === "draft";
+  // one Studio for / and /timelines: the address changing (the rail's Timelines entry, Back) sets what the grid shows
+  useEffect(() => {
+    if (Boolean(onTimelines) !== (filters.kind === "timeline")) filters.setKind(onTimelines ? "timeline" : "all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onTimelines]);
   const timelines = useTimelines();
   // the timelines of the place that is open: a folder lists those whose renders land in it, the Inbox those in none,
   // the project as a whole every one of its own (the list comes scoped to the project already)
