@@ -40,7 +40,7 @@ export function FailedRow({ job, quiet = false }: { job: HistoryJob; quiet?: boo
     { label: "Retry unchanged", icon: <RotateCcw size={14} />, disabled: again.isPending, run: () => retry() },
     ...(stretch ? [{ label: stretch.label, icon: <RotateCcw size={14} />, note: "less memory", disabled: again.isPending, run: () => retry(stretch.change) }] : []),
     ...(fix ? [{ label: fix.label, icon: <RotateCcw size={14} />, note: "less memory", disabled: again.isPending, run: () => retry(fix.change) }] : []),
-    ...(job.draftId ? [{ label: "Open the draft in Studio", icon: <Pencil size={14} />, run: () => toDraft(job.draftId!) }] : []),
+    ...(job.draftId ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(job.draftId!) }] : []),
     "—",
     { label: "Dismiss", icon: <Trash2 size={14} />, danger: true, note: "out of the history", run: () => dismiss.mutate(job.id) },
   ];
@@ -91,7 +91,7 @@ export function FailedRow({ job, quiet = false }: { job: HistoryJob; quiet?: boo
             {link && <Link href={link.href} className="mr-2 font-semibold text-accent hover:underline">{link.label}</Link>}
             {stretch && <Button size="sm" tone="danger" disabled={again.isPending} data-tip="The latent upscale re-samples the clip in stretches of frames; shorter stretches need less memory." onClick={() => retry(stretch.change)}>{stretch.label}</Button>}
             {fix && <Button size="sm" tone={stretch ? undefined : "danger"} disabled={again.isPending} onClick={() => retry(fix.change)}>{fix.label}</Button>}
-            {job.draftId && <Button size="sm" onClick={() => toDraft(job.draftId!)}>Open the draft</Button>}
+            {job.draftId && <Button size="sm" onClick={() => toDraft(job.draftId!)}>Open its draft</Button>}
             <Button size="sm" tone="quiet" onClick={() => dismiss.mutate(job.id)}>Dismiss</Button>
           </div>
         </div>

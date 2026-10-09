@@ -49,7 +49,10 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const formValues = recipe && draft ? draft.forms[recipe.id] : undefined;
   useEffect(() => {
     if (!recipe || !draft) { publish(null); return; }
-    publish({ recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, look: draft.look, setLook: d.setLook, generate: () => makeNow.current() });
+    publish({
+      recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, look: draft.look, setLook: d.setLook, generate: () => makeNow.current(),
+      applyPreset: (id) => presetNow.current(id), savePreset: (name) => savePreset.mutateAsync(name),
+    });
     // the form is gone with the panel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe, draft?.id, formValues, draft?.look]);
@@ -89,6 +92,14 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
     if (p) applyPreset(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.id, entities.data]);
+  // a preset applied from elsewhere (the command bar), by its id: as the preset menu does it, refused the same way
+  const presetNow = useRef((_id: string): string | null => null);
+  presetNow.current = (id) => {
+    const p = presets.find((x) => x.id === id);
+    if (!p) return "This preset is not in the Prompt kit any more.";
+    applyPreset(p);
+    return presetRefusal(p, all);
+  };
   const savePreset = useMutation({
     mutationFn: (name: string) => api.createEntity("preset", name, { recipe: recipe!.id, inputs: draft!.forms[recipe!.id] ?? {}, look: draft!.look }),
     onMutate: () => setPresetError(null),

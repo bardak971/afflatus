@@ -19,6 +19,10 @@ interface Target {
   setLook?(look: Look): void;
   /** Generate, as its button does (refused as the button is: nothing when it cannot run). */
   generate?(): void;
+  /** A preset of the Prompt kit applied, as the form's preset menu does it: why it was refused, or null. */
+  applyPreset?(id: string): string | null;
+  /** The form kept as a preset under a name, as the preset menu's "Save as preset". */
+  savePreset?(name: string): Promise<unknown>;
 }
 export type FormTarget = Target;
 export const useFormTarget = create<{ target: Target | null; publish(t: Target | null): void }>((set) => ({

@@ -41,7 +41,8 @@ export function BarHost() {
     return () => cancel(id);
   }, []);
 
-  // another part of the app opens it (the keys list, a button): `afflatus:bar` with what to start typed
+  // another part of the app opens it on a mode: `afflatus:bar` with what to start typed (the status bar's "Ctrl K" chip
+  // sends it with nothing typed, to open the bar with the mouse)
   useEffect(() => {
     const on = (e: Event) => useBar.getState().show((e as CustomEvent<{ seed?: string }>).detail?.seed ?? "");
     window.addEventListener("afflatus:bar", on);

@@ -56,6 +56,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "bar", label: "Shortcut", key: "bar.shortcut", words: "command bar shortcut ctrl k keyboard palette search" },
   { tab: "bar", label: "Learn what I use", key: "bar.learn", words: "command bar ranking recent" },
   { tab: "bar", label: "Preview", key: "bar.preview", words: "preview in the bar command bar shift side" },
+  { tab: "bar", label: "Forget what I used", key: "bar.forget", words: "command bar recents ranking reset clear start over" },
   { tab: "bar", label: "Prompt snippets", key: "bar.snippets", words: "typed by name command bar ; expand" },
   { tab: "bar", label: "Prompt history", key: "bar.history", words: "in the bar command bar quote" },
   { tab: "bar", label: "Cast with @", key: "bar.cast", words: "command bar person people" },
@@ -66,7 +67,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "storage", label: "Back up now", key: "storage.backup", words: "backup zip export restore database files" },
   { tab: "interface", label: "Notify when the queue is empty", key: "notify.empty", words: "notifications browser" },
   { tab: "interface", label: "Notify after each render", key: "notify.each", words: "notifications browser" },
-  { tab: "about", label: "Afflatus", key: "about.version", words: "version about license source github" },
+  { tab: "about", label: "About Afflatus", key: "about.version", words: "version about license source github" },
   { tab: "about", label: "On this computer", key: "about.checks", words: "start-up checks startup ffmpeg ffprobe node data folder tools missing install path preflight" },
 ];
 

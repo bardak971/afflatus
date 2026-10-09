@@ -21,20 +21,23 @@ export type CommandEntry =
   | { kind: "draft"; id: string; label: string; project: string | null; updatedAt: string; recipe: string; renders: number }
   | { kind: "asset"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; assetKind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; bytes: number; hasThumb: boolean }
   | { kind: "project"; id: string; label: string; updatedAt: string; archived: boolean; timelines: number; items: number; bytes: number }
-  | { kind: "folder"; id: string; label: string; project: string | null; parent: string | null; updatedAt: string; items: number; linked: boolean };
+  | { kind: "folder"; id: string; label: string; project: string | null; parent: string | null; updatedAt: string; items: number; linked: boolean }
+  | { kind: "workflow"; id: string; label: string; updatedAt: string; output: "image" | "video" | "audio"; problem: boolean }
+  | { kind: "kit"; id: string; label: string; updatedAt: string; entity: "person" | "place" | "style" | "preset" | "snippet"; shipped: boolean };
 
 /** What an item of the library is called when it has no name of its own. */
 const UNNAMED = { image: "Image", video: "Video", audio: "Sound" } as const;
 
 /**
- * Every timeline, draft, item of the library (not in the bin, no mask or kit picture), project and folder, as small rows. A
+ * Every timeline, draft, item of the library (not in the bin, no mask or kit picture), project, folder, imported workflow and
+ * entry of the Prompt kit (the presets that ship with Afflatus included), as small rows. A
  * handful of grouped queries for all of it, only the columns the bar shows: a library of 10 000 items answers in tens of ms.
  * A project's root folder is not a folder of its own here (the project stands for it, as in the projects tree): what is in
  * it says `folder: null` with its project, as what is loose in the Inbox does with none.
  */
 export async function commandIndex(s: Services): Promise<{ entries: CommandEntry[] }> {
   const db = s.db;
-  const [projects, folders, assets, drafts, renders, leaves, unused] = await Promise.all([
+  const [projects, folders, assets, drafts, renders, leaves, unused, workflows, kit] = await Promise.all([
     db.selectFrom("projects").select(["id", "name", "folder_id", "archived_at", "created_at", "updated_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("folders").select(["id", "parent_id", "name", "path", "project_id", "created_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("assets")
@@ -46,6 +49,8 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
     db.selectFrom("generations").select((eb) => ["draft_id", eb.fn.countAll().as("n")]).where("draft_id", "is not", null).groupBy("draft_id").execute(),
     s.timelines.leaves(),
     unusedTakes(db),
+    db.selectFrom("workflows").select(["id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).execute(),
+    db.selectFrom("entities").select(["id", "kind", "name", "created_at", "updated_at"]).where("owner_id", "=", OWNER).orderBy("name").execute(),
   ]);
 
   const known = new Set(projects.map((p) => p.id));
@@ -115,6 +120,19 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
   for (const p of projects) {
     const sum = byProject.get(p.id);
     entries.push({ kind: "project", id: p.id, label: p.name, updatedAt: p.updated_at || p.created_at, archived: Boolean(p.archived_at), timelines: sum?.timelines ?? 0, items: sum?.n ?? 0, bytes: sum?.b ?? 0 });
+  }
+
+  // the workflows as the registry holds them (one that cannot be built is listed too, as on the Workflows screen)
+  const changed = new Map(workflows.map((w) => [w.id, w.updated_at || w.created_at]));
+  for (const d of s.registry.workflows()) {
+    entries.push({ kind: "workflow", id: d.id, label: d.title, updatedAt: changed.get(d.id) ?? "", output: d.bindings.result.kind, problem: Boolean(s.registry.problem(d.id)) });
+  }
+
+  for (const e of kit) entries.push({ kind: "kit", id: e.id, label: e.name, updatedAt: e.updated_at || e.created_at, entity: e.kind, shipped: false });
+  // the presets that ship with Afflatus, after the user's own, as the Prompt kit lists them
+  for (const p of s.shippedPresets.list()) {
+    const e = s.shippedPresets.entity(p);
+    entries.push({ kind: "kit", id: e.id, label: e.name, updatedAt: "", entity: "preset", shipped: true });
   }
   return { entries };
 }

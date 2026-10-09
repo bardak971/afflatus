@@ -4,7 +4,7 @@ import { atTop } from "../src/screens/queue/order";
 import { arithmetic, calc, gridFramesAtLeast, ratioOf, sizeFor, type Grid } from "../src/bar/calc";
 import { indexItems, timelineLength } from "../src/bar/items";
 import { highlight, pieces, prepare, QUALITY, score, search } from "../src/bar/match";
-import { clipList, modeOf, parseCommand, sizeOf } from "../src/bar/parse";
+import { clipList, COMMANDS, modeOf, parseCommand, sizeOf } from "../src/bar/parse";
 import { bonus, bumped, frecency, HALF_LIFE_MS, KEPT, recentKeys, renamed } from "../src/bar/rank";
 import { PAGES, SETTINGS, settingKeyNow } from "../src/bar/settingsRegistry";
 import { settingHref } from "../src/screens/settings/settingsIndex";
@@ -157,6 +157,27 @@ describe("modes and commands", () => {
     expect(parseCommand("group the queue by model")).toEqual({ cmd: "group-queue" });
     expect(parseCommand("render")).toBeNull();
     expect(parseCommand("make it pop")).toBeNull();
+  });
+  it("reads the commands that reach the queue page, the editor, the Workflows screen and the Prompt kit", () => {
+    expect(parseCommand("unload models")).toEqual({ cmd: "unload" });
+    expect(parseCommand("free vram")).toEqual({ cmd: "unload" });
+    expect(parseCommand("generate")).toEqual({ cmd: "generate" });
+    expect(parseCommand("new timeline")).toEqual({ cmd: "new-timeline", name: "" });
+    expect(parseCommand("new timeline Harbor cut")).toEqual({ cmd: "new-timeline", name: "Harbor cut" });
+    expect(parseCommand("new folder shots")).toEqual({ cmd: "new-folder", name: "shots" });
+    expect(parseCommand("new folder")).toBeNull();
+    expect(parseCommand("import workflow")).toEqual({ cmd: "import-workflow" });
+    expect(parseCommand("finish")).toEqual({ cmd: "finish" });
+    expect(parseCommand("fix all")).toEqual({ cmd: "fix-all" });
+    expect(parseCommand("view last render")).toEqual({ cmd: "view-last" });
+    expect(parseCommand("last render")).toEqual({ cmd: "view-last" });
+    expect(parseCommand("reconnect")).toEqual({ cmd: "reconnect" });
+    expect(parseCommand("new person Ada")).toEqual({ cmd: "new-person", name: "Ada" });
+    expect(parseCommand("New Snippet Cine look")).toEqual({ cmd: "new-snippet", name: "Cine look" });
+    expect(parseCommand("preset night street")).toEqual({ cmd: "preset", name: "night street" });
+    expect(parseCommand("save as preset Night street")).toEqual({ cmd: "save-preset", name: "Night street" });
+    // a template that needs nothing more is ready as it is typed
+    for (const c of COMMANDS.filter((x) => !x.needs)) expect(parseCommand(c.typed)?.cmd, c.id).toBe(c.id);
   });
   it("reads a size", () => {
     expect(sizeOf("1152x2048")).toEqual({ width: 1152, height: 2048 });

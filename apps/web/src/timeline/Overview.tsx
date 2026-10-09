@@ -1,10 +1,12 @@
+import { useEffect } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type Clip, type Timeline } from "../api";
 import { AudioPlayer } from "../AudioPlayer";
-import { openProjects } from "../bar/bridge";
+import { openProjects, useTimelineRequest } from "../bar/bridge";
+import { useBanners } from "../store";
 import { useEntities, useFolders, useProjects } from "../data";
 import { FieldRow } from "../fields";
 
@@ -115,6 +117,19 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   const dismiss = (r: Row) => dismissed.set(t.id, [...listed.filter((x) => kept.has(dismissKey(x, clips))).map((x) => dismissKey(x, clips)), dismissKey(r, clips)]);
   const fix = fixAll(rows, clips, msOf);
   const run = (a: Act) => onFix(a.do === "render" ? { patches: [], render: a.clips } : a.do === "take" ? { patches: [{ clip: a.clip, patch: { take: a.take } }], render: [] } : { patches: a.clips.map((clip) => ({ clip, patch: { fill: true } })), render: [] });
+  // the command bar's Fix all, taken once the joins are measured: Fix all as its button, or the one row's own action when it is
+  // the only one with an action (the button shows from two)
+  const asked = useTimelineRequest((r) => r.request);
+  const say = useBanners((b) => b.push);
+  useEffect(() => {
+    if (asked?.do !== "fix-all" || asked.timeline !== t.id || loading || rendering) return;
+    useTimelineRequest.getState().take()?.reply(null);
+    const one = rows.filter((r) => r.act);
+    if (fix) onFix(fix);
+    else if (one.length === 1) run(one[0]!.act!);
+    else say({ id: `bar-fix:${Date.now()}`, tone: "good", title: `${t.name}: nothing to fix`, text: rows.length ? "What Needs attention lists has no action that mends it." : undefined, href: `/timelines/${t.id}`, go: "Open the timeline" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked, loading, rendering]);
   const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
   const shapeWords = aspect.value === "first" ? "Shape from the first clip" : aspect.options.find((o) => o.value === aspect.value)?.label;
   const castWords = [cast, t.mood].filter(Boolean).join(" · ");

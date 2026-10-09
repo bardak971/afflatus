@@ -12,6 +12,7 @@ import { useOpenNewDraft } from "../draft";
 import { notReady, recipeLabel } from "../format";
 import { saveJson } from "../download";
 import { useHandover } from "../store";
+import { useWorkflowsRequest } from "../bar/bridge";
 import { Button, Chip, cx, ErrorNote, Help, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { pngText } from "./pngText";
@@ -91,8 +92,8 @@ async function reopen(id: string): Promise<Editing> {
   return { id: def.id, source: def.source, title: def.title, model: def.model, graph: def.graph, wiring, editor: def.editor, inspection, bindings: def.bindings };
 }
 
-/** The workflow with its mapping, as a file someone else can import into their Afflatus. */
-async function share(w: WorkflowBrief): Promise<void> {
+/** The workflow with its mapping, as a file someone else can import into their Afflatus (the command bar's Export too). */
+export async function share(w: Pick<WorkflowBrief, "id" | "title">): Promise<void> {
   const { id: _id, ...def } = await api.workflow(w.id);
   saveJson(def, `${w.title.replace(/[^\w .-]+/g, "").trim() || "workflow"}.afflatus.json`);
 }
@@ -173,6 +174,14 @@ export function Workflows() {
     hand({ workflow: null });
     open.mutate(handed);
   }, [handed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // what the command bar asked of this screen: a workflow opened in the editor, or the file picker of the Import button
+  const asked = useWorkflowsRequest((r) => r.request);
+  useEffect(() => {
+    if (!asked) return;
+    const r = useWorkflowsRequest.getState().take();
+    if (r?.do === "edit") edit.mutate(r.id);
+    else if (r?.do === "import") input.current?.click();
+  }, [asked]); // eslint-disable-line react-hooks/exhaustive-deps
   const shareIt = useMutation({ mutationFn: share });
   // the workflow in ComfyUI's editor: written into its workflows folder, then ComfyUI opened in a new tab.
   // The tab is opened before the request, or the browser would block it as a pop-up.

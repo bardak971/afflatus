@@ -77,7 +77,7 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
   if (frames) {
     const f = Number(frames[1]);
     if (!f || !fps) return null;
-    const cards: CalcCard[] = [{ label: "length", value: secs(f / fps), note: `${f} frames at ${fpsSaid} · ↵ copies`, copy: (f / fps).toFixed(2) }];
+    const cards: CalcCard[] = [{ label: "length", value: secs(f / fps), note: `${f} frames at ${fpsSaid} · Enter copies`, copy: (f / fps).toFixed(2) }];
     if (!onGrid(f, grid.frames)) {
       const near = gridFramesNearest(f, grid.frames);
       cards.push({ label: `nearest on the ${grid.name} grid`, value: `${near} f`, note: `${grid.frames.step}k+${grid.frames.offset} · ${secs(near / fps)}`, copy: String(near) });
@@ -92,7 +92,7 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
     const raw = Math.round(s * fps);
     const g = gridFramesAtLeast(raw, grid.frames);
     return [
-      { label: "frames", value: String(g), note: `${grid.name} grid ${grid.frames.step}k+${grid.frames.offset} · ${secs(g / fps)} · ↵ copies`, copy: String(g) },
+      { label: "frames", value: String(g), note: `${grid.name} grid ${grid.frames.step}k+${grid.frames.offset} · ${secs(g / fps)} · Enter copies`, copy: String(g) },
       { label: "frames, plain", value: String(raw), note: `${secs(s)} × ${fpsSaid}`, copy: String(raw) },
     ];
   }
@@ -102,7 +102,7 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
     const w = Number(size[1]);
     const h = Number(size[2]);
     const cards: CalcCard[] = [
-      { label: "pixels", value: mp(w, h), note: `${ratioOf(w, h)} · ${w}×${h} · ↵ copies`, copy: `${w}x${h}` },
+      { label: "pixels", value: mp(w, h), note: `${ratioOf(w, h)} · ${w}×${h} · Enter copies`, copy: `${w}x${h}` },
     ];
     const snapped = { width: Math.max(grid.size, Math.round(w / grid.size) * grid.size), height: Math.max(grid.size, Math.round(h / grid.size) * grid.size) };
     if (snapped.width !== w || snapped.height !== h) cards.push({ label: `on the ${grid.name} grid`, value: `${snapped.width}×${snapped.height}`, note: `edges on ${grid.size} · ${mp(snapped.width, snapped.height)}`, copy: `${snapped.width}x${snapped.height}` });
@@ -119,13 +119,13 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
     const pixels = (mpMatch ? n(mpMatch[1]!) : 1) * 1e6;
     if (!(pixels > 0) || pixels > 64e6) return null;
     const s = sizeFor(rw, rh, pixels, grid.size);
-    return [{ label: `${rw}:${rh} at ${mpMatch ? mpMatch[1] : "1"} MP`, value: `${s.width}×${s.height}`, note: `snapped to ${grid.size} for ${grid.name} · ${mp(s.width, s.height)} · ↵ copies`, copy: `${s.width}x${s.height}` }];
+    return [{ label: `${rw}:${rh} at ${mpMatch ? mpMatch[1] : "1"} MP`, value: `${s.width}×${s.height}`, note: `snapped to ${grid.size} for ${grid.name} · ${mp(s.width, s.height)} · Enter copies`, copy: `${s.width}x${s.height}` }];
   }
 
   const value = arithmetic(t);
   if (value === null) return null;
   const said = Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
-  return [{ label: "result", value: said, note: "↵ copies", copy: said }];
+  return [{ label: "result", value: said, note: "Enter copies", copy: said }];
 }
 
 /**

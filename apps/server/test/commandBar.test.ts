@@ -3,6 +3,7 @@ import type { FakeComfy } from "@afflatus/comfy/testing";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
 import type { RenderRow } from "../src/renders";
+import { sdxl } from "../../../packages/workflows/test/fixtures";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -97,6 +98,20 @@ describe("the command bar's index", () => {
     await clip(2, {});
     const entry = (await index()).find((e) => e.id === tl.id);
     expect(entry).toMatchObject({ kind: "timeline", clips: 3, durationMs: 3000, plannedMs: 15_000 });
+  });
+
+  it("holds the imported workflows and the Prompt kit's entries, each with its kind", async () => {
+    const found = (await post(t.app, "/api/workflows/inspect", sdxl)).json();
+    const wf = (await post(t.app, "/api/workflows", { title: "zz-test Mine", model: "SDXL", source: "x.json", graph: sdxl, bindings: found.suggested })).json().id as string;
+    const ada = await call("POST", "/api/entities", { kind: "person", name: "Ada" });
+    const cine = await call("POST", "/api/entities", { kind: "snippet", name: "Cine look", def: { text: "Live-action, cinematic", category: "", style: null } });
+    const entries = await index();
+    expect(entries.find((e) => e.id === wf)).toMatchObject({ kind: "workflow", label: "zz-test Mine", output: "image", problem: false });
+    expect(entries.find((e) => e.id === ada.id)).toMatchObject({ kind: "kit", label: "Ada", entity: "person", shipped: false });
+    expect(entries.find((e) => e.id === cine.id)).toMatchObject({ kind: "kit", label: "Cine look", entity: "snippet", shipped: false });
+    // gone from the kit, gone from the bar
+    await call("DELETE", `/api/entities/${ada.id}`);
+    expect((await index()).find((e) => e.id === ada.id)).toBeUndefined();
   });
 
   it("answers for 10 000 items in well under a second", async () => {

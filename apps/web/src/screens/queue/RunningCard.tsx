@@ -75,7 +75,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
             {running.spilling && <span className="font-sans font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or ask SeedVR2 for fewer frames together.">spilling out of VRAM, much slower than usual</span>}
           </span>
         </div>
-        <Button size="sm" className="shrink-0" onClick={() => onStop(running.id)}>Stop</Button>
+        <Button size="sm" className="shrink-0" onClick={() => onStop(running.id)}>Stop this render</Button>
       </div>
       {large && seen && (
         <div className="flex flex-col gap-2">

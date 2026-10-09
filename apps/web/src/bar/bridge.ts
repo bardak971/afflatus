@@ -16,7 +16,11 @@ export type TimelineRequest =
   /** The selected clip split at the playhead (S); said in the editor's note when the playhead is not inside it. */
   | { timeline: string; do: "split" }
   /** The selected clip plays its take before (-1) or after (1): Alt+[ and Alt+]; at either end it stays. */
-  | { timeline: string; do: "take"; by: -1 | 1 };
+  | { timeline: string; do: "take"; by: -1 | 1 }
+  /** The Finish dialog opened, as the editor's Finish button. */
+  | { timeline: string; do: "finish" }
+  /** What Needs attention lists, mended as its Fix all does; taken by the overview once its joins are measured. */
+  | { timeline: string; do: "fix-all" };
 
 /** A request the editor took, and its answer to the bar: the jobs a render queued (null: none, or an export). */
 export interface TakenRequest {
@@ -82,6 +86,21 @@ export function formWhenOpen(draft: string | null, open: () => void, waitMs = 40
     }, waitMs);
   });
 }
+
+/**
+ * What the bar asks of the Workflows screen, which does it with its own buttons: a saved workflow opened in the editor
+ * ("Edit"), or the file picker of "Import ComfyUI workflow". Left here, the bar goes to /workflows and the screen takes it.
+ */
+export type WorkflowsRequest = { do: "edit"; id: string } | { do: "import" };
+export const useWorkflowsRequest = create<{ request: WorkflowsRequest | null; ask(r: WorkflowsRequest): void; take(): WorkflowsRequest | null }>((set, get) => ({
+  request: null,
+  ask: (request) => set({ request }),
+  take: () => {
+    const r = get().request;
+    if (r) set({ request: null });
+    return r;
+  },
+}));
 
 /** Open the Projects panel from elsewhere, its search on `search` (a name to find). */
 export const openProjects = (search?: string) => window.dispatchEvent(new CustomEvent("afflatus:projects", { detail: { search } }));

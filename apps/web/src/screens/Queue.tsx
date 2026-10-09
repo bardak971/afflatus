@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type QueueStatus } from "../api";
 import { useQueue } from "../data";
@@ -23,7 +24,7 @@ function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: {
           data-tip="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
           onClick={() => free.mutate()}
         >
-          {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : "Unload models (free VRAM)"}
+          {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : "Unload models"}
         </Button>
       )}
       {q && (
@@ -52,7 +53,12 @@ export function Queue() {
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh, onError: failed("Could not cancel it") });
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q), onError: failed("Could not reorder the queue") });
   const [refused, setRefused] = useState(false);
-  const [tab, setTab] = useState<"queue" | "times" | "log">("queue");
+  // a view asked for in the address (the command bar's "Queue › Render times"): opened on it, and again when it changes
+  const asked = new URLSearchParams(useSearch()).get("view");
+  const [tab, setTab] = useState<"queue" | "times" | "log">(asked === "times" || asked === "log" ? asked : "queue");
+  useEffect(() => {
+    if (asked === "times" || asked === "log" || asked === "queue") setTab(asked);
+  }, [asked]);
   const q = queue.data;
   // "Models unloaded" holds until a model is loaded again
   const loaded = q?.model;

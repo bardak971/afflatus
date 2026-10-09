@@ -3,7 +3,12 @@ import { INDEX, TABS, type Tab } from "../screens/settings/settingsIndex";
 import { allowNotifications, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
 import { THEMES } from "../theme/themes";
+import { ask } from "../Confirm";
+import { save as saveRanks } from "./rank";
 import { useBar } from "./store";
+
+/** The names of the dark or the light themes, words a theme choice is found by ("tokyo", "kanagawa"). */
+const themeNames = (light: boolean) => THEMES.filter((t) => Boolean(t.light) === light).map((t) => t.name.toLowerCase()).join(" ");
 
 /**
  * The settings the bar's `/` finds: the switches and choices it flips in place (each read and written the
@@ -26,10 +31,14 @@ export interface SettingEntry {
   about?: string;
   /** Where it is kept. */
   scope?: "this browser" | "Afflatus";
-  kind: "switch" | "choice" | "page";
+  /** A switch or a choice flipped in place; a page opened at its row; an action run (asked first where the page asks). */
+  kind: "switch" | "choice" | "page" | "action";
   get?(ctx: SettingCtx): boolean | string | undefined;
   set?(ctx: SettingCtx, value: boolean | string): void | Promise<void>;
   options?(ctx: SettingCtx): Array<{ value: string; label: string }>;
+  /** An action's run, and what Enter does in a word. */
+  run?(): unknown;
+  verb?: string;
 }
 
 export const pageLabel = (tab: Tab) => TABS.find((t) => t.id === tab)?.label ?? "Settings";
@@ -57,13 +66,13 @@ export const SETTINGS: SettingEntry[] = [
     options: () => [{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }],
   },
   {
-    id: "theme.night", label: "Dark theme", page: "interface", words: "theme palette colours catppuccin rose pine", scope: "this browser", kind: "choice", about: "The theme shown while the dark one is up.",
+    id: "theme.night", label: "Dark theme", page: "interface", words: `theme palette colours ${themeNames(false)}`, scope: "this browser", kind: "choice", about: "The theme shown while the dark one is up.",
     get: () => useThemeChoice.getState().night,
     set: (_c, v) => { const s = useThemeChoice.getState(); s.set({ night: String(v), mode: s.mode === "light" ? "dark" : s.mode }); },
     options: () => THEMES.filter((t) => !t.light).map((t) => ({ value: t.id, label: t.name })),
   },
   {
-    id: "theme.day", label: "Light theme", page: "interface", words: "theme palette colours latte dawn", scope: "this browser", kind: "choice", about: "The theme shown while the light one is up. Pictures and videos stay on a dark stage.",
+    id: "theme.day", label: "Light theme", page: "interface", words: `theme palette colours ${themeNames(true)}`, scope: "this browser", kind: "choice", about: "The theme shown while the light one is up. Pictures and videos stay on a dark stage.",
     get: () => useThemeChoice.getState().day,
     set: (_c, v) => { const s = useThemeChoice.getState(); s.set({ day: String(v), mode: s.mode === "dark" ? "light" : s.mode }); },
     options: () => THEMES.filter((t) => t.light).map((t) => ({ value: t.id, label: t.name })),
@@ -73,16 +82,27 @@ export const SETTINGS: SettingEntry[] = [
   server("tagCheck", "Danbooru tag check", "prompts", "Tags written for an anime model are compared with danbooru's list: another name or a typo is pointed out under the prompt.", "typo tags anime"),
   server("civitaiLookups", "Search Hugging Face and Civitai", "models", "Missing model files, trigger words and model pages may be looked for on Hugging Face and Civitai (file hashes are sent).", "civitai lookups trigger words lora names"),
   server("downloadModels", "Download missing models", "models", "Missing model files may be fetched into ComfyUI, through ComfyUI-Manager.", "download missing files into comfyui manager fetch"),
-  server("updateChecks", "Check once a day", "models", "Once a day, Civitai is asked for newer versions of the models here (with Search Hugging Face and Civitai on; hashes are sent).", "check for newer versions of your models update civitai version"),
+  server("updateChecks", "Check for newer model versions daily", "models", "Once a day, Civitai is asked for newer versions of the models here (with Search Hugging Face and Civitai on; hashes are sent).", "check for newer versions of your models update civitai version"),
   { id: "bar.learn", label: "Learn what I use", page: "bar", words: "command bar ranking recent frequency", scope: "this browser", kind: "switch", about: "What you open often and lately comes first in the bar. Kept in this browser.", get: () => useBar.getState().learn, set: (_c, v) => useBar.getState().setLearn(Boolean(v)) },
   { id: "bar.preview", label: "Preview", page: "bar", words: "preview in the bar command bar shift", scope: "this browser", kind: "switch", about: "The selected result shown beside the list. Shift shows or hides it.", get: () => useBar.getState().preview, set: (_c, v) => useBar.getState().setPreview(Boolean(v)) },
   barPart("snippets", "Prompt snippets", "Type ; and a snippet's name in any prompt box: a space or Tab puts its text there.", "typed by name command bar ; expand kit"),
   barPart("history", "Prompt history", 'Type " in the bar to search every prompt that was rendered, with its render.', "in the bar command bar quote prompts"),
-  barPart("cast", "Cast with @", "Type @ in the bar to add a person of the Prompt kit to the open draft.", "command bar person people kit"),
+  barPart("cast", "Cast with @", "Type @ in the bar to add a person of the Prompt kit to the clip selected in the timeline editor, else to the open draft.", "command bar person people kit clip"),
+  {
+    id: "bar.forget", label: "Forget what I used", page: "bar", words: "command bar recents ranking reset clear start over", scope: "this browser", kind: "action", verb: "forget",
+    about: "Recents and ranking start over. Asked first.",
+    run: async () => {
+      if (await ask({ title: "Forget what you used?", text: "The bar's recents and ranking start over, in this browser.", yes: "Forget" })) saveRanks({});
+    },
+  },
 ];
 
-/** Every other setting of the Settings screen: found, and opened on its page at its row (its id is the index's key: `settingHref`). */
-export const PAGES: SettingEntry[] = INDEX.filter((i) => !SETTINGS.some((s) => s.label.toLowerCase() === i.label.toLowerCase())).map((i) => ({
+/**
+ * Every other setting of the Settings screen: found, and opened on its page at its row (its id is the index's key: `settingHref`).
+ * A row the bar already flips in place is left out, found by its key, by the bar's ids it lists in `also` (the theme row stands for
+ * the three theme choices), or by its name.
+ */
+export const PAGES: SettingEntry[] = INDEX.filter((i) => !SETTINGS.some((s) => s.id === i.key || i.also?.includes(s.id) || s.label.toLowerCase() === i.label.toLowerCase())).map((i) => ({
   id: i.key, label: i.label, page: i.tab, words: i.words, kind: "page" as const,
 }));
 

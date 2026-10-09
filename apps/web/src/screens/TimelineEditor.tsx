@@ -208,10 +208,21 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const request = useTimelineRequest((r) => r.request);
   useEffect(() => {
     if (!request || request.timeline !== id || !t || !shown) return;
+    // Fix all is the overview's, which measures the joins: the clip's panel gives way to it, and it takes the request
+    if (request.do === "fix-all" && clips.length) return setSelected(null);
     const asked = useTimelineRequest.getState().take();
+    if (request.do === "fix-all") {
+      asked?.reply(null);
+      return say({ id: `bar-fix:${Date.now()}`, tone: "good", title: `${t.name}: nothing to fix`, text: "It has no clip yet.", href: `/timelines/${id}`, go: "Open the timeline" });
+    }
     if (request.do === "export") {
       asked?.reply(null);
       return openExport.current?.();
+    }
+    // the Finish dialog, as the Finish button opens it
+    if (request.do === "finish") {
+      asked?.reply(null);
+      return setFin(true);
     }
     // the selected clip split at the playhead, or playing its take before or after: as S and Alt+[ ] do it, said in the note
     if (request.do === "split" || request.do === "take") {

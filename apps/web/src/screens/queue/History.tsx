@@ -227,7 +227,7 @@ function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): vo
   const menu = useMenu<true>();
   const items: MenuItem[] = [
     ...(first ? [{ label: made.length > 1 ? "Open the first result" : "Open the result", icon: <Eye size={14} />, run: () => onOpen(first.id) }] : []),
-    ...(head.draftId ? [{ label: "Open its draft in Studio", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
+    ...(head.draftId ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
     ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
     ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => seedCopy.copy(String(head.seed)) }] : []),
     "—",
@@ -255,7 +255,7 @@ function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): vo
             <button type="button" data-tip={jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue: the same job again"} aria-label="Requeue" disabled={again.isPending} onClick={() => jobs.forEach((j) => again.mutate({ id: j.id }))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
           )}
           {head.draftId && (
-            <button type="button" data-tip="Open its draft in Studio" aria-label="Open the draft" onClick={() => toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>
+            <button type="button" data-tip="Open its draft" aria-label="Open its draft" onClick={() => toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>
           )}
           <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => dismiss.mutate(jobs.map((j) => j.id))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
         </span>

@@ -1,4 +1,4 @@
-/** The command bar: everything it can find, a render estimate, and the prompts that were rendered (docs/command-bar.md). */
+/** The command bar: everything it can find (the library, timelines, drafts, projects, folders, workflows, the Prompt kit), a render estimate, and the prompts that were rendered (docs/command-bar.md). */
 
 /**
  * One thing the bar can find. `project`: its project's id (resolved through the project entries); null = the Inbox.
@@ -11,7 +11,11 @@ export type CommandEntry =
   | { kind: "asset"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; assetKind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; bytes: number; hasThumb: boolean }
   | { kind: "project"; id: string; label: string; updatedAt: string; archived: boolean; timelines: number; items: number; bytes: number }
   /** A project's root folder is not one: its project stands for it. `parent`: null at the top (or under the root). `items`: its own, not its sub-folders'. */
-  | { kind: "folder"; id: string; label: string; project: string | null; parent: string | null; updatedAt: string; items: number; linked: boolean };
+  | { kind: "folder"; id: string; label: string; project: string | null; parent: string | null; updatedAt: string; items: number; linked: boolean }
+  /** An imported ComfyUI workflow. `problem`: it cannot be built as it is mapped (still listed, to be mended or removed). */
+  | { kind: "workflow"; id: string; label: string; updatedAt: string; output: "image" | "video" | "audio"; problem: boolean }
+  /** An entry of the Prompt kit. `shipped`: a preset that ships with Afflatus (applied or copied, never changed). */
+  | { kind: "kit"; id: string; label: string; updatedAt: string; entity: "person" | "place" | "style" | "preset" | "snippet"; shipped: boolean };
 
 export interface CommandIndex {
   entries: CommandEntry[];
