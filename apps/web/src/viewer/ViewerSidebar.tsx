@@ -1,21 +1,24 @@
 import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowBigUp, ArrowRightFromLine, AudioLines, ChevronDown, Clapperboard, Columns2, Copy, Download, Film, FlipHorizontal2, FlipVertical2, FolderPlus, ImageDown, Info, Mic, Plus, Scissors, Shuffle, SlidersHorizontal, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
-import { isShown, RANDOM_SEED, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { ChevronDown, Copy, Film, Music, Plus, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
+import { isShown, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
-import { useAssetAction, useEntities, useFamilies, useFolders, useRecipes, useSetup, useTimelines, type useAsset } from "../data";
+import { ContextMenu, useMenu } from "../ContextMenu";
+import { useEntities, useFamilies, useRecipes, useSetup, useTimelines, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
+import { groupTitle, keysShown, sideGroups, type ActionId, type ItemAction } from "../itemActions";
 import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
 import { clock, fileLabel, notReady, recipeLabel, took, when } from "../format";
 import { Select } from "../Select";
-import { Button, cx, fieldClass, Help, SectionTitle } from "../ui";
-import { binRange, leftOf } from "../screens/library/justify";
+import { Button, cx, Help, SectionTitle } from "../ui";
+import { leftOf } from "../screens/library/justify";
+import { leftWords } from "../screens/studio/expiring";
 import { FieldRow } from "../fields";
 import { ModelLink } from "../ModelLink";
-import { FORMATS, mb, OPS } from "./shared";
+import { FORMATS, mb } from "./shared";
 import { SeedButton } from "./SeedButton";
 import { ViewerHeader } from "./ViewerHeader";
 import type { ViewerActions } from "./useViewerActions";
@@ -106,7 +109,7 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
   );
 }
 
-/** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). */
+/** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). A long label wraps to a second line rather than being cut ("Reuse · new seed", "Remove background"). */
 function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
   return (
     <button
@@ -116,13 +119,13 @@ function Act({ icon: Icon, label, k, pressed, onClick, disabled, title, wide }: 
       data-tip={title}
       aria-pressed={pressed}
       className={cx(
-        "flex h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-2.5 text-left text-[13px] font-semibold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
+        "flex min-h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-2.5 py-1 text-left text-[13px] font-semibold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
         pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
         wide && "col-span-2",
       )}
     >
       {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", pressed ? "text-accent" : "text-ink-2")} />}
-      <span className="min-w-0 grow truncate">{label}</span>
+      <span className="line-clamp-2 min-w-0 grow leading-tight">{label}</span>
       {k && <span className="shrink-0 whitespace-nowrap"><Kbd>{k}</Kbd></span>}
     </button>
   );
@@ -265,60 +268,6 @@ function Strip({ items, onOpen }: { items: Array<{ asset: Asset; name?: string; 
   );
 }
 
-/** Where the item is filed, with a way to make the folder on the spot. */
-function FolderPicker({ asset }: { asset: Asset }) {
-  const folders = useFolders();
-  const [name, setName] = useState("");
-  const move = useAssetAction((folder: string | null) => api.moveAssets([asset.id], folder));
-  const create = useMutation({
-    mutationFn: async (folderName: string) => {
-      const folder = await api.createFolder(folderName, null);
-      await api.moveAssets([asset.id], folder.id);
-    },
-    // the library refreshes on the server's own word (its `library` event)
-  });
-  // a folder inside another shows where it is
-  const all = folders.data?.items ?? [];
-  const pathOf = (id: string | null): string => {
-    const f = all.find((x) => x.id === id);
-    return f ? [pathOf(f.parentId), f.name].filter(Boolean).join(" / ") : "";
-  };
-  return (
-    <FieldRow label="Folder" note="Where it is filed. Moving it out of the Inbox into a folder keeps it: it no longer goes to the bin after a day.">
-      <Select
-        label="Folder"
-        value={asset.folderId ?? ""}
-        onChange={(id) => move.mutate(id || null)}
-        options={[{ value: "", label: "Inbox", note: "no folder" }, ...all.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
-        footer={(close) => (
-          <form
-            className="flex items-center gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!name.trim()) return;
-              create.mutate(name.trim());
-              setName("");
-              close();
-            }}
-          >
-            <FolderPlus size={14} className="ml-1.5 shrink-0 text-ink-2" />
-            <input
-              aria-label="New folder name"
-              placeholder="New folder name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
-              className={cx(fieldClass, "h-8 min-w-0 grow px-2")}
-            />
-            <Button size="sm" tone="quiet" type="submit" disabled={!name.trim()}>Create and move</Button>
-          </form>
-        )}
-      />
-      {(move.isError || create.isError) && <span className="text-warn-ink">{(move.error ?? create.error)?.message}</span>}
-    </FieldRow>
-  );
-}
-
 /** Put a video or a picture at the end of a timeline, an existing one or a new one, and go there. */
 function TimelinePicker({ asset }: { asset: Asset }) {
   const timelines = useTimelines();
@@ -394,60 +343,73 @@ function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
   );
 }
 
+
 /**
- * What can be done to a picture: every way of making things that takes one picture and gives a picture
- * back (redraw it, paint over a part, enlarge it, fix a face, another shape, no background…), the
- * built-in ones and the imported workflows alike. Picking one opens a new draft with the picture in place.
+ * The passes the buttons above do not reach: every other way of making a picture from one picture (another model's
+ * Inpaint, an imported workflow), the built-in ones and the imported workflows alike. Picking one opens a new draft
+ * with the picture in place. Nothing here when the buttons hold them all.
  */
-function ChangePicker({ madeWith, keys, start }: {
+function MorePasses({ madeWith, shown, start }: {
   /** What the picture was made with: that model's own tools are listed first, and stand out. */
   madeWith?: RecipeInfo;
-  /** The key that opens a tool, by the tool's id. */
-  keys: Record<string, string>;
-  start: { mutate(id: string): void; isPending: boolean; isError: boolean; error: Error | null };
+  /** The recipes the pass buttons use: not listed again. */
+  shown: Set<string>;
+  start: { mutate(id: string): void; isPending: boolean };
 }) {
   const recipes = useRecipes();
   const setup = useSetup();
   const on = useFamilies().isOn;
   const pictures = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "image");
-  const all = pictures.filter((r) => r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
+  const all = pictures.filter((r) => !shown.has(r.id) && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
   if (!all.length) return null;
   const online = setup.data?.comfy.online ?? false;
   const mine = madeWith ? modelGroups(pictures, recipes.data?.families ?? []).find((group) => group.recipes.some((r) => r.id === madeWith.id)) : undefined;
   const own = new Set(all.filter((r) => mine?.recipes.includes(r)).map((r) => r.id));
   const ways = [...all.filter((r) => own.has(r.id)), ...all.filter((r) => !own.has(r.id))];
   return (
-    <div className="flex flex-col gap-1.5">
-      <Select
-        dashed
-        icon={<Wand2 size={15} className="shrink-0" />}
-        label="Image tools"
-        placeholder={start.isPending ? "Opening…" : "Image tools"}
-        searchHint="Search tools or models"
-        value=""
-        onChange={(id) => start.mutate(id)}
-        options={ways.map((r) => {
-          const family = recipes.data?.families.find((f) => f.id === r.family);
-          const why = setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), online) : null;
-          const note = [keys[r.id] ? `key ${keys[r.id]!.toUpperCase()}` : "", why ? "not ready" : ""].filter(Boolean).join(" · ") || undefined;
-          if (own.has(r.id)) return { value: r.id, label: r.title, note, detail: r.summary, group: `${mine!.name} · source model`, search: `${family?.name ?? ""} ${mine!.name}`, marked: true };
-          return { value: r.id, label: r.title, note, detail: r.summary, group: family?.name ?? "Your workflows", search: family?.name };
-        })}
-      />
-      {start.isError && <span className="text-warn-ink">{start.error?.message}</span>}
-    </div>
+    <Select
+      dashed
+      icon={<Wand2 size={15} className="shrink-0" />}
+      label="More passes"
+      placeholder={start.isPending ? "Opening…" : `More passes · ${ways.length}`}
+      searchHint="Search passes or models"
+      value=""
+      onChange={(id) => start.mutate(id)}
+      options={ways.map((r) => {
+        const family = recipes.data?.families.find((f) => f.id === r.family);
+        const why = setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), online) : null;
+        const note = why ? "not ready" : undefined;
+        if (own.has(r.id)) return { value: r.id, label: r.title, note, detail: r.summary, group: `${mine!.name} · source model`, search: `${family?.name ?? ""} ${mine!.name}`, marked: true };
+        return { value: r.id, label: r.title, note, detail: r.summary, group: family?.name ?? "Your workflows", search: family?.name };
+      })}
+    />
+  );
+}
+
+/** A sound as a timeline's music: the list's Timeline submenu, from a button. */
+function MusicPicker({ action }: { action: ItemAction | undefined }) {
+  const menu = useMenu<true>();
+  if (!action) return null;
+  return (
+    <FieldRow label="Timeline">
+      <Button size="sm" className="justify-start" disabled={action.disabled} data-tip={action.disabled && action.note ? `Timeline: ${action.note}` : "As the music of a timeline"} onClick={(e) => menu.open(e, true)}>
+        <Music size={14} /> As music of… <ChevronDown size={13} />
+      </Button>
+      {menu.menu && action.items && <ContextMenu at={menu.menu.at} label="As the music of a timeline" items={action.items} onClose={menu.close} />}
+    </FieldRow>
   );
 }
 
 /**
- * Everything about the item, beside it: what it is, what can be done with it, how it was made, where it
- * came from and what it was used in, the tools for a picture, where to put it, and the file's details.
+ * Everything about the item, beside it: what it is and where it is filed, whether it is kept, the item's list as
+ * buttons in its groups (Make from it, Passes, the tools, Look), how it was made, where it came from and what it was
+ * used in, where to put it, and the file's details. Each action shows once: Keep in the line under the name, the seed
+ * in its cell, the folder in its chip, the name renamed in place.
  */
-export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, items, trim, onTrim: setTrim, onInfo: setInfo, naming, onNaming, onClose, comparing, onCompare }: {
-  /** Compare: the one on screen is pinned and the arrow keys move the other; present when there is a list to move through. */
-  comparing?: boolean;
-  onCompare?(): void;
+export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTrail, items, naming, onNaming, onClose }: {
   acts: ViewerActions;
+  /** The item's list (itemActions.tsx), as the viewer does it. */
+  list: ItemAction[];
   /** The item as it was listed (see ViewerHeader). */
   asset: Asset;
   detail: ReturnType<typeof useAsset>;
@@ -456,16 +418,12 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
   onTrail(trail: Asset[]): void;
   /** The list it was opened from, for "n of m". */
   items?: Asset[];
-  trim: boolean;
-  onTrim(trim: boolean): void;
-  /** The embedded generation parameters, read from the file. */
-  onInfo(open: true): void;
   /** The name is being edited in place (F2, or a click on it). */
   naming: boolean;
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, recipe, recipes, keep, restore, leave, reuse, carrier, fromLastFrame, carryOn, opener, openerName, animate, follower, follow, saveFrame, takeSound, frameAt, cutRange, mirror, between, extendHere, toolFor, openTool, queued, quick, toBin, download } = acts;
+  const { a, g, recipe, recipes, leave, reuse, saveFrame, takeSound, animate, carryOn, cutRange, between, extendHere, frameAt, mirror, follow, toolFor, openTool } = acts;
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "edited" ? "Edited copy" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
@@ -478,47 +436,53 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
     if (crumb) setCrumbs((c) => ({ ...c, [next.id]: crumb }));
     setTrail([...trail, next]);
   };
+  const byId = (id: ActionId) => list.find((x) => x.id === id);
+  const keep = byId("keep");
+  const bin = byId("bin");
+  const passTools = new Set((["u", "f", "b", "i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [toolFor(k)!.id] : [])));
+  const failed = reuse.error ?? saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error ?? mirror.error ?? follow.error ?? openTool.error;
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
       <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} crumbs={crumbs} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />
       <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-5 py-3.5">
+        {/* whether it stays: one line, always there (no jump when it is kept), with the one Keep of the side */}
         {a.inBin ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2.5 text-warn-ink">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2 text-warn-ink">
             <span>In the bin.</span>
-            <Button size="sm" tone="danger" onClick={() => restore.mutate(undefined)}><Undo2 size={14} /> Put back</Button>
+            <Button size="sm" tone="danger" disabled={bin?.disabled} onClick={() => bin?.run?.()}><Undo2 size={14} /> Put back</Button>
+          </div>
+        ) : a.kept ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-raised px-3 py-2 text-ink-2">
+            <span className="flex items-center gap-1.5"><Star size={13} fill="currentColor" className="text-accent" /> Kept</span>
+            <Button size="sm" tone="quiet" data-tip={keep?.tip} onClick={() => keep?.run?.()}>Unkeep <Kbd>S</Kbd></Button>
           </div>
         ) : (
-          !a.kept && (
-            <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2.5 text-warn-ink">
-              <span className="flex items-center gap-1.5">
-                Not kept · bin in {binRange([leftOf(a)])}
-                <Help text="What nobody kept goes to the bin a day after it was made (or unkept). Keep holds it until you bin it." />
-              </span>
-              <Button size="sm" tone="danger" onClick={() => keep.mutate(true)}>Keep</Button>
-            </div>
-          )
+          // expiring is the normal life of a render, not a fault: the warn look only in its last hour, as the status bar's chip
+          <div className={cx("flex items-center justify-between gap-3 rounded-xl px-3 py-2", leftOf(a) < 3_600_000 ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+            <span className="flex items-center gap-1.5">
+              Expires in {leftWords(leftOf(a))}
+              <Help text="Renders nobody kept go to the bin by themselves a day after they were made (or unkept). Keep holds one until you bin it." />
+            </span>
+            <Button size="sm" tone="danger" onClick={() => keep?.run?.()}><Star size={13} /> Keep <Kbd>S</Kbd></Button>
+          </div>
         )}
 
-        {/* what to do with it: two columns, the item's own kind of things first. In the bin the keys of the reuses are off (only D works there), so their keys are not shown */}
-        <div className="grid grid-cols-2 gap-2">
-          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · same seed" k={a.inBin ? undefined : "L"} onClick={() => reuse.sameSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and the same seed, as a new draft." />}
-          {g && recipe && <Act icon={SlidersHorizontal} label="Reuse · new seed" k={a.inBin ? undefined : <span className="inline-flex items-center"><ArrowBigUp size={10} aria-label="Shift" />L</span>} onClick={() => reuse.newSeed(g)} disabled={reuse.isPending} title="Open the form with the same generation parameters and a new seed, as a new draft (Shift+L)." />}
-          {g && recipe && <Act icon={Shuffle} label="Variation" k={a.inBin ? undefined : "V"} onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })} disabled={queued.isPending} title="Same parameters, new seed: queued at once." />}
-          {a.kind === "image" && !a.inBin && opener && <Act wide icon={Clapperboard} label="Image to video (i2v)" k="M" onClick={() => animate.mutate()} disabled={animate.isPending} title={`A new video with this image as the first frame, on ${openerName} (the video model used last).`} />}
-          {a.kind === "video" && !a.inBin && carrier && <Act icon={ArrowRightFromLine} label="Extend" k="C" onClick={() => carryOn.mutate()} disabled={carryOn.isPending} title={fromLastFrame ? "A new clip whose first frame is the last frame of this one, same model and parameters. The frame is saved as an image in your library." : "A new clip that carries on from the end of this one (previous clip). You can pick the frame it starts from."} />}
-          {a.kind === "video" && !a.inBin && <Act icon={Scissors} label="Trim" k="T" pressed={trim} onClick={() => setTrim(!trim)} title="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." />}
-          {a.kind === "video" && !a.inBin && <Act icon={ImageDown} label={saveFrame.isPending ? "Saving…" : "Save frame"} k="G" onClick={() => saveFrame.mutate()} disabled={saveFrame.isPending} title="Pause the video on the frame you want, then save it as an image in your library." />}
-          {a.kind === "video" && !a.inBin && a.hasSound && <Act icon={AudioLines} label={takeSound.isPending ? "Extracting…" : "Extract audio"} onClick={() => takeSound.mutate()} disabled={takeSound.isPending} title="Its audio track as an audio file of its own in your library: for another clip, or as music." />}
-          {a.kind === "audio" && !a.inBin && follower && <Act wide icon={Mic} label="Use as voice sample" onClick={() => follow.mutate()} disabled={follow.isPending} title="A new video in which the person speaks with this voice sample." />}
-          {a.kind !== "audio" && !a.inBin && !g && <Act icon={Info} label="PNG info" k="P" onClick={() => setInfo(true)} title="The generation parameters embedded in the file: prompt, checkpoint, LoRAs and sampling settings, whether your ComfyUI has them, and sending them to a form." />}
-          {onCompare && a.kind !== "audio" && <Act icon={Columns2} label="Compare" k="X" pressed={comparing} onClick={onCompare} title="Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe" />}
-          {!a.inBin && <Act icon={Star} label={a.kept ? "Kept" : "Keep"} k="S" pressed={a.kept} onClick={() => keep.mutate(!a.kept)} title={a.kept ? "Kept: it stays. Click to let it go to the bin after a day again." : "Keep it: it never goes to the bin on its own."} />}
-          <Act icon={Download} label="Download" k="D" onClick={download} title="Download the file" />
-        </div>
-        {(reuse.error || saveFrame.isError || takeSound.isError || animate.isError || carryOn.isError || cutRange.isError || between.isError || extendHere.isError || frameAt.isError) && <span className="-mt-3 text-warn-ink">{(reuse.error ?? saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? frameAt.error)?.message}</span>}
+        {/* the item's list as buttons, in its groups: every pass with its key, nothing behind a menu */}
+        {sideGroups(list).map(({ group, actions }) => (
+          <div key={group} className="flex flex-col gap-1.5">
+            <SectionTitle>{groupTitle(group, a.kind)}</SectionTitle>
+            <div className="grid grid-cols-2 gap-1.5">
+              {actions.map((x) => (
+                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={() => x.run?.()} />
+              ))}
+            </div>
+            {group === "passes" && !a.inBin && <MorePasses madeWith={recipe} shown={passTools} start={openTool} />}
+          </div>
+        ))}
+        {failed && <span className="-mt-2 text-warn-ink">{failed.message}</span>}
 
         {g && (
-          <div className="flex flex-col gap-3">
+          <div data-viewer-params className="flex scroll-mt-3 flex-col gap-3">
             <Made g={g} recipe={recipe} asset={a} />
           </div>
         )}
@@ -547,28 +511,12 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
           </div>
         )}
 
-        {!a.inBin && a.kind === "image" && (
-          <div className="flex flex-col gap-2">
-            <SectionTitle>Image tools</SectionTitle>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-                <Act key={k} icon={Wand2} label={OPS[k]!.label} k={k.toUpperCase()} disabled={queued.isPending} title={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)} />
-              ))}
-              <Act icon={FlipHorizontal2} label="Mirror ↔" disabled={mirror.isPending} title="A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU. For a keyframe that faces the wrong way for the clip before." onClick={() => mirror.mutate("horizontal")} />
-              <Act icon={FlipVertical2} label="Mirror ↕" disabled={mirror.isPending} title="A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." onClick={() => mirror.mutate("vertical")} />
-            </div>
-            {mirror.isError && <span className="text-warn-ink">{mirror.error.message}</span>}
-            <ChangePicker madeWith={recipe} keys={Object.fromEntries((["i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [[toolFor(k)!.id, k]] : [])))} start={openTool} />
-          </div>
-        )}
-
         {!a.inBin && (
           <div className="flex flex-col gap-2">
             <SectionTitle>Put it in</SectionTitle>
-            {/* one row each, the name left and one control right, as in the forms */}
-            {a.kind !== "audio" && <TimelinePicker asset={a} />}
+            {/* one row each, the name left and one control right, as in the forms; the folder is the chip at the top */}
+            {a.kind === "audio" ? <MusicPicker action={byId("timeline")} /> : <TimelinePicker asset={a} />}
             {a.kind === "image" && <ReferencePicker asset={a} onDone={leave} />}
-            <FolderPicker asset={a} />
           </div>
         )}
 
@@ -588,9 +536,9 @@ export function ViewerSidebar({ acts, asset, detail, trail, onTrail: setTrail, i
           </dl>
         </details>
 
-        {!a.inBin && (
-          <button type="button" onClick={() => void toBin()} className="flex h-9 items-center justify-center gap-2 self-start rounded-lg px-3 text-ink-2 hover:bg-warn-wash hover:text-warn-ink">
-            <Trash2 size={14} /> Move to the bin <Kbd>Del</Kbd>
+        {!a.inBin && bin && (
+          <button type="button" onClick={() => bin.run?.()} className="flex h-9 items-center justify-center gap-2 self-start rounded-lg px-3 text-ink-2 hover:bg-warn-wash hover:text-warn-ink">
+            <Trash2 size={14} /> {bin.label} <Kbd>Del</Kbd>
           </button>
         )}
       </div>

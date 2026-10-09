@@ -1,11 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock } from "lucide-react";
-import { api, type Asset } from "../../api";
-import { useProject } from "../../project";
-import { ask } from "../../Confirm";
-import { Button, cx, ErrorNote, Toggle } from "../../ui";
-import { binRange, justify, leftOf } from "../library/justify";
+import { cx } from "../../ui";
+import { justify } from "../library/justify";
 
 /** The height a row aims for, by the display's size; the gap between tiles. */
 export const ROW_HEIGHT = { S: 140, M: 210, L: 310 } as const;
@@ -64,79 +59,6 @@ export function JustifiedRows({ places, rowHeight, className, under = 0 }: {
         const at = laid.at[i];
         return at ? <div key={p.key} className="absolute" style={at}>{p.render()}</div> : null;
       })}
-    </div>
-  );
-}
-
-/** Beyond this many, Keep all asks first. */
-const ASK_OVER = 20;
-
-/**
- * The items of the view that nobody kept, said once above the grid rather than on every tile: how many,
- * when they go to the bin, Keep all (those shown), and Show only these. Each tile has only a small clock.
- */
-export function NotKeptLine({ items, filter, whole, only, onOnly }: {
-  /** What the grid shows now (the pages read). */
-  items: Asset[];
-  /** The view's filter, and whether the grid has pages it has not read: then the items not kept are asked for across the whole view. */
-  filter: Parameters<typeof api.assets>[0];
-  whole: boolean;
-  /** Only the items not kept are shown (the filter this line turns on). */
-  only: boolean;
-  onOnly(on: boolean): void;
-}) {
-  const project = useProject((s) => s.id);
-  const view = { ...filter, kept: undefined, unkept: true, after: undefined, before: undefined };
-  // across the whole view, summed up by the server (how many, when they go); under the "assets" key: a "library"
-  // event reads it again, as it reads the grid
-  const all = useQuery({
-    queryKey: ["assets", "unkept", project, filter],
-    queryFn: ({ signal }) => api.unkept(view, false, { signal }),
-    enabled: whole && !filter.kept,
-  });
-  const shown = items.filter((a) => !a.kept && !a.inBin);
-  const summed = whole && all.data ? all.data : null;
-  const count = summed ? summed.count : shown.length;
-  const client = useQueryClient();
-  const keep = useMutation({
-    // the ids across the view asked for only now; a few hundred at a time, as the server takes them
-    mutationFn: async (across: boolean) => {
-      const ids = across ? (await api.unkept(view, true)).ids ?? [] : shown.map((a) => a.id);
-      for (let i = 0; i < ids.length; i += 500) await api.bulkAssets(ids.slice(i, i + 500), "keep");
-    },
-    onSuccess: () => {
-      // nothing is left to show only: the whole view comes back
-      onOnly(false);
-      return client.invalidateQueries({ queryKey: ["assets"] });
-    },
-  });
-  if (!count && !only) return null;
-  const keepAll = async () => {
-    if (count > ASK_OVER && !(await ask({ title: `Keep all ${count}?`, text: `The ${count} items not kept in this view stay until you bin them. Unkeep any of them later to put it back on its day.`, yes: `Keep ${count}` }))) return;
-    keep.mutate(Boolean(summed));
-  };
-  const range = summed
-    ? binRange([summed.from, summed.to].flatMap((at) => (at ? [leftOf({ countdownFrom: null, createdAt: at })] : [])))
-    : binRange(shown.map((a) => leftOf(a)));
-  return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-panel px-3.5 py-2 text-sm">
-      <Clock size={15} className="shrink-0 text-warn" aria-hidden />
-      {count ? (
-        <span>
-          <span className="font-bold">{count} not kept</span>
-          <span className="text-ink-2"> · bin in {range}</span>
-        </span>
-      ) : (
-        <span className="text-ink-2">Nothing here is waiting to go to the bin.</span>
-      )}
-      <span className="grow" />
-      {keep.isError && <ErrorNote>{keep.error.message}</ErrorNote>}
-      {count > 0 && (
-        <Button size="sm" tone="primary" disabled={keep.isPending} onClick={() => void keepAll()} data-tip="Keep every item of this view that is not kept: they stay until you bin them">
-          {keep.isPending ? "Keeping…" : "Keep all"}
-        </Button>
-      )}
-      <Toggle on={only} onChange={onOnly} label="Only these" />
     </div>
   );
 }

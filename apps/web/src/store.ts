@@ -114,7 +114,25 @@ export const usePanelWidth = create<{ width: number; set(width: number): void }>
   persist((set) => ({ width: PANEL.usual, set: (width) => set({ width: Math.max(PANEL.least, Math.min(PANEL.most, Math.round(width))) }) }), { name: "afflatus.panel-width" }),
 );
 
-/** Where the library's grid is looking: everything, what is in no folder, one folder, or the bin. */
+/**
+ * The timeline editor's right column (the Overview, a clip's inspector, the music): its own width, which can go
+ * narrower than the form's panel so that a 1280 px screen keeps its stage, and folded to a strip by hand only (never
+ * by itself: the clip is watched while its form is worked). Both remembered.
+ */
+export const EDITOR_COLUMN = { least: 320, most: 720, usual: 380 };
+export const useEditorColumn = create<{ width: number; folded: boolean; set(width: number): void; fold(folded: boolean): void }>()(
+  persist(
+    (set) => ({
+      width: EDITOR_COLUMN.usual,
+      folded: false,
+      set: (width) => set({ width: Math.max(EDITOR_COLUMN.least, Math.min(EDITOR_COLUMN.most, Math.round(width))) }),
+      fold: (folded) => set({ folded }),
+    }),
+    { name: "afflatus.editor-column" },
+  ),
+);
+
+/** Where the library's grid is looking, inside the project worked in: the whole of it ("all"), what is in no folder (the Inbox's loose items), one folder, or the bin (every project's). */
 export type Place = { type: "all" } | { type: "unfiled" } | { type: "folder"; id: string } | { type: "bin" };
 
 /**

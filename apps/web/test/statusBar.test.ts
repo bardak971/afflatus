@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { splitLabel } from "../src/StatusBar";
+import { expiringSaid } from "../src/screens/studio/expiring";
 
 describe("the status bar's job label", () => {
   it("splits a clip render into what it is and the timeline it is of", () => {
@@ -9,5 +10,16 @@ describe("the status bar's job label", () => {
   it("keeps any other label whole", () => {
     expect(splitLabel({ label: "Big Air · clip 2", clipId: null })).toEqual({ what: "Big Air · clip 2", of: null });
     expect(splitLabel({ label: "Krea · portrait", clipId: "c" })).toEqual({ what: "Krea · portrait", of: null });
+  });
+});
+
+describe("the status bar's expiring chip", () => {
+  const now = Date.parse("2026-10-09T12:00:00Z");
+  it("says when the next and the last go to the bin, a day after their countdown started", () => {
+    expect(expiringSaid({ from: "2026-10-08T15:00:00Z", to: "2026-10-08T17:30:00Z" }, now)).toEqual({ next: "3 h", last: "6 h", soon: false });
+  });
+  it("turns to the warning within the hour, and says nothing when there is nothing", () => {
+    expect(expiringSaid({ from: "2026-10-08T12:40:00Z", to: "2026-10-08T12:40:00Z" }, now)).toEqual({ next: "40 min", last: "40 min", soon: true });
+    expect(expiringSaid({ from: null, to: null }, now)).toBeNull();
   });
 });

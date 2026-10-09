@@ -181,6 +181,14 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     setStretch(null);
   };
 
+  // the whole timeline is in view because it was fitted (on arriving, Fit all, a clip added), not zoomed by hand since:
+  // then a change of the track's width (the window, the column dragged or folded) fits it again
+  const whole = useRef(false);
+  /** A zoom asked by hand: what it shows is the person's from then on, kept through a change of width. */
+  const zoomTo = (next: number) => {
+    whole.current = false;
+    onZoom(next);
+  };
   // Ctrl + wheel zooms around the pointer; a plain wheel scrolls the track sideways (a mouse has no sideways wheel)
   const ppsNow = useRef(pps);
   ppsNow.current = pps;
@@ -194,6 +202,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         const px = e.clientX - rect.left;
         const ms = ((px + el.scrollLeft - PAD) / ppsNow.current) * 1000;
         const next = Math.max(ZOOM.least, Math.min(ZOOM.most, ppsNow.current * Math.exp(-e.deltaY * 0.0015)));
+        whole.current = false;
         onZoom(next);
         // the moment under the pointer stays under it
         requestAnimationFrame(() => { el.scrollLeft = Math.max(0, PAD + (ms / 1000) * next - px); });
@@ -208,13 +217,16 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
 
   const fitAll = () => {
     const room = (scroller.current?.clientWidth ?? 800) - NEW_CLIP - PAD * 3 - 40;
-    if (totalMs > 0) onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (totalMs / 1000))));
+    if (totalMs <= 0) return;
+    whole.current = true;
+    onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (totalMs / 1000))));
   };
   /** One zoom step out (-1) or in (1) around the playhead: it stays where it is on screen (brought to the middle when it was out of view). */
   const zoomAtHead = (by: -1 | 1) => {
     const el = scroller.current;
     const next = Math.max(ZOOM.least, Math.min(ZOOM.most, by > 0 ? pps * ZOOM.step : pps / ZOOM.step));
     if (!el || next === pps) return;
+    whole.current = false;
     const layoutMs = cursorMs !== null ? Math.min(cursorMs, totalMs) : placeOf(slots, clock.get())?.layoutMs ?? 0;
     const shown = PAD + (layoutMs / 1000) * pps - el.scrollLeft;
     const px = shown >= 0 && shown <= el.clientWidth ? shown : el.clientWidth / 2;
@@ -237,7 +249,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   }, [timeline.id, totalMs]);
   // a clip added (New clip, a drop, a continuation): the whole timeline in view again, the new clip with it
   // (kept asked for until it has run: the new clip's length may settle a render later)
-  // the new clip's panel opens beside the track as it is added and narrows it: a fit just made is made again for the new width
+  // the new clip's panel opens beside the track as it is added and narrows it: a fit just made is made again for the new
+  // width; and a track showing the whole timeline keeps showing all of it at any width (useRef `whole`)
   const fittedAt = useRef(0);
   useEffect(() => {
     const el = scroller.current;
@@ -246,7 +259,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     const seen = new ResizeObserver(() => {
       if (el.clientWidth === width) return;
       width = el.clientWidth;
-      if (performance.now() - fittedAt.current < 1500) fitAll();
+      if (whole.current || performance.now() - fittedAt.current < 1500) fitAll();
     });
     seen.observe(el);
     return () => seen.disconnect();
@@ -380,8 +393,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         ) : (
           <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
         )}
-        <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => onZoom(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
-        <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => onZoom(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
+        <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => zoomTo(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
+        <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => zoomTo(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
         <button type="button" data-tip="The whole video in view" data-tip-keys="Shift+Z" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
       </div>
     </div>

@@ -30,7 +30,7 @@ const castOf = (d: AssetDetail | undefined): Look | null => (d?.id && d.look && 
  * on from it or starts at one of its moments, a video of a picture, a tool's form with the picture in place,
  * a model that follows a person or a voice. `leave` is called before the form opens.
  */
-export function useNewDraftActions({ asset, detail, leave }: { asset: Asset; detail: ReturnType<typeof useAsset>; leave(): void }) {
+export function useNewDraftActions({ asset, detail, leave, enabled = true }: { asset: Asset; detail: ReturnType<typeof useAsset>; leave(): void; /** Off while a menu that uses it is closed: the drafts are not read for nothing. */ enabled?: boolean }) {
   const recipes = useRecipes();
   const setup = useSetup();
   const openNew = useOpenNewDraft();
@@ -68,7 +68,7 @@ export function useNewDraftActions({ asset, detail, leave }: { asset: Asset; det
 
   // a picture as the first frame of a new video: a draft on the video model used last among those that can
   // open on a picture (the form can still be put on another one: the picture goes along)
-  const drafts = useDrafts();
+  const drafts = useDrafts(enabled);
   const opener = usedLast(
     (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start")),
     drafts.data?.items,
@@ -111,12 +111,13 @@ export function useNewDraftActions({ asset, detail, leave }: { asset: Asset; det
     },
     onSuccess: toForm,
   });
-  // a picture of someone, or a voice, straight into a new draft of a model that follows them
-  const follower = recipes.data?.recipes.find((r) => on(r.family) && r.inputs.some((i) => (asset.kind === "audio" ? i.type === "audio" && i.role === "voice" : i.type === "references")));
+  // a picture of someone, or a voice (a sound, or a video's sound), straight into a new draft of a model that follows them
+  const voiced = asset.kind !== "image";
+  const follower = recipes.data?.recipes.find((r) => on(r.family) && r.inputs.some((i) => (voiced ? i.type === "audio" && i.role === "voice" : i.type === "references")));
   const follow = useMutation({
     mutationFn: () => {
-      const slot = follower!.inputs.find((i) => (asset.kind === "audio" ? i.type === "audio" : i.type === "references"))!;
-      return api.createDraft({ recipe: follower!.id, forms: { [follower!.id]: { [slot.id]: asset.kind === "audio" ? asset.id : [{ asset: asset.id, role: "person" }] } } });
+      const slot = follower!.inputs.find((i) => (voiced ? i.type === "audio" && i.role === "voice" : i.type === "references"))!;
+      return api.createDraft({ recipe: follower!.id, forms: { [follower!.id]: { [slot.id]: voiced ? asset.id : [{ asset: asset.id, role: "person" }] } } });
     },
     onSuccess: toForm,
   });

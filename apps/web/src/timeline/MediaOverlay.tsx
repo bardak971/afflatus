@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Folder as FolderIcon, PanelLeftClose, PanelLeftOpen, Search, Star, Trash2, X } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search, Star, X } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Asset, Timeline } from "../api";
-import { useAssets, useFolders, useProjects } from "../data";
+import { useAssets } from "../data";
 import { clock } from "../format";
 import { useSettled } from "../hooks";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { LoadMore } from "../LoadMore";
-import { Popover } from "../Popover";
-import { useProject } from "../project";
 import { FolderPanel, Tile } from "../screens/Library";
+import { PlaceCrumbs } from "../screens/library/FolderPanel";
 import { aspectOf } from "../screens/library/justify";
 import { JustifiedRows, type Placed } from "../screens/studio/MediaGrid";
 import { useStudio } from "../store";
@@ -67,21 +66,13 @@ export function MediaOverlay({ timeline, placeItems }: {
   const [kind, setKind] = useState<Kind>("all");
   const [typed, setTyped] = useState("");
   const q = useSettled(typed.trim());
-  const folderButton = useRef<HTMLButtonElement>(null);
+  const folderButton = useRef<HTMLDivElement>(null);
   // its bar stays on one line, as the Studio's: 1 the kinds fold into a menu, 2 the scopes too
   const bar = useRef<HTMLDivElement>(null);
   const fold = useFit(bar, 2);
   const [folders, setFolders] = useState(false);
   // the item open large: the shelf's own viewer, so that ← → go through what the shelf shows
   const [viewing, setViewing] = useState<Asset | null>(null);
-
-  // the place, named as the Studio names it
-  const projectId = useProject((s) => s.id);
-  const folderList = useFolders();
-  const projects = useProjects();
-  const rootId = projectId && projectId !== "none" ? projects.data?.items.find((p) => p.id === projectId)?.folderId ?? null : null;
-  const folder = place.type === "folder" ? folderList.data?.items.find((f) => f.id === place.id) : rootId ? folderList.data?.items.find((f) => f.id === rootId) : undefined;
-  const placeName = place.type === "bin" ? "Bin" : place.type === "unfiled" ? "No folder" : place.type === "folder" ? folder?.name ?? "Folder" : "All";
 
   // Escape folds it away, unless something is open over it
   useEffect(() => {
@@ -146,11 +137,13 @@ export function MediaOverlay({ timeline, placeItems }: {
     return [mine, items.filter((a) => !used.roles.has(a.id))];
   }, [items, used]);
   const shown = useMemo(() => [...on, ...off], [on, off]);
-  // the right-click: what the Studio's tiles offer, with the timeline's own line first
+  // the right-click: the item's list, as every tile's menu, after the timeline's own section (Use in clip N, Place on
+  // the timeline); the open form is the clip's, which the first section serves
   const menu = useTileMenu({
     onOpen: setViewing,
     first: placeItems,
-    compact: true,
+    place: "shelf",
+    form: false,
   });
 
   const tab = (
@@ -206,19 +199,8 @@ export function MediaOverlay({ timeline, placeItems }: {
       <section aria-label="Your library" data-takes-escape className="absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
         <div ref={bar} className="flex h-14 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
           <span className="shrink-0 text-[11px] font-bold tracking-[0.08em] text-accent uppercase">Media</span>
-          <button
-            ref={folderButton}
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={folders}
-            data-tip="Folders, items in no folder, and the bin"
-            onClick={() => setFolders((o) => !o)}
-            className={cx("flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-lg border bg-raised px-3 text-sm font-semibold", folders ? "border-accent" : "border-line-strong")}
-          >
-            {place.type === "bin" ? <Trash2 size={15} className="shrink-0" /> : <FolderIcon size={15} className="shrink-0" />}
-            <span className="truncate">{placeName}</span>
-            <ChevronDown size={14} className="shrink-0 text-ink-2" />
-          </button>
+          {/* the place, as the Studio's breadcrumb: inside the project worked in, its tree under it */}
+          <PlaceCrumbs place={place} onPlace={(p) => setStudio({ place: p })} anchor={folderButton} open={folders} onOpen={setFolders} />
           {fold >= 2
             ? <div className="w-36 shrink-0"><Select size="sm" className="h-9" label="What is shown" value={scope} onChange={(v) => setScope(v as Scope)} options={scopes} /></div>
             : <Segmented<Scope> oneLine label="What is shown" value={scope} onChange={setScope} options={scopes} />}
@@ -258,15 +240,15 @@ export function MediaOverlay({ timeline, placeItems }: {
       {menu.element}
       {viewer}
       {folders && (
-        <Popover anchor={folderButton} onClose={() => setFolders(false)} label="Folders" width={300} height={520}>
-          <FolderPanel
-            place={place}
-            onPlace={(p) => {
-              setStudio({ place: p });
-              setFolders(false);
-            }}
-          />
-        </Popover>
+        <FolderPanel
+          place={place}
+          anchor={folderButton}
+          onClose={() => setFolders(false)}
+          onPlace={(p) => {
+            setStudio({ place: p });
+            setFolders(false);
+          }}
+        />
       )}
     </>
   );

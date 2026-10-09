@@ -51,3 +51,55 @@ export function dayLabel(key: string, now = new Date()): string {
 
 /** "14:02": the hour a strip counts from. */
 export const hourOf = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/** A model file's name, as ComfyUI's loaders take them: what tells a missing file from any other value not offered. */
+const MODEL_FILE = /\.(safetensors|sft|ckpt|pt|pth|bin|gguf|onnx)$/i;
+
+/**
+ * A failure said in one readable sentence, for the row; the whole ComfyUI text stays in the row's unfolded view.
+ * A value ComfyUI does not offer that is a model file ("UNETLoader: Value not in list unet_name: 'x.safetensors' not
+ * in [...]") is a missing model file, with where it was asked for: the file is what fixes it, and retrying unchanged
+ * fails again until it is there. `memory`: which memory ran out, when it did (retry.ts).
+ */
+export function readableError(error: string | null, memory: "ram" | "vram" | null = null): { text: string; missing: { file: string; node: string; input: string } | null } {
+  const raw = error ?? "Failed.";
+  const notInList = /([A-Za-z][\w.+-]*): Value not in list:? ([\w.-]+): '([^']+)' not in/.exec(raw);
+  if (notInList) {
+    const [, node, input, value] = notInList as unknown as [string, string, string, string];
+    // a subfolder's path as ComfyUI lists it (on Windows its repr doubles the backslash): the file's own name is what is fetched
+    const file = value.split(/[\\/]+/).pop()!;
+    if (MODEL_FILE.test(file)) return { text: `Missing model file ${file} (${node} · ${input})`, missing: { file, node, input } };
+    return { text: `${node} does not offer ${input} '${value}'`, missing: null };
+  }
+  // Afflatus's own check before submitting says it its way: `this cannot run on your ComfyUI: 3 UNETLoader: ComfyUI has
+  // no file "X" for "unet_name"` (packages/core check.ts), the commonest failure of an imported workflow
+  const noFile = /(?:\d+ )?([A-Za-z][\w.+-]*): ComfyUI has no file "([^"]+)" for "([^"]+)"/.exec(raw);
+  if (noFile) {
+    const [, node, value, input] = noFile as unknown as [string, string, string, string];
+    const file = value.split(/[\/]+/).pop()!;
+    if (MODEL_FILE.test(file)) return { text: `Missing model file ${file} (${node} · ${input})`, missing: { file, node, input } };
+  }
+  if (memory === "vram") return { text: "Out of VRAM", missing: null };
+  if (memory === "ram") return { text: "Out of RAM: the work had fallen back to the CPU", missing: null };
+  // the wrapper of a ComfyUI validation error adds nothing to the reason that follows it
+  const said = raw.replace(/^ComfyUI rejected the job: Prompt outputs failed validation;?\s*/i, "").split(/(?<=[.!?])\s|\n/)[0]!.trim();
+  return { text: said.length > 160 ? `${said.slice(0, 159)}…` : said || "Failed.", missing: null };
+}
+
+/** What makes two failures the same one: the same error, of the same workflow on the same model. */
+export const failureKey = (j: Pick<HistoryJob, "error" | "recipe" | "model">) => `${j.recipe}\u0000${j.model ?? ""}\u0000${(j.error ?? "").trim()}`;
+
+/**
+ * Failures folded together when they are the same one (failureKey), in the order of their newest: a job queued
+ * three times that fails three times the same way is one row "×3", not three rows saying the same.
+ */
+export function foldFailures<T extends Pick<HistoryJob, "error" | "recipe" | "model">>(jobs: T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const j of jobs) {
+    const key = failureKey(j);
+    const group = groups.get(key);
+    if (group) group.push(j);
+    else groups.set(key, [j]);
+  }
+  return [...groups.values()];
+}

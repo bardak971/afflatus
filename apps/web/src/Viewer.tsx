@@ -1,16 +1,17 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Camera, Clapperboard, Columns2, Link2, Scissors, Star, Trash2, Undo2 } from "lucide-react";
-import { RANDOM_SEED } from "@afflatus/core";
+import { MoreHorizontal, Plus, Star, Wand2 } from "lucide-react";
 import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
 import { dialogOver } from "./Dialog";
 import { Kbd, plainKey } from "./Keys";
-import { Button } from "./ui";
+import { Button, cx } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
-import { OPS } from "./viewer/shared";
+import { formPlaces, useFormTarget } from "./formTarget";
+import { actionOfKey, keyOfEvent, keysShown, placeMenu, stageBar, toMenu, type ItemAction } from "./itemActions";
+import { askViewer, takeViewerAsk } from "./viewer/ask";
 import { useViewerActions, type ViewerMore } from "./viewer/useViewerActions";
-import { assetHead, useItemExtras, useTimelineSubmenu } from "./TileMenu";
+import { assetHead } from "./TileMenu";
 import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
 import { ViewerSidebar } from "./viewer/ViewerSidebar";
@@ -45,14 +46,67 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const asset = trail.at(-1) ?? first;
   // Compare: one item pinned, the arrow keys move the other one beside it
   const [pinned, setPinned] = useState<Asset | null>(null);
-  /** The video's own right-click menu: what the buttons under it do. */
-  const videoMenu = useMenu<true>();
-  const imageMenu = useMenu<true>();
+  /** The item's right-click menu (a picture, a video, a sound): its list, the open form first. */
+  const itemMenu = useMenu<true>();
+  /** The stage's bar: its Passes menu and its ··· menu. */
+  const passesMenu = useMenu<true>();
+  const moreMenu = useMenu<true>();
   const detail = useAsset(asset.id);
   // what a video gives besides itself: the frame it is paused on, and its sound; both open here once made
   const player = useRef<HTMLVideoElement>(null);
-  const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, more, detail, into, inline, player, trim, setTrim, setInfo, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
-  const { a, g, recipe, keep, restore, leave, reuse, queued, quick, toolFor, openTool, opener, openerName, animate, carrier, fromLastFrame, carryOn, saveFrame, move, toBin, download, videoItems, imageItems } = acts;
+  const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, more, detail, into, inline, player, trim, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
+  const { a, g, leave, move, timeline } = acts;
+  const formTarget = useFormTarget((st) => st.target);
+
+  const canCompare = Boolean(items && items.length > 1 && onOpen && a.kind !== "audio");
+  const toggleCompare = () => {
+    if (pinned) return setPinned(null);
+    setPinned(asset);
+    if (!move(1)) move(-1);
+  };
+  const comparing = pinned !== null && pinned.id !== asset.id;
+  /** Details (P): the parameters it was made with, unfolded in the side; for a file made elsewhere, those written in it (PNG info). */
+  const details = () => {
+    if (inline) {
+      askViewer(a.id, "details");
+      onDetails?.();
+    } else if (!g) setInfo(true);
+    else {
+      const el = root.current?.querySelector<HTMLElement>("[data-viewer-params]");
+      el?.querySelector("details")?.setAttribute("open", "");
+      el?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+  };
+  const place = inline ? "inline" : "viewer";
+  // the item's list, as every other place shows it: here Open is the item shown (in place: opened large), the name is
+  // edited at the top of the side, Trim, Compare and Details are the viewer's own
+  const list: ItemAction[] = acts.list(
+    { shownHere: !inline || !onDetails, compare: canCompare ? true : "open it from a list", comparing, trimming: trim },
+    {
+      ...(inline && onDetails ? { open: onDetails } : {}),
+      ...(inline ? {} : { rename: () => setNaming(true) }),
+      trim: () => setTrim((t) => !t),
+      ...(canCompare ? { compare: toggleCompare } : {}),
+      details,
+    },
+  );
+
+  // the item opened from a list outside (a tile's menu, the command bar) with a tool: it opens with it
+  const [detailsAsked, setDetailsAsked] = useState(false);
+  useEffect(() => {
+    const what = takeViewerAsk(first.id);
+    if (what === "trim" && first.kind === "video" && !first.inBin) setTrim(true);
+    else if (what === "compare" && canCompare) toggleCompare();
+    else if (what === "details") setDetailsAsked(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [first.id]);
+  // Details waits for the parameters to be read: whether it was made here decides what it shows
+  useEffect(() => {
+    if (!detailsAsked || detail.data?.id !== a.id) return;
+    setDetailsAsked(false);
+    details();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailsAsked, detail.data?.id]);
 
   const act = useRef<(e: KeyboardEvent) => void>(() => {});
   // what the viewer draws: a modal that does not hold it is over it (drawn in place, any modal is)
@@ -74,37 +128,21 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       return;
     }
     if (info || !plainKey(e, { over: "[data-keys-help]" })) return;
-    if (e.key === "F2" && !inline && !a.inBin) {
-      e.preventDefault();
-      setNaming(true);
-      return;
-    }
     const k = e.key.toLowerCase();
     // a video that has the focus keeps its own arrow keys
     const inPlayer = (e.target as HTMLElement | null)?.tagName === "VIDEO";
     // while trimming, the arrows step the frame (Trim.tsx), not to the next item
     if (e.key === "ArrowLeft" && !inPlayer && !trim) move(-1);
     else if (e.key === "ArrowRight" && !inPlayer && !trim) move(1);
-    else if (k === "x" && canCompare) toggleCompare();
-    // a download is harmless in the bin too; the keys after it act on items that are not binned
-    else if (k === "d") download();
-    else if (a.inBin) return;
     // drawn in place (the Studio's stage), N is the Studio's own (it folds the form): a timeline starts from the menus there
-    else if (k === "n" && !inline && a.kind !== "audio") timelineMenu.startFrom(a);
-    else if (k === "a" && a.kind !== "audio" && timelineMenu.addToLast) timelineMenu.addToLast(a);
-    else if (k === "s") keep.mutate(!a.kept);
-    else if (e.key === "Delete") void toBin();
-    // L: the same parameters in the form, its seed kept; Shift+L: with a new seed
-    else if (k === "l" && g && recipe) (e.shiftKey ? reuse.newSeed : reuse.sameSeed)(g);
-    else if (k === "v" && g && recipe) queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" });
-    else if (a.kind === "image" && (k === "u" || k === "f" || k === "b")) quick(k);
-    else if (a.kind === "image" && (k === "i" || k === "e" || k === "r") && toolFor(k)) openTool.mutate(toolFor(k)!.id);
-    else if (a.kind === "image" && k === "m" && opener) animate.mutate();
-    else if (a.kind !== "audio" && k === "p" && !g) setInfo(true);
-    else if (a.kind === "video" && k === "c" && carrier) carryOn.mutate();
-    else if (a.kind === "video" && k === "g") saveFrame.mutate();
-    else if (a.kind === "video" && k === "t" && !a.inBin) setTrim((t) => !t);
-    else return;
+    else if (k === "n" && !inline && a.kind !== "audio" && !a.inBin) timeline.startFrom(a);
+    else if (k === "a" && a.kind !== "audio" && !a.inBin && timeline.addToLast) timeline.addToLast(a);
+    else {
+      // every other key is the list's: the action whose key it is, when it acts here and is on now (in the bin, D)
+      const action = actionOfKey(list, place, keyOfEvent(e));
+      if (!action) return;
+      action.run!();
+    }
     e.preventDefault();
   };
   useEffect(() => {
@@ -113,33 +151,19 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // the timelines: the same submenu as a tile's (recent ones straight, another one, a new one); a new one closes the viewer
-  const timelineMenu = useTimelineSubmenu({ onStarted: onClose, noStartKey: inline });
-  const tileExtras = useItemExtras();
-  const canCompare = Boolean(items && items.length > 1 && onOpen && a.kind !== "audio");
-  const toggleCompare = () => {
-    if (pinned) return setPinned(null);
-    setPinned(asset);
-    if (!move(1)) move(-1);
-  };
-  const comparing = pinned !== null && pinned.id !== asset.id;
   const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={() => { const was = pinned!; setPinned(asset); onOpen?.(was); }} onClose={() => setPinned(null)} /> : null;
-  // the viewer's menu holds at least what a tile's does: the open form first; compare, the timelines, ComfyUI,
-  // another project and a name slipped in before the bin
-  const withViewerExtras = (list: MenuItem[]): MenuItem[] => {
-    const extras: MenuItem[] = [
-      ...(canCompare ? [{ label: comparing ? "Stop comparing" : "Compare", key: "X", icon: <Columns2 size={14} />, run: toggleCompare }] : []),
-      ...timelineMenu.items(a),
-      ...tileExtras.more(a, Boolean(g)),
-    ];
-    const bin = list.length - 2;
-    return [...tileExtras.first(a), ...list.slice(0, bin), "—", ...extras, ...list.slice(bin)];
-  };
-  const menuElement = videoMenu.menu
-    ? <ContextMenu at={videoMenu.menu.at} label="Actions on this video" head={assetHead(a)} items={withViewerExtras(videoItems())} onClose={videoMenu.close} />
-    : imageMenu.menu
-      ? <ContextMenu at={imageMenu.menu.at} label="Actions on this picture" head={assetHead(a)} items={withViewerExtras(imageItems())} onClose={imageMenu.close} />
-      : null;
+  // the viewer's menu: the open form first (the place's own section), then the item's list
+  const places = formPlaces(formTarget, a);
+  const own: MenuItem[] = places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : [];
+  const kindWord = a.kind === "audio" ? "sound" : a.kind === "image" ? "picture" : "video";
+  const bar = stageBar(list);
+  const menuElement = itemMenu.menu
+    ? <ContextMenu at={itemMenu.menu.at} label={`Actions on this ${kindWord}`} head={assetHead(a)} items={placeMenu(own, list, place)} onClose={itemMenu.close} />
+    : passesMenu.menu
+      ? <ContextMenu at={passesMenu.menu.at} label="Passes" head={assetHead(a)} items={toMenu(bar.passes, place, false)} onClose={passesMenu.close} />
+      : moreMenu.menu
+        ? <ContextMenu at={moreMenu.menu.at} label={`More actions on this ${kindWord}`} head={assetHead(a)} items={placeMenu(own, bar.more, place)} onClose={moreMenu.close} />
+        : null;
   const media = (overlay: boolean) => (
     <ViewerMedia
       acts={acts}
@@ -148,44 +172,34 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       onTrim={setTrim}
       trimRange={trimRange}
       onTrimRange={setTrimRange}
-      onImageMenu={(e) => imageMenu.open(e, true)}
-      onVideoMenu={(e) => videoMenu.open(e, true)}
+      onMenu={(e) => itemMenu.open(e, true)}
       overlay={overlay}
       onDetails={onDetails}
       onClose={onClose}
     />
   );
   if (inline) {
+    /** One action of the bar: its label, its key where it acts, the reason in its tip when it is off. */
+    const button = (x: ItemAction) => (
+      <Button key={x.id} size="sm" tone={x.pressed && x.id !== "keep" ? "primary" : "plain"} aria-pressed={x.id === "keep" || x.id === "trim" || x.id === "compare" ? Boolean(x.pressed) : undefined} disabled={x.disabled} data-tip={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={() => x.run?.()}>
+        {x.id === "keep" ? <Star size={13} fill={x.pressed ? "currentColor" : "none"} /> : <x.icon size={13} />} {x.label} {x.key && keysShown(place, x.id) && <Kbd>{x.key}</Kbd>}
+      </Button>
+    );
     return (
       <div ref={root} className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
         {menuElement}
-        {timelineMenu.element}
+        {timeline.element}
         {compare ?? media(false)}
+        {/* one short row: the four most used, what makes something from it (Passes), the rest of the list (···), the bin */}
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
-          {canCompare && <Button size="sm" tone={comparing ? "primary" : "plain"} aria-pressed={comparing} data-tip="Compare: pin this one and move to another with the arrow keys; videos play in step, two pictures also with a wipe" onClick={toggleCompare}><Columns2 size={13} /> Compare <Kbd>X</Kbd></Button>}
-          {/* a binned item is put back, not kept; its keys (S, V, the tools) are off there, so are their buttons, as in the side panel */}
-          {!a.inBin && (
-            <Button size="sm" onClick={() => keep.mutate(!a.kept)} tone={a.kept ? "primary" : "plain"} aria-pressed={a.kept} data-tip={a.kept ? "Kept" : "Not kept: it goes to the bin after a day"}>
-              <Star size={13} fill={a.kept ? "currentColor" : "none"} /> {a.kept ? "Kept" : "Keep"} <Kbd>S</Kbd>
+          {bar.row.map(button)}
+          {bar.passes.length > 0 && (
+            <Button size="sm" aria-haspopup="menu" data-tip="Make from it, the passes and the tools, with their keys" onClick={(e) => passesMenu.open(e, true)} className={cx(passesMenu.menu && "border-accent")}>
+              <Wand2 size={13} /> Passes ▾
             </Button>
           )}
-          {g && recipe && (
-            <Button size="sm" disabled={queued.isPending} data-tip="Same parameters, new seed: queued at once." onClick={() => queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" })}>Variation {!a.inBin && <Kbd>V</Kbd>}</Button>
-          )}
-          {a.kind === "image" && !a.inBin && (["u", "f", "b"] as const).filter((k) => toolFor(k)).map((k) => (
-            <Button key={k} size="sm" disabled={queued.isPending} data-tip={`${OPS[k]!.label}: queued at once with the image's generation parameters.`} onClick={() => quick(k)}>{OPS[k]!.label} <Kbd>{k.toUpperCase()}</Kbd></Button>
-          ))}
-          {a.kind === "image" && !a.inBin && (["i", "e", "r"] as const).filter((k) => toolFor(k)).map((k) => (
-            <Button key={k} size="sm" disabled={openTool.isPending} data-tip={`${OPS[k]!.label}: a new draft in the form, with this image as the source.`} onClick={() => openTool.mutate(toolFor(k)!.id)}>{OPS[k]!.label}… <Kbd>{k.toUpperCase()}</Kbd></Button>
-          ))}
-          {a.kind === "image" && !a.inBin && opener && <Button size="sm" disabled={animate.isPending} data-tip={`Image to video (i2v): a new video with this image as the first frame, on ${openerName} (the video model used last).`} onClick={() => animate.mutate()}><Clapperboard size={13} /> i2v <Kbd>M</Kbd></Button>}
-          {a.kind === "video" && !a.inBin && carrier && <Button size="sm" disabled={carryOn.isPending} data-tip={fromLastFrame ? "Extend: a new clip whose first frame is the last frame of this one, same model and parameters." : "Extend: a new clip that carries on from the end of this one (previous clip)."} onClick={() => carryOn.mutate()}><Link2 size={13} /> Extend <Kbd>C</Kbd></Button>}
-          {a.kind === "video" && !a.inBin && <Button size="sm" disabled={saveFrame.isPending} data-tip="Pause the video on the frame you want, then save it as an image." onClick={() => saveFrame.mutate()}><Camera size={13} /> Save frame <Kbd>G</Kbd></Button>}
-          {a.kind === "video" && !a.inBin && <Button size="sm" tone={trim ? "primary" : "plain"} aria-pressed={trim} data-tip="Trim: pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." onClick={() => setTrim(!trim)}><Scissors size={13} /> Trim <Kbd>T</Kbd></Button>}
-          {onDetails && <Button size="sm" onClick={onDetails} data-tip="Generation parameters, folder, lineage and every action">Details</Button>}
-          {a.inBin
-            ? <Button size="sm" disabled={restore.isPending} data-tip="Out of the bin, back where it was" onClick={() => restore.mutate(undefined)}><Undo2 size={13} /> Put back</Button>
-            : <Button size="sm" onClick={() => void toBin()} data-tip="Move to the bin and go to the next one"><Trash2 size={13} /> Bin <Kbd>Del</Kbd></Button>}
+          <Button size="sm" aria-haspopup="menu" aria-label="More actions" data-tip="Everything else that can be done with it" onClick={(e) => moreMenu.open(e, true)}><MoreHorizontal size={14} /></Button>
+          {bar.bin && button(bar.bin)}
         </div>
       </div>
     );
@@ -194,9 +208,9 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   return (
     <div ref={root} data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-stage/95">
       {menuElement}
-      {timelineMenu.element}
+      {timeline.element}
       {compare ?? media(true)}
-      <ViewerSidebar acts={acts} asset={asset} detail={detail} naming={naming} onNaming={setNaming} trail={trail} onTrail={setTrail} items={items} trim={trim} onTrim={setTrim} onInfo={setInfo} onClose={onClose} comparing={comparing} onCompare={canCompare ? toggleCompare : undefined} />
+      <ViewerSidebar acts={acts} list={list} asset={asset} detail={detail} naming={naming} onNaming={setNaming} trail={trail} onTrail={setTrail} items={items} onClose={onClose} />
       {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
     </div>
   );

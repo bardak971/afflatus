@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAssets } from "../../data";
 import { useSettled } from "../../hooks";
 import type { Place } from "../Library";
 import type { Scope } from "../../store";
+import { useExpiringOnly } from "./expiring";
 
 /** The scopes there are now. */
 const SCOPES: readonly Scope[] = ["draft", "all", "recent"];
@@ -16,7 +17,7 @@ export const KINDS = [
 ] as const;
 export type LibraryKind = (typeof KINDS)[number]["id"];
 
-/** What the library's grid is narrowed to: the kind, the search, the model and LoRA it was made with, Kept only (or not kept only); and the items that match. */
+/** What the library's grid is narrowed to: the kind, the search, the model and LoRA it was made with, Kept only (or Expiring only); and the items that match. */
 export function useLibraryFilters({ place, view, draftId, initialKind = "all", onKind }: {
   place: Place;
   /** What the grid opens on: the Timelines entry of the rail opens it on the timelines. */
@@ -40,9 +41,11 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
   const [lora, setLora] = useState("");
   const family = made.startsWith("f:") ? made.slice(2) : "";
   const model = made.startsWith("m:") ? made.slice(2) : "";
-  // Kept only, or the other way round: only what is not kept ("Show only these" on the not-kept line)
+  // Kept only, or the other way round: only what expires (Filters, or "Show them" from the status bar's expiring
+  // chip, which is why that one is held outside the screen)
   const [kept, setKeptState] = useState(false);
-  const [unkept, setUnkeptState] = useState(false);
+  const unkept = useExpiringOnly((s) => s.on);
+  const setUnkeptState = useExpiringOnly((s) => s.set);
   const setKept = (on: boolean) => {
     setKeptState(on);
     if (on) setUnkeptState(false);
@@ -51,6 +54,10 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
     setUnkeptState(on);
     if (on) setKeptState(false);
   };
+  // turned on from the status bar while Kept only was on: the two cannot both hold
+  useEffect(() => {
+    if (unkept) setKeptState(false);
+  }, [unkept]);
   const showTimelines = kind === "timeline" && place.type !== "bin";
   // with the form open, "Recent" and "Kept" look across the project, not the folder: what is there to drag into the form
   // "Kept" was a scope: a store kept from then still says it, and shows the folder (Kept only is in Filters now)

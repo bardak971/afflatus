@@ -77,7 +77,6 @@ describe("the open draft when the project looked at changes", () => {
   it("is kept in its own project, the Inbox, or while everything is looked at", () => {
     expect(draftFate("p1", "p1", "p1")).toBe("keep");
     expect(draftFate(null, "p1", "none")).toBe("keep");
-    expect(draftFate("p1", "p2", null)).toBe("keep");
   });
   it("is left for the project's own draft once another project is looked at", () => {
     expect(draftFate("p1", "p1", "p2")).toBe("leave");

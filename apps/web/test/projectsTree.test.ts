@@ -18,9 +18,9 @@ const tree: ProjectsTree = {
 const none = () => undefined;
 
 describe("the tree as rows", () => {
-  it("shows the top rows folded: All, the Inbox, the projects, then the archived ones", () => {
+  it("shows the top rows folded: the Inbox, the projects, then the archived ones (no All: every place is one project or the Inbox)", () => {
     const rows = flatten(tree, { isOpen: () => false, drafts: none });
-    expect(rows.map((r) => r.key)).toEqual(["all", "g:inbox", "g:dev", "archived"]);
+    expect(rows.map((r) => r.key)).toEqual(["g:inbox", "g:dev", "archived"]);
     expect(rows.every((r) => r.prefix === "")).toBe(true);
     expect(rows.find((r) => r.key === "g:dev")?.noRoot).toBe(true);
     expect(rows.find((r) => r.key === "archived")?.label).toBe("Archived (1)");
@@ -99,6 +99,41 @@ describe("a folder's items", () => {
   });
 });
 
+describe("one project's tree (the library's breadcrumb)", () => {
+  const shoot: ProjectsTree = {
+    totalBytes: 0,
+    groups: [
+      group(null, { folders: [folder("harbor")] }),
+      group("show", {
+        name: "Showcase", rootFolderId: "root",
+        folders: [{ ...folder("root", [folder("bigair", [folder("keyframes")]), folder("stills")]), name: "Showcase" }, folder("loose")],
+        timelines: [{ id: "tl", name: "Big Air II", folderId: "root", clips: 5, durationMs: 29_000, bytes: 1, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: "", updatedAt: "" }],
+        counts: { drafts: 0, timelines: 1, items: 6 },
+      }),
+    ],
+  };
+  it("starts on the whole project, then its root with its own items and its sub-folders beside it, then the Bin; never another project", () => {
+    const rows = flatten(shoot, { isOpen: (k) => k === "f:bigair", drafts: none, items: () => ({ items: [], more: false }), bin: { count: 2, bytes: 9 }, only: { group: "show" } });
+    expect(rows.map((r) => r.key)).toEqual(["g:show", "f:root", "f:bigair", "f:keyframes", "f:stills", "f:loose", "bin"]);
+    expect(rows[0]).toMatchObject({ label: "Showcase", foldable: false, depth: 0 });
+    expect(rows[0]!.meta).toMatch(/^the whole project · /);
+    expect(rows.find((r) => r.key === "f:root")?.label).toBe("Showcase (root)");
+    // a sub-folder of the root moves as one of the root's (a drop on the root is no move for it)
+    expect(rows.find((r) => r.key === "f:bigair")?.moving).toMatchObject({ parent: "root" });
+    expect(rows.find((r) => r.key === "f:keyframes")?.target).toMatchObject({ ancestors: ["root", "bigair"] });
+    // the timeline filed in the root shows under it
+    expect(flatten(shoot, { isOpen: () => true, drafts: none, items: () => ({ items: [], more: false }), only: { group: "show" } }).find((r) => r.key === "t:tl")?.parent).toBe("f:root");
+  });
+  it("gives the Inbox a No folder row for its loose items", () => {
+    const rows = flatten(shoot, { isOpen: () => false, drafts: none, only: { group: null } });
+    expect(rows.map((r) => r.key)).toEqual(["g:inbox", "f:harbor", "loose"]);
+    expect(rows[0]!.meta).toMatch(/^the whole Inbox · /);
+  });
+  it("is empty for a project that is not there (deleted meanwhile)", () => {
+    expect(flatten(shoot, { isOpen: () => false, drafts: none, only: { group: "gone" } })).toEqual([]);
+  });
+});
+
 describe("picking a range", () => {
   const order = ["a", "b", "c", "d", "e"];
   it("takes the rows between, either way", () => {
@@ -112,8 +147,8 @@ describe("picking a range", () => {
   });
   it("walks the rows with the arrows, staying inside", () => {
     const rows = flatten(tree, { isOpen: () => false, drafts: none });
-    expect(step(rows, null, 1)).toBe("all");
-    expect(step(rows, "all", -1)).toBe("all");
+    expect(step(rows, null, 1)).toBe("g:inbox");
+    expect(step(rows, "g:inbox", -1)).toBe("g:inbox");
     expect(step(rows, "g:inbox", 1)).toBe("g:dev");
   });
 });

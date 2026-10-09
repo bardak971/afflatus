@@ -1,9 +1,10 @@
 import { lazy, memo, Suspense, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Clipboard, Eye, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
-import type { HistoryJob } from "../../api";
+import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
-import { useAsset, useJobs } from "../../data";
+import { assetKey, useAsset, useJobs } from "../../data";
 import { fileLabel, took, when } from "../../format";
 import { Select } from "../../Select";
 import { useSettled } from "../../hooks";
@@ -11,10 +12,11 @@ import { Button, cx, Empty, Help, Segmented } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useCopyNote } from "./copyNote";
 import { FailedRow } from "./FailedRow";
-import { dayLabel, dayOf, hourOf, pinnedFailures, reasonsOf } from "./failures";
+import { dayLabel, dayOf, failureKey, foldFailures, hourOf, pinnedFailures, reasonsOf } from "./failures";
 import { rowFacts, rowName } from "./historyText";
 import { ROW, useJobActions } from "./jobActions";
 import { useModelName } from "./modelName";
+import { useTileMenu } from "../../TileMenu";
 
 // the viewer is fetched the first time a result is opened here
 const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewer })));
@@ -27,7 +29,7 @@ const overAll = (verb: string, n: number) => (n === 1 ? verb : n === 2 ? `${verb
 /** What the history's ? says about where failures go. */
 const ORDER_HELP = "In time order, by day. Failures since your last render done are pinned on top in one strip; older ones stay in time order, and those of earlier days fold under one line per day.";
 
-/** The failures since the last render done, folded into one strip: how many and since when, their reasons, Retry all and Dismiss all; unfolded, each one's own row. */
+/** The failures since the last render done, folded into one strip: how many and since when, their reasons, Retry all and Dismiss all; unfolded, each one's own row (the same failure several times: one row, foldFailures). */
 function PinnedFailures({ jobs, since }: { jobs: HistoryJob[]; since: number }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,7 +50,7 @@ function PinnedFailures({ jobs, since }: { jobs: HistoryJob[]; since: number }) 
         <Button size="sm" disabled={busy} data-tip="The same jobs again, unchanged, oldest first" onClick={() => run(() => bulk.retryAllFailed(ids))}>{overAll("Retry", jobs.length)}</Button>
         <Button size="sm" tone="quiet" disabled={busy} onClick={() => run(() => bulk.dismissAllFailed({ ids }))}>{overAll("Dismiss", jobs.length)}</Button>
       </div>
-      {open && jobs.map((j) => <FailedRow key={j.id} job={j} />)}
+      {open && foldFailures(jobs).map((g) => <FailedRow key={g[0]!.id} jobs={g} />)}
     </div>
   );
 }
@@ -85,6 +87,27 @@ export const History = memo(function History() {
   const items = useMemo(() => jobs.data?.pages.flatMap((p) => p.items) ?? [], [jobs.data]);
   const counts = jobs.data?.pages[0]?.counts;
   const asset = useAsset(open);
+  // a finished job's menu: its own section (its draft, Requeue, out of the history), then its result's list, as every
+  // place shows an item's (itemActions.tsx); one menu for the whole history, read for the row right-clicked
+  const client = useQueryClient();
+  const jobActs = useJobActions();
+  const [menuJobs, setMenuJobs] = useState<HistoryJob[] | null>(null);
+  const resultMenu = useTileMenu({
+    onOpen: (a) => setOpen(a.id), place: "queue", listed: false,
+    seed: menuJobs?.length === 1 ? menuJobs[0]!.seed : null,
+    first: () => (menuJobs ? rowOwn(menuJobs, jobActs) : []),
+  });
+  const openResultMenu = (e: React.MouseEvent, rowJobs: HistoryJob[]) => {
+    const first = rowJobs.flatMap((j) => j.made)[0];
+    if (!first) return;
+    e.preventDefault();
+    const at = { clientX: e.clientX, clientY: e.clientY, currentTarget: e.currentTarget, preventDefault() {} };
+    // the result read in full first (its file, its folder): the list acts on the item as it is
+    void client.fetchQuery({ queryKey: assetKey(first.id), queryFn: ({ signal }) => api.asset(first.id, { signal }) }).then((a) => {
+      setMenuJobs(rowJobs);
+      resultMenu.open(at, a);
+    }, () => {});
+  };
 
   // the models seen in what is loaded: enough to narrow the list down
   const models = useMemo(() => {
@@ -104,17 +127,28 @@ export const History = memo(function History() {
     folded.filter((j) => j.status === "cancelled").length ? `${folded.filter((j) => j.status === "cancelled").length} cancelled` : "",
     folded.filter(gone).length ? `${folded.filter(gone).length} whose result was deleted` : "",
   ].filter(Boolean).join(", ");
-  // by day, in time order; jobs asked for together make one row. An earlier day's failures fold under one line
-  // (not when the failures are what was asked for)
+  // by day, in time order; jobs asked for together make one row, and so does the same failure several times in a
+  // day (one row where its newest is, "×3"). An earlier day's failures fold under one line (not when the failures
+  // are what was asked for)
   const today = dayOf({ finishedAt: new Date().toISOString(), createdAt: "" });
-  const days: Array<{ key: string; groups: HistoryJob[][]; failed: HistoryJob[] }> = [];
+  const days: Array<{ key: string; groups: HistoryJob[][]; failed: HistoryJob[]; same: Map<string, HistoryJob[]> }> = [];
   for (const j of listed) {
     const key = dayOf(j);
     let day = days[days.length - 1];
-    if (day?.key !== key) days.push((day = { key, groups: [], failed: [] }));
+    if (day?.key !== key) days.push((day = { key, groups: [], failed: [], same: new Map() }));
     if (j.status === "failed" && status === "all" && key !== today) {
       day.failed.push(j);
       if (!unfolded.has(key)) continue;
+    }
+    if (j.status === "failed") {
+      const same = day.same.get(failureKey(j));
+      if (same) {
+        same.push(j);
+        continue;
+      }
+      day.same.set(failureKey(j), [j]);
+      day.groups.push(day.same.get(failureKey(j))!);
+      continue;
     }
     const last = day.groups[day.groups.length - 1];
     if (last && last[0]!.status === "done" && j.status === "done" && last[0]!.batch === j.batch && last[0]!.kind === "render" && j.kind === "render") last.push(j);
@@ -173,7 +207,7 @@ export const History = memo(function History() {
           <div key={d.key} className="flex flex-col gap-1">
             <div className="px-3 pt-2 pb-0.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{dayLabel(d.key)}</div>
             {d.failed.length > 0 && <FoldedFailures jobs={d.failed} shown={unfolded.has(d.key)} onShow={() => toggleDay(d.key)} />}
-            {d.groups.map((g) => (g[0]!.status === "failed" ? <FailedRow key={g[0]!.id} job={g[0]!} quiet={status === "all"} /> : <Row key={g[0]!.id} jobs={g} onOpen={setOpen} />))}
+            {d.groups.map((g) => (g[0]!.status === "failed" ? <FailedRow key={g[0]!.id} jobs={g} quiet={status === "all"} /> : <Row key={g[0]!.id} jobs={g} onOpen={setOpen} onResultMenu={openResultMenu} />))}
           </div>
         ))}
         {folded.length > 0 && (
@@ -189,6 +223,7 @@ export const History = memo(function History() {
       </div>
 
       {asset.data && <Suspense fallback={null}><Viewer asset={asset.data} onClose={() => setOpen(null)} /></Suspense>}
+      {resultMenu.element}
     </section>
   );
 });
@@ -214,28 +249,38 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
 /** How a finished job ended, at the head of its menu. */
 const STATUS_WORD = { queued: "Waiting", running: "Running", done: "Done", failed: "Failed", cancelled: "Cancelled" } as const;
 
-/** One finished job, or several asked for together: what it made, under its name, and the facts of how. */
-function Row({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): void }) {
+/** A finished job's own section of its menu, before its result's list: back to its draft, the same job again, out of the history. */
+function rowOwn(jobs: HistoryJob[], { again, dismiss, toDraft }: ReturnType<typeof useJobActions>): MenuItem[] {
   const head = jobs[0]!;
-  const { again, dismiss, toDraft } = useJobActions();
+  return [
+    ...(head.draftId ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
+    ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
+    { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => dismiss.mutate(jobs.map((j) => j.id)) },
+  ];
+}
+
+/** One finished job, or several asked for together: what it made, under its name, and the facts of how. */
+function Row({ jobs, onOpen, onResultMenu }: { jobs: HistoryJob[]; onOpen(assetId: string): void; onResultMenu(e: React.MouseEvent, jobs: HistoryJob[]): void }) {
+  const head = jobs[0]!;
+  const jobActs = useJobActions();
+  const { again, dismiss, toDraft } = jobActs;
   const modelOf = useModelName();
   const made = jobs.flatMap((j) => j.made);
   const first = made[0];
   const name = rowName(jobs);
   const seedCopy = useCopyNote();
-  // right-click: what the row's buttons do, opening what it made, and its seed
+  // right-click: with a result, the history's menu of it (its own section, then the result's list); with none
+  // (a cut, an export, a result deleted since), its own section and its seed
   const menu = useMenu<true>();
   const items: MenuItem[] = [
-    ...(first ? [{ label: made.length > 1 ? "Open the first result" : "Open the result", icon: <Eye size={14} />, run: () => onOpen(first.id) }] : []),
-    ...(head.draftId ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
-    ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
+    ...rowOwn(jobs, jobActs).slice(0, -1),
     ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => seedCopy.copy(String(head.seed)) }] : []),
     "—",
-    { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => dismiss.mutate(jobs.map((j) => j.id)) },
+    ...rowOwn(jobs, jobActs).slice(-1),
   ];
   const tip = [head.prompt, name !== head.label ? head.label : "", head.seed !== null && jobs.length === 1 ? `seed ${head.seed}` : ""].filter(Boolean).join("\n");
   return (
-    <div className={cx(ROW, "group rounded-xl py-1.5 hover:bg-hover", head.status === "cancelled" && "opacity-60 hover:opacity-100")} onContextMenu={(e) => menu.open(e, true)}>
+    <div className={cx(ROW, "group rounded-xl py-1.5 hover:bg-hover", head.status === "cancelled" && "opacity-60 hover:opacity-100")} onContextMenu={(e) => (first ? onResultMenu(e, jobs) : menu.open(e, true))}>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${name}`} head={{ title: name, sub: `${STATUS_WORD[head.status]}${jobs.length > 1 ? ` · ${jobs.length} jobs` : ""} · ${modelOf(head)}`, thumb: first && first.kind !== "audio" ? first.id : undefined }} items={items} onClose={menu.close} />}
       <Thumb jobs={jobs} onOpen={onOpen} />
       <span className="flex min-w-0 items-center gap-2">

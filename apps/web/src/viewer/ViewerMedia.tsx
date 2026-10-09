@@ -23,16 +23,15 @@ const dragOf = (a: Asset) => (e: React.DragEvent) => {
  * The item itself, large: a picture, a video with Trim under it, or a sound. In place, the picture is a
  * button that opens the details; over the screen, a click beside the item closes the viewer.
  */
-export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onImageMenu, onVideoMenu, overlay, onDetails, onClose }: {
+export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose }: {
   acts: ViewerActions;
   player: RefObject<HTMLVideoElement | null>;
   trim: boolean;
   onTrim(trim: boolean): void;
   trimRange: Range | null;
   onTrimRange(range: Range | null): void;
-  /** A right-click on the picture, or on the video: its menu. */
-  onImageMenu(e: React.MouseEvent): void;
-  onVideoMenu(e: React.MouseEvent): void;
+  /** A right-click on the picture, the video or the sound: the item's menu. */
+  onMenu(e: React.MouseEvent): void;
   /** Over the screen rather than in place. */
   overlay?: boolean;
   /** In place: the picture opens it over the screen, with everything about it. */
@@ -49,10 +48,10 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   return (
     <div className={overlay ? "flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" : "flex min-h-0 grow flex-col items-center justify-center gap-2"} onClick={overlay ? onClose : undefined}>
       {a.kind === "image" && (overlay
-        ? <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onImageMenu} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
+        ? <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onMenu} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
         : (
           <button type="button" onClick={onDetails} aria-label="Details: generation parameters, lineage and every action" data-tip="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
-            <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onImageMenu} className="max-h-full max-w-full rounded-lg object-contain" />
+            <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onMenu} className="max-h-full max-w-full rounded-lg object-contain" />
           </button>
         ))}
       {a.kind === "video" && (
@@ -64,13 +63,17 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
             video={player}
             controls={!trim}
             className="h-full max-h-full w-full justify-center"
-            videoProps={{ draggable: true, onDragStart: dragOf(a), onContextMenu: onVideoMenu }}
+            videoProps={{ draggable: true, onDragStart: dragOf(a), onContextMenu: onMenu }}
             onVideoClick={overlay ? (e) => e.stopPropagation() : undefined}
           />
           {trim && trimRange && <Suspense fallback={null}><RangeFrames asset={a} range={trimRange} /></Suspense>}
         </div>
       )}
-      {a.kind === "audio" && <AudioPlayer key={a.id} asset={a.id} name={a.name || "Audio"} className="w-full max-w-[640px]" onClick={overlay ? (e) => e.stopPropagation() : undefined} />}
+      {a.kind === "audio" && (
+        <div className="flex w-full justify-center" onContextMenu={onMenu}>
+          <AudioPlayer key={a.id} asset={a.id} name={a.name || "Audio"} className="w-full max-w-[640px]" onClick={overlay ? (e) => e.stopPropagation() : undefined} />
+        </div>
+      )}
       {a.kind === "video" && trim && (
         <Suspense fallback={null}>
         <Trim

@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { api, type Asset } from "./api";
 import { assetKey } from "./data";
-import { clock, left as timeLeft, when } from "./format";
+import { clock, when } from "./format";
 import { leftOf } from "./screens/library/justify";
+import { leftWords } from "./screens/studio/expiring";
 
 /** How long the pointer rests on a tile before its tooltip shows. */
 const TILE_TIP_AFTER_MS = 800;
@@ -72,8 +73,8 @@ export function TileTip({ asset, at }: { asset: Asset; at: { left: number; top: 
   const length = asset.durationMs ? ` · ${clock(asset.durationMs)}` : "";
   if (asset.name) lines.push({ text: asset.name });
   lines.push({ text: `${what}${size}${length}${asset.kind === "video" && asset.hasSound === false ? " · silent" : ""}` });
-  // not kept: what its corner clock stands for, said in words
-  const unkept = !asset.kept && !asset.inBin ? ` · not kept: ${timeLeft(leftOf(asset))}` : "";
+  // expiring (nobody kept it): what its corner clock stands for, said in words
+  const unkept = !asset.kept && !asset.inBin ? ` · expires in ${leftWords(leftOf(asset))}` : "";
   lines.push({ text: `${when(asset.createdAt)}${asset.kept ? " · kept" : unkept}${asset.inBin ? " · in the bin" : ""}`, tone: "dim" });
   const of = asset.clipOf;
   if (of) lines.push({ text: `Clip ${of.clip} of ${of.timelineName}${of.takes > 1 ? ` · take ${of.take} of ${of.takes}` : ""}${of.playing ? "" : " · not the one that plays"}` });

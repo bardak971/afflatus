@@ -30,7 +30,7 @@ export function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): voi
       onClose();
     },
   });
-  // the folders of the project the rail looks at, as the Studio's own folder list shows them (All: every one)
+  // the folders of the project worked in, as the Studio's own tree shows them
   const project = useProject((st) => st.id);
   const folders = foldersOf((folderList.data?.items ?? []).filter((x) => !x.path), project);
   const items = (timelines.data?.items ?? [])

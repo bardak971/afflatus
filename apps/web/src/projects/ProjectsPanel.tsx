@@ -1,15 +1,18 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import type { Reveal } from "../bar/bridge";
 import { keepPreviousData, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, ChevronRight, CircleDashed, Eraser, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, FolderSymlink, Globe, Inbox, Link2, List, Music, RefreshCw, Unlink, PenLine, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, ChevronRight, CircleDashed, Eraser, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, FolderSymlink, FolderUp, FolderX, Inbox, Link2, List, Music, Pin, PinOff, RefreshCw, Unlink, PenLine, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, thumbUrl, type Asset, type DraftLeaf } from "../api";
 import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../ContextMenu";
 import { DRAFT_LIST, useFolders, useProjects, useProjectsTree, useRecipes, useStorage } from "../data";
+import { DRAG_TIMELINE, DRAG_TYPE } from "../dragging";
 import { recipeLabel, size } from "../format";
 import { useProject } from "../project";
-import { useHandover, useOpenDraft, useStudio } from "../store";
+import { useHandover, useOpenDraft, useStudio, type Place } from "../store";
 import { Button, cx, ErrorNote, Help, Segmented, TwoStep } from "../ui";
+import { usePins } from "./pins";
 import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, rowHeight, rowOffsets, rowWindow, shortDate, siblings, step, whyRefused, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
 import { useItemMenu } from "./useItemMenu";
 import { useTreeActions } from "./useTreeActions";
@@ -39,6 +42,8 @@ const readSort = (): Sort => {
 };
 /** The columns of every row, under their heads: Name · Holds · Created · Size. */
 const COLUMNS = "grid-cols-[minmax(160px,1fr)_minmax(0,300px)_84px_72px]";
+/** One project's tree, under the library's breadcrumb: narrower, so Name · Holds · Size. */
+const SCOPED_COLUMNS = "grid-cols-[minmax(140px,1fr)_minmax(0,220px)_72px]";
 const readFolds = (): Record<string, boolean> => {
   try {
     const v = JSON.parse(localStorage.getItem(FOLDS) ?? "{}") as unknown;
@@ -56,11 +61,13 @@ const OVERSCAN = 10;
 const EDGE = 32;
 /** Something open over the panel that keeps its own keys and clicks: a menu, a dialog. */
 const OVER = "[role=menu], [role=dialog][aria-modal=true]";
+const HELP_SCOPED =
+  "This project's folders, timelines and drafts, with what each holds and its size; other projects are switched to from the rail. Click the project's own row for the whole of it, a folder to show it in the library, a timeline or a draft to open it. Drag rows, library items or files from your computer onto a folder to put them there, or onto the Bin. Right-click for the rest.";
 const HELP =
-  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click All, the Inbox or a project to work in it (the library, the drafts and the timelines then show its own); click a folder, a timeline or a draft to open it. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Files dropped from your computer are imported where they land; onto a linked folder they are written into it on disk (never over a file: \"name (2).png\"). Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click Name, Created or Size to sort each level by it, again to reverse it: folders stay first. Drafts with no prompt, no name and nothing rendered fold into one row of empty drafts; its Clear deletes them (the open draft stays).";
+  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click the Inbox or a project to work in it (the library, the drafts and the timelines then show its own, and what you make lands in it); click a folder, a timeline or a draft to open it. Right-click a project for Pin to the rail: up to four sit under the rail's project button, one click away, and are dragged there to reorder. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Files dropped from your computer are imported where they land; onto a linked folder they are written into it on disk (never over a file: \"name (2).png\"). Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click Name, Created or Size to sort each level by it, again to reverse it: folders stay first. Drafts with no prompt, no name and nothing rendered fold into one row of empty drafts; its Clear deletes them (the open draft stays).";
 
 const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
-  all: { icon: <Globe size={16} />, tone: "text-ink-2" },
+  loose: { icon: <FolderX size={16} />, tone: "text-ink-3" },
   inbox: { icon: <Inbox size={16} />, tone: "text-ink-2" },
   project: { icon: <FolderKanban size={16} />, tone: "text-accent" },
   archive: { icon: <Archive size={16} />, tone: "text-ink-3" },
@@ -94,13 +101,28 @@ function Lit({ text, q }: { text: string; q: string }) {
  * A click switches to a project or opens what it is; Ctrl / Shift + click picks several; rows are dragged
  * onto a project, the Inbox or a folder to move them; a right-click gives the rest. Escape or a click
  * elsewhere closes it; a menu or a question opened from it does not.
+ *
+ * With `scope`, the same tree for one project only (or the Inbox), under the library's breadcrumb: its rows are places
+ * of the library (`onPlace`), it takes the library's items and timelines dropped on it, and it never lists another
+ * project (the rail switches projects).
  */
-export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: searchFor }: {
+export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: searchFor, reveal, scope }: {
   anchor: RefObject<HTMLElement | null>;
+  /** An item to open on ("Show in the Projects panel"): its project and folders unfolded, its row picked and in sight. */
+  reveal?: Reveal;
   /** What the search starts on (a name the command bar was asked to show). */
   search?: string;
   onClose(): void;
-  onNew(): void;
+  onNew?(): void;
+  /** One project's tree (`group`: its id, null for the Inbox), for the library's breadcrumb. */
+  scope?: {
+    group: string | null;
+    /** Where the library is: its row is lit. */
+    place: Place;
+    onPlace(p: Place): void;
+    /** Opened by itself while something is dragged: a line says to drop it on a folder. */
+    dragging?: boolean;
+  };
   /** An item clicked: shown large in the Viewer, the panel kept underneath. */
   onView(asset: Asset): void;
   /** Kept as it is but not shown, while the Viewer is over it. */
@@ -129,6 +151,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   const folders = useFolders();
   const storage = useStorage();
   const actions = useTreeActions();
+  const pins = usePins();
   const client = useQueryClient();
   // "Import a folder…": the computer's folder picker, and where what it picks goes
   const picker = useRef<HTMLInputElement>(null);
@@ -138,12 +161,20 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     picker.current?.click();
   };
 
-  // where it sits: beside the rail, level with its button, inside the window
+  // where it sits: beside the rail, level with its button, inside the window; one project's tree under its breadcrumb
   const [place, setPlace] = useState<{ left: number; top: number; width: number; maxHeight: number; arrow: number } | null>(null);
+  const scoped = Boolean(scope);
   useLayoutEffect(() => {
     const at = () => {
       const r = anchor.current?.getBoundingClientRect();
       if (!r) return;
+      if (scoped) {
+        const width = Math.max(320, Math.min(640, window.innerWidth - 16));
+        const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+        const top = r.bottom + 6;
+        setPlace({ left, top, width, maxHeight: Math.min(window.innerHeight * 0.75, window.innerHeight - top - 8), arrow: 0 });
+        return;
+      }
       const rail = anchor.current?.closest("nav")?.getBoundingClientRect().right ?? r.right;
       const left = rail + 8;
       const top = Math.max(8, r.top - 12);
@@ -153,7 +184,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     at();
     window.addEventListener("resize", at);
     return () => window.removeEventListener("resize", at);
-  }, [anchor]);
+  }, [anchor, scoped]);
   // a click elsewhere closes it; not one on its button, a menu opened from it, or a question asked over it
   useEffect(() => {
     const outside = (e: PointerEvent) => {
@@ -182,7 +213,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     const t = setTimeout(() => setQ(text.trim().slice(0, 100)), 250);
     return () => clearTimeout(t);
   }, [text]);
-  const [kind, setKindState] = useState<ItemKind | null>(readKind);
+  // one project's tree has no kind chips: it shows and counts every kind, whatever the Projects panel was left on
+  const [kind, setKindState] = useState<ItemKind | null>(() => (scoped ? null : readKind()));
   const setKind = (k: ItemKind | null) => {
     setKindState(k);
     try {
@@ -193,6 +225,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     }
   };
   const tree = useProjectsTree(q, kind);
+  const only = scope ? { group: scope.group } : undefined;
   const [sort, setSortState] = useState<Sort>(readSort);
   const sortBy = (by: Sort["by"]) => {
     const next = nextSort(sort, by);
@@ -208,7 +241,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   const [folds, setFolds] = useState(readFolds);
   const [searchFolded, setSearchFolded] = useState<Set<string>>(new Set());
   useEffect(() => setSearchFolded(new Set()), [q]);
-  const currentKey = current === null ? null : groupKey({ id: current === "none" ? null : current });
+  const currentKey = groupKey({ id: current === "none" ? null : current });
   const isOpen = (key: string) => (q ? !searchFolded.has(key) : folds[key] ?? key === currentKey);
   const setOpen = (key: string, open: boolean) => {
     if (q) {
@@ -233,7 +266,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
 
   // the drafts of each group whose drafts row is open, read when it opens
   const groups = tree.data?.groups ?? [];
-  const draftGroups = q ? [] : groups.filter((g) => g.counts.drafts > 0 && isOpen(draftsKey(g.id)) && isOpen(groupKey(g)) && (!g.archived || isOpen("archived")));
+  // one project's tree shows that group's rows without its own row being unfolded
+  const draftGroups = q ? [] : groups.filter((g) => g.counts.drafts > 0 && isOpen(draftsKey(g.id)) && (scope ? g.id === scope.group : isOpen(groupKey(g)) && (!g.archived || isOpen("archived"))));
   const draftReads = useQueries({
     queries: draftGroups.map((g) => ({ queryKey: [...DRAFT_LIST, "tree", g.id ?? "none"], queryFn: ({ signal }: { signal: AbortSignal }) => api.draftsOf(g.id, { signal }) })),
   });
@@ -253,9 +287,9 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   // the items of each unfolded folder that is shown, read when it opens (the folders shown do not depend on items: they come first)
   const [itemPages, setItemPages] = useState<Record<string, number>>({});
   const openFolders = useMemo(
-    () => (tree.data && !q ? flatten(tree.data, { isOpen, drafts: () => undefined }).filter((r) => r.kind === "folder" && r.open && r.id) : []),
+    () => (tree.data && !q ? flatten(tree.data, { isOpen, drafts: () => undefined, only }).filter((r) => r.kind === "folder" && r.open && r.id) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree.data, folds, q, current],
+    [tree.data, folds, q, current, scope?.group],
   );
   const itemReads = useQueries({
     queries: openFolders.map((f) => {
@@ -282,9 +316,9 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   const draftsRead = draftGroups.map((g, i) => `${g.id}:${draftReads[i]?.dataUpdatedAt ?? 0}:${limits[draftsKey(g.id)] ?? DRAFTS_PAGE}`).join("|");
   const itemsRead = openFolders.map((f, i) => `${f.key}:${itemReads[i]?.dataUpdatedAt ?? 0}:${itemReads[i]?.isPlaceholderData ? 1 : 0}`).join("|");
   const rows = useMemo(
-    () => (tree.data ? flatten(tree.data, { isOpen, drafts: (k) => drafts.get(k), items: (k) => items.get(k), bin: storage.data?.bin ?? null, q, kind, draftMeta, sort }) : []),
+    () => (tree.data ? flatten(tree.data, { isOpen, drafts: (k) => drafts.get(k), items: (k) => items.get(k), bin: storage.data?.bin ?? null, q, kind, draftMeta, sort, only }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree.data, folds, searchFolded, q, kind, sort, draftsRead, itemsRead, recipes.data, current, storage.data?.bin.count, storage.data?.bin.bytes],
+    [tree.data, folds, searchFolded, q, kind, sort, draftsRead, itemsRead, recipes.data, current, storage.data?.bin.count, storage.data?.bin.bytes, scope?.group],
   );
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
   // the list drawn in a window: where each row sits, its place among its own (said to screen readers: rows out of sight are not drawn)
@@ -301,6 +335,29 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   const [focused, setFocused] = useState<string | null>(null);
   // the focused row's ring shows once the keys moved it, not after a click
   const [keyed, setKeyed] = useState(false);
+  // "Show in the Projects panel": the way down to the item unfolded once, then its row picked when it is drawn. An item
+  // in no folder has no row of its own (the Inbox's "No folder" row stands for them); one past a folder's first page
+  // falls back to its folder's row.
+  const revealed = useRef(false);
+  useEffect(() => {
+    if (!reveal || revealed.current || !folders.data) return;
+    revealed.current = true;
+    setOpen(groupKey({ id: reveal.group }), true);
+    const all = folders.data.items;
+    for (let f = all.find((x) => x.id === reveal.folder); f; f = all.find((x) => x.id === f!.parentId)) setOpen(`f:${f.id}`, true);
+  }, [reveal, folders.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = useRef(false);
+  useEffect(() => {
+    if (!reveal || shown.current || !revealed.current) return;
+    const own = rows.find((r) => r.key === `a:${reveal.asset}`);
+    const stand = own ?? rows.find((r) => r.key === (reveal.folder ? `f:${reveal.folder}` : "loose"));
+    // the folder's items not read yet: wait for them rather than settling on the folder
+    if (!own && reveal.folder && rows.some((r) => r.key.startsWith("more:") && r.label === "Reading…")) return;
+    if (!stand) return;
+    shown.current = true;
+    setFocused(stand.key);
+    setPicked(new Map([[stand.key, stand]]));
+  }, [rows, reveal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [renaming, setRenamingState] = useState<{ key: string; name: string } | null>(null);
   // also in a ref: Enter and the blur that follows it, or Escape and that blur, end the same renaming once
   const renameRef = useRef<{ key: string; name: string } | null>(null);
@@ -310,12 +367,20 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   };
   const clearPicks = () => setPicked(new Map());
 
-  const hereKey = current === null ? "all" : currentKey;
+  // the row lit: the project worked in; in one project's tree, the place the library is on
+  const at = scope?.place;
+  const hereKey = !at ? currentKey : at.type === "folder" ? `f:${at.id}` : at.type === "bin" ? "bin" : at.type === "unfiled" ? "loose" : currentKey;
   const toggle = (r: Row) => r.foldable && setOpen(r.key, !r.open);
+  /** One project's tree: a place of the library chosen, and the tree closed. */
+  const toPlace = (p: Place) => {
+    scope?.onPlace(p);
+    onClose();
+  };
 
   /** What a plain click (or Enter) does: switch to it, open it, or fold it. */
   const activate = (r: Row) => {
-    if (r.kind === "all") return setProject(null);
+    if (scope && (r.kind === "inbox" || r.kind === "project")) return toPlace({ type: "all" });
+    if (r.kind === "loose") return toPlace({ type: "unfiled" });
     if (r.kind === "inbox") return setProject("none");
     if (r.kind === "project") return r.archived ? toggle(r) : setProject(r.id);
     if (r.kind === "archive" || r.kind === "drafts" || r.kind === "empty") return toggle(r);
@@ -328,6 +393,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     }
     if (r.kind === "item") return r.asset && onView(r.asset);
     if (r.kind === "bin") {
+      if (scope) return toPlace({ type: "bin" });
       useStudio.getState().set({ place: { type: "bin" } });
       onClose();
       return go("/");
@@ -344,16 +410,17 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       go("/");
     }
   };
-  /** The Studio on a folder: the app looks at its project when it looked at another one (else the Studio would leave it). */
+  /** The Studio on a folder: the app works in its project when it worked in another one (else the Studio would leave it). In one project's tree: that place of the library, where it is. */
   const openFolder = (id: string, group: string | null) => {
-    if (current !== null && current !== (group ?? "none")) setProject(group ?? "none");
+    if (scope) return toPlace({ type: "folder", id });
+    if (current !== (group ?? "none")) setProject(group ?? "none");
     useStudio.getState().set({ place: { type: "folder", id } });
     onClose();
     go("/");
   };
   /** An item shown in the Studio: its folder open (the Inbox's loose items: "in no folder"), the item large. */
   const showInStudio = (a: Asset, group: string | null) => {
-    if (current !== null && current !== (group ?? "none")) setProject(group ?? "none");
+    if (current !== (group ?? "none")) setProject(group ?? "none");
     useStudio.getState().set({ place: a.folderId ? { type: "folder", id: a.folderId } : { type: "unfiled" } });
     useHandover.getState().set({ show: a.id });
     onClose();
@@ -433,12 +500,18 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     const moveTo: MenuItem = { label: `Move${many} to`, icon: <FolderInput size={14} />, items: moveItems(rs) };
     const del: MenuItem = { label: `Delete${many}…`, key: "Del", icon: <Trash2 size={14} />, danger: true, run: () => remove(rs) };
     const rename: MenuItem = { label: "Rename", key: "F2", icon: <Pencil size={14} />, run: () => startRename(r) };
+    // the rail's pins: the Inbox and the projects that are not archived; the rail holds four
+    const pin = (id: string): MenuItem =>
+      pins.has(id)
+        ? { label: "Unpin from the rail", icon: <PinOff size={14} />, run: () => pins.unpin(id) }
+        : { label: "Pin to the rail", icon: <Pin size={14} />, disabled: pins.full || r.archived, note: r.archived ? "unarchive it first" : pins.full ? "the rail holds four" : "one click away", run: () => pins.pin(id) };
     switch (r.kind) {
-      case "all":
-        return [{ label: "Switch to All", key: "Enter", icon: <Globe size={14} />, run: () => setProject(null) }];
+      case "loose":
+        return [{ label: "Open", key: "Enter", icon: <FolderOpen size={14} />, run: () => activate(r) }];
       case "inbox":
         return [
-          { label: "Switch to the Inbox", key: "Enter", icon: <Inbox size={14} />, run: () => setProject("none") },
+          scope ? { label: "Open", key: "Enter", icon: <FolderOpen size={14} />, note: "the whole Inbox", run: () => activate(r) } : { label: "Work in it", key: "Enter", icon: <Inbox size={14} />, run: () => setProject("none") },
+          ...(scope ? [] : [pin("none")]),
           { label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => void actions.newFolder({ name: "the Inbox", parent: null, project: null }).then((ok) => ok && setOpen(r.key, true)) },
           { label: "Import a folder here…", icon: <Upload size={14} />, note: "copies it in", run: () => r.target && importInto(r.target) },
           { label: "Link a disk folder…", icon: <Link2 size={14} />, note: "used in place", run: () => r.target && void actions.link(r.target) },
@@ -446,12 +519,18 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       case "project": {
         const g = groups.find((x) => x.id === r.id);
         const root = g?.rootFolderId ?? null;
-        return [
-          { label: `Switch to ${r.label}`, key: "Enter", icon: <FolderKanban size={14} />, disabled: r.archived, note: r.archived ? "unarchive it first" : undefined, run: () => setProject(r.id) },
+        const make: MenuItem[] = [
           { label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => void actions.newFolder({ name: r.label, parent: root, project: r.id }).then((ok) => ok && setOpen(r.key, true)) },
           ...(r.noRoot ? [{ label: "Make a root folder", icon: <FolderRoot size={14} />, note: "renders land there", run: () => void actions.setRoot({ id: r.id!, name: r.label }) }] : []),
           { label: "Import a folder here…", icon: <Upload size={14} />, note: r.noRoot ? "makes its root folder first" : "copies it in", run: () => r.target && importInto(r.target) },
           { label: "Link a disk folder…", icon: <Link2 size={14} />, note: "used in place", run: () => r.target && void actions.link(r.target) },
+        ];
+        // one project's tree is for working inside it: renaming, archiving and deleting projects stay in the Projects panel
+        if (scope) return [{ label: "Open", key: "Enter", icon: <FolderOpen size={14} />, note: "the whole project", run: () => activate(r) }, ...make];
+        return [
+          { label: "Work in it", key: "Enter", icon: <FolderKanban size={14} />, disabled: r.archived, note: r.archived ? "unarchive it first" : current === r.id ? "working in it" : undefined, run: () => setProject(r.id) },
+          pin(r.id!),
+          ...make,
           rename,
           "—",
           r.archived
@@ -499,7 +578,10 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         return itemMenu.many(several.map((x) => x.asset!), { moveTo: moveItems(several), bin: () => void actions.bin(several).then(clearPicks) });
       }
       case "bin":
-        return [{ label: "Open the bin", key: "Enter", icon: <Trash2 size={14} />, run: () => activate(r) }];
+        return [
+          { label: "Open the bin", key: "Enter", icon: <Trash2 size={14} />, run: () => activate(r) },
+          ...(storage.data?.bin.count ? ["—" as const, { label: "Empty the bin…", icon: <Trash2 size={14} />, danger: true, note: size(storage.data.bin.bytes), run: () => void actions.emptyBin() }] : []),
+        ];
       default:
         return [];
     }
@@ -534,6 +616,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   /** Whether what is dragged can be dropped on that row: moved there, or (the Bin) thrown away. */
   const takes = (r: Row) => {
     const moving = dragged.current ? movingOf(dragged.current) : [];
+    // the Inbox's No folder row takes items out of their folder (a file of the disk stays in its directory)
+    if (r.kind === "loose") return moving.length > 0 && moving.every((m) => m.kind === "asset" && !m.onDisk && m.folder !== null);
     return r.kind === "bin" ? Boolean(planBin(moving)) : Boolean(r.target && planDrop(moving, r.target));
   };
   const [over, setOver] = useState<string | null>(null);
@@ -561,8 +645,36 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   };
   /** Files from the computer go to a project, the Inbox or a folder (one of the disk: written into it there). */
   const takesFiles = (r: Row) => !r.archived && (r.kind === "project" || r.kind === "inbox" || r.kind === "folder") && Boolean(r.target);
+  /**
+   * The library's own drag (the grid's items, the Timelines view's cards): items onto a folder, a project with a root
+   * folder, the Inbox's No folder row or the Bin; timelines onto a folder that is not of the disk, or a project.
+   */
+  const takesLibrary = (r: Row, types: readonly string[]) => {
+    if (r.archived) return false;
+    const items = types.includes(DRAG_TYPE);
+    const timelines = types.includes(DRAG_TIMELINE);
+    if (r.kind === "bin" || r.kind === "loose") return items && !timelines;
+    if (!r.target) return false;
+    if (r.target.kind === "folder") return items || (timelines && !r.target.linked);
+    return (items && Boolean(r.target.root)) || timelines;
+  };
   const dragOver = (r: Row, e: DragEvent) => {
-    const fromDisk = !dragged.current && e.dataTransfer.types.includes("Files");
+    const types = e.dataTransfer.types;
+    if (!dragged.current && (types.includes(DRAG_TYPE) || types.includes(DRAG_TIMELINE))) {
+      if (!takesLibrary(r, types)) {
+        if (over === r.key) setOver(null);
+        return;
+      }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (over !== r.key) setOver(r.key);
+      if (r.foldable && !r.open && opening.current?.key !== r.key) {
+        stopOpening();
+        opening.current = { key: r.key, t: setTimeout(() => setOpen(r.key, true), 700) };
+      }
+      return;
+    }
+    const fromDisk = !dragged.current && types.includes("Files");
     if (fromDisk ? !takesFiles(r) : !dragged.current || !takes(r)) {
       if (over === r.key) setOver(null);
       // a drop refused for a reason of the disk says so, in place of the row's line
@@ -592,6 +704,14 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     setOver(null);
     setRefused(null);
     stopOpening();
+    const libraryItems = e.dataTransfer.getData(DRAG_TYPE).split(",").filter(Boolean);
+    const libraryTimelines = e.dataTransfer.getData(DRAG_TIMELINE).split(",").filter(Boolean);
+    if (!items && (libraryItems.length || libraryTimelines.length)) {
+      if (!takesLibrary(r, e.dataTransfer.types)) return;
+      if (r.kind === "bin") void actions.binLibrary(libraryItems);
+      else void actions.fromLibrary({ assets: libraryItems, timelines: libraryTimelines }, r.kind === "loose" ? null : r.target ?? null);
+      return;
+    }
     if (!items) {
       // files from the computer: uploaded there; a folder dropped is not read (its right-click "Import a folder…" is)
       if (!e.dataTransfer.files.length || !takesFiles(r) || !r.target) return;
@@ -601,6 +721,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       return;
     }
     if (r.kind === "bin") void actions.bin(items).then(clearPicks);
+    else if (r.kind === "loose") void actions.fromLibrary({ assets: movingOf(items).map((m) => m.id), timelines: [] }, null).then(clearPicks);
     else if (r.target) void actions.move(movingOf(items), r.target, targetOf(r)).then(clearPicks);
   };
   const dragEnd = () => {
@@ -828,19 +949,39 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     list.current?.focus({ preventScroll: true });
   };
 
+  const scopeName = scope ? (scope.group === null ? "Inbox" : projects.data?.items.find((p) => p.id === scope.group)?.name ?? "…") : "";
+  const columns = scoped ? SCOPED_COLUMNS : COLUMNS;
+  // the foot of one project's tree makes things where the library is: in the open folder, else at the project's top
+  // (read from the folders, not the rows: the open folder may be folded away under another)
+  const openF = at?.type === "folder" ? folders.data?.items.find((f) => f.id === at.id) : undefined;
+  const openFolderRow = openF ? { label: openF.name, target: { kind: "folder", id: openF.id, group: openF.projectId, linked: Boolean(openF.path), ancestors: [], name: openF.name } satisfies Target } : undefined;
+  const groupRow = scope ? byKey.get(groupKey({ id: scope.group })) : undefined;
+  const footTarget: Target | undefined = openFolderRow?.target ?? groupRow?.target;
+
   return createPortal(
     <div
       ref={panel}
       role="dialog"
-      aria-label="Projects"
+      aria-label={scoped ? `${scopeName}: folders, timelines and drafts` : "Projects"}
       style={{ left: place.left, top: place.top, width: place.width, maxHeight: place.maxHeight }}
-      className={cx("fixed z-[66] flex flex-col rounded-2xl border border-line-strong bg-panel text-sm shadow-2xl shadow-shade/60", (hidden || covered) && "invisible")}
+      className={cx("fixed z-[66] flex flex-col rounded-2xl border border-line-strong bg-panel text-sm shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]", (hidden || covered) && "invisible")}
     >
       {/* the notch that points at the rail's button */}
-      <span aria-hidden className="absolute -left-[7px] h-3 w-3 rotate-45 border-b border-l border-line-strong bg-panel" style={{ top: Math.max(10, Math.min(place.arrow - 6, 40)) }} />
-      <div className="flex flex-wrap items-center gap-2.5 px-4 pt-3.5 pb-3">
-        <span className="text-base font-bold">Projects</span>
-        <Help text={HELP} />
+      {!scoped && <span aria-hidden className="absolute -left-[7px] h-3 w-3 rotate-45 border-b border-l border-line-strong bg-panel" style={{ top: Math.max(10, Math.min(place.arrow - 6, 40)) }} />}
+      {scope?.dragging && <div className="mx-3 mt-3 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-accent-ink">Drop on a folder to put it there</div>}
+      <div className={cx("flex flex-wrap items-center gap-2.5", scoped ? "px-3.5 pt-3 pb-2.5" : "px-4 pt-3.5 pb-3")}>
+        {scoped ? (
+          <>
+            <span className="min-w-0 truncate text-[15px] font-bold">{scopeName}</span>
+            <span className="shrink-0 text-xs text-ink-3">{scope?.group === null ? "the Inbox only" : "this project only"}</span>
+            <Help text={HELP_SCOPED} />
+          </>
+        ) : (
+          <>
+            <span className="text-base font-bold">Projects</span>
+            <Help text={HELP} />
+          </>
+        )}
         <label className="ml-1.5 flex h-[34px] min-w-0 grow basis-[180px] items-center gap-2 rounded-[10px] border border-line-strong bg-raised px-3 text-ink-2 focus-within:border-accent">
           <Search size={15} className="shrink-0" />
           <input
@@ -855,11 +996,15 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
           />
           {q && <span className="shrink-0 text-xs text-ink-3">{found} found</span>}
         </label>
-        {/* the library's own chips: which kind of item the folders show and count */}
-        <Segmented oneLine label="Items shown" value={kind ?? "all"} options={[...KINDS]} onChange={(v) => setKind(v === "all" ? null : v)} />
-        <Button tone="primary" size="sm" onClick={onNew} className="shrink-0">
-          <Plus size={14} strokeWidth={2.4} /> New project
-        </Button>
+        {!scoped && (
+          <>
+            {/* the library's own chips: which kind of item the folders show and count */}
+            <Segmented oneLine label="Items shown" value={kind ?? "all"} options={[...KINDS]} onChange={(v) => setKind(v === "all" ? null : v)} />
+            <Button tone="primary" size="sm" onClick={onNew} className="shrink-0">
+              <Plus size={14} strokeWidth={2.4} /> New project
+            </Button>
+          </>
+        )}
       </div>
 
       <div
@@ -877,13 +1022,13 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         className="relative min-h-0 grow overflow-y-auto border-t border-line px-2"
       >
         {/* the columns: a click sorts each level by it, again turns it around */}
-        <div ref={head} className={cx("sticky top-0 z-10 -mx-2 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", COLUMNS)}>
+        <div ref={head} className={cx("sticky top-0 z-10 -mx-2 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", columns)}>
           {(
             [
               { by: "name", label: "Name", end: false },
               // what a row holds says different things for each kind of row: nothing to sort by
               null,
-              { by: "created", label: "Created", end: true },
+              ...(scoped ? [] : [{ by: "created", label: "Created", end: true }] as const),
               { by: "size", label: "Size", end: true },
             ] as const
           ).map((c, i) =>
@@ -946,7 +1091,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
               }}
               className={cx(
                 "grid cursor-pointer items-center gap-2.5 rounded-lg px-2.5 select-none",
-                COLUMNS,
+                columns,
                 top ? "h-10" : "h-[33px]",
                 r.kind === "archive" && "mt-2 rounded-t-none border-t border-line",
                 // the Bin stays in sight at the foot of the list, however far the tree scrolls: always there to drop on (square, so no row shows past its corners)
@@ -1016,9 +1161,14 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                     <Lit text={r.label} q={r.match ? q : ""} />
                   </span>
                 )}
-                {here && (
+                {here && !scoped && (
                   <span className="ml-2 flex shrink-0 items-center gap-1 rounded-full bg-accent px-2 py-px text-[11px] font-bold whitespace-nowrap text-accent-ink">
                     <Check size={11} strokeWidth={3} /> working in
+                  </span>
+                )}
+                {!scoped && (r.kind === "project" || r.kind === "inbox") && pins.has(r.id ?? "none") && (
+                  <span aria-label="Pinned to the rail" data-tip="Pinned to the rail" className="ml-2 flex shrink-0 items-center text-ink-3">
+                    <Pin size={12} />
                   </span>
                 )}
                 {r.noRoot && !r.archived && (
@@ -1065,7 +1215,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
               ) : (
                 <span data-tip={r.path} className={cx("min-w-0 truncate text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>
               )}
-              <span data-tip={r.created ? new Date(r.created).toLocaleString("en-GB") : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>
+              {!scoped && <span data-tip={r.created ? new Date(r.created).toLocaleString("en-GB") : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>}
               <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">{r.bytes !== null ? size(r.bytes) : ""}</span>
             </div>
           );
@@ -1082,9 +1232,39 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
           <Button size="sm" tone="quiet" onClick={clearPicks}>Clear</Button>
         </div>
       )}
-      <div className="flex items-center gap-3.5 border-t border-line px-4 py-2.5 text-xs text-ink-2">
-        <span className="shrink-0 font-mono whitespace-nowrap text-ink">{tree.data ? `${size(tree.data.totalBytes)} in all` : ""}</span>
-      </div>
+      {scoped ? (
+        // what is made in this project, where the library is: in the open folder, else at its top
+        <div className="flex flex-wrap items-center gap-1 border-t border-line px-2 py-1.5 text-xs">
+          {(
+            [
+              { icon: <FolderPlus size={13} />, label: openFolderRow ? `New folder in ${openFolderRow.label}` : "New folder", tip: undefined, disabled: !footTarget, run: () => footTarget && void actions.newFolder(footTarget.kind === "folder" ? { name: footTarget.name, parent: footTarget.id, project: footTarget.group } : { name: footTarget.name, parent: footTarget.root, project: footTarget.group }) },
+              { icon: <Link2 size={13} />, label: "Link a local folder", tip: "A folder of the disk Afflatus runs on, shown with its sub-folders. Its files are used in place: nothing is copied.", disabled: !groupRow?.target, run: () => groupRow?.target && void actions.link(groupRow.target) },
+              { icon: <FolderUp size={13} />, label: openFolderRow ? `Import a folder into ${openFolderRow.label}` : "Import a folder", tip: "Every image, video and audio file in a folder of your computer is copied in, with its sub-folders.", disabled: !footTarget, run: () => footTarget && importInto(footTarget) },
+            ] as const
+          ).map((a) => (
+            <button key={a.label} type="button" disabled={a.disabled} data-tip={a.tip} onClick={a.run} className="flex h-8 max-w-64 items-center gap-1.5 rounded-lg px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50">
+              {a.icon}
+              <span className="truncate">{a.label}</span>
+            </button>
+          ))}
+          <span className="grow" />
+          <button
+            type="button"
+            data-tip="All your projects: switch, pin to the rail, make, archive"
+            onClick={() => {
+              onClose();
+              window.dispatchEvent(new CustomEvent("afflatus:projects", { detail: {} }));
+            }}
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink"
+          >
+            <FolderKanban size={13} /> Open Projects
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3.5 border-t border-line px-4 py-2.5 text-xs text-ink-2">
+          <span className="shrink-0 font-mono whitespace-nowrap text-ink">{tree.data ? `${size(tree.data.totalBytes)} in all` : ""}</span>
+        </div>
+      )}
       <input
         ref={picker}
         type="file"

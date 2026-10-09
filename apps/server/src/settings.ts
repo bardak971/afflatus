@@ -100,6 +100,11 @@ export const settingsSchema = z.object({
   acceptedPresets: z.array(z.string().max(120)).max(500).default([]),
   /** The command bar's shortcut and its optional parts. */
   bar: barSchema.prefault({}),
+  /**
+   * The projects pinned to the rail under the one worked in, in their order there (project ids, four at most): one click
+   * switches to each. A project deleted or archived is taken out (projects.ts).
+   */
+  pinnedProjects: z.array(z.string().min(1).max(80)).max(4).refine((ids) => new Set(ids).size === ids.length, "a project is pinned once").default([]),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -213,5 +218,6 @@ export function publicSettings(s: Settings) {
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,
     bar: s.bar,
+    pinnedProjects: s.pinnedProjects,
   };
 }

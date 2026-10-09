@@ -78,11 +78,12 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           {!error && note?.undo && t.undo && <Button size="sm" tone="quiet" className="h-6 shrink-0 px-2" disabled={undo.pending} data-tip={`Undo: ${t.undo}`} data-tip-keys="Ctrl+Z" onClick={undo.run}>Undo</Button>}
         </span>
       ) : null}
-      <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl+Z" onClick={undo.run}>
-        <Undo2 size={15} /> Undo
+      {/* icons, their keys in the tip: as words they stood level with Finish and Export, which they are not */}
+      <Button className="w-10 px-0" aria-label="Undo" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl+Z" onClick={undo.run}>
+        <Undo2 size={16} />
       </Button>
-      <Button className="px-3" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl+Shift+Z | Ctrl+Y" onClick={redo.run}>
-        <Redo2 size={15} /> Redo
+      <Button className="-ml-1 w-10 px-0" aria-label="Redo" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl+Shift+Z | Ctrl+Y" onClick={redo.run}>
+        <Redo2 size={16} />
       </Button>
       {missing.length > 0 && (
         <Button tone="primary" disabled={rendering} data-tip="Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order." onClick={onRenderMissing}>

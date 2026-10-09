@@ -118,4 +118,26 @@ describe("projects", () => {
     const folders = (await get(t.app, "/api/folders")).json().items as Array<{ id: string; projectId: string | null }>;
     expect(folders.find((f) => f.id === p.folderId)).toMatchObject({ projectId: null });
   });
+
+  it("is pinned to the rail in its order, four at most, and leaves the pins when archived or deleted", async () => {
+    const put = (pins: unknown) => t.app.inject({ method: "PUT", url: "/api/settings", payload: { pinnedProjects: pins } as object });
+    const pinned = async () => (await get(t.app, "/api/settings")).json().pinnedProjects as string[];
+    const [a, b, c] = [await call("POST", "/api/projects", { name: "A" }), await call("POST", "/api/projects", { name: "B" }), await call("POST", "/api/projects", { name: "C" })];
+    expect(await pinned()).toEqual([]);
+    expect((await put([c.id, a.id, b.id])).statusCode).toBe(200);
+    expect(await pinned()).toEqual([c.id, a.id, b.id]);
+    // five do not fit the rail, and one project is pinned once
+    expect((await put(["1", "2", "3", "4", "5"])).statusCode).toBe(400);
+    expect((await put([a.id, a.id])).statusCode).toBe(400);
+    // archived: no place to switch to, so out of the pins (unarchived, it is not pinned again by itself)
+    await call("PATCH", `/api/projects/${a.id}`, { archived: true });
+    expect(await pinned()).toEqual([c.id, b.id]);
+    await call("PATCH", `/api/projects/${a.id}`, { archived: false });
+    expect(await pinned()).toEqual([c.id, b.id]);
+    // a rename leaves the pins as they are; a delete takes it out
+    await call("PATCH", `/api/projects/${b.id}`, { name: "B2" });
+    expect(await pinned()).toEqual([c.id, b.id]);
+    await call("DELETE", `/api/projects/${c.id}`);
+    expect(await pinned()).toEqual([b.id]);
+  });
 });

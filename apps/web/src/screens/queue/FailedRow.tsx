@@ -1,11 +1,13 @@
 import { useState, type CSSProperties } from "react";
 import { Link } from "wouter";
-import { MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, FileText, MoreHorizontal, Pencil, RotateCcw, Trash2, Wrench } from "lucide-react";
 import type { HistoryJob } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { useRecipes } from "../../data";
 import { fileLabel, when } from "../../format";
-import { Button, cx } from "../../ui";
+import { Button, buttonClass, Chip, cx } from "../../ui";
+import { useQueueBulk } from "./bulk";
+import { readableError } from "./failures";
 import { fixLink } from "./fixLink";
 import { ROW, useJobActions } from "./jobActions";
 import { useModelName } from "./modelName";
@@ -16,35 +18,70 @@ export const HATCHED: CSSProperties = {
   background: "repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-warn) 28%, var(--color-panel)) 0 6px, var(--color-warn-wash) 6px 12px)",
 };
 
+/** A way to fix a failure: a place in the app (a link), or the same jobs again with a change. */
+type Fix = { label: string; tip?: string; href?: string; run?(): void };
+
 /**
- * A job that failed: one row tinted in the bad colour, the error on one line, a Retry and a menu of the
- * other ways to run it again. A click on the row opens the whole error under it, with a link to the place
- * in the app that fixes it when the error names one. `quiet`: an older failure in the history's time order, a
- * render having worked since: not tinted, the error alone in the bad colour.
+ * A job that failed, or several that failed the same way (foldFailures: same error, workflow and model, folded
+ * into one row with a "×3 · same error" chip): one row tinted in the bad colour, the error said in one readable
+ * sentence, and its fix as the first button: the missing file to get, the setting to open, a lighter retry. A
+ * second fix, when there is one, as a plain button. Retrying unchanged is in the ··· menu, where it says it fails
+ * again when the error would not change by itself; with no known fix, Retry is the button. A click on the row
+ * opens the whole ComfyUI text under it. `quiet`: an older failure in the history's time order, a render having
+ * worked since: not tinted, the error alone in the bad colour.
  */
-export function FailedRow({ job, quiet = false }: { job: HistoryJob; quiet?: boolean }) {
+export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?: boolean }) {
+  const job = jobs[0]!;
+  const n = jobs.length;
   const [open, setOpen] = useState(false);
+  /** A folded row's jobs shown one by one under it. */
+  const [split, setSplit] = useState(false);
   const recipes = useRecipes();
   const modelOf = useModelName();
+  const bulk = useQueueBulk();
   const { again, dismiss, toDraft } = useJobActions();
   const recipe = recipes.data?.recipes.find((x) => x.id === job.recipe);
   const memory = memoryThatRanOut(job.error);
-  const fix = memory ? lighter(recipe, job.input) : null;
+  const said = readableError(job.error, memory);
   const stretch = memory ? shorterStretch(recipe, job.input) : null;
-  const link = fixLink(job.error);
+  const fix = memory ? lighter(recipe, job.input) : null;
+  const link = said.missing ? { href: "/settings/models", label: "Get the file" } : fixLink(job.error);
   const error = `${job.error ?? "Failed."}${memory === "ram" ? " Out of the machine's memory (RAM), not the card's: the work had fallen back to the processor." : memory === "vram" ? " Out of VRAM." : ""}`;
-  /** Run it again (changed, or not), and take the failed one out of the list once it is queued. */
-  const retry = (input?: Record<string, unknown>) => again.mutate({ id: job.id, input }, { onSuccess: () => dismiss.mutate(job.id) });
+  const ids = jobs.map((j) => j.id);
+  /**
+   * Every job of the row again, each changed by `change` (worked out from its own input), and each failed one taken
+   * out of the list once it is queued. Unchanged and several: one request, oldest first.
+   */
+  const retry = (change?: (j: HistoryJob) => Record<string, unknown> | undefined) => {
+    if (!change && n > 1) return void bulk.retryAllFailed(ids);
+    for (const j of jobs) again.mutate({ id: j.id, input: change?.(j) }, { onSuccess: () => dismiss.mutate(j.id) });
+  };
+  const fixes: Fix[] = [
+    ...(link ? [{ label: link.label, href: link.href, tip: said.missing ? `Settings › Models: fetch ${said.missing.file} into ComfyUI, or see which folder it goes in` : undefined }] : []),
+    ...(stretch ? [{ label: stretch.label, tip: "The latent upscale re-samples the clip in stretches of frames; shorter stretches need less memory.", run: () => retry((j) => shorterStretch(recipe, j.input)?.change) }] : []),
+    ...(fix ? [{ label: fix.label, tip: "One step lighter: less memory", run: () => retry((j) => lighter(recipe, j.input)?.change) }] : []),
+    ...(said.missing && job.draftId ? [{ label: "Pick another model", tip: "Open its draft, to pick a model that is there", run: () => toDraft(job.draftId!) }] : []),
+  ];
+  const [first, second, ...more] = fixes;
+  // an unchanged retry of a missing file, or of what a setting has to fix, fails the same way until that is done
+  const until = said.missing ? "fails again until the file is there" : link ? "fails again until it is fixed" : undefined;
   const menu = useMenu<true>();
   const items: MenuItem[] = [
-    { label: "Retry unchanged", icon: <RotateCcw size={14} />, disabled: again.isPending, run: () => retry() },
-    ...(stretch ? [{ label: stretch.label, icon: <RotateCcw size={14} />, note: "less memory", disabled: again.isPending, run: () => retry(stretch.change) }] : []),
-    ...(fix ? [{ label: fix.label, icon: <RotateCcw size={14} />, note: "less memory", disabled: again.isPending, run: () => retry(fix.change) }] : []),
-    ...(job.draftId ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(job.draftId!) }] : []),
+    ...(first ? [{ label: n > 1 ? `Retry all ${n} unchanged` : "Retry unchanged", icon: <RotateCcw size={14} />, note: until, disabled: again.isPending, run: () => retry() }] : []),
+    ...more.map((f) => ({ label: f.label, icon: <Wrench size={14} />, note: f.tip, disabled: again.isPending, run: f.run })),
+    ...(job.draftId && !(said.missing && fixes.length) ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(job.draftId!) }] : []),
+    { label: open ? "Hide the whole error" : "Show the whole error", icon: <FileText size={14} />, run: () => setOpen(!open) },
+    ...(n > 1 ? [{ label: split ? `Fold the ${n} jobs` : `Show the ${n} jobs`, icon: split ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />, run: () => setSplit(!split) }] : []),
     "—",
-    { label: "Dismiss", icon: <Trash2 size={14} />, danger: true, note: "out of the history", run: () => dismiss.mutate(job.id) },
+    { label: n > 1 ? `Dismiss all ${n}` : "Dismiss", icon: <Trash2 size={14} />, danger: true, note: "out of the history", run: () => (n > 1 ? void bulk.dismissAllFailed({ ids }) : dismiss.mutate(job.id)) },
   ];
   const toggle = () => setOpen(!open);
+  const button = (f: Fix, tone: "primary" | "plain") =>
+    f.href ? (
+      <Link key={f.label} href={f.href} data-tip={f.tip} onClick={(e) => e.stopPropagation()} className={buttonClass({ tone, size: "sm" })}>{f.label}</Link>
+    ) : (
+      <Button key={f.label} size="sm" tone={tone} disabled={again.isPending} data-tip={f.tip} onClick={(e) => { e.stopPropagation(); f.run?.(); }}>{f.label}</Button>
+    );
 
   return (
     <div className="flex flex-col gap-1">
@@ -52,7 +89,7 @@ export function FailedRow({ job, quiet = false }: { job: HistoryJob; quiet?: boo
         role="button"
         tabIndex={0}
         aria-expanded={open}
-        aria-label={`${job.label}: failed. ${open ? "Hide" : "Show"} the whole error`}
+        aria-label={`${job.label}: failed${n > 1 ? ` ${n} times` : ""}. ${open ? "Hide" : "Show"} the whole error`}
         onClick={toggle}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
@@ -64,13 +101,22 @@ export function FailedRow({ job, quiet = false }: { job: HistoryJob; quiet?: boo
         className={cx(ROW, "cursor-pointer rounded-xl py-2 focus-visible:outline-2 focus-visible:outline-warn", quiet ? "py-1.5 hover:bg-hover" : "bg-warn-wash inset-ring inset-ring-warn/30 hover:inset-ring-warn/55")}
       >
         <span className={cx("h-9 w-16 rounded-[7px]", quiet && "opacity-40")} style={HATCHED} />
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <span className={cx("truncate text-[13.5px]", quiet ? "font-semibold text-ink-2" : "font-bold")}>{job.label}</span>
-          <span className="truncate text-xs text-warn-ink">{error}</span>
+        {/* the fixes sit in the name's column, after it: they need more room than the "took" column has */}
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 grow flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className={cx("truncate text-[13.5px]", quiet ? "font-semibold text-ink-2" : "font-bold")}>{job.label}</span>
+              {n > 1 && <Chip tone="warn" className="h-5 px-2 text-[11px]" tip={`${n} jobs failed with the same error; ··· shows them`}>×{n} · same error</Chip>}
+            </span>
+            <span className="truncate text-xs text-warn-ink">{said.text}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5">
+            {first ? button(first, "primary") : <Button size="sm" tone="primary" disabled={again.isPending} onClick={(e) => { e.stopPropagation(); retry(); }} data-tip={n > 1 ? "The same jobs again, unchanged, oldest first" : "The same job again, unchanged"}>{n > 1 ? `Retry all ${n}` : "Retry"}</Button>}
+            {second && button(second, "plain")}
+          </span>
         </span>
         <span className="truncate text-[12.5px] text-ink-2" data-tip={job.model ? fileLabel(job.model) : undefined}>{modelOf(job)}</span>
-        <span className="flex justify-end gap-1">
-          <Button size="sm" disabled={again.isPending} onClick={(e) => { e.stopPropagation(); retry(); }} data-tip="The same job again, unchanged">Retry</Button>
+        <span className="flex justify-end">
           <button
             type="button"
             aria-label={`More actions on ${job.label}`}
@@ -87,16 +133,14 @@ export function FailedRow({ job, quiet = false }: { job: HistoryJob; quiet?: boo
         <div className="mr-3 mb-1 ml-[90px] flex flex-col gap-2 rounded-[10px] bg-raised px-3 py-2.5 text-[12.5px] leading-normal">
           <span className="whitespace-pre-wrap select-text">{error}</span>
           {job.prompt && <span className="truncate text-xs text-ink-2" data-tip={job.prompt}>{job.prompt}</span>}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {link && <Link href={link.href} className="mr-2 font-semibold text-accent hover:underline">{link.label}</Link>}
-            {stretch && <Button size="sm" tone="danger" disabled={again.isPending} data-tip="The latent upscale re-samples the clip in stretches of frames; shorter stretches need less memory." onClick={() => retry(stretch.change)}>{stretch.label}</Button>}
-            {fix && <Button size="sm" tone={stretch ? undefined : "danger"} disabled={again.isPending} onClick={() => retry(fix.change)}>{fix.label}</Button>}
-            {job.draftId && <Button size="sm" onClick={() => toDraft(job.draftId!)}>Open its draft</Button>}
-            <Button size="sm" tone="quiet" onClick={() => dismiss.mutate(job.id)}>Dismiss</Button>
-          </div>
         </div>
       )}
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${job.label}`} head={{ title: job.label, sub: `Failed · ${modelOf(job)}` }} items={items} onClose={menu.close} />}
+      {split && n > 1 && (
+        <div className="ml-3 flex flex-col gap-1 border-l-2 border-warn/30 pl-1">
+          {jobs.map((j) => <FailedRow key={j.id} jobs={[j]} quiet />)}
+        </div>
+      )}
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${job.label}`} head={{ title: n > 1 ? `${job.label} ×${n}` : job.label, sub: `Failed · ${modelOf(job)}` }} items={items} onClose={menu.close} />}
     </div>
   );
 }

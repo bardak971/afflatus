@@ -38,7 +38,8 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   const busy = assets.isFetchingNextPage || assets.isFetchingPreviousPage;
   // the viewer's arrow past the last one loaded reads the next page
   const more = { has: Boolean(assets.hasNextPage), busy, load: () => void assets.fetchNextPage() };
-  const tileMenu = useTileMenu({ onOpen: (a) => setPicked(a.id), into: { draft, folder } });
+  // the column's menu: the item's list, its keys shown (they act on the stage, on the item shown large)
+  const tileMenu = useTileMenu({ onOpen: (a) => setPicked(a.id), into: { draft, folder }, place: "stage" });
   // a draft's stage shows its own renders forming; another scope's, whatever renders now. Only which job and
   // which are queued: the stage does not draw again at every step, the live parts read their progress themselves
   const ours = useQueueOf((q) => {

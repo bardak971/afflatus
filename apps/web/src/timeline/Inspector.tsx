@@ -15,11 +15,11 @@ import { Form, mainTextOf } from "../RecipeForm";
 import { CardPrompt } from "../recipeForm/Part";
 import { CastPictures } from "../castPictures";
 import { Select } from "../Select";
-import { AutoText, Bar, Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
+import { AutoText, Bar, Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, SectionTitle, Segmented, Toggle } from "../ui";
 import { FieldRow } from "../fields";
 import { RangeSlider } from "../RangeSlider";
 import { Keys } from "../Keys";
-import { usePanelWidth } from "../store";
+import { ColumnEdge, FoldButton, useColumnWidth } from "./column";
 import { Slider } from "../Slider";
 import { Wave } from "./track/Wave";
 import { fileVersion, otherShape, pinInputs, roomOf, shapeOf, type ShownPatch } from "./model";
@@ -124,22 +124,23 @@ function SongStrip({ timeline, onFrom }: { timeline: Timeline; onFrom(fromMs: nu
 export function MusicPanel({ timeline, onEdit, onClose }: { timeline: Timeline; onEdit(patch: TimelinePatch): void; /** Back to the timeline's own panel: also Escape. */ onClose?(): void }) {
   const m = timeline.music;
   const [picking, setPicking] = useState(false);
-  const width = usePanelWidth((st) => st.width);
+  const width = useColumnWidth();
   if (!m) return null;
   // the clips it can start with: the ones that play
   const starts = timeline.clips.map((c, i) => ({ id: c.id, n: i + 1, atMs: c.atMs, lengthMs: c.lengthMs })).filter((c) => c.lengthMs > 0);
   const startValue = m.startClip && m.startClip !== starts[0]?.id ? m.startClip : "first";
   return (
     <aside style={{ width }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
-      <PanelEdge side="left" />
+      <ColumnEdge />
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
         <Music size={15} className="text-accent" />
         <span className="font-semibold">Music</span>
         <Help title="Music" text="Plays under the whole video. Drop another audio file on the music track to replace it." />
         <span className="min-w-0 grow truncate text-ink-2">{m.asset.name || "an audio file"}{m.asset.durationMs ? ` · ${clock(m.asset.durationMs)}` : ""}</span>
+        <FoldButton />
         {onClose && <CloseButton onClose={onClose} />}
       </div>
-      <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
+      <div className="@container/column flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
         <SongStrip timeline={timeline} onFrom={(fromMs) => onEdit({ music: { fromMs } })} />
         <FieldRow label="Song from" note="The moment of the song heard where the music starts. Drag the lit stretch, or the song on its lane.">
           <NumberBox label="Song from, in seconds" value={m.fromMs / 1000} min={0} max={mostFromMs({ ...m, durationMs: m.asset.durationMs ?? 0 }, timeline.clips) / 1000} step={0.1} unit="s" onCommit={(s) => onEdit({ music: { fromMs: Math.round(s * 1000) } })} />
@@ -222,7 +223,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   /** Open another clip in the panel (the one before or after, the one it extends); left out, those are not offered. */
   onSelectClip?(id: string): void;
 }) {
-  const panelWidth = usePanelWidth((st) => st.width);
+  const panelWidth = useColumnWidth();
   const all = useRecipes();
   const setup = useSetup();
   const entities = useEntities();
@@ -334,7 +335,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
 
   return (
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
-      <PanelEdge side="left" />
+      <ColumnEdge />
       <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 pt-3.5 pb-3">
         <div className="flex items-start gap-2">
           {/* its number and what it is, wrapping as one line: the prompt is in the form below, not said twice */}
@@ -368,11 +369,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               </button>
             </>
           )}
-          {recipe && !still && (
-            <button type="button" aria-pressed={Boolean(designer)} data-tip={designer ? "Back to the clip's form (Esc)" : "The designer, in place of the form"} onClick={onDesigner} className={cx("flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-xs font-semibold", designer ? "border-accent/50 bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>
-              <Wand2 size={13} /> Designer
-            </button>
-          )}
+          {/* the designer is opened from the prompt's own Designer helper, and closed by its × or Escape: not a second button here */}
+          <FoldButton />
           {/* Remove clip lives in this menu, with the clip's other actions, not as a button beside Close: one misclick from losing a clip */}
           <button
             type="button"
@@ -393,7 +391,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
       </div>
 
       {designer}
-      <div className={cx("flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4", designer ? "hidden" : "")}>
+      {/* a container: the form's rows lay out by the column's width (FieldRow), which can go down to 320 px */}
+      <div className={cx("@container/column flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4", designer ? "hidden" : "")}>
         {still && clip.still && (
           <>
             <img src={thumbUrl(clip.still.id)} alt={clip.still.name} className="max-h-56 self-start rounded-lg" />
