@@ -1,0 +1,29 @@
+{
+  "id": "wan22-i2v",
+  "name": "Wan 2.2 image to video (14B, fp8)",
+  "author": "Wan (Alibaba)",
+  "note": "Wan 2.2's two image-to-video models, high noise then low noise, as ComfyUI repackages them. A clip from a first frame, Apache 2.0.",
+  "homepage": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "licence": {
+    "name": "Apache 2.0",
+    "url": "https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B/blob/main/LICENSE.txt",
+    "note": "Wan 2.2 is released under Apache 2.0: free use, commercial too."
+  },
+  "recipe": "wan.video",
+  "inputs": {
+    "model": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+    "modelLow": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"
+  },
+  "files": [
+    {
+      "file": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors"
+    },
+    {
+      "file": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"
+    }
+  ]
+}

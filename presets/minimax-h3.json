@@ -1,0 +1,23 @@
+{
+  "id": "minimax-h3",
+  "name": "MiniMax H3 (int8)",
+  "author": "MiniMax",
+  "note": "MiniMax H3, video with sound, as ComfyUI repackages it: text, first and last frames, and clips that carry on from the clip before, which is what a timeline's seamless joins are made with.",
+  "homepage": "https://huggingface.co/Comfy-Org/MiniMax-H3",
+  "licence": {
+    "name": "MiniMax H3 Community License",
+    "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+    "note": "MiniMax's licence for H3 weights: it names territories where the weights may not be used (the EU, the UK, South Korea and the USA at the time of writing) and a revenue ceiling for commercial use. Read it before you fetch the file."
+  },
+  "recipe": "h3.video",
+  "inputs": {
+    "model": "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+  },
+  "files": [
+    {
+      "file": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+    }
+  ]
+}

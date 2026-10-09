@@ -1,0 +1,23 @@
+{
+  "id": "ltx23-distilled",
+  "name": "LTX 2.3 distilled (22B, fp8)",
+  "author": "Lightricks",
+  "note": "LTX 2.3, video with sound, its distilled model: few steps, quick drafts, from Lightricks' own fp8 release.",
+  "homepage": "https://huggingface.co/Lightricks/LTX-2.3-fp8",
+  "licence": {
+    "name": "LTX-2 Community License",
+    "url": "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE",
+    "note": "Lightricks' licence for LTX-2 weights: free use, commercial too under a yearly revenue ceiling. Read it before you fetch the file."
+  },
+  "recipe": "ltx.video",
+  "inputs": {
+    "model": "ltx-2.3-22b-distilled-fp8.safetensors"
+  },
+  "files": [
+    {
+      "file": "ltx-2.3-22b-distilled-fp8.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-distilled-fp8.safetensors"
+    }
+  ]
+}

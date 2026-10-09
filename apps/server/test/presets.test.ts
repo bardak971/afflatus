@@ -33,10 +33,10 @@ const settings = async () => (await get(t.app, "/api/settings")).json();
 describe("presets with files", () => {
   it("lists the shipped presets among the entities, read-only, with their files and where they come from", async () => {
     const all = await entities();
-    const h3 = all.find((e) => e.id === "shipped:dasiwa-h3");
-    expect(h3).toMatchObject({ kind: "preset", source: "shipped", name: expect.stringContaining("DaSiWa MiniMax H3") });
-    expect(h3!.def).toMatchObject({ recipe: "h3.video", inputs: { model: "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors" }, author: "Darksidewalker" });
-    expect(h3!.def.files[0]).toMatchObject({ file: "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors", folder: "diffusion_models", civitai: { version: 3374445 } });
+    const h3 = all.find((e) => e.id === "shipped:minimax-h3");
+    expect(h3).toMatchObject({ kind: "preset", source: "shipped", name: expect.stringContaining("MiniMax H3") });
+    expect(h3!.def).toMatchObject({ recipe: "h3.video", inputs: { model: "minimax_h3_fl2va_pruned_int8_convrot.safetensors" }, author: "MiniMax" });
+    expect(h3!.def.files[0]).toMatchObject({ file: "minimax_h3_fl2va_pruned_int8_convrot.safetensors", folder: "diffusion_models", url: expect.stringContaining("huggingface.co/Comfy-Org/MiniMax-H3") });
     expect(h3!.def.licence.name).toMatch(/MiniMax H3/);
     // every shipped preset names a recipe that exists and sets its model among its files
     const recipes = ((await get(t.app, "/api/recipes")).json().recipes as Array<{ id: string; inputs: Array<{ id: string; type: string }> }>);
@@ -50,14 +50,14 @@ describe("presets with files", () => {
     }
     // only presets come with the shipped ones
     expect((await get(t.app, "/api/entities?kind=person")).json().items).toEqual([]);
-    expect((await get(t.app, "/api/entities?kind=preset")).json().items.some((e: { id: string }) => e.id === "shipped:dasiwa-h3")).toBe(true);
+    expect((await get(t.app, "/api/entities?kind=preset")).json().items.some((e: { id: string }) => e.id === "shipped:minimax-h3")).toBe(true);
     // not to be changed or deleted
-    expect((await t.app.inject({ method: "PUT", url: "/api/entities/shipped:dasiwa-h3", payload: { name: "x" } })).statusCode).toBe(400);
-    expect((await t.app.inject({ method: "DELETE", url: "/api/entities/shipped:dasiwa-h3" })).statusCode).toBe(400);
+    expect((await t.app.inject({ method: "PUT", url: "/api/entities/shipped:minimax-h3", payload: { name: "x" } })).statusCode).toBe(400);
+    expect((await t.app.inject({ method: "DELETE", url: "/api/entities/shipped:minimax-h3" })).statusCode).toBe(400);
     // a copy is the user's own, with the files and the credit kept
     const copy = await post(t.app, "/api/entities", { kind: "preset", name: h3!.name, def: h3!.def });
     expect(copy.statusCode).toBe(200);
-    expect(copy.json().def).toMatchObject({ files: h3!.def.files, author: "Darksidewalker", licence: h3!.def.licence });
+    expect(copy.json().def).toMatchObject({ files: h3!.def.files, author: "MiniMax", licence: h3!.def.licence });
     expect(copy.json().source).toBeUndefined();
   });
 
@@ -72,8 +72,10 @@ describe("presets with files", () => {
   it("says which files ComfyUI has, and what the family itself still misses", async () => {
     const { online, items } = await files();
     expect(online).toBe(true);
-    const h3 = items.find((p) => p.id === "shipped:dasiwa-h3");
-    expect(h3).toMatchObject({ accepted: false, files: [{ file: "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors", have: false }], needs: { family: "h3", name: "MiniMax H3", missing: [] } });
+    // the official H3 file is one the fake ComfyUI has; another shipped preset's file is not
+    const h3 = items.find((p) => p.id === "shipped:minimax-h3");
+    expect(h3).toMatchObject({ accepted: false, files: [{ file: "minimax_h3_fl2va_pruned_int8_convrot.safetensors", have: true }], needs: { family: "h3", name: "MiniMax H3", missing: [] } });
+    expect(items.some((p) => String(p.id).startsWith("shipped:") && p.files.some((f: { have: boolean }) => !f.have))).toBe(true);
     // a preset of the user's own with files is listed too; a file the fake has counts as present
     const mine = (await post(t.app, "/api/entities", {
       kind: "preset", name: "Mine", def: { recipe: "h3.video", inputs: {}, files: [{ file: "there.safetensors", folder: "loras" }, { file: "elsewhere.safetensors", folder: "loras", url: "https://example.com/elsewhere.safetensors", optional: true }] },
@@ -86,15 +88,18 @@ describe("presets with files", () => {
   });
 
   it("fetches the missing files only under an accepted licence and when downloads are on; the optional ones when asked", async () => {
-    const refused = await post(t.app, "/api/presets/shipped:dasiwa-h3/get", {});
+    // a shipped preset with a file the fake ComfyUI does not have
+    const shipped = (await files()).items.find((p) => String(p.id).startsWith("shipped:") && p.files.some((f: { have: boolean }) => !f.have))!;
+    const licence = (await entities()).find((e) => e.id === shipped.id)!.def.licence.name as string;
+    const refused = await post(t.app, `/api/presets/${shipped.id}/get`, {});
     expect(refused.statusCode).toBe(400);
-    expect(refused.json().error).toContain("MiniMax H3 Community License");
+    expect(refused.json().error).toContain(licence);
     // accepted, but downloads are off: said per file, the licence remembered
-    const off = (await post(t.app, "/api/presets/shipped:dasiwa-h3/get", { accept: true })).json();
+    const off = (await post(t.app, `/api/presets/${shipped.id}/get`, { accept: true })).json();
     expect(off.started).toEqual([]);
     expect(off.failed[0].error).toContain("turned off");
-    expect((await settings()).acceptedPresets).toEqual(["shipped:dasiwa-h3"]);
-    expect((await files()).items.find((p) => p.id === "shipped:dasiwa-h3")!.accepted).toBe(true);
+    expect((await settings()).acceptedPresets).toEqual([shipped.id]);
+    expect((await files()).items.find((p) => p.id === shipped.id)!.accepted).toBe(true);
     // on: a preset of the user's own, one required file from a URL and one optional
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true, civitaiLookups: true } });
     const mine = (await post(t.app, "/api/entities", {

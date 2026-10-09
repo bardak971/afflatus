@@ -1,0 +1,23 @@
+{
+  "id": "krea2-turbo",
+  "name": "Krea 2 Turbo (fp8)",
+  "author": "Krea",
+  "note": "Krea 2 Turbo as ComfyUI repackages it: pictures from plain sentences in 8 steps at CFG 1. The family's own defaults; a good first model for pictures.",
+  "homepage": "https://huggingface.co/Comfy-Org/Krea-2",
+  "licence": {
+    "name": "Krea 2 Community License",
+    "url": "https://krea.ai/krea-2-licensing",
+    "note": "Krea's licence for Krea 2 weights: commercial use under a yearly revenue ceiling, and content moderation required of anyone who serves the model to others. Read it before you fetch the file."
+  },
+  "recipe": "krea2.text-to-picture",
+  "inputs": {
+    "model": "krea2_turbo_fp8_scaled.safetensors"
+  },
+  "files": [
+    {
+      "file": "krea2_turbo_fp8_scaled.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_fp8_scaled.safetensors"
+    }
+  ]
+}
