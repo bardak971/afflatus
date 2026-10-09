@@ -26,7 +26,7 @@ describe("a timeline card", () => {
   });
 
   it("chips what needs doing, the estimate only when the server learned one", () => {
-    expect(chipsOf(brief({ toRender: 6 }), leaf(), 29 * 60_000).map((c) => [c.label, c.tone])).toEqual([["6 to render · ~29 min", "warn"]]);
+    expect(chipsOf(brief({ toRender: 6 }), leaf(), 29 * 60_000).map((c) => [c.label, c.tone])).toEqual([["6 to render · ~29 min", "neutral"]]);
     expect(chipsOf(brief(), leaf(), null)[0]!.label).toBe("1 to render");
     expect(chipsOf(brief({ toRender: 0 }), leaf({ unusedTakes: 12, unusedBytes: 61 * 2 ** 20, exported: true }), null).map((c) => [c.label, c.tone])).toEqual([
       ["12 unused · 61 MB", "neutral"],

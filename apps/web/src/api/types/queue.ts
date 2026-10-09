@@ -121,6 +121,8 @@ export interface TimesSummary {
     tools?: number; spills?: number; spillLostMs?: number;
     /** Failures that ran out of memory (OOM). */
     oom?: number;
+    /** Of the failed and cancelled, those that never reached ComfyUI (refused before they were sent, stopped while they waited, ffmpeg). */
+    unsent?: { failed: number; cancelled: number };
   };
   /** The period before, as long: what the headline figures are set against. Null for "all", or when the record does not reach back over it. */
   prior?: { from: number; to: number; gpuMs: number; done: number; failed: number; cancelled: number; videoMs: number } | null;

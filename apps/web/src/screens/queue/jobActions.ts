@@ -4,8 +4,12 @@ import { api } from "../../api";
 import { HISTORY } from "../../data";
 import { useBanners, useOpenDraft } from "../../store";
 
-/** The columns of the history: thumbnail · name · model · took · when (the header and every row line up on them). */
-export const ROW = "grid grid-cols-[64px_minmax(0,1fr)_150px_110px_90px] items-center gap-x-3.5 px-3";
+/**
+ * The columns of the history: thumbnail · name · model · took · when (the header and every row line up on them). The
+ * model takes up to 260 px before the name grows: "MiniMax H3 · Video with audio" reads whole on a wide window, while
+ * the name has room to spare there. Every row is its own grid, so the width is fixed, not sized to each row's text.
+ */
+export const ROW = "grid grid-cols-[64px_minmax(0,1fr)_minmax(150px,260px)_110px_90px] items-center gap-x-3.5 px-3";
 
 /** What is done with a finished job: again, back to its draft, out of the list. What fails is said in a banner. */
 export function useJobActions() {

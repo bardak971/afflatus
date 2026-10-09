@@ -59,12 +59,12 @@ export function App() {
       <div className="flex min-h-0 grow">
         <NavRail />
         <Suspense fallback={<div className="grow p-8 text-ink-2">Loading…</div>}>
-        {/* a screen that fails takes only itself down; going to another screen starts afresh */}
-        <ErrorBoundary key={path.split("/")[1]}>
+        {/* a screen that fails takes only itself down; going to another screen starts afresh ("/create" is the Studio's own address with its form open, the same screen) */}
+        <ErrorBoundary key={path === "/create" ? "" : path.split("/")[1]}>
         <Switch>
           <Route path="/"><Studio key="studio" /></Route>
-          {/* links from elsewhere that mean "the form": the same screen, with the form open */}
-          <Route path="/create"><Studio open /></Route>
+          {/* the Studio with its form open: the same screen (the same key, so opening the form keeps what is on it), the address following the form */}
+          <Route path="/create"><Studio key="studio" open /></Route>
           <Route path="/kit" component={People} />
           {/* the screen's old address still leads to it */}
           <Route path="/people"><Redirect to="/kit" /></Route>

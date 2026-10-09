@@ -19,8 +19,8 @@ import { Keys } from "../Keys";
 import { allRows, opened, searchKeys } from "../keys/search";
 import { BAR_DEFAULT } from "../keys/table";
 import { calc, type Grid } from "./calc";
-import { commandKeys, grouped, indexItems, keyItems, navItems, settingItems, templateItems, type Item, type Kind } from "./items";
-import { TABS, tabHref } from "../screens/settings/settingsIndex";
+import { commandKeys, grouped, indexItems, keyItems, navItems, settingItems, tellApart, templateItems, type Item, type Kind } from "./items";
+import { settingHref, TABS, tabHref } from "../screens/settings/settingsIndex";
 import { highlight, pieces, prepare, search } from "./match";
 import { COMMANDS, KIT_OF, modeOf, parseCommand, type Command, type CommandId, type KitNew, type Mode } from "./parse";
 import { Preview } from "./Preview";
@@ -72,6 +72,11 @@ function iconOf(it: Item): ReactNode {
 
 /** The modes the footer lists, by their first character, with the sheet's names for them. */
 const FOOTER_MODES: Array<[string, string]> = [[">", "commands"], ["#", "places"], ["/", "settings"], ["=", "calc"], ["!", "queue"], ["?", "keys"]];
+/**
+ * The parts of the bar that are off until turned on, listed dimmed in the footer while they are off: a power user finds
+ * the `"` and `@` modes (and `;` snippets in prompt boxes) there, and a click opens their row in Settings › Command bar.
+ */
+const OFF_PARTS: Array<["history" | "cast" | "snippets", string, string]> = [["history", '"', "history"], ["cast", "@", "cast"], ["snippets", ";", "snippets"]];
 
 /** The calculator's grid: the model in play's (the open draft's, else the first one that makes video on a grid), H3's figures when none is known. */
 function gridOf(recipes: RecipeInfo[], prefer: string | undefined): Grid {
@@ -339,7 +344,8 @@ export function CommandBar() {
             suggested.push({ key: "suggest:queue", kind: "job", label, meta: "Type ! to see them, Tab on one to retry", group: "Suggested", verb: "show", p: prepare(label), complete: "!" });
           }
           return [
-            { group: "Recent", rows: recent.map((r) => ({ ...r, group: "Recent" as const })) },
+            // two drafts of one name: their detail lines say what tells them apart
+            { group: "Recent", rows: tellApart(recent.map((r) => ({ ...r, group: "Recent" as const }))) },
             ...(suggested.length ? [{ group: "Suggested", rows: suggested.map((r) => ({ ...r, group: "Suggested" as const })) }] : []),
           ].filter((s) => s.rows.length);
         }
@@ -740,6 +746,16 @@ export function CommandBar() {
                   {[...FOOTER_MODES, ...(bar?.history ? [['"', "history"]] : []), ...(bar?.cast ? [["@", "cast"]] : [])].map(([c, w]) => (
                     <button key={c} type="button" tabIndex={-1} onClick={() => { setTyped(c!); setSel(0); setActing(null); input.current?.focus(); }} className="flex items-center gap-1 hover:text-ink">
                       <Keys keys={c!} /> {w}
+                    </button>
+                  ))}
+                  {bar && OFF_PARTS.filter(([k]) => !bar[k]).map(([k, c, w]) => (
+                    <button
+                      key={k} type="button" tabIndex={-1}
+                      data-tip="Off. Click to turn it on in Settings › Command bar."
+                      onClick={() => { close(); go(settingHref(`bar.${k}`)); }}
+                      className="flex items-center gap-1 opacity-55 hover:text-ink hover:opacity-100"
+                    >
+                      <Keys keys={c} /> {w} off
                     </button>
                   ))}
                 </span>

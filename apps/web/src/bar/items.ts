@@ -109,6 +109,25 @@ export function indexItems(entries: readonly CommandEntry[], recipes: readonly R
   return out;
 }
 
+/**
+ * Drafts of one name among the rows shown (two "1girl, terrace, red dress…" in Recent): their detail line then leads with
+ * what tells them apart. A draft with a name of its own shows the start of its prompt, every one when it was started and
+ * last changed; the rest of the line (its model, its renders) follows. Other rows, and drafts of a name of their own, are
+ * left as they are.
+ */
+export function tellApart<T extends Item>(rows: readonly T[]): T[] {
+  const seen = new Map<string, number>();
+  const key = (r: Item) => r.label.trim().toLowerCase();
+  for (const r of rows) if (r.entry?.kind === "draft") seen.set(key(r), (seen.get(key(r)) ?? 0) + 1);
+  return rows.map((r) => {
+    const e = r.entry;
+    if (e?.kind !== "draft" || (seen.get(key(r)) ?? 0) < 2) return r;
+    const prompt = e.prompt ? `“${e.prompt.length > 48 ? `${e.prompt.slice(0, 47).trimEnd()}…` : e.prompt}”` : null;
+    const started = e.createdAt && e.createdAt !== e.updatedAt ? `started ${when(e.createdAt)}` : null;
+    return { ...r, meta: ["Draft", prompt, `changed ${when(e.updatedAt)}`, started, r.meta.replace(/^Draft · /, "").replace(` · ${when(e.updatedAt)}`, "")].filter(Boolean).join(" · ") };
+  });
+}
+
 /** The places of the app the bar goes to: its screens, each tab of Settings, the Queue's views, the Projects panel and the keys sheet. */
 export function navItems(tabs: ReadonlyArray<{ id: string; label: string; href: string }>): Item[] {
   const go = (key: string, label: string, meta: string, nav: { href: string } | { event: string }, words = ""): Item =>
@@ -187,5 +206,6 @@ export function grouped(rows: readonly Item[], limit = 50): Array<{ group: Group
     if (!g) out.push((g = { group: r.group, rows: [] }));
     g.rows.push(r);
   }
-  return out;
+  // drafts of one name found together are told apart, as in Recent
+  return out.map((g) => ({ ...g, rows: tellApart(g.rows) }));
 }

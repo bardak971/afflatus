@@ -30,7 +30,7 @@ const GROUP_HINT = {
 
 /**
  * The library's top row: the place (a breadcrumb inside the project worked in), what the grid shows beside an open form, the
- * kinds, and either the search and filters or, with items ticked, what is done with them together.
+ * kinds, the search, and either the filters or, with items ticked, what is done with them together.
  */
 export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: setFoldersOpen, view, draftId, draftOnly, items, filters, selection }: {
   place: Place;
@@ -54,9 +54,14 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   const { picked } = selection;
   // one line, always: what does not fit folds, step by step (useFit): 1 the kinds into a menu, 2 the search into an icon,
   // 3 the breadcrumb narrower (its middle folds to "…"), 4 the display into a menu, 5 Media/Timelines into a menu, 6 the
-  // results shown into a menu. With the form open the header is 760–920 px wide and the breadcrumb alone took a third.
+  // results shown into a menu. With items ticked the selection bar comes in, the kinds and the search staying: 7 its
+  // buttons to icons, 8 the display and the results shown out of the header, 9 Media/Timelines out too (each is
+  // back once nothing is ticked). With the form open the header is 760–920 px wide and the breadcrumb alone took a third.
   const bar = useRef<HTMLElement>(null);
-  const fold = useFit(bar, 6);
+  const ticking = !draftOnly && picked.length > 0;
+  // the selection coming or going changes what the row holds: it folds again from nothing
+  const fold = useFit(bar, 9, ticking ? "ticking" : "");
+  const roomy = !ticking || fold < 8;
   const [searching, setSearching] = useState(false);
   // model, LoRA, Kept only and the grouping: set now and then, so in a panel; the button says how many are on
   const filtersButton = useRef<HTMLButtonElement>(null);
@@ -67,7 +72,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
       <h1 className="sr-only">Studio</h1>
       <PlaceCrumbs place={place} onPlace={(p) => view.set({ place: p })} anchor={folderButton} open={Boolean(foldersOpen)} onOpen={(o) => setFoldersOpen(o ? "click" : false)} className={fold >= 3 ? "w-[clamp(110px,9vw,140px)]!" : undefined} />
       {/* what the library shows: media, or the timelines (the rail's Timelines entry lands on the second) */}
-      {place.type !== "bin" && fold >= 5 && (
+      {place.type !== "bin" && fold >= 5 && (!ticking || fold < 9) && (
         <div className="w-28 shrink-0">
           <Select size="sm" className="h-9" label="Show" value={showTimelines ? "timelines" : "media"} onChange={(v) => setKind(v === "timelines" ? "timeline" : "all")} options={[{ value: "media", label: "Media" }, { value: "timelines", label: "Timelines" }]} />
         </div>
@@ -81,7 +86,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
           onChange={(v) => setKind(v === "timelines" ? "timeline" : "all")}
         />
       )}
-      {!showTimelines && view.form && draftId && (fold >= 6 ? (
+      {!showTimelines && view.form && draftId && roomy && (fold >= 6 ? (
         <div className="w-24 shrink-0">
           <Select size="sm" className="h-9" label="Results shown" value={scopeNow} onChange={(sc) => view.set({ scope: sc as Scope })} options={SCOPES} />
         </div>
@@ -96,7 +101,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
             <Select size="sm" className="h-9" label="Sort timelines" value={view.timelineSort ?? "recent"} onChange={(v) => view.set({ timelineSort: v as "recent" | "name" | "length" })} options={[{ value: "recent", label: "Recent first" }, { value: "name", label: "By name" }, { value: "length", label: "Longest first" }]} />
           </div>
         </>
-      ) : fold >= 4 ? (
+      ) : !roomy ? null : fold >= 4 ? (
         <div className="w-24 shrink-0">
           <Select size="sm" className="h-9" label="Display" value={displayOf(view, scopeNow)} onChange={(d) => view.set({ displays: { ...view.displays, [scopeNow]: d as "Stage" | "S" | "M" | "L" }, ...(d === "Stage" ? {} : { size: d as "S" | "M" | "L" }) })} options={[{ value: "Stage", label: "Stage" }, { value: "S", label: "S" }, { value: "M", label: "M" }, { value: "L", label: "L" }]} />
         </div>
@@ -109,7 +114,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
           onChange={(d) => view.set({ displays: { ...view.displays, [scopeNow]: d }, ...(d === "Stage" ? {} : { size: d }) })}
         />
       )}
-      {!showTimelines && !draftOnly && picked.length === 0 && (fold >= 1 ? (
+      {!showTimelines && !draftOnly && (fold >= 1 ? (
         <div className="w-28 shrink-0">
           <Select size="sm" className={cx("h-9", kind !== "all" && "border-accent")} label="Kind" value={kind} onChange={(k) => setKind(k as typeof kind)} options={MEDIA_KINDS.map((k) => ({ value: k.id, label: k.label }))} />
         </div>
@@ -118,8 +123,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
       ))}
       <span className="min-w-2 grow" />
       <div id="timeline-selection-slot" className="contents" />
-      {!draftOnly && picked.length > 0 && <SelectionBar place={place} items={items} selection={selection} />}
-      {!draftOnly && picked.length === 0 && (
+      {!draftOnly && (
         <>
           {fold >= 2 && !searching && !typed ? (
             <button type="button" data-search-opener aria-label="Search the library" data-tip="Search prompts and names (/)" onClick={() => setSearching(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink">
@@ -132,7 +136,9 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
               {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
             </label>
           )}
-          {!showTimelines && <button
+          {/* ticked items: what is done with them takes the filters' place, after the kinds and the search */}
+          {ticking && <SelectionBar place={place} items={items} selection={selection} compact={fold >= 7} />}
+          {!showTimelines && !ticking && <button
             ref={filtersButton}
             type="button"
             aria-haspopup="dialog"
@@ -151,8 +157,11 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   );
 }
 
-/** With items ticked: how many, and what is done with them together (a timeline of them, a folder, keep, the bin). */
-function SelectionBar({ place, items, selection }: { place: Place; items: Asset[]; selection: Selection }) {
+/**
+ * With items ticked: how many, and what is done with them together (a timeline of them, a folder, keep, the bin).
+ * `compact`: the header is short of room, the buttons are their icons (named by their tips).
+ */
+function SelectionBar({ place, items, selection, compact }: { place: Place; items: Asset[]; selection: Selection; compact?: boolean }) {
   const { picked, setPicked, bulk, moveTo, chosen, binChosen } = selection;
   const folders = useFolders();
   const projects = useProjects();
@@ -182,22 +191,22 @@ function SelectionBar({ place, items, selection }: { place: Place; items: Asset[
   return (
     <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
       <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
-      {picked.length < items.length && <button type="button" onClick={() => setPicked(items.map((a) => a.id))} className="text-xs text-ink-2 underline hover:text-ink">select all {items.length}</button>}
+      {picked.length < items.length && <button type="button" data-tip={compact ? `Select all ${items.length}` : undefined} onClick={() => setPicked(items.map((a) => a.id))} className="text-xs whitespace-nowrap text-ink-2 underline hover:text-ink">{compact ? "all" : `select all ${items.length}`}</button>}
       {place.type === "bin" ? (
         <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("restore")}><Undo2 size={13} /> Restore</Button>
       ) : (
         <>
-          {ordered.length > 0 && <Button size="sm" disabled={make.isPending} data-tip="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} /> {make.isPending ? "Making…" : "Make a timeline of these"}</Button>}
-          <div className="w-44">
+          {ordered.length > 0 && <Button size="sm" aria-label={compact ? "Make a timeline of these" : undefined} disabled={make.isPending} data-tip="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} />{!compact && (make.isPending ? " Making…" : " Make a timeline of these")}</Button>}
+          <div className={compact ? "w-32" : "w-44"}>
             <Select
               size="sm" label="Move the selected items to a folder" placeholder="Move to folder" searchHint="Search folders" value=""
               onChange={(to) => moveTo.mutate(to === "__none__" ? null : to)}
               options={folderOptions}
             />
           </div>
-          {chosen.some((a) => !a.kept) && <Button size="sm" disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} /> Keep</Button>}
+          {chosen.some((a) => !a.kept) && <Button size="sm" aria-label={compact ? "Keep" : undefined} data-tip={compact ? "Keep them" : undefined} disabled={bulk.isPending} onClick={() => bulk.mutate("keep")}><Star size={13} />{!compact && " Keep"}</Button>}
           {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" disabled={bulk.isPending} data-tip="They go back on the one-day countdown" onClick={() => bulk.mutate("unkeep")}>Unkeep</Button>}
-          <Button size="sm" disabled={bulk.isPending} data-tip="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} /> Bin</Button>
+          <Button size="sm" aria-label={compact ? "Bin" : undefined} disabled={bulk.isPending} data-tip="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} />{!compact && " Bin"}</Button>
         </>
       )}
       <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>

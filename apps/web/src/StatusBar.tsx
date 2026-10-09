@@ -93,7 +93,7 @@ export function StatusBar() {
   );
 }
 
-/** A GPU figure: its name, a small bar and the number. */
+/** A GPU figure: its name, a small bar and the number in %. The number is padded in a monospaced face, so the strip never moves as it changes. */
 function Meter({ label, value, fill, warn, tip, className }: { label: string; value: number; fill?: string; warn?: boolean; tip?: string; className?: string }) {
   return (
     <span className={cx("inline-flex shrink-0 items-center gap-1.5 text-ink-2", warn && "text-warn-ink", className)} data-tip={tip}>
@@ -101,7 +101,7 @@ function Meter({ label, value, fill, warn, tip, className }: { label: string; va
       <span className="relative h-1 w-[26px] overflow-hidden rounded-[3px] bg-line-strong">
         <span className={cx("absolute inset-y-0 left-0 rounded-[3px]", warn ? "bg-warn" : (fill ?? "bg-ink-2"))} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
       </span>
-      <span className="font-mono whitespace-pre">{pad(value)}</span>
+      <span className="font-mono whitespace-pre">{pad(value)}<span className="opacity-70">%</span></span>
     </span>
   );
 }

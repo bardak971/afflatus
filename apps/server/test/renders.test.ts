@@ -194,6 +194,34 @@ describe("what the tab shows", () => {
     expect((await list(t.db, t.services.registry, { trouble: true })).items.map((i) => i.oom)).toEqual([false, false]);
   });
 
+  it("the failures and stops that never reached ComfyUI count too, as the Queue lists them; a job that rendered counts once", async () => {
+    const jobAt = (id: string, status: "failed" | "cancelled" | "done", ago: number, warm = 0) => {
+      const at = new Date(NOW - ago).toISOString();
+      return {
+        id, owner_id: "local", recipe_id: "sdxl.text-to-picture", label: "zz-test", inputs: "{}", status, warm, look: null, priority: 0, depends_on: null,
+        attempts: 0, resume: null, error: status === "failed" ? "this cannot run on your ComfyUI" : null, generation_id: null, clip_id: null, clip_fit: 0,
+        draft_id: null, folder_id: null, finished_from: null, created_at: at, started_at: null, finished_at: at, updated_at: at,
+      };
+    };
+    // one failure on record (it ran on ComfyUI), and its job: counted once
+    // (and a render two days back, so that the record reaches over the period before)
+    await put([row({ id: "ran", ago: 3_600_000, status: "failed", kind: null, total_ms: 7_000 }), row({ ago: 2 * DAY + 3_600_000 })]);
+    await t.db.insertInto("jobs").values([
+      jobAt("ran", "failed", 3_600_000),
+      // refused before it was sent, twice, and stopped while it waited
+      jobAt("refused1", "failed", 2 * 3_600_000), jobAt("refused2", "failed", 5 * 3_600_000), jobAt("waited", "cancelled", 3_600_000),
+      // a warm-up only loads models: not in the history, not counted; a failure the day before is the prior period's
+      jobAt("warm", "failed", 3_600_000, 1), jobAt("yesterday", "failed", DAY + 3_600_000),
+      // older than the rows are kept: a folded day keeps no job ids, so it is left out rather than counted twice
+      jobAt("old", "failed", 100 * DAY),
+    ]).execute();
+    const day = await summary(t.db, t.services.registry, "day", 90, NOW);
+    expect(day.tiles).toMatchObject({ failed: 3, cancelled: 1, unsent: { failed: 2, cancelled: 1 }, lostMs: 7_000 });
+    expect(day.finished.bad.reduce((a, b) => a + b, 0)).toBe(4);
+    expect(day.prior).toMatchObject({ failed: 1 });
+    expect((await summary(t.db, t.services.registry, "all", 90, NOW)).tiles.failed).toBe(4);
+  });
+
   it("the renders one by one, newest first, a page at a time, or only those that went wrong", async () => {
     await put(Array.from({ length: 7 }, (_x, i) => row({ ago: i * 60_000, status: i === 3 ? "failed" : "done" })));
     const first = await list(t.db, t.services.registry, { limit: 5 });

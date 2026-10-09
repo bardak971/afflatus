@@ -7,8 +7,11 @@ import { useDownloads } from "./GetFile";
 import { useBanners } from "./store";
 import { cx } from "./ui";
 
-/** A finished render is only announced where its result does not show up by itself (the Queue lists it as it ends). */
-const showsResults = (path: string) => path === "/create" || path === "/queue" || path.startsWith("/timelines/");
+/**
+ * A finished render is only announced where its result does not show up by itself (the Queue lists it as it ends). The
+ * Studio announces it, form open (/create) or not: the owner keeps those (E16), only without "Open library" there.
+ */
+const showsResults = (path: string) => path === "/queue" || path.startsWith("/timelines/");
 
 /** What ended while its banner is up, folded into it: a batch says "8 done" once, not eight times. */
 interface Fold {
@@ -66,7 +69,7 @@ export function Banners() {
           add(f, j);
           const allExports = f.exports === f.count;
           // on the library itself what was made is already in sight: nowhere to send it
-          const there = allExports ? path === "/timelines" : path === "/";
+          const there = allExports ? path === "/timelines" : path === "/" || path === "/create";
           push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...(there ? {} : allExports ? { href: "/timelines", go: "Open timelines" } : { href: "/", go: "Open library" }) });
         }
       }

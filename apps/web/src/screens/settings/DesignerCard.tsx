@@ -59,7 +59,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove,
       <div className="flex justify-end">
         {fresh
           ? <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
-          : <TwoStep label="Remove" title="Remove this system prompt" note="Conversations that use it go on without one." yes="Remove" onYes={onRemove} />}
+          : <TwoStep label="Remove" title="Remove this system prompt" note="Conversations that use it go on without one." stay yes="Remove" onYes={onRemove} />}
       </div>
     </div>
   );

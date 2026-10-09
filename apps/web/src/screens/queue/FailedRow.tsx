@@ -4,13 +4,13 @@ import { ChevronsDownUp, ChevronsUpDown, FileText, MoreHorizontal, Pencil, Rotat
 import type { HistoryJob } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { useRecipes } from "../../data";
-import { fileLabel, when } from "../../format";
+import { when } from "../../format";
 import { Button, buttonClass, Chip, cx } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { readableError } from "./failures";
 import { fixLink } from "./fixLink";
 import { ROW, useJobActions } from "./jobActions";
-import { useModelName } from "./modelName";
+import { modelTip, useModelName } from "./modelName";
 import { lighter, memoryThatRanOut, shorterStretch } from "./retry";
 
 /** A failed job's thumbnail: hatched in the bad colour, nothing having come out. */
@@ -115,7 +115,7 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
             {second && button(second, "plain")}
           </span>
         </span>
-        <span className="truncate text-[12.5px] text-ink-2" data-tip={job.model ? fileLabel(job.model) : undefined}>{modelOf(job)}</span>
+        <span className="truncate text-[12.5px] text-ink-2" data-tip={modelTip(modelOf(job), job.model)}>{modelOf(job)}</span>
         <span className="flex justify-end">
           <button
             type="button"
