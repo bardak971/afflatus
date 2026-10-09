@@ -37,7 +37,8 @@ export interface Chip { label: string; tone: ChipTone; title: string }
 export function chipsOf(t: TimelineBrief, leaf: TimelineLeaf | undefined, estimateMs: number | null | undefined): Chip[] {
   const chips: Chip[] = [];
   const about = aboutMs(estimateMs).replace(/^about /, "~");
-  if (t.toRender) chips.push({ label: `${t.toRender} to render${about ? ` · ${about}` : ""}`, tone: "warn", title: about ? "Clips with nothing to play yet; the time is learned from your past renders" : "Clips with nothing to play yet" });
+  // clips still to render are work ahead, not a fault: neutral; a join to redo is a seam that shows, so it warns
+  if (t.toRender) chips.push({ label: `${t.toRender} to render${about ? ` · ${about}` : ""}`, tone: "neutral", title: about ? "Clips with nothing to play yet; the time is learned from your past renders" : "Clips with nothing to play yet" });
   if (t.staleJoins) chips.push({ label: `${t.staleJoins} join${t.staleJoins === 1 ? "" : "s"} to redo`, tone: "warn", title: "A clip changed since the next one was made from it" });
   if (leaf?.unusedTakes) chips.push({ label: `${leaf.unusedTakes} unused · ${size(leaf.unusedBytes)}`, tone: "neutral", title: "Takes no clip plays and nothing else needs: \"Bin unused takes\" sends them to the bin" });
   if (leaf?.exported) chips.push({ label: "exported", tone: "good", title: "It has an export" });

@@ -197,6 +197,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
                 note="Delete? The open one stays."
                 yes="Delete"
                 cancel="Keep"
+                stay
                 disabled={clearing}
                 onYes={() => {
                   setClearing(true);

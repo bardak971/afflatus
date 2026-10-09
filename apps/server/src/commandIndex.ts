@@ -18,7 +18,8 @@ import { formFilled } from "./timelineModel";
 
 export type CommandEntry =
   | { kind: "timeline"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; clips: number; durationMs: number; plannedMs: number; exported: boolean; unusedTakes: number; unusedBytes: number }
-  | { kind: "draft"; id: string; label: string; project: string | null; updatedAt: string; recipe: string; renders: number }
+  /** `prompt`: the start of what was written, when a name of its own is the label (two drafts of one name are told apart by it). */
+  | { kind: "draft"; id: string; label: string; project: string | null; updatedAt: string; createdAt: string; recipe: string; renders: number; prompt?: string }
   | { kind: "asset"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; assetKind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; bytes: number; hasThumb: boolean }
   | { kind: "project"; id: string; label: string; updatedAt: string; archived: boolean; timelines: number; items: number; bytes: number }
   | { kind: "folder"; id: string; label: string; project: string | null; parent: string | null; updatedAt: string; items: number; linked: boolean }
@@ -105,7 +106,7 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
   for (const d of drafts) {
     entries.push({
       kind: "draft", id: d.id, label: d.name?.trim() || d.title.trim() || "No prompt yet", project: projectOf(d.project_id), updatedAt: d.updated_at || d.created_at,
-      recipe: d.recipe_id, renders: rendered.get(d.id) ?? 0,
+      createdAt: d.created_at, recipe: d.recipe_id, renders: rendered.get(d.id) ?? 0, ...(d.name?.trim() && d.title.trim() ? { prompt: d.title.trim() } : {}),
     });
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Music, Plus, Trash2, X } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
@@ -252,97 +252,110 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
   const words = useLoraWordsOf(Object.values(def.models).flatMap((m) => (m.lora ? [m.lora] : [])));
   const full = def.outfits.length >= LIMITS.outfits;
   return (
-    <>
-      <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
-        <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
-        <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Optional.">
-          <Voice value={def.voice} onChange={(voice) => onChange({ ...def, voice })} />
-        </Row>
-      </Card>
+    <Halves>
+      <div className="flex min-w-0 flex-col gap-3">
+        <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
+          <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
+          <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Optional.">
+            <Voice value={def.voice} onChange={(voice) => onChange({ ...def, voice })} />
+          </Row>
+        </Card>
 
-      <Words tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
+        <Words tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
+      </div>
 
-      <Card dense title="LoRA per model" status={<span className="text-[11.5px] text-ink-3">optional</span>} help={`A LoRA is a file you already have: Afflatus does not train one. The chips say what each model takes of ${name}: reference images, tags or natural language, the voice sample. A model that takes neither reference images nor a LoRA gets only the prompt text.`}>
-        {rows.map(({ family: f, ids, can }) => {
-          const m = entryOf(def.models, ids) ?? { lora: null, weight: 0.8, trigger: "" };
-          const set = (patch: Partial<typeof m>) => onChange({ ...def, models: withEntry(def.models, ids, { ...m, ...patch }) });
-          const refs = Math.min(LIMITS.sentPictures.person, def.pictures.length);
-          const known = can.tags && m.lora && !m.trigger.trim() ? words.of(m.lora) : null;
-          return (
-            // the mock's three columns: the family, what it takes, its LoRA (and under that, the LoRA's weight and words)
-            <div key={f.id} className="grid min-h-[48px] grid-cols-[150px_128px_minmax(0,1fr)] items-start gap-x-3.5 gap-y-1.5 px-4 py-2">
-              <span className="flex h-8 min-w-0 items-center truncate text-[13px] font-semibold">{f.name}</span>
-              <span className="flex h-8 flex-wrap content-center items-center gap-1">
-                {can.pictures && refs > 0 && <Takes tip={`${refs} reference image${refs > 1 ? "s" : ""} of ${name}`}>{`${refs} ref${refs > 1 ? "s" : ""}`}</Takes>}
-                <Takes tip={can.tags ? "Reads the tags" : "Reads the natural language"}>{can.tags ? "tags" : "NL"}</Takes>
-                {can.voice && def.voice && <Takes tip="Takes the voice sample">voice</Takes>}
-              </span>
-              {can.lora ? (
-                <Select
-                  size="sm"
-                  label={`LoRA of ${name} for ${f.name}`}
-                  value={m.lora ?? ""}
-                  onChange={(file) => set({ lora: file || null })}
-                  searchHint="Search your LoRAs by name"
-                  options={[{ value: "", label: "No LoRA" }, ...lorasOf(ids).map((file) => ({ value: file, label: fileLabel(file), note: file.split(/[\/]/).slice(0, -1).join("/") }))]}
-                />
-              ) : (
-                <span className="flex h-8 items-center text-xs text-ink-3">{can.pictures ? "takes no LoRA" : "prompt text only"}</span>
-              )}
-              {can.lora && m.lora && (
-                <div className="col-start-3 flex min-w-0 items-center gap-2">
-                  <Slider label={`Weight of the LoRA of ${name} for ${f.name}`} min={-1} max={2} step={0.05} zero={0} box={false} value={Math.max(-1, Math.min(2, m.weight))} onChange={(v) => set({ weight: v })} className="w-24 shrink-0" />
-                  <NumberBox label={`Weight of the LoRA of ${name} for ${f.name}, typed`} value={m.weight} min={-4} max={4} step={0.05} onCommit={(v) => set({ weight: v })} />
-                  {can.tags && <input aria-label={`Trigger words for ${f.name}`} placeholder="Trigger words" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "h-8 min-w-0 grow py-0 text-[12.5px]")} />}
-                </div>
-              )}
-              {can.lora && m.lora && (
-                <div className="col-start-3 flex min-w-0 items-baseline gap-3 text-xs text-ink-2">
-                  <span className="flex min-w-0 shrink-0 items-baseline gap-1.5">Model page <ModelLink folder="loras" file={m.lora} className="min-w-0" /></span>
-                  {known?.words && known.from !== "training" && (
-                    <button type="button" onClick={() => set({ trigger: known.words.slice(0, 200) })} className="min-w-0 truncate text-left text-accent hover:underline" data-tip={known.words}>
-                      Use its trigger words: {known.words}
-                    </button>
-                  )}
-                </div>
-              )}
+      <div className="flex min-w-0 flex-col gap-3">
+        <Card dense title="LoRA per model" status={<span className="text-[11.5px] text-ink-3">optional</span>} help={`A LoRA is a file you already have: Afflatus does not train one. The chips say what each model takes of ${name}: reference images, tags or natural language, the voice sample. A model that takes neither reference images nor a LoRA gets only the prompt text.`}>
+          {rows.map(({ family: f, ids, can }) => {
+            const m = entryOf(def.models, ids) ?? { lora: null, weight: 0.8, trigger: "" };
+            const set = (patch: Partial<typeof m>) => onChange({ ...def, models: withEntry(def.models, ids, { ...m, ...patch }) });
+            const refs = Math.min(LIMITS.sentPictures.person, def.pictures.length);
+            const known = can.tags && m.lora && !m.trigger.trim() ? words.of(m.lora) : null;
+            return (
+              // the mock's three columns: the family, what it takes, its LoRA (and under that, the LoRA's weight and words)
+              <div key={f.id} className="grid min-h-[48px] grid-cols-[150px_128px_minmax(0,1fr)] items-start gap-x-3.5 gap-y-1.5 px-4 py-2">
+                <span className="flex h-8 min-w-0 items-center truncate text-[13px] font-semibold">{f.name}</span>
+                <span className="flex h-8 flex-wrap content-center items-center gap-1">
+                  {can.pictures && refs > 0 && <Takes tip={`${refs} reference image${refs > 1 ? "s" : ""} of ${name}`}>{`${refs} ref${refs > 1 ? "s" : ""}`}</Takes>}
+                  <Takes tip={can.tags ? "Reads the tags" : "Reads the natural language"}>{can.tags ? "tags" : "NL"}</Takes>
+                  {can.voice && def.voice && <Takes tip="Takes the voice sample">voice</Takes>}
+                </span>
+                {can.lora ? (
+                  <Select
+                    size="sm"
+                    label={`LoRA of ${name} for ${f.name}`}
+                    value={m.lora ?? ""}
+                    onChange={(file) => set({ lora: file || null })}
+                    searchHint="Search your LoRAs by name"
+                    options={[{ value: "", label: "No LoRA" }, ...lorasOf(ids).map((file) => ({ value: file, label: fileLabel(file), note: file.split(/[\/]/).slice(0, -1).join("/") }))]}
+                  />
+                ) : (
+                  <span className="flex h-8 items-center text-xs text-ink-3">{can.pictures ? "takes no LoRA" : "prompt text only"}</span>
+                )}
+                {can.lora && m.lora && (
+                  <div className="col-start-3 flex min-w-0 items-center gap-2">
+                    <Slider label={`Weight of the LoRA of ${name} for ${f.name}`} min={-1} max={2} step={0.05} zero={0} box={false} value={Math.max(-1, Math.min(2, m.weight))} onChange={(v) => set({ weight: v })} className="w-24 shrink-0" />
+                    <NumberBox label={`Weight of the LoRA of ${name} for ${f.name}, typed`} value={m.weight} min={-4} max={4} step={0.05} onCommit={(v) => set({ weight: v })} />
+                    {can.tags && <input aria-label={`Trigger words for ${f.name}`} placeholder="Trigger words" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "h-8 min-w-0 grow py-0 text-[12.5px]")} />}
+                  </div>
+                )}
+                {can.lora && m.lora && (
+                  <div className="col-start-3 flex min-w-0 items-baseline gap-3 text-xs text-ink-2">
+                    <span className="flex min-w-0 shrink-0 items-baseline gap-1.5">Model page <ModelLink folder="loras" file={m.lora} className="min-w-0" /></span>
+                    {known?.words && known.from !== "training" && (
+                      <button type="button" onClick={() => set({ trigger: known.words.slice(0, 200) })} className="min-w-0 truncate text-left text-accent hover:underline" data-tip={known.words}>
+                        Use its trigger words: {known.words}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </Card>
+
+        <Card
+          dense
+          title={`Outfits · ${def.outfits.length}`}
+          help={`Pick one when you add ${name} to an image or a clip. Each has prompt text (tags and natural language) and, if you like, a reference image of the clothes. Without an outfit, ${name} is "as in the reference images": nothing about clothes is added to the prompt.`}
+          status={
+            // as many as a person holds: the server refuses more, and the person would no longer save
+            <Button size="sm" tone="quiet" disabled={full} data-tip={full ? `${LIMITS.outfits} outfits is the most a person holds` : undefined} onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: localId(), name: "", tags: "", sentence: "", picture: null }] })} className="h-[26px] gap-1"><Plus size={13} /> Outfit</Button>
+          }
+        >
+          {def.outfits.map((o) => (
+            <div key={o.id} className="grid grid-cols-[36px_140px_minmax(0,1fr)_auto] items-start gap-3 px-4 py-2.5">
+              <OutfitPicture value={o.picture} onChange={(picture) => setOutfit(o.id, { picture })} what={o.name || "the outfit"} />
+              <input aria-label="Name of the outfit" value={o.name} placeholder="Summer dress" onChange={(e) => setOutfit(o.id, { name: e.target.value })} className={cx(field, "h-9 py-0 font-semibold")} />
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="Tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />
+                <AutoText rows={1} aria-label="The outfit in natural language" value={o.sentence} placeholder="Natural language: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />
+              </div>
+              <button type="button" aria-label={`Remove the outfit ${o.name}`} onClick={() => onChange({ ...def, outfits: def.outfits.filter((x) => x.id !== o.id) })} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={14} /></button>
             </div>
-          );
-        })}
-      </Card>
-
-      <Card
-        dense
-        title={`Outfits · ${def.outfits.length}`}
-        help={`Pick one when you add ${name} to an image or a clip. Each has prompt text (tags and natural language) and, if you like, a reference image of the clothes. Without an outfit, ${name} is "as in the reference images": nothing about clothes is added to the prompt.`}
-        status={
-          // as many as a person holds: the server refuses more, and the person would no longer save
-          <Button size="sm" tone="quiet" disabled={full} data-tip={full ? `${LIMITS.outfits} outfits is the most a person holds` : undefined} onClick={() => onChange({ ...def, outfits: [...def.outfits, { id: localId(), name: "", tags: "", sentence: "", picture: null }] })} className="h-[26px] gap-1"><Plus size={13} /> Outfit</Button>
-        }
-      >
-        {def.outfits.map((o) => (
-          <div key={o.id} className="grid grid-cols-[36px_140px_minmax(0,1fr)_auto] items-start gap-3 px-4 py-2.5">
-            <OutfitPicture value={o.picture} onChange={(picture) => setOutfit(o.id, { picture })} what={o.name || "the outfit"} />
-            <input aria-label="Name of the outfit" value={o.name} placeholder="Summer dress" onChange={(e) => setOutfit(o.id, { name: e.target.value })} className={cx(field, "h-9 py-0 font-semibold")} />
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="Tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />
-              <AutoText rows={1} aria-label="The outfit in natural language" value={o.sentence} placeholder="Natural language: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />
-            </div>
-            <button type="button" aria-label={`Remove the outfit ${o.name}`} onClick={() => onChange({ ...def, outfits: def.outfits.filter((x) => x.id !== o.id) })} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={14} /></button>
-          </div>
-        ))}
-      </Card>
-    </>
+          ))}
+        </Card>
+      </div>
+    </Halves>
   );
 }
 
 export function PlaceEditor({ def, name, onChange }: { def: PlaceDef; name: string; onChange(def: PlaceDef): void }) {
   return (
-    <>
+    <Halves>
       <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the clip happens there. The first ${LIMITS.sentPictures.place} are sent. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
         <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.place} />
       </Card>
       <Words place tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
-    </>
+    </Halves>
   );
+}
+
+/**
+ * An editor in two columns side by side once the kit's editor column is wide (People.tsx makes it the `editor`
+ * container), one under the other below that: on a wide screen the right half is used rather than left empty. What
+ * an item holds never moves the split, so going from one item to the next does not shift the page.
+ */
+function Halves({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-1 items-start gap-3 @[1100px]/editor:grid-cols-2">{children}</div>;
 }

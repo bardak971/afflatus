@@ -415,9 +415,12 @@ export const PLACES: KeyPlace[] = [
       {
         name: "With the mouse",
         rows: [
+          { keys: "click", does: "The Inbox or a project: work in it; a row: open it", note: "a column head (Name, Created, Size): sort by it, again to reverse; folders stay first", mouse: true },
           { keys: "Ctrl+click", does: "Pick a row too", mouse: true },
           { keys: "Shift+click", does: "Pick the range", mouse: true },
-          { keys: "drag", does: "Rows onto a project or a folder", mouse: true },
+          { keys: "drag", does: "Rows onto a project, the Inbox or a folder", note: "a timeline takes its takes and export along", mouse: true },
+          { keys: "drag", does: "Files from your computer: imported where they land", note: "onto a linked folder: written into it on disk, never over a file", mouse: true },
+          { keys: "right-click", does: "Pin to the rail (up to four), rename, archive, delete, root folder", note: "the root folder: where renders land when no other folder of it is open", mouse: true },
         ],
       },
     ],

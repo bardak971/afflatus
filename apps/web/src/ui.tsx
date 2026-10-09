@@ -358,11 +358,12 @@ export function ErrorNote({ children }: { children: ReactNode }) {
 /**
  * A button that asks once more before it does something that cannot simply be undone: pressed, it
  * becomes a word about what happens, the button that does it, and a way back. Left alone for a few
- * seconds, it folds back. Without `label` it is the small icon button (a bin unless `icon` says
+ * seconds, it folds back, unless it `stay`s (a delete: the question waits for an answer rather than
+ * quietly giving up); Cancel and Escape always fold it. Without `label` it is the small icon button (a bin unless `icon` says
  * otherwise), named by `title`. With `open`, the asking is held from outside (a menu item asked it): only
  * the two buttons show while it is true, and `onCancel` folds it back.
  */
-export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYes, onAsk, onCancel, open, disabled, busy, tone, className }: {
+export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYes, onAsk, onCancel, open, disabled, busy, tone, stay = tone === "danger", className }: {
   /** What the button says before it asks; left out, a small icon button. */
   label?: ReactNode;
   /** "danger" for what erases for good (emptying the bin, forgetting every render time): it looks it before it asks. */
@@ -377,6 +378,8 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
   onYes(): void;
   /** Something to do as it starts asking (clear what an earlier go left on screen). */
   onAsk?(): void;
+  /** The question stays until it is answered (deletes, and what erases for good): no folding back by itself. */
+  stay?: boolean;
   /** Held from outside: asking while true. */
   open?: boolean;
   onCancel?(): void;
@@ -388,14 +391,23 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
   const asking = open ?? own;
   const setAsking = (on: boolean) => (open === undefined ? setOwn(on) : !on && onCancel?.());
   useEffect(() => {
-    if (!asking) return;
+    if (!asking || stay) return;
     const back = setTimeout(() => setAsking(false), 6000);
     return () => clearTimeout(back);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asking]);
+  }, [asking, stay]);
   if (asking) {
     return (
-      <span className="flex flex-wrap items-center gap-1.5">
+      // Escape is Cancel: it folds the question back, and goes no further (the menu or dialog around it stays open)
+      <span
+        className="flex flex-wrap items-center gap-1.5"
+        onKeyDown={(e) => {
+          if (e.key !== "Escape") return;
+          e.preventDefault();
+          e.stopPropagation();
+          setAsking(false);
+        }}
+      >
         {note && <span className="text-xs text-ink-2">{note}</span>}
         {/* the focus on Cancel: an Enter pressed twice by habit does not go ahead */}
         <Button size="sm" tone="danger" disabled={busy} onClick={() => { setAsking(false); onYes(); }}>{yes}</Button>

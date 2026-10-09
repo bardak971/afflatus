@@ -96,7 +96,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
         onChange={(v) => commit({ style: v === "any" ? null : (v as "tags" | "sentences") })}
         options={(["any", "tags", "sentences"] as const).map((v) => ({ value: v, label: STYLE_WORDS[v] }))}
       />
-      <TwoStep title={`Delete the snippet ${snippet.name}`} yes="Delete" onYes={() => remove.mutate()} />
+      <TwoStep title={`Delete the snippet ${snippet.name}`} stay yes="Delete" onYes={() => remove.mutate()} />
       {(save.isError || remove.isError) && <div className="col-span-6"><ErrorNote>{(save.error ?? remove.error)?.message}</ErrorNote></div>}
     </div>
   );
@@ -197,7 +197,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
               )}
             />
           </div>
-          <TwoStep title={`Delete the ${chosen.length} ticked snippets`} yes={`Delete ${chosen.length}`} onYes={() => removeAll.mutate()} />
+          <TwoStep title={`Delete the ${chosen.length} ticked snippets`} stay yes={`Delete ${chosen.length}`} onYes={() => removeAll.mutate()} />
           <span className="grow" />
           <Button size="sm" tone="quiet" onClick={() => setTicked(new Set())}>Untick all</Button>
         </div>

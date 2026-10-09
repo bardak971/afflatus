@@ -156,6 +156,8 @@ export function DropTray() {
             {zones.map((z) => (
               <div
                 key={z.id}
+                // the rest of what it does, for screen readers: the tray only shows mid-drag, when no tip can come up
+                aria-description={z.detail}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "copy";
@@ -166,7 +168,7 @@ export function DropTray() {
                   e.preventDefault();
                   void act(z.id, [...e.dataTransfer.files]);
                 }}
-                className={cx("flex h-[132px] w-52 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-3 text-center", over === z.id ? "border-accent bg-accent-wash" : "border-line-strong")}
+                className={cx("flex h-[112px] w-48 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-3 text-center", over === z.id ? "border-accent bg-accent-wash" : "border-line-strong")}
               >
                 <span className={over === z.id ? "text-accent" : "text-ink-2"}>{z.icon}</span>
                 <span className="font-semibold">{z.label}</span>

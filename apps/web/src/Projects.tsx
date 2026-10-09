@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Reveal } from "./bar/bridge";
-import { FolderPlus, Inbox } from "lucide-react";
+import { FolderKanban, FolderPlus, Inbox } from "lucide-react";
 import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
@@ -138,9 +138,13 @@ export function ProjectSwitch() {
     if (!inbox && projects.isSuccess && !projects.isFetching && (!picked || picked.archivedAt)) set("none");
   }, [inbox, projects.isSuccess, projects.isFetching, picked, set]);
   // the lists follow by themselves: the library, the drafts and the timelines carry the project in their query keys (data.ts)
-  const label = inbox ? "Inbox" : picked?.name ?? "…";
+  const name = inbox ? "Inbox" : picked?.name ?? "…";
+  // a pinned project worked in is shown once, by its pin (outlined, "current"): the button above then only opens the panel,
+  // so the same square is not drawn twice, and the pins never move as one is picked
+  const onPin = usePins().ids.includes(current);
+  const label = onPin ? "Projects" : name;
   // a project in its own colour (projects have none of their own: one picked from the id); the Inbox in the quiet ink
-  const tone = picked ? projectTone(picked.id) : "var(--color-ink-3)";
+  const tone = picked && !onPin ? projectTone(picked.id) : "var(--color-ink-3)";
   const [search, setSearch] = useState<string | undefined>(undefined);
   const [reveal, setReveal] = useState<Reveal | undefined>(undefined);
   const close = useCallback(() => {
@@ -167,8 +171,8 @@ export function ProjectSwitch() {
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((o) => !o)}
-        data-tip={`Working in: ${label}. The library, the drafts and the timelines are those of ${inbox ? "the Inbox" : "this project"}, and what you make lands in it. Click for your projects.`}
-        className={cx("mt-2.5 flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-[12px] pt-1.5 pb-[7px] text-[10.5px] font-semibold", open || !inbox ? "text-ink" : "text-ink-2 hover:text-ink")}
+        data-tip={`Working in: ${name}${onPin ? " (its pin is outlined below)" : ""}. The library, the drafts and the timelines are those of ${inbox ? "the Inbox" : "this project"}, and what you make lands in it. Click for your projects.`}
+        className={cx("mt-2.5 flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-[12px] pt-1.5 pb-[7px] text-[10.5px] font-semibold", open || (!inbox && !onPin) ? "text-ink" : "text-ink-2 hover:text-ink")}
       >
         {/* the name under it says it: the initial is only a picture */}
         <span
@@ -176,7 +180,7 @@ export function ProjectSwitch() {
           className={cx("flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border-[1.5px] bg-hover text-[13px] font-extrabold", open && "shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
           style={{ borderColor: tone, color: tone }}
         >
-          <Initial name={picked?.name ?? ""} inbox={inbox} />
+          {onPin ? <FolderKanban size={15} /> : <Initial name={picked?.name ?? ""} inbox={inbox} />}
         </span>
         <span className="w-full truncate px-0.5 text-center">{label}</span>
       </button>

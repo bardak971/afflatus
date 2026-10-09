@@ -158,6 +158,9 @@ export const useStudio = create<{
   place: Place;
   set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; displays: Partial<Record<Scope, Display>>; groupBy: GroupBy; timelineSort: "recent" | "name" | "length"; timelineSize: "S" | "M" | "L"; scope: Scope; place: Place }>): void;
 }>()(persist((set) => ({ form: false, size: "M", displays: {}, groupBy: "none", timelineSort: "recent", timelineSize: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "afflatus.studio" }));
+// The address says whether the form is open when the app is loaded ("/create" open, "/" closed), over what was
+// remembered: a reload keeps what the address showed, and a link to either lands as it says.
+if (typeof window !== "undefined" && (window.location.pathname === "/" || window.location.pathname === "/create")) useStudio.setState({ form: window.location.pathname === "/create" });
 /** What a scope shows: what it was left on, else the stage for "This draft" and the last grid size elsewhere. */
 export const displayOf = (v: { size: "S" | "M" | "L"; displays?: Partial<Record<Scope, Display>> }, scope: Scope): Display => v.displays?.[scope] ?? (scope === "draft" ? "Stage" : v.size);
 /** The folder open in the library, for what is brought in from outside (a drop, an upload): null when none is. */

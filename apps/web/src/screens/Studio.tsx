@@ -75,13 +75,21 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  // "/create" (a link from elsewhere, a key in the viewer) opens the form; the screen itself lives at "/"
+  // The address follows the form: "/create" while it is open, "/" while it is closed, so a reload or a link keeps it
+  // (store.ts reads it when the app loads). Opening and closing replace the address, no history entry per toggle. A
+  // link to "/create" opens the form; "/" with the form open (a way in that opened it, then went to the Studio) takes
+  // the form's address. The timelines' Studio keeps its own address.
+  const formWas = useRef<boolean | null>(null);
   useEffect(() => {
-    if (!forced) return;
-    view.set({ form: true });
-    go("/", { replace: true });
+    if (onTimelines) return;
+    const toggled = formWas.current !== null && formWas.current !== view.form;
+    formWas.current = view.form;
+    if (Boolean(forced) === view.form) return;
+    if (toggled) go(view.form ? "/create" : "/", { replace: true });
+    else if (forced) view.set({ form: true });
+    else go("/create", { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forced]);
+  }, [view.form, forced, onTimelines]);
 
   const folders = useFolders();
   const place = view.place;
@@ -144,6 +152,9 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // the project's tree: under the breadcrumb, which also opens by itself while something is dragged, to drop it on a folder
   const folderButton = useRef<HTMLDivElement>(null);
   const [foldersOpen, setFoldersOpen] = useState<false | "click" | "drag">(false);
+  // on the timelines the drop target is the New timeline card: a file dragged in does not open the tree over it
+  const timelinesShown = useRef(showTimelines);
+  timelinesShown.current = showTimelines;
   useEffect(() => {
     // after the drag has started (see dragging.ts): opened in the dragstart itself, the drag was sometimes cancelled
     const start = (e: DragEvent) => e.dataTransfer?.types.includes(DRAG_TYPE) && setTimeout(() => setFoldersOpen((o) => o || "drag"), 0);
@@ -154,7 +165,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     const enter = (e: DragEvent) => {
       if (!files(e)) return;
       depth++;
-      setFoldersOpen((o) => o || "drag");
+      if (!timelinesShown.current) setFoldersOpen((o) => o || "drag");
     };
     const leave = (e: DragEvent) => {
       if (!files(e)) return;

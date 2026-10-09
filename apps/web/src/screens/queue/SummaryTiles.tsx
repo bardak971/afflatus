@@ -87,6 +87,9 @@ export function SummaryTiles({ d }: { d: TimesSummary }) {
   // the GPU time of the video models, against the video they made: what a second of video costs
   const videoGpu = d.models.filter((m) => m.kind === "video").reduce((n, m) => n + m.gpuMs, 0);
   const oom = t.oom ?? 0;
+  // the failures that never reached ComfyUI are counted too, so the figures agree with the Queue's list; the tip says how many
+  const unsent = (t.unsent?.failed ?? 0) + (t.unsent?.cancelled ?? 0);
+  const unsentTip = unsent ? ` · ${t.unsent!.failed} failed and ${t.unsent!.cancelled} cancelled before they reached ComfyUI (no GPU time)` : "";
   return (
     <div className="flex flex-col gap-3.5">
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
@@ -101,7 +104,7 @@ export function SummaryTiles({ d }: { d: TimesSummary }) {
         <Headline
           label="Jobs" value={String(t.done)}
           sub={`${t.images} img · ${t.videos} vid · ${t.failed} failed · ${t.cancelled} cancelled`}
-          subTip={`${plural(t.done, "job")} done${t.tools ? `, ${plural(t.tools, "finish or slow-mo", "finishes or slow-mos")} among them` : ""} · failed and cancelled on top of the bars`}
+          subTip={`${plural(t.done, "job")} done${t.tools ? `, ${plural(t.tools, "finish or slow-mo", "finishes or slow-mos")} among them` : ""} · failed and cancelled on top of the bars${unsentTip}`}
           delta={change(t.done, prior?.done)} deltaTip={prior ? `${vs}: ${prior.done} done · ${prior.failed} failed · ${prior.cancelled} cancelled` : undefined}
         >
           <Spark values={done} color="var(--color-picture)" bars over={{ values: d.finished.bad, color: "var(--color-warn)" }} />
@@ -127,7 +130,7 @@ export function SummaryTiles({ d }: { d: TimesSummary }) {
         />
         {/* 80 °C: a temperature, the same for every card, not a figure of one card */}
         <Figure label="GPU temp peak" value={t.heatPeak === null ? "—" : `${Math.round(t.heatPeak)}°`} tip={t.heatUsual === null ? "not reported" : `p50 ${Math.round(t.heatUsual)}°`} warn={(t.heatPeak ?? 0) >= 80} />
-        <Figure label="Failed · cancelled" value={`${t.failed} · ${t.cancelled}`} tip={`${long(t.lostMs)} GPU time lost`} />
+        <Figure label="Failed · cancelled" value={`${t.failed} · ${t.cancelled}`} tip={`${long(t.lostMs)} GPU time lost${unsentTip}`} />
       </div>
     </div>
   );

@@ -8,11 +8,12 @@ import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api"
 import { ask, askText } from "../../Confirm";
 import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../../ContextMenu";
 import { useFolders, useProjects, useProjectsTree } from "../../data";
-import { DRAG_TIMELINE, DRAG_TYPE } from "../../dragging";
+import { DRAG_TIMELINE, DRAG_TYPE, useDragged } from "../../dragging";
 import { clock, when } from "../../format";
 import { plainKey } from "../../Keys";
 import { useKeysHere } from "../../keys/here";
 import { projectForNew } from "../../project";
+import { openFolderId } from "../../store";
 import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
 import { chipsOf, factsOf, stripOf } from "./timelineCard";
@@ -122,8 +123,41 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const pickedFolders = (folderList.data?.items ?? []).filter((x) => x.projectId === pickedProject && !x.path);
   // items dropped on the New timeline card: a timeline of them, in the order dragged
   const [dropOver, setDropOver] = useState(false);
+  // a file dragged in from the computer, anywhere over the window: the New timeline card shows it takes it (the
+  // folder tree stays shut on this view, see Studio), as it does for library items (useDragged)
+  const [fileDrag, setFileDrag] = useState(false);
+  const itemDrag = useDragged((s) => s.types.includes(DRAG_TYPE));
+  useEffect(() => {
+    const files = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes("Files"));
+    let depth = 0;
+    const enter = (e: DragEvent) => { if (files(e)) { depth++; setFileDrag(true); } };
+    const leave = (e: DragEvent) => {
+      if (!files(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) setFileDrag(false);
+    };
+    const end = () => { depth = 0; setFileDrag(false); };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", end);
+    window.addEventListener("dragend", end);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", end);
+      window.removeEventListener("dragend", end);
+    };
+  }, []);
   const makeOf = useMutation({
-    mutationFn: async (ids: string[]) => {
+    // library items by their ids, or files from the computer: brought into the library first (the folder open, else the
+    // project's root), then put on the new timeline in the order they came
+    mutationFn: async (from: { ids: string[] } | { files: File[] }) => {
+      const ids = "ids" in from ? from.ids : [];
+      if ("files" in from) {
+        const media = from.files.filter((f) => /^(image|video)\//.test(f.type));
+        if (!media.length) throw new Error("A timeline is made of pictures and videos: nothing dropped was one.");
+        for (const f of media) ids.push((await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() })).id);
+      }
       const t = await api.createTimeline(undefined, projectForNew());
       for (const id of ids) await api.addClip(t.id, { asset: id });
       return t;
@@ -160,7 +194,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
     picked.has(t.id) && picked.size > 1
       ? { title: `${picked.size} timelines` }
       : { title: t.name, thumb: t.cover ?? undefined, sub: <><span className="font-mono">{clock(t.durationMs)}</span> · {t.clips} clip{t.clips === 1 ? "" : "s"}</> };
-  const error = create.error ?? rename.error ?? move.error ?? remove.error;
+  const error = create.error ?? makeOf.error ?? rename.error ?? move.error ?? remove.error;
 
   return (
     <>
@@ -199,16 +233,25 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
             onClick={() => create.mutate()}
             disabled={create.isPending || makeOf.isPending}
             data-tip="A new, empty timeline, in the project the rail looks at. Drop pictures or videos on it: a timeline of them, in that order"
-            onDragOver={(e) => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); setDropOver(true); } }}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes(DRAG_TYPE) && !e.dataTransfer.types.includes("Files")) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              setDropOver(true);
+            }}
             onDragLeave={() => setDropOver(false)}
             onDrop={(e) => {
-              const ids = e.dataTransfer.getData(DRAG_TYPE).split(",").filter(Boolean);
               setDropOver(false);
-              if (!ids.length) return;
+              const ids = e.dataTransfer.getData(DRAG_TYPE).split(",").filter(Boolean);
+              const files = [...e.dataTransfer.files];
+              if (!ids.length && !files.length) return;
               e.preventDefault();
-              makeOf.mutate(ids);
+              makeOf.mutate(ids.length ? { ids } : { files });
             }}
-            className={cx("flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed text-ink-2 hover:border-accent hover:text-ink", dropOver ? "border-accent bg-accent-wash text-ink" : "border-line-strong")}
+            className={cx(
+              "flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed text-ink-2 transition-colors hover:border-accent hover:text-ink",
+              dropOver ? "border-accent bg-accent-wash text-ink" : fileDrag || itemDrag ? "border-accent text-ink" : "border-line-strong",
+            )}
           >
             <Plus size={20} strokeWidth={2.2} />
             <span className="text-sm font-semibold">{makeOf.isPending ? "Making it…" : "New timeline"}</span>

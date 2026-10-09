@@ -42,7 +42,7 @@ function Mark() {
 
 /** One way to a screen: its icon in a pill, its name under it. `pill` is drawn over the pill (the Queue's ring), `badge` at its corner. */
 function Item({ entry, path, tip, label, pill, badge }: { entry: Entry; path: string; tip?: string; label?: string; pill?: ReactNode; badge?: ReactNode }) {
-  const on = entry.href === "/" ? path === "/" : path.startsWith(entry.href);
+  const on = entry.href === "/" ? path === "/" || path === "/create" : path.startsWith(entry.href);
   return (
     <Link
       href={entry.href}

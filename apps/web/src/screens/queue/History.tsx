@@ -15,7 +15,7 @@ import { FailedRow } from "./FailedRow";
 import { dayLabel, dayOf, failureKey, foldFailures, hourOf, pinnedFailures, reasonsOf } from "./failures";
 import { rowFacts, rowName } from "./historyText";
 import { ROW, useJobActions } from "./jobActions";
-import { useModelName } from "./modelName";
+import { modelTip, useModelName } from "./modelName";
 import { useTileMenu } from "../../TileMenu";
 
 // the viewer is fetched the first time a result is opened here
@@ -305,7 +305,7 @@ function Row({ jobs, onOpen, onResultMenu }: { jobs: HistoryJob[]; onOpen(assetI
           <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => dismiss.mutate(jobs.map((j) => j.id))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
         </span>
       </span>
-      <span className="truncate text-[12.5px] text-ink-2" data-tip={head.model ? fileLabel(head.model) : undefined}>{modelOf(head)}</span>
+      <span className="truncate text-[12.5px] text-ink-2" data-tip={modelTip(modelOf(head), head.model)}>{modelOf(head)}</span>
       <span className="text-right font-mono text-xs text-ink-2">{head.tookMs !== null && head.status === "done" ? took(head.tookMs) : "—"}</span>
       <span className="text-right text-xs text-ink-2">{head.finishedAt ? when(head.finishedAt) : ""}</span>
     </div>

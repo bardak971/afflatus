@@ -1,6 +1,6 @@
 import type { Job } from "../../api";
 import { useRecipes } from "../../data";
-import { recipeLabel } from "../../format";
+import { fileLabel, recipeLabel } from "../../format";
 import { isFinish } from "./historyText";
 
 /** What a job runs on, in a word or two: its recipe under its model's name; ffmpeg for a cut or an export (no model at all), the upscale for a finish. */
@@ -12,4 +12,10 @@ export function useModelName(): (job: Pick<Job, "kind" | "recipe" | "label" | "u
     const r = recipes.data?.recipes.find((x) => x.id === job.recipe);
     return r ? recipeLabel(recipes.data?.families.find((f) => f.id === r.family)?.name, r.title) : job.recipe;
   };
+}
+
+/** The tip on a model cell: the whole name, which the column may still cut on a narrow window, then the file it loads. */
+export function modelTip(name: string, file: string | null | undefined): string {
+  const f = file ? fileLabel(file) : "";
+  return f && f !== name ? `${name} · ${f}` : name;
 }

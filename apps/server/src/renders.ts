@@ -362,6 +362,12 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const whole = merge(times.map((_t, i) => cellAt(i)).filter((c): c is Cell => c !== null));
   const count0 = (v: number | null) => v ?? 0;
 
+  // the jobs that failed or were stopped before they reached ComfyUI: no render row, but the Queue lists them, so the counts do too
+  const unsent = await notRendered(db, start, end, keepDays, when);
+  const unsentAt = times.map(() => ({ failed: 0, cancelled: 0 }));
+  for (const j of unsent) { const at = unsentAt[index(Date.parse(j.finished_at))]; if (at) at[j.status] += 1; }
+  const unsentCount = { failed: sum(unsentAt.map((u) => u.failed)), cancelled: sum(unsentAt.map((u) => u.cancelled)) };
+
   // the failures that ran out of memory, for the models and the tiles
   const oom = await outOfMemory(db, rows);
   // the models: everything made with one recipe, and under it each model file
@@ -381,7 +387,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const upscale = upscalePaces(registry, rows, stretch.map((x) => x.rows));
   // the period before, as long, for "Δ vs prior": none for "all", nor when the record covers less than nine tenths of it
   const priorFrom = start - (end - start);
-  const prior = period !== "all" && since && Date.parse(since) <= priorFrom + Math.max(step, (end - start) / 10) ? await totals(db, priorFrom, start, step === DAY) : null;
+  const prior = period !== "all" && since && Date.parse(since) <= priorFrom + Math.max(step, (end - start) / 10) ? await totals(db, priorFrom, start, step === DAY, keepDays, when) : null;
 
   return {
     period: typeof period === "string" ? period : "window", from: start, to: end, step, times, keepDays, since, buckets,
@@ -389,7 +395,9 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
     /** The stretch of time the figures cover: the period, or since the first render when that is later. */
     spanMs: Math.max(step, Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)),
     tiles: {
-      done: whole.done, images: whole.images, videos: whole.videos, failed: whole.failed, cancelled: whole.cancelled,
+      done: whole.done, images: whole.images, videos: whole.videos, failed: whole.failed + unsentCount.failed, cancelled: whole.cancelled + unsentCount.cancelled,
+      // of those, the ones that never reached ComfyUI: they took no GPU time (said in the tip)
+      unsent: unsentCount,
       videoMs: whole.videoMs, lostMs: whole.lostMs, gpuMs: whole.totalMs, longestMs: whole.longestMs,
       loadMs: whole.loadMs, loads: whole.cold, loadUsualMs: whole.loadUsualMs,
       waitedUsualMs: whole.waitedUsualMs, waitedSlowMs: whole.waitedSlowMs, off: whole.off,
@@ -400,7 +408,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
       oom: oom.size,
     },
     prior,
-    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map(count0), videoMs: series((c) => c.videoMs).map(count0) },
+    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map((v, i) => count0(v) + unsentAt[i]!.failed + unsentAt[i]!.cancelled), videoMs: series((c) => c.videoMs).map(count0) },
     phases: {
       loading: series((c) => parts(c).loading).map(count0), sampling: series((c) => parts(c).sampling).map(count0),
       refining: series((c) => parts(c).refining).map(count0), finishing: series((c) => parts(c).finishing).map(count0),
@@ -413,12 +421,37 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
 export type TimesSummary = Awaited<ReturnType<typeof summary>>;
 
 /** The totals of a window, rows and folded days: what a period is set against. Days only when the window is whole days. */
-async function totals(db: Db, from: number, to: number, days: boolean) {
+async function totals(db: Db, from: number, to: number, days: boolean, keepDays: number, when: number) {
   const iso = (ms: number) => new Date(ms).toISOString();
   const rows = await db.selectFrom("render_stats").selectAll().where("created_at", ">=", iso(from)).where("created_at", "<", iso(to)).execute();
   const folded = days ? await db.selectFrom("render_days").select("figures").where("recipe_id", "=", WHOLE_DAY).where("day", ">=", dayOf(iso(from))).where("day", "<", dayOf(iso(to))).execute() : [];
   const c = merge([...(rows.length ? [cellOf(rows)] : []), ...folded.map((d) => JSON.parse(d.figures) as Cell)]);
-  return { from, to, gpuMs: c.totalMs, done: c.done, failed: c.failed, cancelled: c.cancelled, videoMs: c.videoMs };
+  const unsent = await notRendered(db, from, to, keepDays, when);
+  const unsentOf = (status: "failed" | "cancelled") => unsent.filter((j) => j.status === status).length;
+  return { from, to, gpuMs: c.totalMs, done: c.done, failed: c.failed + unsentOf("failed"), cancelled: c.cancelled + unsentOf("cancelled"), videoMs: c.videoMs };
+}
+
+/**
+ * The jobs that failed or were stopped in a window without a render row: refused before they were sent (a model file
+ * ComfyUI does not have), stopped while they waited, a cut or an export that failed in ffmpeg. They took no GPU time,
+ * but the Queue lists them, and a dashboard that counts fewer failures than the Queue shows is not trusted. Only from
+ * the day the rows are kept from: a folded day keeps no job ids, so a job that did render then cannot be told apart.
+ * A job that only loaded models (`warm`) is not counted, as it is not in the history either.
+ */
+async function notRendered(db: Db, from: number, to: number, keepDays: number, when: number): Promise<Array<{ status: "failed" | "cancelled"; finished_at: string }>> {
+  const kept = keepDays > 0 ? Date.parse(`${dayOf(new Date(when - keepDays * DAY).toISOString())}T00:00:00.000Z`) : from;
+  const start = Math.max(from, kept);
+  if (start >= to) return [];
+  const rows = await db
+    .selectFrom("jobs")
+    .select(["status", "finished_at"])
+    .where("status", "in", ["failed", "cancelled"])
+    .where("warm", "=", 0)
+    .where("finished_at", ">=", new Date(start).toISOString())
+    .where("finished_at", "<", new Date(to).toISOString())
+    .where("id", "not in", (eb) => eb.selectFrom("render_stats").select("id"))
+    .execute();
+  return rows.filter((r): r is { status: "failed" | "cancelled"; finished_at: string } => r.finished_at !== null && (r.status === "failed" || r.status === "cancelled"));
 }
 
 /**

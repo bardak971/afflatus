@@ -63,8 +63,9 @@ const EDGE = 32;
 const OVER = "[role=menu], [role=dialog][aria-modal=true]";
 const HELP_SCOPED =
   "This project's folders, timelines and drafts, with what each holds and its size; other projects are switched to from the rail. Click the project's own row for the whole of it, a folder to show it in the library, a timeline or a draft to open it. Drag rows, library items or files from your computer onto a folder to put them there, or onto the Bin. Right-click for the rest.";
+// three lines, not a manual: the keys, the sorting and what a drop does are in the keys sheet ("Projects panel")
 const HELP =
-  "Your projects as a tree: their folders, timelines and drafts, with what each holds and its size. Click the Inbox or a project to work in it (the library, the drafts and the timelines then show its own, and what you make lands in it); click a folder, a timeline or a draft to open it. Right-click a project for Pin to the rail: up to four sit under the rail's project button, one click away, and are dragged there to reorder. Ctrl + click or Shift + click picks several. Drag rows onto a project, the Inbox or a folder to move them there: a timeline takes its takes and export along. Files dropped from your computer are imported where they land; onto a linked folder they are written into it on disk (never over a file: \"name (2).png\"). Unfold a folder to see its items; click one to see it large. Right-click for rename, archive, delete and the root folder: a project's root folder is where what you make lands when no other folder of it is open. Click Name, Created or Size to sort each level by it, again to reverse it: folders stay first. Drafts with no prompt, no name and nothing rendered fold into one row of empty drafts; its Clear deletes them (the open draft stays).";
+  "Your projects as a tree: folders, timelines and drafts, with their sizes. Click the Inbox or a project to work in it, a row to open it. Drag rows, library items or files onto a project or a folder to put them there. Right-click for the rest (Pin to the rail, root folder, archive); the keys and the sorting are in Keyboard shortcuts.";
 
 const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
   loose: { icon: <FolderX size={16} />, tone: "text-ink-3" },
@@ -1195,7 +1196,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
               {r.kind === "empty" && refused?.key !== r.key ? (
                 <span className="flex min-w-0 items-center" data-asking={clearAsk === r.key || undefined} onClick={(e) => e.stopPropagation()}>
                   {clearAsk === r.key ? (
-                    <TwoStep open title={`Delete the ${r.label}`} note="Delete? The open one stays." yes="Delete" cancel="Keep" onCancel={() => setClearAsk(null)} onYes={() => clearEmpty(r)} />
+                    <TwoStep open stay title={`Delete the ${r.label}`} note="Delete? The open one stays." yes="Delete" cancel="Keep" onCancel={() => setClearAsk(null)} onYes={() => clearEmpty(r)} />
                   ) : (
                     <button
                       type="button"

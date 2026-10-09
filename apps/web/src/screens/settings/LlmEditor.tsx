@@ -97,7 +97,7 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
           <Row label="Remove">
             {fresh
               ? <Button size="sm" tone="quiet" onClick={onRemove}>Remove</Button>
-              : <TwoStep label="Remove" title="Remove this LLM" note="Conversations that use it fall back to the one new conversations start with." yes="Remove" onYes={onRemove} />}
+              : <TwoStep label="Remove" title="Remove this LLM" note="Conversations that use it fall back to the one new conversations start with." stay yes="Remove" onYes={onRemove} />}
           </Row>
         </div>
       )}

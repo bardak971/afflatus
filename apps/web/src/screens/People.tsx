@@ -145,6 +145,16 @@ export function People() {
 
   const here = TABS.find((t) => t.id === tab)!;
   const mine = all.filter((e) => e.kind === tab);
+  // A tab arrived on with nothing open opens its first entry, rather than a "Choose one" page and one more click. Once per
+  // arrival: an item closed by hand stays closed, and an item named in the address (a deep link) is the one opened.
+  // Presets are many and grouped by model, so their first is no better than any: only a lone one is opened.
+  const arrived = useRef<Tab | null>(null);
+  const firstOf = tab === "snippet" || (tab === "preset" && mine.length !== 1) ? null : mine[0]?.id ?? null;
+  useEffect(() => {
+    if (!entities.isSuccess || arrived.current === tab) return;
+    arrived.current = tab;
+    if (open === null && firstOf) setOpen(firstOf);
+  }, [entities.isSuccess, tab, open, firstOf]);
   const found = query.trim() ? fuzzyFilter(mine, query, textOf) : mine;
   const editing = edit && open === edit.id && edit.kind !== "snippet" ? edit : null;
   // a preset that ships with Afflatus: shown, not changed
@@ -235,7 +245,9 @@ export function People() {
                 <ShippedPreset e={shipped} onCopied={(c) => setOpen(c.id)} />
               </div>
             ) : editing ? (
-              <div className="flex max-w-[820px] flex-col gap-3">
+              // a preset's form keeps its reading width; a person, a place or a style uses the column's (two halves once
+              // it is wide, see PersonEditor's Halves), not the left 820 px of a wide screen
+              <div className={cx("@container/editor flex flex-col gap-3", editing.kind === "preset" ? "max-w-[820px]" : "max-w-[1600px]")}>
                 {/* each editor is keyed by its item: another item opens a fresh one, so an upload or a picker left open never lands on it */}
                 <ItemHeader
                   item={editing} saved={saved} failure={failure} onRename={(name) => change({ ...editing, name })} onRetry={retry}
