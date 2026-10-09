@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Afflatus: an A, and the breath that runs through it -->
-  <rect width="64" height="64" rx="14" fill="#151821"/>
-  <path d="M15 51 L31 13 L47 51" fill="none" stroke="#f2c14e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M6 40 C 15 33, 25 45, 34 39 S 48 34, 56 39" fill="none" stroke="#f2c14e" stroke-width="4.5" stroke-linecap="round" opacity=".92"/>
-  <circle cx="52" cy="15" r="3.6" fill="#f2c14e" opacity=".85"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="#1d1d22"/><g transform="translate(14 14) scale(.72)" fill="#ff9a73" stroke="#ff9a73" stroke-width="2" stroke-linejoin="round" fill-rule="evenodd"><path d="M37 30 L50 43 L63 30 L96 96 L70 96 L63 82 L37 82 L30 96 L4 96 Z"/><path d="M50 4 L60 24 L50 34 L40 24 Z"/></g></svg>

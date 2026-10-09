@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Film, LayoutGrid, ListOrdered, Settings2, Users, Workflow } from "lucide-react";
 import { ProjectSwitch } from "./Projects";
 import { useQueueOf } from "./screens/studio/queueOf";
+import { MARK } from "./logo";
 import { ThemeFlip } from "./theme/Appearance";
 import { cx } from "./ui";
 
@@ -27,12 +28,13 @@ function Mark() {
       role="img"
       aria-label="Afflatus"
       data-tip="Afflatus"
-      // the gradient's second colour is the accent leaned toward the warm token, so it follows every theme and accent
-      className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[12px] bg-[linear-gradient(140deg,var(--color-accent),color-mix(in_oklab,var(--color-accent)_55%,var(--color-warn)))] text-accent-ink shadow-[0_6px_18px_color-mix(in_srgb,var(--color-accent)_25%,transparent)]"
+      // on the dark of the stage in every theme, as the favicon: the accent there is the one tuned for the dark
+      data-stage
+      className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-raised"
     >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-        <path d="M4 15c3-6 8-8 11-5 2 2 0 5-2.5 4" />
-        <path d="M8 19c4 0 9-2 12-7" />
+      <svg width="27" height="27" viewBox="0 0 100 100" className="text-accent" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" fillRule="evenodd" aria-hidden>
+        <path d={MARK.body} />
+        <path d={MARK.spark} />
       </svg>
     </span>
   );
