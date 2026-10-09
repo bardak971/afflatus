@@ -1,8 +1,8 @@
-import { ArrowLeft, ArrowLeftToLine, ArrowRight, ArrowRightToLine, Camera, Copy, Eye, Film, Gauge, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Repeat, Scissors, SlidersHorizontal, Split, Trash2, Volume2, VolumeX, Wand2 } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, ArrowRight, ArrowRightToLine, Camera, ChevronLeft, ChevronRight, Copy, Eye, Film, Gauge, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Repeat, Scissors, SlidersHorizontal, Split, Trash2, Volume2, VolumeX, Wand2 } from "lucide-react";
 import type { InputSpec, ReferenceValue } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import type { MenuItem } from "../ContextMenu";
-import { pinInputs } from "./model";
+import { pinInputs, splitPoint } from "./model";
 import type { TimeRange } from "./Track";
 
 /** Where the playhead stands on a clip, as the player says it. */
@@ -22,6 +22,8 @@ export interface ClipMenuActions {
   patch(clip: string, patch: ClipPatch): void;
   setRange(range: TimeRange): void;
   split(clip: string, atMs: number): void;
+  /** The clip plays its take before (-1) or after (1), as a click on it in the clip panel. */
+  stepTake(clip: string, by: -1 | 1): void;
   duplicate(clip: string): void;
   loop(c: Clip): void;
   /** Cut the clip at this moment of it and add a clip that continues from there. */
@@ -39,13 +41,21 @@ export interface ClipMenuActions {
   removeMany(clips: string[]): void;
 }
 
-/** Split the clip at the playhead: on when the playhead stands inside what it plays. */
+/** Split the clip at the playhead (S): on when the playhead stands inside what it plays. */
 const splitHere = (c: Clip, act: ClipMenuActions): MenuItem => {
-  const take = c.take!;
   const onIt = act.onClip(c);
-  const at = onIt?.assetMs ?? 0;
-  const inPlay = Boolean(onIt) && at >= take.startMs + 40 && at <= take.endMs - 40;
-  return { label: "Split clip at playhead", icon: <Split size={14} />, disabled: !inPlay || act.pending.split, note: !onIt ? "put the playhead on this clip" : !inPlay ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => act.split(c.id, at) };
+  const cut = onIt ? splitPoint(c, onIt.assetMs) : null;
+  const at = cut && "at" in cut ? cut.at : null;
+  return { label: "Split at the playhead", key: "S", icon: <Split size={14} />, disabled: at === null || act.pending.split, note: !onIt ? "put the playhead on this clip" : at === null ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => at !== null && act.split(c.id, at) };
+};
+
+/** The take before or after the one that plays (Alt [ and Alt ]): the clip panel's list of takes, from the keyboard. */
+const takeSteps = (c: Clip, act: ClipMenuActions): MenuItem[] => {
+  const i = c.takes.findIndex((x) => x.id === c.take?.id);
+  return [
+    { label: "Previous take", key: "Alt + [", icon: <ChevronLeft size={14} />, disabled: i <= 0, note: i <= 0 ? "the first take plays" : `take ${i} of ${c.takes.length}`, run: () => act.stepTake(c.id, -1) },
+    { label: "Next take", key: "Alt + ]", icon: <ChevronRight size={14} />, disabled: i < 0 || i >= c.takes.length - 1, note: i >= c.takes.length - 1 ? "the last take plays" : `take ${i + 2} of ${c.takes.length}`, run: () => act.stepTake(c.id, 1) },
+  ];
 };
 
 /** The right-click menu of a clip: what the Inspector offers on it, at the pointer. */
@@ -62,6 +72,9 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       // said rather than hidden: an imported workflow with no first-frame or previous-clip input cannot extend
       : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true, run: () => {} }] : []),
     "—" as const,
+    ...(c.take ? [splitHere(c, act)] : []),
+    ...(c.kind === "video" && c.takes.length > 1 ? takeSteps(c, act) : []),
+    ...(c.take || c.takes.length > 1 ? ["—" as const] : []),
     { label: "Set range to this clip", icon: <Scissors size={14} />, disabled: c.lengthMs <= 0, note: c.lengthMs > 0 ? "In at its start, Out at its end" : "nothing plays yet", run: () => act.setRange({ inMs: c.atMs, outMs: c.atMs + c.lengthMs }) },
     { label: "Duplicate clip", icon: <Copy size={14} />, disabled: act.pending.duplicate, note: "a copy right after it, with its takes", run: () => act.duplicate(c.id) },
     // the same as dragging it along the track, from the keyboard too
@@ -82,7 +95,6 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       }];
     })() : []),
     ...(c.lengthMs > 0 ? [{ label: "At the playhead", icon: <Camera size={14} />, note: act.onClip(c) ? undefined : "put the playhead on this clip", items: [
-      ...(c.take ? [splitHere(c, act)] : []),
       { label: "Extend from this frame", icon: <Link2 size={14} />, disabled: !act.onClip(c) || act.pending.add, note: act.onClip(c) ? "cuts it here; a new clip carries on" : "put the playhead on this clip", run: () => { const here = act.onClip(c); if (here) act.continueFrom(c, here.localMs); } },
       { label: "Save frame", icon: <Camera size={14} />, disabled: !act.onClip(c) || act.pending.frame, note: act.onClip(c) ? "the frame at the playhead, to your library" : "put the playhead on this clip", run: () => { const here = act.onClip(c); if (!here) return; if (c.take) act.frame(c.take.asset.id, Math.round(here.assetMs)); else if (c.still) act.open(c.still); } },
     ] }] : []),

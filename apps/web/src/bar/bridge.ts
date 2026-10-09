@@ -12,7 +12,11 @@ import type { ClipCast } from "./castTo";
 export type TimelineRequest =
   | { timeline: string; do: "render"; clips: number[]; top?: boolean }
   | { timeline: string; do: "render-missing"; top?: boolean }
-  | { timeline: string; do: "export" };
+  | { timeline: string; do: "export" }
+  /** The selected clip split at the playhead (S); said in the editor's note when the playhead is not inside it. */
+  | { timeline: string; do: "split" }
+  /** The selected clip plays its take before (-1) or after (1): Alt+[ and Alt+]; at either end it stays. */
+  | { timeline: string; do: "take"; by: -1 | 1 };
 
 /** A request the editor took, and its answer to the bar: the jobs a render queued (null: none, or an export). */
 export interface TakenRequest {

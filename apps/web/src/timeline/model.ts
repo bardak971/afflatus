@@ -8,7 +8,8 @@ export const DRAG_CLIP = "application/x-afflatus-clip";
 
 /** The track is drawn to scale: this many pixels a second, within these limits. */
 // pixels a second: down to 2 so that a long video (ten minutes on a wide screen) still fits whole (Fit all, a clip added)
-export const ZOOM = { least: 2, most: 110, start: 40 };
+// one zoom step (the - and + buttons, - and = on the keyboard): this much closer or farther
+export const ZOOM = { least: 2, most: 110, start: 40, step: 1.3 };
 /** Space before the first clip, and the width of the "New clip" button after the last one. */
 export const PAD = 10;
 export const NEW_CLIP = 116;
@@ -56,6 +57,17 @@ export function placeOf(slots: Slot[], playMs: number): { slot: Slot; x: number;
   const local = Math.max(0, Math.min(slot.clip.lengthMs, playMs - slot.clip.atMs));
   const part = slot.clip.lengthMs ? local / slot.clip.lengthMs : 0;
   return { slot, x: slot.left + part * slot.width, layoutMs: slot.startMs + part * slot.lengthMs };
+}
+
+/**
+ * Where a split at the playhead cuts a clip, in its video's own time: only inside what plays of it, never on a cut (40 ms
+ * from either end); else why not, for the note.
+ */
+export function splitPoint(c: Clip, assetMs: number): { at: number } | { why: string } {
+  const take = c.take;
+  if (!take) return { why: c.kind === "still" ? "a still has no take to split" : "nothing rendered to split yet" };
+  if (assetMs < take.startMs + 40 || assetMs > take.endMs - 40) return { why: "the playhead is on a cut" };
+  return { at: assetMs };
 }
 
 /** The moment of what plays under a point of the track. Over a clip that is not rendered: where it would start. */

@@ -7,10 +7,10 @@ import { clock as mmss, notReady } from "../format";
 import { Picker } from "../PictureField";
 import { useNewClock } from "../timeline/clock";
 import { Inspector, MusicPanel } from "../timeline/Inspector";
-import { layout, moveAfter, otherShape, pinInputs, SHAPES, shapeOf, ZOOM, type Shape } from "../timeline/model";
+import { layout, moveAfter, otherShape, pinInputs, SHAPES, shapeOf, splitPoint, stamp, ZOOM, type Shape } from "../timeline/model";
 import { Player, type PlayerHandle } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
-import { Track } from "../timeline/Track";
+import { Track, type TrackKeys } from "../timeline/Track";
 import { ErrorNote, PanelEdge } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
@@ -70,8 +70,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const [talks, setTalks] = useState<Record<string, DesignerTurn[]>>({});
   // the language model and instructions each clip's conversation is held with, as picked here before the timeline is read again
   const [sessions, setSessions] = useState<Record<string, DesignerSession>>({});
-  /** A line in the header, and what more there is to it (behind its "?"). */
-  const [note, setSaid] = useState<{ text: string; more?: string } | null>(null);
+  /** A line in the header, and what more there is to it (behind its "?"); `undo`: an Undo beside it, for what it says was done. */
+  const [note, setSaid] = useState<{ text: string; more?: string; undo?: boolean } | null>(null);
   const setNote = useCallback((text: string | null, more?: string) => setSaid(text === null ? null : { text, more }), []);
   /** The pointer rests on what the header says: it stays while it is read. */
   const [held, setHeld] = useState(false);
@@ -212,6 +212,13 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       asked?.reply(null);
       return openExport.current?.();
     }
+    // the selected clip split at the playhead, or playing its take before or after: as S and Alt+[ ] do it, said in the note
+    if (request.do === "split" || request.do === "take") {
+      asked?.reply(null);
+      if (request.do === "split") splitNow.current(selectedNow.current);
+      else takeNow.current(request.by);
+      return;
+    }
     const list = request.do === "render-missing" ? missing : clips.filter((c, i) => request.clips.includes(i + 1) && c.kind === "video" && !c.job && ready(c).input);
     if (!list.length) {
       asked?.reply(null);
@@ -296,7 +303,12 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const renderNow = useRef(() => {});
   // [ and ]: the clip before or after (set once jump exists, below)
   const jumpNow = useRef<(by: -1 | 1) => void>(() => {});
-  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false), renderNow, jumpNow });
+  // S and Ctrl+B: split at the playhead; Alt+[ and Alt+]: the selected clip's take before or after (set below)
+  const splitNow = useRef<(only?: string | null) => void>(() => {});
+  const takeNow = useRef<(by: -1 | 1) => void>(() => {});
+  // - and =, Shift+Z: the track's zoom and Fit all (filled by the track)
+  const trackKeys = useRef<TrackKeys | null>(null);
+  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false), renderNow, jumpNow, splitNow, takeNow, trackKeys });
 
   const jump = (by: -1 | 1) => {
     const time = clock.get();
@@ -309,6 +321,50 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     select(target.id);
   };
   jumpNow.current = jump;
+
+  /** A clip split at this moment of its video, said in the header once made ("Split clip 3 at 0:12.4", Undo beside it). */
+  const splitAt = (clip: Clip, atMs: number) => {
+    const n = clipsNow.current.findIndex((x) => x.id === clip.id) + 1;
+    const when = stamp(clock.get());
+    split.mutate({ clip: clip.id, atMs }, { onSuccess: () => setSaid({ text: `Split clip ${n} at ${when}`, undo: true }) });
+  };
+  /**
+   * S and Ctrl+B: the clip under the playhead split there; with `only` (the bar, for the selected clip) when it is that clip.
+   * Only inside what a clip plays, never on a cut: else the note says why and nothing changes.
+   */
+  splitNow.current = (only) => {
+    if (split.isPending) return;
+    const here = player.current?.where();
+    // the playhead put by hand on a clip with nothing rendered stands there, not on the clip the player shows
+    const by = cursor;
+    const slot = by !== null ? slots.find((x) => by >= x.startMs && by < x.startMs + x.lengthMs) : undefined;
+    const c = clips.find((x) => x.id === (slot?.planned ? slot.clip.id : here?.clip.id));
+    if (!c) return setNote("No clip under the playhead");
+    const n = clips.indexOf(c) + 1;
+    if (only && only !== c.id) return setNote(`The playhead is not on clip ${clips.findIndex((x) => x.id === only) + 1}`);
+    const cut = splitPoint(c, here && here.clip.id === c.id ? here.assetMs : -1);
+    if ("why" in cut) return setNote(`Clip ${n} not split: ${cut.why}`);
+    splitAt(c, cut.at);
+  };
+  // the take last asked from the keys, until the timeline read again plays it: a second press goes on from there
+  const askedTake = useRef<{ clip: string; take: string; at: number } | null>(null);
+  /** The selected clip plays its take before or after, as a click on it in the clip panel; at either end it stays, and says so. */
+  const stepTake = (clipId: string | null, by: -1 | 1) => {
+    const c = clips.find((x) => x.id === clipId);
+    if (!c) return setNote("No clip selected");
+    const n = clips.indexOf(c) + 1;
+    const a = askedTake.current;
+    const playing = a && a.clip === c.id && performance.now() - a.at < 3000 && c.takes.some((x) => x.id === a.take) ? a.take : c.take?.id;
+    const i = c.takes.findIndex((x) => x.id === playing);
+    if (c.takes.length < 2 || i < 0) return setNote(c.takes.length ? `Clip ${n} has one take` : `Clip ${n} has no take yet`);
+    const to = c.takes[i + by];
+    if (!to) return setNote(`Clip ${n} plays its ${by < 0 ? "first" : "last"} take already`);
+    askedTake.current = { clip: c.id, take: to.id, at: performance.now() };
+    setPreview(null);
+    patch.mutate({ clip: c.id, patch: { take: to.id } });
+    setNote(`Clip ${n} plays take ${i + by + 1} of ${c.takes.length}`);
+  };
+  takeNow.current = (by) => stepTake(selectedNow.current, by);
 
   // opened at a clip (?clip=N, from the viewer's "In … · clip N"): that clip selected, the playhead at its start
   const [, go] = useLocation();
@@ -372,7 +428,11 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     render: (c) => render.mutate({ clips: [c] }),
     patch: (clip, p) => patch.mutate({ clip, patch: p }),
     setRange,
-    split: (clip, atMs) => split.mutate({ clip, atMs }),
+    split: (clip, atMs) => {
+      const c = clips.find((x) => x.id === clip);
+      if (c) splitAt(c, atMs);
+    },
+    stepTake,
     duplicate: (clip) => duplicate.mutate(clip),
     loop: (c) => loop.mutate(c),
     continueFrom,
@@ -516,6 +576,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onRange={setRange}
           onRangeMenu={(e) => rangeMenu.open(e, true)}
           snapQuiet={snapQuiet}
+          keys={trackKeys}
         />
         </div>
 

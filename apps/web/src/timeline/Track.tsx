@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Minus, Plus } from "lucide-react";
 import type { ClipMusic } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
@@ -17,6 +17,12 @@ import { TrackRuler } from "./track/TrackRuler";
 import { useMotionMarks } from "./track/useMotionMarks";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
 
+/** What the editor's keys reach on the track: a zoom step around the playhead, and Fit all. */
+export interface TrackKeys {
+  zoom(by: -1 | 1): void;
+  fit(): void;
+}
+
 /** How long the pointer rests on a pinned picture before its card shows. */
 const PIN_AFTER_MS = 250;
 
@@ -30,7 +36,7 @@ export interface TimeRange {
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -85,6 +91,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onRangeMenu?(e: React.MouseEvent): void;
   /** In and Out snap to quiet moments of the clips (their motion is measured once a range exists). */
   snapQuiet?: boolean;
+  /** Filled here for the editor's keys: - and = zoom around the playhead, Shift+Z fits the whole video. */
+  keys?: RefObject<TrackKeys | null>;
 }) {
   const clips = timeline.clips;
   const floor = useRef<HTMLDivElement>(null);
@@ -199,6 +207,18 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     const room = (scroller.current?.clientWidth ?? 800) - NEW_CLIP - PAD * 3 - 40;
     if (totalMs > 0) onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (totalMs / 1000))));
   };
+  /** One zoom step out (-1) or in (1) around the playhead: it stays where it is on screen (brought to the middle when it was out of view). */
+  const zoomAtHead = (by: -1 | 1) => {
+    const el = scroller.current;
+    const next = Math.max(ZOOM.least, Math.min(ZOOM.most, by > 0 ? pps * ZOOM.step : pps / ZOOM.step));
+    if (!el || next === pps) return;
+    const layoutMs = cursorMs !== null ? Math.min(cursorMs, totalMs) : placeOf(slots, clock.get())?.layoutMs ?? 0;
+    const shown = PAD + (layoutMs / 1000) * pps - el.scrollLeft;
+    const px = shown >= 0 && shown <= el.clientWidth ? shown : el.clientWidth / 2;
+    onZoom(next);
+    requestAnimationFrame(() => { el.scrollLeft = Math.max(0, PAD + (layoutMs / 1000) * next - px); });
+  };
+  if (keys) keys.current = { zoom: zoomAtHead, fit: fitAll };
   // arriving on a timeline, the whole of it is in view; zooming after that is the person's
   const fittedFor = useRef<string | null>(null);
   useEffect(() => {
@@ -357,9 +377,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         ) : (
           <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
         )}
-        <button type="button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => onZoom(Math.max(ZOOM.least, pps / 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
-        <button type="button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => onZoom(Math.min(ZOOM.most, pps * 1.3))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
-        <button type="button" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
+        <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => onZoom(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
+        <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => onZoom(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
+        <button type="button" data-tip="The whole video in view" data-tip-keys="Shift Z" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
       </div>
     </div>
   );

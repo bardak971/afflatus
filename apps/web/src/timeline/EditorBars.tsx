@@ -18,8 +18,8 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
   total: number;
   saveFailed: string | null;
   onRetrySave(): void;
-  /** An error (said in the warning colour), else a note: one line, and what more there is to it behind a "?". */
-  said: { error: Error | null; note: { text: string; more?: string } | null };
+  /** An error (said in the warning colour), else a note: one line, and what more there is to it behind a "?"; Undo beside it for what it says was done. */
+  said: { error: Error | null; note: { text: string; more?: string; undo?: boolean } | null };
   /** The pointer rests on what is said: it stays while it is read. */
   onHold?(held: boolean): void;
   undo: { run(): void; pending: boolean };
@@ -74,6 +74,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         <span className="flex min-w-0 max-w-sm items-center gap-1.5" onPointerEnter={() => onHold?.(true)} onPointerLeave={() => onHold?.(false)}>
           <span className={error ? "truncate text-warn-ink" : "truncate text-ink-2"} data-tip={error?.message ?? note?.text}>{error?.message ?? note?.text}</span>
           {!error && note?.more && <Help text={note.more} />}
+          {!error && note?.undo && t.undo && <Button size="sm" tone="quiet" className="h-6 shrink-0 px-2" disabled={undo.pending} data-tip={`Undo: ${t.undo}`} data-tip-keys="Ctrl Z" onClick={undo.run}>Undo</Button>}
         </span>
       ) : null}
       <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl Z" onClick={undo.run}>
