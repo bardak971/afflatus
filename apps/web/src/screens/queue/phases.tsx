@@ -2,12 +2,12 @@ import type { TimeParts } from "../../api";
 import { took } from "../../format";
 import { cx } from "../../ui";
 
-/** The parts of a render's time, each with its colour: as a class (the bars) and as a colour (the charts). */
-export const PHASES: Array<{ id: keyof TimeParts; label: string; tone: string; color: string }> = [
-  { id: "loading", label: "Model load", tone: "bg-ink-3", color: "var(--color-ink-3)" },
-  { id: "sampling", label: "Sampling", tone: "bg-accent", color: "var(--color-accent)" },
-  { id: "refining", label: "Refine and upscale passes (hires fix, upscale, SeedVR2, detailer)", tone: "bg-picture", color: "var(--color-picture)" },
-  { id: "finishing", label: "VAE decode, interpolation, encoding", tone: "bg-good", color: "var(--color-good)" },
+/** The parts of a render's time, each with its colour: as a class (the bars) and as a colour (the charts); `tip` says what is in it. */
+export const PHASES: Array<{ id: keyof TimeParts; label: string; tip: string; tone: string; color: string }> = [
+  { id: "loading", label: "model load", tip: "Loading the checkpoint, text encoders and VAE into VRAM", tone: "bg-ink-3", color: "var(--color-ink-3)" },
+  { id: "sampling", label: "sampling", tip: "The main sampling pass", tone: "bg-accent", color: "var(--color-accent)" },
+  { id: "refining", label: "refine/upscale", tip: "Refine and upscale passes: hires fix, upscale, SeedVR2, detailer", tone: "bg-picture", color: "var(--color-picture)" },
+  { id: "finishing", label: "VAE decode/encode", tip: "VAE decode, frame interpolation, video encoding, saving", tone: "bg-good", color: "var(--color-good)" },
 ];
 
 export const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
@@ -26,7 +26,7 @@ export function Legend() {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
       {PHASES.map((p) => (
-        <span key={p.id} className="flex items-center gap-1.5"><span className={cx("h-2.5 w-2.5 rounded-sm", p.tone)} />{p.label}</span>
+        <span key={p.id} className="flex items-center gap-1.5" data-tip={p.tip}><span className={cx("h-2.5 w-2.5 rounded-sm", p.tone)} />{p.label}</span>
       ))}
     </div>
   );

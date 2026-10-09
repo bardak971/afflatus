@@ -23,7 +23,7 @@ export function useChartColors(): string[] {
   }, [choice]);
 }
 
-export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, bars, children, step, onBrush, detail }: {
+export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, bars, children, step, onBrush, detail, isolate }: {
   title: string;
   note?: string;
   /** The start of each stretch of time, ms since the epoch. */
@@ -53,11 +53,17 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
   onBrush?(from: number, to: number): void;
   /** More about the stretch under the pointer, under the figures. */
   detail?(index: number): ReactNode;
+  /** The series looked at alone from outside (a model picked in the list); a click on the legend still picks another. */
+  isolate?: string | null;
 }) {
   const id = useId().replace(/:/g, "");
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(560);
-  const [solo, setSolo] = useState<string | null>(null);
+  /** A name clicked on the legend (null: all of them); undefined until then, when the series picked outside, if any, is looked at alone. */
+  const [picked, setSolo] = useState<string | null | undefined>(undefined);
+  // a model picked outside takes over from a name clicked here before; one not drawn here leaves them all
+  useEffect(() => setSolo(undefined), [isolate]);
+  const solo = picked !== undefined ? picked : isolate && series.some((s) => s.name === isolate) ? isolate : null;
   const [hover, setHover] = useState<number | null>(null);
   /** A drag under way: where it began and where the pointer is, in pixels across the panel. */
   const brush = useBrush(Boolean(onBrush));
@@ -197,7 +203,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
             <button
               key={s.name}
               type="button"
-              data-tip={solo === s.name ? "Show them all again" : "Look at this one alone"}
+              data-tip={[s.tip, solo === s.name ? "click: show all" : "click: solo"].filter(Boolean).join(" · ")}
               onClick={() => setSolo(solo === s.name ? null : s.name)}
               className={cx("flex items-center gap-1.5 rounded px-1 text-xs hover:bg-hover", solo && solo !== s.name ? "text-ink-3 opacity-60" : "text-ink-2")}
             >

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bar, brushWindow, ceiling, curve, stackSeries, statOf } from "../src/screens/queue/chartMath";
-import { dropped, modelSwitches, moved } from "../src/screens/queue/order";
+import { byModel, dropped, modelSwitches, moved } from "../src/screens/queue/order";
 import { brushSpan } from "../src/screens/queue/useBrush";
 import { presetOf, typedWindow } from "../src/screens/queue/useTimesView";
 import { windowOf } from "../src/data";
@@ -82,6 +82,14 @@ describe("the waiting jobs' order", () => {
   it("counts the model loads down the line of renders, not the exports between them", () => {
     expect(modelSwitches([{ kind: "render", recipe: "x" }, { kind: "export", recipe: "e" }, { kind: "render", recipe: "x" }, { kind: "render", recipe: "y" }])).toBe(1);
     expect(modelSwitches([])).toBe(0);
+  });
+  it("groups the waiting jobs by model, the first job's model first, each model's jobs in their order", () => {
+    const w = (id: string, recipe: string, kind: "render" | "export" | "load" | "cut" = "render") => ({ id, recipe, kind });
+    expect(byModel([w("a", "x"), w("b", "y"), w("c", "x"), w("d", "y"), w("e", "z")])).toEqual(["a", "c", "b", "d", "e"]);
+    // a load goes with its model; an export stays a group of its own, where it first came
+    expect(byModel([w("l", "y", "load"), w("a", "x"), w("e", "t", "export"), w("b", "y"), w("c", "x")])).toEqual(["l", "b", "a", "c", "e"]);
+    expect(modelSwitches(byModel([w("a", "x"), w("b", "y"), w("c", "x")]).map((id) => ({ kind: "render" as const, recipe: id === "b" ? "y" : "x" })))).toBe(1);
+    expect(byModel([])).toEqual([]);
   });
 });
 

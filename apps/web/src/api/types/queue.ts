@@ -115,10 +115,14 @@ export interface TimesSummary {
     vramPeak: number | null; vramUsual: number | null; heatPeak: number | null; heatUsual: number | null;
     /** Finishes and slow motions among the renders; runs that ran out of video memory, and the time that cost. */
     tools?: number; spills?: number; spillLostMs?: number;
+    /** Failures that ran out of memory (OOM). */
+    oom?: number;
   };
+  /** The period before, as long: what the headline figures are set against. Null for "all", or when the record does not reach back over it. */
+  prior?: { from: number; to: number; gpuMs: number; done: number; failed: number; cancelled: number; videoMs: number } | null;
   /** The upscales' pace per stretch: a video route in minutes per second of video, a picture tool or a hires pass in seconds per megapixel. */
   upscale?: { video: Array<{ key: string; name: string; points: Line }>; pictures: Array<{ key: string; name: string; points: Line }> };
-  finished: { images: number[]; videos: number[]; bad: number[] };
+  finished: { images: number[]; videos: number[]; bad: number[]; videoMs?: number[] };
   phases: { loading: number[]; sampling: number[]; refining: number[]; finishing: number[] };
   wait: { usual: Line; slow: Line };
   gpu: { vram: Line; heat: Line };
@@ -129,6 +133,8 @@ export interface TimesSummary {
     kind: "image" | "video" | "audio" | null;
     renders: number;
     usualMs: number | null; slowMs: number | null; stepMs: number | null; loadMs: number | null; gpuMs: number;
+    /** What went wrong: failures, stops, the GPU time they took, the failures out of memory; and how many times it loaded. */
+    failed?: number; cancelled?: number; lostMs?: number; oom?: number; loads?: number;
     trend: number[];
     usual: Line; slow: Line; cold: Line;
     /** Its pace against its own usual, in percent: 100 is as ever. */
@@ -166,4 +172,6 @@ export interface RenderItem {
   assetId: string | null;
   /** It ran out of video memory, as far as the figures tell (memory full, twice what was expected). */
   spilled?: boolean;
+  /** It failed out of memory (OOM). */
+  oom?: boolean;
 }

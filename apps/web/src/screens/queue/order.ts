@@ -32,3 +32,16 @@ export function modelSwitches(waiting: Array<Pick<Job, "kind" | "recipe">>): num
   }
   return n;
 }
+
+/**
+ * The waiting jobs grouped by model, so that each model loads once: the models in the order they first come,
+ * the jobs of one model in the order they wait in. A load goes with its model; an export or a cut is a group of its own.
+ */
+export function byModel(waiting: Array<Pick<Job, "id" | "kind" | "recipe">>): string[] {
+  const groups = new Map<string, string[]>();
+  for (const w of waiting) {
+    const key = w.kind === "render" || w.kind === "load" ? `model:${w.recipe}` : `job:${w.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), w.id]);
+  }
+  return [...groups.values()].flat();
+}

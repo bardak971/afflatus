@@ -1,14 +1,16 @@
-import { lazy, Suspense, useState, type ComponentProps } from "react";
+import { lazy, Suspense, useMemo, useState, type ComponentProps } from "react";
 import type { TimesSummary, TopRender } from "../../api";
 import { useAsset } from "../../data";
 import { brief, long, took } from "../../format";
 import { cx, Empty, ErrorNote } from "../../ui";
 import { TimeChart, useChartColors } from "./Chart";
+import { flagsOf } from "./flagRules";
+import { Flags } from "./Flags";
 import { Lanes } from "./Lanes";
-import { ModelTable } from "./ModelTable";
+import { ModelDetail, ModelList, modelColor } from "./ModelTable";
 import { PHASES } from "./phases";
 import { RenderList } from "./RenderList";
-import { SummaryTiles } from "./SummaryTiles";
+import { spanSaid, SummaryTiles } from "./SummaryTiles";
 import { DAY, HOUR, useTimesView } from "./useTimesView";
 import { WindowBar } from "./WindowBar";
 
@@ -30,13 +32,14 @@ export function RenderTimes() {
   const opened = useAsset(openedId);
   const tones = useChartColors();
   const d = times.data;
+  const flags = useMemo(() => (d ? flagsOf(d, lanes.data?.items) : []), [d, lanes.data]);
   if (times.isError) return <ErrorNote>{times.error.message}</ErrorNote>;
   if (!d) return <div className="text-ink-2">Loading render history…</div>;
 
   const t = d.tiles;
   const anything = t.done + t.failed + t.cancelled > 0;
   const spanMs = d.to - d.from;
-  const stretch = d.step < HOUR ? `${Math.round(d.step / 60_000)} minutes` : d.step === HOUR ? "hour" : d.step < DAY ? `${Math.round(d.step / HOUR)} hours` : "day";
+  const stretch = d.step < HOUR ? `${Math.round(d.step / 60_000)} min` : d.step === HOUR ? "hour" : d.step < DAY ? `${Math.round(d.step / HOUR)} h` : "day";
   // en-GB: the UI is in English, and day before month, 24 h, whatever the browser's own locale
   const timeLabel = (time: number, full?: boolean) =>
     new Date(time).toLocaleString("en-GB", full
@@ -44,18 +47,30 @@ export function RenderTimes() {
       : d.step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
   const chart: ChartBase = { times: d.times, timeLabel, step: d.step, onBrush: zoom, detail: (i: number) => <TopList bucket={d.buckets[i]} /> };
   const windowSaid = `${timeLabel(d.from, true)} → ${timeLabel(d.to, true)}`;
+  const pickedIndex = d.models.findIndex((m) => m.key === model);
+  const picked = pickedIndex >= 0 ? d.models[pickedIndex] : undefined;
+  // a flag's action: the list below, on that model's jobs (or its failed ones)
+  const toJobs = (key: string, which: "all" | "trouble") => {
+    setModel(key);
+    setOnly(which);
+    requestAnimationFrame(() => document.getElementById("render-list")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
         <WindowBar view={view} shown={{ from: d.from, to: d.to }} typed={typed} onTyped={setTyped} onPreset={pick} onZoom={zoom} />
-        <span className="text-xs text-ink-3">{windowSaid} · a stretch is {d.step < DAY && d.step !== HOUR ? "" : "one "}{stretch} · drag on a chart to zoom in</span>
-        {d.since && <span className="text-xs text-ink-3">History since {new Date(d.since).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.</span>}
+        <span className="text-xs text-ink-2">
+          {windowSaid} · per {stretch}{d.prior ? ` · Δ vs prior ${spanSaid(d.prior.to - d.prior.from)}` : ""}
+        </span>
+        {d.since && <span className="text-xs text-ink-3" data-tip="First render on record">since {new Date(d.since).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>}
+        <span className="grow" />
+        <span className="text-xs text-ink-3">drag a chart: zoom</span>
       </div>
 
       {!d.since && (
         <Empty title="No render history yet">
-          From now on every render is timed here: total time, time per phase (model load, sampling, VAE decode), and GPU load. The estimates on the buttons are made from it. Earlier renders only have their total, and are not shown.
+          Every render from now on: total, per phase (model load, sampling, VAE decode), VRAM, GPU temp. The ETAs come from it.
         </Empty>
       )}
 
@@ -66,52 +81,61 @@ export function RenderTimes() {
           {!anything && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">No renders in this window.</div>}
 
           {anything && (
-            <Lanes items={lanes.data?.items ?? []} from={d.from} to={d.to} models={d.models.map((m) => m.key)} names={Object.fromEntries(d.models.map((m) => [m.key, m.name]))} timeLabel={timeLabel} onZoom={zoom} onOpen={(id) => setOpenedId(id)} />
+            <div className="grid grid-cols-1 gap-3.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+              {d.models.length > 0 && <ModelList d={d} model={model} onModel={setModel} palette={tones} />}
+              <Flags flags={flags} onJobs={toJobs} />
+            </div>
+          )}
+
+          {anything && picked && (
+            <ModelDetail model={picked} color={modelColor(pickedIndex, tones)} times={d.times} timeLabel={timeLabel} stretch={stretch} onClose={() => setModel(null)} />
+          )}
+
+          {anything && (
+            <Lanes items={lanes.data?.items ?? []} from={d.from} to={d.to} models={d.models.map((m) => m.key)} names={Object.fromEntries(d.models.map((m) => [m.key, m.name]))} only={model} timeLabel={timeLabel} onZoom={zoom} onOpen={(id) => setOpenedId(id)} />
           )}
 
           {anything && (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               <TimeChart
-                {...chart} title="Render time by model" note={`median per ${stretch} · click a name to isolate it`} format={long} axisFormat={brief}
-                series={d.models.map((m) => ({ name: m.name, values: m.usual }))}
+                {...chart} title="Render time p50" note={`per ${stretch}`} format={long} axisFormat={brief} isolate={picked?.name}
+                series={d.models.map((m) => ({ name: m.name, values: m.usual, tip: "p50 warm" }))}
               />
               <TimeChart
-                {...chart} title="Speed vs. the model's median" note="seconds per step (s/it) against the model's own median: 100 % is as usual" format={(v) => `${Math.round(v)} %`} bottom={50} fill={false}
-                series={[...d.models.map((m) => ({ name: m.name, values: m.pace })), { name: "as usual", values: d.times.map(() => 100), color: "var(--color-ink-3)", dashed: true }]}
+                {...chart} title="s/it vs p50" note="100 % = the model's own p50" format={(v) => `${Math.round(v)} %`} bottom={50} fill={false} isolate={picked?.name}
+                series={[...d.models.map((m) => ({ name: m.name, values: m.pace })), { name: "p50", values: d.times.map(() => 100), color: "var(--color-ink-3)", dashed: true, tip: "Each model's own p50" }]}
               />
               <TimeChart
                 {...chart} title="Finished" note={`per ${stretch}`} format={(v) => String(Math.round(v))} axisFormat={(v) => String(+v.toFixed(1))} stacked bars stat="sum"
                 series={[
-                  { name: "Images", values: d.finished.images, color: "var(--color-picture)" },
-                  { name: "Videos", values: d.finished.videos, color: tones[0] },
-                  { name: "Failed or cancelled", values: d.finished.bad, color: "var(--color-warn)" },
+                  { name: "img", values: d.finished.images, color: "var(--color-picture)" },
+                  { name: "vid", values: d.finished.videos, color: tones[0] },
+                  { name: "failed/cancelled", values: d.finished.bad, color: "var(--color-warn)" },
                 ]}
               />
               <TimeChart
                 {...chart} title="GPU time by phase" note={`per ${stretch}`} format={long} axisFormat={brief} stacked stat="sum"
-                series={PHASES.map((p) => ({ name: p.label, values: d.phases[p.id], color: p.id === "sampling" ? tones[0] : p.color }))}
+                series={PHASES.map((p) => ({ name: p.label, values: d.phases[p.id], color: p.id === "sampling" ? tones[0] : p.color, tip: p.tip }))}
               />
               <TimeChart
-                {...chart} title="Queue wait" note="from Generate to the render starting" format={long} axisFormat={brief}
+                {...chart} title="Queue wait" note="Generate → start" format={long} axisFormat={brief}
                 series={[
-                  { name: "Median", values: d.wait.usual, color: tones[0] },
-                  { name: "p90 (the slowest 10 % are above)", values: d.wait.slow, color: "var(--color-warn)" },
+                  { name: "p50", values: d.wait.usual, color: tones[0] },
+                  { name: "p90", values: d.wait.slow, color: "var(--color-warn)", tip: "9 in 10 waited less" },
                 ]}
               />
               <TimeChart
                 {...chart} title="VRAM and GPU temperature" note={`peak per ${stretch}`} format={(v) => String(Math.round(v))} top={100} bottom={40} stat="max"
                 series={[
-                  { name: "VRAM, %", values: d.gpu.vram, color: "var(--color-picture)" },
-                  { name: "Temperature, °C", values: d.gpu.heat, color: "var(--color-warn)" },
+                  { name: "VRAM %", values: d.gpu.vram, color: "var(--color-picture)" },
+                  { name: "GPU °C", values: d.gpu.heat, color: "var(--color-warn)" },
                 ]}
               />
               {d.upscale && (d.upscale.video.length > 0 || d.upscale.pictures.length > 0) && <UpscaleChart chart={chart} upscale={d.upscale} tones={tones} />}
             </div>
           )}
 
-          {d.models.length > 0 && <ModelTable d={d} model={model} onModel={setModel} timeLabel={timeLabel} stretch={stretch} />}
-
-          <RenderList d={d} renders={renders} picked={d.models.find((m) => m.key === model)} onModel={setModel} only={only} onOnly={setOnly} onOpen={(id) => setOpenedId(id)} />
+          <RenderList d={d} renders={renders} picked={picked} onModel={setModel} only={only} onOnly={setOnly} onOpen={(id) => setOpenedId(id)} />
         </>
       )}
       {openedId && opened.data && <Suspense fallback={null}><Viewer asset={opened.data} onClose={() => setOpenedId(null)} /></Suspense>}
@@ -121,10 +145,10 @@ export function RenderTimes() {
 
 /** The longest renders of a stretch, under the pointer: what took the time there. */
 function TopList({ bucket }: { bucket: { renders: number; top: TopRender[] } | undefined }) {
-  if (!bucket || !bucket.renders) return <span className="text-ink-3">no render in this stretch</span>;
+  if (!bucket || !bucket.renders) return <span className="text-ink-3">no render</span>;
   return (
     <div className="mt-1 flex flex-col gap-0.5 border-t border-line pt-1">
-      <span className="text-ink-3">{bucket.renders} render{bucket.renders === 1 ? "" : "s"}{bucket.top.length < bucket.renders ? `, the ${bucket.top.length} longest:` : ":"}</span>
+      <span className="text-ink-3">{bucket.renders} job{bucket.renders === 1 ? "" : "s"}{bucket.top.length < bucket.renders ? ` · top ${bucket.top.length}` : ""}</span>
       {bucket.top.map((r) => (
         <span key={r.id} className="flex items-baseline gap-2">
           <span className="grow truncate text-ink-2">{r.name}{r.model ? <span className="text-ink-3"> · {r.model.split(" · ")[0]}</span> : ""}</span>
@@ -148,7 +172,7 @@ function UpscaleChart({ chart, upscale, tones }: { chart: ChartBase; upscale: No
       <TimeChart
         {...chart}
         title="Upscale speed"
-        note={tab === "video" ? "minutes of work per second of video, median per stretch" : "seconds per megapixel made, median per stretch"}
+        note={tab === "video" ? "GPU min / s of video · p50" : "GPU s / MP · p50"}
         format={(v) => (tab === "video" ? `${v.toFixed(v < 10 ? 1 : 0)} min/s` : `${v.toFixed(v < 10 ? 1 : 0)} s/MP`)}
         series={lines.map((l, i) => ({ name: l.name, values: l.points, color: tones[i % tones.length] }))}
       >

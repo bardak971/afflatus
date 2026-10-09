@@ -172,6 +172,28 @@ describe("what the tab shows", () => {
     expect(day.tiles.done).toBe(4);
   });
 
+  it("the period before as long for the headline's change, the failures out of memory per model, the video length per stretch", async () => {
+    await put([
+      row({ ago: 3_600_000 }), row({ ago: 2 * 3_600_000, kind: "video", duration_ms: 5_000 }),
+      row({ ago: 3 * 3_600_000, status: "failed", kind: null, total_ms: 9_000, vram_peak: 99 }),
+      row({ ago: 4 * 3_600_000, status: "failed", kind: null, total_ms: 4_000, vram_peak: 60 }),
+      // the day before: the prior period
+      row({ ago: DAY + 3_600_000, total_ms: 50_000 }), row({ ago: DAY + 2 * 3_600_000, total_ms: 30_000 }),
+      // two days back: in neither
+      row({ ago: 2 * DAY + 3_600_000 }),
+    ]);
+    const day = await summary(t.db, t.services.registry, "day", 90, NOW);
+    expect(day.prior).toMatchObject({ gpuMs: 80_000, done: 2, failed: 0 });
+    // no job left to say why it failed: a full memory alone is not counted as out of memory
+    expect(day.tiles.oom).toBe(0);
+    expect(day.models[0]).toMatchObject({ failed: 2, oom: 0, lostMs: 13_000 });
+    expect(day.finished.videoMs.reduce((a, b) => a + b, 0)).toBe(5_000);
+    // nothing before the record starts: no change to say
+    expect((await summary(t.db, t.services.registry, "week", 90, NOW)).prior).toBeNull();
+    expect((await summary(t.db, t.services.registry, "all", 90, NOW)).prior).toBeNull();
+    expect((await list(t.db, t.services.registry, { trouble: true })).items.map((i) => i.oom)).toEqual([false, false]);
+  });
+
   it("the renders one by one, newest first, a page at a time, or only those that went wrong", async () => {
     await put(Array.from({ length: 7 }, (_x, i) => row({ ago: i * 60_000, status: i === 3 ? "failed" : "done" })));
     const first = await list(t.db, t.services.registry, { limit: 5 });

@@ -203,6 +203,21 @@ export async function toolPace(db: Db, recipe: string): Promise<number | null> {
 export const spilled = (r: Pick<RenderRow, "status" | "vram_peak" | "expected_ms" | "total_ms">) =>
   r.status !== "failed" && r.vram_peak !== null && r.vram_peak >= 95 && r.expected_ms !== null && r.expected_ms > 0 && r.total_ms >= 2 * r.expected_ms;
 
+const OUT_OF_MEMORY = /out of memory|\boom\b|allocat|not enough memory/i;
+/**
+ * The failed renders among `rows` that ran out of memory (OOM): their job's error says so. A job no longer kept is
+ * not counted: a full memory alone does not say why a render failed. In slices: SQLite takes so many values in one `in`.
+ */
+export async function outOfMemory(db: Db, rows: Array<Pick<RenderRow, "id" | "status" | "vram_peak">>): Promise<Set<string>> {
+  const failed = rows.filter((r) => r.status === "failed");
+  const errors = new Map<string, string | null>();
+  for (let i = 0; i < failed.length; i += 400) {
+    const ids = failed.slice(i, i + 400).map((r) => r.id);
+    for (const j of await db.selectFrom("jobs").select(["id", "error"]).where("id", "in", ids).execute()) errors.set(j.id, j.error);
+  }
+  return new Set(failed.filter((r) => OUT_OF_MEMORY.test(errors.get(r.id) ?? "")).map((r) => r.id));
+}
+
 // ---------------------------------------------------------------- folding the old rows into days
 
 /** The day as a whole, among the rows of `render_days`. */
@@ -327,7 +342,8 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const { start, end, step, times } = windowOf(period, since, when);
   const index = (ms: number) => Math.floor((ms - start) / step);
 
-  const rows = await db.selectFrom("render_stats").selectAll().where("created_at", ">=", new Date(start).toISOString()).orderBy("created_at", "desc").execute();
+  // bounded at the end too: a window in the past counts nothing that came after it
+  const rows = await db.selectFrom("render_stats").selectAll().where("created_at", ">=", new Date(start).toISOString()).where("created_at", "<", new Date(end).toISOString()).orderBy("created_at", "desc").execute();
   const folded = step === DAY ? await db.selectFrom("render_days").selectAll().where("day", ">=", dayOf(new Date(start).toISOString())).execute() : [];
 
   // each stretch: its rows, and the figures of days that are no longer rows
@@ -346,8 +362,10 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const whole = merge(times.map((_t, i) => cellAt(i)).filter((c): c is Cell => c !== null));
   const count0 = (v: number | null) => v ?? 0;
 
+  // the failures that ran out of memory, for the models and the tiles
+  const oom = await outOfMemory(db, rows);
   // the models: everything made with one recipe, and under it each model file
-  const models = modelLines(registry, rows, folded, times, cellAt);
+  const models = modelLines(registry, rows, folded, times, cellAt, oom);
 
   // what rendered in each stretch, the longest first: for the pointer, and for the lanes
   const buckets = stretch.map((s) => {
@@ -361,6 +379,9 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   // ran out of video memory: how many, and the time it cost over what was expected
   const spills = rows.filter(spilled);
   const upscale = upscalePaces(registry, rows, stretch.map((x) => x.rows));
+  // the period before, as long, for "Δ vs prior": none for "all", nor when the record covers less than nine tenths of it
+  const priorFrom = start - (end - start);
+  const prior = period !== "all" && since && Date.parse(since) <= priorFrom + Math.max(step, (end - start) / 10) ? await totals(db, priorFrom, start, step === DAY) : null;
 
   return {
     period: typeof period === "string" ? period : "window", from: start, to: end, step, times, keepDays, since, buckets,
@@ -376,8 +397,10 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
       // the tools among the renders (finishes, slow motions), and the runs that ran out of video memory
       tools: rows.filter((r) => r.recipe_id.startsWith("tool.")).length,
       spills: spills.length, spillLostMs: sum(spills.map((r) => Math.max(0, r.total_ms - (r.expected_ms ?? 0)))),
+      oom: oom.size,
     },
-    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map(count0) },
+    prior,
+    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map(count0), videoMs: series((c) => c.videoMs).map(count0) },
     phases: {
       loading: series((c) => parts(c).loading).map(count0), sampling: series((c) => parts(c).sampling).map(count0),
       refining: series((c) => parts(c).refining).map(count0), finishing: series((c) => parts(c).finishing).map(count0),
@@ -388,6 +411,15 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   };
 }
 export type TimesSummary = Awaited<ReturnType<typeof summary>>;
+
+/** The totals of a window, rows and folded days: what a period is set against. Days only when the window is whole days. */
+async function totals(db: Db, from: number, to: number, days: boolean) {
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const rows = await db.selectFrom("render_stats").selectAll().where("created_at", ">=", iso(from)).where("created_at", "<", iso(to)).execute();
+  const folded = days ? await db.selectFrom("render_days").select("figures").where("recipe_id", "=", WHOLE_DAY).where("day", ">=", dayOf(iso(from))).where("day", "<", dayOf(iso(to))).execute() : [];
+  const c = merge([...(rows.length ? [cellOf(rows)] : []), ...folded.map((d) => JSON.parse(d.figures) as Cell)]);
+  return { from, to, gpuMs: c.totalMs, done: c.done, failed: c.failed, cancelled: c.cancelled, videoMs: c.videoMs };
+}
 
 /**
  * The window a summary covers: a named period ends now; "all" reaches back to the first render (`since`); a
@@ -408,7 +440,7 @@ function windowOf(period: Period | Window, since: string | null, when: number): 
 type CellAt = (i: number, of?: { recipe: string; file?: string }) => Cell | null;
 
 /** A summary's line per recipe, the busiest first: its figures per stretch, its usual setting spelled out, and each of its model files. */
-function modelLines(registry: Registry, rows: RenderRow[], folded: Array<Tables["render_days"]>, times: number[], cellAt: CellAt) {
+function modelLines(registry: Registry, rows: RenderRow[], folded: Array<Tables["render_days"]>, times: number[], cellAt: CellAt, oom: Set<string>) {
   const recipes = [...new Set([...rows.map((r) => r.recipe_id), ...folded.filter((d) => d.recipe_id !== WHOLE_DAY).map((d) => d.recipe_id)])];
   return recipes.map((recipe) => {
     const own = rows.filter((r) => r.recipe_id === recipe);
@@ -434,6 +466,7 @@ function modelLines(registry: Registry, rows: RenderRow[], folded: Array<Tables[
     return {
       key: recipe, name: nameOf(registry, recipe), kind: own[0]?.kind ?? null,
       renders: all.renders, usualMs: all.usualMs, slowMs: all.slowMs, stepMs: all.stepMs, loadMs: all.loadUsualMs, gpuMs: all.totalMs,
+      failed: all.failed, cancelled: all.cancelled, lostMs: all.lostMs, oom: own.filter((r) => oom.has(r.id)).length, loads: all.cold,
       trend: done.slice(0, 24).reverse().map((r) => r.total_ms),
       usual: cells.map((c) => c?.usualMs ?? null), slow: cells.map((c) => c?.slowMs ?? null), cold: cells.map((c) => c?.coldMs ?? null),
       // its pace against its own usual: 100 is as ever
@@ -488,6 +521,7 @@ export async function list(db: Db, registry: Registry, opts: { recipe?: string; 
   // what it made, when that is still in the library: shown beside it
   const ids = rows.map((r) => r.asset_id).filter((id): id is string => Boolean(id));
   const alive = new Set(ids.length ? (await db.selectFrom("assets").select("id").where("id", "in", ids).where("deleted_at", "is", null).execute()).map((a) => a.id) : []);
+  const oom = await outOfMemory(db, rows);
   return {
     total,
     more: rows.length > limit,
@@ -497,6 +531,7 @@ export async function list(db: Db, registry: Registry, opts: { recipe?: string; 
       phases: { loading: r.load_ms, sampling: r.sample_ms, refining: r.refine_ms, finishing: r.finish_ms },
       totalMs: r.total_ms, expectedMs: r.expected_ms, cold: Boolean(r.cold), whole: Boolean(r.whole), waitedMs: r.waited_ms, vram: r.vram_peak, heat: r.heat_peak, status: r.status,
       spilled: spilled(r),
+      oom: oom.has(r.id),
       assetId: r.asset_id && alive.has(r.asset_id) ? r.asset_id : null,
     })),
   };

@@ -6,6 +6,8 @@ export interface Series {
   values: Array<number | null>;
   color?: string;
   dashed?: boolean;
+  /** What the name stands for, on its legend entry. */
+  tip?: string;
 }
 
 /** The plot's margins inside the panel: room for the scale on the left and the times underneath. */
