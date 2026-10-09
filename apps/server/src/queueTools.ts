@@ -265,6 +265,6 @@ export function runExport(core: QueueCore, row: JobRow): Promise<void> {
     const opts = readJson<ExportOptions | null>(row.inputs, null);
     if (!opts) throw new Error("this job's settings cannot be read");
     if (!core.clips) throw new Error("timelines are not available");
-    await core.clips.exporter.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, signal: run.abort.signal });
+    await core.clips.exporter.export(opts.timeline, { scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, webMb: opts.webMb, signal: run.abort.signal });
   });
 }

@@ -19,6 +19,8 @@ export interface ExportAsk {
   blend?: boolean;
   match?: boolean;
   fit?: "timeline" | "largest";
+  /** A copy for the web, under this many megabytes (see webCut). */
+  webMb?: number;
   signal?: AbortSignal;
 }
 
@@ -56,9 +58,9 @@ export class TimelineExport {
           duck: plan.spans.some((s) => s.duckDb > 0) ? await duckCurve(laid, (asset) => this.core.motion(asset), plan) : null,
         }
       : undefined;
-    const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, signal: opts.signal };
+    const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, webMb: opts.webMb, signal: opts.signal };
     // stored from where ffmpeg wrote it: the export is never held whole in memory
-    return joinVideosInto(parts, frame, fps, joinOpts, (file) => this.storeExport(t, file, frame, fps, win));
+    return joinVideosInto(parts, frame, fps, joinOpts, (file) => this.storeExport(t, file, frame, fps, win, Boolean(opts.webMb)));
   }
 
   /**
@@ -110,7 +112,7 @@ export class TimelineExport {
   }
 
   /** The export put in the library (and its storage), named after the timeline (and the range), as the timeline's last export, in the timeline's folder (folderOfTimeline). */
-  private async storeExport(t: TimelineRow, file: string, frame: { width: number; height: number }, fps: number, win: { a: number; b: number } | null) {
+  private async storeExport(t: TimelineRow, file: string, frame: { width: number; height: number }, fps: number, win: { a: number; b: number } | null, web = false) {
     const { db, storage, events } = this.core;
     const assetId = newId();
     const key = `assets/${assetId.slice(0, 2)}/${assetId}.mp4`;
@@ -123,7 +125,7 @@ export class TimelineExport {
     await db
       .insertInto("assets")
       .values(newAssetRow({
-        id: assetId, kind: "video", origin: "exported", name: win ? `${t.name} · ${clockOf(win.a)}–${clockOf(win.b)}` : t.name, file_key: key, thumb_key: thumb ? thumbKey(assetId) : null,
+        id: assetId, kind: "video", origin: "exported", name: `${win ? `${t.name} · ${clockOf(win.a)}–${clockOf(win.b)}` : t.name}${web ? " · web" : ""}`, file_key: key, thumb_key: thumb ? thumbKey(assetId) : null,
         mime: "video/mp4", bytes, width: video.facts?.width ?? frame.width, height: video.facts?.height ?? frame.height,
         duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: await folderOfTimeline(db, t), generation_id: null,
         kept_at: at, created_at: at,

@@ -100,6 +100,8 @@ export interface ExportOptions {
   match?: boolean;
   /** "largest": the frame of the largest take (the finished ones), the timeline's shape kept; else the timeline's own frame. */
   fit?: "timeline" | "largest";
+  /** A copy for the web, under this many megabytes: its long edge at most 1280, 30 pictures a second (webCut in cut.ts). */
+  webMb?: number;
 }
 
 export interface ClipPatch {

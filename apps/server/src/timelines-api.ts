@@ -116,6 +116,8 @@ const exportBody = z.strictObject({
   blend: z.boolean().default(true),
   /** Nudge each clip's brightness and tint to the clip before at the join. */
   match: z.boolean().default(true),
+  /** A copy for the web, under this many megabytes (10: what GitHub plays inline on a free account; 25: chats and posts). */
+  webMb: z.union([z.literal(10), z.literal(25)]).optional(),
 });
 
 /** How the clips are finished: the route, how much larger, its settings; `redo` finishes again the clips finished already. */
@@ -211,7 +213,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       const view = await t.view(req.params.id);
       if (!view.durationMs) throw httpError("There is nothing to export yet: no clip of this timeline has a take.");
       if (view.exporting) return { id: view.exporting.id };
-      return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit }, `${view.name} · export`) };
+      return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, webMb: opts.webMb }, `${view.name} · ${opts.webMb ? "web copy" : "export"}`) };
     });
   });
 

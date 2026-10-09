@@ -364,7 +364,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     add: (v: { asset: string; after?: string | null }) => add.mutate(v),
   };
   const designed = designing ? clips.find((x) => x.id === designing) : undefined;
-  const exportNow = () => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
+  const exportNow = () => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", web: 0, before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
   openExport.current = exportNow;
 
   return (

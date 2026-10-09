@@ -500,7 +500,27 @@ export interface JoinOptions {
   smoothTo?: number;
   /** Nudge each video part's brightness and tint to the part before it at the join (means over the last and first moments). */
   match?: boolean;
+  /** A copy to share on the web: at most this many megabytes, its long edge at most 1280 and 30 pictures a second (webCut). */
+  webMb?: number;
   signal?: AbortSignal;
+}
+
+/** The long edge and the speed of a copy for the web: what a README, a post or a chat plays inline without waiting. */
+export const WEB_EDGE = 1280;
+export const WEB_FPS = 30;
+
+/**
+ * A copy for the web: the frame brought down to WEB_EDGE on its long side (never up), and the bitrate that keeps the
+ * whole file under `mb` megabytes for its length, the sound taken out of the budget first. A little is kept in hand:
+ * one pass of x264 at a mean bitrate lands within a few percent of it.
+ */
+export function webCut(frame: { width: number; height: number }, totalMs: number, mb: number): { W: number; H: number; videoKbps: number; audioKbps: number } {
+  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+  const k = Math.min(1, WEB_EDGE / Math.max(frame.width, frame.height));
+  const audioKbps = 128;
+  const seconds = Math.max(1, totalMs / 1000);
+  const videoKbps = Math.max(300, Math.floor((mb * 8 * 1000 * 0.92) / seconds - audioKbps));
+  return { W: even(frame.width * k), H: even(frame.height * k), videoKbps, audioKbps };
 }
 
 /**
@@ -515,9 +535,12 @@ export async function joinVideos(parts: ExportPart[], frame: { width: number; he
 /** The same, the joined file handed to `use` where it lies, before it is cleared away: stored from there, it is never held whole in memory. */
 export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: number; height: number }, fps: number, opts: JoinOptions, use: (file: string) => Promise<T>): Promise<T> {
   if (!parts.length) throw new CutError("There is nothing to export yet.");
-  const scale = opts.scale ?? 1;
+  // a copy for the web is never enlarged, and is made at the web's size from the start (the parts are fitted to it)
+  const scale = opts.webMb ? 1 : opts.scale ?? 1;
   const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
-  const size = { W: even(frame.width * scale), H: even(frame.height * scale) };
+  const lengthMs = parts.reduce((sum, p) => sum + (p.endMs - p.startMs), 0);
+  const web = opts.webMb ? webCut(frame, lengthMs, opts.webMb) : null;
+  const size = web ? { W: web.W, H: web.H } : { W: even(frame.width * scale), H: even(frame.height * scale) };
   return inTemp(async (dir) => {
     const inputs = new Inputs(dir);
     const chains = await partChains(parts, inputs, size, fps, Boolean(opts.match));
@@ -525,8 +548,10 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
     const music = opts.music;
     chains.push(`${outs.join("")}concat=n=${outs.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`);
     // enlarged frames are sharpened a little: scaling alone leaves them soft
-    const smooth = opts.smoothTo && opts.smoothTo > fps ? `minterpolate=fps=${opts.smoothTo}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : "";
-    chains.push(`[joined]${[smooth, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean).join(",") || "null"}[v]`);
+    const smooth = !web && opts.smoothTo && opts.smoothTo > fps ? `minterpolate=fps=${opts.smoothTo}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : "";
+    // the web's speed: pictures dropped evenly, never made up
+    const slower = web && fps > WEB_FPS ? `fps=${WEB_FPS}` : "";
+    chains.push(`[joined]${[smooth, slower, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean).join(",") || "null"}[v]`);
     if (music) {
       const track = await inputs.add(`music.${music.ext}`, music.source);
       chains.push(...musicChain(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, total))));
@@ -535,7 +560,11 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
     await must(tools.ffmpeg, [
       "-y", "-loglevel", "error", ...inputs.args,
       "-filter_complex", chains.join(";"), "-map", "[v]", "-map", "[a]",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out,
+      ...(web
+        // a size to keep: a mean bitrate, capped so no stretch overshoots it, and the slower preset for more picture per byte
+        ? ["-c:v", "libx264", "-preset", "slow", "-b:v", `${web.videoKbps}k`, "-maxrate", `${Math.round(web.videoKbps * 1.5)}k`, "-bufsize", `${web.videoKbps * 2}k`, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", `${web.audioKbps}k`]
+        : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"]),
+      "-movflags", "+faststart", out,
     ], { timeout: 3 * 60 * 60_000, signal: opts.signal });
     return use(out);
   });
