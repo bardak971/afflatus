@@ -10,7 +10,7 @@ import { MissingModel } from "./PresetFiles";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
-import { CardPrompt, Part, TextFold, useParts } from "./recipeForm/Part";
+import { CardPrompt, FormSearching, Part, TextFold, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 
@@ -155,8 +155,9 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   );
 
   return (
-    <>
-      <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true)} query={query} setQuery={setQuery} found={found} />
+    // the parts the search opens and folds change at once, without the fold's motion
+    <FormSearching.Provider value={Boolean(q)}>
+      <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
       {lead && !q && <Part id={lead.id} title={lead.title} help={lead.help} summary={lead.summary} startOpen>{lead.node}</Part>}
       {((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (
@@ -204,6 +205,6 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
           ))}
         </section>
       )}
-    </>
+    </FormSearching.Provider>
   );
 }

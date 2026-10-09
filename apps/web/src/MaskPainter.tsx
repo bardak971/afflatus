@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "./api";
 import { dialogOver } from "./Dialog";
 import { useKeysHere } from "./keys/here";
+import { useLeave } from "./leave";
 import { nameFor } from "./maskName";
 import { PainterToolbar } from "./maskPainter/PainterToolbar";
 import { useBrushCanvas, type Tool } from "./maskPainter/useBrushCanvas";
@@ -20,6 +21,8 @@ const KEEP_IN_SIGHT = 80;
  */
 export function MaskPainter({ picture, mask, onDone, onClose }: { picture: string; mask: string | null; onDone(id: string): void; onClose(): void }) {
   useKeysHere("mask", true, { over: true });
+  // it comes in as a panel and fades as a still copy when closed or saved (the strokes copied as they are)
+  const painterRef = useLeave<HTMLDivElement>("m-out");
   const [tool, setTool] = useState<Tool>("paint");
   // how close the picture is, and where it was moved to (in screen pixels from its place in the middle)
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
@@ -145,7 +148,7 @@ export function MaskPainter({ picture, mask, onDone, onClose }: { picture: strin
   });
 
   return (
-    <div data-stage role="dialog" aria-modal="true" aria-label="Paint the mask" className="fixed inset-0 z-50 flex flex-col bg-stage/95">
+    <div ref={painterRef} data-stage role="dialog" aria-modal="true" aria-label="Paint the mask" className="m-panel fixed inset-0 z-50 flex flex-col bg-stage/95">
       <PainterToolbar
         tool={tool} onTool={setTool} brush={brush} onBrush={setBrush}
         canUndo={paint.steps > 0} onUndo={paint.undo} canClear={paint.painted} onClear={paint.clear}

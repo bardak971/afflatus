@@ -18,6 +18,7 @@ import { localId } from "../../secureContext";
 import { AutoText, Button, cx, NumberBox } from "../../ui";
 import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
+import { useFlip } from "../../useFlip";
 import { entryOf, field, modelRows, withEntry } from "./shared";
 
 /** A small fact of a row: what a model takes of the person. */
@@ -40,6 +41,9 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
   // a picture moved from the keyboard keeps the focus once the row is redrawn
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const [refocus, setRefocus] = useState<string | null>(null);
+  // a picture moved (dropped, Alt + arrow) slides to its place and the others step aside; the row changes only on
+  // the drop, so nothing moves under the browser's drag picture
+  const flip = useFlip(value);
   useEffect(() => {
     if (!refocus) return;
     buttons.current.get(refocus)?.focus();
@@ -100,6 +104,7 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
         {value.map((id, i) => (
           <div
             key={id}
+            ref={flip(id)}
             draggable={value.length > 1}
             onDragStart={(e) => {
               // a drag of its own: it carries no picture of the library, so that no other place takes it

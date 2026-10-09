@@ -11,6 +11,7 @@ import { importPresetFile, savePresetFile } from "../presetFile";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { handPreset } from "../handoff";
 import { useStudio } from "../store";
+import { Thumb } from "../Thumb";
 import { Button, cx, ErrorNote, Help } from "../ui";
 import { ask } from "../Confirm";
 import { CopyLink, ItemHeader, noteOfDelete } from "./kit/ItemHeader";
@@ -183,7 +184,10 @@ export function People() {
    * The head of the list: the word when the search finds nothing, and on an empty tab the next step where
    * the rows would be (the New button at the top right was the only way in, far from the empty column).
    */
-  const head = mine.length > 0 && found.length === 0
+  const head = entities.isLoading
+    // the kit on its way: rows as the list draws them, with the loading shine, rather than an empty list or "No … yet"
+    ? <div aria-busy="true" aria-label="Loading" className="flex flex-col gap-1">{[0, 1, 2, 3, 4].map((i) => <PlaceholderRow key={i} big={tab === "person" || tab === "place"} />)}</div>
+    : mine.length > 0 && found.length === 0
     ? <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>
     : entities.isSuccess && mine.length === 0 && (
       <div className="flex flex-col items-center gap-3 px-2 py-8 text-center">
@@ -195,7 +199,7 @@ export function People() {
   return (
     <div className="flex min-h-0 min-w-0 grow flex-col">
       <KitHeader
-        tab={tab} onTab={setTab} all={all} query={query} onQuery={setQuery} extra={importButton}
+        tab={tab} onTab={setTab} all={all} loading={entities.isLoading} query={query} onQuery={setQuery} extra={importButton}
         newLabel={tab === "snippet" && snippetOnly ? `New snippet in ${snippetOnly}` : undefined}
         onNew={onNew} busy={create.isPending || createSnippet.isPending}
       />
@@ -220,7 +224,7 @@ export function People() {
                   return (
                     <Row
                       key={e.id} active={open === e.id} onClick={() => select(e.id)} onMenu={(ev) => rowMenu.open(ev, e)} title={e.name} summary={summaryOf(e, recipeList)}
-                      mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-raised text-ink-3">{face ? <img src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
+                      mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-raised text-ink-3">{face ? <Thumb src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
                     />
                   );
                 })}
@@ -271,6 +275,19 @@ export function People() {
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+/** A row of the list while the kit loads, laid out as Row is: its mark (a picture for people and places), its name over its line. */
+function PlaceholderRow({ big }: { big: boolean }) {
+  return (
+    <div aria-hidden className="flex w-full items-center gap-3 rounded-[11px] border border-transparent px-2 py-2">
+      <span className={cx("m-skeleton shrink-0", big ? "h-10 w-10 rounded-md!" : "h-6 w-6 rounded!")} />
+      <span className="flex min-w-0 grow flex-col gap-0.5">
+        <span className="text-sm"><span className="m-skeleton inline-block h-[0.8em] w-1/2 align-middle" /></span>
+        <span className="text-xs"><span className="m-skeleton inline-block h-[0.8em] w-3/4 align-middle" /></span>
+      </span>
     </div>
   );
 }

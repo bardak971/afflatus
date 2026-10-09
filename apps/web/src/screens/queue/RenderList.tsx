@@ -2,6 +2,7 @@ import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query
 import { Clapperboard, Image as ImageIcon, X } from "lucide-react";
 import { thumbUrl, type RenderItem, type TimesSummary } from "../../api";
 import { long, pace, took, when } from "../../format";
+import { Thumb } from "../../Thumb";
 import { Button, Chip, cx, ErrorNote, SectionTitle, Segmented } from "../../ui";
 import { Legend, PhaseBar } from "./phases";
 
@@ -37,7 +38,7 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
       {listed.map((r) => (
         <div key={r.id} id={`render-${r.id}`} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-[10px] border border-line bg-panel px-3 py-2 target:border-accent">
           {r.assetId
-            ? <button type="button" onClick={() => onOpen(r.assetId!)} aria-label="Open output" data-tip="Open output"><img src={thumbUrl(r.assetId)} alt="" loading="lazy" className="h-11 w-11 rounded-md object-cover" /></button>
+            ? <button type="button" onClick={() => onOpen(r.assetId!)} aria-label="Open output" data-tip="Open output" className="block rounded-md bg-raised"><Thumb src={thumbUrl(r.assetId)} alt="" loading="lazy" className="h-11 w-11 rounded-md object-cover" /></button>
             : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" data-tip={r.status === "done" ? "Output deleted" : "No output"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
           <div className="flex min-w-0 flex-col">
             <span className="truncate font-medium">{r.name}</span>

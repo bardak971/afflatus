@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { thumbUrl } from "./api";
 import { Keys } from "./Keys";
+import { useLeave } from "./leave";
 import { cx } from "./ui";
 
 /**
@@ -88,6 +89,8 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
   keyed?: boolean;
 }) {
   const self = useRef<HTMLDivElement>(null);
+  // closed (a choice, Escape, a click elsewhere, ← out of a submenu), it fades as a still copy: the menu and its keys go at once
+  const selfRef = useLeave("m-pop-out", self);
   const rows = useRef<Array<HTMLButtonElement | null>>([]);
   const [pos, setPos] = useState<MenuAt>(at);
   const runnable = items.map((it, i) => (it !== "—" && !it.disabled ? i : -1)).filter((i) => i >= 0);
@@ -152,7 +155,7 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
   return (
     <>
       <div
-        ref={self}
+        ref={selfRef}
         role="menu"
         aria-label={label}
         data-context-menu

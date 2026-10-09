@@ -8,6 +8,7 @@ import { Reply } from "./designer/Reply";
 import { SessionBar } from "./designer/SessionBar";
 import { SystemView } from "./designer/SystemView";
 import { keep, recall } from "./designer/typed";
+import { useLeave } from "./leave";
 import { AutoText, Button, cx, ErrorNote, Help } from "./ui";
 
 /** One thing said in the conversation. What the designer said keeps what it proposed, to use or not. */
@@ -115,6 +116,10 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   // A click anywhere else closes it, except in the form it writes into (marked `data-designer-stays`):
   // the texts are corrected by hand between two messages. Menus float outside the panel and are part of it.
   const panel = useRef<HTMLDivElement>(null);
+  // over the form (on the right), it comes in as a panel and fades as a still copy when closed; in the timeline (its column,
+  // or on the left) it is part of the screen and does not move
+  const overlayRef = useLeave("m-out", panel);
+  const overlay = side === "right";
   useEffect(() => {
     // in a column of its own it stays open while the timeline is worked on: Esc or its × closes it
     if (inline) return;
@@ -202,13 +207,13 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
 
   return (
     <div
-      ref={panel}
+      ref={overlay ? overlayRef : panel}
       role={inline ? "region" : "dialog"}
       // inline, Escape is its own (it closes it): the timeline's keys leave it alone
       data-takes-escape={inline || undefined}
       aria-label="Designer"
       style={floor !== null ? { bottom: floor } : undefined}
-      className={inline ? "flex min-h-0 grow flex-col" : cx("fixed bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", side === "left" ? "top-0 left-[76px] border-r" : "top-[60px] right-0 rounded-tl-xl border-t border-l")}
+      className={inline ? "flex min-h-0 grow flex-col" : cx("fixed bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", overlay && "m-panel", side === "left" ? "top-0 left-[76px] border-r" : "top-[60px] right-0 rounded-tl-xl border-t border-l")}
     >
       {inline ? (
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">

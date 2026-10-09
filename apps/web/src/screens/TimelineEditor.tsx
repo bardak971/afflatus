@@ -16,6 +16,7 @@ import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
 import { ContextMenu, useMenu, type MenuHead } from "../ContextMenu";
 import { useBanners, useEditorColumn } from "../store";
+import { EditorSkeleton } from "../timeline/EditorSkeleton";
 import { CastDialog } from "../timeline/CastDialog";
 import { ClipDesigner } from "../timeline/ClipDesigner";
 import { TimelineHeader, Transport } from "../timeline/EditorBars";
@@ -419,7 +420,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       </div>
     );
   }
-  if (!t || !shown) return <div className="grow p-8 text-ink-2">Loading timeline…</div>;
+  // the editor's shape with the loading shine, the parts where they will land, rather than a line of words
+  if (!t || !shown) return <EditorSkeleton />;
 
   const why = current ? ready(current).why ?? null : null;
   const shape: Shape | "own" | "first" = !t.width || !t.height ? "first" : (Object.keys(SHAPES) as Shape[]).find((k) => SHAPES[k].width === t.width && SHAPES[k].height === t.height) ?? "own";

@@ -164,3 +164,89 @@ input[type="range"] {
     opacity: 0;
   }
 }
+
+/*
+ * The app's motion, one small set (approved on the "motion and loading" canvas): snappy, never in the way. Nothing
+ * opens in more than 140 ms or closes in more than 80 ms; a key or a click acts at once, during it too; what comes from
+ * the keyboard, a drag or typing does not move at all. Every class here is off under "reduce motion".
+ */
+:root {
+  --ease-snap: cubic-bezier(0.3, 0.9, 0.3, 1);
+  --t-pop: 110ms;
+  --t-panel: 140ms;
+  --t-out: 75ms;
+  /* the stretch of a segmented control or a toggle: the leading edge moves, the trailing one follows */
+  --t-travel: 140ms;
+  --t-trail: 50ms;
+}
+/* a menu, a list, a popover: it comes from where it opens (origin set by the user of the class) */
+@keyframes m-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@keyframes m-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.99);
+  }
+}
+/* a toast slides a few pixels down into place */
+@keyframes m-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+/* a big panel (the viewer, the shelf, the designer): a fade, its content a hair smaller */
+@keyframes m-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+@keyframes m-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes m-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+/* the shine over a loading placeholder */
+@keyframes m-shine {
+  to {
+    transform: translateX(100%);
+  }
+}
+/* in the components layer: a utility on the same element (rounded-xl, absolute) wins over these, as it should */
+@layer components {
+  @media (prefers-reduced-motion: no-preference) {
+    .m-pop { animation: m-pop-in var(--t-pop) var(--ease-snap); }
+    .m-pop-out { animation: m-pop-out var(--t-out) ease-in forwards; pointer-events: none; }
+    .m-toast { animation: m-toast-in var(--t-panel) var(--ease-snap); }
+    .m-panel { animation: m-panel-in var(--t-panel) var(--ease-snap); }
+    .m-fade { animation: m-fade-in var(--t-panel) ease-out; }
+    .m-out { animation: m-fade-out var(--t-out) ease-in forwards; pointer-events: none; }
+  }
+  /* a loading placeholder: the exact size of what comes, a soft shine while it works (still under reduced motion) */
+  .m-skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-raised);
+    border-radius: 8px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .m-skeleton::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-ink) 6%, transparent), transparent);
+      transform: translateX(-100%);
+      animation: m-shine 1.4s ease-in-out infinite;
+    }
+  }
+}

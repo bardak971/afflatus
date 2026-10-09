@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
@@ -85,7 +85,11 @@ export const History = memo(function History() {
   const q = useSettled(typed);
   const jobs = useJobs({ status: status === "all" ? undefined : status, q, model });
   const items = useMemo(() => jobs.data?.pages.flatMap((p) => p.items) ?? [], [jobs.data]);
-  const counts = jobs.data?.pages[0]?.counts;
+  // the counts last known: another tab is another list to read, and its tabs keep their counts meanwhile rather than
+  // blank them; before any is known each says "–" (never a "0" that reads as none)
+  const known = useRef(jobs.data?.pages[0]?.counts);
+  if (jobs.data?.pages[0]?.counts) known.current = jobs.data.pages[0].counts;
+  const counts = known.current;
   const asset = useAsset(open);
   // a finished job's menu: its own section (its draft, Requeue, out of the history), then its result's list, as every
   // place shows an item's (itemActions.tsx); one menu for the whole history, read for the row right-clicked
@@ -171,9 +175,9 @@ export const History = memo(function History() {
             onChange={setStatus}
             options={[
               { value: "all", label: "All" },
-              { value: "done", label: counts ? `Done · ${counts.done}` : "Done" },
-              { value: "failed", label: counts ? `Failed · ${counts.failed}` : "Failed" },
-              { value: "cancelled", label: counts ? `Cancelled · ${counts.cancelled}` : "Cancelled" },
+              { value: "done", label: <>Done · <Count n={counts?.done} /></> },
+              { value: "failed", label: <>Failed · <Count n={counts?.failed} /></> },
+              { value: "cancelled", label: <>Cancelled · <Count n={counts?.cancelled} /></> },
             ]}
           />
         </div>
@@ -182,11 +186,10 @@ export const History = memo(function History() {
           <input data-search aria-label="Search the history" placeholder="Search names and prompts" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
           {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
         </label>
-        {models.length > 0 && (
-          <div className="w-56">
-            <Select label="Model" value={model} onChange={setModel} options={[{ value: "", label: "Any model" }, ...models.map((m) => ({ value: m, label: fileLabel(m) }))]} className="h-9" />
-          </div>
-        )}
+        {/* drawn from the start (only "Any model" until the models are known): it arriving later moved the whole list down */}
+        <div className="w-56">
+          <Select label="Model" value={model} onChange={setModel} options={[{ value: "", label: "Any model" }, ...models.map((m) => ({ value: m, label: fileLabel(m) }))]} className="h-9" />
+        </div>
         <Help text={ORDER_HELP} />
         <span className="grow" />
         {jobs.isFetching && <Loader2 size={14} className="animate-spin text-ink-3" />}
@@ -195,11 +198,13 @@ export const History = memo(function History() {
       {pins && pins.pinned.length > 0 && <PinnedFailures jobs={pins.pinned} since={pins.since} />}
 
       <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto pr-1 pb-4">
-        {days.length > 0 && (
+        {(days.length > 0 || jobs.isLoading) && (
           <div aria-hidden className={cx(ROW, "sticky top-0 z-10 bg-ground py-1 text-[11px] tracking-[0.06em] text-ink-3 uppercase")}>
             <span /><span>Name</span><span>Model</span><span className="text-right">Took</span><span className="text-right">When</span>
           </div>
         )}
+        {/* the first page on its way: rows as the list draws them, with the loading shine, so it lands in place */}
+        {jobs.isLoading && Array.from({ length: 8 }, (_, i) => <PlaceholderRow key={i} />)}
         {days.length === 0 && !pins?.pinned.length && !jobs.isLoading && (
           <Empty title={q || model || status !== "all" ? "Nothing matches" : "Nothing finished yet"} />
         )}
@@ -243,6 +248,27 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
       <HoverVideo asset={first.id} video={first.kind === "video"} />
       {made.length > 1 && <span className="absolute right-0.5 bottom-0.5 rounded bg-ground/80 px-1 text-[10px] leading-tight font-bold text-ink">×{made.length}</span>}
     </button>
+  );
+}
+
+/** A tab's count: a dash until it is known; in figures of one width, in room for three, so the tabs keep their widths. */
+function Count({ n }: { n: number | undefined }): ReactNode {
+  return <span className="inline-block min-w-[3ch] text-left tabular-nums">{n ?? "–"}</span>;
+}
+
+/** A row while the history loads, laid out as Row is: the thumbnail, the name over its facts, the model, the time it took, when. */
+function PlaceholderRow() {
+  return (
+    <div aria-hidden className={cx(ROW, "py-1.5")}>
+      <span className="m-skeleton h-9 w-16 rounded-[7px]!" />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[13.5px]"><span className="m-skeleton inline-block h-[0.8em] w-2/5 align-middle" /></span>
+        <span className="text-xs"><span className="m-skeleton inline-block h-[0.8em] w-3/5 align-middle" /></span>
+      </span>
+      <span className="text-[12.5px]"><span className="m-skeleton inline-block h-[0.8em] w-24 align-middle" /></span>
+      <span className="text-right text-xs"><span className="m-skeleton inline-block h-[0.8em] w-10 align-middle" /></span>
+      <span className="text-right text-xs"><span className="m-skeleton inline-block h-[0.8em] w-12 align-middle" /></span>
+    </div>
   );
 }
 

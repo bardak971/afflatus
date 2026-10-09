@@ -27,6 +27,7 @@ const WorkflowImport = lazy(() => import("./screens/Workflows").then((m) => ({ d
 // the list of keys too: it is fetched with the page, but not in its first chunk
 const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysHelp })));
 import { NavRail } from "./NavRail";
+import { EditorSkeleton } from "./timeline/EditorSkeleton";
 import { useTheme } from "./theme/store";
 
 /** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
@@ -58,7 +59,8 @@ export function App() {
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">
         <NavRail />
-        <Suspense fallback={<div className="grow p-8 text-ink-2">Loading…</div>}>
+        {/* while a screen's code loads: the timeline editor's own shape for the editor (it then lands in place), else a line */}
+        <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
         {/* a screen that fails takes only itself down; going to another screen starts afresh ("/create" is the Studio's own address with its form open, the same screen) */}
         <ErrorBoundary key={path === "/create" ? "" : path.split("/")[1]}>
         <Switch>
