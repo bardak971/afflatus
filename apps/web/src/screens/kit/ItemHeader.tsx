@@ -53,7 +53,7 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
           <Button size="sm" onClick={() => savePresetFile(item)} data-tip="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
         </>
       )}
-      <button type="button" aria-label={`Delete ${item.name}`} data-tip="Delete…" onClick={onDelete} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={15} /></button>
+      <Button size="sm" tone="danger" aria-label={`Delete ${item.name}`} data-tip="Delete…" onClick={onDelete} className="w-8 shrink-0 px-0!"><Trash2 size={14} /></Button>
       <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
     </div>
   );

@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { join, parse } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
-import { whyNotLinkable } from "../src/linked";
+import { uploadName, whyNotLinkable } from "../src/linked";
 import { CHECKPOINT, complete, get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /** A directory with pictures in it and in a sub-directory, a hidden file and a text file. */
@@ -330,6 +331,16 @@ describe("files from the computer dropped on a linked folder", () => {
     expect(await everything()).toBe(before);
   });
 
+  it("keep their own extension when it names the same kind of file, else take that of what they are", () => {
+    expect(uploadName("take.mov", "video/mp4")).toBe("take.mov");
+    expect(uploadName("take.MKV", "video/webm")).toBe("take.MKV");
+    expect(uploadName("photo.jpeg", "image/jpeg")).toBe("photo.jpeg");
+    expect(uploadName("voice.opus", "audio/ogg")).toBe("voice.opus");
+    expect(uploadName("take", "video/mp4")).toBe("take.mp4");
+    expect(uploadName("take.png", "video/webm")).toBe("take.webm");
+    expect(uploadName("take.gif", "image/png")).toBe("take.png");
+  });
+
   it("are refused with a reason, and nothing imported, when the folder's directory is gone", async () => {
     const root = await link();
     const before = await everything();
@@ -342,5 +353,34 @@ describe("files from the computer dropped on a linked folder", () => {
     expect(existsSync(join(dir, "late.png"))).toBe(false);
     // nothing was put in Afflatus's own storage either (no file, no small picture)
     expect(readdirSync(t.dir, { recursive: true }).length).toBe(stored);
+  });
+});
+
+/** A short clip in a container named by its extension (.mov, .mkv…), made with ffmpeg. */
+function makeClip(ext: string): Buffer | null {
+  const at = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
+  const file = join(at, `clip.${ext}`);
+  const made = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=12:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", file]);
+  const bytes = made.status === 0 ? readFileSync(file) : null;
+  rmSync(at, { recursive: true, force: true });
+  return bytes;
+}
+const mov = makeClip("mov");
+const mkv = makeClip("mkv");
+
+describe.skipIf(!mov || !mkv)("videos dropped on a linked folder", () => {
+  it("are written under their own extension (.mov stays .mov, .mkv stays .mkv) and a reading keeps them", async () => {
+    const root = await link();
+    const drop = (name: string, bytes: Buffer) => t.app.inject({ method: "POST", url: `/api/assets?name=${encodeURIComponent(name)}&folder=${root.id}`, headers: { "content-type": "video/quicktime" }, payload: bytes });
+    const a = (await drop("take one.mov", mov!)).json();
+    const b = (await drop("take two.mkv", mkv!)).json();
+    expect(a).toMatchObject({ kind: "video", path: join(dir, "take one.mov") });
+    expect(b).toMatchObject({ kind: "video", path: join(dir, "take two.mkv") });
+    expect(readFileSync(join(dir, "take one.mov")).equals(mov!)).toBe(true);
+    expect(existsSync(join(dir, "take one.mp4")) || existsSync(join(dir, "take two.webm"))).toBe(false);
+    // read again: the same two items, nothing forgotten, nothing twice
+    expect((await post(t.app, `/api/folders/${root.id}/scan`, {})).json()).toEqual({ files: 4, folders: 1 });
+    const names = (await inFolder(root.id)).filter((x) => x.name.startsWith("take")).map((x) => [x.name, x.id]);
+    expect(names.sort()).toEqual([["take one.mov", a.id], ["take two.mkv", b.id]]);
   });
 });

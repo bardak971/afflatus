@@ -5,6 +5,7 @@ import { httpError } from "./errors";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { presetFileSchema, provenanceSchema, SHIPPED } from "./presetFiles";
 import type { Services } from "./services";
+import { dropFromUnwritten } from "./unwrittenDrafts";
 
 /**
  * People, places and styles: written once, used with every model. A person is some pictures, a voice,
@@ -290,6 +291,8 @@ export async function dropFromLooks(db: Db, id: string): Promise<{ drafts: numbe
       else timelines++;
     }
   }
+  // the drafts not written yet (a tab's blank "New draft" with someone picked): held in memory only
+  dropFromUnwritten(db, id);
   return { drafts, timelines };
 }
 

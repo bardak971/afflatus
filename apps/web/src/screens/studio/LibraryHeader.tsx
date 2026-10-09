@@ -67,7 +67,7 @@ export function LibraryHeader({ place, placeName, folderButton, foldersOpen, onF
         type="button"
         aria-haspopup="dialog"
         aria-expanded={Boolean(foldersOpen)}
-        data-tip="Folders, the Inbox and the bin"
+        data-tip="Folders, items in no folder, and the bin"
         onClick={() => setFoldersOpen(foldersOpen ? false : "click")}
         className={cx("flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-lg border bg-raised px-3 text-sm font-semibold", foldersOpen ? "border-accent" : "border-line-strong")}
       >

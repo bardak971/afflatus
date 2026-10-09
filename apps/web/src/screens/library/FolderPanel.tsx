@@ -200,7 +200,8 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
   const folderHead = (f: Folder): MenuHead => ({ title: f.name, sub: `${f.count} item${f.count === 1 ? "" : "s"}${f.path ? " · on your disk" : ""}` });
   const folderItems = (f: Folder): MenuItem[] => [
     { label: "Open", icon: <FolderIcon size={14} />, run: () => onPlace({ type: "folder", id: f.id }) },
-    ...(!f.path ? [{ label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => void askText({ title: `A folder inside ${f.name}`, value: "", placeholder: "Name", yes: "Make it" }).then((name) => name?.trim() && m.create.mutate({ name: name.trim(), parent: f.id })) }] : []),
+    // inside a folder of the disk too: the server makes it a directory there
+    ...([{ label: "New folder inside…", icon: <FolderPlus size={14} />, note: f.path ? "a new directory on your disk" : undefined, run: () => void askText({ title: `A folder inside ${f.name}`, value: "", placeholder: "Name", yes: "Make it" }).then((name) => name?.trim() && m.create.mutate({ name: name.trim(), parent: f.id })) }]),
     ...(!f.path || f.root ? [{ label: "Rename", icon: <Pencil size={14} />, run: () => startRename(f) }] : []),
     ...moveItems(f),
     ...(f.path ? [{ label: "Rescan", icon: <RefreshCw size={14} />, note: "what changed on your disk", disabled: m.look.isPending, run: () => m.look.mutate(f.id) }] : []),
@@ -281,6 +282,7 @@ export function FolderPanel({ place, onPlace, dragging }: { place: Place; onPlac
         <NewFolderForm adding={adding} inside={open?.name} onSubmit={(name) => (adding === "link" ? m.link.mutate(name) : m.create.mutate({ name, parent: adding === "inside" ? selected : null }))} onDone={() => setAdding(false)} />
       ) : (
         <>
+          {/* not inside a linked folder: its right-click menu does not offer it either */}
           {open && <Action icon={<CornerDownRight size={14} className="shrink-0" />} onClick={() => setAdding("inside")}>New folder inside {open.name}</Action>}
           <Action icon={<FolderPlus size={14} className="shrink-0" />} onClick={() => setAdding("top")}>{open ? "New top-level folder" : "New folder"}</Action>
           <Action icon={<Link2 size={14} className="shrink-0" />} title="A folder of the disk Afflatus runs on, shown here with its sub-folders. Its files are used in place, nothing is copied." onClick={() => setAdding("link")}>Link a local folder</Action>

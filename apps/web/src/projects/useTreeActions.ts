@@ -91,7 +91,10 @@ export function useTreeActions() {
       ].filter(Boolean);
       const binOnly = list.every((r) => r.kind === "item");
       const title = binOnly ? (one ? `Move ${list[0]!.label} to the bin?` : `Move these ${list.length} items to the bin?`) : one ? `Delete ${list[0]!.label}?` : `Delete these ${list.length}?`;
-      if (!(await ask({ title, text: lines.join("\n"), yes: binOnly ? "Move to bin" : "Delete" }))) return;
+      // one folder alone: the question the folder panel asks for it
+      const lone = one && list[0]!.kind === "folder" ? list[0]! : null;
+      const yes = lone ? await (lone.linked ? askUnlink(lone.label) : askDeleteFolder(lone.label)) : await ask({ title, text: lines.join("\n"), yes: binOnly ? "Move to bin" : "Delete" });
+      if (!yes) return;
       const binned = list.filter((r) => r.kind === "item").length;
       const ok = await run(one ? `${list[0]!.label} could not be deleted` : "Some could not be deleted", async () => {
         const items = list.filter((r) => r.kind === "item").map((r) => r.id!);
@@ -184,7 +187,7 @@ export function useTreeActions() {
     },
     /** Files dropped from the computer: uploaded (pictures, videos, sounds) where they were dropped, into its directory for a folder of the disk. Folders dropped are not read. */
     upload(files: File[], t: Target, folders: number) {
-      return bringFiles(files, { name: t.name, folders, onDisk: t.kind === "folder" && t.linked, landing: () => self.landing(t), say, done: refresh });
+      return bringFiles(files, { name: t.name, folders, onDisk: t.kind === "folder" ? t.linked : Boolean(t.rootLinked), landing: () => self.landing(t), say, done: refresh });
     },
     /** A folder of the disk linked to the top of a project or of the Inbox: used in place, nothing copied. */
     async link(t: Target) {
@@ -244,10 +247,8 @@ export function useTreeActions() {
         });
       }
     },
-    /** A group's unused drafts (no prompt, no name, no conversation, nothing made from them) deleted, once asked; the open one stays. */
-    async clearEmpty(group: string | null, count: number, where: string, keep: string | null) {
-      const many = count === 1 ? "empty draft" : `${count} empty drafts`;
-      if (!(await ask({ title: `Clear the ${many} of ${where}?`, text: "Drafts with no prompt, no name and nothing rendered go, with the settings picked in them. The open draft stays.", yes: "Clear" }))) return;
+    /** A group's unused drafts (no prompt, no name, no conversation, nothing made from them) deleted; the open one stays. Asked in place on their row first (TwoStep), as the Studio's draft menu does. */
+    async clearEmpty(group: string | null, where: string, keep: string | null) {
       await run(`The empty drafts of ${where} could not be cleared`, () => api.clearUnusedDraftsOf(group, keep ?? undefined));
     },
     /** A project's root folder: that folder, or a new one named after it. */

@@ -233,4 +233,32 @@ describe("a draft that holds nothing yet", () => {
     expect((await t.app.inject({ method: "DELETE", url: `/api/drafts/${left.id}` })).statusCode).toBe(200);
     expect((await get(t.app, `/api/drafts/${left.id}`)).statusCode).toBe(404);
   });
+
+  it("never takes back someone or something deleted from the kit: a tab's save drops them, and they hold nothing", async () => {
+    const blank = async () => (await post(t.app, "/api/drafts", { recipe: RECIPE })).json() as { id: string };
+    const written = async (id: string) => Boolean(await t.db.selectFrom("drafts").select("id").where("id", "=", id).executeTakeFirst());
+    const gone = (id: string) => t.app.inject({ method: "DELETE", url: `/api/entities/${id}` });
+    const mara = (await post(t.app, "/api/entities", { kind: "person", name: "Mara" })).json();
+    const film = (await post(t.app, "/api/entities", { kind: "style", name: "Film" })).json();
+    const note = (await post(t.app, "/api/entities", { kind: "snippet", name: "Rain", def: { text: "in the rain" } })).json();
+    // the open draft's tab still holds all three after they are deleted, and saves them back
+    const open = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "a street" } } })).json();
+    for (const e of [mara, film, note]) expect((await gone(e.id)).statusCode).toBe(200);
+    const ghost = { cast: [{ id: mara.id }], style: film.id, snippets: [note.id] };
+    expect((await put(`/api/drafts/${open.id}`, { look: ghost })).json().look).toEqual({ cast: [], style: null, snippets: [] });
+    expect((await get(t.app, `/api/drafts/${open.id}`)).json().look).toEqual({ cast: [], style: null, snippets: [] });
+    // a ghost alone is nothing worth keeping: a blank draft stays unwritten, and is listed as empty
+    const blankOne = await blank();
+    await put(`/api/drafts/${blankOne.id}`, { look: ghost });
+    expect(await written(blankOne.id)).toBe(false);
+    // a blank draft with someone picked, not written yet, loses them when they are deleted
+    const unwritten = await blank();
+    expect(await written(unwritten.id)).toBe(false);
+    const ines = (await post(t.app, "/api/entities", { kind: "person", name: "Ines" })).json();
+    const { unwrittenOf } = await import("../src/unwrittenDrafts");
+    const row = unwrittenOf(t.db).get(unwritten.id)!;
+    row.look = JSON.stringify({ cast: [{ id: ines.id }], snippets: [] });
+    expect((await gone(ines.id)).statusCode).toBe(200);
+    expect((await get(t.app, `/api/drafts/${unwritten.id}`)).json().look).toEqual({ cast: [], snippets: [] });
+  });
 });

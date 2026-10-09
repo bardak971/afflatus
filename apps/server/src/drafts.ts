@@ -7,6 +7,7 @@ import { httpError } from "./errors";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
+import { unwrittenOf } from "./unwrittenDrafts";
 
 /**
  * Drafts: unfinished work, kept on the server so that it is there after a reload, a restart, or from
@@ -39,6 +40,17 @@ const saveBody = z.strictObject({
 
 /** A draft is a few fields of text; anything much larger is a mistake. */
 const MAX_BYTES = 256 * 1024;
+/**
+ * A look with only what is still in the kit: a tab that still holds a person, place, style or snippet deleted since
+ * never writes it back into a draft, nor makes the draft count as holding something because of it.
+ */
+async function liveLook(db: Db, look: Look | null | undefined): Promise<Look | null> {
+  if (!look || emptyLook(look)) return look ?? null;
+  const ids = [...look.cast.map((c) => c.id), ...(look.style ? [look.style] : []), ...look.snippets];
+  const there = new Set((await db.selectFrom("entities").select("id").where("id", "in", ids).execute()).map((e) => e.id));
+  return { ...look, cast: look.cast.filter((c) => there.has(c.id)), style: look.style && there.has(look.style) ? look.style : null, snippets: look.snippets.filter((x) => there.has(x)) };
+}
+
 /** Drafts are kept until deleted, but the list shows the recent ones. */
 const LIST_LIMIT = 30;
 
@@ -78,18 +90,6 @@ function holdsSomething(registry: Services["registry"], d: Tables["drafts"]): bo
   });
 }
 
-/**
- * Drafts that hold nothing yet (a blank form, "New draft") are kept in memory, never written: so never listed,
- * counted, searched or left behind. The first thing worth keeping put in one (see holdsSomething), or a render sent
- * from it, writes it under the same id. Per database (tests run several at once); a restart forgets them, with
- * nothing in them to lose.
- */
-const unwritten = new WeakMap<Db, Map<string, Tables["drafts"]>>();
-const unwrittenOf = (db: Db) => {
-  let m = unwritten.get(db);
-  if (!m) unwritten.set(db, (m = new Map()));
-  return m;
-};
 /** More than any number of tabs would leave open; the oldest go first. */
 const UNWRITTEN_MAX = 200;
 
@@ -203,10 +203,11 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     const body = createBody.parse(req.body);
     const json = JSON.stringify(body.forms);
     if (json.length > MAX_BYTES) throw tooBig();
+    const look = await liveLook(s.db, body.look);
     const at = now();
     const row: Tables["drafts"] = {
       id: newId(), owner_id: OWNER, target: body.target, recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
-      name: null, forms: json, count: body.count, chat: null, look: body.look ? JSON.stringify(body.look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
+      name: null, forms: json, count: body.count, chat: null, look: look ? JSON.stringify(look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
     };
     if (holdsSomething(s.registry, row)) await s.db.insertInto("drafts").values(row).execute();
     else {
@@ -228,10 +229,11 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     const all = body.forms ?? (JSON.parse(current.forms) as Record<string, Record<string, unknown>>);
     const json = JSON.stringify(all);
     if (json.length > MAX_BYTES) throw tooBig();
+    const look = body.look === undefined ? undefined : await liveLook(s.db, body.look);
     const next = {
       recipe_id: recipe, forms: json, count: body.count ?? current.count, title: titleOf(s.registry.recipe(recipe), all), updated_at: now(),
       ...(body.project !== undefined ? { project_id: body.project } : {}),
-      ...(body.look !== undefined ? { look: body.look ? JSON.stringify(body.look) : null } : {}),
+      ...(look !== undefined ? { look: look ? JSON.stringify(look) : null } : {}),
       ...(body.chat !== undefined ? { chat: chatJson(body.chat, MAX_BYTES) } : {}),
       ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),
       ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),

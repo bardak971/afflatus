@@ -9,7 +9,7 @@ import { DRAFT_LIST, useFolders, useProjects, useProjectsTree, useRecipes, useSt
 import { recipeLabel, size } from "../format";
 import { useProject } from "../project";
 import { useHandover, useOpenDraft, useStudio } from "../store";
-import { Button, cx, ErrorNote, Help, Segmented } from "../ui";
+import { Button, cx, ErrorNote, Help, Segmented, TwoStep } from "../ui";
 import { DEFAULT_SORT, draftsKey, flatten, groupKey, itemsOrder, nextSort, planBin, planDrop, rangePick, rowHeight, rowOffsets, rowWindow, shortDate, siblings, step, whyRefused, type DraftsRead, type ItemKind, type ItemsRead, type Moving, type Row, type Sort, type Target } from "./tree";
 import { useItemMenu } from "./useItemMenu";
 import { useTreeActions } from "./useTreeActions";
@@ -419,8 +419,9 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     return [...(others ? targets.map(item) : []), ...(assets && others ? ["—" as const] : []), ...(assets ? folderTargets().map(item) : [])];
   };
   const remove = (rs: Row[]) => void actions.remove(rs).then(clearPicks);
-  /** A group's empty drafts deleted, once asked; the open one stays. */
-  const clearEmpty = (r: Row) => void actions.clearEmpty(r.group, r.drafts ?? 0, groups.find((g) => g.id === r.group)?.name ?? "the Inbox", openDraftId);
+  /** A group's empty drafts deleted, asked in place on their row (from its Clear button or its menu); the open one stays. */
+  const [clearAsk, setClearAsk] = useState<string | null>(null);
+  const clearEmpty = (r: Row) => void actions.clearEmpty(r.group, groups.find((g) => g.id === r.group)?.name ?? "the Inbox", openDraftId);
   const startRename = (r: Row) => (r.kind === "project" || (r.kind === "folder" && (!r.linked || r.linkedRoot)) || r.kind === "timeline") && r.id && setRenaming({ key: r.key, name: r.label });
 
   // the right-click menus: one per kind of row, and the selection bar's "Move to"
@@ -472,7 +473,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
           ];
         return [
           { label: "Open", key: "Enter", icon: <FolderOpen size={14} />, run: () => activate(r) },
-          { label: "New folder inside…", icon: <FolderPlus size={14} />, disabled: r.linked, note: r.linked ? "a folder of your disk" : undefined, run: () => void actions.newFolder({ name: r.label, parent: r.id, project: r.group }).then((ok) => ok && setOpen(r.key, true)) },
+          { label: "New folder inside…", icon: <FolderPlus size={14} />, note: r.linked ? "a new directory on your disk" : undefined, run: () => void actions.newFolder({ name: r.label, parent: r.id, project: r.group }).then((ok) => ok && setOpen(r.key, true)) },
           ...(r.group && !r.linked ? [{ label: "Use as the project's root folder", icon: <FolderRoot size={14} />, note: "renders land there", run: () => void actions.setRoot({ id: r.group!, name: groups.find((x) => x.id === r.group)?.name ?? "The project" }, { id: r.id!, name: r.label }) }] : []),
           { label: "Import a folder inside…", icon: <Upload size={14} />, note: "copies it in", run: () => r.target && importInto(r.target) },
           rename,
@@ -492,7 +493,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       case "draft":
         return [{ label: "Open", key: "Enter", icon: <PenLine size={14} />, run: () => activate(r) }, moveTo, "—", del];
       case "empty":
-        return [{ label: `Clear ${r.label}…`, icon: <Eraser size={14} />, danger: true, note: "the open one stays", run: () => clearEmpty(r) }];
+        return [{ label: `Clear ${r.label}…`, icon: <Eraser size={14} />, danger: true, note: "the open one stays", run: () => setClearAsk(r.key) }];
       case "item": {
         const several = pickedItems();
         return itemMenu.many(several.map((x) => x.asset!), { moveTo: moveItems(several), bin: () => void actions.bin(several).then(clearPicks) });
@@ -653,6 +654,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
     if (e.key === "Escape") {
       stop();
       if (renaming) setRenaming(null);
+      else if (clearAsk) setClearAsk(null);
       else if (active === search.current && text) setText("");
       else if (picked.size) clearPicks();
       else {
@@ -662,6 +664,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       return;
     }
     if (!el.contains(active) || renaming) return;
+    // a Clear asked in place: its two buttons take Enter, not the tree
+    if (clearAsk && active instanceof HTMLButtonElement && active.closest("[data-asking]")) return;
     if (active === search.current) {
       // typed into the box, not a jump to the next search box of the page
       if (e.key === "/") e.stopPropagation();
@@ -1031,20 +1035,24 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                 )}
               </span>
               {r.kind === "empty" && refused?.key !== r.key ? (
-                <span className="flex min-w-0 items-center">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    data-tip="Delete these drafts: no prompt, no name, nothing rendered. The open one stays."
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      clearEmpty(r);
-                    }}
-                    onMouseDown={(e) => e.preventDefault()}
-                    className="flex h-6 items-center gap-1 rounded-md px-1.5 text-xs font-semibold text-ink-2 hover:bg-hover hover:text-warn-ink"
-                  >
-                    <Eraser size={12} /> Clear
-                  </button>
+                <span className="flex min-w-0 items-center" data-asking={clearAsk === r.key || undefined} onClick={(e) => e.stopPropagation()}>
+                  {clearAsk === r.key ? (
+                    <TwoStep open title={`Delete the ${r.label}`} note="Delete? The open one stays." yes="Delete" cancel="Keep" onCancel={() => setClearAsk(null)} onYes={() => clearEmpty(r)} />
+                  ) : (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      data-tip="Delete these drafts: no prompt, no name, nothing rendered. The open one stays."
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setClearAsk(r.key);
+                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      className="flex h-6 items-center gap-1 rounded-md px-1.5 text-xs font-semibold text-ink-2 hover:bg-hover hover:text-warn-ink"
+                    >
+                      <Eraser size={12} /> Clear
+                    </button>
+                  )}
                 </span>
               ) : (
                 <span data-tip={r.path} className={cx("min-w-0 truncate text-xs", refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{refused?.key === r.key ? refused.why : r.meta}</span>

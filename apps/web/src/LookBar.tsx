@@ -132,7 +132,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
             />
           </div>
         )}
-        {now.cast.length >= LIMITS.cast && <span className="text-xs text-ink-3">{LIMITS.cast} is the most one image or clip takes.</span>}
+        {now.cast.length >= LIMITS.cast && <span className="flex items-center gap-1.5 text-xs text-ink-3">Cast full · {LIMITS.cast}/{LIMITS.cast} <Help title="Cast" text={`One image or clip takes at most ${LIMITS.cast} people and places. Take one out to add another.`} /></span>}
         {!castable.length && !styles.length && !now.cast.length && <span className="flex items-center gap-1.5 text-xs text-ink-3">No people, places or styles yet <Help title="Prompt kit" text="A person is written once in the Prompt kit (reference images, a voice sample, prompt text, a LoRA per model) and used with every model." /></span>}
       </div>
       {active && recipe && (

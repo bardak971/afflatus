@@ -7,7 +7,7 @@ import type { EventEmitter } from "node:events";
 import { loadConfig } from "./config";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
-import { extOf, mimeOfFile, newAssetRow } from "./media";
+import { extOf, mimeOfDiskFile, newAssetRow } from "./media";
 import type { Storage } from "./storage";
 
 /**
@@ -116,14 +116,16 @@ const diskSafe = (name: string) => name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ""
 /**
  * The name a file from the user's computer keeps on the disk: its own, without the folders a browser may
  * send with it, the characters a file system refuses, or leading dots (a hidden file is never read back).
- * Its extension is that of what it really is ("photo.jpeg" is written "photo.jpg", what a reading takes
- * for a picture). "." and ".." are refused: a name never leads out of the folder.
+ * Its own extension stays when a reading takes it for the same kind of file (a .mov stays a .mov, a .jpeg a .jpeg:
+ * the bytes are still that container); one that says another kind, or none, becomes the extension of what it
+ * really is. "." and ".." are refused: a name never leads out of the folder.
  */
 export function uploadName(wanted: string, mime: string): string {
   const last = wanted.split(/[\\/]/).pop()?.trim() ?? "";
   if (last === "." || last === "..") throw httpError(`"${wanted}" is not a file name that can be written into a folder.`);
   let name = last.replace(/[:*?"<>|\u0000-\u001f]/g, "").replace(/^[.\s]+/, "").replace(/[.\s]+$/, "");
-  if (mimeOfFile(name) !== mime) name = `${name.replace(/\.[A-Za-z0-9]{1,8}$/, "") || "file"}.${extOf(mime)}`;
+  const kind = (m: string) => m.split("/")[0];
+  if (kind(mimeOfDiskFile(name)) !== kind(mime)) name = `${name.replace(/\.[A-Za-z0-9]{1,8}$/, "") || "file"}.${extOf(mime)}`;
   const ext = extname(name);
   let stem = name.slice(0, name.length - ext.length).slice(0, 120).trim() || "file";
   // names Windows keeps for devices, whatever their extension
@@ -298,7 +300,7 @@ export class Linked {
           continue;
         }
         if (!e.isFile()) continue;
-        const mime = mimeOfFile(e.name);
+        const mime = mimeOfDiskFile(e.name);
         const kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : null;
         if (!kind) continue;
         const info = await stat(full).catch(() => null);
@@ -429,8 +431,8 @@ export class Linked {
       } catch (err) {
         const e = err as NodeJS.ErrnoException;
         if (e.code === "EEXIST") continue;
-        // a disk that filled up half way leaves half a file: not to be read back as one
-        if (e.code === "ENOSPC" || e.code === "EDQUOT") await rm(full, { force: true }).catch(() => {});
+        // a copy that failed half way (a full disk, a read error) leaves half a file: not to be read back as one
+        await rm(full, { force: true }).catch(() => {});
         throw writeRefused(e, folder, dir, name);
       }
       const info = await stat(full);

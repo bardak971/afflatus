@@ -18,7 +18,7 @@ export type Moving =
 
 /** Somewhere a row can be dropped. `group`: the project, null for the Inbox. */
 export type Target =
-  | { kind: "group"; group: string | null; root: string | null; name: string }
+  | { kind: "group"; group: string | null; root: string | null; /** Its root folder is a folder of the disk: what lands in it is written there. */ rootLinked?: boolean; name: string }
   | { kind: "folder"; id: string; group: string | null; linked: boolean; /** Its folders above, nearest last. */ ancestors: string[]; name: string };
 
 export interface Row {
@@ -272,7 +272,7 @@ export function flatten(tree: ProjectsTree, s: {
         key, kind: g.kind, id: g.id, label: g.name, meta: groupMeta(g), bytes: g.bytes, ...(g.createdAt ? { created: g.createdAt } : {}), group: g.id, archived: g.archived, noRoot: g.kind === "project" && !g.rootFolderId,
         ...(!g.counts.items && !g.counts.timelines && !g.counts.drafts && !g.folders.length && !g.timelines.length ? { dim: true } : {}),
         match: has(g.name),
-        target: { kind: "group", group: g.id, root: g.rootFolderId, name: g.kind === "inbox" ? "the Inbox" : g.name },
+        target: { kind: "group", group: g.id, root: g.rootFolderId, ...(g.folders.some((f) => f.id === g.rootFolderId && f.linked) ? { rootLinked: true } : {}), name: g.kind === "inbox" ? "the Inbox" : g.name },
       },
       count,
       kids,

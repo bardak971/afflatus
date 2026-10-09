@@ -53,6 +53,15 @@ export const extOf = (mime: string) => EXT[mime] ?? "bin";
 
 const MIME_BY_EXT: Record<string, string> = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m]));
 export const mimeOfFile = (filename: string) => MIME_BY_EXT[filename.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
+/**
+ * What a file of a linked folder is taken for by its extension: the library's own ones, and the other names the same
+ * kinds go by on a disk, read as the probe reads their containers (a .mov is a video/mp4, a .mkv a video/webm). A dropped
+ * file keeps any of these, and a reading lists it. No .gif: an upload is never one, and a GIF already there stays out.
+ */
+const DISK_MIME: Record<string, string> = {
+  ...MIME_BY_EXT, jpeg: "image/jpeg", mov: "video/mp4", m4v: "video/mp4", avi: "video/mp4", mkv: "video/webm", opus: "audio/ogg", aac: "audio/mp4",
+};
+export const mimeOfDiskFile = (filename: string) => DISK_MIME[filename.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 
 /** The name of a file without its folders, lower-cased: how model files are compared, whichever folder and case ComfyUI lists them with. */
 export const fileName = (path: string) => (path.split(/[\\/]/).pop() ?? path).toLowerCase();
