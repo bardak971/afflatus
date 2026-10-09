@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type Take } from "../api";
-import { useEstimates, useFamilies, useModelSettings, useQueue, useRecipes, useSetup, useTimeline } from "../data";
+import { useEstimates, useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
 import { estimateFor } from "../estimate";
 import { clock as mmss, notReady } from "../format";
@@ -30,6 +30,7 @@ import { useEditorKeys } from "../timeline/useEditorKeys";
 import { useRange } from "../timeline/useRange";
 import { useTimelineMutations } from "../timeline/useTimelineMutations";
 import { useSelectedClip, useTimelineRequest } from "../bar/bridge";
+import { useQueueOf } from "./studio/queueOf";
 
 /**
  * The timeline editor: your media on the left, the video in the middle, the selected clip on the right,
@@ -41,7 +42,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const timeline = useTimeline(id);
   const recipes = useRecipes();
   const setup = useSetup();
-  const queue = useQueue();
+  // only which clip renders: the queue changes at every step of a render, and the parts that show its progress read it themselves
+  const running = useQueueOf((q) => q.running?.clipId ?? null) ?? null;
   const settings = useModelSettings();
 
   const [selected, setSelected] = useState<string | null>(null);
@@ -65,7 +67,11 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const [talks, setTalks] = useState<Record<string, DesignerTurn[]>>({});
   // the language model and instructions each clip's conversation is held with, as picked here before the timeline is read again
   const [sessions, setSessions] = useState<Record<string, DesignerSession>>({});
-  const [note, setNote] = useState<string | null>(null);
+  /** A line in the header, and what more there is to it (behind its "?"). */
+  const [note, setSaid] = useState<{ text: string; more?: string } | null>(null);
+  const setNote = useCallback((text: string | null, more?: string) => setSaid(text === null ? null : { text, more }), []);
+  /** The pointer rests on what the header says: it stays while it is read. */
+  const [held, setHeld] = useState(false);
   const [exp, setExp] = useState<ExportAsk | null>(null);
   const [fin, setFin] = useState(false);
   const [writing, setWriting] = useState<string | null>(null);
@@ -95,9 +101,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     if (!still || playing) setPreview(null);
   }, [previewing, current, playing]);
   // what is forming is watched large when the clip that renders is the one selected, or when the timeline has nothing to show yet
-  const renderingAt = queue.data?.running ? clips.findIndex((c) => c.id === queue.data!.running!.clipId) : -1;
-  const liveShown = renderingAt >= 0 && (clips[renderingAt]!.id === selected || !clips.some((c) => c.take || c.still)) ? { job: queue.data!.running!, clip: renderingAt + 1 } : null;
-  const running = queue.data?.running ?? null;
+  const renderingAt = running ? clips.findIndex((c) => c.id === running) : -1;
+  const liveShown = renderingAt >= 0 && (clips[renderingAt]!.id === selected || !clips.some((c) => c.take || c.still)) ? { clipId: running!, clip: renderingAt + 1 } : null;
   const slots = useMemo(() => layout(clips, pps, videoRecipes), [clips, pps, videoRecipes]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
 
@@ -163,11 +168,19 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     sub: `${c.sound === "own" ? "Own audio" : c.sound === "muted" ? "Muted" : "Audio file"} · ${c.volume} %`,
   });
   const error = m.error ?? rangeAct.error;
+  // a note goes after a few seconds (longer with more to read behind its "?"), an error after a while: not while the pointer is on it
   useEffect(() => {
-    if (!note) return;
-    const timer = setTimeout(() => setNote(null), 4000);
+    if (!note || held) return;
+    const timer = setTimeout(() => setSaid(null), note.more ? 12_000 : 4000);
     return () => clearTimeout(timer);
-  }, [note]);
+  }, [note, held]);
+  const [errorGone, setErrorGone] = useState<Error | null>(null);
+  useEffect(() => {
+    if (!error || held) return;
+    const timer = setTimeout(() => setErrorGone(error), 10_000);
+    return () => clearTimeout(timer);
+  }, [error, held]);
+  const errorShown = error && error !== errorGone ? error : null;
 
   const hasRecipe = clips.some((c) => c.recipe);
   const newClip = (afterId?: string | null) => add.mutate({ after: afterId, recipe: hasRecipe ? undefined : firstRecipe() });
@@ -390,7 +403,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         total={total}
         saveFailed={saveFailed}
         onRetrySave={() => void save()}
-        said={{ error: error ?? null, note }}
+        said={{ error: errorShown, note }}
+        onHold={setHeld}
         undo={{ run: () => undo.mutate(), pending: undo.isPending }}
         redo={{ run: () => redo.mutate(), pending: redo.isPending }}
         missing={missing}
@@ -527,9 +541,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             whole={formOf(current)}
             why={why}
             takesMs={takes(current)}
-            running={running?.clipId === current.id ? running : null}
             busy={render.isPending}
-            error={render.isError ? render.error.message : null}
+            // a render that failed for this clip, not for another one
+            error={render.isError && render.variables?.clips.some((c) => c.id === current.id) ? render.error.message : null}
             onInputs={(next) => editInputs(current, next)}
             onRecipe={(recipe) => patch.mutate({ clip: current.id, patch: { recipe } })}
             onPatch={(p) => patch.mutate({ clip: current.id, patch: p })}
@@ -631,7 +645,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onQueued={(r) => {
             after();
             setFin(false);
-            setNote(`${r.jobs.length} clip${r.jobs.length === 1 ? "" : "s"} finishing in the queue, one job each; the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
+            setNote(`${r.jobs.length} clip${r.jobs.length === 1 ? "" : "s"} finishing in the queue${r.skipped.length ? `, ${r.skipped.length} skipped` : ""}`, `One job each; the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
           }}
         />
       )}

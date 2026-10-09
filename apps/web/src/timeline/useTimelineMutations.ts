@@ -23,7 +23,8 @@ export function useTimelineMutations(id: string, o: {
   /** The model a first clip is given. */
   firstRecipe(): string | undefined;
   on: {
-    note(text: string): void;
+    /** A line in the header, and what more there is to it (behind its "?"). */
+    note(text: string, more?: string): void;
     /** A clip selected (its panel open in place of the music's), or none. */
     select(clip: string | null): void;
     /** The clips picked with Ctrl + click, dropped. */
@@ -88,7 +89,7 @@ export function useTimelineMutations(id: string, o: {
       const current = inputsOf(c);
       const kept = Object.fromEntries(Object.entries(r.changes).filter(([k]) => r.force || String(current[k] ?? "") === String(r.was[k] ?? "")));
       if (Object.keys(kept).length) editInputs(c, { ...current, ...kept });
-      if (r.note) o.on.note(`The designer: ${r.note}`);
+      if (r.note) o.on.note("The designer left a note", r.note);
     },
     onSettled: () => o.on.writing(null),
   });
@@ -162,6 +163,9 @@ export function useTimelineMutations(id: string, o: {
       after();
     },
   });
-  const error = plan.error ?? loop.error ?? render.error ?? fix.error ?? patch.error ?? edit.error ?? add.error ?? remove.error ?? removeTake.error ?? stop.error ?? undo.error ?? redo.error ?? exportIt.error ?? frame.error ?? split.error ?? duplicate.error;
+  // the latest that failed, not the first of the list: an old error does not hide a new one
+  const error = [plan, loop, render, fix, patch, edit, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]
+    .filter((x) => x.error)
+    .reduce<{ error: Error | null; at: number }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt } : last), { error: null, at: -1 }).error;
   return { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error };
 }

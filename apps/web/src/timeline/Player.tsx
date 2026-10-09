@@ -2,13 +2,15 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { useQuery } from "@tanstack/react-query";
 import { Film } from "lucide-react";
 import { musicGainAt, musicPlan, songAt } from "@afflatus/core";
-import { api, fileUrl, type Clip, type RunningJob, type Take, type Timeline } from "../api";
+import { api, fileUrl, type Clip, type Take, type Timeline } from "../api";
 import { phaseLabel } from "../format";
 import { LivePreview } from "../LivePreview";
 import { FullscreenBar, type ScreenControls } from "./FullscreenBar";
 import { cx } from "../ui";
 import { playSignature } from "./model";
 import { useHandover } from "./useHandover";
+import { useRunningOf } from "./useRunning";
+import { useQueueOf } from "../screens/studio/queueOf";
 
 export interface PlayerHandle {
   /** Go to a moment of what plays. */
@@ -36,7 +38,7 @@ export const Player = forwardRef<PlayerHandle, {
   /** A take being looked at before it is chosen. */
   preview: Take | null;
   /** The clip that is rendering, when what is forming is to be watched here, and which clip it is. */
-  live?: { job: RunningJob; clip: number } | null;
+  live?: { clipId: string; clip: number } | null;
   /** How loud it plays here, 0 to 1, over the timeline's own mix (the clips' and the music's volumes stay as set). */
   master?: number;
   /** The previewed take was clicked: it becomes the one that plays. */
@@ -47,6 +49,8 @@ export const Player = forwardRef<PlayerHandle, {
   /** The editor's transport, shown over the picture while the player fills the screen. */
   screen?: ScreenControls;
 }>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline, master = 1, onPickPreview, screen }, ref) {
+  // what the live preview is, a picture or a clip: read on its own, so that a step of the render does not draw the player again
+  const liveKind = useQueueOf((q) => (live && q.running?.clipId === live.clipId ? (q.running.previewMime?.startsWith("video/") ? "video" : "picture") : null)) ?? null;
   const masterRef = useRef(master);
   masterRef.current = master;
   const playingRef = useRef(playing);
@@ -323,19 +327,26 @@ export const Player = forwardRef<PlayerHandle, {
       {now?.sound === "file" && now.soundAsset && <audio key={`${now.id}:${now.soundAsset.id}`} ref={clipSound} src={fileUrl(now.soundAsset.id)} preload="auto" onLoadedMetadata={(e) => (e.currentTarget.currentTime = (pos.current.key === nowKey ? pos.current.local : 0) / 1000)} />}
       {music && <audio key={music.asset.id} ref={musicEl} src={fileUrl(music.asset.id)} preload="auto" />}
       {/* the clip that is rendering, watched large: what is forming each step, with its sound. Playing the timeline puts it away */}
-      {live && !playing && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-stage">
-          {live.job.previewSeq > 0
-            // its own sound, silent at first: not the timeline's volume, which is for playing the video
-            ? <LivePreview job={live.job} sound className="h-full w-full object-contain" />
-            : <span className="text-ink-2">Clip {live.clip} is generating. The live preview shows here from its first step.</span>}
-          <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 py-1 pr-1 pl-3 text-xs font-semibold whitespace-nowrap">
-            Clip {live.clip} · {phaseLabel(live.job.phase)}{live.job.steps ? ` · step ${live.job.step} of ${live.job.steps}` : ""}
-            {onStop && <button type="button" onClick={() => onStop(live.job.id)} data-tip="Stop this render. Nothing is added; the clip keeps the takes it has." className="rounded-full border border-line-strong px-2.5 py-0.5 hover:bg-hover">Stop</button>}
-          </span>
-        </div>
-      )}
-      {screen && <FullscreenBar box={box} c={screen} clips={clips} timeline={timeline} live={live && !playing ? (live.job.previewMime?.startsWith("video/") ? "video" : "picture") : null} />}
+      {live && !playing && <LiveStage clipId={live.clipId} clip={live.clip} onStop={onStop} />}
+      {screen && <FullscreenBar box={box} c={screen} clips={clips} timeline={timeline} live={live && !playing ? liveKind : null} />}
     </div>
   );
 });
+
+/** The clip that is rendering, watched large: what is forming each step, with its sound. Playing the timeline puts it away. */
+function LiveStage({ clipId, clip, onStop }: { clipId: string; clip: number; onStop?(job: string): void }) {
+  const job = useRunningOf(clipId);
+  if (!job) return null;
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-stage">
+      {job.previewSeq > 0
+        // its own sound, silent at first: not the timeline's volume, which is for playing the video
+        ? <LivePreview job={job} sound className="h-full w-full object-contain" />
+        : <span className="text-ink-2">Clip {clip} is generating. The live preview shows here from its first step.</span>}
+      <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 py-1 pr-1 pl-3 text-xs font-semibold whitespace-nowrap">
+        Clip {clip} · {phaseLabel(job.phase)}{job.steps ? ` · step ${job.step} of ${job.steps}` : ""}
+        {onStop && <button type="button" onClick={() => onStop(job.id)} data-tip="Stop this render. Nothing is added; the clip keeps the takes it has." className="rounded-full border border-line-strong px-2.5 py-0.5 hover:bg-hover">Stop</button>}
+      </span>
+    </div>
+  );
+}

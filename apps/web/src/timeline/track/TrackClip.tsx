@@ -1,10 +1,12 @@
-import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
+import { memo, type DragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Link2, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
-import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo, type RunningJob, type Timeline } from "../../api";
+import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo } from "../../api";
 import { aboutMs, phaseLabel } from "../../format";
 import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
-import { DRAG_CLIP, fileVersion, otherShape, PAD, pinInputs, playAt, titleOf, type Slot } from "../model";
+import { useQueueOf } from "../../screens/studio/queueOf";
+import { useRunningOf } from "../useRunning";
+import { DRAG_CLIP, fileVersion, PAD, pinInputs, playAt, titleOf, type Slot } from "../model";
 import type { TimeRange } from "../Track";
 import { HINTS, type PinPlace } from "./peek";
 import { ROW, SOUND } from "./rows";
@@ -15,33 +17,17 @@ import { Wave } from "./Wave";
 /** An edge being dragged: the clip, which edge, and the length it has for now. */
 export type Stretch = { clip: string; side: "start" | "end"; lengthMs: number };
 
-/**
- * One clip on the track: its frames at their length, its number and title, what is pinned to it, its render
- * or its state, its edges to trim it by, the join before it, and its sound under it.
- */
-export function TrackClip({ s, clips, timeline, recipes, selected, picked, running, stretch, over, range, slots, totalMs, pps, xOf, measureOf, leaveTip, pinOn, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin, renderOf }: {
-  s: Slot;
-  clips: Clip[];
-  timeline: Timeline;
-  recipes: RecipeInfo[];
-  selected: string | null;
-  picked?: Set<string>;
-  running: RunningJob | null;
-  stretch: Stretch | null;
-  /** What a drop would do, while something is dragged over the track. */
-  over: Over | null;
-  range: TimeRange | null;
+/** What a clip on the track does when it is clicked, dragged or pressed: read at that moment, so that the clips need not draw again when only these change. */
+export interface TrackClipActs {
+  /** A pointer's x, in the track's own pixels. */
+  xOf(clientX: number): number;
   slots: Slot[];
   totalMs: number;
   pps: number;
-  /** A pointer's x, in the track's own pixels. */
-  xOf(clientX: number): number;
-  /** How a video or a sound file moves and sounds, once measured. */
-  measureOf(id: string | undefined): Motion | undefined;
+  range: TimeRange | null;
   /** The pointer leaves the clip, or presses on it: a pinned picture's card goes. */
   leaveTip(): void;
-  /** Its pinned picture whose card shows, if any; and the pointer resting on one of its pinned pictures (null: leaving it). */
-  pinOn?: PinPlace | null;
+  /** The pointer resting on one of its pinned pictures (null: leaving it). */
   restPin(clip: string, where: PinPlace | null, el?: HTMLImageElement): void;
   /** Something is dragged over the clip. */
   overClip(e: DragEvent, s: Slot): void;
@@ -57,15 +43,41 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
   onSoundMenu?(clip: Clip, e: React.MouseEvent): void;
   onStop(job: string): void;
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
-  /** A clip with nothing to play yet that can be rendered: how, and about how long it takes (null: no figure yet). */
-  renderOf?(clip: Clip): { run(): void; ms: number | null } | null;
-}) {
-  const recipeOf = (c: Clip) => recipes.find((r) => r.id === c.recipe);
+  /** Render a clip that has nothing to play yet. */
+  render(clip: Clip): void;
+}
 
+/**
+ * One clip on the track: its frames at their length, its number and title, what is pinned to it, its render
+ * or its state, its edges to trim it by, the join before it, and its sound under it. Memoised: it draws again
+ * only when what it shows changes (its render's progress is read by its own small parts).
+ */
+export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, acts }: {
+  s: Slot;
+  /** The clip before it on the track. */
+  prev: Clip | undefined;
+  recipe: RecipeInfo | undefined;
+  /** Of another aspect ratio than the timeline. */
+  misfit: boolean;
+  on: boolean;
+  picked: boolean;
+  /** It is the clip that renders now. */
+  rendering: boolean;
+  stretch: Stretch | null;
+  /** What a drop on it would do, while something is dragged over it. */
+  over: Over | null;
+  /** Its pinned picture whose card shows, if any. */
+  pinOn?: PinPlace | null;
+  /** How its take's own sound and its sound file sound, once measured. */
+  ownSound: Motion | undefined;
+  fileSound: Motion | undefined;
+  /** Nothing to play yet and it can be rendered from here: about how long it takes (null: no figure yet). undefined: it cannot. */
+  renderMs: number | null | undefined;
+  acts: RefObject<TrackClipActs>;
+}) {
+  const a = () => acts.current;
   const c = s.clip;
-  const on = c.id === selected;
-  const live = running?.clipId === c.id ? running : null;
-  const recipe = recipeOf(c);
+  const live = rendering;
   const pins = pinInputs(recipe);
   const carries = s.index > 0 && c.joined === "continue";
   const opens = !carries && pins.start && typeof c.inputs[pins.start] === "string" ? (c.inputs[pins.start] as string) : null;
@@ -89,20 +101,21 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         tabIndex={0}
         draggable={!stretch}
         onDragStart={(e) => {
-          leaveTip();
+          a().leaveTip();
           e.dataTransfer.setData(DRAG_CLIP, c.id);
           e.dataTransfer.effectAllowed = "move";
         }}
-        onDragOver={(e) => overClip(e, s)}
-        onPointerLeave={leaveTip}
-        onPointerDown={leaveTip}
+        onDragOver={(e) => a().overClip(e, s)}
+        onPointerLeave={() => a().leaveTip()}
+        onPointerDown={() => a().leaveTip()}
         onKeyDown={(e) => {
           // Ctrl+Enter is the editor's (it renders the selected clip)
           if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ") || e.ctrlKey || e.metaKey) return;
           e.preventDefault();
-          onSelect(c.id);
+          a().onSelect(c.id);
         }}
         onClick={(e) => {
+          const { onPick, onRange, range, onSelect, xOf, onSeek, slots, totalMs, pps } = a();
           // Ctrl: the clip is picked (or dropped) for a render of several together
           if ((e.ctrlKey || e.metaKey) && onPick) {
             onPick(c.id);
@@ -118,6 +131,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
           onSeek(playAt(slots, x), Math.max(0, Math.min(totalMs, ((x - PAD) / pps) * 1000)));
         }}
         onContextMenu={(e) => {
+          const { onMenu, onSelect } = a();
           if (!onMenu) return;
           onSelect(c.id);
           onMenu(c, e);
@@ -130,8 +144,8 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }}
         className={cx(
           "absolute overflow-hidden rounded-lg border-2 text-left",
-          on ? "border-accent" : picked?.has(c.id) ? "border-accent/60" : s.planned ? (c.failed ? "border-dashed border-warn/50" : "border-dashed border-line-strong") : "border-line-strong",
-          picked?.has(c.id) && "ring-2 ring-accent/40",
+          on ? "border-accent" : picked ? "border-accent/60" : s.planned ? (c.failed ? "border-dashed border-warn/50" : "border-dashed border-line-strong") : "border-line-strong",
+          picked && "ring-2 ring-accent/40",
           s.planned && "bg-raised",
         )}
       >
@@ -143,7 +157,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
           </span>
         )}
         {c.kind === "still" && c.still && <img src={thumbUrl(c.still.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
-        {live && <LivePreview job={live} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
+        {live && <ClipLive clip={c.id} />}
         {/* its number only: the frames stay clean (the prompt is in its hover card and its panel) */}
         <span className="absolute top-1 left-1.5 rounded bg-ground/85 px-1.5 py-px text-[11px] font-bold">{s.index + 1}</span>
         {/* nothing to play yet: what it will be, in its own words, beside its number (clear of its pinned pictures) */}
@@ -154,7 +168,7 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
           {c.job ? (
             <span className="flex min-w-0 grow flex-col gap-1 rounded bg-ground/85 px-1.5 py-1 text-[11px]">
               <span className="flex items-center gap-1">
-                <span className="min-w-0 grow truncate font-semibold">{live ? phaseLabel(live.phase) : "Queued"}</span>
+                <span className="min-w-0 grow truncate font-semibold">{live ? <ClipPhase clip={c.id} /> : "Queued"}</span>
                 <button
                   type="button"
                   aria-label={live ? `Stop the render of clip ${s.index + 1}` : `Remove clip ${s.index + 1} from the queue`}
@@ -162,18 +176,18 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onStop(c.job!.id);
+                    a().onStop(c.job!.id);
                   }}
                   className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"
                 >
                   <X size={10} />
                 </button>
               </span>
-              <Bar value={(live?.progress ?? 0) * 100} />
+              {live ? <ClipBar clip={c.id} /> : <Bar value={0} />}
             </span>
           ) : (
             <>
-              {s.planned && renderOf?.(c) && s.width > 70 ? (
+              {s.planned && renderMs !== undefined && s.width > 70 ? (
                 // the render it is waiting for, from here: Render (Retry after a failure, its reason on hover) and about how long
                 <span className="flex min-w-0 items-center gap-1.5">
                   <button
@@ -182,13 +196,13 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
-                      renderOf(c)?.run();
+                      a().render(c);
                     }}
                     className={cx("flex h-[22px] shrink-0 items-center rounded-[7px] px-2 text-[11px] font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "bg-accent text-accent-ink")}
                   >
                     {c.failed ? "Retry" : "Render"}
                   </button>
-                  <span className={cx("truncate font-mono text-[10.5px]", c.failed ? "text-warn-ink" : "text-ink-3")}>{c.failed ? "failed" : aboutMs(renderOf(c)?.ms).replace("about ", "~")}</span>
+                  <span className={cx("truncate font-mono text-[10.5px]", c.failed ? "text-warn-ink" : "text-ink-3")}>{c.failed ? "failed" : aboutMs(renderMs).replace("about ", "~")}</span>
                 </span>
               ) : (
                 <span className={cx("truncate rounded bg-ground/85 px-1.5 py-px text-[11px]", c.failed && s.planned ? "text-warn-ink" : s.planned ? "text-ink-2" : "font-semibold")}>
@@ -198,16 +212,16 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
               <span className="flex shrink-0 items-center gap-1">
                 {c.kind === "still" && s.width > 70 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Still</span>}
                 {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Imported</span>}
-                {otherShape(c, timeline) && s.width > 120 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-warn-ink">other aspect ratio</span>}
+                {misfit && s.width > 120 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-warn-ink">other aspect ratio</span>}
                 {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
               </span>
             </>
           )}
         </span>
         {/* pictures pinned to its start, its end and its middle: resting on one shows it large (PinPeek) */}
-        {opens && <img src={thumbUrl(opens)} alt="" data-pin draggable={false} onPointerEnter={(e) => restPin(c.id, "start", e.currentTarget)} onPointerLeave={() => restPin(c.id, null)} className={pinLook(pinOn === "start", "left-3.5")} />}
-        {ends && <img src={thumbUrl(ends)} alt="" data-pin draggable={false} onPointerEnter={(e) => restPin(c.id, "end", e.currentTarget)} onPointerLeave={() => restPin(c.id, null)} className={pinLook(pinOn === "end", "right-3.5")} />}
-        {through && <img src={thumbUrl(through.asset)} alt="" data-pin draggable={false} onPointerEnter={(e) => restPin(c.id, "mid", e.currentTarget)} onPointerLeave={() => restPin(c.id, null)} className={pinLook(pinOn === "mid", "-translate-x-1/2")} style={{ left: `${through.part * 100}%` }} />}
+        {opens && <img src={thumbUrl(opens)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "start", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} className={pinLook(pinOn === "start", "left-3.5")} />}
+        {ends && <img src={thumbUrl(ends)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "end", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} className={pinLook(pinOn === "end", "right-3.5")} />}
+        {through && <img src={thumbUrl(through.asset)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "mid", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} className={pinLook(pinOn === "mid", "-translate-x-1/2")} style={{ left: `${through.part * 100}%` }} />}
         {pinned && <span aria-hidden className={cx("absolute inset-y-0 w-2 bg-accent", pinned === "start" ? "left-0" : pinned === "end" ? "right-0" : "left-1/2 -translate-x-1/2")} />}
       </div>
 
@@ -215,22 +229,21 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
       {on && !s.planned && !c.job && (
         <>
           {c.kind === "video" && (
-            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => startPull(e, s, "start")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-l-lg bg-accent" style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
+            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => a().startPull(e, s, "start")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className="absolute z-10 w-2.5 cursor-ew-resize rounded-l-lg bg-accent" style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
           )}
-          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => startPull(e, s, "end")} onPointerMove={movePull} onPointerUp={endPull} onPointerCancel={endPull} className="absolute z-10 w-2.5 cursor-ew-resize rounded-r-lg bg-accent" style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
+          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => a().startPull(e, s, "end")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className="absolute z-10 w-2.5 cursor-ew-resize rounded-r-lg bg-accent" style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
         </>
       )}
 
       {/* how it starts: flowing on from the clip before, or a cut; a click switches, when the model can extend */}
       {s.index > 0 && c.kind === "video" && (() => {
-        const r = recipeOf(c);
-        const prev = clips[s.index - 1];
+        const r = recipe;
         const canCarry = Boolean(r?.traits?.continues) || (prev?.kind === "still" && Boolean(pinInputs(r).start));
-        const toggles = c.join !== "stale" && canCarry && Boolean(onJoin);
+        const toggles = c.join !== "stale" && canCarry && Boolean(acts.current.onJoin);
         return (
         <button
           type="button"
-          onClick={() => (toggles ? onJoin!(c, c.joined === "continue" ? "cut" : "continue") : onSelect(c.id))}
+          onClick={() => (toggles ? a().onJoin?.(c, c.joined === "continue" ? "cut" : "continue") : a().onSelect(c.id))}
           data-hint={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${toggles ? ". Click: make it a cut" : ""}` : `A cut${toggles ? `. Click: extend clip ${s.index}` : r && c.kind === "video" ? ": this model cannot extend a clip" : ""}`}
           aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : c.joined === "continue" ? `The join before clip ${s.index + 1}: it extends clip ${s.index}` : `The join before clip ${s.index + 1}: a cut`}
           style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
@@ -248,9 +261,10 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
       {/* its sound */}
       <button
         type="button"
-        onClick={() => onSelect(c.id)}
-        onDragOver={(e) => overClip(e, s)}
+        onClick={() => a().onSelect(c.id)}
+        onDragOver={(e) => a().overClip(e, s)}
         onContextMenu={(e) => {
+          const { onSoundMenu, onSelect } = a();
           if (!onSoundMenu) return;
           onSelect(c.id);
           onSoundMenu(c, e);
@@ -264,14 +278,27 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         )}
       >
         {/* how loud it is along the clip: its own sound over the part that plays, or the sound file from its start */}
-        {c.sound === "own" && video && c.take && <Wave sound={measureOf(video.id)?.sound ?? null} rate={measureOf(video.id)?.rate ?? 10} fromMs={c.take.startMs} toMs={c.take.endMs} />}
-        {c.sound === "file" && c.soundAsset && <Wave sound={measureOf(c.soundAsset.id)?.sound ?? null} rate={measureOf(c.soundAsset.id)?.rate ?? 10} fromMs={0} toMs={s.lengthMs} />}
+        {c.sound === "own" && video && c.take && <Wave sound={ownSound?.sound ?? null} rate={ownSound?.rate ?? 10} fromMs={c.take.startMs} toMs={c.take.endMs} />}
+        {c.sound === "file" && c.soundAsset && <Wave sound={fileSound?.sound ?? null} rate={fileSound?.rate ?? 10} fromMs={0} toMs={s.lengthMs} />}
         {(c.sound === "muted" || heard === "Silent") && <VolumeX size={10} className="relative shrink-0" />}
         {s.width > 64 && <span className="relative truncate">{heard}</span>}
       </button>
     </div>
   );
+});
 
+/** The live preview of the clip that renders, over its frames: only this draws again at every step. */
+function ClipLive({ clip }: { clip: string }) {
+  const job = useRunningOf(clip);
+  return job ? <LivePreview job={job} className="pointer-events-none absolute inset-0 h-full w-full object-cover" /> : null;
+}
+function ClipPhase({ clip }: { clip: string }) {
+  const phase = useQueueOf((q) => (q.running?.clipId === clip ? q.running.phase : null));
+  return <>{phase ? phaseLabel(phase) : "Queued"}</>;
+}
+function ClipBar({ clip }: { clip: string }) {
+  const progress = useQueueOf((q) => (q.running?.clipId === clip ? q.running.progress : 0)) ?? 0;
+  return <Bar value={progress * 100} />;
 }
 
 /** A pinned picture on a clip: framed in the colour of pictures, ringed in the accent while its card shows. */

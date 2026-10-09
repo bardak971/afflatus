@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Minus, Plus } from "lucide-react";
 import type { ClipMusic } from "@afflatus/core";
-import type { Clip, RecipeInfo, RunningJob, Timeline, TimelinePatch } from "../api";
+import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Kbd } from "../Keys";
 import { cx } from "../ui";
-import { layout, NEW_CLIP, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
+import { layout, NEW_CLIP, otherShape, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
 import type { Clock } from "./clock";
 import { FramePeek } from "./track/FramePeek";
 import type { PinPlace } from "./track/peek";
@@ -12,7 +12,7 @@ import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
 import { HEIGHT, MUSIC, ROW, SOUND } from "./track/rows";
-import { TrackClip, type Stretch } from "./track/TrackClip";
+import { TrackClip, type Stretch, type TrackClipActs } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
 import { useMotionMarks } from "./track/useMotionMarks";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
@@ -42,7 +42,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   clock: Clock;
   /** Where the playhead was put by hand, in the track's own time: it can stand on a clip that is not rendered yet. null = it follows what plays. */
   cursorMs: number | null;
-  running: RunningJob | null;
+  /** The clip that renders now, if any (its progress is read by the clip itself). */
+  running: string | null;
   busy: boolean;
   /** Stop a clip's render, or take it out of the queue. */
   onStop(job: string): void;
@@ -202,8 +203,11 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const fittedFor = useRef<string | null>(null);
   useEffect(() => {
     if (totalMs <= 0 || fittedFor.current === timeline.id) return;
-    fittedFor.current = timeline.id;
-    const id = requestAnimationFrame(fitAll);
+    // marked done only once it has run: a frame cancelled (the length settling a render later) asks again
+    const id = requestAnimationFrame(() => {
+      fittedFor.current = timeline.id;
+      fitAll();
+    });
     return () => cancelAnimationFrame(id);
     // once per timeline, when its length is known
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,6 +244,13 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clips.length, totalMs]);
 
+  // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes
+  const acts = useRef<TrackClipActs>(null!);
+  acts.current = {
+    xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin,
+    render: (c) => renderOf?.(c)?.run(),
+  };
+
   return (
     <div ref={floor} data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
       <div className="flex">
@@ -275,42 +286,28 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               snapQuiet={snapQuiet}
             />
 
-            {slots.map((s) => (
-              <TrackClip
-                key={s.clip.id}
-                s={s}
-                clips={clips}
-                timeline={timeline}
-                recipes={recipes}
-                selected={selected}
-                picked={picked}
-                running={running}
-                stretch={stretch}
-                over={over}
-                range={range}
-                slots={slots}
-                totalMs={totalMs}
-                pps={pps}
-                xOf={xOf}
-                measureOf={measureOf}
-                leaveTip={leaveTip}
-                pinOn={pinOver?.clip === s.clip.id ? pinOver.where : null}
-                restPin={restPin}
-                overClip={overClip}
-                startPull={startPull}
-                movePull={movePull}
-                endPull={endPull}
-                onSelect={onSelect}
-                onPick={onPick}
-                onRange={onRange}
-                onSeek={onSeek}
-                onMenu={onMenu}
-                onSoundMenu={onSoundMenu}
-                onStop={onStop}
-                renderOf={renderOf}
-                onJoin={onJoin}
-              />
-            ))}
+            {slots.map((s) => {
+              const c = s.clip;
+              return (
+                <TrackClip
+                  key={c.id}
+                  s={s}
+                  prev={clips[s.index - 1]}
+                  recipe={recipes.find((r) => r.id === c.recipe)}
+                  misfit={otherShape(c, timeline)}
+                  on={c.id === selected}
+                  picked={Boolean(picked?.has(c.id))}
+                  rendering={running === c.id}
+                  stretch={stretch}
+                  over={over && "clip" in over && over.clip === c.id ? over : null}
+                  pinOn={pinOver?.clip === c.id ? pinOver.where : null}
+                  ownSound={measureOf(c.take?.asset.id)}
+                  fileSound={c.sound === "file" ? measureOf(c.soundAsset?.id) : undefined}
+                  renderMs={s.planned ? renderOf?.(c)?.ms : undefined}
+                  acts={acts}
+                />
+              );
+            })}
 
             <button
               type="button"

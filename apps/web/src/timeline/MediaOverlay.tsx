@@ -206,7 +206,8 @@ export function MediaOverlay({ timeline, placeItems }: {
   return (
     <>
       {tab}
-      <section aria-label="Your library" className="absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
+      {/* it takes Escape: one press folds it away and leaves the range, the selection and the music panel as they are */}
+      <section aria-label="Your library" data-takes-escape className="absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
         <div ref={bar} className="flex h-14 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
           <span className="shrink-0 text-[11px] font-bold tracking-[0.08em] text-accent uppercase">Media</span>
           <button

@@ -26,8 +26,8 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
     after(): void;
     /** A clip selected, its panel open. */
     select(clip: string): void;
-    /** A word in the header. */
-    note(text: string): void;
+    /** A line in the header, and what more there is to it (behind its "?"). */
+    note(text: string, more?: string): void;
     say(b: Banner): void;
     /** The designer writing a clip put between two others. */
     writeBetween(v: { clip: string; force: boolean; arrive?: string }): void;
@@ -128,12 +128,12 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
         // a range shorter than the model can make took in what followed it, so that nothing after moves
         const wider = "widenedMs" in r && r.widenedMs ? ` The range was shorter than the model can make, so it now takes in ${(r.widenedMs / 1000).toFixed(1)} s more of the clips around it: the rest of the timeline stays where it was.` : "";
         const longer = "longerMs" in r && r.longerMs ? ` The clips around it are too short to take more from: the new clip comes out ${(r.longerMs / 1000).toFixed(1)} s longer than the range, and what follows moves by as much.` : "";
-        on.note(`The new clip is selected: ${how}.${wider}${longer} Change what happens in it, then render it. Undo takes the range back.`);
+        on.note("New clip selected: change what happens in it, then render it.", `${how[0]!.toUpperCase()}${how.slice(1)}.${wider}${longer} Undo takes the range back.`);
         // with a clip after to arrive at, the designer writes the stretch; without a language model nothing happens
         if (end !== "none") on.writeBetween({ clip: r.clip, force: false });
       } else if (action === "loop" && "clip" in r && "context" in r) {
         on.select(r.clip);
-        on.note(`The loop clip is selected, after Out: ${r.context.start === "clip" ? "it extends the clip at Out" : "it opens on the frame at Out"} and ends on the frame at In, so the range plays round. Keep it short, then render it; Undo takes it out.`);
+        on.note("Loop clip selected, after Out: keep it short, then render it.", `${r.context.start === "clip" ? "It extends the clip at Out" : "It opens on the frame at Out"} and ends on the frame at In, so the range plays round. Undo takes it out.`);
         // the designer writes the return towards the clip under In
         on.writeBetween({ clip: r.clip, force: false, arrive: r.arrive });
       } else if (action === "remove") setRange(null);

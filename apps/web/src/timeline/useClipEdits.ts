@@ -70,8 +70,8 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   const shown = useMemo(() => (t ? { ...t, clips: clips.map((c) => (edits[c.id] ? { ...c, inputs: edits[c.id]! } : c)) } : undefined), [t, clips, edits]);
 
   /** The whole form of a clip as a render would send it, whether it is ready to render or not (its models are told from it). */
-  const formOf = useCallback(
-    (c: Clip): Record<string, unknown> | null => {
+  const formOf = useMemo(
+    () => once((c: Clip): Record<string, unknown> | null => {
       const recipe = c.kind === "still" ? undefined : recipes.data?.recipes.find((r) => r.id === c.recipe);
       if (!recipe) return null;
       const status = setup.data?.recipes.find((r) => r.id === recipe.id);
@@ -80,13 +80,13 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const input: Record<string, unknown> = { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored };
       for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
       return input;
-    },
+    }),
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data],
   );
 
   /** The whole form of a clip as it would be sent, or why it cannot be rendered yet. */
-  const ready = useCallback(
-    (c: Clip): { input?: Record<string, unknown>; why?: string } => {
+  const ready = useMemo(
+    () => once((c: Clip): { input?: Record<string, unknown>; why?: string } => {
       if (c.kind === "still") return { why: "A still is not rendered." };
       const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
       if (!recipe) return { why: c.recipe ? "The model this clip was generated with is no longer here. Choose another one." : "Choose a model for this clip." };
@@ -106,9 +106,23 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
         if (i.type === "image" && !i.optional && !input[i.id] && !given) return { why: `Choose the ${i.label.toLowerCase()} first.` };
       }
       return { input };
-    },
+    }),
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
   );
 
   return { edits, dropEdits, saveFailed, save, inputsOf, editInputs, shown, formOf, ready };
+}
+
+/**
+ * A clip's answer worked out once for each state of the forms (a new one each time what it depends on changes): the
+ * track, the header, the overview and the inspector all ask it, several times a draw.
+ */
+function once<T>(of: (c: Clip) => T): (c: Clip) => T {
+  const seen = new WeakMap<Clip, T>();
+  return (c) => {
+    if (seen.has(c)) return seen.get(c)!;
+    const v = of(c);
+    seen.set(c, v);
+    return v;
+  };
 }

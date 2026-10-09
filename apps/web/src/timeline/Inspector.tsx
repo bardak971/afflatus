@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Music, Trash2, Wand2, X } from "lucide-react";
 import { mostFromMs, musicPlan, secondsInput } from "@afflatus/core";
-import { api, thumbUrl, type Clip, type RecipeInfo, type RunningJob, type Take, type Timeline, type TimelinePatch } from "../api";
+import { api, thumbUrl, type Clip, type RecipeInfo, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
 import { WritingHelp } from "../WritingHelp";
 import { appendTo } from "../promptText";
@@ -26,6 +26,7 @@ import { fileVersion, otherShape, pinInputs, roomOf, shapeOf, type ShownPatch } 
 import { change, DRIFT, driftOf, driftWords, past, pct, runSeries, runTicks, signed, type RunPoint } from "./lookDrift";
 import { DRAG_PICTURE, useDropZone } from "../dragging";
 import { projectForNew } from "../project";
+import { useRunningOf } from "./useRunning";
 
 /** A slider that says its value while it moves and saves it when it is let go. */
 function Slide({ label, value, min = 0, max, step = 1, show, onCommit }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void }) {
@@ -121,12 +122,13 @@ function SongStrip({ timeline, onFrom }: { timeline: Timeline; onFrom(fromMs: nu
 export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(patch: TimelinePatch): void }) {
   const m = timeline.music;
   const [picking, setPicking] = useState(false);
+  const width = usePanelWidth((st) => st.width);
   if (!m) return null;
   // the clips it can start with: the ones that play
   const starts = timeline.clips.map((c, i) => ({ id: c.id, n: i + 1, atMs: c.atMs, lengthMs: c.lengthMs })).filter((c) => c.lengthMs > 0);
   const startValue = m.startClip && m.startClip !== starts[0]?.id ? m.startClip : "first";
   return (
-    <aside style={{ width: usePanelWidth.getState().width }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
+    <aside style={{ width }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
       <PanelEdge side="left" />
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
         <Music size={15} className="text-accent" />
@@ -166,7 +168,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onSelectClip }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onSelectClip }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -179,7 +181,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   why: string | null;
   /** About how long a render of it takes, in ms; null when nothing like it was rendered yet. */
   takesMs: number | null;
-  running: RunningJob | null;
   busy: boolean;
   error: string | null;
   onInputs(next: Record<string, unknown>): void;
@@ -559,16 +560,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           )}
           {whole && !clip.job && <FormModel recipe={recipe} input={whole} look={clip.look ?? timeline.look} />}
           {clip.job ? (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-baseline justify-between">
-                <span className="font-semibold">{running ? phaseLabel(running.phase) : "Queued"}</span>
-                <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${about(running.eta)}` : ""}</span>
-              </div>
-              <Bar value={(running?.progress ?? 0) * 100} />
-              <Button size="sm" className="self-start" onClick={onStop} data-tip={running ? "Stop this render. Nothing is added; the clip keeps the takes it has." : "Remove it from the queue."}>
-                {running ? "Stop render" : "Remove from queue"}
-              </Button>
-            </div>
+            <RenderProgress clip={clip.id} onStop={onStop} />
           ) : (
             <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
               {busy ? "Sending…" : `${count > 1 ? `Render ${count} takes` : take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
@@ -591,6 +583,23 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         />
       )}
     </aside>
+  );
+}
+
+/** The clip's render under way, or its place in the queue: read from the queue on its own, so that only this draws again at every step. */
+function RenderProgress({ clip, onStop }: { clip: string; onStop(): void }) {
+  const running = useRunningOf(clip);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between">
+        <span className="font-semibold">{running ? phaseLabel(running.phase) : "Queued"}</span>
+        <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${about(running.eta)}` : ""}</span>
+      </div>
+      <Bar value={(running?.progress ?? 0) * 100} />
+      <Button size="sm" className="self-start" onClick={onStop} data-tip={running ? "Stop this render. Nothing is added; the clip keeps the takes it has." : "Remove it from the queue."}>
+        {running ? "Stop render" : "Remove from queue"}
+      </Button>
+    </div>
   );
 }
 

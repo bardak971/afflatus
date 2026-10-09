@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Camera, Download, Link2, Maximize, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
 import type { Clip, Timeline } from "../api";
 import { aboutMs, clock } from "../format";
-import { Button, Chip, cx } from "../ui";
+import { Button, Chip, cx, Help } from "../ui";
 import { Slider } from "../Slider";
 import type { Clock } from "./clock";
 import { Readout } from "./Readout";
@@ -12,14 +12,16 @@ import type { Slot } from "./model";
  * The editor's header: the timeline's name, its length, what is said (a save that failed, an error, a note), Undo and Redo,
  * and what is done to the whole timeline: render what is left, render the picked clips, finish, export.
  */
-export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said, undo, redo, missing, allMs, picked, rendering, onRename, onRenderMissing, onRenderPicked, onFinish, onExport }: {
+export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said, onHold, undo, redo, missing, allMs, picked, rendering, onRename, onRenderMissing, onRenderPicked, onFinish, onExport }: {
   t: Timeline;
   clips: Clip[];
   total: number;
   saveFailed: string | null;
   onRetrySave(): void;
-  /** An error (said in the warning colour), else a note. */
-  said: { error: Error | null; note: string | null };
+  /** An error (said in the warning colour), else a note: one line, and what more there is to it behind a "?". */
+  said: { error: Error | null; note: { text: string; more?: string } | null };
+  /** The pointer rests on what is said: it stays while it is read. */
+  onHold?(held: boolean): void;
   undo: { run(): void; pending: boolean };
   redo: { run(): void; pending: boolean };
   /** The clips with nothing to play yet or a stale join, and about how long they take to render. */
@@ -69,7 +71,10 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           <Button size="sm" onClick={onRetrySave}>Retry</Button>
         </span>
       ) : (error || note) ? (
-        <span className={error ? "max-w-sm truncate text-warn-ink" : "max-w-sm truncate text-ink-2"} data-tip={error?.message}>{error?.message ?? note}</span>
+        <span className="flex min-w-0 max-w-sm items-center gap-1.5" onPointerEnter={() => onHold?.(true)} onPointerLeave={() => onHold?.(false)}>
+          <span className={error ? "truncate text-warn-ink" : "truncate text-ink-2"} data-tip={error?.message ?? note?.text}>{error?.message ?? note?.text}</span>
+          {!error && note?.more && <Help text={note.more} />}
+        </span>
       ) : null}
       <Button className="px-3" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl Z" onClick={undo.run}>
         <Undo2 size={15} /> Undo
