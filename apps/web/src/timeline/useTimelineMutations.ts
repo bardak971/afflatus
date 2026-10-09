@@ -42,12 +42,12 @@ export function useTimelineMutations(id: string, o: {
     void client.invalidateQueries({ queryKey: ["queue"] });
   };
   const render = useMutation({
-    mutationFn: async (v: { clips: Clip[]; fit?: boolean; takes?: number }) => {
+    mutationFn: async (v: { clips: Clip[]; takes?: number }) => {
       await save();
       // a seed meant to move: the takes go out with the next seeds in a row, and the clip's form shows the one after them
       const mode = useSeedMode.getState().mode;
       const sent = v.clips.map((c) => ({ clip: c, input: ready(c).input ?? {} })).map((x) => ({ ...x, seedMode: movingSeed(x.input.seed, mode) }));
-      const made = await api.renderClips(id, sent.map(({ clip, input, seedMode }) => ({ id: clip.id, input, ...(v.fit === undefined ? {} : { fit: v.fit }), ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}), ...(seedMode ? { seedMode } : {}) })));
+      const made = await api.renderClips(id, sent.map(({ clip, input, seedMode }) => ({ id: clip.id, input, ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}), ...(seedMode ? { seedMode } : {}) })));
       for (const x of sent) if (x.seedMode) await api.editClip(x.clip.id, { inputs: { ...inputsOf(x.clip), seed: seedAfter(x.input.seed as number, mode, v.takes ?? 1) } });
       return made;
     },

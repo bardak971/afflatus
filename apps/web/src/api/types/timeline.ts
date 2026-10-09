@@ -63,6 +63,8 @@ export interface Clip {
   volume: number;
   /** Of another shape than the timeline: true = it fills the frame, false = shown whole with bars. */
   fill: boolean;
+  /** Rendered to end where the next clip begins, when that one carries on from it: what every render goes by (a pinned last frame wins). */
+  fitNext: boolean;
   /** Its own cast and style; null = the timeline's. */
   look: Look | null;
   /** The conversation with the designer about this clip. */
@@ -150,6 +152,7 @@ export interface ClipPatch {
   soundAsset?: string | null;
   volume?: number;
   fill?: boolean;
+  fitNext?: boolean;
   stillMs?: number;
   animate?: boolean;
   look?: Look | null;

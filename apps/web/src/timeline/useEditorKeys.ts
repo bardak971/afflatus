@@ -63,7 +63,9 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
       const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
       // Escape belongs to what is open, and to a panel that takes it (the designer in the inspector closes on it)
       const held = open || Boolean(document.querySelector("[data-takes-escape]"));
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.repeat && !open && renderNow) {
+      // not from the designer's box (Enter there sends the message), nor once something else took the key
+      const designing = typing && Boolean(el.closest("[data-takes-escape]"));
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.repeat && !open && !designing && !e.defaultPrevented && renderNow) {
         e.preventDefault();
         renderNow.current();
       }

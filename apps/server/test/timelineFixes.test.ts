@@ -360,6 +360,38 @@ describe("takes", () => {
   });
 });
 
+describe("where a clip ends (A10)", () => {
+  it("keeps the choice to end where the next clip begins on the clip, and every render goes by it", async () => {
+    const tl = (await t.services.timelines.create("Fit")).id;
+    const a = await clip(tl, 0, { joined: "cut" });
+    const b = await clip(tl, 1);
+    const fitOf = async () => {
+      const jobs = await t.db.selectFrom("jobs").select(["clip_fit"]).where("clip_id", "=", a).execute();
+      return jobs.length === 1 ? jobs[0]!.clip_fit : jobs.length;
+    };
+    const render = (fit?: boolean) => call("POST", `/api/timelines/${tl}/render`, { clips: [{ id: a, input: { description: "She waves." }, ...(fit === undefined ? {} : { fit }) }] });
+    // on unless turned off
+    expect((await view(tl)).clips.map((c: { fitNext: boolean }) => c.fitNext)).toEqual([true, true]);
+    await render();
+    expect(await fitOf()).toBe(1);
+    await call("PATCH", `/api/clips/${a}`, { fitNext: false });
+    expect((await view(tl)).clips[0].fitNext).toBe(false);
+    // a render that does not say (Ctrl+Enter, the track, Render all) takes the clip's own choice
+    await t.db.deleteFrom("jobs").where("clip_id", "=", a).execute();
+    await render();
+    expect(await fitOf()).toBe(0);
+    // one that says wins
+    await t.db.deleteFrom("jobs").where("clip_id", "=", a).execute();
+    await render(true);
+    expect(await fitOf()).toBe(1);
+    // rendered together with the clip after it, there is nothing to land on, whatever the clip says
+    await call("PATCH", `/api/clips/${a}`, { fitNext: true });
+    await t.db.deleteFrom("jobs").where("clip_id", "in", [a, b]).execute();
+    await call("POST", `/api/timelines/${tl}/render`, { clips: [{ id: a, input: { description: "She waves." } }, { id: b, input: { description: "She sits." } }] });
+    expect(await fitOf()).toBe(0);
+  });
+});
+
 describe("a range", () => {
   it("removed takes the clips with nothing to play that stand inside it (LOW)", async () => {
     const tl = (await t.services.timelines.create("Range")).id;

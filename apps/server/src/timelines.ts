@@ -124,6 +124,8 @@ export interface ClipPatch {
   soundAsset?: string | null;
   volume?: number;
   fill?: boolean;
+  /** Rendered to end where the next clip begins (see the clips' fit_next). */
+  fitNext?: boolean;
   /** Of a still: how long it is held. */
   stillMs?: number;
   /** Of a still: make it a clip to render, opening on the picture. */
@@ -363,6 +365,8 @@ export class Timelines {
         /** The pictures pinned on its form: first frame, last frame, keyframe. */
         pictures: p.pictures.map((x) => ({ input: x.input, role: x.role, asset: assetView(x.asset) })),
         sound: p.clip.sound, soundAsset: p.sound ? assetView(p.sound) : null, volume: p.clip.volume, fill: Boolean(p.clip.fill),
+        /** Rendered to end where the next clip begins: what a render that does not say goes by. */
+        fitNext: p.clip.fit_next !== 0,
         /** Its own cast and style; null = the timeline's. */
         look: p.clip.look ? (JSON.parse(p.clip.look) as Look) : null,
         chat: p.clip.chat ? (JSON.parse(p.clip.chat) as unknown[]) : [],
@@ -575,6 +579,7 @@ export class Timelines {
           ...(patch.soundAsset !== undefined ? { sound_asset_id: patch.soundAsset, sound: patch.sound ?? (patch.soundAsset ? "file" : "own") } : patch.sound !== undefined ? { sound: patch.sound } : {}),
           ...(patch.volume !== undefined ? { volume: Math.max(0, Math.min(100, Math.round(patch.volume))) } : {}),
           ...(patch.fill !== undefined ? { fill: patch.fill ? 1 : 0 } : {}),
+          ...(patch.fitNext !== undefined ? { fit_next: patch.fitNext ? 1 : 0 } : {}),
           ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
           ...(patch.music !== undefined ? { music: musicJson(patch.music) } : {}),
           ...(patch.stillMs !== undefined ? { still_ms: Math.max(STILL_MS.least, Math.min(STILL_MS.most, Math.round(patch.stillMs))) } : {}),
@@ -794,6 +799,7 @@ function labelOf(patch: ClipPatch): string {
     : patch.sound !== undefined || patch.soundAsset !== undefined || patch.volume !== undefined ? "the audio change"
     : patch.music !== undefined ? "the music under the clip"
     : patch.fill !== undefined ? "the fit in the frame"
+    : patch.fitNext !== undefined ? "the end on the next clip"
     : patch.look !== undefined ? "the change of characters"
     : "the change of model";
 }

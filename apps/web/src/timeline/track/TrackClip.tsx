@@ -97,7 +97,8 @@ export function TrackClip({ s, clips, timeline, recipes, selected, picked, runni
         onPointerLeave={leaveTip}
         onPointerDown={leaveTip}
         onKeyDown={(e) => {
-          if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+          // Ctrl+Enter is the editor's (it renders the selected clip)
+          if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ") || e.ctrlKey || e.metaKey) return;
           e.preventDefault();
           onSelect(c.id);
         }}

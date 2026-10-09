@@ -67,6 +67,7 @@ const clipPatch = z.strictObject({
   soundAsset: z.string().nullable().optional(),
   volume: z.number().min(0).max(100).optional(),
   fill: z.boolean().optional(),
+  fitNext: z.boolean().optional(),
   stillMs: z.number().min(0).optional(),
   animate: z.boolean().optional(),
   look: lookSchema.nullable().optional(),
@@ -95,7 +96,7 @@ const renderBody = z.strictObject({
       takes: z.number().int().min(1).max(4).optional(),
       /** A typed seed that moves: each take after the first takes the next seed up or down (the form's "+1" / "−1"). */
       seedMode: z.enum(["up", "down"]).optional(),
-      /** End where the next clip begins, when that clip carries on from this one. On unless said otherwise. */
+      /** End where the next clip begins, when that clip carries on from this one. Left out: the clip's own choice (fitNext). */
       fit: z.boolean().optional(),
     }))
     .min(1)
@@ -373,7 +374,7 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
         label: `${view.name} · clip ${i + 1}${count > 1 ? ` · take ${k + 1} of ${count}` : ""}`,
         dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
         // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
-        clip: { id: clip.id, fit: ask.fit ?? !(next && wanted.has(next.id)) },
+        clip: { id: clip.id, fit: ask.fit ?? (clip.fitNext && !(next && wanted.has(next.id))) },
         look: clip.look ?? view.look,
         // what was typed before the cast was worked in: what a tool opened from the take carries
         asked: askedOf(typed, input),

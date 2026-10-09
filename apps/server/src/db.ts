@@ -245,6 +245,8 @@ export interface Tables {
     volume: number;
     /** A clip of another shape than the timeline: 1 = it fills the frame (its edges are cut), 0 = it is shown whole, with bars. */
     fill: number;
+    /** 1 = rendered to end where the next clip begins, when that one carries on from it (a pinned last frame wins); 0 = left to end as it will. */
+    fit_next?: number;
     /** Its own cast, places and style (JSON); null = the timeline's. */
     look: string | null;
     /** The conversation with the designer about this clip (JSON). */

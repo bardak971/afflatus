@@ -533,7 +533,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onInputs={(next) => editInputs(current, next)}
             onRecipe={(recipe) => patch.mutate({ clip: current.id, patch: { recipe } })}
             onPatch={(p) => patch.mutate({ clip: current.id, patch: p })}
-            onRender={(fit, count) => render.mutate({ clips: [current], fit, takes: count })}
+            onRender={(count) => render.mutate({ clips: [current], takes: count })}
             onRemove={() => {
               remove.mutate(current.id);
               setSelected(null);

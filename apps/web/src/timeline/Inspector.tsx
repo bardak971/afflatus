@@ -185,8 +185,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   onInputs(next: Record<string, unknown>): void;
   onRecipe(id: string): void;
   onPatch(patch: ShownPatch): void;
-  /** Render it: `count` takes at once (the first with the form's seed, the others with a fresh one each). */
-  onRender(fit: boolean, count: number): void;
+  /** Render it: `count` takes at once (the first with the form's seed, the others with a fresh one each). Where it ends is the clip's own fitNext. */
+  onRender(count: number): void;
   onRemove(): void;
   onRemoveTake(id: string): void;
   /** Stop the render of this clip that is under way, or take it out of the queue. */
@@ -212,7 +212,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const all = useRecipes();
   const setup = useSetup();
   const entities = useEntities();
-  const [fit, setFit] = useState(true);
   // how many takes a render makes at once, remembered per browser
   const [count, setCount] = useState<1 | 2 | 3>(() => {
     try {
@@ -377,7 +376,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <span className="font-semibold text-warn-ink">This clip no longer follows clip {index}</span>
             <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
             <span className="flex flex-wrap gap-1.5">
-              {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(fit, count)}>Re-render{takes ? ` · ${takes}` : ""}</Button>}
+              {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(count)}>Re-render{takes ? ` · ${takes}` : ""}</Button>}
               <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
             </span>
           </div>
@@ -549,7 +548,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           {/* a pinned last frame wins over the landing (the server skips it): shown off, the stored choice kept for when the pin goes */}
           {canFit && (
             <div className="flex flex-col gap-1">
-              <Toggle on={fit && !ends} onChange={setFit} disabled={Boolean(ends)} label={`End where clip ${index + 2} begins`} note={ends ? "off: this clip's own last frame is pinned" : "so that clip need not be redone"} />
+              <Toggle on={clip.fitNext && !ends} onChange={(fitNext) => onPatch({ fitNext })} disabled={Boolean(ends)} label={`End where clip ${index + 2} begins`} note={ends ? "off: this clip's own last frame is pinned" : "so that clip need not be redone"} />
             </div>
           )}
           {!clip.job && (
@@ -571,7 +570,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               </Button>
             </div>
           ) : (
-            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(fit, count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
+            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
               {busy ? "Sending…" : `${count > 1 ? `Render ${count} takes` : take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
               {/* Ctrl+Enter renders one take: said only when that is what the button does */}
               {!busy && count === 1 && <Kbd>Ctrl ↵</Kbd>}
