@@ -339,7 +339,16 @@ export class Timelines {
     const all = await this.placed(id);
     const { live, last } = await this.views.jobsOf(all.map((p) => p.clip.id));
     const rendered = await this.views.renderedOf(all);
-    const viewOf = (x: Taken) => takeView(x, x.asset.generation_id ? rendered.get(x.asset.generation_id) : undefined);
+    const renderOf = (x: Taken, takes: Taken[]) => {
+      const own = x.asset.generation_id ? rendered.get(x.asset.generation_id) : undefined;
+      if (own?.measure || !x.take.finished_from) return own;
+      // a finished take (an upscale, made by a cut) is not measured: it has the figures of the take it was finished from,
+      // the same frames, so that clips still compare like for like whether they play their finished take or not
+      const from = takes.find((y) => y.take.id === x.take.finished_from);
+      const source = from?.asset.generation_id ? rendered.get(from.asset.generation_id) : undefined;
+      return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure } : own;
+    };
+    const viewOf = (takes: Taken[]) => (x: Taken) => takeView(x, renderOf(x, takes));
     let at = 0;
     const clips = all.map((p, i) => {
       const length = lengthOf(p);
@@ -348,8 +357,8 @@ export class Timelines {
       const view = {
         id: p.clip.id, kind: p.clip.kind, joined: p.clip.joined, join: this.joinState(all, i), recipe: p.clip.recipe_id,
         inputs: JSON.parse(p.clip.inputs) as Record<string, unknown>,
-        take: p.active ? viewOf(p.active) : null,
-        takes: p.takes.map(viewOf),
+        take: p.active ? viewOf(p.takes)(p.active) : null,
+        takes: p.takes.map(viewOf(p.takes)),
         still: p.still ? assetView(p.still) : null,
         /** The pictures pinned on its form: first frame, last frame, keyframe. */
         pictures: p.pictures.map((x) => ({ input: x.input, role: x.role, asset: assetView(x.asset) })),

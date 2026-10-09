@@ -327,6 +327,22 @@ describe("takes", () => {
     expect((await view(tl)).clips[0].take.measure.luma).toBe(90);
   });
 
+  it("gives a finished take the figures of the take it was finished from, and none when that take is gone", async () => {
+    const tl = (await t.services.timelines.create("Finished figures")).id;
+    const a = await clip(tl, 0, { joined: "cut" });
+    const b = await clip(tl, 1, { joined: "cut" });
+    const measure = { luma: 88, sharp: 2.5, handover: 1.2 };
+    await t.db.insertInto("generations").values({ id: "source", owner_id: OWNER, recipe_id: "h3.video", recipe_version: 1, family: "h3", inputs: "{}", resolved: "{}", measure: JSON.stringify(measure), gen_ms: 1, draft_id: null, created_at: now() }).execute();
+    const source = await take(a, await video({ generation_id: "source" }), {}, false);
+    // the upscale is a cut's video: no generation, no measure of its own
+    await take(a, await video({ width: 1152, height: 2048 }), { finished_from: source });
+    await take(b, await video({ width: 1152, height: 2048 }), { finished_from: "a-take-since-removed" });
+    const v = await view(tl);
+    expect(v.clips[0].take.measure).toEqual(measure);
+    expect(v.clips[0].takes.map((x: { measure: unknown }) => x.measure)).toEqual([measure, measure]);
+    expect(v.clips[1].take.measure).toBeNull();
+  });
+
   it("reads the failure of a clip's last job only, whatever ran before (T-8)", async () => {
     const tl = (await t.services.timelines.create("Jobs")).id;
     const a = await clip(tl, 0);
