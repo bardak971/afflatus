@@ -21,16 +21,23 @@ export function dropped(ids: string[], dragged: string, index: number): string[]
   return moved(ids, dragged, from >= 0 && index > from ? index - 1 : index);
 }
 
+/**
+ * Which waiting jobs load another model first, in their order: the recipe it loads, or null (same model, or not a render).
+ * `from`: the running job, whose model is the one loaded first. What modelSwitches counts, so the rows' chips and the count agree.
+ */
+export function loadsAt(waiting: Array<Pick<Job, "kind" | "recipe">>, from?: Pick<Job, "kind" | "recipe"> | null): (string | null)[] {
+  let last: string | null = from && (from.kind === "render" || from.kind === "load") ? from.recipe : null;
+  return waiting.map((w) => {
+    if (w.kind !== "render") return null;
+    const loads = last && w.recipe !== last ? w.recipe : null;
+    last = w.recipe;
+    return loads;
+  });
+}
+
 /** How many times the model changes down the line of renders: each change costs a model load. `from`: the running job, whose model is the one loaded first. */
 export function modelSwitches(waiting: Array<Pick<Job, "kind" | "recipe">>, from?: Pick<Job, "kind" | "recipe"> | null): number {
-  let n = 0;
-  let last: string | null = from && (from.kind === "render" || from.kind === "load") ? from.recipe : null;
-  for (const w of waiting) {
-    if (w.kind !== "render") continue;
-    if (last && w.recipe !== last) n++;
-    last = w.recipe;
-  }
-  return n;
+  return loadsAt(waiting, from).filter((r) => r !== null).length;
 }
 
 /**

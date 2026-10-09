@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bar, brushWindow, ceiling, curve, stackSeries, statOf } from "../src/screens/queue/chartMath";
-import { betterPlace, byModel, dropped, groupingSaves, modelSwitches, moved } from "../src/screens/queue/order";
+import { betterPlace, byModel, dropped, groupingSaves, loadsAt, modelSwitches, moved } from "../src/screens/queue/order";
 import { dayLabel, pinnedFailures, reasonOf, reasonsOf } from "../src/screens/queue/failures";
 import { StepClock } from "../src/screens/queue/stepRate";
 import { brushSpan } from "../src/screens/queue/useBrush";
@@ -88,6 +88,16 @@ describe("the waiting jobs' order", () => {
     expect(modelSwitches([{ kind: "render", recipe: "y" }], { kind: "render", recipe: "x" })).toBe(1);
     expect(modelSwitches([{ kind: "render", recipe: "x" }], { kind: "load", recipe: "x" })).toBe(0);
     expect(modelSwitches([{ kind: "render", recipe: "y" }], { kind: "export", recipe: "e" })).toBe(0);
+  });
+  it("marks the rows that load another model, as many as the switches it counts", () => {
+    const line = [{ kind: "render" as const, recipe: "x" }, { kind: "export" as const, recipe: "e" }, { kind: "render" as const, recipe: "y" }, { kind: "render" as const, recipe: "y" }, { kind: "render" as const, recipe: "x" }];
+    expect(loadsAt(line)).toEqual([null, null, "y", null, "x"]);
+    // the running job counts as the one before the first waiting row
+    expect(loadsAt(line, { kind: "render", recipe: "y" })).toEqual(["x", null, "y", null, "x"]);
+    expect(loadsAt(line, { kind: "load", recipe: "x" })).toEqual([null, null, "y", null, "x"]);
+    expect(loadsAt(line, { kind: "export", recipe: "e" })).toEqual([null, null, "y", null, "x"]);
+    for (const from of [null, { kind: "render" as const, recipe: "y" }]) expect(loadsAt(line, from).filter(Boolean).length).toBe(modelSwitches(line, from));
+    expect(loadsAt([])).toEqual([]);
   });
   it("groups the waiting jobs by model, the first job's model first, each model's jobs in their order", () => {
     const w = (id: string, recipe: string, kind: "render" | "export" | "load" | "cut" = "render") => ({ id, recipe, kind });

@@ -6,7 +6,7 @@ import { aboutMs, when } from "../../format";
 import { Button, Chip, cx, SectionTitle } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useModelName } from "./modelName";
-import { betterPlace, dropped, groupingSaves, modelSwitches, moved } from "./order";
+import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved } from "./order";
 
 /** How many waiting jobs show before the rest fold into "and N more". */
 export const SHOWN = 3;
@@ -54,6 +54,8 @@ export function WaitingList({ waiting, running, onOrder, onRemove }: { waiting: 
   const menu = useMenu<{ id: string; label: string; index: number }>();
   const ids = waiting.map((w) => w.id);
   const saves = groupingSaves(waiting, running);
+  /** The model each row loads first (the running job counts as the one before the first): one chip per switch the head counts. */
+  const loads = loadsAt(waiting, running);
   const itemsOf = (j: { id: string; index: number }): MenuItem[] => {
     const place = betterPlace(waiting, j.id, running);
     return [
@@ -119,6 +121,7 @@ export function WaitingList({ waiting, running, onOrder, onRemove }: { waiting: 
           <span className="w-[18px] shrink-0 font-mono text-ink-3">{i + 1}</span>
           <span className="min-w-0 grow truncate font-semibold">{w.label}</span>
           <span className="max-w-[40%] shrink-0 truncate text-ink-2">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
+          {loads[i] && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
           <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{w.estimateMs ? `~${aboutMs(w.estimateMs).replace(/^about /, "")}` : "—"}</span>
           <button type="button" aria-label={`Cancel ${w.label}`} data-tip="Cancel this one (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
             <X size={14} />
