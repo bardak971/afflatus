@@ -1,7 +1,8 @@
 import { sql } from "kysely";
 import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
 import type { Comfy } from "./comfy";
-import { CUT_JOB, EXPORT_JOB } from "./timelines";
+import { finishForecast, usesGpu } from "./queueTools";
+import { CUT_JOB, EXPORT_JOB, type CutOptions } from "./timelines";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 
 /** What the queue screen shows: the line as it stands with the running job's progress, the history of finished jobs, and a live preview. */
@@ -46,9 +47,12 @@ export async function status(core: QueueCore) {
   const usual = await core.usual();
   // down the line, a job whose model is not the one before it has to load it first
   let held = core.lastLoads === null ? null : new Set(core.lastLoads.split("|").map(modelName));
+  const finishes = await finishesWaiting(core, rows);
   const brief = (r: JobRow) => {
     const recipe = core.registry.recipe(r.recipe_id);
-    if (r.status !== "queued" || !recipe || r.warm) return { ...plain(r), estimateMs: null };
+    // a tool on the GPU frees the model before it: the render after it loads its own again
+    if (r.status === "queued" && held && usesGpu(r)) held = new Set();
+    if (r.status !== "queued" || !recipe || r.warm) return { ...plain(r), estimateMs: (r.status === "queued" && finishes.get(r.id)) || null };
     const input = inputsOf(r);
     const model = modelOf(recipe.inputs, input);
     const cold = Boolean(model && held && !held.has(model));
@@ -89,17 +93,38 @@ export async function status(core: QueueCore) {
   };
 }
 
+/** What each waiting finish should take (finishForecast), by job; a finish whose video is gone is left out. */
+async function finishesWaiting(core: QueueCore, rows: JobRow[]): Promise<Map<string, number | null>> {
+  const asked = rows.flatMap((r) => {
+    const o = r.status === "queued" && r.recipe_id === CUT_JOB ? readJson<CutOptions | null>(r.inputs, null) : null;
+    return o?.action === "finish" ? [{ id: r.id, o }] : [];
+  });
+  const out = new Map<string, number | null>();
+  if (!asked.length) return out;
+  const videos = new Map((await core.db.selectFrom("assets").select(["id", "width", "height", "duration_ms", "fps"]).where("id", "in", [...new Set(asked.map((a) => a.o.asset))]).execute()).map((v) => [v.id, v]));
+  const paces = new Map<string, Promise<number | null>>();
+  for (const { id, o } of asked) {
+    const v = videos.get(o.asset);
+    if (v) out.set(id, await finishForecast(core.db, { width: v.width, height: v.height, durationMs: v.duration_ms, fps: v.fps }, o, paces));
+  }
+  return out;
+}
+
 /** The running job's progress, its preview and what it showed on the way: from the monitor, by its prompt; `idle` names its phase while it has none. */
 function figures(monitor: Comfy["monitor"], running: QueueCore["running"], promptId: string | undefined, idle: "exporting" | "cutting" | "waiting") {
   return {
     // a tool on ComfyUI (a finish, a slow motion): which step runs, not a step count (its one-step passes would read 99 % at once)
-    ...(promptId && idle === "cutting" ? { ...monitor.progress(promptId), progress: 0, eta: 0, step: 0, steps: 0 } : promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: idle, step: 0, steps: 0 }),
+    // its ETA what its own record expected of it (finishForecast for a finish), less the time it has run
+    ...(promptId && idle === "cutting" ? { ...monitor.progress(promptId), progress: 0, eta: toolEta(running), step: 0, steps: 0 } : promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: idle, step: 0, steps: 0 }),
     previewSeq: promptId ? monitor.preview(promptId).seq : 0,
     previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
     // what the workflow showed on the way (its Preview nodes), oldest first; the title comes from the graph it was built with
     stages: (promptId ? monitor.stages(promptId) : []).map((st, n) => ({ n, node: st.node, title: running?.titles?.[st.node] ?? null, count: st.files.length })),
   };
 }
+
+/** A tool's seconds left on ComfyUI, from what its record expected of it; 0 (no ETA shown) when nothing was expected or it ran past it. */
+const toolEta = (r: QueueCore["running"]) => (r?.expectedMs && r.startedAt ? Math.max(0, Math.round((r.expectedMs - (Date.now() - r.startedAt)) / 1000)) : 0);
 
 /**
  * The running job's figures alone, read from memory and the monitor (no query): what each progress event

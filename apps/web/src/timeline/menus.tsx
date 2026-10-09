@@ -41,12 +41,12 @@ export interface ClipMenuActions {
   removeMany(clips: string[]): void;
 }
 
-/** Split the clip at the playhead (S): on when the playhead stands inside what it plays. */
+/** Split the clip at the playhead (S, Ctrl B): on when the playhead stands inside what it plays. */
 const splitHere = (c: Clip, act: ClipMenuActions): MenuItem => {
   const onIt = act.onClip(c);
   const cut = onIt ? splitPoint(c, onIt.assetMs) : null;
   const at = cut && "at" in cut ? cut.at : null;
-  return { label: "Split at the playhead", key: "S", icon: <Split size={14} />, disabled: at === null || act.pending.split, note: !onIt ? "put the playhead on this clip" : at === null ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => at !== null && act.split(c.id, at) };
+  return { label: "Split at the playhead", key: "S  Ctrl + B", icon: <Split size={14} />, disabled: at === null || act.pending.split, note: !onIt ? "put the playhead on this clip" : at === null ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => at !== null && act.split(c.id, at) };
 };
 
 /** The take before or after the one that plays (Alt [ and Alt ]): the clip panel's list of takes, from the keyboard. */

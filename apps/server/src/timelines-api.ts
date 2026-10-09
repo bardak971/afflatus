@@ -7,10 +7,11 @@ import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
 import { assetView } from "./media";
 import { rifeModelIn } from "./queue";
+import { finishForecast } from "./queueTools";
 import { rootFolderOf } from "./projects";
 import { folderOfTimeline } from "./timelineFolder";
 import type { Services } from "./services";
-import { clockOf, FROM_PREVIOUS, type Timelines } from "./timelines";
+import { clockOf, FROM_PREVIOUS, type CutOptions, type Timelines } from "./timelines";
 
 const timelinePatch = z.strictObject({
   name: z.string().max(200).optional(),
@@ -231,6 +232,9 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return done;
   });
 
+  /** What Finish with these settings would take in all (finishForecast, queue.forecast for a latent re-sample); null when a job of it has no learned figure yet. */
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/finish/forecast", async (req) => ({ ms: await finishEstimate(s, req.params.id, finishBody.parse(req.body)) }));
+
   /** One clip becomes two at a moment of its take (the video's own time, as the take's startMs and endMs say): the first plays up to it, the second from it. */
   app.post<{ Params: { id: string } }>("/api/clips/:id/split", async (req) => {
     const { atMs } = z.strictObject({ atMs: z.number().min(0) }).parse(req.body);
@@ -389,11 +393,38 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
   return ids;
 }
 
+/** One job of a finish, as it would be queued: a latent re-sample (a render), or a cut on the draft's video with what that video is. */
+type FinishJob =
+  | { kind: "render"; recipe: string; input: Record<string, unknown>; opts: Parameters<Services["queue"]["enqueue"]>[2] }
+  | { kind: "cut"; cut: CutOptions; label: string; video: { width: number | null; height: number | null; durationMs: number | null; fps: number | null } };
+
 /** The jobs that finish a timeline's clips (see the finish route), one each, and the clips skipped with why. */
 async function finishClips(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }> {
+  const { plan, skipped } = await finishPlan(s, timeline, b);
+  const jobs: string[] = [];
+  for (const j of plan) jobs.push(j.kind === "render" ? await s.queue.enqueue(j.recipe, j.input, j.opts) : await s.queue.enqueueCut(j.cut, j.label));
+  return { jobs, skipped };
+}
+
+/** What finishing with these settings would take in all, as the waiting list will say it job by job; null when one of them has nothing learned yet. */
+async function finishEstimate(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<number | null> {
+  const { plan } = await finishPlan(s, timeline, b);
+  if (!plan.length) return null;
+  const paces = new Map<string, Promise<number | null>>();
+  let ms = 0;
+  for (const j of plan) {
+    const one = j.kind === "render" ? (await s.queue.forecast(j.recipe, j.input).catch(() => null))?.forecast.ms ?? null : await finishForecast(s.db, j.video, j.cut, paces);
+    if (!one) return null;
+    ms += one;
+  }
+  return ms;
+}
+
+/** The jobs a finish would queue, in order, and the clips skipped with why: nothing is queued here. */
+async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<{ plan: FinishJob[]; skipped: Array<{ clip: number; why: string }> }> {
   const t = s.timelines;
   const view = await t.view(timeline);
-  const jobs: string[] = [];
+  const plan: FinishJob[] = [];
   const skipped: Array<{ clip: number; why: string }> = [];
   const folder = (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined;
   for (const [i, clip] of view.clips.entries()) {
@@ -413,15 +444,17 @@ async function finishClips(s: Services, timeline: string, b: z.infer<typeof fini
       if (why) { skipped.push({ clip: i + 1, why }); continue; }
       const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", draft.asset.id).executeTakeFirst();
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
-      jobs.push(await s.queue.enqueue(gen.recipe, { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.2, upscaleSteps: b.latentSteps ?? 2 }, {
+      plan.push({ kind: "render", recipe: gen.recipe, input: { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.2, upscaleSteps: b.latentSteps ?? 2 }, opts: {
         label, clip: { id: clip.id, fit: false }, look: clip.look ?? view.look, folder, finishedFrom: from,
-      }));
+      } });
       continue;
     }
     const route = b.route === "latent" ? "seedvr" : b.route;
-    jobs.push(await s.queue.enqueueCut({ asset: draft.asset.id, startMs: 0, endMs: draft.asset.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, seedvrFrames: b.seedvrFrames, hiddenMs: hiddenRunUp(draft.headMs), clip: clip.id, finishedFrom: from }, label));
+    const a = draft.asset;
+    plan.push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
+      cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, seedvrFrames: b.seedvrFrames, hiddenMs: hiddenRunUp(draft.headMs), clip: clip.id, finishedFrom: from } });
   }
-  return { jobs, skipped };
+  return { plan, skipped };
 }
 
 /**

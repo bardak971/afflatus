@@ -85,7 +85,7 @@ const KEYS: Array<{ where: string; note?: string; keys: Array<[string, string]> 
 /** The cards of a whole screen, put first when it is the one open (Trim goes before the viewer it is in). */
 const SCREENS = ["Viewer", "Timeline", "Grid", "Timelines", "Queue", "Workflows", "Prompt kit"];
 /** The cards that hold on every screen: after the screen's own. */
-const GENERAL = ["Command bar", "Menus", "Everywhere"];
+const GENERAL = ["Command bar", "Projects panel", "Menus", "Everywhere"];
 
 /** A key as a cap, as on a keyboard. */
 const cap = "inline-flex h-7 min-w-7 items-center justify-center rounded-md border border-line-strong bg-ground px-2 font-mono text-xs text-ink shadow-[inset_0_-2px_0_var(--color-line)]";
@@ -144,6 +144,7 @@ export function KeysHelp() {
     if (where === "Prompt kit") return location.pathname.startsWith("/kit");
     if (where.startsWith("Form")) return has("input[data-search=form], button[data-search-opener]");
     if (where === "Prompt") return has("textarea");
+    // the rest hold on every screen: the Projects panel among them (the rail's project button opens it anywhere; while it is open, "?" types in its search)
     return true;
   };
   // the screen's own card first (Trim over the viewer it is in), then the parts of it, then what works everywhere; every screen: the rest after

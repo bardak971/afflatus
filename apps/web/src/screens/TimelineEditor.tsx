@@ -170,7 +170,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     title: `Audio of clip ${clips.findIndex((x) => x.id === c.id) + 1}`,
     sub: `${c.sound === "own" ? "Own audio" : c.sound === "muted" ? "Muted" : "Audio file"} · ${c.volume} %`,
   });
-  const error = m.error ?? rangeAct.error;
+  // the latest that failed, the range's actions among the others (useTimelineMutations)
+  const error = rangeAct.error && (!m.error || rangeAct.submittedAt >= m.errorAt) ? rangeAct.error : m.error;
   // a note goes after a few seconds (longer with more to read behind its "?"), an error after a while: not while the pointer is on it
   useEffect(() => {
     if (!note || held) return;

@@ -164,8 +164,9 @@ export function useTimelineMutations(id: string, o: {
     },
   });
   // the latest that failed, not the first of the list: an old error does not hide a new one
-  const error = [plan, loop, render, fix, patch, edit, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]
+  // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
+  const { error, at: errorAt } = [plan, loop, render, fix, patch, edit, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]
     .filter((x) => x.error)
-    .reduce<{ error: Error | null; at: number }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt } : last), { error: null, at: -1 }).error;
-  return { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error };
+    .reduce<{ error: Error | null; at: number }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt } : last), { error: null, at: -1 });
+  return { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

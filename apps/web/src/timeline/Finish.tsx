@@ -1,4 +1,4 @@
-import { hiddenRunUp, resamplesLatent } from "@afflatus/core";
+import { resamplesLatent } from "@afflatus/core";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
@@ -6,7 +6,7 @@ import { api, type Clip, type FinishSettings } from "../api";
 import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
-import { fileLabel } from "../format";
+import { aboutMs, fileLabel } from "../format";
 import { Kbd } from "../Keys";
 import { Select } from "../Select";
 import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
@@ -53,12 +53,13 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
   const stills = clips.filter((c) => c.kind === "still").length;
   // the clips whose model re-samples its own latent (H3's, or a workflow that offers it); the others take SeedVR2 on that route
   const resampled = videos.filter((c) => resamplesLatent(recipes.data?.recipes.find((r) => r.id === c.recipe))).length;
-  // what it should take, from this route's own past finishes: its pace × what each clip makes (its size × the factor, its frames)
-  const tool = v.route === "rtx" ? "tool.finish.rtx" : v.route === "model" ? "tool.finish.model" : v.route === "seedvr" ? "tool.finish.seedvr" : null;
-  const pace = useQuery({ queryKey: ["renderPace", tool], queryFn: () => api.renderPace(tool!), enabled: Boolean(tool) });
-  // the frames it restores: past a continuation's hidden run-up (hiddenRunUp), which is enlarged plainly
-  const workOf = (c: Clip) => { const a = c.take!.asset; return (a.width ?? 0) * v.factor * (a.height ?? 0) * v.factor * Math.max(1, (Math.max(0, (a.durationMs ?? 0) - hiddenRunUp(c.take!.headMs)) / 1000) * (a.fps ?? 24)); };
-  const estimateMs = pace.data?.msPerWork ? todo.reduce((n, c) => n + workOf(c) * pace.data!.msPerWork!, 0) : null;
+  // what it should take, worked out by the server as the waiting list will show it job by job (finishForecast)
+  const forecast = useQuery({
+    queryKey: ["finishForecast", timeline, v, redo, todo.map((c) => c.take?.id).join()],
+    queryFn: () => api.finishForecast(timeline, { ...v, redo }),
+    enabled: loaded && todo.length > 0,
+  });
+  const estimateMs = forecast.data?.ms ?? null;
   return (
     <Dialog label="Finish all clips" onClose={onClose} className={cx(DIALOG, "max-w-lg")}>
         <DialogHead icon={<Sparkles size={16} />} title="Finish all clips" sub="Each clip's take to its final quality · one job per clip, in order" onClose={onClose} />
@@ -108,7 +109,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
         </div>
         {go.isError && <ErrorNote>{go.error.message}</ErrorNote>}
         {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-        <DialogFoot info={estimateMs ? <span data-tip="From your past finishes with this route.">About {Math.max(1, Math.round(estimateMs / 60_000))} min in all</span> : tool && pace.isSuccess ? <span data-tip="This route has not run here: the first finish teaches it.">No time estimate yet</span> : undefined}>
+        <DialogFoot info={estimateMs ? <span data-tip="From your past finishes with this route.">{aboutMs(estimateMs)} in all</span> : forecast.isSuccess ? <span data-tip="This route has not run here: the first finish teaches it.">No time estimate yet</span> : undefined}>
           <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
           <Button disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
           <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {todo.length} clip{todo.length === 1 ? "" : "s"}</Button>

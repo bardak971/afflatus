@@ -3,7 +3,7 @@ import { fileUrl, type Asset, type Clip, type Timeline } from "../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { Kbd } from "../Keys";
-import { Button, Chip, ErrorNote, Segmented, Toggle } from "../ui";
+import { Button, ButtonLink, Chip, ErrorNote, Segmented, Toggle } from "../ui";
 import { stamp } from "./model";
 import type { TimeRange } from "./Track";
 
@@ -51,7 +51,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
             <DialogFoot>
               <Button tone="quiet" onClick={onClose}>Close <Kbd>Esc</Kbd></Button>
               <Button onClick={() => { onOpen(exportDone); onClose(); }}>Open</Button>
-              <a href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`} className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-accent px-4 font-bold text-accent-ink hover:brightness-110"><Download size={15} /> Download</a>
+              <ButtonLink tone="primary" href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`}><Download size={15} /> Download</ButtonLink>
             </DialogFoot>
           </>
         ) : busy ? (

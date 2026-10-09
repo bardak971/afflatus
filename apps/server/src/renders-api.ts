@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { rates } from "./estimates";
-import { clear, known, list, size, summary, toolPace } from "./renders";
+import { clear, known, list, size, summary } from "./renders";
 import { readSettings } from "./settings";
 import type { Services } from "./services";
 
@@ -23,12 +23,6 @@ export function registerRenders(app: FastifyInstance, s: Services): void {
       from: z.coerce.number().int().optional(), to: z.coerce.number().int().optional(),
     }).parse(req.query);
     return list(s.db, s.registry, { recipe: q.recipe, trouble: q.only === "trouble", before: q.before, limit: q.limit, from: q.from, to: q.to });
-  });
-
-  /** A tool's usual pace from its own record (milliseconds per pixel × frame made): for the Finish dialog's "about N min a clip". */
-  app.get("/api/renders/pace", async (req) => {
-    const q = z.object({ tool: z.enum(["tool.finish.seedvr", "tool.finish.rtx", "tool.finish.model", "tool.slow"]) }).parse(req.query);
-    return { msPerWork: await toolPace(s.db, q.tool) };
   });
 
   /** How much of it there is, for the storage card. */

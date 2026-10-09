@@ -88,8 +88,8 @@ export const useModelSettings = () => useQuery({ queryKey: ["model-settings"], q
  * own, so that a change to one item does not read them all again through the "assets" prefix.
  */
 export const LIBRARY_KEYS = [["assets"], ["folders"], ["storage"], ["projects"], ["facets"]] as const;
-/** What a render that ended changes: the record of render times, the estimates and a tool's pace made from it (live.ts). */
-export const RENDER_KEYS = [["renders"], ["estimates"], ["renderPace"]] as const;
+/** What a render that ended changes: the record of render times, the estimates and the Finish dialog's forecast made from it (live.ts). */
+export const RENDER_KEYS = [["renders"], ["estimates"], ["finishForecast"]] as const;
 
 export const useFolders = () => useQuery({ queryKey: ["folders"], queryFn: api.folders });
 export const useEstimates = () => useQuery({ queryKey: ["estimates"], queryFn: api.estimates, staleTime: 60_000 });

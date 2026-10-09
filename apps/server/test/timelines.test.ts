@@ -1046,3 +1046,41 @@ describe.skipIf(!three)("a clip's take, trimmed on the timeline", () => {
     expect(copy!.durationMs).toBeLessThan(2400);
   });
 });
+
+describe.skipIf(!three)("how long a finish takes", () => {
+  /** A finish on record as the queue writes it: so many pixels × frames made in so long. */
+  const finished = (id: string, work: number, totalMs: number) => t.db.insertInto("render_stats").values({
+    id, owner_id: OWNER, recipe_id: "tool.finish.seedvr", family: "tools", model: "SeedVR2", model_file: "", time_key: "route=seedvr;by=2;frames=0",
+    kind: "video", width: 384, height: 640, duration_ms: 3000, steps: 0, status: "done", whole: 1, cold: 0, waited_ms: 0,
+    total_ms: totalMs, load_ms: 0, sample_ms: 0, refine_ms: totalMs, finish_ms: 0, step_ms: null, expected_ms: null, work,
+    vram_peak: 60, heat_peak: 60, asset_id: null, created_at: new Date().toISOString(),
+  }).execute();
+
+  it("is one figure from the server: the dialog's total is what the waiting list says job by job, none before the route has run", async () => {
+    const tl = await twoClips();
+    const settings = { route: "seedvr", factor: 2 };
+    // nothing learned for this route: no time, not a guess
+    expect(await call("POST", `/api/timelines/${tl.id}/finish/forecast`, settings)).toEqual({ ms: null });
+
+    // two past finishes at 1 ms per 1000 pixels × frames: the middle of them is the pace
+    await finished("f1", 1_000_000, 1_000);
+    await finished("f2", 2_000_000, 2_000);
+    const v = await view(tl.id);
+    const a = v.clips[0].take.asset;
+    // the first clip: its size × 2, every frame (it has no hidden run-up)
+    const first = Math.round(a.width * 2) * Math.round(a.height * 2) * Math.round((a.durationMs / 1000) * a.fps) / 1000;
+    const { ms } = await call("POST", `/api/timelines/${tl.id}/finish/forecast`, settings);
+    expect(ms).toBeGreaterThan(first);
+    // a larger factor is more work
+    expect((await call("POST", `/api/timelines/${tl.id}/finish/forecast`, { ...settings, factor: 3 })).ms).toBeGreaterThan(ms);
+
+    // queued, held by a pause: each waiting finish shows its share, and they add up to what the dialog said
+    await post(t.app, "/api/queue/pause");
+    const { jobs } = await call("POST", `/api/timelines/${tl.id}/finish`, settings);
+    expect(jobs).toHaveLength(2);
+    const waiting = (await get(t.app, "/api/queue")).json().waiting as Array<{ id: string; estimateMs: number | null }>;
+    const estimates = jobs.map((id: string) => waiting.find((w) => w.id === id)!.estimateMs);
+    expect(Math.abs(estimates[0] - first)).toBeLessThanOrEqual(1);
+    expect(estimates[0] + estimates[1]).toBe(ms);
+  });
+});

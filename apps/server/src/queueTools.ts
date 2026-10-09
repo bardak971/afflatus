@@ -32,6 +32,29 @@ async function toolNote(core: QueueCore, row: JobRow, recipe: string, model: str
   return { row, recipe, model, timeKey, work, expectedMs: pace && work ? Math.round(pace * work) : null, startedAt: Date.now(), measured: null };
 }
 
+/** The route a finish runs on, as its record names it (`tool.finish.<route>`): H3's latent re-sample is a render; a clip it cannot re-sample takes SeedVR2. */
+const finishRoute = (route: string | undefined) => (route === "rtx" ? "rtx" : route === "model" ? "model" : "seedvr");
+
+/**
+ * What a finish should take, from its route's own past finishes: the usual pace × what it makes (the video `by` times its
+ * size, its frames past a continuation's hidden run-up, which is enlarged plainly). The one place this is worked out: the
+ * Finish dialog, the waiting list and the running finish read it. Null until the route has finished something here.
+ * `paces` keeps each route's pace for a list of finishes.
+ */
+export async function finishForecast(
+  db: QueueCore["db"], video: { width: number | null; height: number | null; durationMs: number | null; fps: number | null },
+  o: Pick<CutOptions, "route" | "by" | "hiddenMs">, paces = new Map<string, Promise<number | null>>(),
+): Promise<number | null> {
+  const by = o.by ?? 2;
+  const frames = Math.round((Math.max(0, (video.durationMs ?? 0) - (o.hiddenMs ?? 0)) / 1000) * (video.fps ?? 24));
+  const work = Math.round((video.width ?? 0) * by) * Math.round((video.height ?? 0) * by) * Math.max(1, frames);
+  if (!work) return null;
+  const tool = `tool.finish.${finishRoute(o.route)}`;
+  if (!paces.has(tool)) paces.set(tool, toolPace(db, tool).catch(() => null));
+  const pace = await paces.get(tool)!;
+  return pace ? Math.round(pace * work) : null;
+}
+
 /** Put a tool's run on the record (never lets a failure here reach the job). */
 async function noteTool(core: QueueCore, note: ToolNote, status: "done" | "failed" | "cancelled", made: { id: string; width: number | null; height: number | null; duration_ms: number | null } | null) {
   await recordTool(core.db, { id: note.row.id, created_at: note.row.created_at, startedAt: note.startedAt }, note, note.measured, status, Date.now() - note.startedAt,
@@ -158,7 +181,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const outNode = saveVideo(g, ctx, { images, ...(video.has_sound ? { audio: [parts, 1] as Ref } : {}), fps: video.fps ?? 24, crf: 16 });
     // on the record as a tool of its own: the route, the factor, what it makes (the frames past the hidden run-up are what the route restores)
     const outFrames = Math.round((Math.max(0, (video.duration_ms ?? 0) - (opts.hiddenMs ?? 0)) / 1000) * (video.fps ?? 24));
-    const routeKey = opts.route === "rtx" ? "rtx" : opts.route === "model" ? "model" : "seedvr";
+    const routeKey = finishRoute(opts.route);
     const note = await toolNote(core, row, `tool.finish.${routeKey}`, routeKey === "seedvr" ? slots.seedvr ?? "SeedVR2" : routeKey === "model" ? upscaleModel : "RTX VSR",
       `route=${routeKey};by=${opts.by ?? 2};frames=${opts.seedvrFrames ?? 0}`, Math.round(source.width * by) * Math.round(source.height * by) * Math.max(1, outFrames));
     const output = await followed(core, comfy, run, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);

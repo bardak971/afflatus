@@ -229,12 +229,15 @@ export function CommandBar() {
     : true;
   /** A command that needs no figures, as a row ready to run (its clip and counts said), when it applies. */
   const liveRow = (id: CommandId): Item[] => (applies(id) ? [commandRow({ cmd: id } as Command)] : []);
-  // the commands that depend on the moment are offered with what they act on, and only when they apply
+  // the commands that depend on the moment are offered with what they act on, and only when they apply; one that needs no
+  // figures is ready as it stands (Enter on "Pause the queue" pauses it), one that does completes the bar
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const templates = useMemo(() => templateItems().flatMap((t) => {
     const id = t.key.slice(4) as CommandId;
-    return LIVE.includes(id) ? liveRow(id).map((r) => ({ ...r, p: t.p })) : [t];
-  }), [selectedClip, queueNow]);
+    if (LIVE.includes(id)) return liveRow(id).map((r) => ({ ...r, p: t.p }));
+    const ready = t.complete ? null : parseCommand(COMMANDS.find((c) => c.id === id)?.typed ?? "");
+    return [ready ? { ...commandRow(ready), p: t.p } : t];
+  }), [selectedClip, queueNow, aim]);
 
   // the render estimate of a render command, learned from this machine's renders (none said when nothing is learned)
   const parsed = mode === "command" ? parseCommand(text) : null;

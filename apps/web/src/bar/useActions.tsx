@@ -21,6 +21,7 @@ import { atTop, moved } from "../screens/queue/order";
 import { kitHref } from "../screens/kit/link";
 import { settingHref } from "../screens/settings/settingsIndex";
 import { useQueueOf } from "../screens/studio/queueOf";
+import { copyText } from "../secureContext";
 import { useBanners, useHandover, useOpenDraft, useStudio } from "../store";
 import { useTileMenu } from "../TileMenu";
 import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, type TimelineRequest } from "./bridge";
@@ -409,7 +410,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
       }
       case "calc": {
         const c = it.card!;
-        return [{ label: `Copy ${c.copy}`, icon: <Copy size={14} />, stay: true, run: () => navigator.clipboard?.writeText(c.copy).then(() => onCopied(c.copy), () => onCopied("")) }];
+        return [{ label: `Copy ${c.copy}`, icon: <Copy size={14} />, stay: true, run: () => copyText(c.copy).then(() => onCopied(c.copy), () => onCopied("")) }];
       }
       case "history": {
         const h = it.history!;
@@ -426,7 +427,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
           },
           ...(h.assetId ? [{ label: "View its render", icon: <Eye size={14} />, run: () => view(h.assetId!).catch(failed("Could not open it")) }] : []),
           ...(h.draftId ? [{ label: "Open its draft", icon: <PenLine size={14} />, run: () => openDraft(h.draftId!) }] : []),
-          { label: "Copy the prompt", icon: <Copy size={14} />, stay: true, run: () => navigator.clipboard?.writeText(h.prompt).then(() => onCopied("the prompt"), () => onCopied("")) },
+          { label: "Copy the prompt", icon: <Copy size={14} />, stay: true, run: () => copyText(h.prompt).then(() => onCopied("the prompt"), () => onCopied("")) },
         ];
       }
       case "person": {
