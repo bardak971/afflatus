@@ -395,6 +395,12 @@ export const PLACES: KeyPlace[] = [
         ],
       },
       {
+        name: "Pinned projects",
+        rows: [
+          { keys: "Alt+↑ Alt+↓", does: "Move a pin up / down", note: "a rail pin focused" },
+        ],
+      },
+      {
         name: "Rows",
         rows: [
           { keys: "F2", does: "Rename the row" },

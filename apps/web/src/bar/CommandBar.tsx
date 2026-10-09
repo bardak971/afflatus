@@ -10,7 +10,7 @@ import { useAsset, useEntities, useFamilies, useRecipes, useSettings } from "../
 import { groupingSaves } from "../screens/queue/bulk";
 import { stepRateSaid, useStepRate } from "../screens/queue/stepRate";
 import { useQueueOf } from "../screens/studio/queueOf";
-import { aboutMs, timeLeft } from "../format";
+import { aboutMs, timeLeft, when } from "../format";
 import { useProject } from "../project";
 import { useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
@@ -392,7 +392,7 @@ export function CommandBar() {
         return [{ group: "Queue", rows: withRanges(found, q) }, { group: "Commands", rows: withRanges(bulkFound, q) }].filter((s) => s.rows.length);
       }
       case "history": {
-        const rows = (history.data?.items ?? []).map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${new Date(h.createdAt).toLocaleDateString("en-GB")}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
+        const rows = (history.data?.items ?? []).map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${when(h.createdAt)}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
         return [{ group: "Prompt history", rows: withRanges(rows, q) }].filter((s) => s.rows.length);
       }
       case "keys": {

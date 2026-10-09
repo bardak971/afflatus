@@ -211,12 +211,13 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
                   {s.planned ? (c.failed ? "The render failed" : s.width > 100 ? "Not rendered yet" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
                 </span>
               )}
-              {/* the tags shrink to an ellipsis ("St…"), never cut at their start ("ill"); the length beside them does not shrink */}
-              <span className="flex min-w-0 items-center justify-end gap-1">
-                {c.kind === "still" && s.width > 100 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Still</span>}
-                {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Imported</span>}
-                {misfit && s.width > 120 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-warn-ink">other aspect ratio</span>}
-                {c.takes.length > 1 && s.width > 110 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
+              {/* one row high: a tag that does not fit wraps out of sight whole ("St…" and "other…" said nothing), the warning
+                  first so it is the one kept; the length beside them never shrinks */}
+              <span className="flex h-[18px] min-w-0 flex-wrap items-center justify-end gap-1 overflow-hidden">
+                {misfit && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-warn-ink" data-tip="Not the timeline's aspect ratio: it is fitted into the frame">other ratio</span>}
+                {c.kind === "still" && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">Still</span>}
+                {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">Imported</span>}
+                {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
               </span>
             </>
           )}

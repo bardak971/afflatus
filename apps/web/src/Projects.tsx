@@ -67,16 +67,23 @@ function Pins({ current }: { current: string }) {
         const tone = id === "none" ? "var(--color-ink-2)" : projectTone(id);
         const name = nameOf(id);
         return (
+          // a list item holding a real button: read as "button, 1 of 2" rather than a list item that happens to click
+          <div key={id} role="listitem">
           <button
-            key={id}
             type="button"
-            role="listitem"
             draggable
             aria-current={on ? "true" : undefined}
             aria-label={`${name} (pinned)`}
             data-tip-head={name}
-            data-tip={on ? "Working in it. Drag to reorder the pins." : "Click to work in it. Drag to reorder the pins."}
+            data-tip={on ? "Working in it. Drag, or Alt + ↑ ↓, to reorder the pins." : "Click to work in it. Drag, or Alt + ↑ ↓, to reorder the pins."}
             onClick={() => set(id)}
+            // the keyboard's way to reorder, as form sections and a person's pictures: the pin keeps the focus as it moves
+            onKeyDown={(e) => {
+              if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+              e.preventDefault();
+              if (e.key === "ArrowUp" && i > 0) pins.move(id, i - 1);
+              if (e.key === "ArrowDown" && i < pins.ids.length - 1) pins.move(id, i + 2);
+            }}
             onDragStart={(e) => {
               dragged.current = id;
               e.dataTransfer.effectAllowed = "move";
@@ -102,6 +109,7 @@ function Pins({ current }: { current: string }) {
           >
             <Initial name={name} inbox={id === "none"} size={14} />
           </button>
+          </div>
         );
       })}
     </div>

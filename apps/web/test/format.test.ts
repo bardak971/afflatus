@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus } from "../src/api";
-import { about, aboutMs, brief, clock, elapsed, fileLabel, left, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, size, seconds, sourceOf, spell, took } from "../src/format";
+import { about, aboutMs, brief, clock, dayOf, elapsed, fileLabel, left, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, size, sourceOf, spell, took, when } from "../src/format";
 
 describe("minutes and seconds", () => {
   it("rounds a length to the second", () => {
@@ -118,5 +118,20 @@ describe("the clip tooltip's times", () => {
     expect(spell(130_000)).toBe("2 min 10 s");
     expect(spell(120_000)).toBe("2 min");
     expect(spell(3_900_000)).toBe("1 h 05 min");
+  });
+});
+
+describe("when something was made", () => {
+  const now = new Date(2026, 9, 9, 18, 0).getTime();
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+  it("says minutes, hours, then days within the week", () => {
+    expect(when(ago(30_000), now)).toBe("just now");
+    expect(when(ago(12 * 60_000), now)).toBe("12 min ago");
+    expect(when(ago(4 * 3_600_000), now)).toBe("4 h ago");
+    expect(when(ago(3 * 86_400_000), now)).toBe("3 d ago");
+  });
+  it("then the day in words, never 08/10/2026", () => {
+    expect(when(new Date(2026, 9, 1, 12).toISOString(), now)).toBe("1 Oct");
+    expect(dayOf(new Date(2025, 11, 24, 12).toISOString(), now)).toBe("24 Dec 2025");
   });
 });

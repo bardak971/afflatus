@@ -104,12 +104,23 @@ export const fileLabel = (file: string) => (file.split(/[\\/]/).pop() ?? file).r
 /** A recipe under its model's name, without saying the name twice when the title already starts with it. */
 export const recipeLabel = (family: string | undefined, title: string) => (!family || title.toLowerCase().startsWith(family.toLowerCase()) ? title : `${family} · ${title}`);
 
-export function when(iso: string): string {
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A day as words: "3 Oct", with the year when it is not this one. Never "03/10": which is the day and which the month is not the same everywhere. */
+export function dayOf(iso: string, now = Date.now()): string {
+  const d = new Date(iso);
+  const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return d.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${d.getFullYear()}`;
+}
+
+/** How long ago, short: "just now", "12 min ago", "4 h ago", "3 d ago" within the week, then the day ("3 Oct"). */
+export function when(iso: string, now = Date.now()): string {
+  const s = Math.max(0, (now - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return new Date(iso).toLocaleDateString("en-GB");
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)} d ago`;
+  return dayOf(iso, now);
 }
 
 /** The graph checker's words, said plainly: `49:43 KSampler: "beta57" is not a choice of "scheduler"`. */

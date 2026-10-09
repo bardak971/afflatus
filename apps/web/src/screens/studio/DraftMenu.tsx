@@ -8,19 +8,8 @@ import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
 import { cx, TwoStep } from "../../ui";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/**
- * When a draft was last changed (or started), short: "4 h ago" today, "3 d ago" within the week, then the day ("3 Oct"),
- * with the year when it is not this one. Never "03/10": which is the day and which the month is not the same everywhere.
- */
-export function changed(iso: string, now = Date.now()): string {
-  const d = new Date(iso);
-  const ago = now - d.getTime();
-  if (ago < 86_400_000) return when(iso);
-  if (ago < 7 * 86_400_000) return `${Math.floor(ago / 86_400_000)} d ago`;
-  const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
-  return d.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${d.getFullYear()}`;
-}
+/** When a draft was last changed (or started): the app's one way of saying when (format.ts `when`). */
+export const changed = (iso: string, now = Date.now()): string => when(iso, now);
 
 const OUTPUT_WORD = { image: ["picture", "pictures"], video: ["take", "takes"], audio: ["sound", "sounds"] } as const;
 

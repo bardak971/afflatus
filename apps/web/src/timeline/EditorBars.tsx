@@ -79,10 +79,10 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         </span>
       ) : null}
       {/* icons, their keys in the tip: as words they stood level with Finish and Export, which they are not */}
-      <Button className="w-10 px-0" aria-label="Undo" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl+Z" onClick={undo.run}>
+      <Button className="w-10 shrink-0 px-0!" aria-label="Undo" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl+Z" onClick={undo.run}>
         <Undo2 size={16} />
       </Button>
-      <Button className="-ml-1 w-10 px-0" aria-label="Redo" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl+Shift+Z | Ctrl+Y" onClick={redo.run}>
+      <Button className="-ml-1 w-10 shrink-0 px-0!" aria-label="Redo" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl+Shift+Z | Ctrl+Y" onClick={redo.run}>
         <Redo2 size={16} />
       </Button>
       {missing.length > 0 && (

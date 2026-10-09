@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search } from "lucide-react";
 import { api, type UpdateRow } from "../../api";
 import { useModelUpdates, useSettings } from "../../data";
-import { fileLabel } from "../../format";
+import { dayOf, fileLabel } from "../../format";
 import { Dialog, DialogHead, DIALOG } from "../../Dialog";
 import { Button, cx, ErrorNote, Segmented, Toggle } from "../../ui";
 import { Block, Card, Row } from "./Rows";
@@ -43,7 +43,7 @@ export function UpdatesCard() {
   const shown = newer.filter((u) => (kind === "all" || u.folder === kind) && (!needle || `${u.modelName} ${u.file} ${u.versionName} ${u.newer!.name}`.toLowerCase().includes(needle)));
   // grouped by what they are: checkpoints, diffusion models, LoRAs
   const groups = KINDS.map((k) => ({ ...k, items: shown.filter((u) => u.folder === k.id) })).filter((g) => g.items.length);
-  const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB") : "");
+  const day = (iso: string | null) => (iso ? dayOf(iso) : "");
   return (
     <Card setting="models.updates" title="Newer versions on Civitai" status={on && newer.length > 0 ? <span className="font-mono text-xs text-accent">{newer.length} newer</span> : undefined}>
       {!on ? (
