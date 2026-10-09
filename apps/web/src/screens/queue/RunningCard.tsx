@@ -51,7 +51,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
       {large && seen && (
         <div className="flex flex-col gap-2">
           {/* a clip plays with its sound */}
-          <div data-stage className="flex h-[260px] items-center justify-center overflow-hidden rounded-lg bg-raised">
+          <div data-stage className="flex h-[260px] items-center justify-center overflow-hidden rounded-lg bg-stage">
             <LivePreview job={running} sound className="h-full w-auto max-w-full object-contain" />
           </div>
           <StageStrip job={running} />

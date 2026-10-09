@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useQueue } from "./data";
 
 const NAME = "Afflatus";
-const COLORS = { ground: "#0f1114", track: "#2a2e36", accent: "#f5c451", good: "#5ad6bd", warn: "#ff8a5c", ink: "#ecedf0" };
+/** The theme's colours, read off the page as the icon is drawn: the tab's icon is in the theme that is up. */
+function colors() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name: string) => css.getPropertyValue(`--color-${name}`).trim();
+  return { ground: token("ground"), track: token("line"), accent: token("accent"), good: token("good"), warn: token("warn"), ink: token("ink") };
+}
 
 /** The tab's icon: the app's letter, and under it a bar that fills as the render goes, or a mark for what it ended as. */
 function icon(state: { progress: number | null; mark: "done" | "failed" | "waiting" | null }): string | null {
@@ -11,12 +16,13 @@ function icon(state: { progress: number | null; mark: "done" | "failed" | "waiti
   canvas.width = canvas.height = size;
   const c = canvas.getContext("2d");
   if (!c) return null;
-  c.fillStyle = COLORS.ground;
+  const tone = colors();
+  c.fillStyle = tone.ground;
   c.beginPath();
   c.roundRect(0, 0, size, size, 14);
   c.fill();
   const busy = state.progress !== null;
-  c.fillStyle = state.mark === "done" ? COLORS.good : state.mark === "failed" ? COLORS.warn : COLORS.accent;
+  c.fillStyle = state.mark === "done" ? tone.good : state.mark === "failed" ? tone.warn : tone.accent;
   c.font = `bold ${busy ? 38 : 46}px system-ui, sans-serif`;
   c.textAlign = "center";
   c.textBaseline = "middle";
@@ -24,16 +30,16 @@ function icon(state: { progress: number | null; mark: "done" | "failed" | "waiti
   if (busy) {
     // a bar across the bottom: it is what stays readable at the size a tab draws it
     const [x, y, w, h] = [6, 44, size - 12, 14];
-    c.fillStyle = COLORS.track;
+    c.fillStyle = tone.track;
     c.beginPath();
     c.roundRect(x, y, w, h, 7);
     c.fill();
-    c.fillStyle = COLORS.accent;
+    c.fillStyle = tone.accent;
     c.beginPath();
     c.roundRect(x, y, Math.max(h, w * Math.min(1, Math.max(0, state.progress!))), h, 7);
     c.fill();
   } else if (state.mark === "waiting") {
-    c.fillStyle = COLORS.ink;
+    c.fillStyle = tone.ink;
     c.beginPath();
     c.arc(size - 13, 13, 8, 0, Math.PI * 2);
     c.fill();

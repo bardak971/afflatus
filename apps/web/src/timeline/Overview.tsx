@@ -164,14 +164,14 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
           {setAside > 0 && <ShowAgain n={setAside} onClick={() => dismissed.set(t.id, [])} />}
         </section>
       ) : (
-        <section className="flex flex-col gap-1 rounded-xl border border-line px-3 py-2.5">
+        <section className="flex flex-col gap-1 rounded-xl border border-line px-3 py-2.5 shadow-card">
           <PartHead>Needs attention</PartHead>
           <span className="text-sm text-good">{setAside ? "Nothing else: the rest is kept as it is." : "Every clip is rendered and every join holds."}</span>
           {setAside > 0 && <ShowAgain n={setAside} onClick={() => dismissed.set(t.id, [])} />}
         </section>
       )}
 
-      <section className="flex flex-col rounded-xl border border-line-strong">
+      <section className="flex flex-col rounded-xl border border-line-strong shadow-card">
         <div className="flex flex-col gap-0.5 border-b border-line px-3 py-2.5">
           <PartHead>Timeline</PartHead>
           <span className="truncate font-bold text-ink">{[shapeWords, cast || "nobody cast", `lands in ${landsIn}`].filter(Boolean).join(" · ")}</span>
@@ -218,7 +218,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
         </div>
       </section>
 
-      <section className="flex flex-col rounded-xl border border-line-strong">
+      <section className="flex flex-col rounded-xl border border-line-strong shadow-card">
         <div className={cx("flex items-center gap-2.5 px-3 py-2.5", t.music && "border-b border-line")}>
           <span className="flex min-w-0 grow flex-col gap-0.5">
             <PartHead>Music</PartHead>
@@ -229,7 +229,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
         {t.music && <AudioPlayer bare asset={t.music.asset.id} className="px-3 py-2.5" />}
       </section>
 
-      <section className="flex flex-col gap-2 rounded-xl border border-line bg-raised px-3 py-2.5">
+      <section className="flex flex-col gap-2 rounded-xl border border-line bg-raised px-3 py-2.5 shadow-card">
         <PartHead>Joins and renders</PartHead>
         {(figured.length > 0 || renderMs > 0) && (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">

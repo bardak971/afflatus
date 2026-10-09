@@ -65,7 +65,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   }
   return (
     <div className="flex h-full min-h-0 gap-4">
-      <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-ground p-[var(--stage-pad)]">
+      <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-stage p-[var(--stage-pad)]">
         {live && running && (
           <div className="flex min-h-0 grow flex-col items-center justify-center gap-3 pb-4">
             <LivePreview job={running} sound className="h-[calc(100%-70px)] min-h-0 w-auto max-w-full rounded-lg object-contain" />

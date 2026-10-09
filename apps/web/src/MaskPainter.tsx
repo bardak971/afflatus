@@ -140,7 +140,7 @@ export function MaskPainter({ picture, mask, onDone, onClose }: { picture: strin
   });
 
   return (
-    <div data-stage role="dialog" aria-modal="true" aria-label="Paint the mask" className="fixed inset-0 z-50 flex flex-col bg-ground/95">
+    <div data-stage role="dialog" aria-modal="true" aria-label="Paint the mask" className="fixed inset-0 z-50 flex flex-col bg-stage/95">
       <PainterToolbar
         tool={tool} onTool={setTool} brush={brush} onBrush={setBrush}
         canUndo={paint.steps > 0} onUndo={paint.undo} canClear={paint.painted} onClear={paint.clear}

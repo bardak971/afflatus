@@ -50,7 +50,7 @@ export function Part({ id, title, help, summary, warn, needs, head, children, st
   const set = useParts((s) => s.set);
   const open = kept || Boolean(needs);
   return (
-    <section data-part={id} className={cx("scroll-mt-12 rounded-xl border transition-colors", open ? "border-line-strong bg-panel" : "border-line bg-raised hover:border-line-strong")}>
+    <section data-part={id} className={cx("scroll-mt-12 rounded-xl border shadow-card transition-colors", open ? "border-line-strong bg-panel" : "border-line bg-raised hover:border-line-strong")}>
       <div className={cx("flex items-center", Boolean(head) && "pr-3")}>
         <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="flex min-w-0 grow items-center gap-2.5 px-3 py-2.5 text-left">
           <span className="flex min-w-0 grow flex-col gap-0.5">

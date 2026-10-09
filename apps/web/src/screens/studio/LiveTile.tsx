@@ -15,7 +15,7 @@ export function LiveTile({ job, onClick, on, title, fill }: {
 }) {
   const stop = useStop();
   return (
-    <div data-stage className={cx("relative overflow-hidden rounded-xl border bg-panel", fill ? "h-full" : "aspect-[3/4]", on ? "border-2 border-accent" : "border-line-strong")}>
+    <div data-stage className={cx("relative overflow-hidden rounded-xl border bg-stage", fill ? "h-full" : "aspect-[3/4]", on ? "border-2 border-accent" : "border-line-strong")}>
       <button type="button" onClick={onClick} disabled={!onClick} aria-label={title ?? "Running job"} data-tip={title} className="absolute inset-0 flex flex-col items-center justify-center gap-2">
         <LivePreview job={job} className="absolute inset-0 h-full w-full object-cover opacity-80" />
         <div className="relative flex w-full flex-col items-center gap-1.5 bg-ground/60 px-2 py-2 text-center">

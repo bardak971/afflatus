@@ -308,7 +308,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
             </div>
           ))}
           {/* the zoomed part, shown on the whole */}
-          {kind === "whole" && zoom && <div className="pointer-events-none absolute inset-y-0 border-x-2 border-sky-400/80 bg-sky-400/30" style={{ left: pct(zoom.startMs), width: `${((zoom.endMs - zoom.startMs) / span) * 100}%` }} />}
+          {kind === "whole" && zoom && <div className="pointer-events-none absolute inset-y-0 border-x-2 border-picture/80 bg-picture/30" style={{ left: pct(zoom.startMs), width: `${((zoom.endMs - zoom.startMs) / span) * 100}%` }} />}
         </div>
         {inWin(range.startMs) && <div role="slider" aria-label="In" aria-valuenow={Math.round(range.startMs)} tabIndex={0} onPointerDown={grab("in")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.startMs) }} />}
         {inWin(range.endMs) && <div role="slider" aria-label="Out" aria-valuenow={Math.round(range.endMs)} tabIndex={0} onPointerDown={grab("out")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.endMs) }} />}

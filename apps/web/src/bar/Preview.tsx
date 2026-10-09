@@ -57,7 +57,7 @@ function RenderPreview({ e, detail, recipes }: { e: Extract<CommandEntry, { kind
   const ratio = e.width && e.height ? Math.max(0.5, Math.min(2.2, e.width / e.height)) : 16 / 9;
   return (
     <>
-      <div data-stage className="relative flex h-[230px] items-center justify-center overflow-hidden rounded-xl bg-ground">
+      <div data-stage className="relative flex h-[230px] items-center justify-center overflow-hidden rounded-xl bg-stage">
         {e.assetKind === "audio" ? (
           <span className="flex flex-col items-center gap-2 text-ink-2"><Music size={28} />Sound · {e.durationMs ? clock(e.durationMs) : ""}</span>
         ) : (
@@ -89,7 +89,7 @@ function TimelinePreview({ e }: { e: Extract<CommandEntry, { kind: "timeline" }>
               className="relative min-w-6 basis-0 overflow-hidden rounded-lg bg-raised"
             >
               {asset && <img src={thumbUrl(asset.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
-              <span className="absolute bottom-1 left-1.5 rounded bg-shade/50 px-1 font-mono text-[10px] text-white">c{i + 1}</span>
+              <span className="absolute bottom-1 left-1.5 rounded bg-stage/70 px-1 font-mono text-[10px] text-ink">c{i + 1}</span>
             </div>
           );
         })}
@@ -189,7 +189,7 @@ export function Preview({ item, detail, recipes, settingCtx, extra }: {
     const h = item.history;
     body = (
       <>
-        {h.assetId && <div data-stage className="flex h-40 items-center justify-center overflow-hidden rounded-xl bg-ground"><img src={thumbUrl(h.assetId)} alt="" className="h-full object-contain" /></div>}
+        {h.assetId && <div data-stage className="flex h-40 items-center justify-center overflow-hidden rounded-xl bg-stage"><img src={thumbUrl(h.assetId)} alt="" className="h-full object-contain" /></div>}
         <TextCard>{h.prompt}</TextCard>
         <Facts facts={[{ k: "model", v: recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe }, { k: "rendered", v: when(h.createdAt) }]} />
       </>
@@ -199,7 +199,7 @@ export function Preview({ item, detail, recipes, settingCtx, extra }: {
     const pic = p.def.pictures[0];
     body = (
       <>
-        {pic && <div data-stage className="flex h-48 items-center justify-center overflow-hidden rounded-xl bg-ground"><img src={thumbUrl(pic)} alt="" className="h-full object-contain" /></div>}
+        {pic && <div data-stage className="flex h-48 items-center justify-center overflow-hidden rounded-xl bg-stage"><img src={thumbUrl(pic)} alt="" className="h-full object-contain" /></div>}
         <Title title={p.name} sub="A person of the Prompt kit" />
         <Facts facts={[{ k: "pictures", v: String(p.def.pictures.length) }, { k: "voice", v: p.def.voice ? "yes" : "none" }]} />
       </>

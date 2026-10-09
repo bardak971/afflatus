@@ -50,7 +50,7 @@ export function PinPeek({ over, slot, recipe, bounds }: {
     />
   );
   const picture = (
-    <span className="relative block shrink-0 overflow-hidden rounded-[10px] bg-black bg-contain bg-center bg-no-repeat" style={{ width: pinned.w, height: pinned.h, backgroundImage: `url(${thumbUrl(asset)})` }}>
+    <span className="relative block shrink-0 overflow-hidden rounded-[10px] bg-stage bg-contain bg-center bg-no-repeat" style={{ width: pinned.w, height: pinned.h, backgroundImage: `url(${thumbUrl(asset)})` }}>
       {whole}
     </span>
   );

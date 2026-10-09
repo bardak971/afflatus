@@ -175,7 +175,7 @@ export function Viewer({ asset: first, items, onOpen, onClose, inline, onDetails
   }
 
   return (
-    <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-ground/95">
+    <div data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-stage/95">
       {menuElement}
       {timelineMenu.element}
       {compare ?? media(true)}

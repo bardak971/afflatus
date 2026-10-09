@@ -1,4 +1,4 @@
-import { catppuccin, rosePine } from "./palettes";
+import { catppuccin, kanagawa, rosePine, tokyoNight } from "./palettes";
 
 /**
  * The themes. Every colour of the app is one of a few named tokens (styles.css): a theme is a value for
@@ -11,21 +11,27 @@ export const TOKENS = [
   "ink", "ink-2", "ink-3", "ink-strong",
   "accent", "accent-ink", "accent-wash",
   "good", "warn", "warn-wash", "warn-ink", "warn-on",
-  "picture", "shade", "knob",
+  "picture", "shade", "knob", "stage",
 ] as const;
+
+type Warning = Pick<Tokens, "warn" | "warn-wash" | "warn-ink">;
 
 export interface Theme {
   id: string;
   name: string;
-  /** The themes that share accents: "Catppuccin", "Rosé Pine", "afflatus". */
-  family: "afflatus" | "catppuccin" | "rosepine";
+  /** The themes that share accents: "Catppuccin", "Rosé Pine", "afflatus"... */
+  family: "afflatus" | "studio" | "catppuccin" | "rosepine" | "tokyonight" | "kanagawa";
   light: boolean;
   /** The accents it offers, by name, most at home first. */
   accents: Record<string, string>;
-  /** Of a light theme: the dark theme its pictures are shown on. */
+  /** Of a light theme: the dark theme whose tokens go on everything marked `data-stage`. */
   stage?: string;
-  /** Everything but the accent. */
+  /** Everything but the accent. Its `stage` is what pictures and videos are shown on: near black in every theme. */
   base: Omit<Tokens, "accent" | "accent-ink" | "accent-wash" | "knob">;
+  /** The family's reds and oranges a warning can be in, its own first: another is taken when the accent is too like it. */
+  alerts: string[];
+  /** The warning's tokens in one of `alerts`. */
+  warning(colour: string): Warning;
   /** What is written on a fill of the accent. */
   onAccent: string;
   /** How much of the accent goes into the wash behind something that is picked. */
@@ -40,19 +46,78 @@ export function mix(from: string, to: string, t: number): string {
   return `#${a.map((v, i) => Math.round(v + (b[i]! - v) * t).toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** A colour's hue, 0 to 360 degrees. */
+export function hue(c: string): number {
+  const [r, g, b] = hex(c).map((v) => v / 255) as [number, number, number];
+  const hi = Math.max(r, g, b);
+  const d = hi - Math.min(r, g, b);
+  if (!d) return 0;
+  const h = hi === r ? ((g - b) / d) % 6 : hi === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+/** How far apart two colours' hues are, 0 to 180 degrees. */
+export function hueGap(a: string, b: string): number {
+  const d = Math.abs(hue(a) - hue(b));
+  return d > 180 ? 360 - d : d;
+}
+
+/** A warning in a colour: on a light theme a pale tint behind it and a darker ink, on a dark one a deeper wash and a paler ink. */
+function warning(warn: string, panel: string, text: string, light: boolean): Warning {
+  return { warn, "warn-wash": mix(panel, warn, light ? 0.09 : 0.16), "warn-ink": light ? mix(warn, "#000000", 0.28) : mix(warn, text, 0.3) };
+}
+/** What a dark theme shows pictures on: its page taken most of the way to black, a neutral that sways no colour. */
+const darkStage = (ground: string) => mix(ground, "#000000", 0.45);
+/** The cards of a light theme: lighter than the page they stand on, toward white, as paper on a desk. */
+const paper = (c: string, t: number) => mix(c, "#ffffff", t);
+
 // ---------------------------------------------------------------- Afflatus (the look the app was drawn in)
 
+const afflatusWarn: Warning = { warn: "#ff8a5c", "warn-wash": "#2a1a12", "warn-ink": "#ffb79c" };
 const afflatus: Theme = {
   id: "afflatus", name: "Afflatus", family: "afflatus", light: false,
   accents: { amber: "#f5c451", coral: "#ff9a73", rose: "#f38ba8", lilac: "#c4a7e7", sky: "#86aeff", mint: "#5ad6bd" },
   base: {
     ground: "#0f1114", panel: "#16191e", raised: "#1d2127", hover: "#262b33", line: "#2a3038", "line-strong": "#3a424e",
     ink: "#e9ecf1", "ink-2": "#a3acb9", "ink-3": "#7d8794", "ink-strong": "#ffffff",
-    good: "#5ad6bd", warn: "#ff8a5c", "warn-wash": "#2a1a12", "warn-ink": "#ffb79c", "warn-on": "#2a0e00",
-    picture: "#86aeff", shade: "#000000",
+    good: "#5ad6bd", ...afflatusWarn, "warn-on": "#2a0e00",
+    // the black the timeline's player was drawn on
+    picture: "#86aeff", shade: "#000000", stage: "#08090b",
   },
+  alerts: ["#ff8a5c", "#ff6b7a"],
+  warning: (c) => (c === afflatusWarn.warn ? afflatusWarn : warning(c, "#16191e", "#e9ecf1", false)),
   onAccent: "#1b1503",
   wash: 0.07,
+};
+
+// ---------------------------------------------------------------- Studio (neutral greys: nothing on the page tints a picture)
+
+const studio: Theme = {
+  id: "studio", name: "Studio Dark", family: "studio", light: false,
+  accents: { amber: "#d9b56b", coral: "#e8916b", rose: "#e08aa5", lilac: "#b9a2e0", sky: "#7fb0e8", mint: "#6fc9b0" },
+  base: {
+    ground: "#141414", panel: "#1b1b1b", raised: "#232323", hover: "#2a2a2a", line: "#2b2b2b", "line-strong": "#3a3a3a",
+    ink: "#e8e8e8", "ink-2": "#a9a9a9", "ink-3": "#7c7c7c", "ink-strong": "#ffffff",
+    good: "#6fc9b0", ...warning("#f0875e", "#1b1b1b", "#e8e8e8", false), "warn-on": "#2a0e00",
+    picture: "#7fb0e8", shade: "#000000", stage: darkStage("#141414"),
+  },
+  alerts: ["#f0875e", "#f06a72"],
+  warning: (c) => warning(c, "#1b1b1b", "#e8e8e8", false),
+  onAccent: "#151515",
+  wash: 0.1,
+};
+const studioLight: Theme = {
+  id: "studio-light", name: "Studio Light", family: "studio", light: true, stage: studio.id,
+  accents: { amber: "#a8792a", coral: "#c4683f", rose: "#b5507a", lilac: "#7a5fb5", sky: "#2f72b3", mint: "#23836c" },
+  base: {
+    ground: "#e4e4e4", panel: "#f7f7f7", raised: "#ffffff", hover: "#ececec", line: "#d8d8d8", "line-strong": "#c2c2c2",
+    ink: "#1d1d1d", "ink-2": "#4f4f4f", "ink-3": "#6a6a6a", "ink-strong": "#000000",
+    good: "#23836c", ...warning("#c4532a", "#f7f7f7", "#1d1d1d", true), "warn-on": "#ffffff",
+    picture: "#2f72b3", shade: "#8a8a8a", stage: studio.base.panel,
+  },
+  alerts: ["#c4532a", "#c8373f"],
+  warning: (c) => warning(c, "#f7f7f7", "#1d1d1d", true),
+  onAccent: "#ffffff",
+  wash: 0.1,
 };
 
 // ---------------------------------------------------------------- Catppuccin
@@ -61,55 +126,165 @@ type Flavor = (typeof catppuccin)[keyof typeof catppuccin];
 const ACCENTS = ["yellow", "peach", "maroon", "red", "pink", "mauve", "lavender", "blue", "sapphire", "sky", "teal", "green", "flamingo", "rosewater"] as const;
 
 /**
- * A flavour as a theme. The page is on "mantle" and what stands on it (the side panels, the cards) on
- * "base", one step lighter in the dark flavours and in Latte alike; fields are a step further.
+ * A flavour as a theme. Dark: the page is on "mantle" and what stands on it (the side panels, the cards)
+ * on "base", one step lighter; fields are a step further. Light (Latte, given the dark theme its pictures
+ * are shown on): the page on "mantle", the cards near white above it and the fields on "base".
  */
-function ofCatppuccin(id: string, name: string, c: Flavor, light: boolean, stage?: string): Theme {
+function ofCatppuccin(id: string, name: string, c: Flavor, stage?: Theme): Theme {
+  const light = Boolean(stage);
+  const panel = light ? paper(c.base, 0.75) : c.base;
+  const text = light ? mix(c.text, "#000000", 0.2) : c.text;
   return {
-    id, name, family: "catppuccin", light, stage,
+    id, name, family: "catppuccin", light, stage: stage?.id,
     accents: Object.fromEntries(ACCENTS.map((a) => [a, c[a]])),
-    base: {
-      ground: light ? c.crust : c.mantle, panel: light ? c.mantle : c.base, raised: light ? c.base : mix(c.base, c.surface0, 0.55), hover: light ? c.surface0 : c.surface0,
-      line: light ? c.surface0 : mix(c.surface0, c.surface1, 0.35), "line-strong": light ? c.surface1 : c.surface1,
-      ink: c.text, "ink-2": c.subtext0, "ink-3": light ? c.overlay1 : c.overlay1, "ink-strong": light ? mix(c.text, "#000000", 0.25) : mix(c.text, "#ffffff", 0.6),
-      good: c.green, warn: c.peach, "warn-wash": mix(light ? c.mantle : c.base, c.peach, 0.16), "warn-ink": mix(c.peach, c.text, light ? 0.45 : 0.3), "warn-on": light ? c.base : c.crust,
-      picture: c.blue, shade: light ? c.overlay2 : "#000000",
-    },
-    onAccent: light ? c.base : c.crust,
-    wash: light ? 0.16 : 0.12,
+    base: stage
+      ? {
+          ground: c.mantle, panel, raised: c.base, hover: mix(c.base, c.surface0, 0.6),
+          line: mix(c.surface0, c.base, 0.25), "line-strong": c.surface1,
+          ink: text, "ink-2": c.subtext1, "ink-3": c.subtext0, "ink-strong": mix(c.text, "#000000", 0.45),
+          good: c.green, ...warning(c.peach, panel, text, true), "warn-on": c.base,
+          picture: c.blue, shade: c.overlay2, stage: stage.base.panel,
+        }
+      : {
+          ground: c.mantle, panel, raised: mix(c.base, c.surface0, 0.55), hover: c.surface0,
+          line: mix(c.surface0, c.surface1, 0.35), "line-strong": c.surface1,
+          ink: text, "ink-2": c.subtext0, "ink-3": c.overlay1, "ink-strong": mix(c.text, "#ffffff", 0.6),
+          good: c.green, ...warning(c.peach, panel, text, false), "warn-on": c.crust,
+          picture: c.blue, shade: "#000000", stage: darkStage(c.mantle),
+        },
+    alerts: [c.peach, c.red, c.maroon],
+    warning: (w) => warning(w, panel, text, light),
+    onAccent: light ? "#ffffff" : c.crust,
+    wash: light ? 0.1 : 0.12,
   };
 }
 
 // ---------------------------------------------------------------- Rosé Pine
 
 type Variant = (typeof rosePine)[keyof typeof rosePine];
-function ofRosePine(id: string, name: string, c: Variant, light: boolean, stage?: string): Theme {
+function ofRosePine(id: string, name: string, c: Variant, stage?: Theme): Theme {
+  const light = Boolean(stage);
+  const panel = light ? paper(c.surface, 0.4) : c.surface;
+  const text = light ? mix(c.text, "#000000", 0.15) : c.text;
   return {
-    id, name, family: "rosepine", light, stage,
+    id, name, family: "rosepine", light, stage: stage?.id,
     accents: { gold: c.gold, rose: c.rose, love: c.love, iris: c.iris, foam: c.foam, pine: c.pine },
-    base: {
-      ground: light ? c.overlay : c.base, panel: light ? c.base : c.surface, raised: light ? c.surface : c.overlay, hover: mix(c.overlay, c.muted, light ? 0.18 : 0.28),
-      line: mix(c.overlay, c.muted, light ? 0.22 : 0.22), "line-strong": mix(c.overlay, c.muted, light ? 0.45 : 0.5),
-      ink: c.text, "ink-2": c.subtle, "ink-3": mix(c.muted, c.subtle, 0.5), "ink-strong": light ? mix(c.text, "#000000", 0.25) : "#ffffff",
-      good: light ? c.pine : c.foam, warn: c.love, "warn-wash": mix(light ? c.base : c.surface, c.love, 0.16), "warn-ink": mix(c.love, c.text, light ? 0.4 : 0.3), "warn-on": light ? c.surface : c.base,
-      picture: c.iris, shade: light ? c.muted : "#000000",
-    },
-    onAccent: light ? c.surface : c.base,
-    wash: light ? 0.18 : 0.12,
+    base: stage
+      ? {
+          ground: c.overlay, panel, raised: c.base, hover: mix(c.base, c.muted, 0.15),
+          line: mix(c.overlay, c.muted, 0.08), "line-strong": mix(c.overlay, c.muted, 0.25),
+          ink: text, "ink-2": mix(c.subtle, "#000000", 0.22), "ink-3": mix(c.subtle, "#000000", 0.1), "ink-strong": mix(c.text, "#000000", 0.4),
+          good: c.pine, ...warning(c.love, panel, text, true), "warn-on": c.surface,
+          picture: c.iris, shade: c.muted, stage: stage.base.panel,
+        }
+      : {
+          ground: c.base, panel, raised: c.overlay, hover: mix(c.overlay, c.muted, 0.28),
+          line: mix(c.overlay, c.muted, 0.22), "line-strong": mix(c.overlay, c.muted, 0.5),
+          ink: text, "ink-2": c.subtle, "ink-3": mix(c.muted, c.subtle, 0.5), "ink-strong": "#ffffff",
+          good: c.foam, ...warning(c.love, panel, text, false), "warn-on": c.base,
+          picture: c.iris, shade: "#000000", stage: darkStage(c.base),
+        },
+    // love is the warning; beside a rose accent, gold is the one that stands apart
+    alerts: [c.love, c.gold, c.rose],
+    warning: (w) => warning(w, panel, text, light),
+    onAccent: light ? "#ffffff" : c.base,
+    wash: light ? 0.1 : 0.12,
   };
 }
 
+// ---------------------------------------------------------------- Tokyo Night
+
+const tn = tokyoNight.night;
+const tokyoNightTheme: Theme = {
+  id: "tokyo-night", name: "Tokyo Night", family: "tokyonight", light: false,
+  accents: { blue: tn.blue, cyan: tn.cyan, magenta: tn.magenta, purple: tn.purple, green: tn.green, teal: tn.teal, orange: tn.orange, yellow: tn.yellow, red: tn.red },
+  base: {
+    ground: tn.bg_dark, panel: tn.bg, raised: mix(tn.bg, tn.bg_highlight, 0.6), hover: mix(tn.bg_highlight, tn.fg_gutter, 0.35),
+    line: tn.bg_highlight, "line-strong": tn.fg_gutter,
+    ink: tn.fg, "ink-2": tn.fg_dark, "ink-3": tn.dark5, "ink-strong": "#ffffff",
+    good: tn.green, ...warning(tn.orange, tn.bg, tn.fg, false), "warn-on": tn.bg_dark,
+    picture: tn.cyan, shade: "#000000", stage: darkStage(tn.bg_dark),
+  },
+  alerts: [tn.orange, tn.red],
+  warning: (w) => warning(w, tn.bg, tn.fg, false),
+  onAccent: tn.bg_dark,
+  wash: 0.12,
+};
+const td = tokyoNight.day;
+// the day palette writes its text in blue (fg): the page's inks are its quieter blue-grey, taken darker
+const tdPanel = paper(td.bg, 0.35);
+const tdInk = mix(td.fg_dark, "#000000", 0.45);
+const tokyoDayTheme: Theme = {
+  id: "tokyo-night-day", name: "Tokyo Night Day", family: "tokyonight", light: true, stage: tokyoNightTheme.id,
+  accents: { blue: td.blue, cyan: td.cyan, magenta: td.magenta, purple: td.purple, green: td.green, teal: td.teal, orange: td.orange, yellow: td.yellow, red: td.red },
+  base: {
+    ground: td.bg_dark, panel: tdPanel, raised: paper(td.bg, 0.65), hover: mix(td.bg, td.bg_highlight, 0.5),
+    line: td.bg_highlight, "line-strong": td.fg_gutter,
+    ink: tdInk, "ink-2": mix(td.fg_dark, "#000000", 0.25), "ink-3": mix(td.comment, "#000000", 0.28), "ink-strong": mix(td.fg_dark, "#000000", 0.7),
+    good: td.green, ...warning(td.orange, tdPanel, tdInk, true), "warn-on": "#ffffff",
+    picture: td.cyan, shade: td.comment, stage: tokyoNightTheme.base.panel,
+  },
+  alerts: [td.orange, td.red],
+  warning: (w) => warning(w, tdPanel, tdInk, true),
+  onAccent: "#ffffff",
+  wash: 0.1,
+};
+
+// ---------------------------------------------------------------- Kanagawa
+
+const kw = kanagawa.wave;
+const kanagawaWave: Theme = {
+  id: "kanagawa-wave", name: "Kanagawa Wave", family: "kanagawa", light: false,
+  accents: { yellow: kw.carpYellow, orange: kw.surimiOrange, red: kw.waveRed, pink: kw.sakuraPink, violet: kw.oniViolet, blue: kw.crystalBlue, aqua: kw.waveAqua2, green: kw.springGreen },
+  base: {
+    ground: kw.sumiInk0, panel: kw.sumiInk3, raised: kw.sumiInk4, hover: kw.sumiInk5,
+    line: mix(kw.sumiInk4, kw.sumiInk5, 0.35), "line-strong": mix(kw.sumiInk5, kw.sumiInk6, 0.35),
+    ink: kw.fujiWhite, "ink-2": kw.oldWhite, "ink-3": kw.fujiGray, "ink-strong": mix(kw.fujiWhite, "#ffffff", 0.6),
+    good: kw.springGreen, ...warning(kw.waveRed, kw.sumiInk3, kw.fujiWhite, false), "warn-on": kw.sumiInk0,
+    picture: kw.crystalBlue, shade: "#000000", stage: darkStage(kw.sumiInk0),
+  },
+  alerts: [kw.waveRed, kw.surimiOrange],
+  warning: (w) => warning(w, kw.sumiInk3, kw.fujiWhite, false),
+  onAccent: kw.sumiInk0,
+  wash: 0.12,
+};
+const kl = kanagawa.lotus;
+const klPanel = paper(kl.lotusWhite3, 0.4);
+const kanagawaLotus: Theme = {
+  id: "kanagawa-lotus", name: "Kanagawa Lotus", family: "kanagawa", light: true, stage: kanagawaWave.id,
+  accents: { yellow: kl.lotusYellow, orange: kl.lotusOrange, red: kl.lotusRed, pink: kl.lotusPink, violet: kl.lotusViolet4, blue: kl.lotusBlue4, aqua: kl.lotusAqua, green: kl.lotusGreen },
+  base: {
+    ground: kl.lotusWhite2, panel: klPanel, raised: paper(kl.lotusWhite3, 0.65), hover: mix(kl.lotusWhite3, kl.lotusWhite0, 0.5),
+    line: mix(kl.lotusWhite2, kl.lotusWhite0, 0.5), "line-strong": mix(kl.lotusWhite0, kl.lotusGray3, 0.3),
+    ink: kl.lotusInk2, "ink-2": kl.lotusInk1, "ink-3": kl.lotusGray3, "ink-strong": mix(kl.lotusInk2, "#000000", 0.4),
+    good: kl.lotusGreen, ...warning(kl.lotusRed, klPanel, kl.lotusInk2, true), "warn-on": "#ffffff",
+    picture: kl.lotusBlue4, shade: kl.lotusGray3, stage: kanagawaWave.base.panel,
+  },
+  alerts: [kl.lotusRed, kl.lotusOrange],
+  warning: (w) => warning(w, klPanel, kl.lotusInk2, true),
+  onAccent: "#ffffff",
+  wash: 0.1,
+};
+
+const mocha = ofCatppuccin("mocha", "Catppuccin Mocha", catppuccin.mocha);
+const rosePineMain = ofRosePine("rose-pine", "Rosé Pine", rosePine.main);
 export const THEMES: Theme[] = [
   afflatus,
-  ofCatppuccin("mocha", "Catppuccin Mocha", catppuccin.mocha, false),
-  ofCatppuccin("macchiato", "Catppuccin Macchiato", catppuccin.macchiato, false),
-  ofCatppuccin("frappe", "Catppuccin Frappé", catppuccin.frappe, false),
-  ofRosePine("rose-pine", "Rosé Pine", rosePine.main, false),
-  ofRosePine("rose-pine-moon", "Rosé Pine Moon", rosePine.moon, false),
-  ofCatppuccin("latte", "Catppuccin Latte", catppuccin.latte, true, "mocha"),
-  ofRosePine("rose-pine-dawn", "Rosé Pine Dawn", rosePine.dawn, true, "rose-pine"),
+  studio,
+  mocha,
+  ofCatppuccin("macchiato", "Catppuccin Macchiato", catppuccin.macchiato),
+  ofCatppuccin("frappe", "Catppuccin Frappé", catppuccin.frappe),
+  rosePineMain,
+  ofRosePine("rose-pine-moon", "Rosé Pine Moon", rosePine.moon),
+  tokyoNightTheme,
+  kanagawaWave,
+  studioLight,
+  ofCatppuccin("latte", "Catppuccin Latte", catppuccin.latte, mocha),
+  ofRosePine("rose-pine-dawn", "Rosé Pine Dawn", rosePine.dawn, rosePineMain),
+  tokyoDayTheme,
+  kanagawaLotus,
 ];
-export const FAMILIES: Record<Theme["family"], string> = { afflatus: "Afflatus", catppuccin: "Catppuccin", rosepine: "Rosé Pine" };
+export const FAMILIES: Record<Theme["family"], string> = { afflatus: "Afflatus", studio: "Studio", catppuccin: "Catppuccin", rosepine: "Rosé Pine", tokyonight: "Tokyo Night", kanagawa: "Kanagawa" };
 export const themeById = (id: string): Theme => THEMES.find((t) => t.id === id) ?? afflatus;
 
 /** How bright a colour is to the eye, 0 to 1. */
@@ -142,6 +317,19 @@ export function legible(colour: string, on: string[], light: boolean): string {
   return light ? "#000000" : "#ffffff";
 }
 
+/** Below this many degrees of hue apart, an accent and the warning read as one colour. */
+export const WARN_GAP = 35;
+/**
+ * The warning beside an accent: the theme's own, unless the accent is so near it in hue (a peach or gold
+ * accent beside an orange warning) that a warning would look picked; then the family's red or orange
+ * that stands furthest from the accent.
+ */
+export function warnFor(theme: Theme, accent: string): string {
+  const own = theme.alerts[0]!;
+  if (hueGap(accent, own) >= WARN_GAP) return own;
+  return theme.alerts.reduce((best, c) => (hueGap(accent, c) > hueGap(accent, best) ? c : best), own);
+}
+
 /** A theme's tokens with an accent of its family (its first one when the name is not one of its own). */
 export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   const name = accent && accent in theme.accents ? accent : Object.keys(theme.accents)[0]!;
@@ -154,6 +342,18 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   // (a dark accent in a dark theme, a pale one in a light theme)
   const other = theme.light ? theme.base.ink : theme.base["ink-strong"];
   const written = contrast(colour, other) > contrast(colour, theme.onAccent) * 1.25 ? other : theme.onAccent;
-  // the knob of a switch that is on: white as the app was drawn, else whatever is written on the accent
-  return { ...theme.base, "ink-2": legible(theme.base["ink-2"], grounds, theme.light), "ink-3": legible(theme.base["ink-3"], grounds, theme.light), accent: colour, "accent-ink": written, "accent-wash": wash, knob: theme.id === "afflatus" && name === "amber" ? "#ffffff" : written };
+  const warn = warnFor(theme, theme.accents[name]!);
+  const base = warn === theme.base.warn ? theme.base : { ...theme.base, ...theme.warning(warn) };
+  return {
+    ...base,
+    "ink-2": legible(base["ink-2"], grounds, theme.light),
+    "ink-3": legible(base["ink-3"], grounds, theme.light),
+    // a notice's text reads on its wash
+    "warn-ink": legible(base["warn-ink"], [base["warn-wash"], base.panel], theme.light),
+    accent: colour,
+    "accent-ink": written,
+    "accent-wash": wash,
+    // the knob of a switch that is on: white as the app was drawn, else whatever is written on the accent
+    knob: theme.id === "afflatus" && name === "amber" ? "#ffffff" : written,
+  };
 }

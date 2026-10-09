@@ -286,7 +286,7 @@ function TimelineCard({ t, leaf, size, picked, anyPicked, folder, onClick, onMen
               className="relative min-w-4 basis-0 overflow-hidden rounded-md bg-raised"
             >
               {f.asset && <img src={thumbUrl(f.asset)} alt="" loading="lazy" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
-              <span className="absolute bottom-1 left-1 rounded bg-shade/50 px-1 font-mono text-[10px] leading-tight text-white">{f.n}</span>
+              <span data-stage className="absolute bottom-1 left-1 rounded bg-stage/70 px-1 font-mono text-[10px] leading-tight text-ink">{f.n}</span>
             </span>
           ))}
           {!frames.length && <span className="flex grow items-center justify-center rounded-md border border-dashed border-line-strong text-ink-3"><Film size={22} /></span>}

@@ -25,17 +25,21 @@ export const themeInUse = (c: ThemeChoice, dark = systemDark()): Theme => themeB
 
 const rules = (selector: string, tokens: Tokens, extra = "") => `${selector}{${TOKENS.map((t) => `--color-${t}:${tokens[t]};`).join("")}${extra}}`;
 
+/** The soft shadow under a card in a light theme, paper lifted off the page; a dark theme has none. */
+const CARD_SHADOW = "0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.05)";
+
 /**
  * Put a theme on the page: its tokens on the root, and on everything marked `data-stage` (where a
- * picture or a video is shown large) the tokens of the dark theme a light one shows its pictures on,
- * so that a picture is always judged against the dark.
+ * picture or a video is shown) the tokens of the dark theme a light one shows its pictures on, so that
+ * a picture is always judged against the dark. The `stage` token itself, the near black behind the
+ * pictures, is the theme's own in both.
  */
 export function applyTheme(c: ThemeChoice): void {
   const theme = themeInUse(c);
   const tokens = tokensOf(theme, c.accents[theme.family]);
   const stage = theme.stage ? themeById(theme.stage) : theme;
   // the same accent on the stage when its theme has one by that name
-  const onStage = tokensOf(stage, c.accents[stage.family]);
+  const onStage = { ...tokensOf(stage, c.accents[stage.family]), stage: tokens.stage };
   let style = document.getElementById("afflatus-theme");
   if (!style) {
     style = document.createElement("style");
@@ -43,8 +47,8 @@ export function applyTheme(c: ThemeChoice): void {
     document.head.appendChild(style);
   }
   style.textContent = [
-    rules(":root", tokens, `--stage-pad:${theme.stage ? "12px" : "0px"};color-scheme:${theme.light ? "light" : "dark"};`),
-    rules("[data-stage]", onStage, `color:${onStage.ink};color-scheme:dark;`),
+    rules(":root", tokens, `--stage-pad:${theme.stage ? "12px" : "0px"};--shadow-card:${theme.light ? CARD_SHADOW : "none"};color-scheme:${theme.light ? "light" : "dark"};`),
+    rules("[data-stage]", onStage, `--shadow-card:none;color:${onStage.ink};color-scheme:dark;`),
   ].join("\n");
   document.documentElement.dataset.theme = theme.id;
   document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", theme.light ? "light" : "dark");

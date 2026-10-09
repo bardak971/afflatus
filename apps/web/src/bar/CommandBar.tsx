@@ -589,7 +589,7 @@ export function CommandBar() {
                               </span>
                               {toggle !== null && (
                                 <span aria-hidden className={cx("h-5 w-[34px] shrink-0 rounded-full p-[3px] transition-colors", toggle ? "bg-accent" : "bg-line-strong")}>
-                                  <span className={cx("block h-3.5 w-3.5 rounded-full transition-[margin] duration-150", toggle ? "ml-[14px] bg-knob" : "bg-white")} />
+                                  <span className={cx("block h-3.5 w-3.5 rounded-full transition-[margin] duration-150", toggle ? "ml-[14px] bg-knob" : "bg-ink")} />
                                 </span>
                               )}
                               {on && <span className="flex shrink-0 items-center gap-1 text-[11px] whitespace-nowrap text-ink-2"><Cap>↵</Cap> {it.complete ? "complete" : it.verb}</span>}

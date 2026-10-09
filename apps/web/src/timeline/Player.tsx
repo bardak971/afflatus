@@ -243,7 +243,7 @@ export const Player = forwardRef<PlayerHandle, {
   const h = ratio ? w / ratio : 0;
 
   return (
-    <div ref={box} data-stage className="relative flex min-h-0 grow items-center justify-center bg-[#08090b]">
+    <div ref={box} data-stage className="relative flex min-h-0 grow items-center justify-center bg-stage">
       {!now && !live && (
         <div className="flex flex-col items-center gap-2 text-ink-3">
           <Film size={28} />
@@ -324,7 +324,7 @@ export const Player = forwardRef<PlayerHandle, {
       {music && <audio key={music.asset.id} ref={musicEl} src={fileUrl(music.asset.id)} preload="auto" />}
       {/* the clip that is rendering, watched large: what is forming each step, with its sound. Playing the timeline puts it away */}
       {live && !playing && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#08090b]">
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-stage">
           {live.job.previewSeq > 0
             // its own sound, silent at first: not the timeline's volume, which is for playing the video
             ? <LivePreview job={live.job} sound className="h-full w-full object-contain" />

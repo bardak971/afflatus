@@ -17,7 +17,7 @@ const Dense = createContext(false);
  */
 export function Card({ title, status, help, dense, id, label, children }: { title?: ReactNode; status?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; children: ReactNode }) {
   return (
-    <section id={id} aria-label={label} className="overflow-hidden rounded-[14px] border border-line bg-panel">
+    <section id={id} aria-label={label} className="overflow-hidden rounded-[14px] border border-line bg-panel shadow-card">
       {title && (
         <div className={cx("flex items-center gap-2.5 border-b border-line", dense ? "min-h-[42px] px-4 py-2" : "min-h-[48px] px-[18px] py-2.5")}>
           <h2 className={cx("grow", dense ? "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase" : "text-[14px] font-bold")}>{title}</h2>

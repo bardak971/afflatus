@@ -34,7 +34,7 @@ export const INDEX: Array<{ tab: Tab; label: string; words?: string }> = [
   { tab: "designer", label: "Context size and max output tokens", words: "thinking" },
   { tab: "designer", label: "Forget every conversation", words: "chat history" },
   { tab: "prompts", label: "Danbooru tag check", words: "typo tags" },
-  { tab: "interface", label: "Theme", words: "appearance dark light catppuccin rose pine system" },
+  { tab: "interface", label: "Theme", words: "appearance dark light system accent catppuccin mocha macchiato frappe latte rose pine moon dawn studio neutral grey tokyo night day kanagawa wave lotus" },
   { tab: "interface", label: "Accent colour", words: "appearance color" },
   { tab: "interface", label: "Explain every setting in the forms", words: "help tooltips" },
   { tab: "interface", label: "Play videos on hover", words: "mouse card preview" },

@@ -57,7 +57,7 @@ function useSteadySrc(url: string | null): string | null {
   return shown;
 }
 
-/** A picture of the card: the last one loaded stays up until the next one is ready, on black, never stretched. */
+/** A picture of the card: the last one loaded stays up until the next one is ready, on the stage, never stretched. */
 export function PeekFrame({ url, under, w, h, className }: {
   url: string | null;
   /** A picture already at hand, drawn under it while it loads (a pinned picture's small version). */
@@ -68,7 +68,7 @@ export function PeekFrame({ url, under, w, h, className }: {
 }) {
   const src = useSteadySrc(url);
   return (
-    <span className={cx("relative block shrink-0 overflow-hidden rounded-[10px] bg-black", className)} style={{ width: w, height: h, backgroundImage: under ? `url(${under})` : undefined, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" }}>
+    <span className={cx("relative block shrink-0 overflow-hidden rounded-[10px] bg-stage", className)} style={{ width: w, height: h, backgroundImage: under ? `url(${under})` : undefined, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" }}>
       {src && <img src={src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-contain" />}
     </span>
   );

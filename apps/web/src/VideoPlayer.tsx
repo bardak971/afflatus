@@ -132,7 +132,7 @@ export function VideoPlayer({ asset, sound, lengthMs, video: outer, controls = t
       onKeyDown={onKeys}
       // focused by a click on the video, for Space: the whole stage is not outlined for it
       style={{ outline: "none" }}
-      className={cx("flex min-h-0 min-w-0 flex-col items-center gap-2", full && "justify-center bg-black p-4", className)}
+      className={cx("flex min-h-0 min-w-0 flex-col items-center gap-2", full && "justify-center bg-stage p-4", className)}
     >
       <video
         {...videoProps}

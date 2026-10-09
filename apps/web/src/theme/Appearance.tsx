@@ -111,7 +111,7 @@ export function AppearanceCard() {
         <Toggle on={hover.video} onChange={(video) => hover.set({ video })} label="Play videos when the mouse rests on a card" note="Off: a video card shows its frame until you open it." />
         <Toggle on={hover.sound} onChange={(sound) => hover.set({ sound })} label="Play sound on hover" note="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened." />
       </div>
-      <span className="text-xs text-ink-2">Kept in this browser. The palettes are Catppuccin's and Rosé Pine's own.</span>
+      <span className="text-xs text-ink-2">Kept in this browser. The palettes are Catppuccin's, Rosé Pine's, Tokyo Night's and Kanagawa's own.</span>
     </section>
   );
 }

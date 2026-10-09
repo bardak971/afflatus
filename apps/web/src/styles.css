@@ -32,12 +32,20 @@
   /* the colour of shadows */
   --color-shade: #000000;
   --color-picture: #86aeff;
+  /* what pictures and videos are shown on: a near black that sways no colour, in every theme */
+  --color-stage: #08090b;
 }
 
 html {
   color-scheme: dark;
   /* room around a picture where it is shown on a dark stage inside a light theme */
   --stage-pad: 0px;
+  /* under a card: a soft shadow in the light themes (set with the theme), none in the dark */
+  --shadow-card: none;
+}
+/* a card standing on the page: Card, a form's parts, the timeline's sections */
+@utility shadow-card {
+  box-shadow: var(--shadow-card);
 }
 html,
 body,

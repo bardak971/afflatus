@@ -3,8 +3,11 @@
  *
  * Catppuccin: https://github.com/catppuccin/catppuccin (MIT License, Copyright (c) 2021 Catppuccin)
  * Rosé Pine: https://github.com/rose-pine/rose-pine-theme (MIT License, Copyright (c) 2023 Rosé Pine)
+ * Tokyo Night: https://github.com/folke/tokyonight.nvim (Apache License 2.0, Copyright (c) folke)
+ * Kanagawa: https://github.com/rebelot/kanagawa.nvim (MIT License, Copyright (c) 2021 Tommaso Laurenzi)
  *
- * Generated from their palette.json files: not edited by hand.
+ * Catppuccin's and Rosé Pine's are generated from their palette.json files; Tokyo Night's and Kanagawa's
+ * are copied from their colour files, under their own names. None is edited by hand.
  */
 
 export const catppuccin = {
@@ -18,4 +21,14 @@ export const rosePine = {
   main: { base: "#191724", surface: "#1f1d2e", overlay: "#26233a", muted: "#6e6a86", subtle: "#908caa", text: "#e0def4", love: "#eb6f92", gold: "#f6c177", rose: "#ebbcba", pine: "#31748f", foam: "#9ccfd8", iris: "#c4a7e7" },
   moon: { base: "#232136", surface: "#2a273f", overlay: "#393552", muted: "#6e6a86", subtle: "#908caa", text: "#e0def4", love: "#eb6f92", gold: "#f6c177", rose: "#ea9a97", pine: "#3e8fb0", foam: "#9ccfd8", iris: "#c4a7e7" },
   dawn: { base: "#faf4ed", surface: "#fffaf3", overlay: "#f2e9e1", muted: "#9893a5", subtle: "#797593", text: "#464261", love: "#b4637a", gold: "#ea9d34", rose: "#d7827e", pine: "#286983", foam: "#56949f", iris: "#907aa9" },
+} as const;
+
+export const tokyoNight = {
+  night: { bg: "#1a1b26", bg_dark: "#16161e", bg_highlight: "#292e42", terminal_black: "#414868", fg: "#c0caf5", fg_dark: "#a9b1d6", fg_gutter: "#3b4261", comment: "#565f89", dark3: "#545c7e", dark5: "#737aa2", blue: "#7aa2f7", cyan: "#7dcfff", magenta: "#bb9af7", purple: "#9d7cd8", green: "#9ece6a", teal: "#1abc9c", orange: "#ff9e64", yellow: "#e0af68", red: "#f7768e" },
+  day: { bg: "#e1e2e7", bg_dark: "#d0d5e3", bg_highlight: "#c4c8da", fg: "#3760bf", fg_dark: "#6172b0", fg_gutter: "#a8aecb", comment: "#848cb5", blue: "#2e7de9", cyan: "#007197", magenta: "#9854f1", purple: "#7847bd", green: "#587539", teal: "#118c74", orange: "#b15c00", yellow: "#8c6c3e", red: "#f52a65" },
+} as const;
+
+export const kanagawa = {
+  wave: { sumiInk0: "#16161d", sumiInk3: "#1f1f28", sumiInk4: "#2a2a37", sumiInk5: "#363646", sumiInk6: "#54546d", fujiWhite: "#dcd7ba", oldWhite: "#c8c093", fujiGray: "#727169", crystalBlue: "#7e9cd8", oniViolet: "#957fb8", springGreen: "#98bb6c", carpYellow: "#e6c384", surimiOrange: "#ffa066", waveRed: "#e46876", sakuraPink: "#d27e99", waveAqua2: "#7aa89f" },
+  lotus: { lotusWhite0: "#d5cea3", lotusWhite1: "#dcd5ac", lotusWhite2: "#e5ddb0", lotusWhite3: "#f2ecbc", lotusWhite4: "#e7dba0", lotusInk1: "#545464", lotusInk2: "#43436c", lotusGray3: "#8a8980", lotusBlue4: "#4d699b", lotusViolet4: "#624c83", lotusGreen: "#6f894e", lotusYellow: "#77713f", lotusOrange: "#cc6d00", lotusRed: "#c84053", lotusPink: "#b35b79", lotusAqua: "#597b75" },
 } as const;
