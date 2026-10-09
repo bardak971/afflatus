@@ -61,6 +61,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         redo();
       }
       const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
+      // Escape belongs to what is open, and to a panel that takes it (the designer in the inspector closes on it)
+      const held = open || Boolean(document.querySelector("[data-takes-escape]"));
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.repeat && !open && renderNow) {
         e.preventDefault();
         renderNow.current();
@@ -97,20 +99,20 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         toggleLoopNow.current();
         return;
       }
-      if (e.key === "Escape" && !typing && !open) setPicked(new Set());
-      if (e.key === "Escape" && !typing && !open && rangeRef.current) {
+      if (e.key === "Escape" && !typing && !held) setPicked(new Set());
+      if (e.key === "Escape" && !typing && !held && rangeRef.current) {
         e.preventDefault();
         setRange(null);
         return;
       }
       // Escape with a clip open and no range: back to the timeline's own panel
-      if (e.key === "Escape" && !typing && !open && selectedNow.current) {
+      if (e.key === "Escape" && !typing && !held && selectedNow.current) {
         e.preventDefault();
         setSelected(null);
         return;
       }
       // the same from the music's panel
-      if (e.key === "Escape" && !typing && !open && musicOpenNow?.current) {
+      if (e.key === "Escape" && !typing && !held && musicOpenNow?.current) {
         e.preventDefault();
         closeMusic?.();
         return;

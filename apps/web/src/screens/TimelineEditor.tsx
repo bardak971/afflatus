@@ -376,7 +376,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     openMusic: () => setMusicOpen(true),
     add: (v: { asset: string; after?: string | null }) => add.mutate(v),
   };
-  const designed = designing ? clips.find((x) => x.id === designing) : undefined;
+  // the designer stays open from clip to clip: it is for the clip selected, each with its own conversation
+  // a still, or a clip with no model, has nothing to write: its form shows, and the designer comes back on the next clip it can write for
+  const designed = designing && current && current.kind !== "still" && recipes.data?.recipes.some((r) => r.id === current.recipe) ? current : undefined;
   const exportNow = () => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", web: 0, before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
   openExport.current = exportNow;
 
@@ -538,7 +540,25 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             }}
             onRemoveTake={(takeId) => removeTake.mutate(takeId)}
             onStop={() => current.job && stop.mutate(current.job.id)}
-            onDesigner={() => setDesigning(current.id)}
+            onDesigner={() => setDesigning((d) => (d ? null : current.id))}
+            designer={designed ? (
+              <ClipDesigner
+                timeline={t}
+                clip={designed}
+                clips={clips}
+                recipes={recipes.data?.recipes ?? []}
+                setup={setup}
+                settings={settings}
+                inputsOf={inputsOf}
+                sayOf={sayOf}
+                turns={talks[designed.id]}
+                onTurns={(turns) => setTalks((all) => ({ ...all, [designed.id]: turns }))}
+                session={sessions[designed.id]}
+                onSession={(session) => setSessions((all) => ({ ...all, [designed.id]: session }))}
+                onApply={(changes) => editInputs(designed, { ...inputsOf(designed), ...changes })}
+                onClose={() => setDesigning(null)}
+              />
+            ) : undefined}
             onClose={() => setSelected(null)}
             onPreview={setPreview}
             writing={writeBetween.isPending && writing === current.id}
@@ -616,24 +636,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         />
       )}
       {casting && <CastDialog timeline={t} mood={mood} onMood={setMood} onEdit={(p) => edit.mutate(p)} onClose={() => setCasting(false)} />}
-      {designed && (
-        <ClipDesigner
-          timeline={t}
-          clip={designed}
-          clips={clips}
-          recipes={recipes.data?.recipes ?? []}
-          setup={setup}
-          settings={settings}
-          inputsOf={inputsOf}
-          sayOf={sayOf}
-          turns={talks[designed.id]}
-          onTurns={(turns) => setTalks((all) => ({ ...all, [designed.id]: turns }))}
-          session={sessions[designed.id]}
-          onSession={(session) => setSessions((all) => ({ ...all, [designed.id]: session }))}
-          onApply={(changes) => editInputs(designed, { ...inputsOf(designed), ...changes })}
-          onClose={() => setDesigning(null)}
-        />
-      )}
       {picking && (
         <Picker
           title="Start from an image"

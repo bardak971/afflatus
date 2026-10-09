@@ -41,8 +41,8 @@ export function ClipDesigner({ timeline: t, clip: c, clips, recipes, setup, sett
   return (
     <Suspense fallback={null}>
       <Designer
-        // on the left, over the media: the clip's own settings, on the right, stay in view and are seen to change
-        side="left"
+        // in the clip's own column, where the prompt it writes is: the player keeps its whole width
+        side="inline"
         draftKey={`clip:${c.id}`}
         recipe={recipe}
         values={{ ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored }}

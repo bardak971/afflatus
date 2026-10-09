@@ -166,7 +166,7 @@ export function MusicPanel({ timeline, onEdit }: { timeline: Timeline; onEdit(pa
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, writing, writeError, onWriteBetween, onSelectClip }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, running, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onSelectClip }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -194,8 +194,10 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   /** Make the clip end where it begins: on its opening picture, or on the first frame of its take. */
   /** A take is hovered: show it in the player without choosing it. */
   onPreview(take: Take | null): void;
-  /** Open the designer for this clip. */
+  /** Open the designer for this clip, or close it. */
   onDesigner(): void;
+  /** The designer, open: shown in place of the clip's form, which stays as it was under it. */
+  designer?: ReactNode;
   /** The designer is writing what happens between the clips around (a clip put between two others). */
   writing?: boolean;
   writeError?: string | null;
@@ -351,11 +353,17 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               </button>
             </>
           )}
+          {recipe && !still && (
+            <button type="button" aria-pressed={Boolean(designer)} data-tip={designer ? "Back to the clip's form (Esc)" : "The designer, in place of the form"} onClick={onDesigner} className={cx("flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-xs font-semibold", designer ? "border-accent/50 bg-accent-wash text-accent" : "border-line-strong text-ink-2 hover:bg-hover hover:text-ink")}>
+              <Wand2 size={13} /> Designer
+            </button>
+          )}
           <TwoStep title="Remove from timeline" icon={<Trash2 size={14} />} note={still ? "The image stays in your library." : "Its videos stay in your library."} yes="Remove" onYes={onRemove} className="h-7! w-7! rounded-lg text-warn-ink! hover:bg-warn-wash!" />
         </div>
       </div>
 
-      <div className="flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4">
+      {designer}
+      <div className={cx("flex min-h-0 grow flex-col gap-3.5 overflow-y-auto p-4", designer ? "hidden" : "")}>
         {still && clip.still && (
           <>
             <img src={thumbUrl(clip.still.id)} alt={clip.still.name} className="max-h-56 self-start rounded-lg" />
