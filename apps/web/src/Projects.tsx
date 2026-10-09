@@ -11,6 +11,7 @@ import { useKeysHere } from "./keys/here";
 import { useProject } from "./project";
 import { usePins } from "./projects/pins";
 import { Button, cx, ErrorNote, fieldClass } from "./ui";
+import { useFlip } from "./useFlip";
 
 // the panel loads on its first opening: it is not needed to draw the app
 const ProjectsPanel = lazy(() => import("./projects/ProjectsPanel").then((m) => ({ default: m.ProjectsPanel })));
@@ -45,6 +46,9 @@ function Pins({ current }: { current: string }) {
   // where a dragged pin would land: before the pin at this index (the count: after the last)
   const [over, setOver] = useState<number | null>(null);
   const dragged = useRef<string | null>(null);
+  // a pin moved (dropped, Alt + arrow) slides to its place and the others step aside; the order changes only on the
+  // drop, so nothing moves under the browser's drag picture
+  const flip = useFlip(pins.ids);
   if (!pins.ids.length) return null;
   const nameOf = (id: string) => (id === "none" ? "Inbox" : projects.data?.items.find((p) => p.id === id)?.name ?? "…");
   const dragOver = (i: number, e: DragEvent) => {
@@ -68,7 +72,7 @@ function Pins({ current }: { current: string }) {
         const name = nameOf(id);
         return (
           // a list item holding a real button: read as "button, 1 of 2" rather than a list item that happens to click
-          <div key={id} role="listitem">
+          <div key={id} ref={flip(id)} role="listitem">
           <button
             type="button"
             draggable

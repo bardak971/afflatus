@@ -36,9 +36,17 @@ if (typeof window !== "undefined") {
 }
 
 /**
+ * How a drop box leans in when what is dragged is over it: a hair larger, at once (--t-pop), and back as quickly
+ * when the pointer leaves. Its edges and wash change with it; under "reduce motion" it only changes colour.
+ */
+export const LEAN_MOTION = "transition-[scale,border-color,background-color,color] duration-(--t-pop) ease-(--ease-snap) motion-reduce:transition-none";
+
+/**
  * A place that takes library items of some kinds (and, when `file` is given, a file from the
  * computer). `wanted` is true while such an item is being dragged anywhere; `over` while it is above
- * this place. `zone` is the border and the wash to draw for both.
+ * this place. `zone` is the border and the wash to draw for both. `lean` is the same for a drop box of
+ * the form, which draws its own edges: dashed while something it takes is dragged, solid with the wash and
+ * a little larger under the pointer (with LEAN_MOTION); nothing otherwise, its own resting edge then.
  */
 export function useDropZone(types: string[], take: (id: string) => void, file?: (file: File) => void) {
   const [over, setOver] = useState(false);
@@ -48,6 +56,7 @@ export function useDropZone(types: string[], take: (id: string) => void, file?: 
     over,
     wanted,
     zone: over ? "border-accent bg-accent-wash text-ink" : wanted ? "border-accent" : "",
+    lean: over ? "border-solid border-accent bg-accent-wash text-ink motion-safe:scale-[1.03]" : wanted ? "border-dashed border-accent" : "",
     props: {
       onDragOver: (e: DragEvent) => {
         if (!fits(e)) return;
@@ -55,7 +64,12 @@ export function useDropZone(types: string[], take: (id: string) => void, file?: 
         e.dataTransfer.dropEffect = "copy";
         setOver(true);
       },
-      onDragLeave: () => setOver(false),
+      // only when the pointer leaves the place itself: going over its picture or its words is still over it, and
+      // a box that let go and leaned in again at each of them would shake
+      onDragLeave: (e?: DragEvent) => {
+        if (e && e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+        setOver(false);
+      },
       onDrop: (e: DragEvent) => {
         if (!fits(e)) return;
         e.preventDefault();

@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown, Film, Image as ImageIcon, Music, Plus, Search } from "lucide-react";
+import { Thumb } from "../../Thumb";
 import { fuzzyFilter } from "@afflatus/core";
 import { thumbUrl, type DraftBrief } from "../../api";
 import { useRecipes } from "../../data";
@@ -16,7 +17,7 @@ const OUTPUT_WORD = { image: ["picture", "pictures"], video: ["take", "takes"], 
 /** A draft's cover: its newest output, or a dashed box when nothing was made from it. */
 function Cover({ d, size }: { d: DraftBrief; size: number }) {
   const style = { width: size, height: size };
-  if (d.cover) return <img src={thumbUrl(d.cover)} alt="" loading="lazy" style={style} className="shrink-0 rounded-md bg-raised object-cover" />;
+  if (d.cover) return <Thumb src={thumbUrl(d.cover)} alt="" loading="lazy" style={style} className="shrink-0 rounded-md bg-raised object-cover" />;
   return <span aria-hidden style={style} className="shrink-0 rounded-md border border-dashed border-line-strong" />;
 }
 

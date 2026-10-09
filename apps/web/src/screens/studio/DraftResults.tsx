@@ -24,7 +24,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   draft?: string;
   folder: string | undefined;
   /** The scope's own list (Recent, Kept, the folder), for the stage in any scope. */
-  list?: { items: Asset[]; hasNextPage: boolean; more(): void; hasPreviousPage: boolean; newer(): void; loading: boolean; ready: boolean };
+  list?: { items: Asset[]; hasNextPage: boolean; more(): void; hasPreviousPage: boolean; newer(): void; loading: boolean; ready: boolean; failed?: boolean };
   title?: string;
   /** What an empty `list` says, when it is empty because of the grouping rather than the place. */
   empty?: { title: string; body: string };
@@ -67,6 +67,9 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   const live = running && (picked === "live" || !chosen);
   const shown = chosen ?? (live ? undefined : items[0]);
 
+  // the first page on its way, nothing forming to show instead: the stage and its column as placeholders, at their size
+  const failed = list ? Boolean(list.failed) : own.isError;
+  if (!assets.isSuccess && !failed && !items.length && !running && !waiting) return <StagePlaceholder title={draft ? "This draft" : title ?? "Here"} />;
   if (assets.isSuccess && !items.length && !running && !waiting) {
     if (!draft && empty) return <Empty title={empty.title} help={empty.body} />;
     if (!draft) return <Empty title="Nothing here yet" help="Nothing in this view. Another scope or folder may have what you are looking for." />;
@@ -179,6 +182,36 @@ function RunningTile({ id, ...rest }: { id: string; on: boolean; onClick(): void
   const job = useRunning(id);
   return job ? <LiveTile job={job} {...rest} /> : null;
 }
+
+/**
+ * The stage before its list has come: the large place and the column of results laid out as they will be, each a
+ * placeholder with the loading shine, the count a dash until it is known (never a "0" that reads as empty).
+ */
+function StagePlaceholder({ title }: { title: string }) {
+  return (
+    <div aria-busy="true" aria-label="Loading" className="flex h-full min-h-0 gap-4">
+      <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-stage p-[var(--stage-pad)]">
+        <div className="m-skeleton min-h-0 grow" />
+      </div>
+      <div className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-hidden px-1 pb-4">
+        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{title} · <span className="font-mono">–</span></span>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex flex-col gap-1.5 rounded-[12px] p-1.5">
+            <div style={{ aspectRatio: PLACEHOLDER_SHAPE, width: `min(100%, ${Math.round(TILE_H * PLACEHOLDER_SHAPE)}px)` }} className="m-skeleton mx-auto rounded-xl!" />
+            {/* the two lines under a result, at their own line heights */}
+            <span className="flex min-w-0 flex-col gap-1 px-0.5">
+              <span className="text-[12.5px]"><span className="m-skeleton inline-block h-[0.8em] w-3/4 align-middle" /></span>
+              <span className="text-[11px]"><span className="m-skeleton inline-block h-[0.8em] w-1/3 align-middle" /></span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The shape of a placeholder result in the column: a landscape take, the usual one. */
+const PLACEHOLDER_SHAPE = 4 / 3;
 
 /** How tall a tile of the column gets at most: a portrait take is narrower, not taller. */
 const TILE_H = 170;

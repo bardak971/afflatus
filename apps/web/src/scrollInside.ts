@@ -1,3 +1,5 @@
+import { motionAllowed } from "./useFlip";
+
 /**
  * Bring `el` into view in the box that scrolls around it, and only there. The browser's scrollIntoView moves every
  * box around it, the page itself included: the whole app slid up out of the window when a form's part was shown.
@@ -11,5 +13,6 @@ export function scrollInside(el: Element | null | undefined, block: "start" | "c
   const at = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
   const margin = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
   const top = block === "center" ? at - (box.clientHeight - el.offsetHeight) / 2 : at - margin;
-  box.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  // a glide where motion is allowed; under "reduce motion" it is there at once
+  box.scrollTo({ top: Math.max(0, top), behavior: motionAllowed() ? "smooth" : "auto" });
 }

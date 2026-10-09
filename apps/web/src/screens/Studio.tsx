@@ -19,7 +19,7 @@ import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
-import { JustifiedRows, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
+import { JustifiedRows, PlaceholderRows, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
 import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
@@ -265,7 +265,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
           {draftOnly ? (
             stageOfDraft
               ? <DraftResults draft={draftId!} folder={folder?.id} />
-              : <DraftResults folder={folder?.id} empty={items.length && !visible.length ? groupedEmpty : undefined} list={{ items: visible, hasNextPage: Boolean(assets.hasNextPage), more: () => void assets.fetchNextPage(), hasPreviousPage: Boolean(assets.hasPreviousPage), newer: () => void assets.fetchPreviousPage(), loading: assets.isFetchingNextPage || assets.isFetchingPreviousPage, ready: assets.isSuccess }} title={reach === "recent" ? "All recent" : placeName} />
+              : <DraftResults folder={folder?.id} empty={items.length && !visible.length ? groupedEmpty : undefined} list={{ items: visible, hasNextPage: Boolean(assets.hasNextPage), more: () => void assets.fetchNextPage(), hasPreviousPage: Boolean(assets.hasPreviousPage), newer: () => void assets.fetchPreviousPage(), loading: assets.isFetchingNextPage || assets.isFetchingPreviousPage, ready: assets.isSuccess, failed: assets.isError }} title={reach === "recent" ? "All recent" : placeName} />
           ) : (
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
@@ -286,8 +286,10 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               {/* the pages above, let go past the cap (useAssets), read again when scrolled back up to */}
               {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title} help={groupedEmpty.body} />}
+              {/* the first page on its way: placeholder tiles where the rows will be, at the display's size */}
+              {!showTimelines && !assets.data && !assets.isError && <PlaceholderRows rowHeight={rowHeight} />}
               {/* what is being made now comes first, where its result will land */}
-              {!showTimelines && (
+              {!showTimelines && Boolean(assets.data) && (
                 <JustifiedRows
                   rowHeight={rowHeight}
                   places={[

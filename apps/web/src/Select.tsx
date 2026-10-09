@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { Keys } from "./Keys";
+import { useLeave } from "./leave";
 import { cx } from "./ui";
 
 export interface Option {
@@ -52,7 +53,13 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
   const [place, setPlace] = useState<{ left: number; width: number; top?: number; bottom?: number; height: number } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  // it unfolds from the field; closed, it fades as a still copy while the field has the focus back at once
+  const panelRef = useLeave("m-pop-out", panel);
   const list = useRef<HTMLDivElement>(null);
+  // the highlight behind the active option: one box that glides from option to option when the mouse or an arrow key
+  // moves it (glide set just then); opening, typing and anything else put it in place without travel
+  const highlight = useRef<HTMLSpanElement>(null);
+  const glide = useRef(false);
   // the search bar is the combobox: a screen reader follows the active option through aria-activedescendant
   const listId = useId();
   const optionId = (i: number) => `${listId}-${i}`;
@@ -122,6 +129,25 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
   useEffect(() => {
     list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active, open]);
+  // after every render: options change height (a second line, a section's title), so the box follows the row itself
+  useLayoutEffect(() => {
+    const box = highlight.current;
+    if (!box) return;
+    const row = list.current?.querySelector<HTMLElement>(`[data-index="${active}"]`);
+    box.toggleAttribute("data-glide", glide.current);
+    glide.current = false;
+    if (!row) {
+      box.style.opacity = "0";
+      return;
+    }
+    Object.assign(box.style, { opacity: "1", top: `${row.offsetTop}px`, height: `${row.offsetHeight}px`, left: `${row.offsetLeft}px`, width: `${row.offsetWidth}px` });
+  });
+  /** The active option moved by the mouse or a key: the highlight glides there. */
+  const moveTo = (i: number) => {
+    if (i === active) return;
+    glide.current = true;
+    setActive(i);
+  };
 
   const pick = (o: Option) => {
     onChange(o.value);
@@ -158,10 +184,10 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
 
       {open && place && createPortal(
         <div
-          ref={panel}
+          ref={panelRef}
           data-floating
-          style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height }}
-          className="fixed z-[70] flex flex-col overflow-hidden rounded-[14px] border border-line-strong bg-panel shadow-2xl shadow-shade/60"
+          style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height, transformOrigin: place.top !== undefined ? "top" : "bottom" }}
+          className="m-pop fixed z-[70] flex flex-col overflow-hidden rounded-[14px] border border-line-strong bg-panel shadow-2xl shadow-shade/60"
         >
           <div className="flex shrink-0 items-center gap-2 border-b border-line px-3">
             <Search size={14} className="shrink-0 text-ink-3" />
@@ -182,10 +208,10 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 if (e.key === "Escape") close();
                 else if (e.key === "ArrowDown") {
                   e.preventDefault();
-                  setActive((a) => Math.min(a + 1, shown.length - 1));
+                  moveTo(Math.max(0, Math.min(active + 1, shown.length - 1)));
                 } else if (e.key === "ArrowUp") {
                   e.preventDefault();
-                  setActive((a) => Math.max(a - 1, 0));
+                  moveTo(Math.max(active - 1, 0));
                 } else if (e.key === "Enter") {
                   e.preventDefault();
                   if (shown[active]) pick(shown[active]);
@@ -195,7 +221,8 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
               className="h-10 min-w-0 grow bg-transparent text-ink placeholder:text-ink-3"
             />
           </div>
-          <div ref={list} id={listId} role="listbox" aria-label={label} className="flex min-h-0 grow flex-col overflow-y-auto p-1">
+          <div ref={list} id={listId} role="listbox" aria-label={label} className="relative flex min-h-0 grow flex-col overflow-y-auto p-1">
+            <span ref={highlight} aria-hidden className="pointer-events-none absolute rounded-lg bg-hover motion-safe:data-[glide]:[transition:top_var(--t-pop)_var(--ease-snap),height_var(--t-pop)_var(--ease-snap)]" />
             {shown.map((o, i) => (
               <Fragment key={o.value}>
               {o.group && o.group !== shown[i - 1]?.group && <div className={cx("shrink-0 px-2 pt-2.5 pb-1 text-[11px] font-bold tracking-[0.08em] uppercase", o.marked ? "text-accent" : "text-ink-3")}>{o.group}</div>}
@@ -207,10 +234,11 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 tabIndex={-1}
                 data-index={i}
                 onClick={() => pick(o)}
-                onPointerMove={() => setActive(i)}
+                onPointerMove={() => moveTo(i)}
                 className={cx(
-                  "flex min-h-8 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left",
-                  o.value === value ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : i === active ? "bg-hover" : o.marked && "bg-accent-wash",
+                  // over the gliding highlight, which is the active option's background
+                  "relative flex min-h-8 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left",
+                  o.value === value ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : o.marked && i !== active && "bg-accent-wash",
                   o.value === value && i === active && "brightness-110",
                   o.marked && "mb-0.5",
                 )}

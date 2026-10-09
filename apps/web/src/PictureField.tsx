@@ -14,7 +14,7 @@ import type { CastPicture } from "./castPictures";
 import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
-import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDropZone } from "./dragging";
+import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, LEAN_MOTION, useDropZone } from "./dragging";
 import { Button, cx, Empty, ErrorNote, fieldClass, NumberBox, Help, Note, Segmented } from "./ui";
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
@@ -34,6 +34,14 @@ function useUpload(onDone: (asset: Asset) => void, kit = false) {
 
 const WORD = { image: "image", video: "video", audio: "audio file" } as const;
 const ACCEPT = { image: "image/png,image/jpeg,image/webp", video: "video/mp4,video/webm", audio: "audio/*" } as const;
+
+/**
+ * What a filled slot says while something it takes is over it: what the drop will do, laid over what it holds
+ * (which it replaces). It lets the pointer through, so that the slot under it stays the place dropped on.
+ */
+function DropSays({ children }: { children: string }) {
+  return <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-accent-wash/90 px-3 text-center text-sm font-semibold text-ink">{children}</span>;
+}
 
 /** Every picture (or every video, or every sound) in the library, to pick one from; or bring one in from the computer. */
 export function Picker({ title, kind = "image", kit, onPick, onClose }: { title: string; kind?: "image" | "video" | "audio"; /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */ kit?: boolean; onPick(id: string): void; onClose(): void }) {
@@ -169,6 +177,9 @@ export function PictureField({ label, optional, kit, value, onChange }: {
   const shown = useAsset(open ? value : null);
   // a picture of the library, or a picture file from the computer (a picture slot takes pictures only)
   const drop = useDropZone([DRAG_PICTURE], onChange, (file) => file.type.startsWith("image/") && upload.mutate(file));
+  const says = `Drop to use as ${label.toLowerCase()}`;
+  // a picture put in after the slot was drawn (dropped, picked) fades in; the one it opened with is simply there
+  const first = useRef(value);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -177,24 +188,25 @@ export function PictureField({ label, optional, kit, value, onChange }: {
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (
-        <div {...drop.props} className={cx("flex items-center gap-3 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
+        <div {...drop.props} className={cx("relative flex items-center gap-3 rounded-lg border bg-raised p-2", LEAN_MOTION, drop.lean || "border-line")}>
           <button type="button" aria-label={`Show ${label.toLowerCase()} large`} onClick={() => setOpen(true)} className="shrink-0 cursor-zoom-in rounded-md">
-            <img src={thumbUrl(value)} alt={label} className="h-[72px] w-[72px] rounded-md object-cover" />
+            <img key={value} src={thumbUrl(value)} alt={label} className={cx("h-[72px] w-[72px] rounded-md object-cover", value !== first.current && "m-fade")} />
           </button>
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
             {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
           </div>
+          {drop.over && <DropSays>{says}</DropSays>}
         </div>
       ) : (
         <button
           type="button"
           {...drop.props}
           onClick={() => setPicking(true)}
-          className={cx("flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}
+          className={cx("flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
         >
           <ImagePlus size={17} />
-          <span>{upload.isPending ? "Adding…" : "Choose an image, or drop one here"}</span>
+          <span>{upload.isPending ? "Adding…" : drop.over ? says : "Choose an image, or drop one here"}</span>
         </button>
       )}
       {upload.isError && <ErrorNote>{upload.error.message}</ErrorNote>}
@@ -239,6 +251,9 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
   const drop = useDropZone([DRAG_VIDEO], (id) => onChange({ asset: id }), (file) => file.type.startsWith("video/") && upload.mutate(file));
   const length = asset.data?.durationMs ?? 0;
   const edge = role === "previous" ? "its end" : "its start";
+  const says = role === "previous" ? "Drop to continue from this video" : role === "next" ? "Drop to flow into this video" : `Drop to use as ${label.toLowerCase()}`;
+  // a video put in after the slot was drawn fades in
+  const first = useRef(value?.asset);
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -246,8 +261,10 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (
-        <div {...drop.props} className={cx("flex flex-col gap-2 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
-          <VideoPlayer asset={value.asset} video={video} compact className="w-full" videoClassName="max-h-56 w-full rounded-md bg-ground" />
+        <div {...drop.props} className={cx("relative flex flex-col gap-2 rounded-lg border bg-raised p-2", LEAN_MOTION, drop.lean || "border-line")}>
+          <div key={value.asset} className={cx(value.asset !== first.current && "m-fade")}>
+            <VideoPlayer asset={value.asset} video={video} compact className="w-full" videoClassName="max-h-56 w-full rounded-md bg-ground" />
+          </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {/* a source video is worked on whole: no moment to pick */}
             {role === "source" ? (
@@ -266,16 +283,17 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
             {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
           </div>
+          {drop.over && <DropSays>{says}</DropSays>}
         </div>
       ) : (
         <button
           type="button"
           {...drop.props}
           onClick={() => setPicking(true)}
-          className={cx("flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}
+          className={cx("flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
         >
           <Film size={17} />
-          <span>Choose a video, or drop one here</span>
+          <span>{drop.over ? says : "Choose a video, or drop one here"}</span>
         </button>
       )}
       {explain && <Note text={note} />}
@@ -327,6 +345,8 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
   // a file from the computer goes into the library and is added here
   const upload = useUpload((a) => add(a.id));
   const drop = useDropZone([video ? DRAG_VIDEO : DRAG_PICTURE], add, (file) => file.type.startsWith(video ? "video/" : "image/") && upload.mutate(file));
+  // a reference added after the field was drawn (dropped, picked) fades in; those it opened with are simply there
+  const first = useRef(new Set(value.map((v) => v.asset)));
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -334,7 +354,7 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
         <span className="text-xs text-ink-2">{value.length + cast.length} of {max}</span>
       </div>
       {value.map((ref, i) => (
-        <div key={ref.asset} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5">
+        <div key={ref.asset} className={cx("flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5", !first.current.has(ref.asset) && "m-fade")}>
           <button type="button" aria-label={`Show reference ${i + 1} large`} onClick={() => setOpen(ref.asset)} className="shrink-0 cursor-zoom-in rounded-md">
             <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 rounded-md object-cover" />
           </button>
@@ -365,10 +385,10 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
           type="button"
           {...drop.props}
           onClick={() => setPicking(true)}
-          className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}
+          className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
         >
           <ImagePlus size={15} />
-          <span>{video ? "Add a reference video, or drop one here" : "Add a reference image, or drop one here"}</span>
+          <span>{drop.over ? (video ? "Drop to add as reference video" : "Drop to add as reference") : video ? "Add a reference video, or drop one here" : "Add a reference image, or drop one here"}</span>
         </button>
       )}
       {explain && <Note text={note} />}
@@ -405,6 +425,7 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
   const upload = useUpload((a) => onChange(a.id));
   const drop = useDropZone([DRAG_SOUND, DRAG_HAS_SOUND], onChange, (file) => file.type.startsWith("audio/") && upload.mutate(file));
   const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
+  const says = `Drop to use as ${label.toLowerCase()}`;
   // the part as it will be cut: from where it was asked as long as two seconds are left, ending where the sound ends
   const from = part ? (total === null ? part.start : Math.max(0, Math.min(part.start, total - 2))) : 0;
   const lasts = part ? (total === null ? part.seconds : Math.max(0.1, Math.min(part.seconds, total - from))) : 0;
@@ -415,7 +436,7 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (
-        <div {...drop.props} className={cx("flex flex-col gap-2 rounded-lg border bg-raised p-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
+        <div {...drop.props} className={cx("relative flex flex-col gap-2 rounded-lg border bg-raised p-2", LEAN_MOTION, drop.lean || "border-line")}>
           {/* with a part set, the player plays that part */}
           <AudioPlayer asset={value} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
@@ -433,11 +454,12 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
               {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
             </span>
           </div>
+          {drop.over && <DropSays>{says}</DropSays>}
         </div>
       ) : (
-        <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>
+        <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}>
           <Music size={15} />
-          <span>Choose an audio file, or drop one here</span>
+          <span>{drop.over ? says : "Choose an audio file, or drop one here"}</span>
         </button>
       )}
       {explain && <Note text={note} />}

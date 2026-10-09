@@ -65,11 +65,26 @@ export function StatusBar() {
       {/* the server's events stopped coming (a restart, a proxy between): what is shown may be old until they are back */}
       {liveDown && <Chip tone="warn" tip="The connection that brings live updates from the server dropped. It is being opened again; what is shown here may be out of date until then, and is read again once it is back.">live updates lost · reconnecting</Chip>}
       <span className="grow" />
-      <StripPlace />
-      <StripModel />
+      {/* the place and the model come with the first answers: they fade in rather than pop (the model waits for the queue's) */}
+      {!queue.isPending && (
+        <span className="m-fade inline-flex min-w-0 items-center gap-2.5">
+          <StripPlace />
+          <StripModel />
+        </span>
+      )}
+      {/* the meters before the machine's first figures: their room kept, unseen, so the chips beside them do not move when they come */}
+      {!load && (
+        <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-2.5">
+          <Sep />
+          <Meter label="GPU" value={0} />
+          <Meter label="VRAM" value={0} />
+          <Meter label="RAM" value={0} />
+        </span>
+      )}
       {gpu && (
-        // every number keeps the room of three digits: what is beside it does not move when they change
-        <>
+        // every number keeps the room of three digits: what is beside it does not move when they change; they fade in
+        // when the machine's figures first come
+        <span className="m-fade inline-flex shrink-0 items-center gap-2.5">
           <Sep />
           {/* the CPU only while it is busy: otherwise its figure is in the GPU meter's tip */}
           {cpu !== undefined && cpu >= 70 && <Meter label="CPU" value={cpu} warn={cpu >= 90} className="max-[1440px]:hidden" />}
@@ -79,7 +94,7 @@ export function StatusBar() {
           {ram && <Meter label="RAM" value={ram.percent} warn={ram.percent >= 90} tip={`System RAM: ${(ram.used / 2 ** 30).toFixed(1)} of ${gb(ram.total)}. When VRAM is full, ComfyUI moves models here; when this fills too, everything slows down.`} />}
           {/* 80 °C: a temperature, the same for every card, not a figure of one card */}
           {gpu.temperature !== undefined && <span className={cx("shrink-0 font-mono whitespace-pre text-ink-2", gpu.temperature >= 80 && "text-warn-ink")}>{pad(gpu.temperature)}°</span>}
-        </>
+        </span>
       )}
       <Sep />
       {/* the command bar opened with the mouse: its own key, the one set in Settings › Command bar, drawn as the chip */}
@@ -258,8 +273,9 @@ function Expiring() {
         aria-expanded={open}
         data-tip={`${count} renders nobody kept go to the bin by themselves, the next in ${said.next}`}
         onClick={() => setOpen(!open)}
+        // it comes after the rest of the strip (its count is a query of its own): it fades in rather than pops
         className={cx(
-          "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs whitespace-nowrap transition-colors hover:brightness-125",
+          "m-fade inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs whitespace-nowrap transition-colors hover:brightness-125",
           said.soon ? "bg-warn-wash text-warn-ink" : "bg-hover text-ink-2",
           open && "ring-1 ring-accent",
         )}

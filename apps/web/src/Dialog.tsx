@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
+import { useLeave } from "./leave";
 import { cx } from "./ui";
 
 /**
@@ -8,7 +9,8 @@ import { cx } from "./ui";
  * on the backdrop. It takes the focus when it opens (what it holds that is focusable first, or what
  * asked for it with autoFocus), keeps Tab inside, and gives the focus back to where it was when it
  * closes. Dialogs stack: Escape closes the innermost one only. While one is open, the screens' own keys
- * are off (they look for the [role=dialog]).
+ * are off (they look for the [role=dialog]). Closed, it fades out as a still copy (leave.ts): the dialog itself, its
+ * keys, its hold on Tab and its place in the stack go at once, and the focus is back at once.
  */
 
 /** The dialogs open now, the innermost last. */
@@ -54,6 +56,7 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
   closeNow.current = onClose;
   // a press that started inside the panel and ends on the backdrop (a slider dragged out) is not a click on the backdrop
   const downOnBackdrop = useRef(false);
+  const leaving = useLeave<HTMLDivElement>("m-out");
 
   useEffect(() => {
     const id = me.current;
@@ -100,6 +103,7 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
 
   return createPortal(
     <div
+      ref={leaving}
       role="dialog"
       aria-modal="true"
       aria-label={label}

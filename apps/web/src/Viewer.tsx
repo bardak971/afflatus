@@ -5,6 +5,7 @@ import { api, type Asset } from "./api";
 import { useAsset } from "./data";
 import { dialogOver } from "./Dialog";
 import { Kbd, plainKey } from "./Keys";
+import { useLeave } from "./leave";
 import { Button, cx } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { formPlaces, useFormTarget } from "./formTarget";
@@ -111,6 +112,9 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const act = useRef<(e: KeyboardEvent) => void>(() => {});
   // what the viewer draws: a modal that does not hold it is over it (drawn in place, any modal is)
   const root = useRef<HTMLDivElement>(null);
+  // over the screen, it comes in as a panel and fades as a still copy when closed (its keys and focus go at once); going
+  // from item to item with ← → keeps the same element, so only opening and closing move
+  const overlayRef = useLeave("m-out", root);
   act.current = (e) => {
     // a key already taken by another part of the screen is not taken twice
     if (e.defaultPrevented) return;
@@ -206,7 +210,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   }
 
   return (
-    <div ref={root} data-stage role="dialog" aria-modal="true" aria-label="Item" className="fixed inset-0 z-40 flex bg-stage/95">
+    <div ref={overlayRef} data-stage role="dialog" aria-modal="true" aria-label="Item" className="m-panel fixed inset-0 z-40 flex bg-stage/95">
       {menuElement}
       {timeline.element}
       {compare ?? media(true)}

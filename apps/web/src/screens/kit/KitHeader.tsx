@@ -16,10 +16,12 @@ export const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode 
  * The head of the Prompt kit: the kinds as tabs, each with how many there are, the search of the kind open,
  * and the one New button, for that kind (`extra` sits before it: the presets' Import).
  */
-export function KitHeader({ tab, onTab, all, query, onQuery, newLabel, onNew, busy, extra }: {
+export function KitHeader({ tab, onTab, all, loading, query, onQuery, newLabel, onNew, busy, extra }: {
   tab: Tab;
   onTab(tab: Tab): void;
   all: Entity[];
+  /** The kit is still on its way: each count is a dash, not a "0" that reads as an empty kind. */
+  loading?: boolean;
   query: string;
   onQuery(q: string): void;
   /** What the New button says: the tab's own word unless given ("New snippet in Light"). */
@@ -36,7 +38,7 @@ export function KitHeader({ tab, onTab, all, query, onQuery, newLabel, onNew, bu
         oneLine
         label="What to show"
         value={tab}
-        options={TABS.map((t) => ({ value: t.id, label: <>{t.title} <span className={t.id === tab ? "font-normal text-ink-2" : "font-normal text-ink-3"}>{all.filter((e) => e.kind === t.id).length}</span></> }))}
+        options={TABS.map((t) => ({ value: t.id, label: <>{t.title} <span className={t.id === tab ? "font-normal text-ink-2" : "font-normal text-ink-3"}><span className="tabular-nums">{loading ? "–" : all.filter((e) => e.kind === t.id).length}</span></span></> }))}
         onChange={onTab}
       />
       <span className="grow" />

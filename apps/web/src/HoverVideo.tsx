@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fileUrl, thumbUrl } from "./api";
 import { useHoverPlay } from "./store";
+import { Thumb } from "./Thumb";
 
 /** The fewest milliseconds between two seeks while the pointer scrubs: a seek waits for the one before anyway. */
 const SEEK_EVERY_MS = 60;
@@ -151,8 +152,9 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, at, onNoFrame,
   }, [playing, hover.sound]);
   const seek = useScrub(el, at, playing);
   return (
+    // on a raised box: the frame fades in over it as it arrives (Thumb), the tile never stands empty
     <span
-      className="absolute inset-0 block"
+      className="absolute inset-0 block bg-raised"
       onPointerEnter={(e) => {
         if (scrubs || !video || !hover.video || e.pointerType !== "mouse") return;
         if (timer.current !== null) window.clearTimeout(timer.current);
@@ -160,7 +162,7 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, at, onNoFrame,
       }}
       onPointerLeave={scrubs ? undefined : stop}
     >
-      <img src={thumbUrl(asset)} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
+      <Thumb src={thumbUrl(asset)} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
       {playing && <video ref={el} src={fileUrl(asset)} loop playsInline preload="auto" aria-label="Playing on hover" onLoadedMetadata={seek} onSeeked={seek} className="absolute inset-0 h-full w-full object-cover" />}
     </span>
   );

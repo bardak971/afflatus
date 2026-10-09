@@ -3,6 +3,7 @@ import { GripVertical, Plus, X } from "lucide-react";
 import type { Section, SwitchGroup, Toggle } from "@afflatus/workflows";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { Button, cx, Help, Toggle as Switch } from "../ui";
+import { useFlip } from "../useFlip";
 
 /**
  * The form of an imported workflow, arranged: named sections holding the form's inputs in the order
@@ -60,6 +61,10 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
   canSuggest: boolean;
 }) {
   const [over, setOver] = useState<Over>(null);
+  // a card or a setting put elsewhere (dropped, moved from its menu or with Alt + arrows) slides there, the others
+  // moving aside; the cards are told from the settings, as a section's id could be a setting's. Nothing moves while
+  // a drag is under way (the order changes only on the drop), so the browser's drag picture is never fought.
+  const flip = useFlip(sections.flatMap((s) => [`card:${s.id}`, ...s.items.flatMap((it) => (isGroup(it) ? [`item:${it.toggle}`, ...it.items.map((x) => `item:${x}`), "/"] : [`item:${it}`])), "|"]));
   const byId = new Map(items.map((i) => [i.id, i]));
   const placed = new Set(sections.flatMap((s) => s.items.flatMap((it) => (isGroup(it) ? [it.toggle, ...it.items] : [it]))));
   const loose = items.filter((i) => !placed.has(i.id));
@@ -387,6 +392,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     return (
       <div
         key={id}
+        ref={flip(`item:${id}`)}
         draggable
         onDragStart={startItem(id)}
         onDragOver={(e) => { if (allow(e)) setOver(spot); }}
@@ -412,6 +418,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
   const advancedCard = (
     <div
       key={ADVANCED}
+      ref={flip(`card:${ADVANCED}`)}
       className={cx("flex flex-col gap-1.5 rounded-lg border border-dashed p-2", over && "tray" in over ? "border-accent" : over && "before" in over && over.before === ADVANCED ? "border-accent" : "border-line")}
       onDragOver={(e) => { if (allow(e)) setOver({ tray: true }); }}
       onDragLeave={() => setOver(null)}
@@ -432,7 +439,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       {loose.length ? (
         <div className="flex flex-wrap gap-1.5">
           {loose.map((it) => (
-            <span key={it.id} draggable onDragStart={startItem(it.id)} className="inline-flex h-7 cursor-grab items-center gap-1.5 rounded-full border border-line bg-raised px-2.5 text-xs font-semibold">
+            <span key={it.id} ref={flip(`item:${it.id}`)} draggable onDragStart={startItem(it.id)} className="inline-flex h-7 cursor-grab items-center gap-1.5 rounded-full border border-line bg-raised px-2.5 text-xs font-semibold">
               <GripVertical size={12} className="text-ink-3" />{chip(it.id, it.label, "cursor-grab rounded")}
             </span>
           ))}
@@ -445,6 +452,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
   const promptCard = (
     <div
       key={PROMPT}
+      ref={flip(`card:${PROMPT}`)}
       className={cx("flex items-center gap-1.5 rounded-lg border border-dashed p-2", over && "before" in over && over.before === PROMPT ? "border-accent" : "border-line")}
       onDragOver={(e) => { if (allow(e)) setOver({ before: PROMPT }); }}
       onDragLeave={() => setOver(null)}
@@ -468,6 +476,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       {sections.map((s) => isMark(s) ? (s.id === PROMPT ? promptCard : advancedCard) : (
         <section
           key={s.id}
+          ref={flip(`card:${s.id}`)}
           data-section={s.id}
           aria-label={`Section ${s.label}`}
           className={cx("flex flex-col rounded-lg border bg-panel", over && "before" in over && over.before === s.id ? "border-accent" : "border-line")}
@@ -494,6 +503,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
               return (
                 <div
                   key={item.toggle}
+                  ref={flip(`item:${item.toggle}`)}
                   draggable
                   onDragStart={startItem(item.toggle)}
                   onDragOver={(e) => { if (allow(e)) setOver(spot); }}

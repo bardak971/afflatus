@@ -1,7 +1,8 @@
-import { Fragment, lazy, Suspense, useState, type RefObject } from "react";
+import { Fragment, lazy, Suspense, useLayoutEffect, useState, type RefObject } from "react";
 import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import type { Asset, Folder } from "../../api";
 import { useFolders, useProjects } from "../../data";
+import { leaveCopy } from "../../leave";
 import { useProject } from "../../project";
 import { Initial, projectTone } from "../../Projects";
 import type { Place } from "../../store";
@@ -155,6 +156,12 @@ export function FolderPanel({ place, onPlace, dragging, anchor, onClose }: {
 }) {
   const project = useProject((s) => s.id);
   const [viewing, setViewing] = useState<Asset | null>(null);
+  // the tree is the Projects panel's (portalled, its own markup and its own way in): closed, it fades as a still copy,
+  // found by the name it gives itself, while it is still on the page
+  useLayoutEffect(() => () => {
+    const tree = document.querySelector<HTMLElement>('[role="dialog"][aria-label$=": folders, timelines and drafts"]');
+    if (tree) leaveCopy(tree, "m-pop-out");
+  }, []);
   return (
     <>
       <Suspense fallback={null}>

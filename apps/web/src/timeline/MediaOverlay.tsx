@@ -8,6 +8,7 @@ import { clock } from "../format";
 import { useSettled } from "../hooks";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
+import { useLeave } from "../leave";
 import { LoadMore } from "../LoadMore";
 import { FolderPanel, Tile } from "../screens/Library";
 import { PlaceCrumbs } from "../screens/library/FolderPanel";
@@ -73,6 +74,8 @@ export function MediaOverlay({ timeline, placeItems }: {
   const [folders, setFolders] = useState(false);
   // the item open large: the shelf's own viewer, so that ← → go through what the shelf shows
   const [viewing, setViewing] = useState<Asset | null>(null);
+  // the shelf comes over the stage as a panel and, folded away, fades as a still copy: the stage's keys are back at once
+  const shelfRef = useLeave<HTMLElement>("m-out");
 
   // Escape folds it away, unless something is open over it
   useEffect(() => {
@@ -196,7 +199,7 @@ export function MediaOverlay({ timeline, placeItems }: {
     <>
       {tab}
       {/* it takes Escape: one press folds it away and leaves the range, the selection and the music panel as they are */}
-      <section aria-label="Your library" data-takes-escape className="absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
+      <section ref={shelfRef} aria-label="Your library" data-takes-escape className="m-panel absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
         <div ref={bar} className="flex h-14 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
           <span className="shrink-0 text-[11px] font-bold tracking-[0.08em] text-accent uppercase">Media</span>
           {/* the place, as the Studio's breadcrumb: inside the project worked in, its tree under it */}

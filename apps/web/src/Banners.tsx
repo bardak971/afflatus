@@ -1,10 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { AlertTriangle, Check, X } from "lucide-react";
 import type { Job } from "./api";
 import { useQueue } from "./data";
 import { useDownloads } from "./GetFile";
-import { useBanners } from "./store";
+import { moves } from "./leave";
+import { OUT_MS } from "./motion";
+import { useBanners, type Banner } from "./store";
 import { cx } from "./ui";
 
 /**
@@ -24,6 +26,29 @@ const noFold = (): Fold => ({ count: 0, labels: new Set(), exports: 0, last: nul
 /** "Portrait done", "8 done", "8 done · Portrait" (one name for the whole batch). */
 const foldTitle = (f: Fold, word: string) => (f.count === 1 ? `${[...f.labels][0]} ${word}` : `${f.count} ${word}`);
 const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels][0] : f.count > 1 ? `Last: ${f.last}` : undefined);
+
+/**
+ * The banners drawn: those up, and those just taken away (gone by themselves, closed, clicked) for the length of their
+ * exit, each in the place it had: the ones under it move up once it has faded. Nothing waits on it, the banner is out of
+ * the store at once and its copy takes no click (m-out, inert).
+ */
+function useLeaving(items: Banner[]): Array<{ b: Banner; leaving: boolean }> {
+  const [gone, setGone] = useState<Array<{ b: Banner; at: number }>>([]);
+  const before = useRef(items);
+  useLayoutEffect(() => {
+    const was = before.current;
+    before.current = items;
+    if (!moves()) return;
+    const left = was.flatMap((b, at) => (items.some((x) => x.id === b.id) ? [] : [{ b, at }]));
+    if (!left.length) return;
+    setGone((g) => [...g.filter((x) => !left.some((l) => l.b.id === x.b.id)), ...left]);
+    setTimeout(() => setGone((g) => g.filter((x) => !left.includes(x))), OUT_MS);
+  }, [items]);
+  const out = items.map((b) => ({ b, leaving: false }));
+  // one said again while it was fading (the same id) is simply up again
+  for (const { b, at } of [...gone].sort((x, y) => x.at - y.at)) if (!items.some((x) => x.id === b.id)) out.splice(Math.min(at, out.length), 0, { b, leaving: true });
+  return out;
+}
 
 /**
  * What failed or finished, said on whatever screen is open: a render that failed (it stays until it is
@@ -98,12 +123,13 @@ export function Banners() {
     return () => clearTimeout(t);
   }, [items, dismiss]);
 
-  if (!items.length) return null;
+  const drawn = useLeaving(items);
+  if (!drawn.length) return null;
   return (
     // top centre, under the screens' headers: over the stage's or the player's empty top, never over a header's
     // controls (as it was at the very top) nor the stage's action bar and the status bar at the foot
     <div className="pointer-events-none fixed top-16 left-1/2 z-[65] flex w-[440px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2">
-      {items.map((b) => {
+      {drawn.map(({ b, leaving }) => {
         const said = (
           <>
             <span className="font-semibold break-words">{b.title}</span>
@@ -112,7 +138,7 @@ export function Banners() {
           </>
         );
         return (
-        <div key={b.id} role={b.tone === "bad" ? "alert" : "status"} className={cx("pointer-events-auto flex items-start gap-2.5 rounded-xl border py-2.5 pr-2 pl-3.5 shadow-2xl", b.tone === "bad" ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>
+        <div key={b.id} role={b.tone === "bad" ? "alert" : "status"} inert={leaving} className={cx(leaving ? "m-out" : "m-toast", "pointer-events-auto flex items-start gap-2.5 rounded-xl border py-2.5 pr-2 pl-3.5 shadow-2xl", b.tone === "bad" ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>
           <span className="pt-0.5">{b.tone === "bad" ? <AlertTriangle size={16} /> : <Check size={16} className="text-good" />}</span>
           {b.act || b.href ? (
             <button

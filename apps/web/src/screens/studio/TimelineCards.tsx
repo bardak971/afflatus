@@ -14,12 +14,29 @@ import { plainKey } from "../../Keys";
 import { useKeysHere } from "../../keys/here";
 import { projectForNew } from "../../project";
 import { openFolderId } from "../../store";
+import { Thumb } from "../../Thumb";
 import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
 import { chipsOf, factsOf, stripOf } from "./timelineCard";
 
 // M: four to a row beside the form, five without it; S and L one more and one fewer
 const CARD = { S: "minmax(250px,1fr)", M: "minmax(320px,1fr)", L: "minmax(440px,1fr)" } as const;
+/** The narrowest a card gets, by size (CARD's), and the gap between cards: how many share a row. */
+const CARD_MIN = { S: 250, M: 320, L: 440 } as const;
+const CARD_GAP = 16;
+/** The clips' shares of a placeholder card's strip: a strip of five clips of a few seconds, as most are. */
+const PLACEHOLDER_STRIP = [1.2, 2, 2.2, 1.6, 2];
+
+/**
+ * How many cards make the first two rows, the New timeline card's place counted. Their strips are the first screen's
+ * pictures: asked for at once and first, not queued lazily behind the rest of the page (the browser asks a server
+ * for only a few at a time). The window's width is a little more than the grid's, so this errs on asking a card
+ * or two more early, never fewer.
+ */
+function firstScreenCards(size: "S" | "M" | "L"): number {
+  const width = typeof window === "undefined" ? 1600 : window.innerWidth;
+  return 2 * Math.max(1, Math.floor((width + CARD_GAP) / (CARD_MIN[size] + CARD_GAP)));
+}
 /** How tall a card's film strip is, by the cards' size. */
 const STRIP_H = { S: "h-[72px]", M: "h-24", L: "h-32" } as const;
 /** A clip with nothing rendered yet, in the strip. */
@@ -195,19 +212,14 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
       ? { title: `${picked.size} timelines` }
       : { title: t.name, thumb: t.cover ?? undefined, sub: <><span className="font-mono">{clock(t.durationMs)}</span> · {t.clips} clip{t.clips === 1 ? "" : "s"}</> };
   const error = create.error ?? makeOf.error ?? rename.error ?? move.error ?? remove.error;
+  const firstScreen = firstScreenCards(size);
 
   return (
     <>
       {error && <ErrorNote>{error.message}</ErrorNote>}
       {ready && !timelines.length && searched && <Empty title="No timeline of that name" help="Clear the search, or open All in the folder list." />}
-      {ready && !timelines.length && !searched && (
-        <Empty
-          title={place.type === "folder" ? "No timeline in this folder" : "No timeline yet"}
-          help={place.type === "folder"
-            ? "A timeline is listed in the folder its renders land in (its own, else its project's root). Open All to see every timeline of the project, or start one here."
-            : "A timeline plays clips one after the other; a clip can extend the one before, so the motion and the voices go on across the cut. Start one with the card below, or with \"Start a timeline from it\" on a picture or a video."}
-        />
-      )}
+      {/* none yet: the New timeline card says so itself; a box above it, drawn once the list answered, pushed the
+          cards (and the placeholders before them) down */}
       {picked.size > 0 && slot && createPortal(
         <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
           <span className="font-semibold whitespace-nowrap">{picked.size} selected</span>
@@ -248,18 +260,22 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
               e.preventDefault();
               makeOf.mutate(ids.length ? { ids } : { files });
             }}
+            // under the pointer while a drop is carried, it leans in and says what a drop does; its children take no
+            // drag events, so moving over its icon or its words is no leave and the lean holds without a flicker
             className={cx(
-              "flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed text-ink-2 transition-colors hover:border-accent hover:text-ink",
-              dropOver ? "border-accent bg-accent-wash text-ink" : fileDrag || itemDrag ? "border-accent text-ink" : "border-line-strong",
+              "flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border text-ink-2 transition-[scale,border-color,color,background-color] duration-[var(--t-pop)] ease-[var(--ease-snap)] hover:border-accent hover:text-ink [&>*]:pointer-events-none",
+              dropOver ? "border-solid border-accent bg-accent-wash text-ink motion-safe:scale-[1.03]" : fileDrag || itemDrag ? "border-dashed border-accent text-ink" : "border-dashed border-line-strong",
             )}
           >
             <Plus size={20} strokeWidth={2.2} />
-            <span className="text-sm font-semibold">{makeOf.isPending ? "Making it…" : "New timeline"}</span>
-            <span className="text-[11px] text-ink-3">or drop pictures and videos here</span>
+            <span className="text-sm font-semibold">{makeOf.isPending ? "Making it…" : dropOver ? "Drop to make a timeline" : "New timeline"}</span>
+            <span className="text-[11px] text-ink-3">{ready && !timelines.length && !searched ? (place.type === "folder" ? "none in this folder yet · drop pictures and videos here" : "none yet · drop pictures and videos here") : "or drop pictures and videos here"}</span>
           </button>
         )}
-        {timelines.map((t) => (
-          <TimelineCard key={t.id} t={t} leaf={leaves.get(t.id)} size={size} picked={picked.has(t.id)} anyPicked={picked.size > 0} folder={place.type === "all" ? folderName(t.folderId) : null} onClick={(e, tick) => click(e, t, tick)} onMenu={(e) => menu.open(e, t)} onDragStart={(e) => {
+        {/* the list on its way: placeholder cards for the first two rows, at the cards' size */}
+        {!ready && Array.from({ length: Math.max(1, firstScreen - (place.type !== "bin" ? 1 : 0)) }, (_, i) => <PlaceholderCard key={i} size={size} />)}
+        {timelines.map((t, i) => (
+          <TimelineCard key={t.id} t={t} leaf={leaves.get(t.id)} size={size} eager={i < firstScreen - (place.type !== "bin" ? 1 : 0)} picked={picked.has(t.id)} anyPicked={picked.size > 0} folder={place.type === "all" ? folderName(t.folderId) : null} onClick={(e, tick) => click(e, t, tick)} onMenu={(e) => menu.open(e, t)} onDragStart={(e) => {
             // the picked ones go together when this one is among them
             const ids = picked.has(t.id) ? [...picked] : [t.id];
             e.dataTransfer.setData(DRAG_TIMELINE, ids.join(","));
@@ -277,8 +293,10 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
  * and when it changed, its facts, the chips of what needs doing, and the tick that picks it. The render estimate is asked only
  * for a card with clips to render, once it is on screen, so a long list asks for the few that are seen.
  */
-function TimelineCard({ t, leaf, size, picked, anyPicked, folder, onClick, onMenu, onDragStart, onTick }: {
+function TimelineCard({ t, leaf, size, eager, picked, anyPicked, folder, onClick, onMenu, onDragStart, onTick }: {
   t: TimelineBrief;
+  /** It is on the first screen: its strip's pictures are asked for at once and first. */
+  eager: boolean;
   /** Its size, unused takes and export (the projects tree's), once read. */
   leaf: TimelineLeaf | undefined;
   size: "S" | "M" | "L";
@@ -331,7 +349,8 @@ function TimelineCard({ t, leaf, size, picked, anyPicked, folder, onClick, onMen
               data-tip={f.asset ? `Clip ${f.n}` : `Clip ${f.n}: to render`}
               className="relative min-w-4 basis-0 overflow-hidden rounded-md bg-raised"
             >
-              {f.asset && <img src={thumbUrl(f.asset)} alt="" loading="lazy" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
+              {/* the box is drawn at its clip's width from the start, raised; the picture fades in over it as it comes */}
+              {f.asset && <Thumb src={thumbUrl(f.asset)} alt="" loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "high" : undefined} draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
               <span data-stage className="absolute bottom-1 left-1 rounded bg-stage/70 px-1 font-mono text-[10px] leading-tight text-ink">{f.n}</span>
             </span>
           ))}
@@ -368,6 +387,27 @@ function TimelineCard({ t, leaf, size, picked, anyPicked, folder, onClick, onMen
         )}
       >
         {picked && <Check size={12} strokeWidth={3.5} />}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A card while the list is on its way, laid out as a card is (TimelineCard): the strip's boxes, the name and when, the
+ * facts line, each a placeholder with the loading shine at its line's height, so the real card lands in its place.
+ */
+function PlaceholderCard({ size }: { size: "S" | "M" | "L" }) {
+  return (
+    <div aria-hidden className="flex flex-col overflow-hidden rounded-2xl border border-line bg-panel">
+      <span className={cx("flex shrink-0 gap-0.5 px-2 pt-2", STRIP_H[size])}>
+        {PLACEHOLDER_STRIP.map((grow, i) => <span key={i} style={{ flexGrow: grow }} className="m-skeleton min-w-4 basis-0 rounded-md!" />)}
+      </span>
+      <span className="flex flex-col gap-1.5 px-3.5 pt-3 pb-3.5">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="grow text-[15px] font-bold"><span className="m-skeleton inline-block h-[0.8em] w-2/5 align-middle" /></span>
+          <span className="shrink-0 text-xs"><span className="m-skeleton inline-block h-[0.8em] w-10 align-middle" /></span>
+        </span>
+        <span className="text-[12.5px]"><span className="m-skeleton inline-block h-[0.8em] w-3/5 align-middle" /></span>
       </span>
     </div>
   );

@@ -112,12 +112,21 @@ export function Toggle({ on, onChange, label, note, bare, disabled }: { on: bool
         disabled={disabled}
         onClick={() => onChange(!on)}
         className={cx(
-          "h-6 w-10 shrink-0 rounded-full p-[3px] transition-[background-color,box-shadow]",
+          // the colour changes at once with the click; only the knob travels
+          "relative h-6 w-10 shrink-0 rounded-full transition-[box-shadow]",
           on ? "bg-accent" : "bg-line-strong",
           disabled ? "cursor-not-allowed" : "hover:shadow-[0_0_0_4px_var(--color-accent-wash)]",
         )}
       >
-        <span className={cx("block h-[18px] w-[18px] rounded-full transition-[margin] motion-reduce:transition-none", on ? "ml-4 bg-knob" : "bg-ink")} />
+        {/* the knob stretches toward where it goes: its leading edge moves first, the other follows (--t-trail later) */}
+        <span
+          className={cx(
+            "absolute top-[3px] h-[18px] rounded-full",
+            on
+              ? "right-[3px] left-[calc(100%-21px)] bg-knob motion-safe:[transition:right_var(--t-travel)_var(--ease-snap),left_var(--t-travel)_var(--ease-snap)_var(--t-trail)]"
+              : "right-[calc(100%-21px)] left-[3px] bg-ink motion-safe:[transition:left_var(--t-travel)_var(--ease-snap),right_var(--t-travel)_var(--ease-snap)_var(--t-trail)]",
+          )}
+        />
       </button>
       {!bare && <span>{label}</span>}
       {!bare && <Note text={note} />}
@@ -185,7 +194,44 @@ export function PanelEdge({ side, size }: { side: "left" | "right"; size?: { get
   );
 }
 
-/** A row of choices where one is on: a pill holding them, the one on lit. `sm`: smaller, for a dense bar (time windows). `mono`: choices that are figures (1H, 24H). */
+/** Where the lit pill of a Segmented sits, in its box's own pixels. */
+interface PillBox {
+  left: number;
+  right: number;
+  top: number;
+  height: number;
+}
+
+/** The box of the option on (null when none is), read from the page so that any labels and any wrapping work. */
+function pillBox(group: HTMLElement): PillBox | null {
+  const on = group.querySelector<HTMLElement>(':scope > [role="radio"][aria-checked="true"]');
+  if (!on) return null;
+  return { left: on.offsetLeft, right: group.clientWidth - on.offsetLeft - on.offsetWidth, top: on.offsetTop, height: on.offsetHeight };
+}
+
+const sameBox = (a: PillBox | null, b: PillBox | null) => a === b || (a !== null && b !== null && a.left === b.left && a.right === b.right && a.top === b.top && a.height === b.height);
+
+/**
+ * Puts the pill on `to`. `travel`: a new choice, which stretches there (the edge on the side it goes leads, the other one
+ * follows --t-trail later); anything else (a resize, a label turning bold) puts it there at once.
+ */
+function placePill(pill: HTMLElement, from: PillBox | null, to: PillBox | null, travel: boolean) {
+  if (!to) {
+    pill.style.opacity = "0";
+    return;
+  }
+  const toRight = from !== null && to.left > from.left;
+  pill.toggleAttribute("data-travel", travel && from !== null);
+  pill.style.setProperty("--edge-l", toRight ? "var(--t-trail)" : "0ms");
+  pill.style.setProperty("--edge-r", toRight ? "0ms" : "var(--t-trail)");
+  Object.assign(pill.style, { opacity: "1", left: `${to.left}px`, right: `${to.right}px`, top: `${to.top}px`, height: `${to.height}px` });
+}
+
+/**
+ * A row of choices where one is on: a pill holding them, the one on lit. `sm`: smaller, for a dense bar (time windows).
+ * `mono`: choices that are figures (1H, 24H). The lit pill is one box behind the options that stretches from the old
+ * choice to the new one; the value itself changes on the click.
+ */
 export function Segmented<T extends string>({ value, options, onChange, label, oneLine, size = "md", mono, className }: {
   value: T;
   options: Array<{ value: T; label: ReactNode; tip?: string }>;
@@ -197,9 +243,42 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
   mono?: boolean;
   className?: string;
 }) {
+  const group = useRef<HTMLDivElement>(null);
+  const pill = useRef<HTMLSpanElement>(null);
+  const at = useRef<PillBox | null>(null);
+  // until the pill is placed (before the first paint), the option on is lit by its own background: nothing flashes
+  const [placed, setPlaced] = useState(false);
+  useLayoutEffect(() => {
+    if (!group.current || !pill.current) return;
+    const to = pillBox(group.current);
+    placePill(pill.current, at.current, to, true);
+    at.current = to;
+    setPlaced(true);
+  }, [value]);
+  // the options change size (the room, the labels, a font loading): the pill follows at once, without travel; a box
+  // that has not moved (the one just measured for a new choice) is left alone, so its stretch is not cut short
+  const keys = options.map((o) => o.value).join(" ");
+  useLayoutEffect(() => {
+    const g = group.current;
+    if (!g) return;
+    const watch = new ResizeObserver(() => {
+      const to = pillBox(g);
+      if (!pill.current || sameBox(to, at.current)) return;
+      placePill(pill.current, at.current, to, false);
+      at.current = to;
+    });
+    watch.observe(g);
+    for (const b of g.querySelectorAll(':scope > [role="radio"]')) watch.observe(b);
+    return () => watch.disconnect();
+  }, [keys]);
   return (
     // the chips wrap onto another line rather than run past the edge of a narrow panel (seven shapes do)
-    <div role="radiogroup" aria-label={label} className={cx("flex gap-0.5 rounded-xl bg-raised p-[3px]", oneLine ? "shrink-0 flex-nowrap" : "max-w-full flex-wrap", className)}>
+    <div ref={group} role="radiogroup" aria-label={label} className={cx("relative flex gap-0.5 rounded-xl bg-raised p-[3px]", oneLine ? "shrink-0 flex-nowrap" : "max-w-full flex-wrap", className)}>
+      <span
+        ref={pill}
+        aria-hidden
+        className="pointer-events-none absolute rounded-[9px] bg-line-strong motion-safe:data-[travel]:[transition:left_var(--t-travel)_var(--ease-snap)_var(--edge-l),right_var(--t-travel)_var(--ease-snap)_var(--edge-r),top_var(--t-travel)_var(--ease-snap)]"
+      />
       {options.map((o) => (
         <button
           key={o.value}
@@ -209,10 +288,11 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
           data-tip={o.tip}
           onClick={() => onChange(o.value)}
           className={cx(
-            "grow rounded-[9px] whitespace-nowrap transition-colors",
+            // over the pill
+            "relative grow rounded-[9px] whitespace-nowrap transition-colors",
             size === "md" ? "h-[30px] px-3 text-[12.5px]" : "h-[26px] px-2.5 text-xs",
             mono && "font-mono",
-            o.value === value ? "bg-line-strong font-bold text-ink" : "font-semibold text-ink-2 hover:bg-hover hover:text-ink",
+            o.value === value ? cx("font-bold text-ink", !placed && "bg-line-strong") : "font-semibold text-ink-2 hover:bg-hover hover:text-ink",
           )}
         >
           {o.label}
