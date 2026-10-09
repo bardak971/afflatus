@@ -70,6 +70,27 @@ describe("isShown", () => {
     expect(isShown(spec, { mode: "a" })).toBe(false);
     expect(isShown(spec, { mode: "b" })).toBe(true);
   });
+  it("hides what depends on a hidden input, whatever that input's value", () => {
+    // the guide's edge thresholds: "Follow" defaults to Edges but shows only with a guide picture
+    const chain: InputSpec[] = [
+      { id: "guide", type: "image", role: "guide", label: "Guide picture", optional: true },
+      { id: "follow", type: "choice", label: "Follow", options: ["Edges", "Depth"], default: "Edges", showWhen: "guide" },
+      { id: "low", type: "number", label: "Edge low threshold", min: 0, max: 1, step: 0.01, default: 0.4, showWhen: { input: "follow", in: ["Edges"] } },
+    ];
+    const low = chain[2]!;
+    expect(isShown(low, { follow: "Edges" }, chain)).toBe(false);
+    expect(isShown(low, { follow: "Edges", guide: "a.png" }, chain)).toBe(true);
+    expect(isShown(low, { follow: "Depth", guide: "a.png" }, chain)).toBe(false);
+    // without the recipe's inputs it only looks one step up, as before
+    expect(isShown(low, { follow: "Edges" })).toBe(true);
+  });
+  it("stops on a loop of conditions", () => {
+    const loop: InputSpec[] = [
+      { id: "a", type: "toggle", label: "A", default: true, showWhen: "b" },
+      { id: "b", type: "toggle", label: "B", default: true, showWhen: "a" },
+    ];
+    expect(isShown(loop[0]!, { a: true, b: true }, loop)).toBe(true);
+  });
 });
 
 describe("a saved file choice this ComfyUI lists under another folder", () => {

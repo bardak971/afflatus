@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MapPin, Play, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
+import { MapPin, Play, Plus, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { api, thumbUrl, type Entity, type RecipeInfo } from "../api";
@@ -124,7 +124,7 @@ export function People() {
   const askRemove = async (e: Entity) => {
     if (await ask({ title: `Delete ${e.name}?`, text: noteOfDelete(e), yes: "Delete" })) remove.mutate(e.id);
   };
-  /** The right-click menu of a row: what the open item's header offers. */
+  /** The right-click menu of a row, also the open item's ··· menu: what its header offers, and Delete…. */
   const rowMenu = useMenu<Entity>();
   const rowItems = (e: Entity): MenuItem[] => [
     { label: open === e.id ? "Close" : "Open", icon: <Pencil size={14} />, run: () => select(open === e.id ? null : e.id) },
@@ -164,13 +164,23 @@ export function People() {
       <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) doImport.mutate(f); e.target.value = ""; }} />
     </>
   );
-  /** The head of the list: the word when the search finds nothing. */
-  const head = mine.length > 0 && found.length === 0 && <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>;
   const explain = tab === "person"
     ? "A person is reference images, a voice sample and prompt text. Afflatus gives each model what it can take: tags or natural language, a LoRA, reference images, the voice sample."
     : tab === "place" ? "A place is reference images and prompt text: the clip or the image happens there."
       : tab === "style" ? "A style is LoRAs and prompt text, set up for the models you use it with."
         : "A preset is generation parameters kept under a name: a model and what you set on its form, a prompt, the references. Everything in it is optional. Save one from the form in Studio, under \"Model\", start an empty one here, or copy one of the shipped ones.";
+  /**
+   * The head of the list: the word when the search finds nothing, and on an empty tab the next step where
+   * the rows would be (the New button at the top right was the only way in, far from the empty column).
+   */
+  const head = mine.length > 0 && found.length === 0
+    ? <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>
+    : entities.isSuccess && mine.length === 0 && (
+      <div className="flex flex-col items-center gap-3 px-2 py-8 text-center">
+        <span className="flex items-center gap-1.5 text-xs text-ink-2">No {here.title.toLowerCase()} yet <Help text={explain} title={here.title} /></span>
+        <Button size="sm" tone="primary" disabled={create.isPending} onClick={onNew} className="flex items-center gap-1.5"><Plus size={13} /> {here.add}</Button>
+      </div>
+    );
 
   return (
     <div className="flex min-h-0 min-w-0 grow flex-col">
@@ -229,7 +239,7 @@ export function People() {
                 {/* each editor is keyed by its item: another item opens a fresh one, so an upload or a picker left open never lands on it */}
                 <ItemHeader
                   item={editing} saved={saved} failure={failure} onRename={(name) => change({ ...editing, name })} onRetry={retry}
-                  onApply={() => void flush().then(() => applyInStudio(editing.id))} onDelete={() => void askRemove(editing)} onClose={() => select(null)}
+                  onApply={() => void flush().then(() => applyInStudio(editing.id))} onMenu={(ev) => rowMenu.open(ev, editing)} onClose={() => select(null)}
                 />
                 {editing.kind === "person" && <PersonEditor key={editing.id} def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "place" && <PlaceEditor key={editing.id} def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
@@ -241,8 +251,8 @@ export function People() {
               <div className="flex max-w-[820px] flex-col items-center gap-3 pt-24 text-center">
                 <span className="text-ink-3">{here.icon}</span>
                 <h2 className="flex items-center gap-2 text-base font-semibold">
-                  {mine.length ? `Choose ${tab === "person" ? "a person" : tab === "place" ? "a place" : tab === "style" ? "a style" : "a preset"} on the left` : `No ${here.title.toLowerCase()} yet`}
-                  <Help text={explain} title={here.title} />
+                  {/* an empty tab says so once, in the list column, beside its New button */}
+                  {mine.length > 0 && <>Choose {tab === "person" ? "a person" : tab === "place" ? "a place" : tab === "style" ? "a style" : "a preset"} on the left <Help text={explain} title={here.title} /></>}
                 </h2>
               </div>
             )}

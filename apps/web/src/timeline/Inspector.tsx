@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Music, Trash2, Wand2, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, MoreHorizontal, Music, Trash2, Wand2, X } from "lucide-react";
 import { mostFromMs, musicPlan, secondsInput } from "@afflatus/core";
 import { api, thumbUrl, type Clip, type RecipeInfo, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
@@ -9,13 +9,13 @@ import { WritingHelp } from "../WritingHelp";
 import { appendTo } from "../promptText";
 import { LookBar, lookWords } from "../LookBar";
 import { FormModel } from "../ModelLoad";
-import { aboutMs, clock, phaseLabel, recipeLabel, timeLeft } from "../format";
+import { clock, phaseLabel, recipeLabel, timeLeft } from "../format";
 import { Picker } from "../PictureField";
 import { Form, mainTextOf } from "../RecipeForm";
 import { CardPrompt } from "../recipeForm/Part";
 import { CastPictures } from "../castPictures";
 import { Select } from "../Select";
-import { AutoText, Bar, Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle, TwoStep } from "../ui";
+import { AutoText, Bar, Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, PanelEdge, SectionTitle, Segmented, Toggle } from "../ui";
 import { FieldRow } from "../fields";
 import { RangeSlider } from "../RangeSlider";
 import { Keys } from "../Keys";
@@ -28,6 +28,7 @@ import { DRAG_PICTURE, useDropZone } from "../dragging";
 import { projectForNew } from "../project";
 import { useRunningOf } from "./useRunning";
 import { SHOWS } from "./attention";
+import { Estimate } from "./estimate";
 
 /** A slider that says its value while it moves and saves it when it is let go. */
 function Slide({ label, value, min = 0, max, step = 1, show, onCommit }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void }) {
@@ -179,7 +180,7 @@ function CloseButton({ onClose }: { onClose(): void }) {
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, busy, error, onInputs, onRecipe, onPatch, onRender, onRemove, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -199,7 +200,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   onPatch(patch: ShownPatch): void;
   /** Render it: `count` takes at once (the first with the form's seed, the others with a fresh one each). Where it ends is the clip's own fitNext. */
   onRender(count: number): void;
-  onRemove(): void;
+  /** The clip's own menu (its right-click menu on the track), under the head's ··· button: Remove clip is there, with its Del. */
+  onMenu(e: { preventDefault(): void; clientX: number; clientY: number; currentTarget?: EventTarget | null }): void;
   onRemoveTake(id: string): void;
   /** Stop the render of this clip that is under way, or take it out of the queue. */
   onStop(): void;
@@ -241,7 +243,9 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
       // the choice is not kept, nothing more
     }
   };
-  const takes = aboutMs(takesMs === null ? null : takesMs * count);
+  const takesTotal = takesMs === null ? null : takesMs * count;
+  // what a render of it is called, the same in the broken-join banner and the foot: a clip with a take gets a new take
+  const renderWords = count > 1 ? `Render ${count} takes` : clip.take ? "New take" : "Render this clip";
   const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
   const recipe = recipes.find((r) => r.id === clip.recipe) ?? all.data?.recipes.find((r) => r.id === clip.recipe);
   const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
@@ -345,7 +349,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               </Chip>
             )}
             {!still && !recipe && take && (
-              <Chip>imported video<Help title="Imported video" text="It can be trimmed, and a new clip can extend from any of its frames. It cannot be re-rendered, unless you choose a model to render in its place, under Model." /></Chip>
+              <Chip>imported video<Help title="Imported video" text="It can be trimmed, and a new clip can extend from any of its frames. It gets no new take, unless you choose a model to render in its place, under Model." /></Chip>
             )}
             {misfit && (
               <Chip tone="warn">{misfit.mine} in a {misfit.video} video<Help title="Another shape" text={`This ${still ? "still" : "clip"} is ${misfit.mine}, the video is ${misfit.video}. ${clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."} Fill frame switches between the two.`} /></Chip>
@@ -369,8 +373,22 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
               <Wand2 size={13} /> Designer
             </button>
           )}
-          <TwoStep title="Remove from timeline" icon={<Trash2 size={14} />} note={still ? "The image stays in your library." : "Its videos stay in your library."} yes="Remove" onYes={onRemove} className="h-7! w-7! rounded-lg text-warn-ink! hover:bg-warn-wash!" />
-          {onClose && <CloseButton onClose={onClose} />}
+          {/* Remove clip lives in this menu, with the clip's other actions, not as a button beside Close: one misclick from losing a clip */}
+          <button
+            type="button"
+            aria-label={`More actions on ${still ? "still" : "clip"} ${index + 1}`}
+            aria-haspopup="menu"
+            data-tip="More: Duplicate, Move, Remove clip…"
+            onClick={(e) => {
+              // under the button rather than at the pointer, as a menu button's menu
+              const r = e.currentTarget.getBoundingClientRect();
+              onMenu({ preventDefault: () => e.preventDefault(), clientX: Math.max(1, r.right - 240), clientY: r.bottom + 4 });
+            }}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"
+          >
+            <MoreHorizontal size={15} />
+          </button>
+          {onClose && <span className="ml-1.5 flex shrink-0 border-l border-line pl-1.5"><CloseButton onClose={onClose} /></span>}
         </div>
       </div>
 
@@ -389,7 +407,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <span className="font-semibold text-warn-ink">This clip no longer follows clip {index}</span>
             <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
             <span className="flex flex-wrap gap-1.5">
-              {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(count)}>Re-render{takes ? ` · ${takes}` : ""}</Button>}
+              {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(count)}>{renderWords}<Estimate ms={takesTotal} /></Button>}
               <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
             </span>
           </div>
@@ -575,7 +593,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <RenderProgress clip={clip.id} onStop={onStop} />
           ) : (
             <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
-              {busy ? "Sending…" : `${count > 1 ? `Render ${count} takes` : take ? "New take" : "Render this clip"}${takes ? ` · ${takes}` : ""}`}
+              {busy ? "Sending…" : <>{renderWords}<Estimate ms={takesTotal} /></>}
               {/* Ctrl+Enter renders one take: said only when that is what the button does */}
               {!busy && count === 1 && <Keys keys="Ctrl+Enter" size="sm" />}
             </Button>
@@ -645,7 +663,7 @@ function LookTable({ timeline, index, take, onSelectClip }: { timeline: Timeline
   ];
   if (m.pace != null) rows.push({ label: "Pace", value: m.pace.toFixed(1), vs: each((c) => ({ text: share(c.by.pace), bad: past("pace", c.by.pace) })), why: `Mean frame-to-frame change, the ruler's motion figure. H3 tends to slow down after each hand-over; past ${pct(DRIFT.pace)} it reads as slow motion.` });
   if (m.chroma) rows.push({ label: "Colour", value: `${signed(m.chroma.u)} / ${signed(m.chroma.v)}`, vs: each((c) => ({ text: c.by.colour == null ? null : `±${c.by.colour.toFixed(1)}`, bad: past("colour", c.by.colour) })), why: `Mean chroma against neutral, as U / V: U is blue (+) to yellow (−), V red (+) to green (−). Against another clip: how far the colour moved in U/V; past ${DRIFT.colour} a cast shows. A warming or greying chain shows here.` });
-  if (m.handover != null) rows.push({ label: "Run-up end", value: `×${m.handover.toFixed(1)}`, vs: each(() => ({ text: null })), bad: m.handover > DRIFT.handover, why: `A continuation: how much the picture jumps where the run-up (the frames shared with the clip before; in a seamless take, that clip's own frames) ends and this clip's own frames begin, against its own motion right after. ×1 carries on; past ×${SHOWS} the model stepped away from its guide and the join shows: re-render the take.` });
+  if (m.handover != null) rows.push({ label: "Run-up end", value: `×${m.handover.toFixed(1)}`, vs: each(() => ({ text: null })), bad: m.handover > DRIFT.handover, why: `A continuation: how much the picture jumps where the run-up (the frames shared with the clip before; in a seamless take, that clip's own frames) ends and this clip's own frames begin, against its own motion right after. ×1 carries on; past ×${SHOWS} the model stepped away from its guide and the join shows: render a new take.` });
   // the rest: read when something looks off, not every time
   const more: Row[] = [];
   if (m.range) more.push({ label: "Range", value: `${m.range.low.toFixed(0)}–${m.range.high.toFixed(0)}`, vs: each((c) => ({ text: c.of?.range ? diff(m.range!.high - m.range!.low, c.of.range.high - c.of.range.low) : null })), why: "Where the darkest and the brightest tenth of the picture sit. A shrinking range is crushed blacks or clipped whites." });
@@ -670,7 +688,7 @@ function LookTable({ timeline, index, take, onSelectClip }: { timeline: Timeline
       <div className="flex items-center gap-2 border-b border-line px-3 py-2">
         <span className="grow truncate text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Look · take {n} of clip {index + 1}</span>
         {warning && <Chip tone="warn" className="font-mono">{warning}</Chip>}
-        {m.handover != null && m.handover > DRIFT.handover && <Chip tone="warn" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Re-render the take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
+        {m.handover != null && m.handover > DRIFT.handover && <Chip tone="warn" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Render a new take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
         <Help title="Look" text={note} />
       </div>
       <div className="px-3 pt-1.5 pb-1 text-xs">

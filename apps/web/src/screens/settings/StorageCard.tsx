@@ -16,7 +16,8 @@ export function StorageCard() {
   const s = storage.data;
   const parts = s ? [
     { label: "Videos that play, or are in your library", bytes: s.videos, tone: "bg-accent" },
-    { label: "Takes that never play", bytes: s.idleTakes.bytes, tone: "bg-warn" },
+    // a faded video colour: they are videos too, only idle; the warn red read as an error
+    { label: "Takes that never play", bytes: s.idleTakes.bytes, tone: "bg-accent/40" },
     { label: "Images", bytes: s.pictures, tone: "bg-picture" },
     { label: "Audio", bytes: s.sounds, tone: "bg-good" },
     { label: "Bin", bytes: s.bin.bytes, tone: "bg-ink-3" },
@@ -52,10 +53,10 @@ export function StorageCard() {
           <Row
             setting="storage.bin"
             label="Bin"
-            sub={s.bin.count > 0 ? `${s.bin.count} thing${s.bin.count > 1 ? "s" : ""} · ${size(s.bin.bytes)}` : "empty"}
+            sub={s.bin.count > 0 ? `${s.bin.count} item${s.bin.count > 1 ? "s" : ""} · ${size(s.bin.bytes)}` : "empty"}
             help={`Kept 7 days before it is deleted. Outputs you do not keep go to the bin after 24 hours${s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.`}
           >
-            {s.bin.count > 0 && <TwoStep label="Empty it now" title="Everything in the bin is erased now, files and all, instead of after its 7 days" note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
+            {s.bin.count > 0 && <TwoStep label="Empty the bin" tone="danger" title="Everything in the bin is erased now, files and all, instead of after its 7 days" note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
           </Row>
         )}
         {(idle.isError || empty.isError) && <Block><ErrorNote>{(idle.error ?? empty.error)?.message}</ErrorNote></Block>}
@@ -108,7 +109,7 @@ function RenderRecord() {
         <Segmented oneLine label="How long each render is kept one by one" value={String(days)} options={KEEP_FOR} onChange={(v) => keep.mutate(Number(v))} />
       </Row>
       <Row label="Forget every render time" help="The estimates start again from nothing.">
-        <TwoStep label="Forget every render time" title="Forget every render time" note="The estimates start again from nothing." yes="Forget them" busy={forget.isPending} disabled={!r || (!r.renders && !r.days)} onYes={() => forget.mutate()} />
+        <TwoStep label="Forget every render time" tone="danger" title="Forget every render time" note="The estimates start again from nothing." yes="Forget them" busy={forget.isPending} disabled={!r || (!r.renders && !r.days)} onYes={() => forget.mutate()} />
       </Row>
       {(forget.isError || keep.isError) && <Block><ErrorNote>{(forget.error ?? keep.error)?.message}</ErrorNote></Block>}
     </Card>

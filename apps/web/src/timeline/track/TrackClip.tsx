@@ -1,7 +1,8 @@
 import { memo, type DragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Link2, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo } from "../../api";
-import { aboutMs, phaseLabel } from "../../format";
+import { phaseLabel } from "../../format";
+import { est } from "../estimate";
 import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
 import { useQueueOf } from "../../screens/studio/queueOf";
@@ -202,18 +203,20 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
                   >
                     {c.failed ? "Retry" : "Render"}
                   </button>
-                  <span className={cx("truncate font-mono text-[10.5px]", c.failed ? "text-warn-ink" : "text-ink-3")}>{c.failed ? "failed" : aboutMs(renderMs).replace("about ", "~")}</span>
+                  <span className={cx("truncate font-mono text-[10.5px]", c.failed ? "text-warn-ink" : "text-ink-3")}>{c.failed ? "failed" : est(renderMs)}</span>
                 </span>
               ) : (
-                <span className={cx("truncate rounded bg-ground/85 px-1.5 py-px text-[11px]", c.failed && s.planned ? "text-warn-ink" : s.planned ? "text-ink-2" : "font-semibold")}>
+                // a length is never cut short ("3.0 s" read as "3", a count or a clip number): the tags beside it give way first
+                <span className={cx("rounded bg-ground/85 px-1.5 py-px text-[11px]", c.failed && s.planned ? "truncate text-warn-ink" : s.planned ? "truncate text-ink-2" : "shrink-0 font-semibold whitespace-nowrap")}>
                   {s.planned ? (c.failed ? "The render failed" : s.width > 100 ? "Not rendered yet" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
                 </span>
               )}
-              <span className="flex shrink-0 items-center gap-1">
-                {c.kind === "still" && s.width > 70 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Still</span>}
-                {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Imported</span>}
-                {misfit && s.width > 120 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-warn-ink">other aspect ratio</span>}
-                {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
+              {/* the tags shrink to an ellipsis ("St…"), never cut at their start ("ill"); the length beside them does not shrink */}
+              <span className="flex min-w-0 items-center justify-end gap-1">
+                {c.kind === "still" && s.width > 100 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Still</span>}
+                {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">Imported</span>}
+                {misfit && s.width > 120 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-warn-ink">other aspect ratio</span>}
+                {c.takes.length > 1 && s.width > 110 && <span className="min-w-0 truncate rounded bg-ground/85 px-1.5 py-px text-[10px] text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
               </span>
             </>
           )}

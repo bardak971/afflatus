@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, FileDown, Link2, Play, Trash2, X } from "lucide-react";
+import { Check, FileDown, Link2, MoreHorizontal, Play, X } from "lucide-react";
 import type { Entity } from "../../api";
 import { savePresetFile } from "../../presetFile";
 import { copyText } from "../../secureContext";
@@ -26,7 +26,7 @@ export function CopyLink({ item }: { item: Entity }) {
 }
 
 /** The head of the item open in the Prompt kit: its name to change, whether it is saved, and what can be done with it. */
-export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, onDelete, onClose }: {
+export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, onMenu, onClose }: {
   item: Entity;
   saved: "saved" | "saving" | "failed";
   /** Why the last save failed, in the server's words. */
@@ -35,8 +35,8 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
   onRetry(): void;
   /** A preset: put in the form in Studio. */
   onApply(): void;
-  /** Asks first (the question the row's menu asks), then deletes. */
-  onDelete(): void;
+  /** Opens the row's menu for this item, where Delete… lives (it asks first). */
+  onMenu(e: React.MouseEvent): void;
   onClose(): void;
 }) {
   return (
@@ -53,8 +53,9 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
           <Button size="sm" onClick={() => savePresetFile(item)} data-tip="A file another Afflatus can import, or a preset to contribute" className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
         </>
       )}
-      <Button size="sm" tone="danger" aria-label={`Delete ${item.name}`} data-tip="Delete…" onClick={onDelete} className="w-8 shrink-0 px-0!"><Trash2 size={14} /></Button>
-      <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+      {/* Delete sits in the menu, not next to ×: one misclick there lost an item, and the kit has no undo. */}
+      <button type="button" aria-label={`More actions on ${item.name}`} aria-haspopup="menu" data-tip="More: Delete…" onClick={onMenu} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><MoreHorizontal size={16} /></button>
+      <button type="button" aria-label="Close" onClick={onClose} className="ml-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
     </div>
   );
 }

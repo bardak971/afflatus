@@ -46,10 +46,10 @@ export interface Banner {
   tone: "bad" | "good";
   title: string;
   text?: string;
-  /** Where a click on it leads. */
-  href: string;
+  /** Where a click on it leads. Left out (with `go`): it leads nowhere, what it is about being on screen already. */
+  href?: string;
   /** What the link is called. */
-  go: string;
+  go?: string;
   /** What a click does in place of going to `href` (a reload). */
   act?(): void;
 }

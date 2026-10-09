@@ -161,7 +161,8 @@ export function Setup() {
             </>
           )}
           {tab === "designer" && <DesignerCard />}
-          {tab === "prompts" && <><PromptsCard /><WritingCard /></>}
+          {/* the settings first: eleven guides above them pushed the tag check below the fold */}
+          {tab === "prompts" && <><WritingCard /><PromptsCard /></>}
           {tab === "interface" && <InterfaceTab />}
           {tab === "bar" && <BarCard />}
           {tab === "storage" && <StorageCard />}

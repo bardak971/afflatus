@@ -4,7 +4,8 @@ import { z } from "zod";
 import { compose, lookSchema } from "./entities";
 import { notFound } from "./errors";
 import type { Services } from "./services";
-import { writeDraft } from "./drafts";
+import { draftLabel, promptOf } from "./autoName";
+import { findDraft, writeDraft } from "./drafts";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
@@ -49,12 +50,20 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     const seed = typedSeed(body.input.seed);
     // sent from a blank draft: it is written now, so that what comes out is filed under it
     if (body.draft) await writeDraft(s.db, body.draft);
+    // a job with no label of its own is said by the draft it came from ("Portrait done"), as its results are named
+    // (autoName.ts), rather than by its recipe's title ("txt2img done"), which every draft on that model shares
+    let label = body.label;
+    if (!label?.trim() && body.draft && recipe) {
+      const d = await findDraft(s.db, body.draft);
+      const prompts = (recipe.inputs as InputSpec[]).filter((i) => i.type === "prompt" && !i.optional).map((i) => i.id);
+      if (d) label = draftLabel({ name: d.name, title: d.title, prompt: promptOf(body.input, prompts), recipe: recipe.title });
+    }
     for (let i = 0; i < body.count; i++) {
       // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
       const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
       const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
       const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
-      ids.push(await s.queue.enqueue(body.recipe, each, { label: body.label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input) }));
+      ids.push(await s.queue.enqueue(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input) }));
     }
     return { ids };
   });

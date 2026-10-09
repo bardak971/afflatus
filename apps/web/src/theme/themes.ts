@@ -148,6 +148,12 @@ function ofRosePine(id: string, name: string, c: Variant, stage?: Theme): Theme 
   const light = Boolean(stage);
   const panel = light ? paper(c.surface, 0.4) : c.surface;
   const text = light ? mix(c.text, "#000000", 0.15) : c.text;
+  // Dawn's love, darkened as every light warning is, came out a muted maroon that read as ordinary text
+  // beside the dark names of a failed row: its ink is taken toward a plain red first (5.4:1 on its wash)
+  const warningOf = (w: string): Warning => {
+    const t = warning(w, panel, text, light);
+    return light && w === c.love ? { ...t, "warn-ink": mix(mix(w, "#d7263d", 0.45), "#000000", 0.15) } : t;
+  };
   return {
     id, name, family: "rosepine", light, stage: stage?.id,
     accents: { gold: c.gold, rose: c.rose, love: c.love, iris: c.iris, foam: c.foam, pine: c.pine },
@@ -156,7 +162,7 @@ function ofRosePine(id: string, name: string, c: Variant, stage?: Theme): Theme 
           ground: c.overlay, panel, raised: c.base, hover: mix(c.base, c.muted, 0.15),
           line: mix(c.overlay, c.muted, 0.08), "line-strong": mix(c.overlay, c.muted, 0.25),
           ink: text, "ink-2": mix(c.subtle, "#000000", 0.22), "ink-3": mix(c.subtle, "#000000", 0.1), "ink-strong": mix(c.text, "#000000", 0.4),
-          good: c.pine, ...warning(c.love, panel, text, true), "warn-on": c.surface,
+          good: c.pine, ...warningOf(c.love), "warn-on": c.surface,
           picture: c.iris, shade: c.muted, stage: stage.base.panel,
         }
       : {
@@ -168,7 +174,7 @@ function ofRosePine(id: string, name: string, c: Variant, stage?: Theme): Theme 
         },
     // love is the warning; beside a rose accent, gold is the one that stands apart
     alerts: [c.love, c.gold, c.rose],
-    warning: (w) => warning(w, panel, text, light),
+    warning: warningOf,
     onAccent: light ? "#ffffff" : c.base,
     wash: light ? 0.1 : 0.12,
   };

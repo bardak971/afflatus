@@ -178,10 +178,6 @@ export function MaskPainter({ picture, mask, onDone, onClose }: { picture: strin
         </div>
         </div>
       </div>
-      <footer className="shrink-0 border-t border-line bg-panel px-5 py-2.5 text-xs text-ink-2">
-        Paint a little wider than the thing itself. Only what is painted is redone; the rest of the picture stays exactly as it is.
-        For something small, turn the mouse wheel to bring the picture closer; to move around, pick Move or hold the space bar and drag.
-      </footer>
     </div>
   );
 }

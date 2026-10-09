@@ -102,7 +102,21 @@ export function StripModel() {
   const form = useStrip((s) => s.form);
   const queue = useQueue();
   if (queue.data?.online === false) return null;
+  // a render still bringing its model in: the model is named as it will be held, but it is not in yet
+  if (queue.data?.running?.phase === "loading" && queue.data.model) return <Loading name={queue.data.model} />;
   return form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />;
+}
+
+/** The model the running render is loading into ComfyUI: grey until it is in. */
+function Loading({ name }: { name: string }) {
+  return (
+    <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`ComfyUI is loading ${name} for the running render. It stays loaded after it, for the next one.`}>
+      <Light on={false} />
+      <span className="shrink-0">Loading</span>
+      <span className={cx("max-w-60", nameClass)}>{name}</span>
+      <span className="shrink-0">…</span>
+    </span>
+  );
 }
 
 /** The model that is loaded, by its name. Nothing when none is. Not `sure`: whether the open form renders with it cannot be told yet, and the icon does not say it does. */
@@ -173,8 +187,9 @@ function OfForm({ recipe, input, look }: OpenForm) {
         </>
       ) : (
         <>
-          <span className="flex min-w-0 items-center gap-1" data-tip={held ? `${held} is the model ComfyUI has loaded. This form renders with another model.` : "ComfyUI has no model loaded by Afflatus."}>
-            {held ? <><span className={cx("max-w-56", nameClass)}>{held}</span><span className="shrink-0">· not this form's</span></> : "Model not loaded"}
+          <span className="flex min-w-0 items-center gap-1" data-tip={held ? `${held} is the model ComfyUI has loaded. This form renders with another model: Load swaps it in now.` : "ComfyUI has no model loaded by Afflatus."}>
+            {/* short of room the name goes, and the words say it alone */}
+            {held ? <><span className="shrink-0 max-xl:hidden">Loaded:</span><span className={cx("max-w-56", nameClass)}>{held}</span><span className="shrink-0 max-xl:hidden">· another model</span><span className="hidden shrink-0 max-xl:inline">Another model loaded</span></> : "Model not loaded"}
           </span>
           <button
             type="button"

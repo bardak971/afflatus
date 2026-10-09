@@ -178,7 +178,7 @@ const UP_FRONT = ["steps", "cfg", "sampler", "scheduler"];
 function Made({ g, recipe, asset }: { g: NonNullable<AssetDetail["generation"]>; recipe: RecipeInfo | undefined; asset: Asset }) {
   const text = (id: string) => (typeof g.inputs[id] === "string" ? (g.inputs[id] as string).trim() : "");
   // the texts are shown whole above; pictures are shown as pictures; a setting that did not apply is left out
-  const applied = (recipe?.inputs ?? []).filter((i) => !["prompt", "image", "clip", "references", "audio", "seed"].includes(i.type) && g.inputs[i.id] !== undefined && isShown(i, g.inputs));
+  const applied = (recipe?.inputs ?? []).filter((i) => !["prompt", "image", "clip", "references", "audio", "seed"].includes(i.type) && g.inputs[i.id] !== undefined && isShown(i, g.inputs, recipe?.inputs));
   // plain on/off switches read better as one line of what was on than as a column of "Off"
   const isSwitch = (i: InputSpec) => i.type === "toggle" && !i.captions;
   const switches = applied.filter(isSwitch);

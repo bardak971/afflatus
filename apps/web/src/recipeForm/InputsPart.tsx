@@ -18,9 +18,9 @@ export function useTakes() {
  * The Inputs part: the frames the result is built on, and the references it is shown, as two tabs (the one
  * looked at is remembered). While something of the library is dragged, the tab that has a place for it comes
  * forward and the part opens: the place is there to be dropped on. While searching, what a screen adds (the
- * cast, a clip's pinned frames) steps aside: it is not a setting.
+ * cast, a clip's pinned frames) steps aside: it is not a setting. The cast comes back when the search names it.
  */
-export function InputsPart({ frames, refs, framesChosen, refsCount, summary, missing, look, frameExtra, q, render }: {
+export function InputsPart({ frames, refs, framesChosen, refsCount, summary, missing, look, lookHit, frameExtra, q, render }: {
   frames: InputSpec[];
   refs: InputSpec[];
   framesChosen: number;
@@ -29,6 +29,8 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, summary, mis
   /** A picture the form must have is not chosen yet: the part stays open. */
   missing: boolean;
   look?: ReactNode;
+  /** The search names the cast ("cast", "look", "people"): it shows while searching. */
+  lookHit?: boolean;
   frameExtra?: { node: ReactNode; summary: string };
   q: string;
   render(i: InputSpec): ReactNode;
@@ -37,13 +39,14 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, summary, mis
   const setPart = useParts((st) => st.set);
   const takes = useTakes();
   const hasFrames = frames.length > 0 || Boolean(frameExtra);
-  const hasRefs = refs.length > 0 || (Boolean(look) && !q);
+  const hasRefs = refs.length > 0 || (Boolean(look) && (!q || Boolean(lookHit)));
   if (!hasFrames && !hasRefs) return null;
   const tab = hasFrames && hasRefs ? (onRefs ? "references" : "frames") : hasFrames ? "frames" : "references";
   // something dragged in: the tab that takes it comes forward
   const refsTake = refs.some(takes);
   const framesTake = frames.some(takes);
-  const shownTab = framesTake ? "frames" : refsTake ? "references" : tab;
+  // a picture the form must have is not there yet (an Inpaint's mask): its tab comes forward, as the part opens
+  const shownTab = framesTake ? "frames" : refsTake ? "references" : missing && hasFrames ? "frames" : tab;
   return (
     <Part id="inputs" title="Inputs" summary={summary} needs={missing || framesTake || refsTake || Boolean(q)}>
       {hasFrames && hasRefs && !q && (
@@ -61,7 +64,7 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, summary, mis
       )}
       {shownTab === "frames" && !q && frameExtra?.node}
       {(shownTab === "frames" || q) && frames.map(render)}
-      {shownTab === "references" && !q && look}
+      {((shownTab === "references" && !q) || lookHit) && look}
       {(shownTab === "references" || q) && refs.map(render)}
     </Part>
   );

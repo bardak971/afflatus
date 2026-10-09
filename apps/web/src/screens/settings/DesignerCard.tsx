@@ -9,15 +9,17 @@ import { Block, Card, Row } from "./Rows";
 const shortId = () => Math.random().toString(36).slice(2, 10);
 
 /** Instructions of your own for the designer, under a name. */
-function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove }: {
+function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove, onDefault }: {
   item: Settings["designerInstructions"][number];
   fresh: boolean;
-  /** Picked as the usual one in the designer's panel. */
+  /** The default: what a conversation that has not picked one gets (picked in the designer's panel, or here). */
   inUse: boolean;
   open: boolean;
   onOpen(): void;
   onSave(next: Settings["designerInstructions"][number]): Promise<unknown>;
   onRemove(): void;
+  /** Makes it the default. */
+  onDefault(): void;
 }) {
   const [name, setName] = useState(item.name);
   const [text, setText] = useState(item.text);
@@ -28,7 +30,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
     return (
       <button type="button" aria-expanded={false} onClick={onOpen} className="flex min-h-[52px] w-full items-center gap-2 px-[18px] text-left hover:bg-hover">
         <span className="shrink-0 font-semibold">{item.name || "Unnamed"}</span>
-        {inUse && <Chip tone="accent">in use</Chip>}
+        {inUse && <Chip tone="accent" tip="A conversation with the designer that has not picked one gets this one. Each conversation keeps the one it was given.">Default</Chip>}
         <span className="min-w-0 grow truncate text-xs text-ink-3">{firstLine}</span>
         <span className="shrink-0 text-xs text-ink-2">{item.text.split(/\s+/).filter(Boolean).length} words · Read or change</span>
       </button>
@@ -38,7 +40,9 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove 
     <div className="flex flex-col gap-2 bg-raised/40 px-[18px] py-3">
       <div className="flex items-center gap-2">
         <input aria-label="Name of this system prompt" value={name} placeholder="A name: Photographer, Anime, Explicit…" onChange={(e) => setName(e.target.value)} className={cx("h-9 min-w-0 grow font-semibold placeholder:font-normal", fieldClass)} />
-        {inUse && <Chip tone="accent">in use</Chip>}
+        {inUse && <Chip tone="accent" tip="A conversation with the designer that has not picked one gets this one. Each conversation keeps the one it was given.">Default</Chip>}
+        {/* the same words as on an LLM: one name for the default on both cards */}
+        {!inUse && !fresh && <Button size="sm" onClick={onDefault} data-tip="New conversations with the designer start with this one">Make default</Button>}
         {dirty && <Button size="sm" tone="primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Save</Button>}
         {!fresh && <Button size="sm" tone="quiet" onClick={onOpen}>Close</Button>}
       </div>
@@ -141,6 +145,7 @@ export function DesignerCard() {
             onOpen={() => setOpenNote(openNote === n.id ? null : n.id)}
             onSave={(next) => put({ designerInstructions: notes.map((x) => (x.id === n.id ? next : x)) })}
             onRemove={() => changeNotes.mutate({ designerInstructions: notes.filter((x) => x.id !== n.id) })}
+            onDefault={() => changeNotes.mutate({ designerInstruction: n.id })}
           />
         ))}
         {newNotes.map((n) => (
@@ -156,6 +161,7 @@ export function DesignerCard() {
               setNewNotes((list) => list.filter((x) => x.id !== n.id));
             }}
             onRemove={() => setNewNotes((list) => list.filter((x) => x.id !== n.id))}
+            onDefault={() => {}}
           />
         ))}
         <Block>
@@ -173,7 +179,7 @@ export function DesignerCard() {
           sub={forget.isSuccess ? `Cleared: ${forget.data.forgotten} conversation${forget.data.forgotten === 1 ? "" : "s"}.` : undefined}
           help={`Clears every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is cleared with "Start over" in the designer's panel.`}
         >
-          <TwoStep label="Clear every conversation" title="Clear every conversation with the designer" yes="Clear all" busy={forget.isPending} onAsk={() => forget.reset()} onYes={() => forget.mutate()} />
+          <TwoStep label="Clear every conversation" tone="danger" title="Clear every conversation with the designer" yes="Clear all" busy={forget.isPending} onAsk={() => forget.reset()} onYes={() => forget.mutate()} />
         </Row>
         {forget.isError && <Block><ErrorNote>{forget.error.message}</ErrorNote></Block>}
       </Card>

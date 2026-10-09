@@ -95,17 +95,24 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
   /** The submenu open from this panel: which item, and whether the keyboard opened it. */
   const [sub, setSub] = useState<{ index: number; keyed: boolean } | null>(null);
 
-  // placed inside the window once its size is known; a submenu that does not fit on the right goes to the left
+  // placed inside the window once its size is known; a submenu that does not fit on the right goes to the left. The
+  // size is the layout one (offsetWidth/Height): the opening animation scales the menu down, and a size read through
+  // it is 4 % short, which let a tall menu (a clip's) run off the bottom of the window.
   useEffect(() => {
     const el = self.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
+    const r = { width: el.offsetWidth, height: el.offsetHeight };
     const x = at.x + r.width > window.innerWidth - 4 && flipX !== undefined ? flipX - r.width : at.x;
     setPos({
       x: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
       y: Math.max(4, Math.min(at.y, window.innerHeight - r.height - 4)),
     });
   }, [at, flipX, items.length]);
+
+  // a menu taller than the window scrolls: the row the keys move to stays in view
+  useEffect(() => {
+    if (active >= 0) rows.current[active]?.scrollIntoView({ block: "nearest" });
+  }, [active]);
 
   const openSub = (i: number, keyed: boolean) => {
     const it = items[i];
@@ -151,7 +158,7 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
         data-context-menu
         // a menu opened from inside a popover (the folder panel) is part of it: pressing an item does not close the popover first
         data-floating=""
-        className="fixed z-[90] flex min-w-[230px] max-w-[340px] flex-col rounded-[14px] border border-line-strong bg-panel p-1.5 shadow-2xl shadow-shade/60 motion-safe:animate-[tip-in_100ms_ease-out]"
+        className="fixed z-[90] flex max-h-[calc(100vh-8px)] min-w-[230px] max-w-[340px] flex-col overflow-y-auto overscroll-contain rounded-[14px] border border-line-strong bg-panel p-1.5 shadow-2xl shadow-shade/60 motion-safe:animate-[tip-in_100ms_ease-out]"
         style={{ left: pos.x, top: pos.y }}
         onContextMenu={(e) => e.preventDefault()}
       >

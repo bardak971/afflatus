@@ -4,7 +4,7 @@ import { isShown, type InputSpec } from "@afflatus/core";
 import { api, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
-import { changedIn, countOf, formDefaults, layoutOf, settingsOnly, summariesOf } from "./form";
+import { changedIn, countOf, formDefaults, layoutOf, matchesText, settingsOnly, summariesOf } from "./form";
 import { useSettled } from "./hooks";
 import { MissingModel } from "./PresetFiles";
 import { InputsPart } from "./recipeForm/InputsPart";
@@ -13,6 +13,11 @@ import { OutputPart } from "./recipeForm/OutputPart";
 import { CardPrompt, Part, TextFold, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
 import { useFormSearch } from "./recipeForm/useFormSearch";
+
+/** The words the form's search knows the screen's own tools by: the prompt's helpers, the model picker, the cast. */
+const HELPER_WORDS = "snippets snippet designer llm roll random wildcards prompt helpers";
+const MADE_WORDS = "model family operation mode presets preset image video txt2img img2img inpaint outpaint upscale";
+const LOOK_WORDS = "cast look people person places style mood references";
 
 export { mainTextOf } from "./form";
 
@@ -77,6 +82,11 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const layout = layoutOf(recipe, seen, q, keepEmpty);
   const { chapters, advancedMoved, promptMoved, mainText, hit, sought, texts, frames, refs, loras, out, knobs, sampling, upscaling, encoding, rare, hidden } = layout;
   const said = summariesOf(recipe, layout, values, { madeSummary, lookSummary, frameSummary: frameExtra?.summary });
+  // what a screen adds is not a setting, but it is looked for by name too ("snippets", "preset", "cast"): while
+  // searching, it shows where it lives when its words match, and steps aside otherwise
+  const helpersHit = Boolean(q && helpers) && matchesText(HELPER_WORDS, q);
+  const madeHit = Boolean(q && made) && matchesText(`${MADE_WORDS} ${recipe.title}`, q);
+  const lookHit = Boolean(q && look) && matchesText(LOOK_WORDS, q);
 
   const card = useContext(CardPrompt);
   // (bare: true only; .map() passes its index in that place)
@@ -114,13 +124,13 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
 
   const hasFrames = frames.length > 0 || Boolean(frameExtra);
   // while searching, what a screen adds (the model picker, the cast, the designer) steps aside: it is not a setting
-  const hasRefs = refs.length > 0 || (Boolean(look) && !q);
-  const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0);
-  const found = knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
+  const hasRefs = refs.length > 0 || (Boolean(look) && (!q || lookHit));
+  const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0 || helpersHit);
+  const found = Number(helpersHit) + Number(madeHit) + Number(lookHit) + knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
 
   const parts = [
     ...(lead && !q ? [{ id: lead.id, label: lead.title }] : []),
-    ...((made && !q) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
+    ...((made && (!q || madeHit)) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
     ...(promptHit && !promptMoved ? [{ id: "prompt", label: "Prompt" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
     ...chapters.filter((ch) => (ch.id === "advanced" ? rare.length > 0 : ch.id === "prompt" ? promptHit : !q || sought(ch.items).length)).map((ch) => ({ id: ch.id, label: ch.label })),
@@ -132,8 +142,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     // in the Create panel a card like the others, its head (with the Designer and Snippets) given with the helpers; the other texts as rows at its foot
     <div data-part="prompt" className={card ? "flex scroll-mt-12 flex-col rounded-xl border border-line-strong bg-panel" : "flex scroll-mt-12 flex-col gap-1.5"}>
       <div className={card ? "flex flex-col gap-2 px-3 pt-2.5 pb-3" : "contents"}>
-        {!q && helpers}
-        {isShown(mainText, seen) && (!q || hit(mainText)) && render(mainText, card && !q && mainText.type === "prompt")}
+        {(!q || helpersHit) && helpers}
+        {isShown(mainText, seen, recipe.inputs) && (!q || hit(mainText)) && render(mainText, card && !q && mainText.type === "prompt")}
       </div>
       {texts.length > 0 && <div className={card ? "border-t border-line py-0.5" : "-mx-3 flex flex-col"}>{texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i, true)}</TextFold>)}</div>}
     </div>
@@ -149,9 +159,9 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
       <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
       {lead && !q && <Part id={lead.id} title={lead.title} help={lead.help} summary={lead.summary} startOpen>{lead.node}</Part>}
-      {((made && !q) || knobs.length > 0 || loras.length > 0) && (
+      {((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (
         <Part id="model" title="Model" summary={said.modelSaid || recipe.title} needs={Boolean(q)}>
-          {!q && made}
+          {(!q || madeHit) && made}
           {knobs.map(render)}
           {loras.map(render)}
         </Part>
@@ -159,7 +169,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
       {!promptMoved && promptBlock}
       <InputsPart
         frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} summary={said.inputsSaid} missing={said.missing}
-        look={look} frameExtra={frameExtra} q={q} render={render}
+        look={look} lookHit={lookHit} frameExtra={frameExtra} q={q} render={render}
       />
       {chapters.map((ch) => {
         if (ch.id === "advanced") return <div key="advanced" className="contents">{advancedPart}</div>;

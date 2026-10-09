@@ -208,7 +208,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       data-takes-escape={inline || undefined}
       aria-label="Designer"
       style={floor !== null ? { bottom: floor } : undefined}
-      className={inline ? "flex min-h-0 grow flex-col" : cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}
+      className={inline ? "flex min-h-0 grow flex-col" : cx("fixed bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", side === "left" ? "top-0 left-[76px] border-r" : "top-[60px] right-0 rounded-tl-xl border-t border-l")}
     >
       {inline ? (
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
@@ -227,6 +227,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
         <WandSparkles size={15} className="text-accent" />
         <span className="font-semibold">Designer</span>
+        <Help title="Designer" text={howTo} />
         <span className="min-w-0 truncate text-xs text-ink-2">{story && story.clips.length > 1 ? `clip ${story.index + 1} of ${story.clips.length}: it knows the whole video · ` : ""}{sees === true ? "it has looked at your image" : sees === false && values && recipe.inputs.some((i) => i.type === "image" && typeof values[i.id] === "string") ? "it works from your text only" : ""}</span>
         <span className="grow" />
         <button type="button" aria-label="Close the designer" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
@@ -270,11 +271,8 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             {now.trim() ? <span className="line-clamp-6 leading-normal break-words whitespace-pre-wrap">{now}</span> : <span className="text-ink-3 italic">empty</span>}
           </div>
         )}
-        {!turns.length && ready && !inline && (
-          <div className="text-ink-2">
-            Say what you want in your own words: "a woman has coffee on a terrace at sunset", "make the light warmer", "longer and more detailed". Or just ask: "what would make this more dramatic?", "give me three ideas for what she says". The designer writes it the way {recipe.title.toLowerCase().includes("video") ? "this video model" : "this model"} reads best. Nothing changes in your form until you press "Apply".
-          </div>
-        )}
+        {/* how to talk to it is behind the ? by the title: the panel opens on room for the conversation */}
+        {!turns.length && ready && !inline && <div className="text-ink-2">Say what to write or change. Nothing changes in the form until Apply.</div>}
         {!turns.length && ready && knows.data && (knows.data.pictures.length > 0 || knows.data.continues) && (
           <div className="flex flex-col gap-2 rounded-xl border border-line p-3">
             <span className="text-xs font-semibold text-good">It knows the generation parameters</span>

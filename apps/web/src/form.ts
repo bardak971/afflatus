@@ -118,11 +118,18 @@ function groupOf(i: InputSpec): Group {
 export function matchesQuery(i: InputSpec, q: string): boolean {
   if (!q) return true;
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const named = (text: string) => {
-    const hay = text.toLowerCase();
-    return words.every((w) => hay.includes(w) || [...hay.matchAll(/(?:^|[\s_\-./()[\]:·,])(\S)/g)].some((m) => m[1] === w[0] && fuzzyScore(w, hay.slice(m.index + m[0].length - 1)) !== null));
-  };
-  return named(`${i.label} ${i.id}${i.type === "number" ? ` ${i.unit ?? ""}` : ""}`) || (Boolean(i.note) && words.every((w) => i.note!.toLowerCase().includes(w)));
+  return matchesText(`${i.label} ${i.id}${i.type === "number" ? ` ${i.unit ?? ""}` : ""}`, q) || (Boolean(i.note) && words.every((w) => i.note!.toLowerCase().includes(w)));
+}
+
+/**
+ * The same forgiving match on a name, for what the form's search finds besides settings: the tools a screen adds
+ * (Snippets, the Designer, Presets, the cast), each known by a few words.
+ */
+export function matchesText(text: string, q: string): boolean {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = text.toLowerCase();
+  return words.every((w) => hay.includes(w) || [...hay.matchAll(/(?:^|[\s_\-./()[\]:·,])(\S)/g)].some((m) => m[1] === w[0] && fuzzyScore(w, hay.slice(m.index + m[0].length - 1)) !== null));
 }
 
 /**
@@ -136,7 +143,7 @@ export function matchesQuery(i: InputSpec, q: string): boolean {
 export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: string, keepEmpty = false) {
   // the two numbers that say which part of a sound is used are drawn with the sound, not as fields of their own
   const tucked = new Set(recipe.inputs.flatMap((i) => (i.type === "audio" && i.window ? [i.window.start, i.window.seconds] : [])));
-  const shown = recipe.inputs.filter((i) => isShown(i, seen) && !tucked.has(i.id));
+  const shown = recipe.inputs.filter((i) => isShown(i, seen, recipe.inputs) && !tucked.has(i.id));
   // the chapters the recipe arranges itself (an imported workflow's sections): their inputs show there and nowhere else
   const chapters = (recipe.chapters ?? []).map((ch) => ({ ...ch, items: shown.filter((i) => i.chapter === ch.id) })).filter((ch) => ch.items.length || keepEmpty || ch.id === "advanced" || ch.id === "prompt");
   const rest = shown.filter((i) => !i.chapter);
@@ -182,7 +189,7 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
     encoding: tuning.filter((i) => groupOf(i) === "file"),
     rare,
     // the settings another setting hides (the upscale factor while the upscale is off): found too, with what shows them
-    hidden: q ? recipe.inputs.filter((i) => !isShown(i, seen) && !tucked.has(i.id) && hit(i)) : [],
+    hidden: q ? recipe.inputs.filter((i) => !isShown(i, seen, recipe.inputs) && !tucked.has(i.id) && hit(i)) : [],
   };
 }
 export type FormLayout = ReturnType<typeof layoutOf>;

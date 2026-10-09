@@ -110,6 +110,19 @@ function missingCount(status: RecipeStatus | undefined): string {
   return files ? ` · ${plural(files, "file")}` : "";
 }
 
+/**
+ * The way to put a workflow right, when the editor can: its "Before it can run" lists the missing node
+ * packs and model files, with their downloads. Null when the editor has nothing to offer (ComfyUI not
+ * answering, a ready workflow).
+ */
+function fixOf(status: RecipeStatus | undefined, problem: string | undefined): { label: string; tip: string } | null {
+  if (problem) return { label: "Edit", tip: "Opens it in the editor, where what it cannot be built from is set right" };
+  if (!status || status.ready) return null;
+  if (status.missingNodes.length) return { label: "Get nodes", tip: "Opens it in the editor, at \"Before it can run\": the node packs it needs" };
+  if (status.missingFiles.length || status.missingSlots.length || status.emptyInputs.length) return { label: "Get files", tip: "Opens it in the editor, at \"Before it can run\": the model files it needs, with their downloads" };
+  return null;
+}
+
 /** Ready, or not with a count, and a ? that says why. `fix` comes after it: the page's way to put it right. */
 function Readiness({ known, why, count = "", fix }: { known: boolean; why: string | null; count?: string; fix?: ReactNode }) {
   if (!known) return <span aria-hidden className="h-6 w-20 animate-pulse rounded-lg bg-hover" />;
@@ -305,10 +318,13 @@ export function Workflows() {
               const pictures = recipe?.inputs.filter((x) => x.type === "image").length ?? 0;
               const controls = recipe?.inputs.filter((x) => x.advanced).length ?? 0;
               const menuHere = Boolean(cardMenu.menu && fromMore && menuOf?.id === w.id);
+              // not ready: the fix is the row's main action, and Try it stays, quiet (the form opens; Generate waits for the fix)
+              const fix = comfyOnline || w.problem ? fixOf(status, w.problem) : null;
               return (
                 <div key={w.id} className={cx("flex flex-col gap-1.5 px-4 py-3", i > 0 && "border-t border-line")} onContextMenu={(e) => { setFromMore(false); cardMenu.open(e, w); }}>
-                  <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_160px] items-center gap-3.5">
-                    <Chip tone={w.output === "video" ? "accent" : "neutral"} className="justify-self-start">{KIND[w.output]}</Chip>
+                  <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_184px] items-center gap-3.5">
+                    {/* neutral: the kind is not a state, and the accent next to "Not ready" read as an error */}
+                    <Chip className="justify-self-start">{KIND[w.output]}</Chip>
                     <div className="flex min-w-0 flex-col gap-0.5">
                       <span className="truncate font-semibold">{recipeLabel(w.model, w.title)}</span>
                       <span className="truncate text-[11.5px] text-ink-3">
@@ -317,8 +333,10 @@ export function Workflows() {
                     </div>
                     <Readiness known={setup.isSuccess || Boolean(w.problem)} why={problem} count={w.problem ? "" : missingCount(status)} />
                     <div className="flex items-center justify-end gap-1.5">
-                      <Button size="sm" tone="primary" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip="Opens the form with this workflow picked, on a new draft.">Try it</Button>
-                      <Button size="sm" tone="quiet" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>
+                      {fix && <Button size="sm" tone="primary" onClick={() => edit.mutate(w.id)} disabled={edit.isPending} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
+                      <Button size="sm" tone={fix ? "quiet" : "primary"} onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip={fix ? "Opens the form with this workflow picked, on a new draft. It renders once it is ready." : "Opens the form with this workflow picked, on a new draft."} className="whitespace-nowrap">Try it</Button>
+                      {/* the fix opens the editor already: a second button for it would say the same */}
+                      {!fix && <Button size="sm" tone="quiet" onClick={() => edit.mutate(w.id)} disabled={edit.isPending}>Edit</Button>}
                       <button
                         type="button"
                         aria-label={`More actions on ${w.title}`}

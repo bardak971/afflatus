@@ -110,7 +110,7 @@ function BinFooter({ on, row: binRow, drop, onOpen, empty }: { on: boolean; row:
       {storage.data && storage.data.bin.count > 0 && (
         <div className="flex flex-wrap items-center gap-1 py-1 pl-1.5">
           <TwoStep
-            label={empty.isPending ? "Emptying…" : `Empty bin · ${size(storage.data.bin.bytes)}`}
+            label={empty.isPending ? "Emptying…" : `Empty the bin · ${size(storage.data.bin.bytes)}`}
             icon={<Trash2 size={12} />}
             title="Everything in the bin is erased now, files and all, instead of after its 7 days."
             note="This cannot be undone."

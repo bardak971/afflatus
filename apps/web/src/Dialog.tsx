@@ -1,6 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
-import { Keys } from "./Keys";
 import { createPortal } from "react-dom";
 import { cx } from "./ui";
 
@@ -29,6 +28,17 @@ const OVER = "[role=listbox], [role=menu], [data-floating]";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * Where the focus goes when a dialog opens: its first field, else its first button that is not a "?" (whose tip would
+ * open over the dialog's head) nor the head's Close, else whatever comes first.
+ */
+function firstStop(el: HTMLElement): HTMLElement {
+  const all = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  // a tick box or a radio is not a field to type in: the dialog's first box to fill is
+  const field = all.find((x) => x.matches('input, textarea, select, [role="textbox"]') && !(x instanceof HTMLInputElement && (x.type === "checkbox" || x.type === "radio")));
+  return field ?? all.find((x) => !x.hasAttribute("data-help") && !x.hasAttribute("data-dialog-close")) ?? all[0] ?? el;
+}
+
 export function Dialog({ label, onClose, children, className, z = "z-40" }: {
   label: string;
   onClose(): void;
@@ -50,7 +60,7 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
     stack.push(id);
     const el = panel.current;
     const from = document.activeElement as HTMLElement | null;
-    if (el && !el.contains(document.activeElement)) (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus({ preventScroll: true });
+    if (el && !el.contains(document.activeElement)) firstStop(el).focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
       if (stack.at(-1) !== id || !el) return;
       // Escape closes what is open over the dialog first: its list closes, the dialog stays with what it holds
@@ -110,7 +120,8 @@ export const DIALOG = "flex w-full max-w-md flex-col gap-3.5 rounded-[18px] bord
 
 /**
  * The head of a dialog: an icon in its wash (warn for a question about something that cannot be undone), the
- * title, a dim line under it (what it is about), and the way out with its key.
+ * title, a dim line under it (what it is about), and the way out. Its key (Esc) is in the Close button's tip: the foot's
+ * Close shows it as a cap, and two caps for one key in one dialog were noise.
  */
 export function DialogHead({ icon, title, sub, tone = "accent", onClose }: { icon?: ReactNode; title: string; sub?: ReactNode; tone?: "accent" | "warn"; onClose?(): void }) {
   return (
@@ -121,12 +132,9 @@ export function DialogHead({ icon, title, sub, tone = "accent", onClose }: { ico
         {sub && <span className="truncate text-xs text-ink-3">{sub}</span>}
       </span>
       {onClose && (
-        <>
-          <Keys keys="Esc" size="sm" />
-          <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-            <X size={15} />
-          </button>
-        </>
+        <button type="button" data-dialog-close="" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+          <X size={15} />
+        </button>
       )}
     </div>
   );

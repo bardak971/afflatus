@@ -613,10 +613,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onRecipe={(recipe) => patch.mutate({ clip: current.id, patch: { recipe } })}
             onPatch={(p) => patch.mutate({ clip: current.id, patch: p })}
             onRender={(count) => render.mutate({ clips: [current], takes: count })}
-            onRemove={() => {
-              remove.mutate(current.id);
-              setSelected(null);
-            }}
+            onMenu={(e) => clipMenu.open(e, current)}
             onRemoveTake={(takeId) => removeTake.mutate(takeId)}
             onStop={() => current.job && stop.mutate(current.job.id)}
             onDesigner={() => setDesigning((d) => (d ? null : current.id))}
@@ -649,7 +646,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           <aside style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel text-ink-2">
             <PanelEdge side="left" />
             <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
-            <span className="text-[17px] font-bold text-ink">{clips.length ? t.name : "Start your video"}</span>
+            {/* its name is in the header's field: said here only as the start's invitation */}
+            {!clips.length && <span className="text-[17px] font-bold text-ink">Start your video</span>}
             {clips.length ? (
               <Overview
                 timeline={t}
@@ -657,7 +655,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                   value: shape,
                   onChange: (v) => edit.mutate(v === "first" ? { width: null, height: null } : v === "own" ? {} : { width: SHAPES[v as Shape].width, height: SHAPES[v as Shape].height }),
                   options: [
-                    ...(Object.keys(SHAPES) as Shape[]).map((k) => ({ value: k as string, label: SHAPES[k].label, note: `${SHAPES[k].width} × ${SHAPES[k].height}` })),
+                    ...(Object.keys(SHAPES) as Shape[]).map((k) => ({ value: k as string, label: SHAPES[k].label, short: SHAPES[k].ratio, note: `${SHAPES[k].width} × ${SHAPES[k].height}` })),
                     ...(shape === "own" ? [{ value: "own", label: SHAPES[shapeOf(t.width!, t.height!)].label, note: `${t.width} × ${t.height}` }] : []),
                     { value: "first", label: "The first clip decides", detail: "The video takes the aspect ratio of the first clip that is rendered." },
                   ],

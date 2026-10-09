@@ -1,7 +1,10 @@
 import { Eraser, Minus, Plus, Undo2, X } from "lucide-react";
-import { Button, Segmented } from "../ui";
+import { Button, Help, Segmented } from "../ui";
 import { Slider } from "../Slider";
 import type { Tool } from "./useBrushCanvas";
+
+/** How the painter is used, for its ?. */
+const HOW = "Paint a little wider than the thing itself: only what is painted is redone, the rest stays as it is. Mouse wheel: zoom in where the pointer is. Move, or the space bar held: drag the picture around.";
 
 /** The painter's bar: the tool, the brush, undo and start over, how close the picture is, and Done. */
 export function PainterToolbar({ tool, onTool, brush, onBrush, canUndo, onUndo, canClear, onClear, zoom, maxZoom, onZoom, onWhole, error, saving, canSave, onSave, onClose }: {
@@ -25,7 +28,11 @@ export function PainterToolbar({ tool, onTool, brush, onBrush, canUndo, onUndo, 
 }) {
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line bg-panel px-5">
-      <h2 className="text-base font-semibold">Paint the mask</h2>
+      {/* how to paint is behind the ?: the room under the bar is the picture's */}
+      <span className="flex items-center gap-1.5">
+        <h2 className="text-base font-semibold">Paint the mask</h2>
+        <Help text={HOW} />
+      </span>
       <Segmented<Tool> label="Tool" value={tool} options={[{ value: "paint", label: "Paint" }, { value: "erase", label: "Rub out" }, { value: "move", label: "Move" }]} onChange={onTool} />
       <span className="flex items-center gap-2 text-ink-2">
         Brush

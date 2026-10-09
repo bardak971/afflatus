@@ -232,7 +232,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "U", does: "Upscale 2x", note: "queued at once" },
           { keys: "F", does: "Face detailer", note: "queued at once" },
           { keys: "B", does: "Remove background", note: "queued at once" },
-          { keys: "I", does: "Inpaint", note: "a new draft in the form" },
+          { keys: "I", does: "Inpaint", note: "a new draft, the mask painter open" },
           { keys: "E", does: "Edit / img2img", note: "a new draft in the form" },
           { keys: "R", does: "Outpaint", note: "a new draft in the form" },
           { keys: "M", does: "Image to video (i2v)" },
