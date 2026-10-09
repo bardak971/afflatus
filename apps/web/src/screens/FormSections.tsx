@@ -11,6 +11,8 @@ import { Button, cx, Help, Toggle as Switch } from "../ui";
  * keeps its usual place, up front or under Advanced, and sits in a tray below to be dragged in.
  * From the keyboard: Tab walks the settings, Enter (or the menu key, or a right-click) opens "move to" with the
  * places a drag can reach, Alt + ← → moves one within its list and Alt + ↑ ↓ to the section before or after.
+ * A card's handle (a section's, the Prompt's, Advanced's) does the same for the card: Enter opens Move up / down, to
+ * the top / bottom, and Alt + ↑ ↓ moves it.
  */
 
 const KIND = "application/x-afflatus-form-item";
@@ -109,33 +111,40 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     const next = placedIn(sections, item, to);
     if (next) onChange(next);
   };
-  const reorder = (section: string, before: string) => {
-    if (section === before) return;
+  /** The sections with one (or the Prompt or Advanced card) put just before another; null when it cannot go there. */
+  const reordered = (list: Section[], section: string, before: string): Section[] | null => {
+    if (section === before) return null;
     // Advanced is placed for the first time: its mark joins the list
     const mark = (id: string): Section | undefined => (id === ADVANCED ? { id: ADVANCED, label: "Advanced", items: [] } : id === PROMPT ? { id: PROMPT, label: "Prompt", items: [] } : undefined);
-    const moving = sections.find((s) => s.id === section) ?? mark(section);
-    if (!moving) return;
-    let rest = sections.filter((s) => s.id !== section);
+    const moving = list.find((s) => s.id === section) ?? mark(section);
+    if (!moving) return null;
+    let rest = list.filter((s) => s.id !== section);
     // a drop on the Prompt or Advanced card while it has no mark yet: the mark joins the list where the card stood (first, last)
     if (!rest.some((s) => s.id === before)) {
       const m = mark(before);
-      if (!m) return;
+      if (!m) return null;
       rest = before === PROMPT ? [m, ...rest] : [...rest, m];
     }
     const at = rest.findIndex((s) => s.id === before);
     rest.splice(at, 0, moving);
-    onChange(rest);
+    return rest;
+  };
+  /** A section dropped on another card, in one change: the drag and the section keys both come here. */
+  const reorder = (section: string, before: string) => {
+    const next = reordered(sections, section, before);
+    if (next) onChange(next);
   };
 
   // ---- from the keyboard: the same moves, through the same `move` ----
   const root = useRef<HTMLDivElement>(null);
-  /** What takes the focus once the change is drawn: the setting moved (in its new place), or a new section's name. */
-  const refocus = useRef<{ chip: string } | { name: string } | null>(null);
+  /** What takes the focus once the change is drawn: the setting or section moved (in its new place), or a section's name. */
+  const refocus = useRef<{ chip: string } | { head: string } | { name: string } | null>(null);
   useEffect(() => {
     const want = refocus.current;
     if (!want || !root.current) return;
     refocus.current = null;
     if ("chip" in want) root.current.querySelector<HTMLElement>(`[data-place="${CSS.escape(want.chip)}"]`)?.focus();
+    else if ("head" in want) root.current.querySelector<HTMLElement>(`[data-head="${CSS.escape(want.head)}"]`)?.focus();
     else {
       const name = root.current.querySelector<HTMLInputElement>(`[data-section="${CSS.escape(want.name)}"] input`);
       name?.focus();
@@ -259,6 +268,83 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     </button>
   );
 
+  // ---- whole sections from the keyboard: the cards in the order they are drawn, moved through `reordered` as a drop does ----
+  const cards = [
+    ...(!sections.some((s) => s.id === PROMPT) && real.length > 0 ? [PROMPT] : []),
+    ...sections.map((s) => s.id),
+    ...(!sections.some((s) => s.id === ADVANCED) && real.length > 0 ? [ADVANCED] : []),
+  ];
+  const cardName = (id: string) => (id === PROMPT ? "Prompt" : id === ADVANCED ? "Advanced" : sectionName(sections.find((s) => s.id === id)!));
+  /** Up, down, to the top or to the bottom, in one change; the focus stays on the card's head. */
+  const moveCard = (id: string, to: "up" | "down" | "top" | "bottom") => {
+    const i = cards.indexOf(id);
+    const first = cards[0]!;
+    const last = cards[cards.length - 1]!;
+    if (i < 0 || ((to === "up" || to === "top") && i === 0) || ((to === "down" || to === "bottom") && i === cards.length - 1)) return;
+    const next =
+      to === "up" ? reordered(sections, id, cards[i - 1]!)
+      : to === "down" ? reordered(sections, cards[i + 1]!, id)
+      : to === "top" ? reordered(sections, id, first)
+      // there is no drop after the last card: before it, then it before this one
+      : (() => { const before = reordered(sections, id, last); return before && reordered(before, last, id); })();
+    if (!next) return;
+    refocus.current = { head: id };
+    onChange(next);
+  };
+  const cardKeys = (id: string) => (e: KeyboardEvent) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const act = { ArrowUp: () => moveCard(id, "up"), ArrowDown: () => moveCard(id, "down") }[e.key];
+    if (!act) return;
+    e.preventDefault();
+    e.stopPropagation();
+    act();
+  };
+  const cardMenu = useMenu<string>();
+  const openCardMenu = (id: string) => (e: MouseEvent) => {
+    e.stopPropagation();
+    cardMenu.open(e, id);
+  };
+  const closeCardMenu = () => {
+    if (cardMenu.menu) refocus.current = { head: cardMenu.menu.subject };
+    cardMenu.close();
+  };
+  const cardItems = (id: string): MenuItem[] => {
+    const i = cards.indexOf(id);
+    const top = i <= 0;
+    const bottom = i >= cards.length - 1;
+    const sec = id === PROMPT || id === ADVANCED ? undefined : sections.find((s) => s.id === id);
+    return [
+      { label: "Move up", key: "Alt + ↑", disabled: top, run: () => moveCard(id, "up") },
+      { label: "Move down", key: "Alt + ↓", disabled: bottom, run: () => moveCard(id, "down") },
+      { label: "To the top", disabled: top, run: () => moveCard(id, "top") },
+      { label: "To the bottom", disabled: bottom, run: () => moveCard(id, "bottom") },
+      // the head's own buttons, as menu items (its name is the box beside the handle)
+      ...(sec ? [
+        "—" as const,
+        { label: "Rename", run: () => { refocus.current = { name: sec.id }; } },
+        { label: "Remove the section", danger: true, run: () => remove(sec) },
+      ] : []),
+    ];
+  };
+  /** A card's handle: dragged to move the card, pressed (Enter, the menu key, a right-click) for its menu. */
+  const handle = (id: string, tip: string) => (
+    <span draggable onDragStart={startSection(id)} data-tip={tip} className="inline-flex cursor-grab">
+      <button
+        type="button"
+        data-head={id}
+        aria-label={`Move ${id === PROMPT || id === ADVANCED ? `the ${cardName(id)} card` : `the section ${cardName(id)}`}`}
+        aria-haspopup="menu"
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+        onClick={openCardMenu(id)}
+        onContextMenu={openCardMenu(id)}
+        onKeyDown={cardKeys(id)}
+        className="cursor-grab rounded text-ink-3 hover:text-ink"
+      >
+        <GripVertical size={14} />
+      </button>
+    </span>
+  );
+
   const startItem = (id: string) => (e: DragEvent) => {
     e.stopPropagation();
     e.dataTransfer.setData(KIND, JSON.stringify({ item: id }));
@@ -339,7 +425,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       }}
     >
       <div className="flex items-center gap-1.5">
-        <span draggable onDragStart={startSection(ADVANCED)} data-tip="Drag to put the Advanced chapter before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
+        {handle(ADVANCED, "Drag to put the Advanced chapter before or after a section; press for Move up / down")}
         <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Advanced · {loose.length}</span>
         <Help text="Folded in the form; holds what is in no section." />
       </div>
@@ -370,7 +456,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
         reorder(d.section, PROMPT);
       }}
     >
-      <span draggable onDragStart={startSection(PROMPT)} data-tip="Drag to put the prompt before or after a section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
+      {handle(PROMPT, "Drag to put the prompt before or after a section; press for Move up / down")}
       <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Prompt</span>
       <Help text="The main text, with Designer and Snippets; its negative prompt under it unless placed." />
     </div>
@@ -390,7 +476,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
           onDrop={dropAt({ section: s.id, group: null, index: s.items.length })}
         >
           <div className="flex items-center gap-1.5 border-b border-line px-1.5 py-1.5">
-            <span draggable onDragStart={startSection(s.id)} data-tip="Drag to move the section" className="cursor-grab text-ink-3"><GripVertical size={14} /></span>
+            {handle(s.id, "Drag to move the section; press for Move up / down")}
             <input
               aria-label="Name of the section" value={s.label} onChange={(e) => update(s.id, { label: e.target.value })}
               className="h-7 min-w-0 grow rounded-md border border-transparent bg-transparent px-1.5 text-sm font-bold hover:border-line focus:border-line-strong focus:outline-none"
@@ -456,6 +542,15 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
           head={{ title: byId.get(menu.menu.subject)?.label ?? nameOfSwitch(menu.menu.subject), sub: "move to" }}
           items={menuItems(menu.menu.subject)}
           onClose={closeMenu}
+        />
+      )}
+      {cardMenu.menu && (
+        <ContextMenu
+          at={cardMenu.menu.at}
+          label={`Move ${cardName(cardMenu.menu.subject)}`}
+          head={{ title: cardName(cardMenu.menu.subject), sub: "section" }}
+          items={cardItems(cardMenu.menu.subject)}
+          onClose={closeCardMenu}
         />
       )}
     </div>
