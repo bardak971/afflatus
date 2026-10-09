@@ -11,6 +11,8 @@ import type { Services } from "./services";
 const LOAD_EVERY_MS = 2000;
 /** Progress can arrive many times a second: pass on at most four. */
 const PROGRESS_EVERY_MS = 250;
+/** A beat on every connection, whatever ComfyUI answers: a page that hears nothing for a while knows the stream is dead (a proxy can keep it open after the server went). */
+const PING_EVERY_MS = 10_000;
 const RELAYED = ["queue", "library", "models", "timeline", "entities", "downloads", "setup"] as const;
 
 export function registerEvents(app: FastifyInstance, s: Services, version: string): void {
@@ -36,18 +38,22 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
   });
 
   let timer: NodeJS.Timeout | null = null;
+  let beat: NodeJS.Timeout | null = null;
   const watch = () => {
     if (timer || !clients.size) return;
     timer = setInterval(() => void sendSystem(), LOAD_EVERY_MS);
+    beat = setInterval(() => send("ping"), PING_EVERY_MS);
   };
   const rest = () => {
     if (!timer || clients.size) return;
     clearInterval(timer);
-    timer = null;
+    clearInterval(beat ?? undefined);
+    timer = beat = null;
   };
   app.addHook("onClose", () => {
     clearInterval(timer ?? undefined);
-    timer = null;
+    clearInterval(beat ?? undefined);
+    timer = beat = null;
   });
 
   app.get("/api/events", (req, reply) => {

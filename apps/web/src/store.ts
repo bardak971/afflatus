@@ -10,6 +10,12 @@ export const useSystem = create<{ load: SystemLoad | null; set(load: SystemLoad 
   set: (load) => set({ load }),
 }));
 
+/** Whether the live connection (live.ts) has been down for a few seconds: the status bar says so until it is back. */
+export const useLive = create<{ down: boolean; set(down: boolean): void }>((set) => ({
+  down: false,
+  set: (down) => set({ down }),
+}));
+
 /**
  * What this browser should tell you about, with a notification of its own (nothing leaves the computer).
  * Kept per browser: a notification is shown by the browser that asked for it.

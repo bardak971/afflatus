@@ -7,8 +7,8 @@ import { useAsset, useQueue } from "./data";
 import { useDownloads } from "./GetFile";
 import { about, elapsed, gb, phaseLabel, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
-import { useSystem } from "./store";
-import { cx } from "./ui";
+import { useLive, useSystem } from "./store";
+import { Chip, cx } from "./ui";
 
 // the viewer is fetched the first time the last result is opened from here
 const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
@@ -38,6 +38,7 @@ export function StatusBar() {
   // a model being fetched into ComfyUI goes on whatever screen is open: it is said here, with the way to it
   const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   const waiting = q?.waiting.length ?? 0;
+  const liveDown = useLive((s) => s.down);
   return (
     <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
       {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={q?.recent.find((j) => j.status === "done") ?? null} />}
@@ -51,6 +52,8 @@ export function StatusBar() {
           {fetching.length === 1 && fetching[0]!.total > 0 && <span className="font-mono whitespace-pre">{pad(Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100))} %</span>}
         </Link>
       )}
+      {/* the server's events stopped coming (a restart, a proxy between): what is shown may be old until they are back */}
+      {liveDown && <Chip tone="warn" tip="The connection that brings live updates from the server dropped. It is being opened again; what is shown here may be out of date until then, and is read again once it is back.">live updates lost · reconnecting</Chip>}
       <span className="grow" />
       <StripPlace />
       <StripModel />
