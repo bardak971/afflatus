@@ -19,7 +19,7 @@ export const moves = () =>
   !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** The classes that would play an opening again on the copy. */
-const OPENING = /(^|:)animate-|^m-(pop|pop-out|toast|panel|fade|out)$/;
+const OPENING = /(^|:)animate-|^m-(pop|pop-out|toast|panel|fade|out|shake|ok)$/;
 /** What would make the copy count as the real thing (a dialog, a menu, a floating panel, a field of a form). */
 const NAMED = new Set(["id", "role", "aria-modal", "aria-activedescendant", "autofocus", "name", "for"]);
 

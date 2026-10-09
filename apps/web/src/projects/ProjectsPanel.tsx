@@ -848,8 +848,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         // an item kept or let go, as in the library
         if (r?.kind !== "item" || !r.asset || e.shiftKey) break;
         stop();
-        if (picked.has(r.key) && pickedItems().length > 1) void api.bulkAssets(pickedItems().map((x) => x.id!), r.asset.kept ? "unkeep" : "keep").then(() => client.invalidateQueries({ queryKey: ["assets"] }));
-        else itemMenu.keep.mutate({ id: r.asset.id, kept: !r.asset.kept });
+        itemMenu.keep(picked.has(r.key) && pickedItems().length > 1 ? pickedItems().map((x) => x.id!) : [r.asset.id], !r.asset.kept);
         return;
       case "Delete":
       case "Backspace":
@@ -1095,16 +1094,17 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
                 columns,
                 top ? "h-10" : "h-[33px]",
                 r.kind === "archive" && "mt-2 rounded-t-none border-t border-line",
-                // the Bin stays in sight at the foot of the list, however far the tree scrolls: always there to drop on (square, so no row shows past its corners)
-                r.kind === "bin" && "sticky bottom-0 z-10 mt-2 rounded-none border-t border-line bg-panel",
-                // the Bin's tints are mixed into the panel's colour: see-through, the rows under it would show
+                // the Bin stays in sight at the foot of the list, however far the tree scrolls: always there to drop on. It
+                // looks like every other row: its band is square and of the panel's colour (unseen, but no row shows past
+                // its corners), and its looks (over, picked, here, hover) are drawn on a rounded layer inside it, under its text
+                r.kind === "bin" && "sticky bottom-0 z-10 rounded-none bg-panel before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-lg",
                 over === r.key
-                  ? cx(r.kind === "bin" ? "bg-[color-mix(in_oklab,var(--color-accent)_15%,var(--color-panel))]" : "bg-accent/15", "shadow-[inset_0_0_0_1.5px_var(--color-accent)]")
+                  ? r.kind === "bin" ? "before:bg-accent/15 before:shadow-[inset_0_0_0_1.5px_var(--color-accent)]" : "bg-accent/15 shadow-[inset_0_0_0_1.5px_var(--color-accent)]"
                   : isPicked
-                    ? cx(r.kind === "bin" ? "bg-[color-mix(in_oklab,var(--color-picture)_15%,var(--color-panel))]" : "bg-picture/15", "shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-picture)_55%,transparent)]")
+                    ? r.kind === "bin" ? "before:bg-picture/15 before:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-picture)_55%,transparent)]" : "bg-picture/15 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-picture)_55%,transparent)]"
                     : here
-                      ? "bg-accent/10 shadow-[inset_3px_0_0_var(--color-accent)]"
-                      : "hover:bg-hover",
+                      ? r.kind === "bin" ? "before:bg-accent/10 before:shadow-[inset_3px_0_0_var(--color-accent)]" : "bg-accent/10 shadow-[inset_3px_0_0_var(--color-accent)]"
+                      : r.kind === "bin" ? "hover:before:bg-hover" : "hover:bg-hover",
                 keyed && focused === r.key && "outline-2 -outline-offset-2 outline-accent/70",
                 r.faded && "opacity-40",
               )}

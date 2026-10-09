@@ -216,6 +216,31 @@ input[type="range"] {
     opacity: 0;
   }
 }
+/* a change the server refused, back in its place: a short shake, twice */
+@keyframes m-shake {
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+/* the slot a new draft was opened for (a picture handed over): a coral ring that holds a moment, then fades */
+@keyframes m-aim {
+  0%,
+  45% {
+    outline-color: var(--color-accent);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+/* a pass button just queued: its "Queued" look fades in */
+@keyframes m-ok-in {
+  from {
+    opacity: 0.4;
+  }
+}
 /* the shine over a loading placeholder */
 @keyframes m-shine {
   to {
@@ -231,6 +256,14 @@ input[type="range"] {
     .m-panel { animation: m-panel-in var(--t-panel) var(--ease-snap); }
     .m-fade { animation: m-fade-in var(--t-panel) ease-out; }
     .m-out { animation: m-fade-out var(--t-out) ease-in forwards; pointer-events: none; }
+    .m-shake { animation: m-shake 160ms ease-in-out 2; }
+    .m-ok { animation: m-ok-in var(--t-pop) ease-out; }
+  }
+  /* a colour that fades, no movement: under "reduce motion" too */
+  .m-aim {
+    outline: 2px solid transparent;
+    outline-offset: 3px;
+    animation: m-aim 1100ms ease-out;
   }
   /* a loading placeholder: the exact size of what comes, a soft shine while it works (still under reduced motion) */
   .m-skeleton {

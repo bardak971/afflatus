@@ -205,7 +205,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // what is ticked is of the list that is shown: another folder, another search, another grouping, and nothing is
   const listKey = JSON.stringify([place, kind, q, made, lora, kept, unkept, draftOnly, reach, view.groupBy ?? "none"]);
   const selection = useSelection({ items: visible, listKey, binned: place.type === "bin", off: draftOnly || Boolean(open) });
-  const { picked, setPicked, tick, bulk, moveTo } = selection;
+  const { picked, setPicked, tick } = selection;
   const groupedEmpty = view.groupBy === "draft"
     ? { title: "Nothing here came from a draft", body: "Grouped by draft, only what a draft made shows. Imports and older renders have no draft. Choose No groups to see everything." }
     : { title: "Nothing here is on a timeline", body: "Grouped by timeline, only takes of a timeline's clips show. Choose No groups to see everything." };
@@ -274,7 +274,6 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
           ) : (
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
-              {(bulk.isError || moveTo.isError) && <ErrorNote>{(bulk.error ?? moveTo.error)?.message}</ErrorNote>}
               {showTimelines && <TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} />}
               {!showTimelines && assets.isSuccess && !items.length && !running && (
                 <Empty

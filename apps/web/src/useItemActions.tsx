@@ -1,4 +1,4 @@
-import { useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { RANDOM_SEED, typedSeed } from "@afflatus/core";
 import { useQueueVariation } from "./actions";
 import type { Asset } from "./api";
@@ -10,6 +10,9 @@ import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
 import { OPS } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
+
+/** How long a pass button says "Queued" after the server took the job. */
+export const QUEUED_MS = 1400;
 
 /** For a place whose menu is closed: the hooks are worked out for nothing. */
 export const NO_ASSET = { id: "", kind: "image" } as Asset;
@@ -49,10 +52,25 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool } = drafts;
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
 
+  // the button of a pass just queued says so for a moment ("Queued", the ok look), on the item it was queued for: the
+  // job shows in the queue only once the server has it, and a click with nothing on screen reads as one that missed
+  const [done, setDone] = useState<{ id: string; action: ActionId } | null>(null);
+  const doneTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(doneTimer.current), []);
+  const flash = (action: ActionId) => {
+    const id = a.id;
+    clearTimeout(doneTimer.current);
+    setDone({ id, action });
+    doneTimer.current = setTimeout(() => setDone(null), QUEUED_MS);
+  };
+  /** A job queued from here, its button flashing once the server took it. */
+  const queue = (action: ActionId, job: Parameters<typeof queued.mutate>[0]) => queued.mutate(job, { onSuccess: () => flash(action) });
+
   /** A pass queued at once with the picture's parameters (Upscale, Face detailer, Remove background). */
   const quick = (key: string) => {
     const tool = toolFor(key);
-    if (tool) queued.mutate({ recipe: tool, stored: toolInput(tool), label: OPS[key]!.label });
+    const action = (Object.keys(PASS_KEYS) as ActionId[]).find((id) => PASS_KEYS[id] === key);
+    if (tool && action) queue(action, { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label });
   };
   /** A pass that opens a form with the picture in place (Inpaint, Edit, Outpaint). */
   const openPass = (key: string) => {
@@ -75,6 +93,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     compare: "open it from a list",
     timelines: a.id ? timeline.items(a) : [],
     moves: a.id ? mutations.moves(a) : [],
+    queued: done && done.id === a.id ? { [done.action]: true } : undefined,
     busy: {
       "reuse-same": reuse.isPending, "reuse-new": reuse.isPending, variation: queued.isPending, i2v: animate.isPending, extend: carryOn.isPending,
       upscale: queued.isPending, face: queued.isPending, background: queued.isPending, inpaint: openTool.isPending, edit: openTool.isPending, outpaint: openTool.isPending,
@@ -86,16 +105,16 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
 
   /** A file of a linked folder leaves its folder on the disk: asked first, as the viewer and a selection do. */
   const toBin = async () => {
-    if (await askAboutDisk([a])) mutations.bin.mutate(a.id);
+    if (await askAboutDisk([a])) mutations.bin([a.id]);
   };
   const runs: Runs = {
-    keep: () => mutations.keep.mutate({ id: a.id, kept: !a.kept }),
+    keep: () => mutations.keep([a.id], !a.kept),
     // saved under the one name rule of the app (the library's menu and the selection save the same way)
     download: () => saveAsset(a),
     rename: () => void mutations.renameIt(a),
     "reuse-same": () => g && reuse.sameSeed(g),
     "reuse-new": () => g && reuse.newSeed(g),
-    variation: () => g && recipe && queued.mutate({ recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }),
+    variation: () => g && recipe && queue("variation", { recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }),
     i2v: () => animate.mutate(undefined, said("Could not open it in a form")),
     extend: () => carryOn.mutate(undefined, said("Could not extend it")),
     upscale: () => quick("u"),
@@ -111,7 +130,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     voice: () => follow.mutate(undefined, said("Could not open it in a form")),
     "copy-seed": () => seed !== null && mutations.copySeed(seed),
     comfy: () => mutations.openInComfy.mutate(a),
-    bin: a.inBin ? () => mutations.restore.mutate(a.id) : () => void toBin(),
+    bin: a.inBin ? () => mutations.restore([a.id]) : () => void toBin(),
   };
 
   /** The item's list in a place: its facts and overrides on top of what is known and done everywhere. */

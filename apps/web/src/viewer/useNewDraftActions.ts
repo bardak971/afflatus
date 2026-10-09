@@ -8,6 +8,7 @@ import { handMask } from "../handoff";
 import { useReuse } from "../reuse";
 import { carryOver, followOn, modelGroups, usedLast } from "../picker";
 import { OPS, ownInputs } from "./shared";
+import { useFormAim } from "../recipeForm/Part";
 
 /** What a tool is handed along with a picture: what the picture was made with (its prompt, model, LoRAs…), where the tool has a place for it. `withLook`: its cast goes along. */
 function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeInfo | undefined, to: RecipeInfo, withLook: boolean): Record<string, unknown> {
@@ -38,6 +39,10 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     leave();
     openNew(d);
   };
+  /** The form of `recipe` opens on `input`, the slot this action fills (recipeForm/Part.tsx useFormAim). */
+  const aim = (recipe: RecipeInfo, input: string | undefined) => {
+    if (input) useFormAim.getState().set(recipe.id, input);
+  };
   const g = detail.data?.id === asset.id ? detail.data.generation : null;
   const a: Asset = detail.data?.id === asset.id ? detail.data : asset;
   const recipe = recipes.data?.recipes.find((r) => r.id === g?.recipe);
@@ -58,6 +63,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
       const to = carrier!;
       const settings = followOn(recipe, to, g ? ownInputs(g, Boolean(castOf(detail.data))) : undefined);
       const slot = joins(to);
+      aim(to, slot?.id ?? opensOn(to)?.id);
       if (slot) return api.createDraft({ recipe: to.id, forms: { [to.id]: { ...settings, [slot.id]: { asset: asset.id } } }, look: castOf(detail.data) });
       // past its end, the last frame that can be read is the one taken
       const last = await api.frame(asset.id, a.durationMs ?? 0);
@@ -87,6 +93,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
       const seconds = secondsInput(to.inputs);
       const length = (range.endMs - range.startMs) / 1000;
       const snapped = seconds ? Math.max(seconds.min, Math.min(seconds.max, Math.round(length / seconds.step) * seconds.step)) : undefined;
+      aim(to, start.id);
       return api.createDraft({ recipe: to.id, forms: { [to.id]: { [start.id]: first.id, ...(end ? { [end.id]: last.id } : {}), ...(seconds && snapped !== undefined ? { [seconds.id]: Number(snapped.toFixed(3)) } : {}) } }, look: castOf(detail.data) });
     },
     onSuccess: toForm,
@@ -97,6 +104,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
       const to = carrier ?? opener!;
       const settings = carrier ? followOn(recipe, to, g ? ownInputs(g, Boolean(castOf(detail.data))) : undefined) : {};
       const slot = carrier ? joins(to) : null;
+      aim(to, slot?.id ?? to.inputs.find((i) => i.type === "image" && i.role === "start")?.id);
       if (slot) return api.createDraft({ recipe: to.id, forms: { [to.id]: { ...settings, [slot.id]: { asset: asset.id, at: Math.round(atMs) } } }, look: castOf(detail.data) });
       const frame = await api.frame(asset.id, Math.round(atMs));
       const start = to.inputs.find((i) => i.type === "image" && i.role === "start")!;
@@ -107,6 +115,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   const animate = useMutation({
     mutationFn: () => {
       const slot = opener!.inputs.find((i) => i.type === "image" && i.role === "start")!;
+      aim(opener!, slot.id);
       return api.createDraft({ recipe: opener!.id, forms: { [opener!.id]: { [slot.id]: asset.id } }, look: castOf(detail.data) });
     },
     onSuccess: toForm,
@@ -117,6 +126,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   const follow = useMutation({
     mutationFn: () => {
       const slot = follower!.inputs.find((i) => (voiced ? i.type === "audio" && i.role === "voice" : i.type === "references"))!;
+      aim(follower!, slot.id);
       return api.createDraft({ recipe: follower!.id, forms: { [follower!.id]: { [slot.id]: voiced ? asset.id : [{ asset: asset.id, role: "person" }] } } });
     },
     onSuccess: toForm,
@@ -141,6 +151,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     mutationFn: (id: string) => {
       const tool = all.find((r) => r.id === id)!;
       const look = castOf(detail.data);
+      aim(tool, tool.inputs.find((i) => i.type === "image" && i.role === "source")?.id);
       return api.createDraft({ recipe: tool.id, forms: { [tool.id]: toolInput(tool, Boolean(look)) }, look });
     },
     onSuccess: (d, id) => {

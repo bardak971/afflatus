@@ -116,6 +116,8 @@ export interface ItemFacts {
   moves: MenuItem[];
   /** What is running now: its action is off meanwhile. */
   busy?: Partial<Record<ActionId, boolean>>;
+  /** A job just queued from it (a pass, a variation): its button says "Queued" for a moment. */
+  queued?: Partial<Record<ActionId, boolean>>;
 }
 
 /** One action of the list, as a place draws it: a menu line, a button. */
@@ -131,6 +133,8 @@ export interface ItemAction {
   disabled: boolean;
   /** A switch that is on (Kept, Trim open, comparing). */
   pressed?: boolean;
+  /** Its job was just queued: drawn with the ok look, its label "Queued", for a moment. */
+  done?: boolean;
   danger?: boolean;
   run?(): void;
   items?: MenuItem[];
@@ -172,6 +176,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
     const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : undefined;
     const run = runs[id];
     const base: ItemAction = { id, group: spec.group, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? notes[id], disabled: Boolean(off) || Boolean(f.busy?.[id]) || (!run && !items?.length), run, items: off ? undefined : items };
+    if (f.queued?.[id] && !off) return { ...base, label: "Queued", done: true };
     switch (id) {
       case "keep": return { ...base, label: f.kept ? "Unkeep" : "Keep", pressed: f.kept, tip: f.kept ? "Kept: it stays. Unkeep it to let it go to the bin after a day again." : spec.tip };
       case "bin": return f.inBin

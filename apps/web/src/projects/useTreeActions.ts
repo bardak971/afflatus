@@ -1,5 +1,7 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
+import { findAsset } from "../assetCache";
+import { changeAssets } from "../assetChange";
 import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
 import { DRAFT_LIST } from "../data";
@@ -51,6 +53,12 @@ export function useTreeActions() {
     async move(items: Moving[], t: Target, onOpen?: () => void) {
       const ops = planDrop(items, t);
       if (!ops) return;
+      // items alone, into one folder: shown there at once and sent behind, with Undo (assetChange.tsx)
+      const into = ops[0]?.kind === "asset" ? ops[0].folder : null;
+      if (into && ops.every((o) => o.kind === "asset" && o.folder === into)) {
+        void changeAssets(client, { kind: "move", ids: ops.map((o) => o.id), folder: into });
+        return;
+      }
       const moved = items.filter((m) => ops.some((o) => o.id === m.id));
       // one after the other: two folders of one branch moved together land the same whatever the order
       const ok = await run(`${named(moved)} could not be moved`, async () => {
@@ -95,6 +103,11 @@ export function useTreeActions() {
       const lone = one && list[0]!.kind === "folder" ? list[0]! : null;
       const yes = lone ? await (lone.linked ? askUnlink(lone.label) : askDeleteFolder(lone.label)) : await ask({ title, text: lines.join("\n"), yes: binOnly ? "Move to bin" : "Delete" });
       if (!yes) return;
+      // items alone: gone from the lists at once, with Undo (assetChange.tsx)
+      if (binOnly) {
+        void changeAssets(client, { kind: "bin", ids: list.map((r) => r.id!) });
+        return;
+      }
       const binned = list.filter((r) => r.kind === "item").length;
       const ok = await run(one ? `${list[0]!.label} could not be deleted` : "Some could not be deleted", async () => {
         const items = list.filter((r) => r.kind === "item").map((r) => r.id!);
@@ -124,9 +137,7 @@ export function useTreeActions() {
       if (others.length) return self.remove(rows);
       const items = rows.filter((r) => r.kind === "item" && r.asset);
       if (!(await askAboutDisk(items.map((r) => ({ name: r.label, path: r.asset!.path }))))) return;
-      if (await run(items.length === 1 ? `${items[0]!.label} could not go to the bin` : "They could not go to the bin", () => api.bulkAssets(plan.assets, "bin"))) {
-        say({ id: `tree-bin:${Date.now()}`, tone: "good", title: `${items.length === 1 ? items[0]!.label : `${items.length} items`} moved to the bin`, text: "For a week they can be restored from it.", href: "/", go: "Open the Studio" });
-      }
+      void changeAssets(client, { kind: "bin", ids: plan.assets });
     },
     async removeProject(r: Row) {
       if (!r.id || r.kind !== "project") return;
@@ -164,6 +175,11 @@ export function useTreeActions() {
       const assets = what.assets.length && (t === null || into !== null) ? what.assets : [];
       const timelines = what.timelines.length && t !== null && !(t.kind === "folder" && t.linked) ? what.timelines : [];
       if (!assets.length && !timelines.length) return false;
+      // items alone: in their new place at once, with Undo (assetChange.tsx); the drop is taken as it lands
+      if (!timelines.length) {
+        void changeAssets(client, { kind: "move", ids: assets, folder: into });
+        return true;
+      }
       const name = t === null ? "No folder" : t.name;
       const n = assets.length + timelines.length;
       const ok = await run(`${n === 1 ? "It" : `These ${n}`} could not be moved to ${name}`, async () => {
@@ -176,11 +192,10 @@ export function useTreeActions() {
     /** Items of the library dropped on the Bin: to the bin, once asked when some are files of a linked folder. */
     async binLibrary(ids: string[]) {
       if (!ids.length) return;
-      const items = await Promise.all(ids.map((id) => api.asset(id)));
+      // what the screen already holds of them is enough to ask about files of the disk; only the others are read
+      const items = await Promise.all(ids.map((id) => findAsset(client, id) ?? api.asset(id)));
       if (!(await askAboutDisk(items.map((a) => ({ name: a.shownName || a.name || "Item", path: a.path }))))) return;
-      if (await run(ids.length === 1 ? "It could not go to the bin" : "They could not go to the bin", () => api.bulkAssets(ids, "bin"))) {
-        say({ id: `tree-bin:${Date.now()}`, tone: "good", title: `${ids.length === 1 ? "1 item" : `${ids.length} items`} moved to the bin`, text: "For a week they can be restored from it.", href: "/", go: "Open the Studio" });
-      }
+      void changeAssets(client, { kind: "bin", ids });
     },
     /** The bin emptied now instead of after its week, once asked: it cannot be undone. Clips of timelines may have played what it held. */
     async emptyBin() {

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
 import { useProject } from "./project";
 
@@ -139,12 +139,3 @@ export function useAssets(filter: { kind?: string; bin?: boolean; folder?: strin
 /** One item with its generation. Its key is under "assets": a "library" event reads it again. */
 export const assetKey = (id: string | null) => ["assets", "one", id] as const;
 export const useAsset = (id: string | null) => useQuery({ queryKey: assetKey(id), queryFn: ({ signal }) => api.asset(id!, { signal }), enabled: Boolean(id) });
-
-/**
- * A change to one item: the lists and the item are refetched once it is done. For a change the server
- * announces with a "library" event this is a second read; keep (one item) is not announced, so it is kept.
- */
-export function useAssetAction<T>(action: (arg: T) => Promise<unknown>) {
-  const client = useQueryClient();
-  return useMutation({ mutationFn: action, onSuccess: () => client.invalidateQueries({ queryKey: ["assets"] }) });
-}

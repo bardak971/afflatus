@@ -25,7 +25,7 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, summary, mis
   refs: InputSpec[];
   framesChosen: number;
   refsCount: number;
-  summary: string;
+  summary: ReactNode;
   /** A picture the form must have is not chosen yet: the part stays open. */
   missing: boolean;
   look?: ReactNode;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { api, type Asset } from "../../api";
+import type { Asset } from "../../api";
+import { useAssetChange } from "../../assetChange";
 import { askAboutDisk } from "../../Confirm";
 import { plainKey } from "../../Keys";
 
@@ -29,14 +29,22 @@ export function useSelection({ items, listKey, binned, off }: {
   };
   // what is ticked is of the list that is shown: another folder, another search, and nothing is
   useEffect(() => setPicked([]), [listKey]);
-  // the library refreshes on the server's own word (its `library` event)
-  const afterBulk = () => setPicked([]);
-  const bulk = useMutation({ mutationFn: (action: "keep" | "unkeep" | "bin" | "restore") => api.bulkAssets(picked, action), onSuccess: afterBulk });
-  const moveTo = useMutation({ mutationFn: (to: string | null) => api.moveAssets(picked, to), onSuccess: afterBulk });
+  // shown at once and sent behind (assetChange.tsx): the ticks go with the change, a refusal is said with Retry
+  const change = useAssetChange();
+  const bulk = (action: "keep" | "unkeep" | "bin" | "restore") => {
+    const ids = picked;
+    setPicked([]);
+    void change(action === "keep" || action === "unkeep" ? { kind: "keep", ids, kept: action === "keep" } : { kind: action, ids });
+  };
+  const moveTo = (to: string | null) => {
+    const ids = picked;
+    setPicked([]);
+    void change({ kind: "move", ids, folder: to });
+  };
   const chosen = items.filter((a) => picked.includes(a.id));
   /** The ticked items to the bin; files of a linked folder leave the disk, which is asked first. */
   const binChosen = async () => {
-    if (await askAboutDisk(chosen)) bulk.mutate("bin");
+    if (await askAboutDisk(chosen)) bulk("bin");
   };
   // Esc unticks, Ctrl + A ticks everything shown, Del sends what is ticked to the bin
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
