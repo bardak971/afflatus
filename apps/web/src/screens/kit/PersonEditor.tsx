@@ -1,4 +1,4 @@
-import { useId, useState, type DragEvent } from "react";
+import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Music, Plus, Trash2, X } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
@@ -17,6 +17,7 @@ import { Select } from "../../Select";
 import { localId } from "../../secureContext";
 import { AutoText, Button, cx, NumberBox } from "../../ui";
 import { Slider } from "../../Slider";
+import { dropped, moved } from "../queue/order";
 import { entryOf, field, modelRows, withEntry } from "./shared";
 
 /** A small fact of a row: what a model takes of the person. */
@@ -24,12 +25,26 @@ function Takes({ children, tip }: { children: string; tip: string }) {
   return <span data-tip={tip} className="rounded-md bg-raised px-1.5 py-px text-[10.5px] whitespace-nowrap text-ink-2">{children}</span>;
 }
 
-/** The pictures of a person or a place: a row to add to and take from. */
-function Pictures({ value, onChange, what }: { value: string[]; onChange(value: string[]): void; what: string }) {
+/**
+ * The pictures of a person or a place: a row to add to, take from and put in order (dragged, or Alt + arrow on a
+ * focused one). The first `sent` are what a model is handed, marked by a bar above them; a person's first is the face.
+ */
+function Pictures({ value, onChange, what, sent, face }: { value: string[]; onChange(value: string[]): void; what: string; sent: number; face?: boolean }) {
   const [picking, setPicking] = useState(false);
   // a click shows the picture large
   const [open, setOpen] = useState<string | null>(null);
   const shown = useAsset(open);
+  // a picture of the row being dragged to another place in it, and where it would go (before the picture of that index)
+  const [dragged, setDragged] = useState<string | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  // a picture moved from the keyboard keeps the focus once the row is redrawn
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const [refocus, setRefocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (!refocus) return;
+    buttons.current.get(refocus)?.focus();
+    setRefocus(null);
+  }, [refocus, value]);
   // pictures dropped on the row: files from the computer (kept with them, not put in the library) or pictures dragged from the library, several at once
   const room = LIMITS.pictures - value.length;
   const add = useMutation({
@@ -42,6 +57,14 @@ function Pictures({ value, onChange, what }: { value: string[]; onChange(value: 
   });
   const drop = useDropZone([DRAG_PICTURE], () => {}, () => {});
   const onDrop = (e: DragEvent) => {
+    // one of the row put in another place
+    if (dragged) {
+      e.preventDefault();
+      if (over !== null) onChange(dropped(value, dragged, over));
+      setDragged(null);
+      setOver(null);
+      return;
+    }
     if (room <= 0) return;
     e.preventDefault();
     drop.props.onDragLeave();
@@ -49,14 +72,70 @@ function Pictures({ value, onChange, what }: { value: string[]; onChange(value: 
     const ids = files.length ? [] : e.dataTransfer.getData(DRAG_TYPE).split(",").filter(Boolean).slice(0, room);
     if (files.length || ids.length) add.mutate({ files, ids });
   };
+  const onKey = (e: KeyboardEvent, id: string, i: number) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    // Alt + ← is also the browser's Back
+    e.preventDefault();
+    const to = e.key === "ArrowLeft" ? i - 1 : i + 1;
+    if (to < 0 || to >= value.length) return;
+    onChange(moved(value, id, to));
+    setRefocus(id);
+  };
+  const first = Math.min(sent, value.length);
   return (
-    <div className="px-4 py-3">
-      <div {...drop.props} onDrop={onDrop} className={cx("-m-1 flex flex-wrap gap-2 rounded-xl border-[1.5px] border-transparent p-1", room > 0 && drop.zone)}>
+    <div className={cx("px-4 py-3", first > 0 && "pt-7")}>
+      <div
+        {...drop.props}
+        onDragOver={(e) => (dragged ? e.preventDefault() : drop.props.onDragOver(e))}
+        onDrop={onDrop}
+        className={cx("relative -m-1 flex flex-wrap gap-2 rounded-xl border-[1.5px] border-transparent p-1", room > 0 && !dragged && drop.zone)}
+      >
+        {first > 0 && (
+          // the pictures a model is handed: a bar over them, as wide as they are
+          <span aria-hidden className="pointer-events-none absolute -top-[19px] left-1 flex flex-col gap-1" style={{ width: first * 84 + (first - 1) * 8 }}>
+            <span className="text-[10.5px] leading-none font-bold text-accent">sent to the models</span>
+            <span className="h-[3px] rounded-full bg-accent" />
+          </span>
+        )}
         {value.map((id, i) => (
-          <div key={id} className="relative">
-            <button type="button" aria-label={`Show image ${i + 1} of ${what} large`} onClick={() => setOpen(id)} className="block cursor-zoom-in rounded-[10px]">
-              <img src={thumbUrl(id)} alt="" className="h-[84px] w-[84px] rounded-[10px] border border-line object-cover hover:border-accent" />
+          <div
+            key={id}
+            draggable={value.length > 1}
+            onDragStart={(e) => {
+              // a drag of its own: it carries no picture of the library, so that no other place takes it
+              e.dataTransfer.effectAllowed = "move";
+              setDragged(id);
+            }}
+            onDragEnd={() => {
+              setDragged(null);
+              setOver(null);
+            }}
+            onDragOver={(e) => {
+              if (!dragged) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              const r = e.currentTarget.getBoundingClientRect();
+              setOver(e.clientX < r.left + r.width / 2 ? i : i + 1);
+            }}
+            className={cx("relative", value.length > 1 && "cursor-grab", dragged === id ? "opacity-40" : i >= first && "opacity-55")}
+          >
+            {dragged && over === i && <span className="absolute top-0 -left-[6px] h-full w-1 rounded-full bg-accent" />}
+            {dragged && over === i + 1 && i === value.length - 1 && <span className="absolute top-0 -right-[6px] h-full w-1 rounded-full bg-accent" />}
+            <button
+              ref={(el) => {
+                if (el) buttons.current.set(id, el);
+                else buttons.current.delete(id);
+              }}
+              type="button"
+              aria-label={`Show image ${i + 1} of ${what} large${face && i === 0 ? ", the face" : ""}`}
+              aria-keyshortcuts={value.length > 1 ? "Alt+ArrowLeft Alt+ArrowRight" : undefined}
+              onClick={() => setOpen(id)}
+              onKeyDown={(e) => onKey(e, id, i)}
+              className="block cursor-zoom-in rounded-[10px]"
+            >
+              <img src={thumbUrl(id)} alt="" draggable={false} className="h-[84px] w-[84px] rounded-[10px] border border-line object-cover hover:border-accent" />
             </button>
+            <span className={cx("pointer-events-none absolute bottom-1 left-1 rounded-[5px] px-1.5 text-[10.5px] font-bold", face && i === 0 ? "bg-accent text-ground" : "bg-ground/80 text-ink")}>{face && i === 0 ? "face" : i + 1}</span>
             <button type="button" aria-label="Remove this image" onClick={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/85 text-ink-2 hover:text-ink"><X size={11} /></button>
           </div>
         ))}
@@ -174,8 +253,8 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
   const full = def.outfits.length >= LIMITS.outfits;
   return (
     <>
-      <Card dense title={`Reference images · ${def.pictures.length}`} help="Used by models that take reference images. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library.">
-        <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} />
+      <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
+        <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
         <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Optional.">
           <Voice value={def.voice} onChange={(voice) => onChange({ ...def, voice })} />
         </Row>
@@ -187,7 +266,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
         {rows.map(({ family: f, ids, can }) => {
           const m = entryOf(def.models, ids) ?? { lora: null, weight: 0.8, trigger: "" };
           const set = (patch: Partial<typeof m>) => onChange({ ...def, models: withEntry(def.models, ids, { ...m, ...patch }) });
-          const refs = Math.min(3, def.pictures.length);
+          const refs = Math.min(LIMITS.sentPictures.person, def.pictures.length);
           const known = can.tags && m.lora && !m.trigger.trim() ? words.of(m.lora) : null;
           return (
             // the mock's three columns: the family, what it takes, its LoRA (and under that, the LoRA's weight and words)
@@ -260,8 +339,8 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
 export function PlaceEditor({ def, name, onChange }: { def: PlaceDef; name: string; onChange(def: PlaceDef): void }) {
   return (
     <>
-      <Card dense title={`Reference images · ${def.pictures.length}`} help="Used by models that take reference images: the clip happens there. Drop pictures on the row, from the computer or the library.">
-        <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} />
+      <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the clip happens there. The first ${LIMITS.sentPictures.place} are sent. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
+        <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.place} />
       </Card>
       <Words place tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
     </>

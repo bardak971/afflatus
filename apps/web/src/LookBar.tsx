@@ -1,12 +1,14 @@
-import { useState } from "react";
-import { Link } from "wouter";
+import { useState, type MouseEvent } from "react";
+import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Plus, Sparkles, User, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, MapPin, Plus, Sparkles, User, X } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
 import { api, lookAdds, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
 import { useEntities } from "./data";
 import { fileLabel } from "./format";
 import { useSettled } from "./hooks";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
+import { kitHref } from "./screens/kit/link";
 import { Select } from "./Select";
 import { cx, Help } from "./ui";
 
@@ -26,7 +28,10 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   title?: string;
 }) {
   const entities = useEntities();
+  const [, go] = useLocation();
   const [showing, setShowing] = useState(false);
+  // the menu of a chip of the cast: under the chip when clicked, at the pointer when right-clicked
+  const [menu, setMenu] = useState<{ at: { x: number; y: number; keyed?: boolean }; id: string } | null>(null);
   const all = entities.data?.items ?? [];
   // someone deleted from the kit is left out: not shown, not counted, and gone with the next change
   const now = present(look ?? none, entities.data ? all : null);
@@ -47,38 +52,57 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between">
         <span className="text-xs font-semibold">{title}</span>
-        <Link href="/kit#people" className="text-xs text-ink-2 underline hover:text-ink">{all.some((e) => e.kind !== "preset") ? "Edit in the Prompt kit" : "Add people, places and styles"}</Link>
+        <Link href={kitHref("person")} className="text-xs text-ink-2 underline hover:text-ink">{all.some((e) => e.kind !== "preset") ? "Edit in the Prompt kit" : "Add people, places and styles"}</Link>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {now.cast.map((member) => {
           const e = all.find((x) => x.id === member.id);
           if (!e || (e.kind !== "person" && e.kind !== "place")) return null;
-          const outfits = e.kind === "person" ? e.def.outfits : [];
-          const worn = outfits.find((o) => o.id === member.outfit);
+          const worn = e.kind === "person" ? e.def.outfits.find((o) => o.id === member.outfit) : undefined;
           const face = e.def.pictures[0];
+          const opens = (ev: MouseEvent<HTMLButtonElement>, below: boolean) => {
+            ev.preventDefault();
+            const r = ev.currentTarget.getBoundingClientRect();
+            // from the keyboard (Enter, the menu key), its first item is active at once
+            setMenu({ id: e.id, at: below || (ev.clientX === 0 && ev.clientY === 0) ? { x: r.left, y: r.bottom + 4, keyed: ev.detail === 0 } : { x: ev.clientX, y: ev.clientY } });
+          };
           return (
-            <span key={e.id} className="flex h-9 items-center gap-1.5 rounded-full border border-accent bg-accent-wash pr-1 pl-1">
+            <button
+              key={e.id}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menu?.id === e.id}
+              aria-label={`${e.name}${worn ? `, ${worn.name}` : ""}: outfit, open in the kit, remove`}
+              onClick={(ev) => opens(ev, true)}
+              onContextMenu={(ev) => opens(ev, false)}
+              className={cx("flex h-9 items-center gap-1.5 rounded-full border border-accent bg-accent-wash pr-2 pl-1 hover:bg-hover", menu?.id === e.id && "bg-hover")}
+            >
               {face ? <img src={thumbUrl(face)} alt="" className="h-7 w-7 rounded-full object-cover" /> : <span className="flex h-7 w-7 items-center justify-center rounded-full bg-raised text-ink-2">{e.kind === "person" ? <User size={13} /> : <MapPin size={13} />}</span>}
               <span className="font-semibold">{e.name}</span>
-              {outfits.length > 0 && (
-                <button
-                  type="button"
-                  data-tip={`Outfit: ${worn?.name ?? "as in the reference images"}. Click for the next one.`}
-                  aria-label={`Outfit of ${e.name}: ${worn?.name ?? "as in the reference images"}. Click for the next one.`}
-                  onClick={() => {
-                    const order = [null, ...outfits.map((o) => o.id)];
-                    const next = order[(order.indexOf(member.outfit ?? null) + 1) % order.length];
-                    onChange({ ...now, cast: now.cast.map((c) => (c.id === e.id ? { ...c, outfit: next } : c)) });
-                  }}
-                  className="rounded-full bg-raised px-2 py-0.5 text-xs text-ink-2 hover:text-ink"
-                >
-                  {worn?.name ?? "as in the references"}
-                </button>
-              )}
-              <button type="button" aria-label={`Remove ${e.name}`} onClick={() => onChange({ ...now, cast: now.cast.filter((c) => c.id !== e.id) })} className="flex h-6 w-6 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={12} /></button>
-            </span>
+              {worn && <span className="text-xs text-ink-2">· {worn.name}</span>}
+              <ChevronDown size={13} className="shrink-0 text-ink-2" />
+            </button>
           );
         })}
+        {menu && (() => {
+          const e = all.find((x) => x.id === menu.id);
+          if (!e || (e.kind !== "person" && e.kind !== "place")) return null;
+          const member = now.cast.find((c) => c.id === e.id);
+          const wear = (outfit: string | null) => onChange({ ...now, cast: now.cast.map((c) => (c.id === e.id ? { ...c, outfit } : c)) });
+          const outfits: MenuItem[] = e.kind === "person"
+            ? [
+              { label: "As in the references", icon: !member?.outfit ? <Check size={14} /> : undefined, run: () => wear(null) },
+              ...e.def.outfits.map((o): MenuItem => ({ label: o.name || "Unnamed outfit", icon: member?.outfit === o.id ? <Check size={14} /> : undefined, run: () => wear(o.id) })),
+              "—",
+            ]
+            : [];
+          const items: MenuItem[] = [
+            ...outfits,
+            { label: `Open ${e.name} in the kit`, icon: <ExternalLink size={14} />, run: () => go(kitHref(e.kind, e.id)) },
+            { label: "Remove from the cast", icon: <X size={14} />, danger: true, run: () => onChange({ ...now, cast: now.cast.filter((c) => c.id !== e.id) }) },
+          ];
+          return <ContextMenu at={menu.at} label={`${e.name} in the cast`} head={{ title: e.name, sub: e.kind === "person" ? "Person · outfit" : "Place", thumb: e.def.pictures[0] }} items={items} onClose={() => setMenu(null)} />;
+        })()}
         {/* as many as a look holds: the server refuses more, and every save of the draft would fail */}
         {castable.length > 0 && now.cast.length < LIMITS.cast && (
           <div className="w-28">

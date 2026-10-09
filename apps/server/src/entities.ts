@@ -106,7 +106,7 @@ async function binUnwantedKit(db: Db, ids: string[]): Promise<void> {
 }
 
 /** How many pictures of one person, and of one place, are handed to a model that takes reference pictures. */
-const PICTURES = { person: 3, place: 2 };
+const PICTURES = LIMITS.sentPictures;
 
 const join = (parts: Array<string | undefined | null>, by: string) => parts.map((p) => (p ?? "").trim().replace(/^[,\s]+|[,\s]+$/g, "")).filter(Boolean).join(by);
 

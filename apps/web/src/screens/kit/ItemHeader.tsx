@@ -1,10 +1,29 @@
-import { FileDown, Play, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, FileDown, Link2, Play, Trash2, X } from "lucide-react";
 import type { Entity } from "../../api";
 import { savePresetFile } from "../../presetFile";
+import { copyText } from "../../secureContext";
 import { Button, Chip } from "../../ui";
+import { kitHref } from "./link";
 
 /** What deleting an item does, said before it is done. */
 export const noteOfDelete = (e: Entity) => (e.kind === "person" || e.kind === "place" ? "Images picked from your library stay there; images uploaded here go to the bin with it." : "It cannot be brought back.");
+
+/** The address of an item of the kit, to the clipboard: pasted in another tab, it opens the kit on that item. */
+export function CopyLink({ item }: { item: Entity }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  const href = `${window.location.origin}${kitHref(item.kind, item.id)}`;
+  return (
+    <Button size="sm" data-tip={href} onClick={() => void copyText(href).then(() => setCopied(true), () => {})} className="flex shrink-0 items-center gap-1.5">
+      {copied ? <Check size={13} /> : <Link2 size={13} />} {copied ? "Copied" : "Copy link"}
+    </Button>
+  );
+}
 
 /** The head of the item open in the Prompt kit: its name to change, whether it is saved, and what can be done with it. */
 export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, onDelete, onClose }: {
@@ -27,6 +46,7 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
         {saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : `Could not save${failure ? `: ${failure}` : ""}`}
         {saved === "failed" && <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>}
       </Chip>
+      <CopyLink item={item} />
       {item.kind === "preset" && (
         <>
           <Button size="sm" tone="primary" onClick={onApply} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>

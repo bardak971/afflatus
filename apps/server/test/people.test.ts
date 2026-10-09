@@ -155,6 +155,18 @@ describe("people, places and styles", () => {
     expect(fake.uploads.filter((u) => u.endsWith(".wav"))).toHaveLength(1);
   });
 
+  it("hand a model their first pictures in the order they were put in: the first is the face, the ones after the first three stay home", async () => {
+    const c = await cast();
+    const [back, close] = [await picture("back.png"), await picture("close.png")];
+    const her = (await get(t.app, "/api/entities")).json().items.find((e: { id: string }) => e.id === c.her);
+    // put in another order, as the kit saves it: the whole person with the pictures moved
+    const saved = await put(`/api/entities/${c.her}`, { def: { ...her.def, pictures: [close, c.side, c.front, back] } });
+    expect(saved.def.pictures).toEqual([close, c.side, c.front, back]);
+    expect((await get(t.app, "/api/entities")).json().items.find((e: { id: string }) => e.id === c.her).def.pictures).toEqual([close, c.side, c.front, back]);
+    const made = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "She waves." }, look: { cast: [{ id: c.her }] } })).json();
+    expect(made.input.references).toEqual([{ asset: close, role: "person" }, { asset: c.side, role: "person" }, { asset: c.front, role: "person" }]);
+  });
+
   it("say what did not fit, and leave out what is gone", async () => {
     const c = await cast();
     // the library refuses to bin a picture a person still names (409); one gone all the same (a database from before) is left out

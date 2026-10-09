@@ -9,6 +9,8 @@ export const LIMITS = {
   snippets: 30,
   /** Reference pictures of one person or place. */
   pictures: 9,
+  /** Of those, how many a model that takes reference pictures is handed: the first ones (a person's first is the face). */
+  sentPictures: { person: 3, place: 2 },
   /** Outfits of one person. */
   outfits: 30,
 } as const;

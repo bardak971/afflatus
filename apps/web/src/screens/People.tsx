@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin, Play, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
@@ -13,8 +13,9 @@ import { handPreset } from "../handoff";
 import { useStudio } from "../store";
 import { Button, cx, ErrorNote, Help } from "../ui";
 import { ask } from "../Confirm";
-import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
+import { CopyLink, ItemHeader, noteOfDelete } from "./kit/ItemHeader";
 import { KitHeader, TABS, type Tab } from "./kit/KitHeader";
+import { kitHash, readKitHash } from "./kit/link";
 import { PersonEditor, PlaceEditor } from "./kit/PersonEditor";
 import { authorOf, PresetList } from "./kit/PresetList";
 import { Badge, Mark, Row } from "./kit/Row";
@@ -50,10 +51,11 @@ export function People() {
   const recipes = useRecipes();
   const [, go] = useLocation();
   const all = entities.data?.items ?? [];
-  // the tab named in the address ("/kit#snippets") when there is one, else the one last looked at
-  const [tab, setTabNow] = useState<Tab>(() => TABS.find((t) => `#${t.title.toLowerCase()}` === window.location.hash)?.id ?? remembered<Tab>(TAB_KEY, "person"));
+  // the tab and the item named in the address ("/kit#people/<id>", "/kit#snippets") when there are, else the tab last looked at
+  const [start] = useState(() => readKitHash(window.location.hash));
+  const [tab, setTabNow] = useState<Tab>(() => start?.tab ?? remembered<Tab>(TAB_KEY, "person"));
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(start?.id ?? null);
   // the Snippets tab: the one category shown (the New button makes a snippet in it) and the snippet just made
   const [snippetOnly, setSnippetOnly] = useState<string | null>(null);
   const [freshSnippet, setFreshSnippet] = useState<string | null>(null);
@@ -62,15 +64,38 @@ export function People() {
   const { edit, saved, failure, flush, retry, change, dropPending } = useEntityDraft({ stored, loading: entities.isLoading });
   /** Another item, or none, with what was changed kept. */
   const select = (id: string | null) => void flush().then(() => setOpen(id));
-  const setTab = (next: Tab) => {
+  /** Another tab, with an item of it open or none. */
+  const setTab = (next: Tab, item: string | null = null) => {
     remember(TAB_KEY, next);
     setQuery("");
     void flush().then(() => {
-      setOpen(null);
+      setOpen(item);
       setSnippetOnly(null);
       setTabNow(next);
     });
   };
+
+  // the address says where the kit is: replaced, not pushed, so that walking the list leaves no trail in the history
+  useEffect(() => {
+    const hash = kitHash(tab, open);
+    if (window.location.hash !== hash) history.replaceState(history.state, "", `${window.location.pathname}${window.location.search}${hash}`);
+  }, [tab, open]);
+  // and a link followed while the kit is open (the back button, a cast's "Open in the kit", the command bar) moves it there
+  const follow = useRef<() => void>(() => {});
+  follow.current = () => {
+    const to = window.location.pathname.startsWith("/kit") ? readKitHash(window.location.hash) : null;
+    if (!to || (to.tab === tab && to.id === open)) return;
+    if (to.tab !== tab) setTab(to.tab, to.id);
+    else select(to.id);
+  };
+  useEffect(() => {
+    const moved = () => follow.current();
+    const events = ["hashchange", "popstate", "pushState"];
+    for (const e of events) window.addEventListener(e, moved);
+    return () => {
+      for (const e of events) window.removeEventListener(e, moved);
+    };
+  }, []);
 
   const create = useMutation({
     mutationFn: (kind: "person" | "place" | "style" | "preset") => api.createEntity(kind, TABS.find((t) => t.id === kind)!.add),
@@ -192,6 +217,7 @@ export function People() {
                 <div className="flex items-center gap-3">
                   <h2 className="min-w-0 grow truncate text-xl font-semibold">{shipped.name}</h2>
                   <Badge>{authorOf(shipped)}</Badge>
+                  <CopyLink item={shipped} />
                   <Button size="sm" tone="primary" onClick={() => applyInStudio(shipped.id)} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
                   <Button size="sm" onClick={() => savePresetFile(shipped)} className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
                   <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
