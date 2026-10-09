@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, follows, joinFade as fadeOf, landsOn, MODEL_FPS, secondsOf, type JoinTake, type Recipe } from "@afflatus/core";
+import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, MODEL_FPS, secondsOf, type ClipMusic, type JoinTake, type Recipe } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -264,3 +264,28 @@ export interface TimelineCore {
   /** One frame of a video as a picture in the library (timelineMedia.ts), in the folder of the timeline it is taken in. */
   frame(video: AssetRow, atMs: number, once?: boolean, timeline?: string): Promise<AssetRow>;
 }
+
+/** A clip's music settings as stored: only what differs from the rest; null when nothing does. */
+export const musicJson = (m: ClipMusic | null) => {
+  const kept = clipMusicOf(m);
+  return kept ? JSON.stringify(kept) : null;
+};
+
+/** A clip's music settings as its row keeps them. */
+export function musicOfRow(c: Pick<ClipRow, "music">): ClipMusic | null {
+  if (!c.music) return null;
+  try {
+    return clipMusicOf(JSON.parse(c.music));
+  } catch {
+    return null;
+  }
+}
+
+/** The music's own settings for the plan (@afflatus/core's musicPlan), from the timeline and the song's row. */
+export const musicBaseOf = (t: TimelineRow, song: Pick<AssetRow, "duration_ms"> | undefined | null) => ({
+  volume: t.music_volume, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms, duck: Boolean(t.music_duck), duckDb: t.music_duck_db,
+  fromMs: t.music_from_ms ?? 0, durationMs: song?.duration_ms ?? 0, startClip: t.music_start_clip_id ?? null,
+});
+
+/** The clips that play, as the music plan takes them. */
+export const musicClipsOf = (laid: Laid[]) => laid.map((l) => ({ id: l.p.clip.id, atMs: l.atMs, lengthMs: l.lengthMs, music: musicOfRow(l.p.clip) }));

@@ -174,7 +174,7 @@ export class TimelineRange {
       .values({
         id, timeline_id: timelineId, position: index + 1, take_id: null, joined: "cut", recipe_id: still ? null : clip.recipe_id, inputs: still ? "{}" : clip.inputs,
         kind: clip.kind, still_asset_id: still ? clip.still_asset_id : null, still_ms: still ? Math.max(STILL_MS.least, Math.round(clip.still_ms - localMs)) : 3000,
-        sound: clip.sound, sound_asset_id: clip.sound_asset_id, volume: clip.volume, fill: clip.fill, look: clip.look, chat: null, created_at: at, updated_at: at,
+        sound: clip.sound, sound_asset_id: clip.sound_asset_id, volume: clip.volume, fill: clip.fill, look: clip.look, chat: null, music: clip.music ?? null, created_at: at, updated_at: at,
       })
       .execute();
     const order = all.map((x) => x.clip.id);

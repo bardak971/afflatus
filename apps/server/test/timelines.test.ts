@@ -526,6 +526,45 @@ describe.skipIf(!three)("a timeline", () => {
     expect((await t.app.inject({ method: "PATCH", url: `/api/clips/${a}`, payload: { soundAsset: picture.id } })).statusCode).toBe(400);
   });
 
+  it.skipIf(!tone)("plays the part of the song asked, from the clip asked, with each clip's own music under it, undone like any change", async () => {
+    const { id, a, b } = await twoClips();
+    const song = await upload(tone!, "audio/wav", "tone.wav");
+    await call("PATCH", `/api/timelines/${id}`, { music: { asset: song.id } });
+    expect((await view(id)).music).toMatchObject({ fromMs: 0, startClip: null });
+    // on tenths of a second, within the song; from the second clip on
+    await call("PATCH", `/api/timelines/${id}`, { music: { fromMs: 1234, startClip: b } });
+    let v = await view(id);
+    expect(v.music).toMatchObject({ fromMs: 1200, startClip: b });
+    expect(v.undo).toBe("the part of the song");
+    await call("PATCH", `/api/timelines/${id}`, { music: { fromMs: 60_000 } });
+    expect((await view(id)).music.fromMs).toBeLessThanOrEqual(song.durationMs);
+    await call("PATCH", `/api/timelines/${id}`, { music: { fromMs: 500 } });
+    expect((await t.app.inject({ method: "PATCH", url: `/api/timelines/${id}`, payload: { music: { startClip: "nope" } } })).statusCode).toBe(404);
+    // what a clip asks of the music under it: only what differs from the rest is kept
+    await call("PATCH", `/api/clips/${b}`, { music: { volume: 40, duck: "strong", fadeIn: true, muted: false } });
+    await call("PATCH", `/api/clips/${a}`, { music: { volume: 100 } });
+    v = await view(id);
+    expect(v.clips[1].music).toEqual({ volume: 40, duck: "strong", fadeIn: true });
+    expect(v.clips[0].music).toBeNull();
+    expect(v.undo).toBe("the music under the clip");
+    // the second clip ducks strong although the music does not duck elsewhere: a curve, at 0 dB where nothing ducks
+    await call("PATCH", `/api/timelines/${id}`, { music: { duck: false } });
+    const { curve } = (await get(t.app, `/api/timelines/${id}/duck`)).json() as { curve: { rate: number; gains: number[] } | null };
+    expect(curve).not.toBeNull();
+    expect(curve!.gains[0]).toBe(1);
+    await call("PATCH", `/api/clips/${b}`, { music: { muted: true } });
+    expect((await view(id)).clips[1].music).toEqual({ muted: true });
+    expect(await exported(id)).toMatchObject({ hasSound: true });
+    // back, one step at a time
+    await call("POST", `/api/timelines/${id}/undo`);
+    await call("POST", `/api/timelines/${id}/undo`);
+    expect((await view(id)).clips[1].music).toEqual({ volume: 40, duck: "strong", fadeIn: true });
+    for (let i = 0; i < 4; i++) await call("POST", `/api/timelines/${id}/undo`);
+    v = await view(id);
+    expect(v.clips[1].music).toBeNull();
+    expect(v.music).toMatchObject({ fromMs: 1200, startClip: b });
+  });
+
   it("takes changes back one at a time, without losing what was rendered since", async () => {
     const { id, a, b } = await twoClips();
     expect((await view(id)).undo).toBe("the clip added");

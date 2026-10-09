@@ -46,6 +46,7 @@ import m0044 from "./0044-timelines-follow-folders";
 import m0045 from "./0045-music-duck-db";
 import m0046 from "./0046-auto-names";
 import m0047 from "./0047-label-names";
+import m0048 from "./0048-music-place";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -100,4 +101,5 @@ export const migrations: Record<string, Migration> = {
   "0045_music_duck_db": m0045,
   "0046_auto_names": m0046,
   "0047_label_names": m0047,
+  "0048_music_place": m0048,
 };

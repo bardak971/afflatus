@@ -1,7 +1,7 @@
 import { chatJson } from "./designer";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import type { InputSpec } from "@afflatus/core";
+import { musicPlan, type ClipMusic, type InputSpec } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import { httpError, notFound } from "./errors";
 import { rootFolderOf } from "./projects";
@@ -18,7 +18,7 @@ import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow } from "./timelineModel";
+import { clockOf, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -131,12 +131,15 @@ export interface ClipPatch {
   /** The conversation with the designer about this clip: kept as it is. */
   chat?: unknown[];
   designer?: { llm?: string; instruction?: string } | null;
+  /** What it asks of the music under it; null = as the rest of the video again. */
+  music?: ClipMusic | null;
 }
 export interface TimelinePatch {
   name?: string;
   width?: number | null;
   height?: number | null;
-  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean; duckDb?: number };
+  /** `fromMs`: where in the song it plays from; `startClip`: the clip it starts with (null: the first). */
+  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean; duckDb?: number; fromMs?: number; startClip?: string | null };
   /** Who is in the video and how it looks: used by every clip that has no cast of its own. */
   look?: Look | null;
   /** The look and mood of the whole video, in words. */
@@ -353,6 +356,8 @@ export class Timelines {
         look: p.clip.look ? (JSON.parse(p.clip.look) as Look) : null,
         chat: p.clip.chat ? (JSON.parse(p.clip.chat) as unknown[]) : [],
         designer: p.clip.designer ? (JSON.parse(p.clip.designer) as { llm?: string; instruction?: string }) : null,
+        /** What it asks of the music under it; null = as the rest. */
+        music: musicOfRow(p.clip),
         /** Where it starts on the timeline, and how long it plays. */
         atMs: at, lengthMs: length,
         job: job ? { id: job.id, status: job.status } : null,
@@ -376,7 +381,7 @@ export class Timelines {
       .insertInto("timelines")
       .values({
         id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: 0,
-        music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, music_duck_db: 10, export_asset_id: null, look: null, mood: null,
+        music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, music_duck_db: 10, music_from_ms: 0, music_start_clip_id: null, export_asset_id: null, look: null, mood: null,
         created_at: at, updated_at: at,
       })
       .execute();
@@ -394,9 +399,13 @@ export class Timelines {
       const sound = await this.assetRow(m.asset);
       if (!sound || (sound.kind !== "audio" && !(sound.kind === "video" && sound.has_sound))) throw httpError("The music has to be an audio file, or a video with audio.");
     }
+    if (m?.startClip && !(await this.db.selectFrom("clips").select("id").where("id", "=", m.startClip).where("timeline_id", "=", id).executeTakeFirst())) throw notFound("this clip");
+    // the part of the song: within it (another song starts from its beginning, unless said otherwise)
+    const songMs = m?.fromMs !== undefined ? (await this.assetRow(m.asset ?? before.music_asset_id))?.duration_ms ?? null : null;
+    const fromMs = m?.fromMs !== undefined ? Math.max(0, Math.min(songMs ?? Infinity, Math.round(m.fromMs / 100) * 100)) : m?.asset ? 0 : undefined;
     await this.remember(
       id,
-      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : "the music's settings",
+      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : m?.fromMs !== undefined || m?.startClip !== undefined ? "the part of the song" : "the music's settings",
     );
     const within = (n: number, least: number, most: number) => Math.max(least, Math.min(most, Math.round(n)));
     // to another project without a folder said: a folder of the project it leaves gives way to the new one's root
@@ -419,6 +428,8 @@ export class Timelines {
           ...(m?.fadeOutMs !== undefined ? { music_fade_out_ms: within(m.fadeOutMs, 0, 20_000) } : {}),
           ...(m?.duck !== undefined ? { music_duck: m.duck ? 1 : 0 } : {}),
           ...(m?.duckDb !== undefined ? { music_duck_db: within(m.duckDb, 3, 30) } : {}),
+          ...(fromMs !== undefined ? { music_from_ms: fromMs } : {}),
+          ...(m?.startClip !== undefined ? { music_start_clip_id: m.startClip } : {}),
           ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
           ...(patch.mood !== undefined ? { mood: patch.mood.trim() || null } : {}),
           updated_at: now(),
@@ -554,6 +565,7 @@ export class Timelines {
           ...(patch.volume !== undefined ? { volume: Math.max(0, Math.min(100, Math.round(patch.volume))) } : {}),
           ...(patch.fill !== undefined ? { fill: patch.fill ? 1 : 0 } : {}),
           ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
+          ...(patch.music !== undefined ? { music: musicJson(patch.music) } : {}),
           ...(patch.stillMs !== undefined ? { still_ms: Math.max(STILL_MS.least, Math.min(STILL_MS.most, Math.round(patch.stillMs))) } : {}),
           ...(animate
             ? { kind: "video" as const, still_asset_id: null, recipe_id: animate.id, joined: "cut" as const, inputs: JSON.stringify({ [animate.inputs.find((i) => i.type === "image" && i.role === "start")!.id]: clip.still_asset_id }) }
@@ -743,11 +755,14 @@ export class Timelines {
     this.media.forget(assetId, takes);
   }
 
-  /** The music ducked under speech, the curve the export uses too: null when there is no music or it is not ducked. */
+  /** The music ducked under speech, the curve the export uses too: null when there is no music or no clip ducks it. */
   async duck(timelineId: string): Promise<DuckCurve | null> {
     const t = await this.row(timelineId);
-    if (!t.music_asset_id || !t.music_duck) return null;
-    return duckCurve(laidOut(await this.placed(timelineId)), (id) => this.media.motion(id), t.music_duck_db);
+    if (!t.music_asset_id) return null;
+    const laid = laidOut(await this.placed(timelineId));
+    const plan = musicPlan(musicBaseOf(t, await this.assetRow(t.music_asset_id)), musicClipsOf(laid));
+    if (!plan.spans.some((s) => s.duckDb > 0)) return null;
+    return duckCurve(laid, (id) => this.media.motion(id), plan);
   }
 
   /** A clip's timeline as it is on screen, and the clip's place in it. */
@@ -766,6 +781,7 @@ function labelOf(patch: ClipPatch): string {
     : patch.joined !== undefined ? (patch.joined === "cut" ? "the cut" : "the join")
     : patch.animate ? "the image animated (i2v)"
     : patch.sound !== undefined || patch.soundAsset !== undefined || patch.volume !== undefined ? "the audio change"
+    : patch.music !== undefined ? "the music under the clip"
     : patch.fill !== undefined ? "the fit in the frame"
     : patch.look !== undefined ? "the change of characters"
     : "the change of model";

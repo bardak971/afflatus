@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Film } from "lucide-react";
+import { musicGainAt, musicPlan, songAt } from "@afflatus/core";
 import { api, fileUrl, type Clip, type RunningJob, type Take, type Timeline } from "../api";
 import { phaseLabel } from "../format";
 import { LivePreview } from "../LivePreview";
@@ -48,6 +49,8 @@ export const Player = forwardRef<PlayerHandle, {
 }>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline, master = 1, onPickPreview, screen }, ref) {
   const masterRef = useRef(master);
   masterRef.current = master;
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
   // the clips that play, kept while what plays of them is the same: a timeline read again (a render's progress, a form
   // saved) does not restart the frame loop below, which follows this list
   const signature = playSignature(clips);
@@ -91,29 +94,36 @@ export const Player = forwardRef<PlayerHandle, {
   /** The fade of the clip after has begun (from then on it is not moved: a jump would show). */
   const fadedIn = useRef(false);
 
+  // the music's plan, the export's too: the part of the song, the clip it starts with, each clip's level under it
+  const plan = useMemo(
+    () => (music ? musicPlan({ ...music, durationMs: music.asset.durationMs ?? 0 }, clips.map((c) => ({ id: c.id, atMs: c.atMs, lengthMs: c.lengthMs, music: c.music }))) : null),
+    [music, clips],
+  );
+  const ducks = Boolean(plan?.spans.some((s) => s.duckDb > 0));
   // the music ducked under speech, the curve the export applies too (asked again when what plays or the music changes)
   const duck = useQuery({
-    queryKey: ["duck", timeline, music?.asset.id, music?.duck, music?.duckDb, clips.map((c) => `${c.id}:${c.take?.id}:${c.atMs}:${c.lengthMs}:${c.volume}:${c.sound}`).join(",")],
+    queryKey: ["duck", timeline, music?.asset.id, music?.duck, music?.duckDb, music?.startClip, clips.map((c) => `${c.id}:${c.take?.id}:${c.atMs}:${c.lengthMs}:${c.volume}:${c.sound}:${c.music?.duck ?? ""}`).join(",")],
     queryFn: () => api.duck(timeline!),
-    enabled: Boolean(timeline && music?.duck),
+    enabled: Boolean(timeline && ducks),
   });
-  const curve = music?.duck ? duck.data?.curve ?? null : null;
+  const curve = ducks ? duck.data?.curve ?? null : null;
 
-  /** The music follows the playhead: at the same moment, as loud as its fades say, and ducked under speech. */
+  /** The music follows the playhead: at its moment of the song, as loud as the plan says there, and ducked under speech. */
   const tuneMusic = useCallback(
     (global: number, force = false) => {
       const el = musicEl.current;
-      if (!el || !music) return;
-      const length = music.asset.durationMs || total;
-      const heard = Math.min(total, length);
-      const fadeIn = music.fadeInMs ? Math.min(1, global / music.fadeInMs) : 1;
-      const fadeOut = music.fadeOutMs ? Math.min(1, Math.max(0, heard - global) / music.fadeOutMs) : 1;
-      const ducked = curve ? curve.gains[Math.min(curve.gains.length - 1, Math.max(0, Math.floor((global / 1000) * curve.rate)))] ?? 1 : 1;
-      el.volume = Math.max(0, Math.min(1, (music.volume / 100) * fadeIn * fadeOut * ducked * masterRef.current));
-      if (global >= length - 30) return void el.pause();
-      if (force || Math.abs(el.currentTime * 1000 - global) > 280) el.currentTime = global / 1000;
+      if (!el || !music || !plan) return;
+      // before the clip it starts with, and past its end: silent
+      if (global < plan.startMs || global >= plan.endMs - 30) {
+        if (!el.paused) el.pause();
+        return;
+      }
+      el.volume = Math.max(0, Math.min(1, musicGainAt(plan, curve, global) * masterRef.current));
+      const song = songAt(plan, global);
+      if (force || Math.abs(el.currentTime * 1000 - song) > 280) el.currentTime = song / 1000;
+      if (playingRef.current && el.paused) void el.play().catch(() => {});
     },
-    [music, total, curve],
+    [music, plan, curve],
   );
 
   const place = useCallback(
@@ -207,7 +217,8 @@ export const Player = forwardRef<PlayerHandle, {
       else go();
     }
     void clipSound.current?.play().catch(() => {});
-    if (music && now && now.atMs + pos.current.local < (music.asset.durationMs || total) - 30) void musicEl.current?.play().catch(() => {});
+    // the music plays from where the plan says, once it has started (tuned on every frame after)
+    if (now) tuneMusic(now.atMs + pos.current.local);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, nowKey, onPlaying, Boolean(music)]);
 

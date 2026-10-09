@@ -1,12 +1,13 @@
 import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./cut";
 import { newId, now } from "./db";
+import { musicPlan } from "@afflatus/core";
 import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
 import { folderOfTimeline } from "./timelineFolder";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
-import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type TimelineCore, type TimelineRow } from "./timelineModel";
+import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
 
@@ -47,11 +48,12 @@ export class TimelineExport {
       parts.push(await this.partFor(l, { from, to }, parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps));
     }
     const track = opts.music === false || win ? undefined : await this.core.assetRow(t.music_asset_id);
-    const music: ExportMusic | undefined = track
+    // the plan the player follows too: the part of the song, from which clip, each clip's level under it
+    const plan = track ? musicPlan(musicBaseOf(t, track), musicClipsOf(laid)) : null;
+    const music: ExportMusic | undefined = track && plan && plan.endMs > plan.startMs
       ? {
-          source: await sourceOf(this.core.storage, track.file_key), ext: extOf(track.mime), durationMs: track.duration_ms ?? 0,
-          volume: t.music_volume / 100, fadeInMs: t.music_fade_in_ms, fadeOutMs: t.music_fade_out_ms,
-          duck: t.music_duck ? await duckCurve(laid, (asset) => this.core.motion(asset), t.music_duck_db) : null,
+          source: await sourceOf(this.core.storage, track.file_key), ext: extOf(track.mime), plan,
+          duck: plan.spans.some((s) => s.duckDb > 0) ? await duckCurve(laid, (asset) => this.core.motion(asset), plan) : null,
         }
       : undefined;
     const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, signal: opts.signal };

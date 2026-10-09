@@ -26,6 +26,9 @@ const timelinePatch = z.strictObject({
       fadeOutMs: z.number().min(0).optional(),
       duck: z.boolean().optional(),
       duckDb: z.number().min(3).max(30).optional(),
+      /** Where in the song it plays from, and the clip it starts with (null: the first). */
+      fromMs: z.number().min(0).optional(),
+      startClip: z.string().nullable().optional(),
     })
     .optional(),
   /** Who is in the video and how it looks, for every clip that has no cast of its own. */
@@ -69,6 +72,17 @@ const clipPatch = z.strictObject({
   look: lookSchema.nullable().optional(),
   chat: z.array(z.unknown()).max(200).optional(),
   designer: z.strictObject({ llm: z.string().max(40).optional(), instruction: z.string().max(40).optional() }).nullable().optional(),
+  /** What it asks of the music under it; null = as the rest of the video. */
+  music: z
+    .strictObject({
+      volume: z.number().min(0).max(150).optional(),
+      duck: z.enum(["off", "strong"]).optional(),
+      fadeIn: z.boolean().optional(),
+      fadeOut: z.boolean().optional(),
+      muted: z.boolean().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 const renderBody = z.strictObject({

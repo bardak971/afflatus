@@ -9,7 +9,7 @@ import { useEntities, useFolders, useProjects } from "../data";
 import { FieldRow } from "../fields";
 import { Kbd } from "../Keys";
 import { lookWords } from "../LookBar";
-import { aboutMs } from "../format";
+import { aboutMs, clock } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
@@ -222,7 +222,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
         <div className={cx("flex items-center gap-2.5 px-3 py-2.5", t.music && "border-b border-line")}>
           <span className="flex min-w-0 grow flex-col gap-0.5">
             <PartHead>Music</PartHead>
-            <span className={cx("truncate", t.music ? "font-bold text-ink" : "text-sm text-ink-2")}>{t.music ? `${t.music.asset.name || "Music"} · ${t.music.volume} %${t.music.duck ? " · ducks under voices" : ""}` : "None: drop a sound on the Music track."}</span>
+            <span className={cx("truncate", t.music ? "font-bold text-ink" : "text-sm text-ink-2")}>{t.music ? `${t.music.asset.name || "Music"} · ${t.music.volume} %${t.music.fromMs ? ` · from ${clock(t.music.fromMs, { decimals: 1 })}` : ""}${t.music.startClip && t.clips.findIndex((c) => c.id === t.music!.startClip) > 0 ? ` · starts with clip ${t.clips.findIndex((c) => c.id === t.music!.startClip) + 1}` : ""}${t.music.duck ? " · ducks under voices" : ""}` : "None: drop a sound on the Music track."}</span>
           </span>
           {t.music && <button type="button" onClick={onMusic} className={quiet}>Settings</button>}
         </div>

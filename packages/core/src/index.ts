@@ -13,3 +13,4 @@ export * from "./packs";
 export * from "./seed";
 export * from "./limits";
 export * from "./joins";
+export * from "./music";

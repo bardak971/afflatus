@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Minus, Music, Plus } from "lucide-react";
-import type { Clip, RecipeInfo, RunningJob, Timeline } from "../api";
+import { Minus, Plus } from "lucide-react";
+import type { ClipMusic } from "@afflatus/core";
+import type { Clip, RecipeInfo, RunningJob, Timeline, TimelinePatch } from "../api";
 import { Kbd } from "../Keys";
 import { cx } from "../ui";
 import { layout, NEW_CLIP, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
@@ -9,12 +10,12 @@ import { FramePeek } from "./track/FramePeek";
 import type { PinPlace } from "./track/peek";
 import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
+import { MusicLane } from "./track/MusicLane";
 import { HEIGHT, MUSIC, ROW, SOUND } from "./track/rows";
 import { TrackClip, type Stretch } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
 import { useMotionMarks } from "./track/useMotionMarks";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
-import { Wave } from "./track/Wave";
 
 /** How long the pointer rests on a pinned picture before its card shows. */
 const PIN_AFTER_MS = 250;
@@ -29,7 +30,7 @@ export interface TimeRange {
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -70,6 +71,10 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   /** Right-click on a clip's audio strip, and on the music strip. */
   onSoundMenu?(clip: Clip, e: React.MouseEvent): void;
   onMusicMenu?(e: React.MouseEvent): void;
+  /** The music's place changed on its lane: which part of the song plays, the clip it starts with. */
+  onMusicEdit?(patch: TimelinePatch): void;
+  /** What a clip asks of the music under it (null: as the rest). */
+  onClipMusic?(clip: Clip, music: ClipMusic | null): void;
   /** The join dot before a clip was clicked: it extends the clip before, or is a cut. */
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
   /** In and Out, on the clock of what plays; null = no range. */
@@ -318,28 +323,21 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               <span className="text-xs font-semibold">New clip</span>
             </button>
 
-            {/* the music: one sound under the whole video */}
-            <button
-              type="button"
-              onClick={() => timeline.music && onSelectMusic()}
+            {/* the music: one sound under the whole video, split at the clips */}
+            <MusicLane
+              timeline={timeline}
+              slots={slots}
+              pps={pps}
+              width={width}
+              selected={musicSelected}
+              over={over?.kind === "music"}
+              measureOf={measureOf}
               onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? { kind: "music" } : null)}
-              onContextMenu={(e) => onMusicMenu?.(e)}
-              aria-label={timeline.music ? `Music: ${timeline.music.asset.name || "an audio file"}` : "Music: none. Drop an audio file here."}
-              aria-pressed={musicSelected}
-              style={{
-                left: PAD + 1, top: MUSIC.top, height: MUSIC.height,
-                width: Math.max(140, (timeline.music ? Math.min(totalMs, timeline.music.asset.durationMs || totalMs) / 1000 : totalMs / 1000) * pps - 2),
-              }}
-              className={cx(
-                "absolute flex items-center gap-1.5 overflow-hidden rounded px-2 text-left text-[11px]",
-                timeline.music ? "bg-accent-wash text-accent" : "border border-dashed border-line-strong text-ink-3",
-                (musicSelected || over?.kind === "music") && "outline outline-2 outline-accent",
-              )}
-            >
-              {timeline.music && <Wave sound={measureOf(timeline.music.asset.id)?.sound ?? null} rate={measureOf(timeline.music.asset.id)?.rate ?? 10} fromMs={0} toMs={Math.min(totalMs, timeline.music.asset.durationMs || totalMs)} />}
-              <Music size={11} className="relative shrink-0" />
-              <span className="relative truncate">{timeline.music ? timeline.music.asset.name || "Music" : "Drop an audio file here to play it under the whole video"}</span>
-            </button>
+              onSelectMusic={() => timeline.music && onSelectMusic()}
+              onMusicMenu={onMusicMenu}
+              onMusicEdit={onMusicEdit}
+              onClipMusic={onClipMusic}
+            />
 
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
             <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} />

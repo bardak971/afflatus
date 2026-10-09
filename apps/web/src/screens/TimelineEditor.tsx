@@ -489,6 +489,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           onMenu={(clip, e) => clipMenu.open(e, clip)}
           onSoundMenu={(clip, e) => soundMenu.open(e, clip)}
           onMusicMenu={(e) => musicMenu.open(e, true)}
+          onMusicEdit={(p) => edit.mutate(p)}
+          onClipMusic={(clip, music) => patch.mutate({ clip: clip.id, patch: { music } })}
           range={range}
           onRange={setRange}
           onRangeMenu={(e) => rangeMenu.open(e, true)}

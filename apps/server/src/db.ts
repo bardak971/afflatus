@@ -203,6 +203,9 @@ export interface Tables {
     music_duck: number;
     /** How far the music goes down under speech, in dB. */
     music_duck_db: number;
+    /** Where in the song it plays from, and the clip it starts with (null: the first). */
+    music_from_ms: number;
+    music_start_clip_id: string | null;
     /** The last video it was exported as. */
     export_asset_id: string | null;
     /** Its cast, places and style (JSON), used by every clip that has none of its own. */
@@ -248,6 +251,8 @@ export interface Tables {
     chat: string | null;
     /** Which language model and which instructions that conversation is held with (JSON); null = the usual ones. */
     designer?: string | null;
+    /** What it asks of the music under it (JSON, @afflatus/core's ClipMusic); null = as the rest of the video. */
+    music?: string | null;
     created_at: string;
     updated_at: string;
   };

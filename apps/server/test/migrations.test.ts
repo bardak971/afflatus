@@ -29,6 +29,20 @@ describe("migration 0032, the timeline of a job", () => {
   });
 });
 
+describe("migration 0048, the music's place", () => {
+  it("plays the timelines there were from the song's start with clip 1, each clip under it as the rest", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0047_label_names");
+    const at = new Date().toISOString();
+    await db.insertInto("timelines").values({ id: "tl", owner_id: OWNER, name: "Old", width: null, height: null, created_at: at, updated_at: at } as never).execute();
+    await db.insertInto("clips").values({ id: "clip", timeline_id: "tl", position: 0, take_id: null, joined: "cut", recipe_id: null, inputs: "{}", created_at: at, updated_at: at } as never).execute();
+    expect(await migrate(db)).toContain("0048_music_place");
+    expect(await db.selectFrom("timelines").select(["music_from_ms", "music_start_clip_id"]).executeTakeFirst()).toEqual({ music_from_ms: 0, music_start_clip_id: null });
+    expect(await db.selectFrom("clips").select("music").executeTakeFirst()).toEqual({ music: null });
+    await db.destroy();
+  });
+});
+
 describe("a migration that fails half way", () => {
   it("leaves nothing of the update applied, and a copy of the database from before it", async () => {
     const dir = mkdtempSync(join(tmpdir(), "afflatus-migrate-"));

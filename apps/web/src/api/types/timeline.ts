@@ -1,5 +1,6 @@
 /** Timelines: clips and their takes, what was measured along them, and the patches that change them. */
 import type { Asset } from "./library";
+import type { ClipMusic } from "@afflatus/core";
 import type { DesignerSession, Look } from "./designer";
 
 /** One render of a clip. `startMs` to `endMs` is the part of its video that plays. */
@@ -68,6 +69,8 @@ export interface Clip {
   chat: unknown[];
   /** The language model and instructions that conversation is held with; null = the usual ones. */
   designer: DesignerSession | null;
+  /** What it asks of the music under it; null = as the rest of the video. */
+  music: ClipMusic | null;
   /** How it starts: carrying on from the clip before, or on its own. */
   joined: "continue" | "cut";
   /** Whether it still follows the clip before: null when there is nothing to compare yet. */
@@ -98,8 +101,8 @@ export interface Timeline {
   look: Look | null;
   /** The look and mood of the whole video, in words: added to what happens in every clip. */
   mood: string;
-  /** The sound under the whole video. */
-  music: { asset: Asset; volume: number; fadeInMs: number; fadeOutMs: number; duck: boolean; duckDb: number } | null;
+  /** The sound under the whole video: from `fromMs` of the song, starting with clip `startClip` (null: the first). */
+  music: { asset: Asset; volume: number; fadeInMs: number; fadeOutMs: number; duck: boolean; duckDb: number; fromMs: number; startClip: string | null } | null;
   /** What Undo would take back, in a few words; and what Redo would do again. */
   undo: string | null;
   redo: string | null;
@@ -152,12 +155,13 @@ export interface ClipPatch {
   look?: Look | null;
   chat?: unknown[];
   designer?: DesignerSession | null;
+  music?: ClipMusic | null;
 }
 export interface TimelinePatch {
   name?: string;
   width?: number | null;
   height?: number | null;
-  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean; duckDb?: number };
+  music?: { asset?: string | null; volume?: number; fadeInMs?: number; fadeOutMs?: number; duck?: boolean; duckDb?: number; fromMs?: number; startClip?: string | null };
   look?: Look | null;
   mood?: string;
   /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */

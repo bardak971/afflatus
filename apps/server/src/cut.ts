@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { duckWav, type DuckCurve } from "./duck";
+import { musicGainAt, type MusicPlan } from "@afflatus/core";
+import { gainWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { factsOf, tools, type ProbeInfo, type VideoFacts } from "./video";
@@ -485,10 +486,8 @@ async function meansOf(file: string, fromSec: number, seconds: number): Promise<
 export interface ExportMusic {
   source: Media;
   ext: string;
-  durationMs: number;
-  volume: number;
-  fadeInMs: number;
-  fadeOutMs: number;
+  /** Where it starts and stops on the video's clock, the part of the song, its level under each clip (@afflatus/core's musicPlan). */
+  plan: MusicPlan;
   /** Quieter where people speak in the clips: the music multiplied by this curve (duck.ts), the same the player follows. */
   duck: DuckCurve | null;
 }
@@ -530,7 +529,7 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
     chains.push(`[joined]${[smooth, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean).join(",") || "null"}[v]`);
     if (music) {
       const track = await inputs.add(`music.${music.ext}`, music.source);
-      chains.push(...musicChain(music, track, total, music.duck ? await inputs.add("duck.wav", duckWav(music.duck, total)) : undefined));
+      chains.push(...musicChain(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, total))));
     }
     const out = join(dir, "export.mp4");
     await must(tools.ffmpeg, [
@@ -659,20 +658,25 @@ function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: s
   return { outs, total };
 }
 
-/** The music under the joined sound (`voices`, made `a`): as long as the video at most, faded in and out, ducked when asked. */
-function musicChain(music: ExportMusic, input: { index: number }, total: number, duckInput?: { index: number }): string[] {
-  const heard = Math.min(total, music.durationMs || total);
-  const fadeOut = Math.min(music.fadeOutMs, heard);
+/**
+ * The music under the joined sound (`voices`, made `a`): the part of the song the plan says, from where it starts on the
+ * video's clock to where it stops, multiplied by its gain (`gainInput`, musicGainWav): its volume and fades, each clip's
+ * level, mute and fades, the ducking. Exported for the tests.
+ */
+export function musicChain(plan: MusicPlan, input: { index: number }, gainInput: { index: number }): string[] {
+  const heard = Math.max(0, plan.endMs - plan.startMs);
   return [
-    `[${input.index}:a]${STEREO},atrim=duration=${sec(heard)},volume=${Math.max(0, music.volume).toFixed(2)}` +
-      (music.fadeInMs ? `,afade=t=in:st=0:d=${sec(Math.min(music.fadeInMs, heard))}` : "") +
-      (fadeOut ? `,afade=t=out:st=${sec(heard - fadeOut)}:d=${sec(fadeOut)}` : "") +
+    `[${input.index}:a]${STEREO},atrim=${plan.fromMs > 0 ? `start=${sec(plan.fromMs)}:` : ""}duration=${sec(heard)},asetpts=PTS-STARTPTS` +
+      (plan.startMs > 0 ? `,adelay=delays=${Math.round(plan.startMs)}:all=1` : "") +
       "[music]",
-    ...(duckInput
-      ? [`[${duckInput.index}:a]aresample=48000,${STEREO}[gain]`, "[music][gain]amultiply[under]", "[voices][under]amix=inputs=2:duration=first:normalize=0[a]"]
-      : ["[voices][music]amix=inputs=2:duration=first:normalize=0[a]"]),
+    `[${gainInput.index}:a]${STEREO}[gain]`,
+    "[music][gain]amultiply[under]",
+    "[voices][under]amix=inputs=2:duration=first:normalize=0[a]",
   ];
 }
+
+/** The music's gain along the video, as the player sets it (musicGainAt), as a WAV the music is multiplied by. */
+export const musicGainWav = (music: Pick<ExportMusic, "plan" | "duck">, totalMs: number) => gainWav((ms) => musicGainAt(music.plan, music.duck, ms), totalMs, 4000);
 
 /** How many motion samples a second are measured. */
 export const MOTION_RATE = 10;
