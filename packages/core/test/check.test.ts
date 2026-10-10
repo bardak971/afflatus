@@ -121,3 +121,13 @@ describe("checkGraph on someone's own workflow", () => {
     expect(checkGraph(g(), catalog).join()).toMatch(/unknown input "input2"/);
   });
 });
+
+describe("node kinds named like what every object has", () => {
+  it("are unknown nodes, not a crash", () => {
+    const g: BuiltGraph = { graph: { "1": { class_type: "toString", inputs: {} }, "2": { class_type: "Sampler", inputs: { model: ["1", 0], steps: 1, method: "euler", mode: "fast", constructor: 1 } } }, phases: {}, outputs: [], totalSteps: 1, loads: [] } as unknown as BuiltGraph;
+    const problems = checkGraph(g, catalog);
+    expect(problems).toContain("1 toString: unknown node");
+    expect(problems.join()).toMatch(/unknown input "constructor"/);
+    expect(relocateFiles({ "1": { class_type: "constructor", inputs: { a: "x.safetensors" } } }, catalog)).toEqual([]);
+  });
+});

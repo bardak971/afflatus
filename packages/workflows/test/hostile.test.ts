@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Graph } from "@afflatus/core";
 import {
-  ancestors, fromEditor, graph as graphSchema, inspect, isSamplingPass, isWidget, MAX_DEPTH, MAX_OPENED, recipeFromWorkflow, splitCaptions, suggestSections,
+  ancestors, fromEditor, graph as graphSchema, inspect, isEditorFormat, isSamplingPass, isWidget, MAX_DEPTH, MAX_OPENED, recipeFromWorkflow, splitCaptions, suggestSections,
   titleParts, UnreadableWorkflow, wiring as wiringSchema, workflowDef, type WorkflowDef,
 } from "../src";
 import { catalog } from "./fixtures";
@@ -321,5 +321,38 @@ describe("one reading of a model file, a pass of sampling and a widget", () => {
     // a Director whose data this version cannot read: the recipe is made, and only building it says so
     const broken = recipeFromWorkflow({ ...def, bindings: { ...def.bindings, startImage: undefined, director: { node: "4" }, result: { node: "5", kind: "image", sound: false } } } as WorkflowDef);
     expect(() => broken.files).toThrow(/Director/);
+  });
+});
+
+describe("node ids the editor should not have written", () => {
+  it("a second node with an id already taken is read as the editor reads it: a new id, the links to the id go to the first", () => {
+    // older versions of the editor saved such files: the text node 3 and the save node 3
+    const f = file([
+      node(4, "CheckpointLoaderSimple", { outputs: [{ type: "MODEL", links: [] }, { type: "CLIP", links: [1] }, { type: "VAE", links: [] }], widgets_values: ["a.safetensors"] }),
+      node(3, "CLIPTextEncode", { inputs: [socket("clip", "CLIP", 1)], outputs: [{ type: "CONDITIONING", links: [] }], widgets_values: ["hello"] }),
+      node(3, "SaveImage", { inputs: [socket("images", "IMAGE")], widgets_values: ["x"] }),
+    ], [[1, 4, 1, 3, 0, "CLIP"]], { last_node_id: 4 });
+    const read = fromEditor(f, catalog);
+    expect(read.graph["3"]).toMatchObject({ class_type: "CLIPTextEncode", inputs: { text: "hello", clip: ["4", 1] } });
+    expect(read.graph["5"]).toMatchObject({ class_type: "SaveImage", inputs: { filename_prefix: "x" } });
+    expect(read.notes.join()).toMatch(/Two nodes have the id 3/);
+  });
+  it("an id with a \":\" is renumbered, with its links, and does not collide with a node inside a group node", () => {
+    const f = file([
+      node("1:2", "CLIPTextEncode", { inputs: [socket("clip", "CLIP", 1)], outputs: [{ type: "CONDITIONING", links: [] }], widgets_values: ["top"] }),
+      node(1, "CheckpointLoaderSimple", { outputs: [{ type: "MODEL", links: [] }, { type: "CLIP", links: [1] }, { type: "VAE", links: [] }], widgets_values: ["a.safetensors"] }),
+    ], [[1, 1, 1, "1:2", 0, "CLIP"]]);
+    const read = fromEditor(f, catalog);
+    expect(read.graph["1:2"]).toBeUndefined();
+    expect(read.graph["2"]).toMatchObject({ class_type: "CLIPTextEncode", inputs: { text: "top", clip: ["1", 1] } });
+    expect(read.notes.join()).toMatch(/":"/);
+  });
+});
+
+describe("an editor file without a list of links", () => {
+  it("is still the editor's (nothing wired yet)", () => {
+    const f = { nodes: [node(1, "CheckpointLoaderSimple", { widgets_values: ["a.safetensors"] })], version: 0.4 };
+    expect(isEditorFormat(f)).toBe(true);
+    expect(fromEditor(f, catalog).graph["1"]).toMatchObject({ class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "a.safetensors" } });
   });
 });

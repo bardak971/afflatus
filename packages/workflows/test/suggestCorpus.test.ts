@@ -8,7 +8,8 @@ import { catalog } from "./fixtures";
  * The suggester over the local corpus: how much of each form it places in a section, and what it leaves out,
  * by the kind of node it belongs to (printed, for the next rule to write). Skipped without the corpus.
  */
-const dir = join(import.meta.dirname, "corpus");
+// AFFLATUS_CORPUS points at a corpus kept elsewhere (another checkout's), so that a worktree can be checked without copying it
+const dir = process.env.AFFLATUS_CORPUS || join(import.meta.dirname, "corpus");
 const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "expect.json").sort() : [];
 
 describe.skipIf(!files.length)("the suggester on the local corpus", () => {

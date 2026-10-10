@@ -51,14 +51,22 @@ describe("videos and sounds a workflow loads", () => {
     expect(recipe.traits?.continues).toBe("clip");
   });
 
-  it("writes the uploaded files into the loaders, a path for a path loader, and drops a loader given nothing", () => {
+  it("writes the uploaded files into the loaders, a path loader turned into its upload twin, and drops a loader given nothing", () => {
     const recipe = recipeFromWorkflow(def);
     const full = recipe.build(
       parseInput(recipe, { previousVideo: { asset: "a" }, nextVideo: { asset: "b" }, sound: "c" }),
       dryContext({ uploads: { previousVideo: "afflatus_1.mp4 [temp]", nextVideo: "afflatus_2.mp4 [temp]", sound: "afflatus_3.wav [temp]" } }),
     );
     expect(full.graph["10"]!.inputs.video).toBe("afflatus_1.mp4 [temp]");
-    expect(full.graph["11"]!.inputs.video).toBe("temp/afflatus_2.mp4");
+    // the path loader reads the temp folder wherever ComfyUI keeps it: its upload twin asks ComfyUI, with the same settings
+    expect(full.graph["11"]).toMatchObject({ class_type: "VHS_LoadVideoFFmpeg", inputs: { video: "afflatus_2.mp4 [temp]" } });
+    expect(Object.keys(full.graph["11"]!.inputs).sort()).toEqual(Object.keys(def.graph["11"]!.inputs).sort());
+    // a ComfyUI whose pack lacks the twin: a path into the temp folder, as before
+    const old = recipe.build(
+      parseInput(recipe, { previousVideo: { asset: "a" }, nextVideo: { asset: "b" } }),
+      dryContext({ uploads: { previousVideo: "afflatus_1.mp4 [temp]", nextVideo: "afflatus_2.mp4 [temp]" }, has: (c: string) => c !== "VHS_LoadVideoFFmpeg" }),
+    );
+    expect(old.graph["11"]).toMatchObject({ class_type: "VHS_LoadVideoFFmpegPath", inputs: { video: "temp/afflatus_2.mp4" } });
     expect(full.graph["12"]!.inputs.audio).toBe("afflatus_3.wav [temp]");
     // without the clip after and the sound, their loaders go, and the optional links that read them
     const less = recipe.build(parseInput(recipe, { previousVideo: { asset: "a" } }), dryContext({ uploads: { previousVideo: "afflatus_1.mp4 [temp]" } }));
@@ -67,6 +75,17 @@ describe("videos and sounds a workflow loads", () => {
     expect(less.graph["50"]!.inputs.end_image).toBeUndefined();
     expect(less.graph["63"]!.inputs.audio).toBeUndefined();
     expect(less.graph["10"]!.inputs.video).toBe("afflatus_1.mp4 [temp]");
+  });
+
+  it("turns the pack's sound path loader into its upload twin, its settings renamed", () => {
+    const g: Graph = { ...structuredClone(graph), "12": { class_type: "VHS_LoadAudio", inputs: { audio_file: "", seek_seconds: 1.5, duration: 0 } } };
+    const found = inspect(g, catalog);
+    const recipe = recipeFromWorkflow({ ...def, graph: g as WorkflowDef["graph"], bindings: found.suggested! });
+    const full = recipe.build(
+      parseInput(recipe, { previousVideo: { asset: "a" }, sound: "c" }),
+      dryContext({ uploads: { previousVideo: "afflatus_1.mp4 [temp]", sound: "afflatus_3.wav [temp]" } }),
+    );
+    expect(full.graph["12"]).toEqual({ class_type: "VHS_LoadAudioUpload", inputs: { audio: "afflatus_3.wav [temp]", start_time: 1.5, duration: 0 } });
   });
 
   it("builds its dry-run variant", () => {

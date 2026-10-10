@@ -136,12 +136,19 @@ export function toEditor(graph: Graph, catalog: NodeCatalog, opts: { titles?: Re
       }
       height += ROW;
     }
-    // inputs the node list does not know (a removed option, a custom field): linked ones still need a slot
+    // inputs the node list does not know (a removed option, a custom field): linked ones still need a slot. A kind
+    // this ComfyUI lacks altogether keeps its typed-in values too, as widgets named on their sockets (the way newer
+    // files list them), so that the editor, and Afflatus reading the file back, has them when the pack is installed
     for (const [name, given] of Object.entries(node.inputs)) {
-      if (!known.has(name) && isRef(given)) {
-        inputs.push({ name, type: "*", link: null });
-        height += ROW;
-      }
+      if (known.has(name)) continue;
+      if (isRef(given)) inputs.push({ name, type: "*", link: null });
+      else if (!info) {
+        const type = typeof given === "boolean" ? "BOOLEAN" : typeof given === "string" ? "STRING" : Number.isInteger(given) ? "INT" : typeof given === "number" ? "FLOAT" : "*";
+        inputs.push({ name, type, link: null, widget: { name } });
+        values.push(given);
+        byName[name] = given;
+      } else continue;
+      height += ROW;
     }
     // an output typed as a list of choices (rgthree's sampler names) is a COMBO: the editor wants a string there
     const outs = (info?.output ?? []).map((raw, i) => {
@@ -188,6 +195,10 @@ export function toEditor(graph: Graph, catalog: NodeCatalog, opts: { titles?: Re
       else source.outputs[slot] = { name: type, type, links: [link], slot_index: slot };
     }
   }
+
+  // an output used past the ones the node list gives (or of a kind it lacks) leaves gaps before it: the editor wants
+  // a slot at every place, not an empty one
+  for (const n of nodes.values()) for (let i = 0; i < n.outputs.length; i++) n.outputs[i] ??= { name: "*", type: "*", links: [], slot_index: i };
 
   // columns by depth: a node sits one column right of the furthest node that feeds it
   const depth = new Map<string, number>();

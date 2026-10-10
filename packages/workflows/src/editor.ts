@@ -95,8 +95,10 @@ interface EGraph { nodes?: ENode[]; links?: unknown[]; groups?: Group[]; extra?:
 
 /** The editor's save has a list of nodes with positions and a list of links; an exported workflow has nodes by id. */
 export function isEditorFormat(json: unknown): boolean {
-  const raw = json as { nodes?: unknown; links?: unknown } | null;
-  return Boolean(raw && typeof raw === "object" && Array.isArray(raw.nodes) && "links" in raw);
+  // the list of nodes is enough: an exported workflow keeps its nodes under their ids, never in a list, and a save
+  // without links (nothing wired yet, or written by another tool) is still the editor's
+  const raw = json as { nodes?: unknown } | null;
+  return Boolean(raw && typeof raw === "object" && Array.isArray(raw.nodes));
 }
 
 const SWITCH = "DaSiWa_NodeStatusSwitch";
@@ -349,18 +351,46 @@ const flatId = (scope: Scope, node: ENode) => [...scope.path, String(node.id)].j
 
 // ---- the levels: the file itself, and what is inside each group node
 
-function scopeOf(g: EGraph, path: string[], defs: string[], host?: Scope["host"], off?: Mode): Scope {
-  const nodes = new Map((g.nodes ?? []).map((n) => [String(n.id), n]));
-  const links = new Map((g.links ?? []).flatMap((raw) => { const l = parseLink(raw); return l ? [[l.id, l] as const] : []; }));
+function scopeOf(note: (text: string) => void, g: EGraph, path: string[], defs: string[], host?: Scope["host"], off?: Mode): Scope {
+  // ComfyUI's editor gives a node whose id is taken already the next free id, and leaves the links that name that id
+  // with the node that had it first (such files exist: older versions of the editor wrote them). It is read the same
+  // way here, and said. An id with a ":" in it would be taken for a node inside a group node ("1:2" is node 2 of
+  // group node 1): it gets a free id too, and its links follow it.
+  const lastId = Number((g as { last_node_id?: unknown; state?: { lastNodeId?: unknown } }).last_node_id ?? (g as { state?: { lastNodeId?: unknown } }).state?.lastNodeId);
+  let free = (g.nodes ?? []).reduce((max, n) => Math.max(max, Number.isFinite(Number(n.id)) ? Number(n.id) : 0), Number.isFinite(lastId) ? lastId : 0) + 1;
+  const nodes = new Map<string, ENode>();
+  const taken = new Set<string>();
+  const moved = new Map<string, number>();
+  for (const n of g.nodes ?? []) {
+    const id = String(n.id);
+    if (!taken.has(id) && !id.includes(":")) {
+      taken.add(id);
+      nodes.set(id, n);
+      continue;
+    }
+    const to = free++;
+    if (taken.has(id)) note(`Two nodes have the id ${id}: the later one ("${n.title ?? n.type}") is read as node ${to}, as ComfyUI's editor does, and links from ${id} come from the first.`);
+    else {
+      taken.add(id);
+      moved.set(id, to);
+      note(`The node id "${id}" has a ":", which marks a node inside a group node: it is read as node ${to}.`);
+    }
+    nodes.set(String(to), { ...n, id: to });
+  }
+  const at = <T>(id: T): T | number => moved.get(String(id)) ?? id;
+  const links = new Map((g.links ?? []).flatMap((raw) => {
+    const l = parseLink(raw);
+    return l ? [[l.id, moved.size ? { ...l, origin_id: at(l.origin_id), target_id: at(l.target_id) } : l] as const] : [];
+  }));
   // links the "Anything Everywhere" pack makes without drawing them: the file says what they resolved to, and the
   // socket they lead to has no link of its own. They get ids of their own, below every id the file uses.
   let next = -1000;
   for (const ue of g.extra?.ue_links ?? []) {
     if (ue.upstream === undefined || ue.downstream === undefined || typeof ue.upstream_slot !== "number" || typeof ue.downstream_slot !== "number") continue;
-    const socket = nodes.get(String(ue.downstream))?.inputs?.[ue.downstream_slot];
-    if (!socket || socket.link != null || !nodes.has(String(ue.upstream))) continue;
+    const socket = nodes.get(String(at(ue.downstream)))?.inputs?.[ue.downstream_slot];
+    if (!socket || socket.link != null || !nodes.has(String(at(ue.upstream)))) continue;
     const id = next--;
-    links.set(id, { id, origin_id: ue.upstream, origin_slot: ue.upstream_slot, target_id: ue.downstream, target_slot: ue.downstream_slot });
+    links.set(id, { id, origin_id: at(ue.upstream), origin_slot: ue.upstream_slot, target_id: at(ue.downstream), target_slot: ue.downstream_slot });
     socket.link = id;
   }
   return { path, defs, host, off, nodes, links, groups: g.groups ?? [] };
@@ -379,7 +409,7 @@ function inside(r: Reading, scope: Scope, node: ENode): Scope | undefined {
   r.openedNodes += def.nodes?.length ?? 0;
   if (r.openedNodes > MAX_OPENED) throw new UnreadableWorkflow(`Opening this file's group nodes makes more than ${MAX_OPENED} nodes: it is too large to read.`);
   const own = structuredClone(def);
-  const opened = scopeOf(own, [...scope.path, String(node.id)], [...scope.defs, def.id], { scope, node, def: own }, scope.off ?? (modeOf(node) ? "mute" : undefined));
+  const opened = scopeOf(r.note, own, [...scope.path, String(node.id)], [...scope.defs, def.id], { scope, node, def: own }, scope.off ?? (modeOf(node) ? "mute" : undefined));
   r.opened.set(id, opened);
   return opened;
 }
@@ -772,7 +802,7 @@ export function fromEditor(json: unknown, catalog: NodeCatalog): EditorFindings 
     frames: [],
     frameIds: new Map(),
   };
-  const top = scopeOf(root, [], []);
+  const top = scopeOf(r.note, root, [], []);
   openScopes(r, top);
   visitNodes(r, top);
   const { graph, wiring } = r;
