@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ProgressUpdate, QueueStatus, SystemLoad } from "./api";
-import { HISTORY, LIBRARY_KEYS, RENDER_KEYS } from "./data";
+import { LIBRARY_KEYS, readHistoryHead, RENDER_KEYS } from "./data";
 import { endedSince, mergeProgress, notifyTag, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { BAR_INDEX, useBar } from "./bar/store";
@@ -102,7 +102,11 @@ export function useLiveEvents(): void {
       // and the timelines when a clip's render, a cut or an export ended: its new take arrives with its job's end, even
       // when the "timeline" event that says so was missed (a dropped connection) or read before the take was in
       const onTimeline = now.ended.some((j) => j.clipId || j.kind === "cut" || j.kind === "export");
-      if (now.ended.length) refetch(client, [HISTORY, ...RENDER_KEYS, ...(onTimeline ? [["timelines"]] : [])]);
+      // the history: its first page only, with the jobs that ended put in front of what is loaded (data.ts)
+      if (now.ended.length) {
+        void readHistoryHead(client);
+        refetch(client, [...RENDER_KEYS, ...(onTimeline ? [["timelines"]] : [])]);
+      }
       if (!first && notifier.current) {
         const { whenEmpty, eachRender } = useNotify.getState();
         for (const j of now.ended) if (eachRender && j.status !== "cancelled" && j.kind !== "load") say(j.status === "done" ? "Finished" : "Failed", j.label, notifyTag(j.id));

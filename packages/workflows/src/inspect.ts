@@ -1,7 +1,8 @@
 import { choicesOf, folderOfFileInput, isRef, sameFile, type Graph, type NodeCatalog, type Ref } from "@afflatus/core";
 import { hasKind, infoOf, isSamplingPass, MODEL_FILE, optsOf, own, specOf, typeOf } from "./catalog";
 import { scaleAfterModel } from "./recipe";
-import { splitCaptions, type Bindings, type Control, type ImageBinding, type MediaBinding, type Mode, type Target, type Toggle, type Wiring } from "./types";
+import { splitCaptions } from "./text";
+import type { Bindings, Control, ImageBinding, MediaBinding, Mode, Target, Toggle, Wiring } from "./types";
 import { isDirector } from "./director";
 import { ancestors, prune, readersOf, selectorOf, settle, cutFileNameChains, soleValue, standInLoaders, standInPrimitives, standInSavers, unbundleContexts, valueAt } from "./wiring";
 import { chapterName, frameNodes, PASS_WORK } from "./suggest";

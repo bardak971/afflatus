@@ -8,7 +8,7 @@ import { clock } from "./format";
 import { placeMenu, type ItemFacts, type Place } from "./itemActions";
 import { NO_ASSET, useItemActions } from "./useItemActions";
 import { askViewer, type ViewerAsk } from "./viewer/ask";
-import { tileName } from "./screens/Library";
+import { tileName } from "./screens/library/tileName";
 
 /**
  * The right-click menu of a library tile: the item's list (itemActions.tsx), the same as the viewer's, after what the

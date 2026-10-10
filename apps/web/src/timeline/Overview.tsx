@@ -23,6 +23,7 @@ const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string
 );
 import { otherShape } from "./model";
 import { Estimate } from "./estimate";
+import { joinsOf as askJoins } from "./measures";
 
 /** A quiet action in a card's head or row: accent words, no box. */
 const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabled:opacity-40";
@@ -37,7 +38,8 @@ const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabl
 export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) => boolean, msOf: (c: Clip) => number | null, o: { why?(c: Clip): string | undefined; known?: boolean } = {}) {
   const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
   const joinQueries = useQueries({
-    queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => api.joins(c.id), staleTime: 60_000 })),
+    // asked for together (timeline/measures.ts): one request for the timeline's joins, not one per clip
+    queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => askJoins(c.id).then((items) => ({ items })), staleTime: 60_000 })),
   });
   const joinItems = new Map<string, JoinFigures | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data?.items]));
   const joinsOf = new Map<string, number | null | undefined>(joined.map((c) => {

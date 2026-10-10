@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { isRef, takesAnyInput, type Graph, type GraphNode, type NodeCatalog, type NodeInfo, type Ref } from "@afflatus/core";
 import { defaultOf, dynamicFields, hasKind, infoOf, isWidget, isWidgetType, optsOf, typeOf, UNSAFE_KEYS } from "./catalog";
-import { splitCaptions, type Mode, type Target, type Toggle, type Wiring } from "./types";
+import { splitCaptions } from "./text";
+import type { Mode, Target, Toggle, Wiring } from "./types";
 import { modesFor } from "./wiring";
 
 /**

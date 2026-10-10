@@ -8,7 +8,7 @@ import { useStudio } from "../../store";
 import { LivePreview, StageStrip } from "../../LivePreview";
 import { useStop } from "../../ModelLoad";
 import { Bar, Button, cx, Empty, ErrorNote } from "../../ui";
-import { Viewer } from "../../Viewer";
+import { Viewer } from "../../viewer/LazyViewer";
 import { useTileMenu } from "../../TileMenu";
 import { Tile, tileName } from "../Library";
 import { LiveTile } from "./LiveTile";

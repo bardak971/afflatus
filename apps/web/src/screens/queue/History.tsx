@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Penci
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
-import { assetKey, useAsset, useJobs } from "../../data";
+import { assetKey, useAsset, useJobs, useRecipes } from "../../data";
 import { fileLabel, took, when } from "../../format";
 import { Select } from "../../Select";
 import { useSettled } from "../../hooks";
@@ -95,6 +95,16 @@ export const History = memo(function History() {
   // place shows an item's (itemActions.tsx); one menu for the whole history, read for the row right-clicked
   const client = useQueryClient();
   const jobActs = useJobActions();
+  // the model's name, worked out from the recipes: the same function until they are read again, so the rows keep theirs
+  const modelName = useModelName();
+  const recipes = useRecipes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const modelOf = useMemo(() => modelName, [recipes.data]);
+  // what each row would run for itself, run once here: a hook per row was three mutations, a menu and a copy note for
+  // each of the thousands of rows a long history holds
+  const seedCopy = useCopyNote();
+  const [copiedFor, setCopiedFor] = useState<string | null>(null);
+  const rowMenu = useMenu<HistoryJob[]>();
   const [menuJobs, setMenuJobs] = useState<HistoryJob[] | null>(null);
   const resultMenu = useTileMenu({
     onOpen: (a) => setOpen(a.id), place: "queue", listed: false,
@@ -112,6 +122,29 @@ export const History = memo(function History() {
       resultMenu.open(at, a);
     }, () => {});
   };
+
+  // what the rows are handed, the same at every draw (Row is memoised): read when called, through a ref
+  const latest = useRef({ jobActs, openResultMenu, rowMenu });
+  latest.current = { jobActs, openResultMenu, rowMenu };
+  const acts = useMemo<RowActs>(() => ({
+    open: (id) => setOpen(id),
+    menu: (e, jobs) => (jobs.some((j) => j.made.length) ? latest.current.openResultMenu(e, jobs) : latest.current.rowMenu.open(e, jobs)),
+    again: (jobs) => jobs.forEach((j) => latest.current.jobActs.again.mutate({ id: j.id })),
+    dismiss: (jobs) => latest.current.jobActs.dismiss.mutate(jobs.map((j) => j.id)),
+    toDraft: (id) => latest.current.jobActs.toDraft(id),
+  }), []);
+  // right-click on a row with no result (a cut, an export, a result deleted since): its own section and its seed
+  const menuOf = (jobs: HistoryJob[]): MenuItem[] => {
+    const head = jobs[0]!;
+    return [
+      ...rowOwn(jobs, jobActs).slice(0, -1),
+      ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => { setCopiedFor(head.id); seedCopy.copy(String(head.seed)); } }] : []),
+      "—",
+      ...rowOwn(jobs, jobActs).slice(-1),
+    ];
+  };
+  const menuHead = rowMenu.menu?.subject;
+  const menuName = menuHead ? rowName(menuHead) : "";
 
   // the models seen in what is loaded: enough to narrow the list down
   const models = useMemo(() => {
@@ -166,7 +199,9 @@ export const History = memo(function History() {
     });
 
   return (
-    <section className="flex min-h-0 flex-col gap-3">
+    // the history takes the room left under the queue (basis 0), and its list the room left in it: sized by their content,
+    // each step of a running render had the browser measure the whole list again, thousands of rows, to place the queue over it
+    <section className="flex min-h-0 grow basis-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="w-[380px] max-w-full">
           <Segmented<Status>
@@ -197,7 +232,7 @@ export const History = memo(function History() {
 
       {pins && pins.pinned.length > 0 && <PinnedFailures jobs={pins.pinned} since={pins.since} />}
 
-      <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto pr-1 pb-4">
+      <div className="flex min-h-0 grow basis-0 flex-col gap-1 overflow-y-auto pr-1 pb-4">
         {(days.length > 0 || jobs.isLoading) && (
           <div aria-hidden className={cx(ROW, "sticky top-0 z-10 bg-ground py-1 text-[11px] tracking-[0.06em] text-ink-3 uppercase")}>
             <span /><span>Name</span><span>Model</span><span className="text-right">Took</span><span className="text-right">When</span>
@@ -212,7 +247,9 @@ export const History = memo(function History() {
           <div key={d.key} className="flex flex-col gap-1">
             <div className="px-3 pt-2 pb-0.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{dayLabel(d.key)}</div>
             {d.failed.length > 0 && <FoldedFailures jobs={d.failed} shown={unfolded.has(d.key)} onShow={() => toggleDay(d.key)} />}
-            {d.groups.map((g) => (g[0]!.status === "failed" ? <FailedRow key={g[0]!.id} jobs={g} quiet={status === "all"} /> : <Row key={g[0]!.id} jobs={g} onOpen={setOpen} onResultMenu={openResultMenu} />))}
+            {d.groups.map((g) => (g[0]!.status === "failed"
+              ? <FailedRow key={g[0]!.id} jobs={g} quiet={status === "all"} />
+              : <Row key={g[0]!.id} jobs={g} acts={acts} modelOf={modelOf} requeueing={jobActs.again.isPending} note={copiedFor === g[0]!.id ? seedCopy.note : null} />))}
           </div>
         ))}
         {folded.length > 0 && (
@@ -227,6 +264,15 @@ export const History = memo(function History() {
         )}
       </div>
 
+      {rowMenu.menu && menuHead && (
+        <ContextMenu
+          at={rowMenu.menu.at}
+          label={`Actions on ${menuName}`}
+          head={{ title: menuName, sub: `${STATUS_WORD[menuHead[0]!.status]}${menuHead.length > 1 ? ` · ${menuHead.length} jobs` : ""} · ${modelOf(menuHead[0]!)}` }}
+          items={menuOf(menuHead)}
+          onClose={rowMenu.close}
+        />
+      )}
       {asset.data && <Suspense fallback={null}><Viewer asset={asset.data} onClose={() => setOpen(null)} /></Suspense>}
       {resultMenu.element}
     </section>
@@ -285,35 +331,46 @@ function rowOwn(jobs: HistoryJob[], { again, dismiss, toDraft }: ReturnType<type
   ];
 }
 
-/** One finished job, or several asked for together: what it made, under its name, and the facts of how. */
-function Row({ jobs, onOpen, onResultMenu }: { jobs: HistoryJob[]; onOpen(assetId: string): void; onResultMenu(e: React.MouseEvent, jobs: HistoryJob[]): void }) {
+/** What a row does, handed down from the history: one set for every row. */
+interface RowActs {
+  open(assetId: string): void;
+  menu(e: React.MouseEvent, jobs: HistoryJob[]): void;
+  again(jobs: HistoryJob[]): void;
+  dismiss(jobs: HistoryJob[]): void;
+  toDraft(draftId: string): void;
+}
+
+interface RowProps {
+  jobs: HistoryJob[];
+  acts: RowActs;
+  modelOf: ReturnType<typeof useModelName>;
+  /** A requeue is on its way: the row's own Requeue waits. */
+  requeueing: boolean;
+  /** How the copy of its seed went, from its menu, for a moment. */
+  note: { ok: boolean; text: string } | null;
+}
+
+/** Whether a row is handed the same again: the list read anew (another page, a job that ended) gives new groups of mostly the same jobs. */
+const sameRow = (a: RowProps, b: RowProps) =>
+  a.acts === b.acts && a.modelOf === b.modelOf && a.requeueing === b.requeueing && a.note === b.note && a.jobs.length === b.jobs.length && a.jobs.every((j, i) => j === b.jobs[i]);
+
+/**
+ * One finished job, or several asked for together: what it made, under its name, and the facts of how. Drawn again only
+ * when its jobs change, and laid out only near the view (content-visibility): with thousands of rows loaded, each step
+ * of a running render laid the whole list out again.
+ */
+const Row = memo(function Row({ jobs, acts, modelOf, requeueing, note }: RowProps) {
   const head = jobs[0]!;
-  const jobActs = useJobActions();
-  const { again, dismiss, toDraft } = jobActs;
-  const modelOf = useModelName();
-  const made = jobs.flatMap((j) => j.made);
-  const first = made[0];
   const name = rowName(jobs);
-  const seedCopy = useCopyNote();
-  // right-click: with a result, the history's menu of it (its own section, then the result's list); with none
-  // (a cut, an export, a result deleted since), its own section and its seed
-  const menu = useMenu<true>();
-  const items: MenuItem[] = [
-    ...rowOwn(jobs, jobActs).slice(0, -1),
-    ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => seedCopy.copy(String(head.seed)) }] : []),
-    "—",
-    ...rowOwn(jobs, jobActs).slice(-1),
-  ];
   const tip = [head.prompt, name !== head.label ? head.label : "", head.seed !== null && jobs.length === 1 ? `seed ${head.seed}` : ""].filter(Boolean).join("\n");
   return (
-    <div className={cx(ROW, "group rounded-xl py-1.5 hover:bg-hover", head.status === "cancelled" && "opacity-60 hover:opacity-100")} onContextMenu={(e) => (first ? onResultMenu(e, jobs) : menu.open(e, true))}>
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${name}`} head={{ title: name, sub: `${STATUS_WORD[head.status]}${jobs.length > 1 ? ` · ${jobs.length} jobs` : ""} · ${modelOf(head)}`, thumb: first && first.kind !== "audio" ? first.id : undefined }} items={items} onClose={menu.close} />}
-      <Thumb jobs={jobs} onOpen={onOpen} />
+    <div className={cx(ROW, "group rounded-xl py-1.5 [contain-intrinsic-size:auto_48px] [content-visibility:auto] hover:bg-hover", head.status === "cancelled" && "opacity-60 hover:opacity-100")} onContextMenu={(e) => acts.menu(e, jobs)}>
+      <Thumb jobs={jobs} onOpen={acts.open} />
       <span className="flex min-w-0 items-center gap-2">
         <span className="flex min-w-0 grow flex-col gap-0.5" data-tip={tip || undefined}>
           <span className="flex min-w-0 items-baseline gap-2">
             <span className="truncate text-[13.5px] font-semibold">{name}</span>
-            {seedCopy.note && <span aria-live="polite" className={cx("shrink-0 text-xs", seedCopy.note.ok ? "text-accent" : "text-warn-ink")}>{seedCopy.note.text}</span>}
+            {note && <span aria-live="polite" className={cx("shrink-0 text-xs", note.ok ? "text-accent" : "text-warn-ink")}>{note.text}</span>}
           </span>
           <span className="truncate text-xs text-ink-2">
             {rowFacts(jobs)}
@@ -323,12 +380,12 @@ function Row({ jobs, onOpen, onResultMenu }: { jobs: HistoryJob[]; onOpen(assetI
         {/* what the menu does, at hand on hover or focus */}
         <span className="flex shrink-0 items-center gap-0.5 text-ink-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
           {head.kind === "render" && (
-            <button type="button" data-tip={jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue: the same job again"} aria-label="Requeue" disabled={again.isPending} onClick={() => jobs.forEach((j) => again.mutate({ id: j.id }))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
+            <button type="button" data-tip={jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue: the same job again"} aria-label="Requeue" disabled={requeueing} onClick={() => acts.again(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
           )}
           {head.draftId && (
-            <button type="button" data-tip="Open its draft" aria-label="Open its draft" onClick={() => toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>
+            <button type="button" data-tip="Open its draft" aria-label="Open its draft" onClick={() => acts.toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>
           )}
-          <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => dismiss.mutate(jobs.map((j) => j.id))} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
+          <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => acts.dismiss(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
         </span>
       </span>
       <span className="truncate text-[12.5px] text-ink-2" data-tip={modelTip(modelOf(head), head.model)}>{modelOf(head)}</span>
@@ -336,4 +393,4 @@ function Row({ jobs, onOpen, onResultMenu }: { jobs: HistoryJob[]; onOpen(assetI
       <span className="text-right text-xs text-ink-2">{head.finishedAt ? when(head.finishedAt) : ""}</span>
     </div>
   );
-}
+}, sameRow);

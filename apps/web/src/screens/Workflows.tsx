@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FileUp, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { ask } from "../Confirm";
-import { bindings as bindingsSchema, guessModel, type Bindings } from "@afflatus/workflows";
+import { guessModel, type Bindings } from "@afflatus/workflows";
 import { useOpenInComfy } from "../actions";
 import { api, ApiError, type RecipeStatus, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
@@ -53,6 +53,9 @@ async function readFile(file: File): Promise<Editing> {
   const inspection = await api.inspectWorkflow(shared ? { graph: shared.graph, wiring: shared.wiring } : json);
   let bindings: Bindings | null = inspection.suggested;
   if (shared) {
+    // the bindings' schema is read only here, for a file shared from Afflatus: with it comes zod, which the screen does not
+    // need otherwise
+    const { bindings: bindingsSchema } = await import("@afflatus/workflows/types");
     const parsed = bindingsSchema.safeParse(shared.bindings);
     if (!parsed.success) throw new ApiError("This looks like a workflow shared from Afflatus, but its bindings could not be read.");
     bindings = parsed.data;

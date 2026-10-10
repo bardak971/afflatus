@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { leavingNow } from "../../assetChange";
 import { leaveCopy } from "../../leave";
 import { cx } from "../../ui";
@@ -8,6 +8,8 @@ import { justify } from "../library/justify";
 /** The height a row aims for, by the display's size; the gap between tiles. */
 export const ROW_HEIGHT = { S: 140, M: 210, L: 310 } as const;
 const GAP = 8;
+/** How long the glide is kept on after a change of the list (the move itself is --t-panel, shorter). */
+const GLIDE_MS = 400;
 
 /** One place in the rows: a tile at a shape (width over height), drawn when its row is. */
 export interface Placed {
@@ -21,10 +23,15 @@ export interface Placed {
  * as wide as the grid; the last row, not full, at the target height. In the list's order, row after row,
  * so Tab and the screen readers go through them as before.
  */
-export function JustifiedRows({ places, rowHeight, className, under = 0, rows: most }: {
+export function JustifiedRows({ places, rowHeight, className, under = 0, rows: most, pages }: {
   places: Placed[];
   rowHeight: number;
   className?: string;
+  /**
+   * Which pages of the list are held (the first one's start): it changes when a page is let go above, past the cap, or
+   * read again there. That change is laid out at once, not glided: the scroll keeps the user's place over it (useKeepPlace).
+   */
+  pages?: string;
   /** Room under every tile, in pixels, for a line its render draws there (the media shelf's captions); the shapes are the tiles' own. */
   under?: number;
   /** Only this many rows are drawn, the places past them left out (the loading placeholders fill a screen, no more). */
@@ -61,15 +68,15 @@ export function JustifiedRows({ places, rowHeight, className, under = 0, rows: m
   // width: each glides to its new place for a moment instead of every row jumping at once, so the eye can follow where
   // things went. A resize or another size lays out at once, as before.
   // decided during the drawing itself, so that the new places are drawn already with the glide on (set after, they would jump)
-  const [seen, setSeen] = useState({ shapes, width, rowHeight });
+  const [seen, setSeen] = useState({ shapes, width, rowHeight, pages });
   const [gliding, setGliding] = useState(false);
-  if (seen.shapes !== shapes || seen.width !== width || seen.rowHeight !== rowHeight) {
-    setSeen({ shapes, width, rowHeight });
-    setGliding(seen.shapes !== shapes && Boolean(seen.shapes) && seen.width === width && width > 0 && seen.rowHeight === rowHeight && motionAllowed());
+  if (seen.shapes !== shapes || seen.width !== width || seen.rowHeight !== rowHeight || seen.pages !== pages) {
+    setSeen({ shapes, width, rowHeight, pages });
+    setGliding(seen.shapes !== shapes && Boolean(seen.shapes) && seen.width === width && width > 0 && seen.rowHeight === rowHeight && seen.pages === pages && motionAllowed());
   }
   useEffect(() => {
     if (!gliding) return;
-    const t = setTimeout(() => setGliding(false), 400);
+    const t = setTimeout(() => setGliding(false), GLIDE_MS);
     return () => clearTimeout(t);
   }, [gliding, shapes]);
   // one box, every tile placed in it: a tile keeps its element when a new item pushes it to another row (no image read again)
@@ -96,6 +103,59 @@ function PlaceBox({ id, at, glide, children }: { id: string; at: CSSProperties; 
     };
   }, [id]);
   return <div ref={ref} data-item-id={id} className={cx("absolute", glide && "transition-[left,top,width,height] duration-(--t-panel) ease-(--ease-snap)")} style={at}>{children}</div>;
+}
+
+/**
+ * The user's place in a grid kept over a change of its pages. Past the cap (data.ts useAssets) a page read below lets
+ * the top one go, and one read above lets the bottom one go: the tiles are placed absolutely, so the browser's own
+ * scroll anchoring cannot follow them, and the tile in view jumped by a page's height (which put the sentinel in view
+ * again, and a page or three were read and skipped). The first tile in view is noted as the grid scrolls; when `pages`
+ * changes, the scroll moves by as much as that tile did, so it stays where it was on the screen. `items`: the list
+ * shown, noted again once a change of it has glided into place.
+ */
+export function useKeepPlace(box: RefObject<HTMLElement | null>, pages: string, items: unknown): void {
+  const anchor = useRef<{ id: string; top: number } | null>(null);
+  const note = useCallback(() => {
+    const el = box.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    anchor.current = null;
+    for (const tile of el.querySelectorAll<HTMLElement>("[data-item-id]")) {
+      const r = tile.getBoundingClientRect();
+      if (r.bottom > top) {
+        anchor.current = { id: tile.dataset.itemId!, top: r.top - top };
+        return;
+      }
+    }
+  }, [box]);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    // once a frame at most, while it scrolls
+    let frame = 0;
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; note(); });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, [box, note]);
+  useEffect(() => {
+    const t = setTimeout(note, GLIDE_MS);
+    return () => clearTimeout(t);
+  }, [items, note]);
+  const was = useRef(pages);
+  useLayoutEffect(() => {
+    if (was.current === pages) return;
+    was.current = pages;
+    const el = box.current;
+    const at = anchor.current;
+    const tile = el && at ? el.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(at.id)}"]`) : null;
+    if (el && at && tile) el.scrollTop += tile.getBoundingClientRect().top - el.getBoundingClientRect().top - at.top;
+    note();
+  }, [box, pages, note]);
 }
 
 /**

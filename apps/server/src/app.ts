@@ -20,6 +20,7 @@ import { allowedHosts, ANY_HOST, crossSite, crossSiteRead, hostAllowed, marked, 
 import { registerHistory } from "./history-api";
 import { registerJobs } from "./jobs-api";
 import { registerLookup } from "./lookup-api";
+import { registerMeasures } from "./measures-api";
 import { registerMetrics } from "./metrics";
 import { registerModelInfo } from "./modelInfo";
 import { registerModelPages } from "./modelPages";
@@ -136,6 +137,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerCommandBar(app, s);
   registerWorkflows(app, s);
   registerTimelines(app, s);
+  registerMeasures(app, s);
   registerUsage(app, s);
   registerRenders(app, s);
   registerMetrics(app, s);

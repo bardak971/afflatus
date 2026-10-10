@@ -24,30 +24,9 @@ export { useLoraWordsOf } from "./fields/Loras";
  * a size, LoRAs, a seed, a file) are in fields/.
  */
 
-/** The value an input starts with, given what this ComfyUI offers for it. */
-export function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
-  switch (spec.type) {
-    // an example is shown, not filled in
-    case "prompt": return spec.example ? "" : spec.default ?? "";
-    case "model": return spec.default ?? options?.[0] ?? "";
-    case "loras": return spec.default ?? [];
-    case "size": {
-      const s = spec.shapes.find((x) => x.id === spec.default) ?? spec.shapes[0]!;
-      return { width: s.width, height: s.height };
-    }
-    case "number":
-    case "toggle": return spec.default;
-    // a file choice starts on a file this ComfyUI has
-    case "choice": return pickChoice(spec, options);
-    case "seed": return RANDOM_SEED;
-    case "image": return undefined;
-    case "clip": return undefined;
-    case "references": return [];
-    case "audio": return undefined;
-  }
-}
-
-export const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+// where an input's value starts, and when two values are the same: in form.ts, which works with them without drawing a
+// field (imported from here, form.ts would load every field, and through them the viewer, with the app)
+export { defaultOf, sameValue } from "./form";
 
 export function Field({ spec, value, values, options, family, model, onChange, onValue, main, bare, standard }: {
   spec: InputSpec;

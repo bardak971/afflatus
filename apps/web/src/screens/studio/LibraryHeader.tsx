@@ -32,7 +32,7 @@ const GROUP_HINT = {
  * The library's top row: the place (a breadcrumb inside the project worked in), what the grid shows beside an open form, the
  * kinds, the search, and either the filters or, with items ticked, what is done with them together.
  */
-export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: setFoldersOpen, view, draftId, draftOnly, items, filters, selection }: {
+export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: setFoldersOpen, view, draftId, draftOnly, count, onSelectAll, filters, selection }: {
   place: Place;
   /** The breadcrumb: the project's tree opens under it. */
   folderButton: RefObject<HTMLDivElement | null>;
@@ -43,8 +43,9 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   draftId: string | null;
   /** The grid shows only the open draft's results: the search, the kinds and the ticks are out of the way. */
   draftOnly: boolean;
-  /** What is on screen, in its order (a grouping leaves some out): what "select all" ticks. */
-  items: Asset[];
+  /** How many items are on screen (a grouping leaves some out), and ticking them all: what "select all" does. A count, not the items, so the header's props stay the same while the grid reads its pages. */
+  count: number;
+  onSelectAll(): void;
   filters: LibraryFilters;
   selection: Selection;
 }) {
@@ -157,7 +158,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
             </label>
           )}
           {/* ticked items: what is done with them takes the filters' place, after the kinds and the search */}
-          {ticking && <SelectionBar place={place} items={items} selection={selection} compact={fold >= 7} />}
+          {ticking && <SelectionBar place={place} count={count} onSelectAll={onSelectAll} selection={selection} compact={fold >= 7} />}
           {!showTimelines && !ticking && <button
             ref={filtersButton}
             type="button"
@@ -181,14 +182,17 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
  * With items ticked: how many, and what is done with them together (a timeline of them, a folder, keep, the bin).
  * `compact`: the header is short of room, the buttons are their icons (named by their tips).
  */
-function SelectionBar({ place, items, selection, compact }: { place: Place; items: Asset[]; selection: Selection; compact?: boolean }) {
+function SelectionBar({ place, count, onSelectAll, selection, compact }: { place: Place; count: number; onSelectAll(): void; selection: Selection; compact?: boolean }) {
   const { picked, setPicked, bulk, moveTo, chosen, binChosen, eraseChosen } = selection;
   const folders = useFolders();
   const projects = useProjects();
   // the ticked pictures and videos, in the order they were ticked: what a new timeline is made of
   const [, go] = useLocation();
   const make = useMakeTimelineOf({ onSuccess: (t) => go(`/timelines/${t.id}`) });
-  const ordered = picked.map((id) => items.find((a) => a.id === id)).filter((a): a is Asset => Boolean(a && a.kind !== "audio"));
+  const ordered = useMemo(() => {
+    const byId = new Map(chosen.map((a) => [a.id, a]));
+    return picked.map((id) => byId.get(id)).filter((a): a is Asset => Boolean(a && a.kind !== "audio"));
+  }, [picked, chosen]);
   // every place a selection can go, grouped by project: the project itself (its root folder), then its folders
   // indented under it; last the Inbox's folders. A folder's name alone does not say which project it is in.
   const folderOptions = useMemo(() => {
@@ -211,7 +215,7 @@ function SelectionBar({ place, items, selection, compact }: { place: Place; item
   return (
     <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
       <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
-      {picked.length < items.length && <button type="button" data-tip={compact ? `Select all ${items.length}` : undefined} onClick={() => setPicked(items.map((a) => a.id))} className="text-xs whitespace-nowrap text-ink-2 underline hover:text-ink">{compact ? "all" : `select all ${items.length}`}</button>}
+      {picked.length < count && <button type="button" data-tip={compact ? `Select all ${count}` : undefined} onClick={onSelectAll} className="text-xs whitespace-nowrap text-ink-2 underline hover:text-ink">{compact ? "all" : `select all ${count}`}</button>}
       {place.type === "bin" ? (
         <>
           <Button size="sm" onClick={() => bulk("restore")}><Undo2 size={13} /> Put back</Button>

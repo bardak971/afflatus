@@ -4,7 +4,7 @@ import type { Asset, Folder } from "../../api";
 import { useFolders, useProjects } from "../../data";
 import { leaveCopy } from "../../leave";
 import { useProject } from "../../project";
-import { Initial, projectTone } from "../../Projects";
+import { Initial, projectTone } from "../../projects/tone";
 import type { Place } from "../../store";
 import { cx } from "../../ui";
 

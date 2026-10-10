@@ -13,7 +13,7 @@ import { MediaOverlay } from "../timeline/MediaOverlay";
 import { Track, type TrackKeys } from "../timeline/Track";
 import { ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
-import { Viewer } from "../Viewer";
+import { Viewer } from "../viewer/LazyViewer";
 import { ContextMenu, useMenu, type MenuHead } from "../ContextMenu";
 import { useBanners, useEditorColumn } from "../store";
 import { EditorSkeleton, rememberAspect } from "../timeline/EditorSkeleton";
