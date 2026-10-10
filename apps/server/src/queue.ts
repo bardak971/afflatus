@@ -11,7 +11,7 @@ import { readSettings } from "./settings";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { DEFAULT_QUEUE_OPTIONS, readJson, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import { DEFAULT_QUEUE_OPTIONS, readJson, SHUTDOWN, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
 import * as submitting from "./queueSubmit";
 import * as storing from "./queueStore";
 import * as tools from "./queueTools";
@@ -137,7 +137,7 @@ export class Queue {
     this.stopped = true;
     if (this.retry) clearTimeout(this.retry);
     if (this.unloadTimer) clearTimeout(this.unloadTimer);
-    this.running?.abort.abort();
+    this.running?.abort.abort(SHUTDOWN);
   }
 
   /** Resolves when nothing is running and nothing can start (tests). */
@@ -667,7 +667,8 @@ ${JSON.stringify(input)}`;
       this.running.startedAt = resume.startedAt;
       this.running.seed = resume.seed;
       if (abort.signal.aborted) {
-        await comfy.client.interrupt(resume.promptId).catch(() => {});
+        // stopped by hand: ComfyUI drops it too; shutting down leaves it there for the next start (SHUTDOWN)
+        if (abort.signal.reason !== SHUTDOWN) await comfy.client.interrupt(resume.promptId).catch(() => {});
         throw new ComfyCancelled();
       }
       comfy.monitor.ensure();

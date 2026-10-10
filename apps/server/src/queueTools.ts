@@ -12,7 +12,7 @@ import { folderForMade, timelineOfClip } from "./timelineFolder";
 import { recordTool, toolPace } from "./renders";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
-import { readJson, type JobRow, type QueueCore, type Running } from "./queueModel";
+import { readJson, SHUTDOWN, type JobRow, type QueueCore, type Running } from "./queueModel";
 import { taken } from "./queueSubmit";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
@@ -287,6 +287,8 @@ export async function awaitPrompt(comfy: Comfy, promptId: string, node: string, 
     outputs = await waitForOutputs(comfy.client, promptId, { ...wait, signal });
   } catch (err) {
     if (err instanceof ComfyCancelled || signal.aborted) {
+      // shutting down leaves the prompt running in ComfyUI: the next start follows it by the id saved on the job (SHUTDOWN)
+      if (signal.reason === SHUTDOWN) throw err;
       await comfy.client.interrupt(promptId).catch(() => {});
       throw new Error("stopped by you");
     }

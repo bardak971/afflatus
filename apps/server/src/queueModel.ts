@@ -22,6 +22,12 @@ export function readJson<T>(text: string | null | undefined, fallback: T): T {
   }
 }
 
+/**
+ * The reason the job under way is aborted with when the process shuts down. A stop by hand drops the prompt in ComfyUI too;
+ * a shutdown leaves it running there, so that the next start follows it (taken) instead of sending it again.
+ */
+export const SHUTDOWN = "shutting down";
+
 /** The job under way: its abort switch, the prompt ComfyUI knows it by once it has one, and whether it holds the GPU. */
 export interface Running {
   id: string;
