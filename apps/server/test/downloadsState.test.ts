@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Downloads } from "../src/downloads";
+import { until } from "./helpers";
+
+/** The ids the state file holds now (it is written whole, through a file beside it, so it always reads). */
+const idsIn = (file: string) => (JSON.parse(readFileSync(file, "utf8")) as Array<{ id: string }>).map((d) => d.id).join(",");
 
 /** The downloads' state file between two runs: what was under way when Afflatus stopped is said to have been interrupted. */
 describe("the downloads' state file", () => {
@@ -34,8 +38,8 @@ describe("the downloads' state file", () => {
     // dismissed, and the file follows
     expect(downloads.stop("a")).toBe(true);
     expect(downloads.list().map((d) => d.id)).toEqual(["b"]);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(JSON.parse(readFileSync(file, "utf8")).map((d: { id: string }) => d.id)).toEqual(["b"]);
+    // written a moment later: the list without it
+    await until(() => idsIn(file) === "b");
     expect(downloads.stop("nothing")).toBe(false);
   });
 
@@ -47,8 +51,7 @@ describe("the downloads' state file", () => {
     expect(downloads.list()).toMatchObject([{ id: "s", status: "done" }]);
     expect(downloads.list()[0]!.error).toBeUndefined();
     expect(downloads.stop("s")).toBe(true);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual([]);
+    await until(() => idsIn(file) === "");
     expect(readdirSync(dir)).toEqual(["downloads.json"]);
   });
 

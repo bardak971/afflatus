@@ -85,6 +85,8 @@ type StyleDef = z.infer<typeof defs.style>;
 
 // (a snippet kept before there were categories has none: it reads as one without)
 const view = (e: Tables["entities"]) => ({ id: e.id, kind: e.kind, name: e.name, def: (e.kind === "snippet" ? defs.snippet.parse(JSON.parse(e.def)) : JSON.parse(e.def)) as unknown, updatedAt: e.updated_at });
+/** A kit item as the routes answer it: what the web's types are held against (test/apiTypes.test.ts). */
+export type EntityView = ReturnType<typeof view>;
 
 /** What was added to a form for its cast and its style, to show before it is sent. */
 export interface Composed {

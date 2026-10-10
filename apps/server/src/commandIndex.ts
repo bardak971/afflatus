@@ -73,7 +73,7 @@ async function placesOf(db: Db) {
  * queries for all of it, only the columns the bar shows. A project's root folder is not a folder of its own here: what is
  * in it says `folder: null` with its project, as what is loose in the Inbox does with none.
  */
-async function commandIndex(s: Services, opts: { items?: string[] } = {}): Promise<{ entries: CommandEntry[]; inboxItems: number }> {
+export async function commandIndex(s: Services, opts: { items?: string[] } = {}): Promise<{ entries: CommandEntry[]; inboxItems: number }> {
   const db = s.db;
   const named = [...new Set(opts.items ?? [])].slice(0, NAMED);
   const [places, sums, newest, asked, drafts, renders, leaves, unused, workflows, kit] = await Promise.all([
@@ -203,7 +203,7 @@ function labelMatches(q: string): { test: Expression<SqlBool>; inside: Expressio
  * that hold it as typed first, the shorter names first (the bar's best matches), then the newest. The bar ranks them with the
  * rest of its index.
  */
-async function commandItems(s: Services, raw: unknown): Promise<{ entries: CommandEntry[] }> {
+export async function commandItems(s: Services, raw: unknown): Promise<{ entries: CommandEntry[] }> {
   const { q, limit } = itemsQuery.parse(raw);
   const match = labelMatches(q);
   if (!match) return { entries: [] };

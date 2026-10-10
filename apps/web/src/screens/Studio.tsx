@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Plus } from "lucide-react";
 import { api, type Asset } from "../api";
@@ -6,15 +6,13 @@ import { useFolders, useProjects, useTimelines } from "../data";
 import { useProject } from "../project";
 import { plainKey } from "../Keys";
 import { useKeysHere } from "../keys/here";
-import { displayOf, useBanners, useHandover, useOpenDraft, useStudio, type Scope } from "../store";
+import { displayOf, useBanners, useHandover, useOpenDraft, usePanelWidth, useStudio, type Scope } from "../store";
 import { cx, Empty, ErrorNote } from "../ui";
 import { Viewer } from "../viewer/LazyViewer";
 import { useTileMenu } from "../TileMenu";
 import { DRAG_TYPE, FolderPanel, Tile } from "./Library";
-import { TimelineCards } from "./studio/TimelineCards";
 import { LoadMore } from "../LoadMore";
 import { BinStrip } from "./studio/BinStrip";
-import { CreatePanel } from "./studio/CreatePanel";
 import { DraftResults } from "./studio/DraftResults";
 import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
@@ -25,6 +23,19 @@ import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
 import { useSelection } from "./studio/useSelection";
+import { lazyPart, loadCreatePanel, loadTimelineCards } from "../lazyParts";
+
+// the form and the timeline cards are chunks of their own (lazyParts.ts): the library is drawn without them, and the
+// form, when the app opens on it ("/create"), is asked for at once rather than once the screen is drawn
+const CreatePanel = lazyPart(loadCreatePanel, (m) => m.CreatePanel);
+const TimelineCards = lazyPart(loadTimelineCards, (m) => m.TimelineCards);
+if (useStudio.getState().form) void loadCreatePanel();
+
+/** The form's panel while its code comes: its width and its edge, so the library beside it does not move. */
+function PanelShape() {
+  const width = usePanelWidth((s) => s.width);
+  return <aside aria-label="Create" aria-busy style={{ width }} className="shrink-0 border-r border-line bg-panel" />;
+}
 
 /**
  * Studio: the library, with the form that makes things as a panel that opens and closes on its left.
@@ -281,7 +292,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
 
   return (
     <div className="flex min-h-0 min-w-0 grow">
-      {view.form ? <CreatePanel folder={panelFolder} onClose={closePanel} /> : <FormRail onOpen={() => view.set({ form: true })} />}
+      {view.form ? <Suspense fallback={<PanelShape />}><CreatePanel folder={panelFolder} onClose={closePanel} /></Suspense> : <FormRail onOpen={() => view.set({ form: true })} />}
       <div className="flex min-w-0 grow flex-col">
         <LibraryHeader place={place} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} count={visible.length} onSelectAll={selectAll} filters={filters} selection={selection} />
 
@@ -295,7 +306,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
               {place.type === "bin" && <BinStrip />}
-              {showTimelines && <TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} />}
+              {showTimelines && <Suspense fallback={null}><TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} /></Suspense>}
               {!showTimelines && assets.isSuccess && !items.length && !running && (
                 <Empty
                   title={filtered ? "No match" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}

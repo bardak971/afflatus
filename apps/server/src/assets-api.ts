@@ -7,7 +7,7 @@ import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
 import { soundOf } from "./cut";
-import { newId, now } from "./db";
+import { newId, now, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
 import { isLinked } from "./linked";
@@ -41,6 +41,45 @@ function assetLookup(s: Services) {
   return { asset, fileInLinked };
 }
 export type AssetLookup = ReturnType<typeof assetLookup>;
+
+/** One item as GET /api/assets/:id answers it: its view, with how it was made, what it was made from and what was made from it (the web's AssetDetail, held against it in test/apiTypes.test.ts). */
+export async function assetDetail(s: Services, a: Tables["assets"]) {
+  const g = a.generation_id ? await s.db.selectFrom("generations").selectAll().where("id", "=", a.generation_id).executeTakeFirst() : undefined;
+  // what it was made from (the pictures given to the recipe), and what was made from it
+  const sources = g
+    ? await s.db.selectFrom("generation_inputs").innerJoin("assets", "assets.id", "generation_inputs.asset_id").selectAll("assets").select("generation_inputs.role").where("generation_inputs.generation_id", "=", g.id).execute()
+    : [];
+  const usedIn = await s.db
+    .selectFrom("generation_inputs").innerJoin("assets", "assets.generation_id", "generation_inputs.generation_id").selectAll("assets")
+    .where("generation_inputs.asset_id", "=", a.id).where("assets.deleted_at", "is", null)
+    .orderBy("assets.created_at", "desc").limit(24).execute();
+  // which timeline clip it, and what was made from it, is a take of: the viewer leads there
+  const placed = await s.timelines.clipOf([a.id, ...usedIn.map((u) => u.id)]);
+  // what came before and after it, by the names they go by when they were given none
+  const shown = await shownNames(s.db, [...sources.map(({ role: _, ...row }) => row), ...usedIn], (id) => s.registry.recipe(id)?.title);
+  const named = <T extends { id: string }>(v: T) => (shown.has(v.id) ? { ...v, shownName: shown.get(v.id) } : v);
+  return {
+    ...assetView(a),
+    ...(await withShownName(s, a)),
+    clipOf: placed.get(a.id) ?? null,
+    // who was in it, as far back as it is known: what is made from it next can start with the same people
+    look: castOf(await madeIn(s, a.id)),
+    generation: g
+      ? { id: g.id, recipe: g.recipe_id, family: g.family, inputs: JSON.parse(g.inputs), resolved: JSON.parse(g.resolved), tookMs: g.gen_ms, ...(g.asked ? { asked: JSON.parse(g.asked) } : {}) }
+      : null,
+    sources: sources.map(({ role, ...row }) => ({ role, asset: named(assetView(row)) })),
+    usedIn: usedIn.map((u) => named({ ...assetView(u), clipOf: placed.get(u.id) ?? null })),
+    // a frame or a cut: the video it was taken from, and the range when it is one
+    source: await (async () => {
+      if (!a.source_id) return null;
+      const from = await s.db.selectFrom("assets").selectAll().where("id", "=", a.source_id).executeTakeFirst();
+      if (!from) return null;
+      // a part that is not there reads as NaN, which the check below turns away as it does a part that is not a number
+      const [startMs = NaN, endMs = NaN] = (a.source_range ?? "").split("-").map(Number);
+      return { asset: assetView(from), range: a.source_range && Number.isFinite(startMs) && Number.isFinite(endMs) ? { startMs, endMs } : null };
+    })(),
+  };
+}
 
 export function registerAssets(app: FastifyInstance, s: Services): void {
   const lookup = assetLookup(s);
@@ -110,43 +149,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
   });
 
   /** One item, with how it was made. */
-  app.get<{ Params: { id: string } }>("/api/assets/:id", async (req) => {
-    const a = await asset(req.params.id);
-    const g = a.generation_id ? await s.db.selectFrom("generations").selectAll().where("id", "=", a.generation_id).executeTakeFirst() : undefined;
-    // what it was made from (the pictures given to the recipe), and what was made from it
-    const sources = g
-      ? await s.db.selectFrom("generation_inputs").innerJoin("assets", "assets.id", "generation_inputs.asset_id").selectAll("assets").select("generation_inputs.role").where("generation_inputs.generation_id", "=", g.id).execute()
-      : [];
-    const usedIn = await s.db
-      .selectFrom("generation_inputs").innerJoin("assets", "assets.generation_id", "generation_inputs.generation_id").selectAll("assets")
-      .where("generation_inputs.asset_id", "=", a.id).where("assets.deleted_at", "is", null)
-      .orderBy("assets.created_at", "desc").limit(24).execute();
-    // which timeline clip it, and what was made from it, is a take of: the viewer leads there
-    const placed = await s.timelines.clipOf([a.id, ...usedIn.map((u) => u.id)]);
-    // what came before and after it, by the names they go by when they were given none
-    const shown = await shownNames(s.db, [...sources.map(({ role: _, ...row }) => row), ...usedIn], (id) => s.registry.recipe(id)?.title);
-    const named = <T extends { id: string }>(v: T) => (shown.has(v.id) ? { ...v, shownName: shown.get(v.id) } : v);
-    return {
-      ...assetView(a),
-      ...(await withShownName(s, a)),
-      clipOf: placed.get(a.id) ?? null,
-      // who was in it, as far back as it is known: what is made from it next can start with the same people
-      look: castOf(await madeIn(s, a.id)),
-      generation: g
-        ? { id: g.id, recipe: g.recipe_id, family: g.family, inputs: JSON.parse(g.inputs), resolved: JSON.parse(g.resolved), tookMs: g.gen_ms, ...(g.asked ? { asked: JSON.parse(g.asked) } : {}) }
-        : null,
-      sources: sources.map(({ role, ...row }) => ({ role, asset: named(assetView(row)) })),
-      usedIn: usedIn.map((u) => named({ ...assetView(u), clipOf: placed.get(u.id) ?? null })),
-      // a frame or a cut: the video it was taken from, and the range when it is one
-      source: await (async () => {
-        if (!a.source_id) return null;
-        const from = await s.db.selectFrom("assets").selectAll().where("id", "=", a.source_id).executeTakeFirst();
-        if (!from) return null;
-        const [startMs, endMs] = (a.source_range ?? "").split("-").map(Number);
-        return { asset: assetView(from), range: a.source_range && Number.isFinite(startMs) && Number.isFinite(endMs) ? { startMs, endMs } : null };
-      })(),
-    };
-  });
+  app.get<{ Params: { id: string } }>("/api/assets/:id", async (req) => assetDetail(s, await asset(req.params.id)));
 
   /**
    * How a file may be kept by the browser. Afflatus's own files never change under their id: kept for good. A file of a
