@@ -6,8 +6,8 @@ import { useDrafts, useFamilies, useRecipes, useSetup, type useAsset } from "../
 import { useOpenNewDraft } from "../draft";
 import { handMask } from "../handoff";
 import { useReuse } from "../reuse";
-import { carryOver, followOn, modelGroups, usedLast } from "../picker";
-import { OPS, ownInputs } from "./shared";
+import { carryOver, followOn, usedLast } from "../picker";
+import { ownInputs, toolOf } from "./shared";
 import { useFormAim } from "../recipeForm/Part";
 
 /** What a tool is handed along with a picture: what the picture was made with (its prompt, model, LoRAs…), where the tool has a place for it. `withLook`: its cast goes along. */
@@ -134,13 +134,8 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
 
   const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
-  const toolFor = (key: string): RecipeInfo | undefined => {
-    const ends = OPS[key]?.ends ?? [];
-    const fits = (r: RecipeInfo) => r.output === "image" && ends.some((e) => r.id.endsWith(e));
-    const mine = modelGroups(all.filter((r) => r.output === "image"), recipes.data?.families ?? []).find((group) => group.recipes.some((r) => r.id === recipe?.id));
-    const ready = (r: RecipeInfo) => setup.data?.recipes.find((x) => x.id === r.id)?.ready;
-    return mine?.recipes.find(fits) ?? all.find((r) => fits(r) && ready(r)) ?? all.find(fits);
-  };
+  const toolFor = (key: string): RecipeInfo | undefined =>
+    toolOf(key, all, recipes.data?.families ?? [], recipe?.id, (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready));
   /** What a tool is handed with the picture in its source slot; `withLook`: its cast goes along too. */
   const toolInput = (tool: RecipeInfo, withLook = false) => {
     const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;

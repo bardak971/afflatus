@@ -15,8 +15,8 @@ export type AssetChange =
   | { kind: "move"; ids: string[]; folder: string | null }
   | { kind: "rename"; ids: string[]; name: string };
 
-/** What a copy was before the change: put back as it was by `rollback`. */
-export type Snapshot = Array<[QueryKey, unknown]>;
+/** What a copy was before the change, what the change made of it, and the items it changed: put back by `rollback`. */
+export type Snapshot = Array<[QueryKey, unknown, unknown, ReadonlySet<string>]>;
 
 /**
  * Where items sat in the lists on screen before a change took them out (the list, the page, the place in it, the item as
@@ -114,8 +114,8 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
     return a ? [[id, a] as const] : [];
   }));
   const set = (key: QueryKey, was: unknown, next: unknown) => {
-    snap.push([key, was]);
-    client.setQueryData(key, next);
+    // what the cache holds after it (structural sharing may keep parts of the old copy): told apart from a later change
+    snap.push([key, was, client.setQueryData(key, next), ids]);
   };
   const folders = client.getQueryData<{ items: Folder[] }>(["folders"])?.items;
   const projectOf = (folder: string) => {
@@ -143,8 +143,11 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
           return [];
         }) };
       });
-      // an Undo: each item back where it sat, when it belongs here again and is not here already
+      // an Undo: each item back where it sat, when it belongs here again and is not here already. Only the items of this
+      // change: the Undo of a move from several folders is one change a folder, each handed every seat, and one put the
+      // other folders' items back as if they were in its own
       for (const s of seats.back ?? []) {
+        if (!ids.has(s.asset.id)) continue;
         if (s.key !== hash || !pages[s.page] || pages.some((p) => p.items.some((a) => a.id === s.asset.id))) continue;
         const next = changed(s.asset, c, now);
         if (!fits(filter, project, next, projectOf)) continue;
@@ -159,7 +162,7 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
       const read = data as { items: Asset[]; more: boolean };
       const hash = hashKey(key);
       const belongs = (a: Asset) => !a.inBin && a.folderId === key[2];
-      const back = (seats.back ?? []).filter((s) => s.key === hash && !read.items.some((a) => a.id === s.asset.id));
+      const back = (seats.back ?? []).filter((s) => ids.has(s.asset.id) && s.key === hash && !read.items.some((a) => a.id === s.asset.id));
       if (!back.length && !read.items.some((a) => ids.has(a.id))) continue;
       const items = read.items.flatMap((a, ii) => {
         if (!ids.has(a.id)) return [a];
@@ -208,9 +211,34 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
   return snap;
 }
 
-/** Every copy put back as it was before the change (the latest first, so that a copy changed twice ends as it began). */
+/**
+ * What the refused change did, undone on every copy (the latest first, so that a copy changed twice ends as it began).
+ * A copy nothing else changed since is put back whole; in one changed since (another change that went through, a read
+ * that landed) only the items of the refused change go back as they were, where they were: putting the whole copy back
+ * undid the later change on screen too, until the next read. A count changed since is read again.
+ */
 export function rollback(client: QueryClient, snap: Snapshot): void {
-  for (const [key, data] of [...snap].reverse()) client.setQueryData(key, data);
+  for (const [key, was, made, ids] of [...snap].reverse()) {
+    const now = client.getQueryData(key);
+    if (now === made) client.setQueryData(key, was);
+    else if (now === undefined) continue;
+    else if (isAssets(key, "list")) {
+      const before = was as InfiniteData<Page>;
+      const list = now as InfiniteData<Page>;
+      const pages = list.pages.map((p) => ({ ...p, items: p.items.filter((a) => !ids.has(a.id)) }));
+      before.pages.forEach((p, pi) => p.items.forEach((a, ii) => {
+        if (!ids.has(a.id) || !pages[pi]) return;
+        pages[pi]!.items.splice(Math.min(ii, pages[pi]!.items.length), 0, a);
+      }));
+      client.setQueryData(key, { ...list, pages });
+    } else if (isAssets(key, "tree")) {
+      const read = now as { items: Asset[] };
+      const items = read.items.filter((a) => !ids.has(a.id));
+      (was as { items: Asset[] }).items.forEach((a, i) => ids.has(a.id) && items.splice(Math.min(i, items.length), 0, a));
+      client.setQueryData(key, { ...read, items });
+    } else if (isAssets(key, "one")) client.setQueryData(key, was);
+    else void client.invalidateQueries({ queryKey: key, exact: true });
+  }
 }
 
 /**

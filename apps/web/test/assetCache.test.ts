@@ -109,6 +109,42 @@ describe("an item changed on screen before the server answers", () => {
     expect(ids(client, key)).toEqual(["a", "b", "c"]);
   });
 
+  it("on a refusal, undoes only what the refused change did: a later change that went through stays on screen", () => {
+    const client = screen();
+    const key = ["assets", "list", "p1", {}, true];
+    // a bin the server will refuse, then a keep that goes through while it is out
+    const snap = applyChange(client, { kind: "bin", ids: ["a"] }, NOW);
+    applyChange(client, { kind: "keep", ids: ["c"], kept: true }, NOW);
+    rollback(client, snap);
+    expect(ids(client, key)).toEqual(["a", "b", "c"]);
+    expect(findAsset(client, "a")!.inBin).toBe(false);
+    expect(client.getQueryData<InfiniteData<Page>>(key)!.pages[0]!.items.find((x) => x.id === "c")!.kept).toBe(true);
+  });
+
+  it("puts each folder's items back in their own folder on the Undo of a move from several folders", () => {
+    const client = new QueryClient();
+    const a = item("a", { folderId: "f1" });
+    const c = item("c", { folderId: "f2" });
+    client.setQueryData(["assets", "list", "p1", { folder: "f1" }, true], pages([a]));
+    client.setQueryData(["assets", "list", "p1", { folder: "f2" }, true], pages([c]));
+    client.setQueryData(["assets", "list", "p1", {}, true], pages([a, c]));
+    client.setQueryData(["folders"], { items: [folder("f1", "p1", 1), folder("f2", "p1", 1), folder("g1", "p2", 0)] });
+    const left: Seats = [];
+    applyChange(client, { kind: "move", ids: ["a", "c"], folder: "g1" }, NOW, { left });
+    // to a folder of another project: out of this project's list too
+    expect(ids(client, ["assets", "list", "p1", {}, true])).toEqual([]);
+    // the Undo: one change a folder, each handed every seat
+    applyChange(client, { kind: "move", ids: ["a"], folder: "f1" }, NOW, { back: left });
+    // the first folder's change puts back its own items only (c's change is sent after a's is answered)
+    expect(findAsset(client, "c")).toBeUndefined();
+    applyChange(client, { kind: "move", ids: ["c"], folder: "f2" }, NOW, { back: left });
+    expect(ids(client, ["assets", "list", "p1", { folder: "f1" }, true])).toEqual(["a"]);
+    expect(ids(client, ["assets", "list", "p1", { folder: "f2" }, true])).toEqual(["c"]);
+    // in the project's list, each back once, in its own folder
+    const all = client.getQueryData<InfiniteData<Page>>(["assets", "list", "p1", {}, true])!.pages.flatMap((p) => p.items);
+    expect(all.map((x) => `${x.id}:${x.folderId}`)).toEqual(["a:f1", "c:f2"]);
+  });
+
   it("keeps no copy of what does not hold the items", () => {
     const client = screen();
     const snap = applyChange(client, { kind: "keep", ids: ["c"], kept: true }, NOW);

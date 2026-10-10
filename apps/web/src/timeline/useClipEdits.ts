@@ -48,16 +48,16 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   // what was typed stays over the clip until the timeline read back carries it (or the clip is gone)
   useEffect(() => {
     if (!t) return;
-    setEdits((e) => {
-      const next = { ...e };
-      for (const id of Object.keys(e)) {
-        if (unsaved.current.has(id)) continue;
-        const c = t.clips.find((x) => x.id === id);
-        if (!c || JSON.stringify(c.inputs) === JSON.stringify(e[id])) delete next[id];
-      }
-      return Object.keys(next).length === Object.keys(e).length ? e : next;
-    });
+    setEdits((e) => settleEdits(e, t.clips, unsaved.current));
   }, [t]);
+  /**
+   * The server was given a clip's inputs by another way than the form's save (a render moving the seed on): the edit over
+   * the clip becomes them, so that the read back that carries them drops it. Left as it was, it no longer matched what the
+   * server has, and stayed over the clip all session: the old seed shown and sent with every render after.
+   */
+  const savedElsewhere = useCallback((clipId: string, inputs: Record<string, unknown>) => {
+    setEdits((e) => withServerInputs(e, clipId, inputs, unsaved.current));
+  }, []);
   const editInputs = (c: Clip, next: Record<string, unknown>) => {
     setEdits((e) => ({ ...e, [c.id]: next }));
     unsaved.current.set(c.id, next);
@@ -110,7 +110,27 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
   );
 
-  return { edits, dropEdits, saveFailed, save, inputsOf, editInputs, shown, formOf, ready };
+  return { edits, dropEdits, saveFailed, save, inputsOf, editInputs, savedElsewhere, shown, formOf, ready };
+}
+
+/** The edits left once the server's clips are read back: a saved edit the server carries is dropped, as is one whose clip is gone. */
+export function settleEdits(edits: Record<string, Record<string, unknown>>, clips: Array<Pick<Clip, "id" | "inputs">>, unsaved: { has(id: string): boolean }): Record<string, Record<string, unknown>> {
+  const next = { ...edits };
+  for (const id of Object.keys(edits)) {
+    if (unsaved.has(id)) continue;
+    const c = clips.find((x) => x.id === id);
+    if (!c || JSON.stringify(c.inputs) === JSON.stringify(edits[id])) delete next[id];
+  }
+  return Object.keys(next).length === Object.keys(edits).length ? edits : next;
+}
+
+/**
+ * The edits once the server was given a clip's inputs by another way than the form's save: a saved edit over that clip
+ * becomes them. One typed since and not saved yet is the newer: it stays, and its save sends it.
+ */
+export function withServerInputs(edits: Record<string, Record<string, unknown>>, clipId: string, inputs: Record<string, unknown>, unsaved: { has(id: string): boolean }): Record<string, Record<string, unknown>> {
+  if (!edits[clipId] || unsaved.has(clipId)) return edits;
+  return { ...edits, [clipId]: inputs };
 }
 
 /**

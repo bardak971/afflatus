@@ -7,6 +7,7 @@ import { Kbd } from "./Keys";
 import { Select } from "./Select";
 import { Button, cx } from "./ui";
 import { useSettled } from "./hooks";
+import { frameSpan, stepFrames } from "./frameStep";
 
 /** Where the cut's quality is remembered, per browser. */
 const CRF_KEY = "afflatus.cut.crf";
@@ -55,8 +56,9 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
  * The Trim mode of a video: a filmstrip of the whole video with the playhead and an in and an out handle,
  * a second strip of the part zoomed into (down to one tile per frame), a picture of the exact frame
  * under the mouse, and what can be done with the range. The `<video>` is the viewer's own; this takes
- * it over (its native controls are off while trimming). Keys: I / O set in and out at the playhead,
- * , and . step one frame, ← and → too (Shift: ten), L loops the range, Space plays, Home / End, Z zooms to the range.
+ * it over (its native controls are off while trimming). Keys: I / O set in and out on the frame shown (in on it,
+ * out after it), , and . step one frame, ← and → too (Shift: ten), L loops the range, Space plays, Home / End, Z zooms
+ * to the range. The In and Out handles take the arrows too, a frame at a time (Shift: ten).
  */
 export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onBetween, onExtendHere, onRange, scenes, onEveryScene, onClose }: {
   asset: Asset;
@@ -106,19 +108,33 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     setAt(to);
   }, [player, duration]);
 
-  // the playhead follows the video, frame by frame where the browser can say so
+  // the playhead follows the video, frame by frame where the browser can say so. One loop for as long as Trim is open,
+  // reading the loop and the range as they stand: a loop started again at each change of them (or at each play, while
+  // the paused one's callback was still waiting) ran beside the old ones, which jumped back to an old In and went on
+  // after Trim closed. It stops on pause, the frame-rate fallback too.
+  const live = useRef({ looping, range });
+  live.current = { looping, range };
   useEffect(() => {
     const v = player.current;
     if (!v) return;
-    let handle = 0;
+    const frames = "requestVideoFrameCallback" in v ? (v as HTMLVideoElement & { requestVideoFrameCallback(cb: () => void): number; cancelVideoFrameCallback(h: number): void }) : null;
+    let handle: number | null = null;
+    const stop = () => {
+      if (handle === null) return;
+      if (frames) frames.cancelVideoFrameCallback(handle);
+      else cancelAnimationFrame(handle);
+      handle = null;
+    };
     const tick = () => {
+      handle = null;
       setAt(v.currentTime * 1000);
       // the loop: back to in when out is reached
+      const { looping, range } = live.current;
       if (looping && v.currentTime * 1000 >= range.endMs - 1) v.currentTime = range.startMs / 1000;
-      handle = "requestVideoFrameCallback" in v ? (v as HTMLVideoElement & { requestVideoFrameCallback(cb: () => void): number }).requestVideoFrameCallback(tick) : requestAnimationFrame(tick);
+      if (!v.paused) handle = frames ? frames.requestVideoFrameCallback(tick) : requestAnimationFrame(tick);
     };
-    const onPlay = () => { setPlaying(true); tick(); };
-    const onPause = () => { setPlaying(false); setAt(v.currentTime * 1000); };
+    const onPlay = () => { setPlaying(true); stop(); tick(); };
+    const onPause = () => { setPlaying(false); stop(); setAt(v.currentTime * 1000); };
     const onSeeked = () => setAt(v.currentTime * 1000);
     v.addEventListener("play", onPlay);
     v.addEventListener("pause", onPause);
@@ -128,10 +144,9 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       v.removeEventListener("play", onPlay);
       v.removeEventListener("pause", onPause);
       v.removeEventListener("seeked", onSeeked);
-      if ("cancelVideoFrameCallback" in v) (v as HTMLVideoElement & { cancelVideoFrameCallback(h: number): void }).cancelVideoFrameCallback(handle);
-      else cancelAnimationFrame(handle);
+      stop();
     };
-  }, [player, looping, range.startMs, range.endMs]);
+  }, [player]);
 
   // the picture of the frame under the mouse: asked for a moment after the mouse settles
   useEffect(() => {
@@ -162,7 +177,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     if (looping) { setLooping(false); return; }
     setLooping(true);
     if (!v) return;
-    if (at < range.startMs - 1 || at > range.endMs - frameMs) seek(range.startMs);
+    if (at < range.startMs - 1 || at > range.endMs - frameMs) seek(range.startMs + frameMs / 2);
     if (v.paused) void v.play();
   };
 
@@ -182,15 +197,15 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       const { at, range, zoom } = now.current;
       // , and . are one frame on every layout: on AZERTY "." is itself Shift + ";", so Shift cannot mean ten there.
       // Ten frames is Shift with the arrows, as in the timeline
-      const step = frameMs;
-      const arrows = (e.shiftKey ? 10 : 1) * frameMs;
+      const arrows = e.shiftKey ? 10 : 1;
+      const shown = frameSpan(at, fps);
       switch (e.key) {
-        case "i": case "I": e.preventDefault(); setRange((r) => ({ startMs: Math.min(at, r.endMs - frameMs), endMs: r.endMs })); break;
-        case "o": case "O": e.preventDefault(); setRange((r) => ({ startMs: r.startMs, endMs: Math.max(at, r.startMs + frameMs) })); break;
-        case ",": case "<": e.preventDefault(); v?.pause(); seek(at - step); break;
-        case ".": case ">": e.preventDefault(); v?.pause(); seek(at + step); break;
-        case "ArrowLeft": e.preventDefault(); v?.pause(); seek(at - arrows); break;
-        case "ArrowRight": e.preventDefault(); v?.pause(); seek(at + arrows); break;
+        case "i": case "I": e.preventDefault(); setRange((r) => ({ startMs: Math.min(shown.startMs, r.endMs - frameMs), endMs: r.endMs })); break;
+        case "o": case "O": e.preventDefault(); setRange((r) => ({ startMs: r.startMs, endMs: Math.min(duration, Math.max(shown.endMs, r.startMs + frameMs)) })); break;
+        case ",": case "<": e.preventDefault(); v?.pause(); seek(stepFrames(at, -1, fps, duration)); break;
+        case ".": case ">": e.preventDefault(); v?.pause(); seek(stepFrames(at, 1, fps, duration)); break;
+        case "ArrowLeft": e.preventDefault(); v?.pause(); seek(stepFrames(at, -arrows, fps, duration)); break;
+        case "ArrowRight": e.preventDefault(); v?.pause(); seek(stepFrames(at, arrows, fps, duration)); break;
         case "l": case "L": e.preventDefault(); now.current.toggleLoop(); break;
         case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : roomy(range)); break;
         case " ": e.preventDefault(); if (v) { if (v.paused) void v.play(); else v.pause(); } break;
@@ -202,7 +217,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [duration, frameMs, player, seek, zoomTo]);
+  }, [duration, fps, frameMs, player, seek, zoomTo]);
   const length = range.endMs - range.startMs;
   const frames = Math.round(length / frameMs);
   const whole = range.startMs <= 0 && range.endMs >= duration;
@@ -214,6 +229,8 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   const snap = (ms: number) => Math.round(ms / frameMs) * frameMs;
   const moveIn = (ms: number) => setRange((r) => ({ startMs: Math.max(0, Math.min(ms, r.endMs - frameMs)), endMs: r.endMs }));
   const moveOut = (ms: number) => setRange((r) => ({ startMs: r.startMs, endMs: Math.min(duration, Math.max(ms, r.startMs + frameMs)) }));
+  /** The picture of the frame that starts at a frame's edge on a strip: a seek to the edge itself can show the one before. */
+  const showFrom = (edge: number) => seek(Math.min(duration, edge + frameMs / 2));
   const zoomFrames = zoom ? Math.min(STRIP_FRAMES, Math.max(2, Math.ceil((zoom.endMs - zoom.startMs) / frameMs))) : 0;
   const exact = zoom ? (zoom.endMs - zoom.startMs) / frameMs <= STRIP_FRAMES + 0.5 : false;
   const wholeSrc = useMemo(() => `/api/assets/${asset.id}/strip?frames=${Math.min(STRIP_FRAMES, Math.max(16, Math.round(duration / 1000)))}&height=48`, [asset.id, duration]);
@@ -265,6 +282,25 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       const r = el.getBoundingClientRect();
       return Math.max(win.startMs, Math.min(win.endMs, win.startMs + ((clientX - r.left) / r.width) * span));
     };
+    // a handle with the focus moves a frame with the arrows (Shift: ten), showing the frame it stands for; the playhead's
+    // own arrows (Trim's, the timeline's) are not stepped as well
+    const nudge = (what: "in" | "out") => (e: React.KeyboardEvent) => {
+      const by = e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : 0;
+      if (!by || e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      player.current?.pause();
+      const ms = snap((what === "in" ? range.startMs : range.endMs) + by * (e.shiftKey ? 10 : 1) * frameMs);
+      if (what === "in") {
+        const to = Math.max(0, Math.min(ms, range.endMs - frameMs));
+        moveIn(to);
+        showFrom(to);
+      } else {
+        const to = Math.min(duration, Math.max(ms, range.startMs + frameMs));
+        moveOut(to);
+        showFrom(to - frameMs);
+      }
+    };
     const grab = (what: "in" | "out" | "head") => (e: React.PointerEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -281,7 +317,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           // a press anywhere but on a handle moves the playhead there
           if ((e.target as HTMLElement).closest("[role=slider]")) return;
           player.current?.pause();
-          seek(snap(msAt(e.currentTarget, e.clientX)));
+          showFrom(snap(msAt(e.currentTarget, e.clientX)));
           dragging.current = "head";
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
@@ -289,7 +325,9 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           const ms = snap(msAt(e.currentTarget, e.clientX));
           if (dragging.current === "in") moveIn(ms);
           else if (dragging.current === "out") moveOut(ms);
-          if (dragging.current) seek(ms);
+          // the frame the handle stands for: the first one in for In, the last one in for Out
+          if (dragging.current === "out") showFrom(ms - frameMs);
+          else if (dragging.current) showFrom(ms);
           else setHover({ ms, x: e.clientX - e.currentTarget.getBoundingClientRect().left, bar: kind });
         }}
         onPointerUp={() => { dragging.current = null; }}
@@ -313,8 +351,8 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           {/* the zoomed part, shown on the whole */}
           {kind === "whole" && zoom && <div className="pointer-events-none absolute inset-y-0 border-x-2 border-picture/80 bg-picture/30" style={{ left: pct(zoom.startMs), width: `${((zoom.endMs - zoom.startMs) / span) * 100}%` }} />}
         </div>
-        {inWin(range.startMs) && <div role="slider" aria-label="In" aria-valuenow={Math.round(range.startMs)} tabIndex={0} onPointerDown={grab("in")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.startMs) }} />}
-        {inWin(range.endMs) && <div role="slider" aria-label="Out" aria-valuenow={Math.round(range.endMs)} tabIndex={0} onPointerDown={grab("out")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.endMs) }} />}
+        {inWin(range.startMs) && <div role="slider" aria-label="In" aria-valuenow={Math.round(range.startMs)} aria-valuemin={0} aria-valuemax={Math.round(range.endMs - frameMs)} aria-valuetext={stamp(range.startMs)} tabIndex={0} onPointerDown={grab("in")} onKeyDown={nudge("in")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.startMs) }} />}
+        {inWin(range.endMs) && <div role="slider" aria-label="Out" aria-valuenow={Math.round(range.endMs)} aria-valuemin={Math.round(range.startMs + frameMs)} aria-valuemax={Math.round(duration)} aria-valuetext={stamp(range.endMs)} tabIndex={0} onPointerDown={grab("out")} onKeyDown={nudge("out")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.endMs) }} />}
         {/* the playhead, over everything: a white line with a dark edge, and a small head on top */}
         {inWin(at) && (
           <div className="pointer-events-none absolute -top-1 bottom-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]" style={{ left: pct(at) }}>
@@ -358,12 +396,12 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <Button size="sm" tone={playing ? "primary" : "plain"} aria-pressed={playing} aria-label="Play / pause" onClick={() => { const v = player.current; if (!v) return; if (v.paused) void v.play(); else v.pause(); }} data-tip="Play / pause (Space)">{playing ? <Pause size={13} /> : <Play size={13} />}</Button>
         <div role="group" aria-label="Range" className="flex items-center gap-1">
-          <Button size="sm" onClick={() => moveIn(at)} data-tip="Set in at the playhead">In <Kbd>I</Kbd></Button>
-          <Button size="sm" onClick={() => moveOut(at)} data-tip="Set out at the playhead">Out <Kbd>O</Kbd></Button>
+          <Button size="sm" onClick={() => moveIn(frameSpan(at, fps).startMs)} data-tip="Set in on the frame shown">In <Kbd>I</Kbd></Button>
+          <Button size="sm" onClick={() => moveOut(frameSpan(at, fps).endMs)} data-tip="Set out after the frame shown">Out <Kbd>O</Kbd></Button>
         </div>
         <div role="group" aria-label="Frames" className="flex items-center gap-1">
-          <Button size="sm" aria-label="One frame back" onClick={() => { player.current?.pause(); seek(at - frameMs); }} data-tip="One frame back (Shift + ←: ten)"><Kbd>,</Kbd></Button>
-          <Button size="sm" aria-label="One frame forward" onClick={() => { player.current?.pause(); seek(at + frameMs); }} data-tip="One frame forward (Shift + →: ten)"><Kbd>.</Kbd></Button>
+          <Button size="sm" aria-label="One frame back" onClick={() => { player.current?.pause(); seek(stepFrames(at, -1, fps, duration)); }} data-tip="One frame back (Shift + ←: ten)"><Kbd>,</Kbd></Button>
+          <Button size="sm" aria-label="One frame forward" onClick={() => { player.current?.pause(); seek(stepFrames(at, 1, fps, duration)); }} data-tip="One frame forward (Shift + →: ten)"><Kbd>.</Kbd></Button>
           <Button size="sm" tone={looping ? "primary" : "plain"} aria-pressed={looping} onClick={toggleLoop} data-tip={looping ? "Stop looping (the video goes on playing)" : "Loop the range"}><Repeat size={13} /> Loop <Kbd>L</Kbd></Button>
           {/* one label whether zoomed or not, so that the row does not move when it is pressed */}
           <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : roomy(range))} data-tip={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} Zoom <Kbd>Z</Kbd></Button>

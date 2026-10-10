@@ -18,11 +18,41 @@ export const BATCH = { least: 1, most: 8 } as const;
 
 export const saveBodyOf = (d: Draft) => ({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer });
 
+/** The most a request that outlives the page may carry: the browser refuses a `keepalive` body past 64 KiB (sendBeacon too). */
+export const KEEPALIVE_MAX = 60 * 1024;
+
+/**
+ * What the save made as the page closes sends: the whole draft when it fits a request that outlives the page; else the
+ * draft without its conversation with the designer (the long part, which the server keeps as it was); else nothing can
+ * go (null). Past the limit the browser refused the whole save without a word, and the last edits were lost.
+ */
+export function closingBody(d: Draft): Partial<ReturnType<typeof saveBodyOf>> | null {
+  const whole = saveBodyOf(d);
+  const size = (b: object) => new TextEncoder().encode(JSON.stringify(b)).length;
+  if (size(whole) <= KEEPALIVE_MAX) return whole;
+  const { chat: _chat, ...rest } = whole;
+  return size(rest) <= KEEPALIVE_MAX ? rest : null;
+}
+
+/**
+ * Jobs run one after the other, each once the one before it is done (failed or not). Two saves of a draft sent at once
+ * could be answered out of turn: the older one's answer, written last, put stale data in the cache that the next
+ * keystroke then saved over the newer edit.
+ */
+export function inTurn(): <T>(job: () => Promise<T>) => Promise<T> {
+  let last: Promise<unknown> = Promise.resolve();
+  return <T>(job: () => Promise<T>) => {
+    const run = last.then(job, job);
+    last = run.catch(() => {});
+    return run;
+  };
+}
+
 /**
  * A draft saved, through fetch itself rather than `api`: whether the draft is gone (404) is wanted, and a
  * save made as the page closes must outlive the page (`keepalive`). "gone": the server no longer has it.
  */
-export async function putDraft(id: string, body: ReturnType<typeof saveBodyOf>, keepalive = false): Promise<Draft | "gone"> {
+export async function putDraft(id: string, body: Partial<ReturnType<typeof saveBodyOf>>, keepalive = false): Promise<Draft | "gone"> {
   const res = await fetch(`/api/drafts/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Afflatus": "1" }, body: JSON.stringify(body), keepalive });
   if (res.status === 404) return "gone";
   const data = (await res.json().catch(() => ({}))) as Draft & { error?: string };
@@ -100,9 +130,9 @@ export function useDraft(firstRecipe: string | undefined) {
   // the open draft is of another project than the one looked at (the choice is global, the open draft too)
   const fate = loaded.data ? draftFate(loaded.data.projectId, under, project) : "keep";
 
-  const flush = useCallback(async () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
+  // the saves of drafts, one at a time (see inTurn): the flushes and the edits of a draft that is not on screen
+  const [turn] = useState(inTurn);
+  const sendUnsaved = useCallback(async () => {
     const d = unsaved.current;
     if (!d) return;
     try {
@@ -131,6 +161,12 @@ export function useDraft(firstRecipe: string | undefined) {
       setFailure((err as Error).message);
     }
   }, [client, open]);
+  const flush = useCallback(async () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    // what is unsaved is read when its turn comes: an edit made while the save before it was out goes along
+    return turn(sendUnsaved);
+  }, [turn, sendUnsaved]);
 
   // what the server has replaces what is on screen only when another draft is opened
   useEffect(() => {
@@ -178,16 +214,22 @@ export function useDraft(firstRecipe: string | undefined) {
 
   // leaving the screen saves what is pending
   useEffect(() => () => void flush(), [flush]);
-  // so does closing or reloading the tab: a request that outlives the page. While a save has failed, the browser asks first.
+  // so does closing or reloading the tab: a request that outlives the page (without the conversation when the whole draft
+  // is too large for one). While a save has failed, or when what is unsaved cannot go whole that way, the browser asks
+  // first: staying lets the ordinary save, started then, finish.
   useEffect(() => {
     const hide = () => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
       const d = unsaved.current;
-      if (d) void putDraft(d.id, saveBodyOf(d), true).catch(() => {});
+      const body = d ? closingBody(d) : null;
+      if (d && body) void putDraft(d.id, body, true).catch(() => {});
     };
     const ask = (e: BeforeUnloadEvent) => {
-      if (saving !== "failed") return;
+      const d = unsaved.current;
+      const cut = Boolean(d && closingBody(d)?.chat === undefined);
+      if (saving !== "failed" && !cut) return;
+      if (cut) void flush();
       e.preventDefault();
       e.returnValue = "";
     };
@@ -197,7 +239,7 @@ export function useDraft(firstRecipe: string | undefined) {
       window.removeEventListener("pagehide", hide);
       window.removeEventListener("beforeunload", ask);
     };
-  }, [saving]);
+  }, [saving, flush]);
 
   const change = useCallback(
     (edit: (d: Draft) => Draft) => {
@@ -224,13 +266,13 @@ export function useDraft(firstRecipe: string | undefined) {
       const base = unsaved.current?.id === id ? unsaved.current : (client.getQueryData<Draft>(["drafts", id]) ?? (await api.draft(id)));
       const next = edit(base);
       if (unsaved.current?.id === id) unsaved.current = null;
-      const saved = await putDraft(id, saveBodyOf(next));
+      const saved = await turn(() => putDraft(id, saveBodyOf(next)));
       // gone meanwhile: nothing left to write into
       if (saved === "gone") return;
       client.setQueryData(["drafts", id], saved);
       void client.invalidateQueries({ queryKey: DRAFT_LIST });
     },
-    [change, client],
+    [change, client, turn],
   );
 
   return {

@@ -103,7 +103,9 @@ function FoldBody({ open, now, className, children }: { open: boolean; /** Opene
   }, [play]);
   if (!open && play?.kind !== "fold") return null;
   return (
-    <div ref={body} className="grid grid-rows-[1fr]" inert={!open}>
+    // one column no wider than the card: a wide child (a table, a row of chips) is cut or wraps inside it, never
+    // widening the card and the whole column with it
+    <div ref={body} className="grid grid-cols-[minmax(0,1fr)] grid-rows-[1fr]" inert={!open}>
       <div ref={clip} className="min-h-0">
         <div className={className}>{children}</div>
       </div>
