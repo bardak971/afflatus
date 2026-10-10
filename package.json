@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "check:graphs": "tsx scripts/check-graphs.ts",
     "check:player": "tsx scripts/check-player.ts",
+    "check:digests": "tsx scripts/check-render-digests.ts",
     "restore": "tsx scripts/restore-backup.ts",
     "comfy:scan": "tsx scripts/comfy-scan.ts",
     "comfy:load": "tsx scripts/comfy-load.ts",
