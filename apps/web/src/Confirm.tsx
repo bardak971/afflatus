@@ -4,6 +4,7 @@ import { CircleAlert, PenLine } from "lucide-react";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { Keys } from "./Keys";
 import { Button, cx, fieldClass } from "./ui";
+import { binFor } from "./keepFor";
 
 /**
  * A question asked before something that cannot simply be undone from where it was done (a file taken
@@ -122,7 +123,7 @@ export const askAboutDisk = (files: Array<{ name: string; path: string | null }>
   const one = onDisk.length === 1;
   return ask({
     title: one ? "Remove this file from its folder on your disk?" : `Remove these ${onDisk.length} files from their folders on your disk?`,
-    text: `${one ? onDisk[0]!.path : `${onDisk.slice(0, 4).map((f) => f.path).join("\n")}${onDisk.length > 4 ? `\nand ${onDisk.length - 4} more` : ""}`}\n\n${one ? "It is a file" : "They are files"} of a linked folder: sending ${one ? "it" : "them"} to the bin removes ${one ? "it" : "them"} from that folder on your disk. For a week ${one ? "it" : "they"} can be restored from the bin; after that ${one ? "it is" : "they are"} gone.`,
+    text: `${one ? onDisk[0]!.path : `${onDisk.slice(0, 4).map((f) => f.path).join("\n")}${onDisk.length > 4 ? `\nand ${onDisk.length - 4} more` : ""}`}\n\n${one ? "It is a file" : "They are files"} of a linked folder: sending ${one ? "it" : "them"} to the bin removes ${one ? "it" : "them"} from that folder on your disk. ${binFor() ? `For ${binFor()} ${one ? "it" : "they"} can be restored from the bin; after that ${one ? "it is" : "they are"} gone.` : `${one ? "It" : "They"} can be restored from the bin until it is emptied.`}`,
     yes: "Move to bin",
   });
 };

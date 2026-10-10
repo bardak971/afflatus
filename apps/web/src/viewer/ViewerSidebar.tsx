@@ -15,6 +15,7 @@ import { clock, fileLabel, hourMinute, notReady, recipeLabel, took, UI_LOCALE, w
 import { Select } from "../Select";
 import { Button, cx, Help, SectionTitle } from "../ui";
 import { leftOf } from "../screens/library/justify";
+import { daysSaid, unkeptMs, useKeepFor } from "../keepFor";
 import { leftWords } from "../screens/studio/expiring";
 import { FieldRow } from "../fields";
 import { ModelLink } from "../ModelLink";
@@ -441,6 +442,9 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   };
   const byId = (id: ActionId) => list.find((x) => x.id === id);
   const keep = byId("keep");
+  // how long it has before it goes to the bin by itself (Settings › Storage); null: nothing goes on its own
+  const unkeptDays = useKeepFor((s) => s.unkeptDays);
+  const left = leftOf(a, Date.now(), unkeptMs(unkeptDays));
   const bin = byId("bin");
   const passTools = new Set((["u", "f", "b", "i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [toolFor(k)!.id] : [])));
   // each item starts at the top of the side: kept scrolled down from the last one (Details), the actions were out of sight
@@ -464,12 +468,18 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             <span className="flex items-center gap-1.5"><Star size={13} fill="currentColor" className="text-accent" /> Kept</span>
             <Button size="sm" tone="quiet" data-tip={keep?.tip} onClick={() => keep?.run?.()}>Unkeep <Kbd>S</Kbd></Button>
           </div>
+        ) : left === null ? (
+          // nothing goes to the bin on its own (Settings › Storage): not kept says so, without a clock
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-raised px-3 py-2 text-ink-2">
+            <span className="flex items-center gap-1.5">Not kept <Help text="Renders nobody kept stay until you bin them: Settings › Storage sends nothing to the bin on its own. Keep marks the ones that matter." /></span>
+            <Button size="sm" tone="quiet" data-tip={keep?.tip} onClick={() => keep?.run?.()}><Star size={13} /> Keep <Kbd>S</Kbd></Button>
+          </div>
         ) : (
           // expiring is the normal life of a render, not a fault: the warn look only in its last hour, as the status bar's chip
-          <div className={cx("flex items-center justify-between gap-3 rounded-xl px-3 py-2", leftOf(a) < 3_600_000 ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+          <div className={cx("flex items-center justify-between gap-3 rounded-xl px-3 py-2", left < 3_600_000 ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
             <span className="flex items-center gap-1.5">
-              Expires in {leftWords(leftOf(a))}
-              <Help text="Renders nobody kept go to the bin by themselves a day after they were made (or unkept). Keep holds one until you bin it." />
+              Expires in {leftWords(left)}
+              <Help text={`Renders nobody kept go to the bin by themselves ${daysSaid(unkeptDays)} after they were made (or unkept); Settings › Storage says how long. Keep holds one until you bin it.`} />
             </span>
             <Button size="sm" tone="danger" onClick={() => keep?.run?.()}><Star size={13} /> Keep <Kbd>S</Kbd></Button>
           </div>

@@ -41,6 +41,9 @@ export function InterfaceTab() {
       </Card>
 
       <Card title="Notifications" id="notifications">
+        <Row setting="notify.banner" label="Banner when renders finish" help="A banner over the screen when renders finish while another screen is open (the library and the Queue show them anyway). Off: finished renders are not announced in the app; a failure always is.">
+          <Toggle bare on={notify.banner} onChange={(banner) => notify.set({ banner })} label="Banner when renders finish" />
+        </Row>
         <Row setting="notify.each" label="Notify after each render" help={`A browser notification when a render finishes or fails. ${BROWSER}`}>
           <Toggle bare on={notify.eachRender} onChange={(on) => void setNotify("eachRender", on)} label="Notify when a render finishes" />
         </Row>

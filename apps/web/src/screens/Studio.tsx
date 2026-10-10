@@ -24,6 +24,7 @@ import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
 import { useSelection } from "./studio/useSelection";
 import { lazyPart, loadCreatePanel, loadTimelineCards } from "../lazyParts";
+import { binFor } from "../keepFor";
 
 // the form and the timeline cards are chunks of their own (lazyParts.ts): the library is drawn without them, and the
 // form, when the app opens on it ("/create"), is asked for at once rather than once the screen is drawn
@@ -312,7 +313,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                   help={filtered
                     ? "Nothing here matches this search, model, LoRA, Kept or Expiring filter. Change the search or the filters."
                     : place.type === "bin"
-                      ? "Items you bin wait here a week before they are deleted for good."
+                      ? (binFor() ? `Items you bin wait here ${binFor()} before they are deleted for good.` : "Items you bin wait here until you empty the bin.")
                       : place.type === "folder"
                         ? "What you generate while it is open lands in it. Or drag items onto it in the project's tree, under the breadcrumb."
                         : "Images and videos you generate appear here. Start with Create."}

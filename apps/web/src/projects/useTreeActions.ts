@@ -11,6 +11,7 @@ import { useProject } from "../project";
 import { useSayFailed } from "../sayFailed";
 import { useBanners, useOpenDraft } from "../store";
 import { planBin, planDrop, type Moving, type Row, type Target } from "./tree";
+import { insteadOfWaiting, restorable } from "../keepFor";
 
 /** Before a folder of the disk is unlinked: the question both folder trees ask (the folder panel's and the Projects panel's). */
 const askUnlink = (name: string) =>
@@ -94,7 +95,7 @@ export function useTreeActions() {
         list.some((r) => r.kind === "timeline") && "A timeline's videos stay in your library; only the sequence goes.",
         list.some((r) => r.kind === "draft") && "A draft goes with its form and conversation; what was made from it stays.",
         list.some((r) => r.kind !== "item") && "Folders, timelines and drafts deleted cannot be restored from the bin.",
-        list.some((r) => r.kind === "item") && "Items go to the bin: for a week they can be restored from it.",
+        list.some((r) => r.kind === "item") && `Items go to the bin: ${restorable()}.`,
         onDisk > 0 && `${onDisk === 1 ? "One item is a file" : `${onDisk} items are files`} of a linked folder: the bin removes ${onDisk === 1 ? "it" : "them"} from that folder on your disk.`,
       ].filter(Boolean);
       const binOnly = list.every((r) => r.kind === "item");
@@ -123,7 +124,7 @@ export function useTreeActions() {
           }
         }
       });
-      if (ok && binned) say({ id: `tree-bin:${Date.now()}`, tone: "good", title: `${binned === 1 ? "1 item" : `${binned} items`} moved to the bin`, text: "For a week they can be restored from it.", href: "/", go: "Open the Studio" });
+      if (ok && binned) say({ id: `tree-bin:${Date.now()}`, tone: "good", title: `${binned === 1 ? "1 item" : `${binned} items`} moved to the bin`, text: `${restorable()[0]!.toUpperCase()}${restorable().slice(1)}.`, href: "/", go: "Open the Studio" });
     },
     /**
      * Rows dropped on the Bin: items go to the bin (asked only for files of the disk); folders, timelines and
@@ -199,7 +200,7 @@ export function useTreeActions() {
     },
     /** The bin emptied now instead of after its week, once asked: it cannot be undone. Clips of timelines may have played what it held. */
     async emptyBin() {
-      if (!(await ask({ title: "Empty the bin?", text: "Everything in the bin is erased now, files and all, instead of after its 7 days. This cannot be undone.", yes: "Erase" }))) return;
+      if (!(await ask({ title: "Empty the bin?", text: `Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting()}. This cannot be undone.`, yes: "Erase" }))) return;
       let erased = 0;
       if (await run("The bin could not be emptied", async () => { erased = (await api.emptyBin()).erased; })) {
         say({ id: `tree-empty:${Date.now()}`, tone: "good", title: `${erased} item${erased === 1 ? "" : "s"} erased` });
@@ -293,13 +294,13 @@ export function useTreeActions() {
       const u = r.unused;
       if (!id || r.kind !== "timeline" || !u) return;
       const many = u.takes === 1 ? "take" : "takes";
-      const text = `The ${many} no clip plays and nothing else needs go, and ${u.takes === 1 ? "its video goes" : "their videos go"} to the bin (${size(u.bytes)}): for a week they can be restored from it, and Undo in the timeline brings them back. The take each clip plays, and what it was made from, stay.`;
+      const text = `The ${many} no clip plays and nothing else needs go, and ${u.takes === 1 ? "its video goes" : "their videos go"} to the bin (${size(u.bytes)}): ${restorable()}, and Undo in the timeline brings them back. The take each clip plays, and what it was made from, stay.`;
       if (!(await ask({ title: `Bin ${u.takes} unused ${many} of ${r.label}?`, text, yes: "Move to bin" }))) return;
       let done = { binned: 0, bytes: 0 };
       if (await run(`The unused takes of ${r.label} could not go to the bin`, async () => { done = await api.binUnusedTakes(id); })) {
         say({
           id: `tree-unused:${Date.now()}`, tone: "good", title: done.binned ? `${done.binned} unused take${done.binned === 1 ? "" : "s"} of ${r.label} moved to the bin` : `${r.label} has no unused takes left`,
-          text: done.binned ? `${size(done.bytes)}: for a week they can be restored from the bin, or Undo in the timeline.` : undefined, href: `/timelines/${id}`, go: "Open the timeline",
+          text: done.binned ? `${size(done.bytes)}: ${restorable()}, or Undo in the timeline.` : undefined, href: `/timelines/${id}`, go: "Open the timeline",
         });
       }
     },

@@ -74,7 +74,8 @@ export function TileTip({ asset, at }: { asset: Asset; at: { left: number; top: 
   if (asset.name) lines.push({ text: asset.name });
   lines.push({ text: `${what}${size}${length}${asset.kind === "video" && asset.hasSound === false ? " · silent" : ""}` });
   // expiring (nobody kept it): what its corner clock stands for, said in words
-  const unkept = !asset.kept && !asset.inBin ? ` · expires in ${leftWords(leftOf(asset))}` : "";
+  const expiresIn = !asset.kept && !asset.inBin ? leftOf(asset) : null;
+  const unkept = expiresIn !== null ? ` · expires in ${leftWords(expiresIn)}` : asset.kept || asset.inBin ? "" : " · not kept";
   lines.push({ text: `${when(asset.createdAt)}${asset.kept ? " · kept" : unkept}${asset.inBin ? " · in the bin" : ""}`, tone: "dim" });
   const of = asset.clipOf;
   if (of) lines.push({ text: `Clip ${of.clip} of ${of.timelineName}${of.takes > 1 ? ` · take ${of.take} of ${of.takes}` : ""}${of.playing ? "" : " · not the one that plays"}` });

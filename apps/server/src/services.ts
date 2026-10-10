@@ -9,7 +9,7 @@ import { Registry } from "./registry";
 import { readSettings } from "./settings";
 import { Linked, RoutedStorage } from "./linked";
 import type { Storage } from "./storage";
-import { sweep } from "./sweep";
+import { keepOf, sweep } from "./sweep";
 import { fold } from "./renders";
 import type { InfoLookup } from "@afflatus/comfy";
 import type { ModelInfo } from "@afflatus/core";
@@ -93,7 +93,7 @@ export async function createServices(
   void linked.scanAll();
   // unkept results to the bin after a day, the bin emptied after a week, drafts left empty thrown away: checked at start and every hour
   const runSweep = () =>
-    sweep(db, storage)
+    readSettings(db).then((s) => sweep(db, storage, Date.now(), keepOf(s)))
       // what went to the bin, or only out of it for good
       .then((r) => (r.binned || r.erased) && queue.events.emit("library", { change: r.binned ? "binned" : "erased" } satisfies LibraryChange))
       .then(() => sweepIdleDrafts(db, registry))

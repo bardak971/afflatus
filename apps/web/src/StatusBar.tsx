@@ -12,6 +12,7 @@ import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { Popover } from "./Popover";
 import { useProject } from "./project";
 import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "./screens/studio/expiring";
+import { daysSaid, unkeptMs, useKeepFor } from "./keepFor";
 import { useLive, useStudio, useSystem } from "./store";
 import { Button, Chip, cx, ErrorNote, Help } from "./ui";
 
@@ -246,8 +247,9 @@ function Idle({ last }: { last: Job | null }) {
   );
 }
 
-/** What the expiring chip's ? says: the rule, once. */
-const EXPIRING_HELP = "Renders nobody kept go to the bin by themselves a day after they were made (or unkept), and are deleted a week later. S keeps one; what is on a timeline is always kept.";
+/** What the expiring chip's ? says: the rule, once, with the days Settings › Storage gives. */
+const expiringHelp = (unkeptDays: number, binDays: number) =>
+  `Renders nobody kept go to the bin by themselves ${daysSaid(unkeptDays)} after they were made (or unkept), and ${binDays ? `are deleted ${daysSaid(binDays)} later` : "stay there until it is emptied"}. S keeps one; what is on a timeline is always kept. Settings › Storage says how long.`;
 
 /**
  * The renders of the project that nobody kept, which go to the bin by themselves: how many and when the next goes
@@ -256,6 +258,8 @@ const EXPIRING_HELP = "Renders nobody kept go to the bin by themselves a day aft
  */
 function Expiring() {
   const sum = useExpiring().data;
+  // (read here so that a change in Settings › Storage shows at once: "never" leaves nothing expiring)
+  const keepFor = useKeepFor();
   const project = useProject((s) => s.id);
   const projects = useProjects();
   const anchor = useRef<HTMLButtonElement>(null);
@@ -263,7 +267,7 @@ function Expiring() {
   const { keep, keepAll } = useKeepAllExpiring(() => setOpen(false));
   const [, go] = useLocation();
   const count = sum?.count ?? 0;
-  const said = sum ? expiringSaid(sum) : null;
+  const said = sum ? expiringSaid(sum, Date.now(), unkeptMs(keepFor.unkeptDays)) : null;
   if (!count || !said) return null;
   const where = project === null ? "the library" : project === "none" ? "the Inbox" : (projects.data?.items.find((p) => p.id === project)?.name ?? "this project");
   const show = () => {
@@ -298,7 +302,7 @@ function Expiring() {
           <div className="flex flex-col gap-2.5 p-3.5">
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold">{count} expiring in {where}</span>
-              <Help text={EXPIRING_HELP} />
+              <Help text={expiringHelp(keepFor.unkeptDays, keepFor.binDays)} />
             </div>
             <span className="text-xs text-ink-2">{said.next === said.last ? `They go to the bin in ${said.next}` : `The next goes to the bin in ${said.next}, the last in ${said.last}`}</span>
             {keep.isError && <ErrorNote>{keep.error.message}</ErrorNote>}

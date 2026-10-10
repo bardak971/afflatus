@@ -40,7 +40,7 @@ const SEEN: readonly Kind[] = ["image", "video"];
 /** Every action, in the order every list shows them. */
 export const ACTIONS: Record<ActionId, Spec> = {
   open: { group: "item", label: "Open", key: "Enter", kinds: ALL, icon: Eye, tip: "Open it large, with how it was made and everything that can be done with it." },
-  keep: { group: "item", label: "Keep", key: "S", kinds: ALL, icon: Star, tip: "Keep it: it never goes to the bin on its own. What nobody kept goes to the bin a day after it was made." },
+  keep: { group: "item", label: "Keep", key: "S", kinds: ALL, icon: Star, tip: "Keep it: it never goes to the bin on its own. What nobody kept goes to the bin by itself after its time (Settings › Storage)." },
   download: { group: "item", label: "Download", key: "D", kinds: ALL, icon: Download, tip: "Download the file, under the app's name for it." },
   rename: { group: "item", label: "Rename…", key: "F2", kinds: ALL, icon: Pencil, tip: "A name of your own, which the library shows and the search goes by." },
   "reuse-same": { group: "make", label: "Reuse · same seed", key: "L", kinds: ALL, icon: SlidersHorizontal, tip: "Open the form with the same generation parameters and the same seed, as a new draft." },
@@ -68,7 +68,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   move: { group: "put", label: "Move to", kinds: ALL, icon: FolderKanban, tip: "Into a project and a folder, or back to the Inbox." },
   bin: { group: "last", label: "Move to the bin", key: "Del", kinds: ALL, icon: Trash2, tip: "Move to the bin." },
   // only in the bin, after Put back (see itemActions)
-  erase: { group: "last", label: "Delete now…", kinds: ALL, icon: Trash2, tip: "Erased now, file and all, instead of after its week in the bin. Asked first; cannot be undone." },
+  erase: { group: "last", label: "Delete now…", kinds: ALL, icon: Trash2, tip: "Erased now, file and all, instead of waiting in the bin. Asked first; cannot be undone." },
 };
 
 /** The order of every list (Delete now is not in it: it is the bin's own, see itemActions). */

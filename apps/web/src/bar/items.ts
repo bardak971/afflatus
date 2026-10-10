@@ -171,7 +171,7 @@ export function navItems(tabs: ReadonlyArray<{ id: string; label: string; href: 
     ...tabs.map((t) => go(`settings.${t.id}`, `Settings › ${t.label}`, "A tab of Settings", { href: t.href }, "settings preferences")),
     go("queue.times", "Queue › Render times", "How long renders took, by model and by day", { href: "/queue?view=times" }, "stats speed history"),
     go("queue.log", "Queue › ComfyUI log", "ComfyUI's terminal, live", { href: "/queue?view=log" }, "console terminal errors"),
-    go("bin", "Go to Bin", "What was moved to the bin, every project's: each is erased a week after it was binned", { bin: true }, "trash deleted put back restore"),
+    go("bin", "Go to Bin", "What was moved to the bin, every project's: put back or erased", { bin: true }, "trash deleted put back restore"),
     go("projects", "Open Projects", "The Projects panel: projects, folders, timelines, drafts", { event: "afflatus:projects" }, "tree panel"),
     { ...go("keys", "Keyboard shortcuts", "Every key, by screen", { event: "afflatus:keys" }, "keys hotkeys help ?"), keys: rowKeys("keys") },
   ];

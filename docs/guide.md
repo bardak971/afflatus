@@ -11,7 +11,7 @@ The Studio is where pictures and videos are made and kept. On the left, the **Cr
 - **Generate** (or **Ctrl+Enter**) queues the render. The form shows how long it will take, learned from your own past renders.
 - **The library** shows the project you are working in: everything, or one folder, as a Stage (one large item) or a grid in three sizes, filtered by kind. Search reads prompts and names.
 
-Renders start out *not kept*: keep the ones you want (the star, or **S**). What is not kept goes to the bin after a day, and the bin empties itself after a week, so the library holds what you chose.
+Renders start out *not kept*: keep the ones you want (the star, or **S**). What is not kept goes to the bin after a day, and the bin empties itself after a week, so the library holds what you chose. Settings → Storage sets both: 1, 3 or 7 days, or never; a week, 30 days, or until you empty it.
 
 ## Projects
 

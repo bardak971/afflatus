@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { ask } from "../../Confirm";
 import { useProject } from "../../project";
-import { UNKEPT_MS } from "@afflatus/core";
+import { unkeptMs } from "../../keepFor";
 
 /**
  * The renders nobody kept, which go to the bin by themselves a day after they were made (or unkept): said once,
@@ -20,10 +20,13 @@ const ASK_OVER = 20;
 /** How long until an expiring item goes, in a few words: "40 min" under the hour, else whole hours ("3 h"), rounded down unless `up`. */
 export const leftWords = (ms: number, up = false) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : `${(up ? Math.ceil : Math.floor)(ms / 3_600_000)} h`);
 
-/** What the chip and its panel say of the items expiring: when the next goes and the last ("3 h", "40 min"); `soon` within the hour. */
-export function expiringSaid(sum: { from: string | null; to: string | null }, now = Date.now()): { next: string; last: string; soon: boolean } | null {
-  if (!sum.from || !sum.to) return null;
-  const left = (at: string) => new Date(at).getTime() + UNKEPT_MS - now;
+/**
+ * What the chip and its panel say of the items expiring: when the next goes and the last ("3 h", "40 min"); `soon` within
+ * the hour. Null when there are none, or nothing goes to the bin on its own (Settings › Storage): then nothing expires.
+ */
+export function expiringSaid(sum: { from: string | null; to: string | null }, now = Date.now(), ms = unkeptMs()): { next: string; last: string; soon: boolean } | null {
+  if (!sum.from || !sum.to || ms === null) return null;
+  const left = (at: string) => new Date(at).getTime() + ms - now;
   const next = left(sum.from);
   return { next: leftWords(next), last: leftWords(left(sum.to), true), soon: next < 3_600_000 };
 }
@@ -58,7 +61,7 @@ export function useKeepAllExpiring(onDone?: () => void) {
     },
   });
   const keepAll = async (count: number) => {
-    if (count > ASK_OVER && !(await ask({ title: `Keep all ${count}?`, text: `The ${count} expiring items stay until you bin them. Unkeep any of them later to put it back on its day.`, yes: `Keep ${count}` }))) return;
+    if (count > ASK_OVER && !(await ask({ title: `Keep all ${count}?`, text: `The ${count} expiring items stay until you bin them. Unkeep any of them later to start its countdown again.`, yes: `Keep ${count}` }))) return;
     keep.mutate();
   };
   return { keep, keepAll };

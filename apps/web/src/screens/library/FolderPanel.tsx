@@ -8,6 +8,7 @@ import { Initial, projectTone } from "../../projects/tone";
 import type { Place } from "../../store";
 import { cx } from "../../ui";
 import { lazyPart, loadProjectsPanel, loadViewer } from "../../lazyParts";
+import { binFor } from "../../keepFor";
 
 // the tree is the Projects panel's own, loaded the first time it opens: it is not needed to draw the library
 const ProjectsPanel = lazyPart(loadProjectsPanel, (m) => m.ProjectsPanel);
@@ -104,7 +105,7 @@ export function PlaceCrumbs({ place, onPlace, anchor, open, onOpen, className }:
                   type="button"
                   aria-current={last ? "location" : undefined}
                   aria-expanded={last ? open : undefined}
-                  data-tip={last ? (c.bin ? "The bin of every project: items wait there a week. Click for this project's tree" : "Click for this project's tree") : c.head ? `The whole of ${c.label}` : `Go to ${c.label}`}
+                  data-tip={last ? (c.bin ? `The bin of every project: items wait there ${binFor() ?? "until it is emptied"}. Click for this project's tree` : "Click for this project's tree") : c.head ? `The whole of ${c.label}` : `Go to ${c.label}`}
                   onClick={() => (last ? toggle() : go(c.place))}
                   className={cx(
                     "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover",

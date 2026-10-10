@@ -4,6 +4,7 @@ import { useSettings, useStorage } from "../../data";
 import { size } from "../../format";
 import { Button, ButtonLink, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
 import { Block, Card, Row } from "./Rows";
+import { daysSaid, insteadOfWaiting } from "../../keepFor";
 
 /** Where the space goes, and the two ways to get some back. */
 export function StorageCard() {
@@ -13,6 +14,11 @@ export function StorageCard() {
   const done = () => void client.invalidateQueries({ queryKey: ["timelines"] });
   const idle = useMutation({ mutationFn: api.binIdleTakes, onSuccess: done });
   const empty = useMutation({ mutationFn: api.emptyBin, onSuccess: done });
+  // how long the library waits on its own: the server's sweep reads these (the hourly one, the next after a change)
+  const settings = useSettings();
+  const keepFor = useMutation({ mutationFn: (patch: { unkeptDays?: 0 | 1 | 3 | 7; binDays?: 0 | 7 | 30 }) => api.saveSettings(patch), onSuccess: (saved) => client.setQueryData(["settings"], saved) });
+  const unkeptDays = settings.data?.unkeptDays ?? 1;
+  const binDays = settings.data?.binDays ?? 7;
   const s = storage.data;
   const parts = s ? [
     { label: "Videos that play, or are in your library", bytes: s.videos, tone: "bg-accent" },
@@ -45,7 +51,7 @@ export function StorageCard() {
           </Block>
         )}
         {s && s.idleTakes.count > 0 && (
-          <Row setting="storage.idle" label="Takes that never play" sub={`${s.idleTakes.count} take${s.idleTakes.count > 1 ? "s" : ""}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. In the bin they are kept 7 days, then deleted.`}>
+          <Row setting="storage.idle" label="Takes that never play" sub={`${s.idleTakes.count} take${s.idleTakes.count > 1 ? "s" : ""}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. ${binDays ? `In the bin they are kept ${daysSaid(binDays)}, then deleted.` : "In the bin they are kept until you empty it."}`}>
             <Button size="sm" disabled={idle.isPending} onClick={() => idle.mutate()}>Move {s.idleTakes.count > 1 ? "them" : "it"} to the bin · {size(s.idleTakes.bytes)}</Button>
           </Row>
         )}
@@ -54,12 +60,18 @@ export function StorageCard() {
             setting="storage.bin"
             label="Bin"
             sub={s.bin.count > 0 ? `${s.bin.count} item${s.bin.count > 1 ? "s" : ""} · ${size(s.bin.bytes)}` : "empty"}
-            help={`Kept 7 days before it is deleted. Outputs you do not keep go to the bin after 24 hours${s.unkept.count ? ` (${s.unkept.count} now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.`}
+            help={`${binDays ? `Kept ${daysSaid(binDays)} before it is deleted.` : "Kept until you empty it."} ${unkeptDays ? `Outputs you do not keep go to the bin after ${daysSaid(unkeptDays)}` : "Outputs you do not keep stay until you bin them"}${s.unkept.count ? ` (${s.unkept.count} not kept now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.`}
           >
-            {s.bin.count > 0 && <TwoStep label="Empty the bin" tone="danger" title="Everything in the bin is erased now, files and all, instead of after its 7 days" note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
+            {s.bin.count > 0 && <TwoStep label="Empty the bin" tone="danger" title={`Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting(binDays)}`} note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
           </Row>
         )}
-        {(idle.isError || empty.isError) && <Block><ErrorNote>{(idle.error ?? empty.error)?.message}</ErrorNote></Block>}
+        <Row setting="storage.unkeptDays" label="Unkept renders go to the bin after" help="A render nobody kept (S keeps one) goes to the bin by itself this long after it was made, or after it was unkept or put back. Never: nothing goes on its own, and the library keeps everything until you bin it. What is on a timeline is always kept.">
+          <Segmented oneLine label="Unkept renders go to the bin after" value={String(unkeptDays)} options={UNKEPT_FOR} onChange={(v) => keepFor.mutate({ unkeptDays: Number(v) as 0 | 1 | 3 | 7 })} />
+        </Row>
+        <Row setting="storage.binDays" label="Keep what is in the bin" help="How long the bin holds what was moved to it before it is erased, file and all. Until emptied: nothing is erased until you empty the bin (here, in the bin's strip, or > empty the bin).">
+          <Segmented oneLine label="Keep what is in the bin" value={String(binDays)} options={BIN_FOR} onChange={(v) => keepFor.mutate({ binDays: Number(v) as 0 | 7 | 30 })} />
+        </Row>
+        {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
         {empty.data?.inUse ? <Block className="text-xs text-ink-2">{empty.data.inUse} item{empty.data.inUse === 1 ? " was" : "s were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</Block> : null}
       </Card>
       <Backup />
@@ -87,6 +99,10 @@ function Backup() {
     </Card>
   );
 }
+
+/** The choices of the two rules that act on their own (the server takes these and no others). */
+const UNKEPT_FOR = [{ value: "1", label: "1 day" }, { value: "3", label: "3 days" }, { value: "7", label: "A week" }, { value: "0", label: "Never" }];
+const BIN_FOR = [{ value: "7", label: "A week" }, { value: "30", label: "30 days" }, { value: "0", label: "Until emptied" }];
 
 const KEEP_FOR = [{ value: "30", label: "30 days" }, { value: "90", label: "90 days" }, { value: "365", label: "A year" }, { value: "0", label: "For good" }];
 

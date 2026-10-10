@@ -2,6 +2,7 @@ import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import { api, type Asset } from "./api";
 import { itemsWord } from "./assetCache";
 import { ask } from "./Confirm";
+import { insteadOfWaiting } from "./keepFor";
 import { useBanners } from "./store";
 
 /**
@@ -21,7 +22,7 @@ const say = (tone: "good" | "bad", title: string, text?: string) => useBanners.g
 export async function eraseNow(client: QueryClient, ids: string[]): Promise<boolean> {
   if (!ids.length) return false;
   const what = ids.length === 1 ? "it" : `these ${ids.length} items`;
-  if (!(await ask({ title: ids.length === 1 ? "Delete it now?" : `Delete ${ids.length} items now?`, text: `${what[0]!.toUpperCase()}${what.slice(1)} ${ids.length === 1 ? "is" : "are"} erased now, files and all, instead of after the week in the bin. This cannot be undone.`, yes: "Delete" }))) return false;
+  if (!(await ask({ title: ids.length === 1 ? "Delete it now?" : `Delete ${ids.length} items now?`, text: `${what[0]!.toUpperCase()}${what.slice(1)} ${ids.length === 1 ? "is" : "are"} erased now, files and all, instead of ${insteadOfWaiting()}. This cannot be undone.`, yes: "Delete" }))) return false;
   try {
     let erased = 0;
     let used = 0;
@@ -58,7 +59,7 @@ export async function restoreAll(client: QueryClient): Promise<void> {
 
 /** Everything in the bin erased now, once asked. */
 export async function emptyAll(client: QueryClient): Promise<void> {
-  if (!(await ask({ title: "Empty the bin?", text: "Everything in the bin is erased now, files and all, instead of after its week. This cannot be undone.", yes: "Erase" }))) return;
+  if (!(await ask({ title: "Empty the bin?", text: `Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting()}. This cannot be undone.`, yes: "Erase" }))) return;
   try {
     const r = await api.emptyBin();
     say("good", `Erased · ${itemsWord(r.erased)}`, r.inUse ? `${itemsWord(r.inUse)} still in use stayed in the bin.` : undefined);
