@@ -28,6 +28,7 @@ const WorkflowImport = lazy(() => import("./screens/Workflows").then((m) => ({ d
 const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysHelp })));
 import { NavRail } from "./NavRail";
 import { EditorSkeleton } from "./timeline/EditorSkeleton";
+import { WorkflowEditorSkeleton } from "./screens/workflowEditor/EditorSkeleton";
 import { useTheme } from "./theme/store";
 
 /** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
@@ -59,8 +60,8 @@ export function App() {
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">
         <NavRail />
-        {/* while a screen's code loads: the timeline editor's own shape for the editor (it then lands in place), else a line */}
-        <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton id={path.split("/")[2]} /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
+        {/* while a screen's code loads: an editor's own shape for the timeline and workflow editors (they then land in place), else a line */}
+        <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton id={path.split("/")[2]} /> : /^\/workflows\/[^/]+/.test(path) ? <WorkflowEditorSkeleton /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
         {/* a screen that fails takes only itself down; going to another screen starts afresh ("/create" and "/timelines" are
             the Studio's own addresses, with its form open or its timelines shown: the same screen; a timeline's editor is not) */}
         <ErrorBoundary key={path === "/create" || path === "/timelines" ? "" : path.split("/")[1]}>

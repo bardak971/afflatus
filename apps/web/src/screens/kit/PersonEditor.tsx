@@ -19,7 +19,7 @@ import { AutoText, Button, cx, NumberBox } from "../../ui";
 import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
-import { entryOf, field, modelRows, withEntry } from "./shared";
+import { entryOf, field, modelRows, outfitsOf, withEntry } from "./shared";
 
 /** A small fact of a row: what a model takes of the person. */
 function Takes({ children, tip }: { children: string; tip: string }) {
@@ -321,7 +321,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
 
         <Card
           dense
-          title={`Outfits · ${def.outfits.length}`}
+          title={`Outfits · ${outfitsOf(def.outfits).length}`}
           help={`Pick one when you add ${name} to an image or a clip. Each has prompt text (tags and natural language) and, if you like, a reference image of the clothes. Without an outfit, ${name} is "as in the reference images": nothing about clothes is added to the prompt.`}
           status={
             // as many as a person holds: the server refuses more, and the person would no longer save
@@ -331,7 +331,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
           {def.outfits.map((o) => (
             <div key={o.id} className="grid grid-cols-[36px_140px_minmax(0,1fr)_auto] items-start gap-3 px-4 py-2.5">
               <OutfitPicture value={o.picture} onChange={(picture) => setOutfit(o.id, { picture })} what={o.name || "the outfit"} />
-              <input aria-label="Name of the outfit" value={o.name} placeholder="Summer dress" onChange={(e) => setOutfit(o.id, { name: e.target.value })} className={cx(field, "h-9 py-0 font-semibold")} />
+              <input aria-label="Name of the outfit" value={o.name} placeholder="Outfit name" onChange={(e) => setOutfit(o.id, { name: e.target.value })} className={cx(field, "h-9 py-0 font-semibold")} />
               <div className="flex min-w-0 flex-col gap-1.5">
                 <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="Tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />
                 <AutoText rows={1} aria-label="The outfit in natural language" value={o.sentence} placeholder="Natural language: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />

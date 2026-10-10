@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download as DownloadIcon, X } from "lucide-react";
 import { api, type Download } from "./api";
-import { about, fileLabel, size } from "./format";
+import { about, fileLabel, siteName, size } from "./format";
 import { Bar, cx } from "./ui";
 import { count, useDownloads, useGetFile, type Find } from "./useGetFile";
 
@@ -86,7 +86,7 @@ export function CivitaiMatch({ m, folder, children }: { m: Find["items"][number]
     <span className="flex items-center gap-2 rounded-md border border-line bg-raised px-2.5 py-1.5 text-ink">
       <a href={m.url} target="_blank" rel="noreferrer" className="flex min-w-0 grow flex-col hover:underline">
         <span className="font-semibold">{m.name}{m.exact ? " · has a file of exactly this name" : ""}</span>
-        <span className="text-xs text-ink-2">{[m.kind, m.base, m.version && `version ${m.version}`, m.bytes ? size(m.bytes) : "", m.site !== "civitai.com" ? `on ${m.site}` : "", m.words.length ? `trigger words: ${m.words.join(", ")}` : ""].filter(Boolean).join(" · ")}</span>
+        <span className="text-xs text-ink-2">{[m.kind, m.base, m.version && `version ${m.version}`, m.bytes ? size(m.bytes) : "", siteName(m.site) !== "Civitai" ? `on ${siteName(m.site)}` : "", m.words.length ? `trigger words: ${m.words.join(", ")}` : ""].filter(Boolean).join(" · ")}</span>
         {m.have && (
           <span className="text-xs font-semibold text-good">
             You already have this file, in ComfyUI's "{m.have.folder}" folder.{" "}

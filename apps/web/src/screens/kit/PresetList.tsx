@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Check, ChevronDown } from "lucide-react";
-import type { Entity } from "../../api";
+import type { Entity, FamilyInfo, RecipeInfo } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { useRecipes } from "../../data";
 import { usePresetFiles } from "../../PresetFiles";
@@ -11,6 +11,25 @@ import { Badge, Mark, Row } from "./Row";
 const UNNAMED_AUTHOR = "Shipped";
 /** Who a shipped preset is by, as its file says; a shipped file that names nobody is filed under one word. */
 export const authorOf = (e: Entity) => (e.kind === "preset" && e.def.author?.trim()) || UNNAMED_AUTHOR;
+
+/**
+ * Presets in the list's groups, in its order: one group per model family as the families are listed, then the ones for
+ * any model, then the ones whose model is no longer here. The list draws them so, and the tab opens the first of them.
+ */
+export function presetGroups(presets: Entity[], recipes: RecipeInfo[], families: FamilyInfo[]) {
+  /** The family a preset is for: null for any model, undefined when its model is no longer here. */
+  const familyOf = (e: Entity) => {
+    if (e.kind !== "preset") return undefined;
+    if (!e.def.recipe) return null;
+    const r = recipes.find((x) => x.id === e.def.recipe);
+    return r ? (families.find((f) => f.id === r.family) ?? undefined) : undefined;
+  };
+  return [
+    ...families.map((f) => ({ key: f.id, title: f.name, items: presets.filter((e) => familyOf(e)?.id === f.id) })),
+    { key: "any", title: "Any model", items: presets.filter((e) => familyOf(e) === null) },
+    { key: "gone", title: "Model no longer here", items: presets.filter((e) => familyOf(e) === undefined) },
+  ].filter((g) => g.items.length);
+}
 
 /**
  * The presets the search leaves, grouped by the model they are for, with one row of filters: the model
@@ -69,11 +88,7 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
       {label}
     </button>
   );
-  const groups = [
-    ...familyList.map((f) => ({ key: f.id, title: f.name, items: presetsShown.filter((e) => familyOf(e)?.id === f.id) })),
-    { key: "any", title: "Any model", items: presetsShown.filter((e) => familyOf(e) === null) },
-    { key: "gone", title: "Model no longer here", items: presetsShown.filter((e) => familyOf(e) === undefined) },
-  ].filter((g) => g.items.length);
+  const groups = presetGroups(presetsShown, recipeList, familyList);
   const presetBadges = (e: Extract<Entity, { kind: "preset" }>) => {
     const st = filesOf(e);
     const missing = missingOf(e);

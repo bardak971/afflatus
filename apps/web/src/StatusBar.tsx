@@ -88,7 +88,7 @@ export function StatusBar() {
           <Sep />
           {/* the CPU only while it is busy: otherwise its figure is in the GPU meter's tip */}
           {cpu !== undefined && cpu >= 70 && <Meter label="CPU" value={cpu} warn={cpu >= 90} className="max-[1440px]:hidden" />}
-          {gpu.load !== undefined && <Meter label="GPU" value={gpu.load} fill={run ? "bg-accent" : undefined} tip={cpu !== undefined ? `CPU ${Math.round(cpu)} %` : undefined} />}
+          {gpu.load !== undefined && <Meter label="GPU" value={gpu.load} fill={run ? "bg-accent" : undefined} tip={gpuTip(gpu, cpu)} />}
           {/* 90 %: little room left before a render spills out of VRAM */}
           <Meter label="VRAM" value={gpu.vramPercent} warn={gpu.vramPercent >= 90} />
           {ram && <Meter label="RAM" value={ram.percent} warn={ram.percent >= 90} tip={`System RAM: ${(ram.used / 2 ** 30).toFixed(1)} of ${gb(ram.total)}. When VRAM is full, ComfyUI moves models here; when this fills too, everything slows down.`} />}
@@ -106,6 +106,15 @@ export function StatusBar() {
       </button>
     </footer>
   );
+}
+
+/**
+ * The GPU meter's tip: the card and its own figure first, then the CPU's, kept here while the CPU has no meter of its
+ * own (it shows one only while busy). The CPU's figure alone read as the GPU's.
+ */
+export function gpuTip(gpu: { name: string; load?: number }, cpu: number | undefined): string {
+  const figures = [gpu.load !== undefined && `GPU ${Math.round(gpu.load)} %`, cpu !== undefined && `CPU ${Math.round(cpu)} %`].filter(Boolean).join(" · ");
+  return gpu.name ? `${gpu.name}: ${figures}` : figures;
 }
 
 /** A GPU figure: its name, a small bar and the number in %. The number is padded in a monospaced face, so the strip never moves as it changes. */

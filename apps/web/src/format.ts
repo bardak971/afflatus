@@ -130,12 +130,45 @@ export function problemSaid(problem: string): string {
   return `ComfyUI would refuse it: ${problem}.`;
 }
 
-/** Why a recipe cannot run on this ComfyUI, in one sentence. */
-export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean): string | null {
+/**
+ * The Civitai site a find is on, as it is named to the user: "Civitai" for civitai.com, its own name for another of
+ * Civitai's sites (civitai.red), and "Civitai" again for a stand-in address set in its place (the demo's, a proxy's):
+ * a bare host and port says nothing about where the file is.
+ */
+export function siteName(site: string): string {
+  if (/^civitai\.[a-z]+$/i.test(site) && site.toLowerCase() !== "civitai.com") return site;
+  return "Civitai";
+}
+
+/** A model slot of a family, as the setup check reports it: enough to name the file it lacks. */
+export interface SlotSaid {
+  id: string;
+  label: string;
+  folder: string;
+  get?: { file: string };
+}
+
+/**
+ * The model files a family lacks, named: the file it is usually filled with when its author gave one, else the slot
+ * and the folder it is looked for in. "krea2_turbo_fp8_scaled.safetensors (Diffusion model)", "VAE in vae".
+ */
+export function slotsSaid(ids: string[], slots: SlotSaid[]): string[] {
+  return ids.map((id) => {
+    const s = slots.find((x) => x.id === id);
+    if (!s) return id;
+    return s.get ? `${s.get.file} (${s.label})` : `${s.label} in ${s.folder}`;
+  });
+}
+
+/**
+ * Why a recipe cannot run on this ComfyUI, in one sentence. With its family's slots, a missing model file is named, as a
+ * workflow's missing file is; without them it is only said that one is missing.
+ */
+export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean, slots?: SlotSaid[]): string | null {
   if (!comfyOnline) return "ComfyUI is not answering.";
   if (!status || status.ready) return null;
   if (status.missingNodes.length) return missingNodesSaid(status.missingNodes);
-  if (status.missingSlots.length) return "A model file it needs was not found.";
+  if (status.missingSlots.length) return slots ? `ComfyUI does not have ${slotsSaid(status.missingSlots, slots).join(", ")}.` : "A model file it needs was not found.";
   if (status.emptyInputs.length) return "There is no model to pick on your ComfyUI.";
   if (status.missingFiles.length) return `ComfyUI does not have ${status.missingFiles.join(", ")}.`;
   if (status.problems?.length) return problemSaid(status.problems[0]!);

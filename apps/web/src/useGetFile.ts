@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { useSettings } from "./data";
+import { siteName } from "./format";
 
 /** Model files being fetched into ComfyUI. Refetched when the server says one of them moved on. */
 export const useDownloads = () => useQuery({ queryKey: ["downloads"], queryFn: api.downloads, staleTime: 10_000 });
@@ -96,7 +97,8 @@ function bestOf({ fetching, url, civitai, source, data }: { fetching: boolean; u
     return {
       key: `cv:${cv.url}`,
       from: { civitai: cv.versionId! },
-      what: `${cv.exact ? "exact match" : "close name"} on ${cv.site === "civitai.com" ? "Civitai" : cv.site}`,
+      // the model's name, for a close one: the link is what is offered, and "close name" alone left it to guess which
+      what: cv.exact ? `exact match on ${siteName(cv.site)}` : `a file with a close name is on ${siteName(cv.site)}: ${cv.name}`,
       page: cv.url,
       bytes: cv.bytes || undefined,
       tip: [cv.name, cv.kind, cv.base, cv.version && `version ${cv.version}`, cv.file && `file: ${cv.file}`, !cv.exact && "Saved under the filename the workflow asks for. Only take it if it is the same model."].filter(Boolean).join(" · "),

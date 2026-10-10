@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { create } from "zustand";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,8 +14,10 @@ import { notReady, recipeLabel } from "../format";
 import { saveJson } from "../download";
 import { useHandover } from "../store";
 import { useWorkflowsRequest, workflowEditHref } from "../bar/bridge";
+import { settingHref } from "./settings/settingsIndex";
 import { Button, Chip, cx, ErrorNote, Help, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
+import { WorkflowEditorSkeleton } from "./workflowEditor/EditorSkeleton";
 import { pngText } from "./pngText";
 
 /**
@@ -106,20 +108,6 @@ export async function share(w: Pick<WorkflowBrief, "id" | "title">): Promise<voi
  */
 export const useWorkflowDraft = create<{ draft: Editing | null; note: string | null }>(() => ({ draft: null, note: null }));
 
-/** The editor's shape while the saved workflow is read: its header and nothing more, so nothing jumps once it is there. */
-function EditorLoading() {
-  return (
-    <div aria-busy="true" aria-label="Loading" className="flex min-h-0 grow flex-col">
-      <header className="flex min-h-16 shrink-0 items-center border-b border-line px-8 py-2.5">
-        <span className="flex flex-col gap-1.5">
-          <span className="h-5 w-40 animate-pulse rounded bg-hover" />
-          <span className="h-3 w-56 animate-pulse rounded bg-hover/70" />
-        </span>
-      </header>
-    </div>
-  );
-}
-
 /**
  * /workflows/:id/edit: a saved workflow in the editor. It is read afresh each time it is opened (nothing kept
  * once it is left), so the editor starts from what is saved; one that cannot be read returns to the list, which says why.
@@ -136,7 +124,8 @@ export function WorkflowEdit({ params }: { params: { id: string } }) {
     useWorkflowDraft.setState({ note: `Could not open it in the editor: ${q.error.message}` });
     navigate("/workflows", { replace: true });
   }, [q.error]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!q.data) return <EditorLoading />;
+  // the editor's shape while the saved workflow is read, the same as while its code loads: nothing jumps once it is there
+  if (!q.data) return <WorkflowEditorSkeleton />;
   return <WorkflowEditor key={id} start={q.data} onDone={() => navigate("/workflows")} />;
 }
 
@@ -195,17 +184,28 @@ function fixOf(status: RecipeStatus | undefined, problem: string | undefined): {
   return null;
 }
 
-/** Ready, or not with a count, and a ? that says why. `fix` comes after it: the page's way to put it right. */
-function Readiness({ known, why, count = "", fix }: { known: boolean; why: string | null; count?: string; fix?: ReactNode }) {
+/**
+ * A model family's recipes as one status: what any of them lacks, each named once. A built-in row counts and fixes
+ * it the way an imported workflow's row does its own.
+ */
+function familyStatus(list: Array<RecipeStatus | undefined>): RecipeStatus | undefined {
+  const known = list.filter((s): s is RecipeStatus => Boolean(s));
+  if (!known.length) return undefined;
+  const all = (k: "missingNodes" | "missingSlots" | "emptyInputs" | "missingFiles" | "problems") => [...new Set(known.flatMap((s) => s[k] ?? []))];
+  return { ...known[0]!, ready: known.every((s) => s.ready), missingNodes: all("missingNodes"), missingSlots: all("missingSlots"), emptyInputs: all("emptyInputs"), missingFiles: all("missingFiles"), problems: all("problems") };
+}
+
+/**
+ * Ready, or not with a count, and a ? that says why, naming what is missing. One look for imported and built-in rows;
+ * the way to put it right is a button of the row's own, with its other actions.
+ */
+function Readiness({ known, why, count = "" }: { known: boolean; why: string | null; count?: string }) {
   if (!known) return <span aria-hidden className="h-6 w-20 animate-pulse rounded-lg bg-hover" />;
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <Chip tone={why ? "warn" : "good"}>
-        {why ? `Not ready${count}` : "Ready"}
-        {why && <Help title="Not ready" text={why} />}
-      </Chip>
-      {why && fix}
-    </span>
+    <Chip tone={why ? "warn" : "good"} className="justify-self-start">
+      {why ? `Not ready${count}` : "Ready"}
+      {why && <Help title="Not ready" text={why} />}
+    </Chip>
   );
 }
 
@@ -373,8 +373,8 @@ export function Workflows() {
           at={cardMenu.menu.at}
           label={`Actions on ${menuOf.title}`}
           head={{ title: recipeLabel(menuOf.model, menuOf.title), sub: `${KIND[menuOf.output]} · ${menuOf.nodes} nodes` }}
-          // the ··· holds what the row has no button for; a right-click, everything
-          items={fromMore ? cardItems(menuOf).slice(3) : cardItems(menuOf)}
+          // the ··· holds everything but Try it, which is a button on every row: Edit is always there, whatever buttons the row shows
+          items={fromMore ? cardItems(menuOf).slice(1) : cardItems(menuOf)}
           onClose={cardMenu.close}
         />
       )}
@@ -395,23 +395,25 @@ export function Workflows() {
               const pictures = recipe?.inputs.filter((x) => x.type === "image").length ?? 0;
               const controls = recipe?.inputs.filter((x) => x.advanced).length ?? 0;
               const menuHere = Boolean(cardMenu.menu && fromMore && menuOf?.id === w.id);
-              // not ready: the fix is the row's main action, and Try it stays, quiet (the form opens; Generate waits for the fix)
+              // not ready: the fix comes first, and Try it stays (the form opens; Generate waits for the fix). Every row button is
+              // quiet: coral is the page's one main action, Import
               const fix = comfyOnline || w.problem ? fixOf(status, w.problem) : null;
               return (
                 <div key={w.id} className={cx("flex flex-col gap-1.5 px-4 py-3", i > 0 && "border-t border-line")} onContextMenu={(e) => { setFromMore(false); cardMenu.open(e, w); }}>
                   <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_184px] items-center gap-3.5">
                     {/* neutral: the kind is not a state, and the accent next to "Not ready" read as an error */}
                     <Chip className="justify-self-start">{KIND[w.output]}</Chip>
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate font-semibold">{recipeLabel(w.model, w.title)}</span>
+                    {/* the name opens the editor, as a file's name opens the file */}
+                    <Link href={workflowEditHref(w.id)} className="group flex min-w-0 flex-col gap-0.5 rounded-md">
+                      <span className="truncate font-semibold group-hover:underline">{recipeLabel(w.model, w.title)}</span>
                       <span className="truncate text-[11.5px] text-ink-3">
                         {w.source ? `${w.source} · ` : ""}{plural(w.nodes, "node")}{pictures ? ` · ${plural(pictures, "image input")}` : ""} · {plural(controls, "control")}
                       </span>
-                    </div>
+                    </Link>
                     <Readiness known={setup.isSuccess || Boolean(w.problem)} why={problem} count={w.problem ? "" : missingCount(status)} />
                     <div className="flex items-center justify-end gap-1.5">
-                      {fix && <Button size="sm" tone="primary" onClick={() => editIt(w.id)} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
-                      <Button size="sm" tone={fix ? "quiet" : "primary"} onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip={fix ? "Opens the form with this workflow picked, on a new draft. It renders once it is ready." : "Opens the form with this workflow picked, on a new draft."} className="whitespace-nowrap">Try it</Button>
+                      {fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
+                      <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip={fix ? "Opens the form with this workflow picked, on a new draft. It renders once it is ready." : "Opens the form with this workflow picked, on a new draft."} className="whitespace-nowrap">Try it</Button>
                       {/* the fix opens the editor already: a second button for it would say the same */}
                       {!fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)}>Edit</Button>}
                       <button
@@ -419,7 +421,7 @@ export function Workflows() {
                         aria-label={`More actions on ${w.title}`}
                         aria-haspopup="menu"
                         aria-expanded={menuHere}
-                        data-tip="Export, Open in ComfyUI, Remove"
+                        data-tip="Edit, Export, Open in ComfyUI, Remove"
                         onClick={(e) => more(e, w)}
                         className={cx("flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink", menuHere && "bg-hover text-ink")}
                       >
@@ -458,19 +460,27 @@ export function Workflows() {
             <div className="overflow-hidden rounded-xl border border-line bg-panel">
               {builtIn.map((f, i) => {
                 const mine = recipes.data?.recipes.filter((r) => r.family === f.id) ?? [];
-                const problems = [...new Set(mine.map((r) => why(r.id)).filter((p): p is string => Boolean(p)))];
+                const slots = setup.data?.families.find((x) => x.id === f.id)?.slots ?? [];
+                const statuses = mine.map((r) => setup.data?.recipes.find((x) => x.id === r.id));
+                const status = familyStatus(statuses);
+                // one sentence for the family, every missing model file named once, as an imported workflow's are: said per
+                // operation, an edit model's operations repeated the base model's files after them
+                const said = setup.isSuccess ? notReady(status, comfyOnline, slots) : null;
+                // the model files of a built-in family are chosen and downloaded in Settings › Models
+                const fix = comfyOnline ? fixOf(status, undefined) : null;
                 return (
-                  <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_110px_200px] items-center gap-3.5 px-4 py-2.5", i > 0 && "border-t border-line")}>
+                  <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_110px_170px_184px] items-center gap-3.5 px-4 py-2.5", i > 0 && "border-t border-line")}>
                     <div className="flex min-w-0 flex-col gap-0.5">
                       <span className="truncate font-semibold">{f.name}</span>
                       <span className="truncate text-[11.5px] text-ink-3" data-tip={f.summary}>{f.summary}</span>
                     </div>
                     <span className="text-[11.5px] text-ink-2">{plural(mine.length, "operation")}</span>
-                    <Readiness
-                      known={setup.isSuccess}
-                      why={problems.length ? problems.join("\n") : null}
-                      fix={<Link href="/settings/models" className="text-xs font-semibold whitespace-nowrap text-warn-ink hover:underline">Open Settings</Link>}
-                    />
+                    <Readiness known={setup.isSuccess} why={said} count={missingCount(status)} />
+                    <div className="flex items-center justify-end">
+                      {fix && said && (
+                        <Button size="sm" tone="quiet" onClick={() => navigate(settingHref("models.families"))} data-tip={`Opens Settings › Models, where ${f.name}'s ${fix.label === "Get nodes" ? "node packs are listed" : "model files are chosen and downloaded"}`} className="whitespace-nowrap">{fix.label}</Button>
+                      )}
+                    </div>
                   </div>
                 );
               })}

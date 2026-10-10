@@ -18,9 +18,9 @@ import { CopyLink, ItemHeader, noteOfDelete } from "./kit/ItemHeader";
 import { KitHeader, TABS, type Tab } from "./kit/KitHeader";
 import { kitHash, readKitHash } from "./kit/link";
 import { PersonEditor, PlaceEditor } from "./kit/PersonEditor";
-import { authorOf, PresetList } from "./kit/PresetList";
+import { authorOf, presetGroups, PresetList } from "./kit/PresetList";
 import { Badge, Mark, Row } from "./kit/Row";
-import { remember, remembered, textOf } from "./kit/shared";
+import { outfitsOf, remember, remembered, textOf } from "./kit/shared";
 import { SnippetTable, type Snippet } from "./kit/SnippetTable";
 import { StyleEditor } from "./kit/StyleEditor";
 import { useEntityDraft } from "./kit/useEntityDraft";
@@ -32,7 +32,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const KIND_WORD = { person: "Person", place: "Place", style: "Style", preset: "Preset", snippet: "Snippet" } as const;
 /** One line about an item, under its name: terse, the list is read at a glance. */
 function summaryOf(e: Entity, recipes: RecipeInfo[]): string {
-  if (e.kind === "person") return `${plural(e.def.pictures.length, "picture")} · ${e.def.voice ? "voice" : "no voice"} · ${plural(e.def.outfits.length, "outfit")}`;
+  if (e.kind === "person") return `${plural(e.def.pictures.length, "picture")} · ${e.def.voice ? "voice" : "no voice"} · ${plural(outfitsOf(e.def.outfits).length, "outfit")}`;
   if (e.kind === "place") return plural(e.def.pictures.length, "picture");
   if (e.kind === "style") return `set up for ${plural(Object.values(e.def.models).filter((m) => m.loras.length || m.words.trim()).length, "model")}`;
   if (e.kind === "preset") return `${e.def.recipe ? (recipes.find((r) => r.id === e.def.recipe)?.title ?? "a model that is no longer here") : "any model"} · ${plural(Object.keys(e.def.inputs).length, "parameter")} set`;
@@ -148,14 +148,17 @@ export function People() {
   const mine = all.filter((e) => e.kind === tab);
   // A tab arrived on with nothing open opens its first entry, rather than a "Choose one" page and one more click. Once per
   // arrival: an item closed by hand stays closed, and an item named in the address (a deep link) is the one opened.
-  // Presets are many and grouped by model, so their first is no better than any: only a lone one is opened.
+  // Presets open the first row of their list as it is drawn, grouped by model: so it waits for the models as well.
   const arrived = useRef<Tab | null>(null);
-  const firstOf = tab === "snippet" || (tab === "preset" && mine.length !== 1) ? null : mine[0]?.id ?? null;
+  const firstOf = tab === "snippet" ? null
+    : tab === "preset" ? presetGroups(mine, recipes.data?.recipes ?? [], recipes.data?.families ?? [])[0]?.items[0]?.id ?? null
+    : mine[0]?.id ?? null;
+  const ready = entities.isSuccess && (tab !== "preset" || recipes.isSuccess);
   useEffect(() => {
-    if (!entities.isSuccess || arrived.current === tab) return;
+    if (!ready || arrived.current === tab) return;
     arrived.current = tab;
     if (open === null && firstOf) setOpen(firstOf);
-  }, [entities.isSuccess, tab, open, firstOf]);
+  }, [ready, tab, open, firstOf]);
   const found = query.trim() ? fuzzyFilter(mine, query, textOf) : mine;
   const editing = edit && open === edit.id && edit.kind !== "snippet" ? edit : null;
   // a preset that ships with Afflatus: shown, not changed

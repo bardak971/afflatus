@@ -1,5 +1,5 @@
 import type { InputSpec } from "@afflatus/core";
-import type { Entity, FamilyInfo, RecipeInfo } from "../../api";
+import type { Entity, FamilyInfo, Outfit, RecipeInfo } from "../../api";
 import { fieldClass } from "../../ui";
 
 export const field = `w-full py-2 ${fieldClass}`;
@@ -68,3 +68,12 @@ export function textOf(e: Entity): string {
   if (e.kind === "snippet") return `${e.name} ${e.def.category} ${e.def.text}`;
   return e.name;
 }
+
+/**
+ * An outfit that holds nothing yet: no name, no words and no picture. It is a row just added with "+ Outfit" and not
+ * filled in, so it is not saved and not counted; an empty one saved before this rule stays in the person's data
+ * (nothing is deleted behind the owner's back) but is left out of the counts and the menus.
+ */
+export const blankOutfit = (o: Outfit) => !o.name.trim() && !o.tags.trim() && !o.sentence.trim() && !o.picture;
+/** The outfits that hold something. */
+export const outfitsOf = (outfits: Outfit[]) => outfits.filter((o) => !blankOutfit(o));

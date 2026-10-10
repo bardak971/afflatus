@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitLabel } from "../src/StatusBar";
+import { gpuTip, splitLabel } from "../src/StatusBar";
 import { expiringSaid } from "../src/screens/studio/expiring";
 
 describe("the status bar's job label", () => {
@@ -10,6 +10,13 @@ describe("the status bar's job label", () => {
   it("keeps any other label whole", () => {
     expect(splitLabel({ label: "Big Air · clip 2", clipId: null })).toEqual({ what: "Big Air · clip 2", of: null });
     expect(splitLabel({ label: "Krea · portrait", clipId: "c" })).toEqual({ what: "Krea · portrait", of: null });
+  });
+});
+
+describe("the GPU meter's tip", () => {
+  it("gives the GPU's own figure, then the CPU's", () => {
+    expect(gpuTip({ name: "Card", load: 2.4 }, 6.2)).toBe("Card: GPU 2 % · CPU 6 %");
+    expect(gpuTip({ name: "", load: 40 }, undefined)).toBe("GPU 40 %");
   });
 });
 

@@ -60,7 +60,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
     { label: "Delete", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Delete the snippet ${snippet.name}?`, text: "It goes from every draft that uses it.", yes: "Delete" }).then((yes) => yes && remove.mutate()) },
   ];
   return (
-    <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
+    <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} head={{ title: snippet.name, sub: snippet.def.category || "No category" }} items={items} onClose={menu.close} />}
       <span className="flex h-8 w-7 items-center justify-center">
         <Checkbox label={`Tick ${snippet.name}`} checked={ticked} onChange={onTick} />
@@ -208,7 +208,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
       )}
       {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" />}
       {found.length > 0 && (
-        <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_112px_auto] gap-1.5 px-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">
+        <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] gap-1.5 px-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">
           <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Prompt style</span><span className="w-8" />
         </div>
       )}
