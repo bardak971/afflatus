@@ -50,6 +50,7 @@ import m0048 from "./0048-music-place";
 import m0049 from "./0049-clip-fit";
 import m0050 from "./0050-job-error-trace";
 import m0051 from "./0051-review-indexes";
+import m0052 from "./0052-library-search";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -108,4 +109,5 @@ export const migrations: Record<string, Migration> = {
   "0049_clip_fit": m0049,
   "0050_job_error_trace": m0050,
   "0051_review_indexes": m0051,
+  "0052_library_search": m0052,
 };
