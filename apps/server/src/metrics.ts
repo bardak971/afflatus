@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import { allowedHosts, hostAllowed } from "./hostCheck";
 import { BUCKETS, tallyByRecipe, type RecipeSum } from "./renders";
 import type { Services } from "./services";
 
@@ -7,6 +9,11 @@ import type { Services } from "./services";
  * network). What the record of render times holds, as counters, plus what is going on now, as gauges.
  * The counters come from the record itself, folded days included, so that they only ever grow (until
  * the record is forgotten in Settings). A Grafana dashboard for them is in deploy/grafana/.
+ *
+ * A scraper asks by the pod's address, so any Host is answered (hostCheck.ts ANY_HOST); so is a page that
+ * pointed a name of its own at this machine (DNS rebinding). Asked by a name that is not the server's own,
+ * an imported workflow is named by a hash of its id: its id and title are the user's words. Built-in
+ * recipes keep their names, which are Afflatus's own.
  */
 
 const esc = (v: string) => v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
@@ -16,6 +23,7 @@ const labels = (l: Record<string, string>) => {
 };
 
 export function registerMetrics(app: FastifyInstance, s: Services): void {
+  const hosts = allowedHosts();
   /**
    * The record summed up by recipe, kept between scrapes: the whole table is only read again when it
    * changed (a render landed, the hourly fold moved rows into days, the record was forgotten). A scraper
@@ -32,7 +40,8 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
     return by;
   };
 
-  app.get("/metrics", async (_req, reply) => {
+  app.get("/metrics", async (req, reply) => {
+    const own = hostAllowed(req.headers.host, hosts);
     const lines: string[] = [];
     const head = (name: string, type: "counter" | "gauge" | "histogram", help: string) => lines.push(`# HELP ${name} ${help}`, `# TYPE ${name} ${type}`);
     const put = (name: string, l: Record<string, string>, value: number) => lines.push(`${name}${labels(l)} ${Number.isFinite(value) ? value : 0}`);
@@ -66,10 +75,15 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
     const by = await tally();
     const names = Object.fromEntries([...by.keys()].map((id) => {
       const recipe = s.registry.recipe(id);
+      // a workflow removed since still has its renders on record, and its id is still the user's words
+      if (!own && (!recipe || s.registry.workflow(id))) {
+        const hidden = `workflow-${createHash("sha256").update(id).digest("hex").slice(0, 10)}`;
+        return [id, { recipe: hidden, family: "", title: hidden }];
+      }
       const family = recipe ? s.registry.family(recipe.family)?.name ?? recipe.family : "";
-      return [id, { family, title: recipe?.title ?? id }];
+      return [id, { recipe: id, family, title: recipe?.title ?? id }];
     }));
-    const tag = (id: string) => ({ recipe: id, family: names[id]!.family, title: names[id]!.title });
+    const tag = (id: string) => ({ recipe: names[id]!.recipe, family: names[id]!.family, title: names[id]!.title });
     head("afflatus_renders_total", "counter", "Renders that ran on ComfyUI, by recipe and how they ended");
     for (const [id, v] of by) for (const status of ["done", "failed", "cancelled"] as const) put("afflatus_renders_total", { ...tag(id), status }, v[status]);
     head("afflatus_render_model_loads_total", "counter", "Renders that had to load their model first");

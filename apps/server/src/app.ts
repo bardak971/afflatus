@@ -16,7 +16,7 @@ import { registerEntities } from "./entities";
 import { httpError } from "./errors";
 import { registerEvents } from "./events";
 import { registerFolders } from "./folders";
-import { allowedHosts, ANY_HOST, crossSite, hostAllowed, marked, UPLOAD_TYPE } from "./hostCheck";
+import { allowedHosts, ANY_HOST, crossSite, crossSiteRead, hostAllowed, marked, SAFETY_HEADERS, UPLOAD_TYPE } from "./hostCheck";
 import { registerHistory } from "./history-api";
 import { registerJobs } from "./jobs-api";
 import { registerLookup } from "./lookup-api";
@@ -47,7 +47,13 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   // only the server's own names are answered to (hostCheck.ts): a page from elsewhere cannot drive the API by pointing a name of its own at this machine
   const hosts = allowedHosts();
   app.addHook("onRequest", async (req, reply) => {
+    // on the raw answer, so that a stream written by hand (the event stream) carries them too
+    for (const [name, value] of Object.entries(SAFETY_HEADERS)) reply.raw.setHeader(name, value);
     const reads = req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS";
+    // a read from another site's page is refused too (hostCheck.ts crossSiteRead): it cannot see the answer, but it can make the server work
+    if ((req.method === "GET" || req.method === "HEAD") && crossSiteRead(req.headers, req.url.split("?")[0] ?? "")) {
+      return reply.status(403).send({ error: "Afflatus answers another site's page only with a link followed or an asset's picture, video or sound." });
+    }
     // nor can a page elsewhere change anything here through the browser of someone who has Afflatus open (a no-cors POST needs no preflight)
     if (!reads && crossSite(req.headers, hosts)) return reply.status(403).send({ error: "Afflatus takes changes only from its own page, not from another site's." });
     if (!hostAllowed(req.headers.host, hosts) && !(req.method === "GET" && ANY_HOST.has(req.url.split("?")[0] ?? ""))) {

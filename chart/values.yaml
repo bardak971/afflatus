@@ -11,7 +11,8 @@ image:
 imagePullSecrets: []
 #  - name: registry-pull
 
-# One, always: SQLite in the volume is one writer, and the queue is one worker for one ComfyUI.
+# One, always (0 to stop it): SQLite in the volume is one writer, and the queue is one worker for one ComfyUI. The
+# chart refuses more.
 replicas: 1
 
 port: 8720

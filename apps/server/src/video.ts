@@ -10,6 +10,17 @@ import { basename, dirname, join } from "node:path";
  */
 export const tools = { ffmpeg: process.env.FFMPEG?.trim() || "ffmpeg", ffprobe: process.env.FFPROBE?.trim() || "ffprobe" };
 
+/**
+ * A run's arguments with every input it reads limited to files and pipes. A file from a stranger can be a
+ * playlist naming other addresses (a web address on the LAN, a service on this machine) that ffmpeg would
+ * otherwise go and read; the option comes before each `-i` of ffmpeg, and first for ffprobe, whose input
+ * is its last argument.
+ */
+export function localInputs(args: string[]): string[] {
+  const only = ["-protocol_whitelist", "file,pipe"];
+  return args.includes("-i") ? args.flatMap((a) => (a === "-i" ? [...only, a] : [a])) : [...only, ...args];
+}
+
 export interface VideoFacts {
   width: number;
   height: number;
@@ -22,7 +33,7 @@ const warned = new Set<string>();
 /** Run a tool; null when it is not installed or fails. A missing tool is said once, not per video. */
 function run(tool: string, args: string[], encoding: "utf8" | "buffer"): Promise<string | Buffer | null> {
   return new Promise((done) => {
-    execFile(tool, args, { encoding, timeout: 30_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true } as never, (err, stdout) => {
+    execFile(tool, localInputs(args), { encoding, timeout: 30_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true } as never, (err, stdout) => {
       if (err && (err as NodeJS.ErrnoException).code === "ENOENT" && !warned.has(tool)) {
         warned.add(tool);
         console.warn(`[video] "${tool}" was not found: videos get no preview frame and no length. Install ffmpeg, or set FFMPEG and FFPROBE.`);

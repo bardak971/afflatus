@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "afflatus.labels" . | nindent 4 }}
 spec:
+  {{- if gt (int .Values.replicas) 1 }}
+  {{- fail "replicas: Afflatus runs as one pod (SQLite on the volume has one writer, and the queue is one worker for one ComfyUI); set 0 or 1" }}
+  {{- end }}
   replicas: {{ .Values.replicas }}
   # one pod at a time: the database is one writer, and a volume with ReadWriteOnce has one reader
   strategy:

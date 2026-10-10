@@ -38,6 +38,22 @@ function whyNoAnswer(err: unknown): string {
   return e.cause?.message ? `${e.message} (${e.cause.message}).` : `${e.message}.`;
 }
 
+/**
+ * What a refusal said, short: the error message of an OpenAI-style answer, else the first line of the body
+ * without markup. The base URL can be any address (another service on the network), whose page is not
+ * Afflatus's to pass on whole.
+ */
+export function refusal(body: string): string {
+  try {
+    const j = JSON.parse(body) as { error?: { message?: unknown } | string; message?: unknown; detail?: unknown };
+    const said = typeof j.error === "string" ? j.error : j.error?.message ?? j.message ?? j.detail;
+    if (typeof said === "string" && said.trim()) return said.replace(/\s+/g, " ").trim().slice(0, 200);
+  } catch {
+    /* not JSON */
+  }
+  return (body.trim().split(/\r?\n/)[0] ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
 export class DesignerError extends Error {
   statusCode = 400;
 }
@@ -112,7 +128,7 @@ export async function ask(cfg: Llm | undefined, messages: Message[], opts: { tem
   } catch (err) {
     throw new UpstreamError(`The language model did not answer at ${cfg.baseUrl}: ${whyNoAnswer(err)}`);
   }
-  if (!res.ok) throw new UpstreamError(`The language model refused (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}`);
+  if (!res.ok) throw new UpstreamError(`The language model refused (${res.status}): ${refusal(await res.text().catch(() => ""))}`);
   const data = (await res.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string; reasoning?: string }; finish_reason?: string }> };
   const message = data.choices?.[0]?.message;
   const raw = message?.content ?? "";

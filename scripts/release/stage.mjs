@@ -49,7 +49,9 @@ await build({
       });
     },
   }],
-  sourcemap: false,
+  // a map beside the bundle, read by node's --enable-source-maps (the Dockerfile, the bundles' start scripts): a
+  // stack logged by a user's server then names the source file and line, not a line of a 2 MB bundle
+  sourcemap: "linked",
   legalComments: "none",
   banner: { js: "// Afflatus server, bundled. AGPL-3.0-only. Sources: https://github.com/bardak971/afflatus" },
   logLevel: "warning",

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { open as openFile, readFile, rm } from "node:fs/promises";
+import { z } from "zod";
 import type { AssetLookup } from "./assets-api";
 import { probeMediaFile } from "./cut";
 import { newId, now } from "./db";
@@ -13,12 +14,16 @@ import { firstFrame } from "./video";
 
 /** A file brought into the library from the user's computer. */
 
+/** What an upload's address may say. A name given twice comes as a list, which is refused here rather than used as a name. */
+const uploadQuery = z.object({ name: z.string().optional(), as: z.string().optional(), folder: z.string().optional(), project: z.string().optional() });
+
 export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }: AssetLookup): void {
   /**
    * A picture, a video or a sound from the user's computer, sent as the request body. It is theirs, so
    * it is kept from the start and never goes to the bin on its own.
    */
   app.post<{ Querystring: { name?: string; as?: string; folder?: string; project?: string } }>("/api/assets", async (req) => {
+    uploadQuery.parse(req.query);
     const up = isUpload(req.body) ? req.body : null;
     const unreadable = () => httpError("This file is not an image, a video or an audio file Afflatus can read. Images: PNG, JPEG, WebP. Video and audio are read with ffmpeg, which has to be installed where Afflatus runs.");
     if (!up) throw unreadable();

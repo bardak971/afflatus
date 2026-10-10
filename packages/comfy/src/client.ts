@@ -45,7 +45,9 @@ function errorSnippet(body: string): string {
   } catch {
     /* not JSON */
   }
-  return body.replace(/\s+/g, " ").slice(0, 160);
+  // not ComfyUI's own error: the address may be another service's (Settings take any URL), whose page is not
+  // Afflatus's to pass on. Its first line, short and without markup, is enough to see which server answered
+  return (body.trim().split(/\r?\n/)[0] ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
 const MIME: Record<string, string> = {

@@ -152,6 +152,8 @@ const pretendSite = createServer(async (req, res) => {
 });
 await new Promise<void>((resolve) => pretendSite.listen(0, "127.0.0.1", resolve));
 process.env.CIVITAI_URL = `http://127.0.0.1:${(pretendSite.address() as AddressInfo).port}`;
+// the pretend site is plain http, and no real site is asked in its place (civitai.ts pretendSites)
+process.env.AFFLATUS_PRETEND_SITES = "1";
 
 const dataDir = join(root, "data-demo");
 mkdirSync(dataDir, { recursive: true });

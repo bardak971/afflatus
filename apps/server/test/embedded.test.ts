@@ -1,4 +1,4 @@
-import { crc32 } from "node:zlib";
+import { crc32, deflateSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { parseA1111, readEmbedded } from "../src/embedded";
@@ -165,5 +165,51 @@ Steps: 12, Sampler: er_sde_beta, CFG scale: 3.5, Seed: 42, Size: 1088x1920, Mode
     const out = (await t.app.inject({ method: "POST", url: "/api/embedded", headers: { "content-type": "image/png" }, payload: Buffer.from(made("never_heard_of_it_v3")) })).json();
     expect(out.settings.recipe).toBe("sdxl.text-to-picture");
     expect(out.settings.targets[0]).toEqual({ id: "sdxl.text-to-picture" });
+  });
+});
+
+/** A PNG with one compressed text chunk (zTXt) holding `text`. */
+function pngWithCompressed(key: string, text: Buffer): Uint8Array {
+  const png = Buffer.from(makePng(8, 8, [10, 20, 30], [40, 50, 60]));
+  const end = png.length - 12;
+  const data = Buffer.concat([Buffer.from(key, "latin1"), Buffer.from([0, 0]), deflateSync(text)]);
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write("zTXt", 4, "latin1");
+  const sum = Buffer.alloc(4);
+  sum.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])));
+  return new Uint8Array(Buffer.concat([png.subarray(0, end), head, data, sum, png.subarray(end)]));
+}
+
+describe("a stranger's picture", () => {
+  let t: TestApp;
+  beforeEach(async () => {
+    t = await makeApp();
+  });
+  afterEach(() => t.close());
+
+  it("is read when its compressed text is a workflow's size, and not unpacked past a megabyte (a decompression bomb)", async () => {
+    const small = await readEmbedded(pngWithCompressed("prompt", Buffer.from(JSON.stringify(GRAPH))));
+    expect(small.settings).toMatchObject({ source: "comfyui", prompt: "a harbour at dusk" });
+    // 64 MB of one letter packs into about 64 kB
+    const bomb = pngWithCompressed("parameters", Buffer.alloc(64 << 20, "a"));
+    expect(bomb.length).toBeLessThan(200_000);
+    const start = performance.now();
+    expect(await readEmbedded(bomb)).toMatchObject({ settings: null, workflow: null });
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it("with odd ComfyUI metadata gives no settings, never a server error", async () => {
+    const odd = [
+      { "1": { class_type: "CheckpointLoaderSimple" }, "2": { class_type: "KSampler", inputs: { steps: 20 } } },
+      { "1": { class_type: "KSampler" } },
+      { "1": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "a.safetensors" } }, "2": { class_type: "KSampler", inputs: "x" } },
+      { "1": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "a.safetensors" } }, "2": { class_type: "KSampler", inputs: [] } },
+    ];
+    for (const graph of odd) {
+      expect((await readEmbedded(pngWith({ prompt: JSON.stringify(graph) }))).settings).toBeNull();
+      const res = await t.app.inject({ method: "POST", url: "/api/embedded", headers: { "content-type": "image/png" }, payload: Buffer.from(pngWith({ prompt: JSON.stringify(graph) })) });
+      expect(res.statusCode).toBe(200);
+    }
   });
 });

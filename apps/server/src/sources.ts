@@ -1,6 +1,6 @@
 import { folderOfFileInput } from "@afflatus/core";
 import type { FileSource } from "@afflatus/workflows";
-import { civitaiGet, KINDS, squash, STEM, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
+import { civitaiGet, KINDS, pretendSites, squash, STEM, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
 
 /**
  * Where a missing model file can be had, worked out before anyone searches. Three places, in order:
@@ -17,7 +17,7 @@ let known: { at: number; list: Promise<Map<string, Known>> } | null = null;
 
 /** Manager's list of standard model files, by lower-case file name; kept an hour. Empty where a pretend Civitai stands in (the tests, the demo), unless a list is given. */
 export async function knownFiles(): Promise<Map<string, Known>> {
-  const url = process.env.MODEL_LIST_URL ?? (process.env.CIVITAI_URL ? null : LIST_URL);
+  const url = process.env.MODEL_LIST_URL ?? (pretendSites() ? null : LIST_URL);
   if (!url) return new Map();
   if (!known || Date.now() - known.at > KEEP_MS) {
     const list = (async () => {

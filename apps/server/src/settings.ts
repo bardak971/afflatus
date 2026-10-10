@@ -155,6 +155,26 @@ async function load(db: Db): Promise<Settings> {
 
 const KEYS = [...Object.keys(settingsSchema.shape), "llm"];
 
+/** The scheme, host and port of an address; the text itself when it is not an address. */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * The stored key a model keeps when an update does not send one. A key goes with the server it was
+ * typed for: an update that points the model at another server (another scheme, host or port) drops
+ * it, or the next designer call would send the owner's key to whoever runs that server.
+ */
+function keptKey(stored: Llm | undefined, baseUrl: unknown): string {
+  if (!stored) return "";
+  if (typeof baseUrl === "string" && originOf(baseUrl) !== originOf(stored.baseUrl)) return "";
+  return stored.apiKey;
+}
+
 /** Merges a partial update, validates the whole, stores only the keys that were sent. */
 export async function writeSettings(db: Db, patch: unknown): Promise<Settings> {
   // which keys were sent is read from the body itself: parsing it would fill in every default
@@ -165,11 +185,12 @@ export async function writeSettings(db: Db, patch: unknown): Promise<Settings> {
   // "llm" changes the model in use (or makes the first one): the short way, for one model
   if (sent.llm && typeof sent.llm === "object") {
     const used = llmInUse(current);
-    const next = { ...(used ?? { id: "main" }), ...(sent.llm as object) };
+    const asked = sent.llm as { baseUrl?: unknown; apiKey?: unknown };
+    const next = { ...(used ?? { id: "main" }), ...asked, ...(asked.apiKey === undefined ? { apiKey: keptKey(used, asked.baseUrl) } : {}) };
     sent.llms = used ? current.llms.map((l) => (l.id === used.id ? next : l)) : [...current.llms, next];
   } else if (Array.isArray(sent.llms)) {
-    // a key that is not sent again stays: the browser is never given it back to send
-    sent.llms = (sent.llms as Array<{ id?: string; apiKey?: string }>).map((l) => (l.apiKey === undefined ? { ...l, apiKey: current.llms.find((c) => c.id === l.id)?.apiKey ?? "" } : l));
+    // a key that is not sent again stays, as long as the model still points at the same server: the browser is never given it back to send
+    sent.llms = (sent.llms as Array<{ id?: string; baseUrl?: unknown; apiKey?: string }>).map((l) => (l.apiKey === undefined ? { ...l, apiKey: keptKey(current.llms.find((c) => c.id === l.id), l.baseUrl) } : l));
   }
   delete sent.llm;
   const next = settingsSchema.parse({ ...current, ...sent });

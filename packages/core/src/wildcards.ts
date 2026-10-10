@@ -4,7 +4,11 @@
  * empty (`{|, smiling}`: sometimes nothing). Braces without a bar are left as they are.
  */
 
-const CHOICE = /\{([^{}]*\|[^{}]*)\}/;
+/**
+ * One choice with no choice inside it. The part before the first bar takes no bar: with one, a long run
+ * of bars made every try go back over all of them, and a prompt can be megabytes long.
+ */
+export const CHOICE = /\{([^{}|]*\|[^{}]*)\}/;
 
 export const hasWildcards = (text: string): boolean => CHOICE.test(text);
 

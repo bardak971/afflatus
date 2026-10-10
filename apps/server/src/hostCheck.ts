@@ -66,6 +66,39 @@ export function crossSite(headers: { origin?: string; "sec-fetch-site"?: string 
   }
 }
 
+/** An asset's file or thumbnail: what another site's page may show in an img, video or audio element. */
+const MEDIA_FILE = /^\/api\/assets\/[^/]+\/(file|thumb)$/;
+const MEDIA_DEST = new Set(["image", "video", "audio"]);
+
+/**
+ * Whether a read (GET, HEAD) is another site's page making the browser of someone who has Afflatus open
+ * fetch from it. The page cannot see the answer, but the server still does the work: a backup, a scan,
+ * a whole library read, as often as the page likes. Refused, except a top-level navigation (a link
+ * followed, a URL typed: the user sees where they went) and a picture, video or sound of an asset that
+ * a page shows. Only Sec-Fetch-Site is read: a client that does not send it (curl, ComfyUI-Manager
+ * fetching a download, a probe) is no browser's page, and the app's own requests are same-origin.
+ */
+export function crossSiteRead(headers: { "sec-fetch-site"?: string | string[]; "sec-fetch-mode"?: string | string[]; "sec-fetch-dest"?: string | string[] }, path: string): boolean {
+  if (headers["sec-fetch-site"] !== "cross-site") return false;
+  const dest = headers["sec-fetch-dest"];
+  // a frame is a navigation too, but not a top-level one: the headers below keep it from showing, not from running
+  if (headers["sec-fetch-mode"] === "navigate" && (dest === undefined || dest === "document")) return false;
+  return !(typeof dest === "string" && MEDIA_DEST.has(dest) && MEDIA_FILE.test(path));
+}
+
+/**
+ * Sent with every answer. No page may show Afflatus in a frame (a click there is a same-origin click,
+ * which the checks above take for the user's own); a file is read only as the type it is sent as;
+ * no address of the app goes to another site with a link followed from it. No script policy: the
+ * page and its workers are the server's own, and one would only risk breaking them.
+ */
+export const SAFETY_HEADERS: Record<string, string> = {
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "frame-ancestors 'none'",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "same-origin",
+};
+
 /** The body types the server reads: JSON, and a file sent as it is (app.ts's upload parser). */
 export const UPLOAD_TYPE = /^(image|video|audio)\/|^application\/octet-stream$/;
 

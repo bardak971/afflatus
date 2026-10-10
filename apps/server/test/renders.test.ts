@@ -314,4 +314,17 @@ describe("the figures as Prometheus reads them", () => {
     expect(body).toMatch(/afflatus_queue_jobs\{state="queued"\} 0/);
     expect(body).toMatch(/afflatus_comfy_online 1/);
   });
+
+  it("name an imported workflow by a hash when asked by a name that is not the server's own: its id and title are the user's words", async () => {
+    await put([row(), row({ recipe_id: "workflow.zz-test-my-secret-scene", family: "workflow" })]);
+    const own = (await get(t.app, "/metrics")).body;
+    expect(own).toContain('recipe="workflow.zz-test-my-secret-scene"');
+    // a scraper asks by the pod's address; a page that pointed its own name at this machine looks the same
+    const foreign = await get(t.app, "/metrics", { host: "10.1.2.3:8720" });
+    expect(foreign.statusCode).toBe(200);
+    expect(foreign.body).not.toContain("secret");
+    expect(foreign.body).toMatch(/afflatus_renders_total\{recipe="workflow-[0-9a-f]{10}",title="workflow-[0-9a-f]{10}",status="done"\} 1/);
+    // the built-in recipes keep their names: they are Afflatus's own
+    expect(foreign.body).toContain('afflatus_renders_total{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img",status="done"} 1');
+  });
 });

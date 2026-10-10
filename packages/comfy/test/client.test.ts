@@ -109,3 +109,20 @@ describe("ComfyClient, jobs", () => {
     expect(fake.uploads).toHaveLength(1);
   });
 });
+
+describe("ComfyClient, an error from the address it was given", () => {
+  const failing = (body: string) => new ComfyClient("http://127.0.0.1:1", async () => new Response(body, { status: 500 }));
+
+  it("passes on ComfyUI's own error whole", async () => {
+    await expect(failing(JSON.stringify({ error: { message: "Prompt outputs failed validation", details: "" } })).status()).rejects.toThrow(/Prompt outputs failed validation/);
+  });
+
+  it("passes on only a short first line, without markup, of another service's page", async () => {
+    const page = `<html><head><title>Router admin</title></head><body>${"internal ".repeat(40)}</body></html>\nadmin=zz-test-secret`;
+    const err = await failing(page).status().catch((e: Error) => e);
+    expect(err).toBeInstanceOf(ComfyError);
+    const said = (err as Error).message.replace(/^ComfyUI \/system_stats failed \(500\): /, "");
+    expect(said.length).toBeLessThanOrEqual(80);
+    expect(said).not.toMatch(/[<>]|zz-test-secret/);
+  });
+});

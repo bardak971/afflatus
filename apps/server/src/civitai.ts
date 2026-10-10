@@ -7,6 +7,14 @@ import { fetchPublic, hostnameOf } from "./outbound";
  * put together. Nothing here runs unless the user turned lookups on.
  */
 
+/**
+ * Whether the sites asked are pretend ones on this machine (the tests, the demo). Only then is a plain-http download
+ * allowed, and a real site never asked for what no pretend one stands in for (Hugging Face, Manager's model list). One
+ * switch for it, set by the test config and the demo: CIVITAI_URL only says where Civitai is, and a mirror named there
+ * lifts no rule.
+ */
+export const pretendSites = () => process.env.AFFLATUS_PRETEND_SITES === "1";
+
 /** The sites to ask, in order. CIVITAI_URL replaces them (the tests and the demo point it at a pretend one). */
 export const civitaiSites = () => (process.env.CIVITAI_URL ? [process.env.CIVITAI_URL.replace(/\/+$/, "")] : ["https://civitai.com", "https://civitai.red"]);
 const hostOf = (site: string) => {

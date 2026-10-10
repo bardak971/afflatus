@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { CHOICE } from "@afflatus/core";
 
 /**
  * The danbooru tag list (assets/danbooru.csv.gz, about 140 000 tags with how often each is used and
@@ -144,7 +145,6 @@ export interface TagIssue {
   suggestion?: string;
 }
 
-const CHOICE = /\{([^{}]*\|[^{}]*)\}/;
 /** Every text a prompt with choices in braces can become, up to a few: "{red|black} dress" is "red dress" and "black dress". */
 function everyChoice(text: string, most = 24): string[] {
   let all = [text];
