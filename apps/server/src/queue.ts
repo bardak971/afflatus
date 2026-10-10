@@ -426,7 +426,7 @@ export class Queue {
   /** One picture the running job showed on the way (its Preview nodes), by its place in the strip. */
   stage(jobId: string, n: number) { return view.stage(this.core, jobId, n); }
   /** The finished jobs, newest first, with what each made: filtered and paged. */
-  history(opts: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number } = {}) { return view.history(this.core, opts); }
+  history(opts: Parameters<typeof view.history>[1] = {}) { return view.history(this.core, opts); }
 
   // ---------------------------------------------------------------- the worker
 

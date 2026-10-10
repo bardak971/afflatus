@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
-import { gunzipSync } from "node:zlib";
+import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { gunzip, gunzipSync } from "node:zlib";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 /**
  * The danbooru tag list (assets/danbooru.csv.gz, about 140 000 tags with how often each is used and
  * its other names). Anime models (Illustrious, NoobAI, Pony) learned these tags: one that is not on
- * the list does little, and a typo does nothing. Read on first use.
+ * the list does little, and a typo does nothing. Read in the background a moment after the server starts (loadTagsSoon),
+ * or on first use if that comes first.
  */
 
 type Entry = { tag: string; count: number; category: number };
@@ -15,9 +18,27 @@ type Spelling = { text: string; entry: Entry };
 
 let db: { tags: Map<string, Entry>; aliases: Map<string, string>; byInitial: Map<string, Spelling[]> } | null = null;
 
+const LIST = new URL("../assets/danbooru.csv.gz", import.meta.url);
+
 function load() {
-  if (db) return db;
-  const text = gunzipSync(readFileSync(new URL("../assets/danbooru.csv.gz", import.meta.url))).toString("utf8");
+  db ??= parse(gunzipSync(readFileSync(LIST)).toString("utf8"));
+  return db;
+}
+
+let loading: Promise<void> | null = null;
+/**
+ * The list read without holding the server: the file and its unzipping off the main thread, the parse (most of a tenth of a
+ * second) once. The first check of a prompt read it all at once before, holding every other request meanwhile.
+ */
+export function loadTagsSoon(): Promise<void> {
+  loading ??= (async () => {
+    const text = (await promisify(gunzip)(await readFile(LIST))).toString("utf8");
+    db ??= parse(text);
+  })().catch(() => {});
+  return loading;
+}
+
+function parse(text: string) {
   const tags = new Map<string, Entry>();
   const aliases = new Map<string, string>();
   const byInitial = new Map<string, Spelling[]>();
@@ -48,8 +69,7 @@ function load() {
       }
     }
   }
-  db = { tags, aliases, byInitial };
-  return db;
+  return { tags, aliases, byInitial };
 }
 
 /** Words about quality, age and rating that are not danbooru tags but that anime models were trained with. */
@@ -204,10 +224,24 @@ export function cleanTags(list: string, ignore: string[] = []): { tags: string; 
   return { tags: tags.join(", "), fixed, unknown };
 }
 
+/** How long after the server starts the tag list is read: past the first page load's requests. */
+const LOAD_AFTER_MS = 3000;
+
 export function registerTags(app: FastifyInstance): void {
+  // read in the background once the server is up, so that the first check finds it ready (a server closed before, as a
+  // test's is, never reads it)
+  let soon: NodeJS.Timeout | null = null;
+  app.addHook("onReady", async () => {
+    soon = setTimeout(() => void loadTagsSoon(), LOAD_AFTER_MS);
+    soon.unref();
+  });
+  app.addHook("onClose", async () => {
+    if (soon) clearTimeout(soon);
+  });
   /** Which tags of a prompt are not danbooru tags. Nothing leaves the machine: the list is a file of Afflatus's. */
   app.post("/api/tags/check", async (req) => {
     const b = z.strictObject({ text: z.string().max(20_000), ignore: z.array(z.string().max(400)).max(200).default([]) }).parse(req.body);
+    await loadTagsSoon();
     return { issues: checkPrompt(b.text, b.ignore) };
   });
 }

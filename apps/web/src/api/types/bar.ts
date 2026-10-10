@@ -20,6 +20,8 @@ export type CommandEntry =
 
 export interface CommandIndex {
   entries: CommandEntry[];
+  /** How many of the library's items are in no project (the index holds only a few items: their count is said apart). */
+  inboxItems: number;
 }
 
 /** What rendering would take, learned from this machine's renders; `ms: null` when nothing like it was rendered yet. */

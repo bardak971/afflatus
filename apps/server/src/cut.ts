@@ -3,8 +3,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { musicGainAt, type MusicPlan } from "@afflatus/core";
 import { gainWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { factsOf, tools, type ProbeInfo, type VideoFacts } from "./video";
+import { ffmpegPool } from "./pool";
 
 /**
  * Cutting videos: the few frames a new clip joins onto, one frame as a picture, a strip of frames for
@@ -474,7 +475,7 @@ export function meansWithin(along: FrameMeans, fromMs: number, seconds: number):
 
 /** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
 async function meansOf(file: string, fromSec: number, seconds: number): Promise<Means | null> {
-  const said = await must(tools.ffmpeg, ["-loglevel", "error", "-ss", Math.max(0, fromSec).toFixed(3), "-t", seconds.toFixed(3), "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"]).catch(() => "");
+  const said = await ffmpegPool(() => must(tools.ffmpeg, ["-loglevel", "error", "-ss", Math.max(0, fromSec).toFixed(3), "-t", seconds.toFixed(3), "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"])).catch(() => "");
   const pick = (key: string) => [...said.matchAll(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`, "g"))].map((m) => Number(m[1]));
   const y = pick("YAVG");
   const u = pick("UAVG");
@@ -594,8 +595,12 @@ class Inputs {
 async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number; H: number }, fps: number, match: boolean): Promise<string[]> {
   const { W, H } = size;
   const chains: string[] = [];
-  // colour matching carries along: a part is matched to the part before as it will look, nudge included
-  let carry = { y: 0, u: 0, v: 0 };
+  // colour matching carries along: a part is matched to the part before as it will look, nudge included. The means of every
+  // join are read at once (each pair is two ffmpeg runs, through the pool) and the carry is worked out in order after:
+  // until then a part's chain holds a mark where its colour nudge goes
+  type Tune = { kind: "same" } | { kind: "match"; means: Promise<[Means | null, Means | null]> } | { kind: "reset" };
+  const tunes: Tune[] = [];
+  const mark = (i: number) => `\u0000tune${i}\u0000`;
   let prevFile: string | null = null;
   let prevPart: ExportPart | null = null;
   const lut = (c: Means) => (c.y || c.u || c.v ? `,lutyuv=y='clip(val+(${c.y}),0,255)':u='clip(val+(${c.u}),0,255)':v='clip(val+(${c.v}),0,255)'` : "");
@@ -605,16 +610,16 @@ async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number
     const fit = p.fill
       ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
       : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
-    let tune = "";
+    const tune = mark(i);
     if (match && p.sameLook && prevPart?.kind === "video") {
-      tune = lut(carry);
+      tunes.push({ kind: "same" });
     } else if (match && p.kind === "video" && !p.noMatch && prevPart?.kind === "video" && prevFile) {
       const look = MATCH.lookSec;
-      const a = await meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look);
-      const b = await meansOf(file, (p.matchAtMs ?? p.startMs + (p.blendMs ?? 0)) / 1000, look);
-      carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
-      tune = lut(carry);
-    } else carry = { y: 0, u: 0, v: 0 };
+      const means = Promise.all([meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look), meansOf(file, (p.matchAtMs ?? p.startMs + (p.blendMs ?? 0)) / 1000, look)]);
+      // read later, in order: a failure is caught there (meansOf says none rather than failing)
+      means.catch(() => {});
+      tunes.push({ kind: "match", means });
+    } else tunes.push({ kind: "reset" });
     prevFile = file;
     prevPart = p;
     // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
@@ -641,7 +646,16 @@ async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number
       chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${heard}[a${i}]`);
     }
   }
-  return chains;
+  let carry: Means = { y: 0, u: 0, v: 0 };
+  const said: string[] = [];
+  for (const [i, t] of tunes.entries()) {
+    if (t.kind === "match") {
+      const [a, b] = await t.means;
+      carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
+    } else if (t.kind === "reset") carry = { y: 0, u: 0, v: 0 };
+    said[i] = t.kind === "reset" ? "" : lut(carry);
+  }
+  return chains.map((c) => c.replace(/\u0000tune(\d+)\u0000/g, (_m, i: string) => said[Number(i)] ?? ""));
 }
 
 /**
@@ -718,48 +732,105 @@ export const MOTION_RATE = 10;
  * In and Out snap to. A sound file gives loudness only.
  */
 export async function measureOf(source: Media, ext: string): Promise<{ motion: number[]; sound: number[] | null; speech: number[] | null }> {
-  return inTemp(async (dir) => {
+  return ffmpegPool(() => inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
-    // a file ffprobe cannot read has nothing to measure; ffprobe not there at all is said
-    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]).catch((err: Error) => {
-      if (err instanceof FfmpegMissing) throw err;
-      return "";
-    });
-    let motion: number[] = [];
-    if (/video/.test(streams)) {
-      const said = await must(tools.ffmpeg, [
-        "-loglevel", "error", "-i", input, "-an",
-        "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`,
-        "-f", "null", "-",
-      ], { timeout: 10 * 60_000 });
-      motion = [...said.matchAll(/lavfi\.signalstats\.YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
-      // the first sample is a frame against nothing
-      if (motion.length) motion[0] = motion[1] ?? 0;
+    // the picture and the sound both, as most takes have: one ffmpeg run
+    const tried = await measureAtOnce(dir, input, { video: true, sound: true });
+    if (tried.measured) return tried.measured;
+    // a file with only one of them (a video with no sound, a sound file): ffmpeg's refusal says which it has, and it is run
+    // again for that one; anything else odd is measured as before, one stream at a time
+    const only = /matches no streams/i.test(tried.log) ? { video: /Stream #0:\d+.*: Video:/.test(tried.log), sound: /Stream #0:\d+.*: Audio:/.test(tried.log) } : null;
+    if (only && (only.video || only.sound)) {
+      const again = await measureAtOnce(dir, input, only);
+      if (again.measured) return again.measured;
     }
-    let sound: number[] | null = null;
-    if (/audio/.test(streams)) {
-      const said = await must(tools.ffmpeg, [
-        "-loglevel", "error", "-i", input, "-vn",
-        "-af", `aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
-        "-f", "null", "-",
-      ], { timeout: 10 * 60_000 }).catch(() => "");
-      const levels = [...said.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf|inf|nan)/g)].map((m) => Number(m[1]));
-      sound = levels.map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90));
-      if (!sound.length) sound = null;
-    }
-    // the same in the band of a voice (300–3400 Hz, twice filtered): where people speak, for the music's ducking (duck.ts)
-    let speech: number[] | null = null;
-    if (sound) {
-      const said = await must(tools.ffmpeg, [
-        "-loglevel", "error", "-i", input, "-vn",
-        "-af", `highpass=f=300,highpass=f=300,lowpass=f=3400,lowpass=f=3400,aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
-        "-f", "null", "-",
-      ], { timeout: 10 * 60_000 }).catch(() => "");
-      const levels = [...said.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf|inf|nan)/g)].map((m) => Number(m[1]));
-      speech = levels.length ? levels.map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90)) : null;
-    }
-    return { motion, sound, speech };
+    return measureApart(input);
+  }));
+}
+
+/** RMS levels as measureOf keeps them: in dB, -90 for silence, to a tenth. */
+const levelsIn = (said: string) => [...said.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf|inf|nan)/g)].map((m) => Number(m[1])).map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90));
+const motionIn = (said: string) => {
+  const motion = [...said.matchAll(/lavfi\.signalstats\.YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
+  // the first sample is a frame against nothing
+  if (motion.length) motion[0] = motion[1] ?? 0;
+  return motion;
+};
+
+/**
+ * measureOf's three measures in one ffmpeg run, the sound split in two (as it is and in a voice's band), each written to a
+ * file of its own in `dir` (ffmpeg runs there: a Windows path in a filter's options needs escaping). Null with ffmpeg's log
+ * when it refused (a stream asked for that the file does not have).
+ */
+async function measureAtOnce(dir: string, input: string, has: { video: boolean; sound: boolean }): Promise<{ measured: Awaited<ReturnType<typeof measureOf>> | null; log: string }> {
+  const graph: string[] = [];
+  const outs: string[] = [];
+  const band = `aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level`;
+  if (has.video) {
+    graph.push(`[0:v]fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=motion.txt[vo]`);
+    outs.push("[vo]");
+  }
+  if (has.sound) {
+    graph.push(`[0:a]asplit[a1][a2]`, `[a1]${band}:file=sound.txt[ao1]`, `[a2]highpass=f=300,highpass=f=300,lowpass=f=3400,lowpass=f=3400,${band}:file=speech.txt[ao2]`);
+    outs.push("[ao1]", "[ao2]");
+  }
+  const log = await new Promise<string | null>((done, fail) => {
+    execFile(tools.ffmpeg, ["-hide_banner", "-loglevel", "info", "-nostats", "-i", resolve(input), "-filter_complex", graph.join(";"), ...outs.flatMap((o) => ["-map", o, "-f", "null", "-"])],
+      { cwd: dir, encoding: "utf8", timeout: 10 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err, _stdout, stderr) => {
+        if (err && (err as NodeJS.ErrnoException).code === "ENOENT") return fail(new FfmpegMissing("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
+        done(err ? String(stderr) : null);
+      });
   });
+  if (log !== null) return { measured: null, log };
+  const read = (name: string) => readFile(join(dir, name), "utf8").catch(() => "");
+  const motion = has.video ? motionIn(await read("motion.txt")) : [];
+  const levels = has.sound ? levelsIn(await read("sound.txt")) : [];
+  const sound = levels.length ? levels : null;
+  const voice = sound ? levelsIn(await read("speech.txt")) : [];
+  return { measured: { motion, sound, speech: voice.length ? voice : null }, log: "" };
+}
+
+/** measureOf as it was first written, a stream at a time after ffprobe says which there are: for a file the one run refused (and what the tests hold the one run to). */
+export async function measureApart(input: string): Promise<{ motion: number[]; sound: number[] | null; speech: number[] | null }> {
+  // a file ffprobe cannot read has nothing to measure; ffprobe not there at all is said
+  const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]).catch((err: Error) => {
+    if (err instanceof FfmpegMissing) throw err;
+    return "";
+  });
+  let motion: number[] = [];
+  if (/video/.test(streams)) {
+    const said = await must(tools.ffmpeg, [
+      "-loglevel", "error", "-i", input, "-an",
+      "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`,
+      "-f", "null", "-",
+    ], { timeout: 10 * 60_000 });
+    motion = [...said.matchAll(/lavfi\.signalstats\.YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
+    // the first sample is a frame against nothing
+    if (motion.length) motion[0] = motion[1] ?? 0;
+  }
+  let sound: number[] | null = null;
+  if (/audio/.test(streams)) {
+    const said = await must(tools.ffmpeg, [
+      "-loglevel", "error", "-i", input, "-vn",
+      "-af", `aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
+      "-f", "null", "-",
+    ], { timeout: 10 * 60_000 }).catch(() => "");
+    const levels = [...said.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf|inf|nan)/g)].map((m) => Number(m[1]));
+    sound = levels.map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90));
+    if (!sound.length) sound = null;
+  }
+  // the same in the band of a voice (300–3400 Hz, twice filtered): where people speak, for the music's ducking (duck.ts)
+  let speech: number[] | null = null;
+  if (sound) {
+    const said = await must(tools.ffmpeg, [
+      "-loglevel", "error", "-i", input, "-vn",
+      "-af", `highpass=f=300,highpass=f=300,lowpass=f=3400,lowpass=f=3400,aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
+      "-f", "null", "-",
+    ], { timeout: 10 * 60_000 }).catch(() => "");
+    const levels = [...said.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf|inf|nan)/g)].map((m) => Number(m[1]));
+    speech = levels.length ? levels.map((v) => (Number.isFinite(v) ? Math.max(-90, Math.min(0, Math.round(v * 10) / 10)) : -90)) : null;
+  }
+  return { motion, sound, speech };
 }
 
 /**

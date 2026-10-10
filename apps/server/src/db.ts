@@ -418,6 +418,10 @@ export async function migrate(db: Db, upTo?: string): Promise<string[]> {
   await copyBefore(db, migrator);
   const { error, results } = upTo ? await migrator.migrateTo(upTo) : await migrator.migrateToLatest();
   if (error) throw error instanceof Error ? error : new Error(String(error));
+  // SQLite keeps the planner's figures on the tables only when asked: fresh ones let it pick the right index as the library
+  // grows. `optimize` looks only at the tables that need it (0x10002: all of them, on a connection just opened), so it is cheap
+  // on every start (Postgres analyzes by itself).
+  if (db.getExecutor().adapter instanceof SqliteAdapter) await sql`pragma optimize = 0x10002`.execute(db);
   return (results ?? []).filter((r) => r.status === "Success").map((r) => r.migrationName);
 }
 

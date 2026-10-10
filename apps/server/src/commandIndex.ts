@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
+import { sql, type Expression, type SqlBool } from "kysely";
 import type { InputSpec } from "@afflatus/core";
 import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./assetSearch";
-import { OWNER } from "./db";
+import { OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
@@ -13,7 +14,9 @@ import { formFilled } from "./timelineModel";
 /**
  * The command bar's side of the server (docs/command-bar.md): everything the bar can find in one small answer, a render
  * estimate for what the bar is about to send, and the prompts that were rendered. The bar matches in the browser, over
- * labels it keeps in memory: the index is read once and again on the live events, never per keystroke.
+ * labels it keeps in memory: the index is read once and again on the live events, never per keystroke. The library's
+ * items are the exception, as they are too many to send whole (5 000 items made 1.5 MB): the index holds the newest few and
+ * those the bar names, and what is typed is looked for among all of them by `commandItems`.
  */
 
 export type CommandEntry =
@@ -29,23 +32,57 @@ export type CommandEntry =
 
 /** What an item of the library is called when it has no name of its own. */
 const UNNAMED = { image: "Image", video: "Video", audio: "Sound" } as const;
+/** The newest items of the library the index holds: what the bar's Recent falls back on when it has learned nothing yet. */
+const NEWEST = 30;
+/** The items the bar can name for the index to hold (those it used lately), at most. */
+const NAMED = 100;
+/** The items a search of the bar answers with, at most: it shows 50, the best of them. */
+const FOUND = 200;
+/** The columns of an item the bar shows. */
+const ITEM = ["id", "name", "kind", "folder_id", "width", "height", "duration_ms", "bytes", "thumb_key", "created_at", "deleted_at"] as const;
+type ItemRow = Pick<Tables["assets"], (typeof ITEM)[number]>;
 
 /**
- * Every timeline, draft, item of the library (the bin's too, marked; no mask or kit picture), project, folder, imported workflow and
- * entry of the Prompt kit (the presets that ship with Afflatus included), as small rows. A
- * handful of grouped queries for all of it, only the columns the bar shows: a library of 10 000 items answers in tens of ms.
- * A project's root folder is not a folder of its own here (the project stands for it, as in the projects tree): what is in
- * it says `folder: null` with its project, as what is loose in the Inbox does with none.
+ * Where the library's things are, as the bar says it: the projects that exist, and the folders. A project's root folder is
+ * not a folder of its own (the project stands for it, as in the projects tree).
  */
-export async function commandIndex(s: Services): Promise<{ entries: CommandEntry[] }> {
-  const db = s.db;
-  const [projects, folders, assets, drafts, renders, leaves, unused, workflows, kit] = await Promise.all([
+async function placesOf(db: Db) {
+  const [projects, folders] = await Promise.all([
     db.selectFrom("projects").select(["id", "name", "folder_id", "archived_at", "created_at", "updated_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("folders").select(["id", "parent_id", "name", "path", "project_id", "created_at"]).where("owner_id", "=", OWNER).execute(),
-    db.selectFrom("assets")
-      .select(["id", "name", "kind", "folder_id", "width", "height", "duration_ms", "bytes", "thumb_key", "created_at", "deleted_at"])
-      .where("origin", "not in", NOT_IN_LIBRARY)
-      .orderBy("created_at", "desc").execute(),
+  ]);
+  const known = new Set(projects.map((p) => p.id));
+  const projectOf = (id: string | null) => (id && known.has(id) ? id : null);
+  const folderById = new Map(folders.map((f) => [f.id, f]));
+  // the roots that still exist: the project stands for them
+  const roots = new Set(projects.flatMap((p) => (p.folder_id && folderById.has(p.folder_id) ? [p.folder_id] : [])));
+  const folderOf = (id: string | null) => (id && folderById.has(id) && !roots.has(id) ? id : null);
+  const projectOfFolder = (id: string | null) => (id ? projectOf(folderById.get(id)?.project_id ?? null) : null);
+  /** An item as the bar lists it; one in the bin is found (to be put back), marked. */
+  const itemEntry = (a: ItemRow): Extract<CommandEntry, { kind: "asset" }> => ({
+    kind: "asset", id: a.id, label: a.name.trim() || UNNAMED[a.kind], project: projectOfFolder(a.folder_id), folder: folderOf(a.folder_id), updatedAt: a.deleted_at ?? a.created_at,
+    assetKind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, bytes: Number(a.bytes), hasThumb: a.thumb_key !== null, ...(a.deleted_at ? { inBin: true as const } : {}),
+  });
+  return { projects, folders, projectOf, roots, folderOf, projectOfFolder, itemEntry };
+}
+
+/**
+ * Every timeline, draft, project, folder, imported workflow and entry of the Prompt kit (the presets that ship with Afflatus
+ * included), as small rows; of the library's items (no mask or kit picture), the NEWEST and those `items` names (the bin's
+ * too, marked), and how many items each project and folder holds (`inboxItems`: those in no project). A handful of grouped
+ * queries for all of it, only the columns the bar shows. A project's root folder is not a folder of its own here: what is
+ * in it says `folder: null` with its project, as what is loose in the Inbox does with none.
+ */
+export async function commandIndex(s: Services, opts: { items?: string[] } = {}): Promise<{ entries: CommandEntry[]; inboxItems: number }> {
+  const db = s.db;
+  const named = [...new Set(opts.items ?? [])].slice(0, NAMED);
+  const [places, sums, newest, asked, drafts, renders, leaves, unused, workflows, kit] = await Promise.all([
+    placesOf(db),
+    // the library's items (not in the bin, as the library counts them) by folder; the loose ones under null
+    db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>("bytes").as("b")])
+      .where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).groupBy("folder_id").execute(),
+    db.selectFrom("assets").select(ITEM).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).orderBy("created_at", "desc").orderBy("id", "desc").limit(NEWEST).execute(),
+    named.length ? db.selectFrom("assets").select(ITEM).where("id", "in", named).where("origin", "not in", NOT_IN_LIBRARY).execute() : Promise.resolve([]),
     // a clip's own draft belongs to its timeline, not to the Studio's list
     db.selectFrom("drafts").select(["id", "name", "title", "recipe_id", "project_id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).where("target", "not like", "clip:%").orderBy("updated_at", "desc").execute(),
     db.selectFrom("generations").select((eb) => ["draft_id", eb.fn.countAll().as("n")]).where("draft_id", "is not", null).groupBy("draft_id").execute(),
@@ -54,14 +91,7 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
     db.selectFrom("workflows").select(["id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("entities").select(["id", "kind", "name", "created_at", "updated_at"]).where("owner_id", "=", OWNER).orderBy("name").execute(),
   ]);
-
-  const known = new Set(projects.map((p) => p.id));
-  const projectOf = (id: string | null) => (id && known.has(id) ? id : null);
-  const folderById = new Map(folders.map((f) => [f.id, f]));
-  // the roots that still exist: the project stands for them
-  const roots = new Set(projects.flatMap((p) => (p.folder_id && folderById.has(p.folder_id) ? [p.folder_id] : [])));
-  const folderOf = (id: string | null) => (id && folderById.has(id) && !roots.has(id) ? id : null);
-  const projectOfFolder = (id: string | null) => (id ? projectOf(folderById.get(id)?.project_id ?? null) : null);
+  const { projects, folders, projectOf, roots, folderOf, projectOfFolder, itemEntry } = places;
 
   const entries: CommandEntry[] = [];
   const byFolder = new Map<string, { n: number; b: number }>();
@@ -73,32 +103,23 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
     return p;
   };
 
-  for (const a of assets) {
-    const bytes = Number(a.bytes);
-    const project = projectOfFolder(a.folder_id);
-    // an item in the bin is found, to be put back, but is in no folder's or project's count (as the library shows them)
-    if (a.deleted_at) {
-      entries.push({
-        kind: "asset", id: a.id, label: a.name.trim() || UNNAMED[a.kind], project, folder: folderOf(a.folder_id), updatedAt: a.deleted_at,
-        assetKind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, bytes, hasThumb: a.thumb_key !== null, inBin: true,
-      });
-      continue;
-    }
-    if (a.folder_id) {
-      const f = byFolder.get(a.folder_id) ?? { n: 0, b: 0 };
-      f.n += 1;
-      f.b += bytes;
-      byFolder.set(a.folder_id, f);
-    }
-    const p = projectSum(project);
+  // an item in the bin is in no folder's or project's count (as the library shows them)
+  let inboxItems = 0;
+  for (const r of sums) {
+    const n = Number(r.n);
+    const b = Number(r.b ?? 0);
+    if (r.folder_id) byFolder.set(r.folder_id, { n, b });
+    const p = projectSum(projectOfFolder(r.folder_id));
     if (p) {
-      p.n += 1;
-      p.b += bytes;
-    }
-    entries.push({
-      kind: "asset", id: a.id, label: a.name.trim() || UNNAMED[a.kind], project, folder: folderOf(a.folder_id), updatedAt: a.created_at,
-      assetKind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, bytes, hasThumb: a.thumb_key !== null,
-    });
+      p.n += n;
+      p.b += b;
+    } else inboxItems += n;
+  }
+  const seen = new Set<string>();
+  for (const a of [...newest, ...asked]) {
+    if (seen.has(a.id)) continue;
+    seen.add(a.id);
+    entries.push(itemEntry(a));
   }
 
   for (const t of leaves) {
@@ -144,7 +165,53 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
     const e = s.shippedPresets.entity(p);
     entries.push({ kind: "kit", id: e.id, label: e.name, updatedAt: "", entity: "preset", shipped: true });
   }
-  return { entries };
+  return { entries, inboxItems };
+}
+
+const itemsQuery = z.object({ q: z.string().max(200), limit: z.coerce.number().int().min(1).max(FOUND).default(FOUND) });
+
+/** `%`, `_` and the escape itself taken as themselves in a LIKE pattern. */
+const literal = (c: string) => (c === "%" || c === "_" || c === "\\" ? `\\${c}` : c);
+/**
+ * A letter of what is typed in a LIKE pattern over a lower-cased label: itself when SQL lower-cases it as the browser does
+ * (plain ASCII), else any one letter (SQLite's lower() leaves "É" as it is). A pattern is only a first sieve: the bar
+ * matches again over what comes back.
+ */
+const letter = (c: string) => (/^[\x20-\x7e]$/.test(c) ? literal(c) : "_");
+
+/**
+ * The SQL test that lets through every item whose label the bar's matching could take for `q` (apps/web/src/bar/match.ts):
+ * the letters typed in order (which a match from the start, inside, or on the words' initials also is), or each word typed
+ * somewhere in it. Over the label as the bar has it: the name, or "Image", "Video", "Sound" for an item with none.
+ * `inside`: the label holds what is typed as it is, the bar's best matches.
+ */
+export function labelMatches(q: string): { test: Expression<SqlBool>; inside: Expression<SqlBool> } | null {
+  const typed = q.trim().toLowerCase();
+  if (!typed) return null;
+  const label = sql<string>`(case when trim(name) = '' then (case kind when 'image' then 'image' when 'video' then 'video' else 'sound' end) else lower(name) end)`;
+  const like = (pattern: string) => sql<SqlBool>`${label} like ${pattern} escape '\\'`;
+  const letters = [...typed.replace(/\s+/g, "")].map(letter);
+  const words = typed.split(/\s+/).filter(Boolean);
+  const inOrder = like(`%${letters.join("%")}%`);
+  const each = words.length > 1 ? sql<SqlBool>`(${sql.join(words.map((w) => like(`%${[...w].map(letter).join("")}%`)), sql` and `)})` : null;
+  return { test: each ? sql<SqlBool>`(${inOrder} or ${each})` : inOrder, inside: like(`%${[...typed].map(letter).join("")}%`) };
+}
+
+/**
+ * The library's items whose label could match what is typed in the bar, over the whole library and the bin (marked): those
+ * that hold it as typed first, the shorter names first (the bar's best matches), then the newest. The bar ranks them with the
+ * rest of its index.
+ */
+export async function commandItems(s: Services, raw: unknown): Promise<{ entries: CommandEntry[] }> {
+  const { q, limit } = itemsQuery.parse(raw);
+  const match = labelMatches(q);
+  if (!match) return { entries: [] };
+  const [places, rows] = await Promise.all([
+    placesOf(s.db),
+    s.db.selectFrom("assets").select(ITEM).where("origin", "not in", NOT_IN_LIBRARY).where(match.test)
+      .orderBy(sql`case when ${match.inside} then 0 else 1 end`).orderBy(sql`length(name)`).orderBy("created_at", "desc").orderBy("id", "desc").limit(limit).execute(),
+  ]);
+  return { entries: rows.map(places.itemEntry) };
 }
 
 export interface CommandEstimate {
@@ -235,8 +302,13 @@ export async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<
 }
 
 export function registerCommandBar(app: FastifyInstance, s: Services): void {
-  /** Everything the command bar can find (commandIndex). */
-  app.get("/api/command-index", async () => commandIndex(s));
+  /** Everything the command bar can find (commandIndex); `items`: the ids of items of the library it wants held too ("a,b,c"). */
+  app.get("/api/command-index", async (req) => {
+    const { items } = z.object({ items: z.string().max(NAMED * 40).optional() }).parse(req.query);
+    return commandIndex(s, { items: items?.split(",").filter(Boolean) });
+  });
+  /** The library's items whose name could match what is typed in the bar (commandItems). */
+  app.get("/api/command-items", async (req) => commandItems(s, req.query));
   /** What the bar's command would take to render (commandEstimate). */
   app.get("/api/command-estimate", async (req) => commandEstimate(s, req.query));
   /** What each of the editor's clips would take to render (forecasts). */

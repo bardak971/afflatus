@@ -96,6 +96,7 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
       q: z.string().max(200).optional(),
       model: z.string().max(300).optional(),
       offset: z.coerce.number().int().min(0).optional(),
+      after: z.string().max(200).optional(),
       limit: z.coerce.number().int().min(1).max(200).optional(),
     }).parse(req.query);
     return s.queue.history(q);

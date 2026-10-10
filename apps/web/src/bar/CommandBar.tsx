@@ -5,7 +5,7 @@ import { useLocation } from "wouter";
 import {
   Bookmark, Calculator, ChevronRight, Film, Folder, FolderKanban, Image as ImageIcon, Keyboard, ListOrdered, MapPin, Music, Navigation, PenLine, Puzzle, Quote, Search, SlidersHorizontal, Sparkles, User, Video, Workflow, Zap,
 } from "lucide-react";
-import { api, type AssetDetail, type Entity, type RecipeInfo, type Settings } from "../api";
+import { api, type AssetDetail, type CommandEntry, type Entity, type RecipeInfo, type Settings } from "../api";
 import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
 import { groupingSaves } from "../screens/queue/bulk";
@@ -20,7 +20,7 @@ import { Keys } from "../Keys";
 import { allRows, opened, searchKeys } from "../keys/search";
 import { BAR_DEFAULT } from "../keys/table";
 import { calc, type Grid } from "./calc";
-import { commandKeys, grouped, indexItems, keyItems, lowerFirst, navItems, settingItems, tellApart, templateItems, type Item, type Kind } from "./items";
+import { commandKeys, grouped, indexItems, keyItems, lowerFirst, navItems, settingItems, tellApart, templateItems, usedItems, withItems, type Item, type Kind } from "./items";
 import { settingHref, TABS, tabHref } from "../screens/settings/settingsIndex";
 import { highlight, pieces, prepare, search } from "./match";
 import { COMMANDS, KIT_OF, modeOf, parseCommand, type Command, type CommandId, type KitNew, type Mode } from "./parse";
@@ -124,7 +124,10 @@ export function CommandBar() {
   const settings = useSettings();
   const entities = useEntities();
   const currentProject = useProject((s) => s.id);
-  const index = useQuery({ queryKey: BAR_INDEX, queryFn: ({ signal }) => api.commandIndex({ signal }), staleTime: Infinity });
+  // the index holds the newest of the library's items and those used here lately (for Recent); the others are asked for as typed
+  const index = useQuery({ queryKey: BAR_INDEX, queryFn: ({ signal }) => api.commandIndex(usedItems(loadRanks()), { signal }), staleTime: Infinity });
+  /** The library's items opened from the bar since the index was read: Recent finds them before the index is read again. */
+  const [picked, setPicked] = useState<CommandEntry[]>([]);
 
   const [typed, setTyped] = useState(seed);
   const [sel, setSel] = useState(0);
@@ -195,9 +198,27 @@ export function CommandBar() {
   const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running) } : null));
   const queueFull = useQueueOf((q) => (open && mode === "queue" ? q : null));
 
+  // the library's items whose name could match what is typed, a moment after the typing stops: asked of the server, which
+  // looks through all of them and the bin (the index holds only a few); the ones found before stay while it answers. Under
+  // the index's key, so that what marks the index old marks them too
+  const [itemsQ, setItemsQ] = useState("");
+  useEffect(() => {
+    const q = mode === "all" ? text.trim() : "";
+    const t = setTimeout(() => setItemsQ(q), q ? 80 : 0);
+    return () => clearTimeout(t);
+  }, [mode, text]);
+  const found = useQuery({
+    queryKey: [...BAR_INDEX, "items", itemsQ],
+    queryFn: ({ signal }) => api.commandItems(itemsQ, { signal }),
+    enabled: open && Boolean(itemsQ),
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
+  });
+  const foundEntries = itemsQ && mode === "all" ? found.data?.entries : undefined;
+
   // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed
-  const entries = index.data?.entries ?? [];
-  const base = useMemo(() => indexItems(entries, recipes, currentProject), [entries, recipes, currentProject]);
+  const entries = useMemo(() => withItems(index.data?.entries ?? [], picked, foundEntries ?? []), [index.data, picked, foundEntries]);
+  const base = useMemo(() => indexItems(entries, recipes, currentProject, index.data?.inboxItems), [entries, recipes, currentProject, index.data?.inboxItems]);
   const byKey = useMemo(() => new Map(base.map((i) => [i.key, i])), [base]);
   const aim: TimelineAim | null = useMemo(() => {
     const open = /^\/timelines\/([^/]+)/.exec(path)?.[1];
@@ -478,6 +499,8 @@ export function CommandBar() {
     const next = bumped(ranks, it.key.startsWith("cmd:") ? it.key.split(":").slice(0, 2).join(":") : it.key, Date.now());
     setRanks(next);
     save(next);
+    const e = it.entry;
+    if (e?.kind === "asset") setPicked((was) => [e, ...was.filter((x) => x.id !== e.id)].slice(0, 100));
   };
   const run = (it: Item, a: Action | undefined) => {
     if (!a) return;

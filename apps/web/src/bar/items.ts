@@ -7,6 +7,7 @@ import type { KeyHit } from "../keys/grammar";
 import { keysOfRow, type Found, type KeysAsk } from "../keys/search";
 import { rowKeys, type RowId } from "../keys/table";
 import { pageLabel, type SettingCtx, type SettingEntry, valueSaid } from "./settingsRegistry";
+import { recentKeys, type Ranks } from "./rank";
 
 /** What one row of the bar is, the sections it falls in, and how each kind is said. */
 
@@ -72,8 +73,11 @@ export function timelineLength(e: { durationMs: number; plannedMs: number }): st
   return rendered === planned ? rendered : `${rendered} rendered of ${planned}`;
 }
 
-/** Every entry of the index as a row: its words, its detail line, its project said by name. */
-export function indexItems(entries: readonly CommandEntry[], recipes: readonly RecipeInfo[], current: string | null): Item[] {
+/**
+ * Every entry of the index as a row: its words, its detail line, its project said by name. `inboxItems`: how many items are
+ * in no project, as the server counted them (the index holds only some of the library's items); left out, those of `entries`.
+ */
+export function indexItems(entries: readonly CommandEntry[], recipes: readonly RecipeInfo[], current: string | null, inboxItems?: number): Item[] {
   const projects = new Map<string, { label: string; archived: boolean }>();
   for (const e of entries) if (e.kind === "project") projects.set(e.id, { label: e.label, archived: e.archived });
   const folders = new Map<string, string>();
@@ -116,8 +120,26 @@ export function indexItems(entries: readonly CommandEntry[], recipes: readonly R
   const loose = (kind: CommandEntry["kind"]) => entries.filter((e) => e.kind === kind && "project" in e && e.project === null && !(e.kind === "asset" && e.inBin)).length;
   out.push({
     key: "project:inbox", kind: "project", inbox: true, label: "Inbox", group: "Projects & folders", verb: "work in it", p: prepare("Inbox"),
-    meta: ["Out of every project", plural(loose("timeline"), "timeline"), plural(loose("asset"), "item"), current === "none" ? "working in it" : null].filter(Boolean).join(" · "),
+    meta: ["Out of every project", plural(loose("timeline"), "timeline"), plural(inboxItems ?? loose("asset"), "item"), current === "none" ? "working in it" : null].filter(Boolean).join(" · "),
   });
+  return out;
+}
+
+/** The render keys ("render:<id>") the bar learned, newest first: the library's items it asks the index to hold. */
+export const usedItems = (ranks: Ranks, max = 100): string[] =>
+  recentKeys(ranks, Infinity).filter((k) => k.startsWith("render:")).slice(0, max).map((k) => k.slice(7));
+
+/**
+ * The index's entries with the library's items found for what is typed, and those picked in the bar since the index was
+ * read: each once, the latest read of it kept (a found item may have been renamed or binned since the index was read).
+ */
+export function withItems(entries: readonly CommandEntry[], ...more: ReadonlyArray<readonly CommandEntry[]>): CommandEntry[] {
+  if (!more.some((m) => m.length)) return entries as CommandEntry[];
+  const fresh = new Map<string, CommandEntry>();
+  for (const list of more) for (const e of list) if (e.kind === "asset") fresh.set(e.id, e);
+  const out = entries.map((e) => (e.kind === "asset" && fresh.has(e.id) ? fresh.get(e.id)! : e));
+  const held = new Set(entries.flatMap((e) => (e.kind === "asset" ? [e.id] : [])));
+  for (const e of fresh.values()) if (!held.has(e.id)) out.push(e);
   return out;
 }
 

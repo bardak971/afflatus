@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -55,15 +55,31 @@ export function shippedPresetsDir(): string {
   return process.env.PRESETS_DIR?.trim() || fileURLToPath(new URL("../../../presets", import.meta.url));
 }
 
-/** The shipped presets on disk, read each time they are asked for (a handful of small files). */
+/**
+ * The shipped presets on disk. Read once and kept while their files stay as they are: the command bar's index, the Prompt
+ * kit and the presets' files ask for them on every read, and reading and checking every file each time cost milliseconds
+ * of a held server. A file added, removed or changed (its size or its time) is read again.
+ */
 export class ShippedPresets {
+  private kept: { stamp: string; list: ShippedPreset[] } | null = null;
   constructor(readonly dir: string | null) {}
   list(): ShippedPreset[] {
     if (!this.dir || !existsSync(this.dir)) return [];
+    const names = readdirSync(this.dir).filter((n) => n.endsWith(".json")).sort();
+    const stamp = names.map((n) => {
+      const st = statSync(join(this.dir!, n), { throwIfNoEntry: false });
+      return `${n}:${st?.size}:${st?.mtimeMs}`;
+    }).join("|");
+    if (this.kept?.stamp === stamp) return this.kept.list;
+    const list = this.read(names);
+    this.kept = { stamp, list };
+    return list;
+  }
+  private read(names: string[]): ShippedPreset[] {
     const out: ShippedPreset[] = [];
-    for (const name of readdirSync(this.dir).filter((n) => n.endsWith(".json")).sort()) {
+    for (const name of names) {
       try {
-        const parsed = shippedSchema.safeParse(JSON.parse(readFileSync(join(this.dir, name), "utf8")));
+        const parsed = shippedSchema.safeParse(JSON.parse(readFileSync(join(this.dir!, name), "utf8")));
         if (parsed.success) out.push(parsed.data);
         else console.warn(`[presets] ${name} could not be read and is skipped: ${parsed.error.issues[0]?.path.join(".")} ${parsed.error.issues[0]?.message}`);
       } catch (err) {

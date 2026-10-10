@@ -88,6 +88,30 @@ export const useModelSettings = () => useQuery({ queryKey: ["model-settings"], q
  * own, so that a change to one item does not read them all again through the "assets" prefix.
  */
 export const LIBRARY_KEYS = [["assets"], ["folders"], ["storage"], ["projects"], ["facets"]] as const;
+/** What a "library" event says changed, when its sender knows (the server's LibraryChange, events.ts); nothing said: anything may have. */
+export interface LibraryChange {
+  items?: string[];
+  change?: "fields" | "kept" | "places";
+}
+/**
+ * The lists a "library" event reads again: only those the change can touch. An item renamed or its size read ("fields") is
+ * in the lists of items alone; one kept or not ("kept") moves the disk use's split too; a project made or renamed ("places")
+ * changes the folders and the projects, not an item. Anything else (items made, binned, moved): every list.
+ */
+export function libraryKeysOf(change: LibraryChange | null | undefined): ReadonlyArray<readonly string[]> {
+  switch (change?.change) {
+    case "fields": return [["assets"]];
+    case "kept": return [["assets"], ["storage"]];
+    case "places": return [["folders"], ["projects"]];
+    default: return LIBRARY_KEYS;
+  }
+}
+/** The keys of several events read in one go, each once. */
+export function unionKeys(a: ReadonlyArray<readonly string[]>, b: ReadonlyArray<readonly string[]>): Array<readonly string[]> {
+  const out = [...a];
+  for (const k of b) if (!out.some((x) => x.length === k.length && x.every((p, i) => p === k[i]))) out.push(k);
+  return out;
+}
 /** What a render that ended changes: the record of render times, the estimates and the Finish dialog's forecast made from it (live.ts). */
 export const RENDER_KEYS = [["renders"], ["estimates"], ["finishForecast"]] as const;
 

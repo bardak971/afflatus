@@ -15,6 +15,24 @@ const PROGRESS_EVERY_MS = 250;
 const PING_EVERY_MS = 10_000;
 const RELAYED = ["queue", "library", "models", "timeline", "entities", "downloads", "setup"] as const;
 
+/**
+ * What a "library" event says changed, when its sender knows, so that a page reads again only the lists it touched (live.ts):
+ * `items`, the items concerned; `change`, what of them: "fields" (a name, a size read: nothing came, went or moved, no
+ * count changed), "kept" (kept or not: the disk use's split moves too), "places" (a project made or renamed: its folders
+ * and the projects, no item). Sent with nothing (`emit("library")`): anything may have changed, and every list is read.
+ */
+export interface LibraryChange {
+  items?: string[];
+  change?: "fields" | "kept" | "places";
+}
+const CHANGES = new Set(["fields", "kept", "places"]);
+/** What goes out with a "library" event: the change as said, or nothing (read everything) for anything else. */
+export function libraryFrame(said: unknown): LibraryChange {
+  const c = said as LibraryChange | undefined;
+  if (!c || typeof c !== "object" || !c.change || !CHANGES.has(c.change)) return {};
+  return { change: c.change, ...(Array.isArray(c.items) ? { items: c.items.filter((i) => typeof i === "string").slice(0, 200) } : {}) };
+}
+
 export function registerEvents(app: FastifyInstance, s: Services, version: string): void {
   const clients = new Set<FastifyReply>();
   const send = (event: string, data: unknown = {}) => {
@@ -25,7 +43,7 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
 
   // every connection used to add its own listeners: the limit that warns about a leak does not apply to a fan-out
   s.queue.events.setMaxListeners(0);
-  for (const name of RELAYED) s.queue.events.on(name, () => send(name));
+  for (const name of RELAYED) s.queue.events.on(name, (said?: unknown) => send(name, name === "library" ? libraryFrame(said) : {}));
   let lastProgress = 0;
   let trailing: NodeJS.Timeout | null = null;
   // with the running job's figures (from memory: no query per event): the page changes its queue in place and asks for nothing (live.ts)

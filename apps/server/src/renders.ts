@@ -351,12 +351,37 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   for (const r of rows) stretch[index(Date.parse(r.created_at))]?.rows.push(r);
   for (const d of folded) stretch[index(Date.parse(`${d.day}T00:00:00.000Z`))]?.days.push({ recipe: d.recipe_id, file: d.model_file, cell: JSON.parse(d.figures) as Cell });
 
-  /** The figures of one stretch, for everything or for the renders a test lets through. */
+  // each stretch's rows and folded days sorted once by recipe, and by recipe and model file: a cell is then read off its own
+  // group, not filtered out of the stretch again for every series and every model (for "all", hundreds of times over)
+  const groupKey = (recipe: string, file?: string) => (file === undefined ? recipe : `${recipe}\n${file}`);
+  const groups = stretch.map((s) => {
+    const rows = new Map<string, RenderRow[]>();
+    const days = new Map<string, Cell[]>();
+    const add = <T>(m: Map<string, T[]>, key: string, v: T) => {
+      const list = m.get(key);
+      if (list) list.push(v);
+      else m.set(key, [v]);
+    };
+    for (const r of s.rows) {
+      add(rows, groupKey(r.recipe_id), r);
+      add(rows, groupKey(r.recipe_id, r.model_file), r);
+    }
+    for (const d of s.days) {
+      add(days, groupKey(d.recipe), d.cell);
+      add(days, groupKey(d.recipe, d.file), d.cell);
+    }
+    return { rows, days };
+  });
+  /** The figures of one stretch, for everything or for the renders of one recipe (and one model file): worked out once each. */
+  const cells = new Map<string, Cell | null>();
   const cellAt = (i: number, of?: { recipe: string; file?: string }) => {
-    const s = stretch[i]!;
-    const own = s.rows.filter((r) => !of || (r.recipe_id === of.recipe && (of.file === undefined || r.model_file === of.file)));
-    const old = s.days.filter((d) => (of ? d.recipe === of.recipe && (of.file === undefined || d.file === of.file) : d.recipe === WHOLE_DAY)).map((d) => d.cell);
-    return own.length || old.length ? merge([...(own.length ? [cellOf(own)] : []), ...old]) : null;
+    const key = `${i}\n${of ? groupKey(of.recipe, of.file) : ""}\n${of ? (of.file === undefined ? 0 : 1) : 2}`;
+    if (cells.has(key)) return cells.get(key)!;
+    const own = of ? (groups[i]!.rows.get(groupKey(of.recipe, of.file)) ?? []) : stretch[i]!.rows;
+    const old = of ? (groups[i]!.days.get(groupKey(of.recipe, of.file)) ?? []) : (groups[i]!.days.get(WHOLE_DAY) ?? []);
+    const cell = own.length || old.length ? merge([...(own.length ? [cellOf(own)] : []), ...old]) : null;
+    cells.set(key, cell);
+    return cell;
   };
   const series = <T>(pick: (c: Cell) => T, of?: { recipe: string; file?: string }) => times.map((_t, i) => { const c = cellAt(i, of); return c ? pick(c) : null; });
   const whole = merge(times.map((_t, i) => cellAt(i)).filter((c): c is Cell => c !== null));
@@ -486,7 +511,12 @@ function modelLines(registry: Registry, rows: RenderRow[], folded: Array<Tables[
     for (const d of folded) if (d.recipe_id === recipe && d.model_file) files.set(d.model_file, files.get(d.model_file) ?? d.model);
     // the setting used most: what the estimate is spelled out for
     const groups = new Map<string, RenderRow[]>();
-    for (const r of done.filter((x) => x.whole)) groups.set(`${r.time_key}\n${r.model_file}`, [...(groups.get(`${r.time_key}\n${r.model_file}`) ?? []), r]);
+    for (const r of done.filter((x) => x.whole)) {
+      const key = `${r.time_key}\n${r.model_file}`;
+      const list = groups.get(key);
+      if (list) list.push(r);
+      else groups.set(key, [r]);
+    }
     const most = [...groups.values()].sort((a, b) => b.length - a.length)[0];
     const start0 = median(warm.map((r) => r.load_ms)) ?? 0;
     const setting = most && {
