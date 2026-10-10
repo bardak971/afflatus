@@ -66,7 +66,8 @@ export class TimelineViews {
       /** What Undo would take back, in a few words; null when there is nothing to undo. The same for Redo. */
       undo: undo?.label ?? null,
       redo: redo?.label ?? null,
-      exporting: exporting ? { id: exporting.id, status: exporting.status } : null,
+      // only these two are read above: the column's type has the finished ones too
+      exporting: exporting ? { id: exporting.id, status: exporting.status as "queued" | "running" } : null,
       exported: exported && !exported.deleted_at ? assetView(exported) : null,
       exportFailed: lastExport?.status === "failed" ? lastExport.error : null,
     };

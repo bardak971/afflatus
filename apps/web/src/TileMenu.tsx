@@ -1,26 +1,18 @@
-import { useRef } from "react";
-import { Plus, SquareCheck } from "lucide-react";
+import { Suspense, useRef } from "react";
 import type { Asset } from "./api";
-import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
-import { formPlaces, useFormTarget } from "./formTarget";
-import { useAsset } from "./data";
+import { useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
 import { clock } from "./format";
-import { placeMenu, type ItemFacts, type Place } from "./itemActions";
-import { NO_ASSET, useItemActions } from "./useItemActions";
-import { askViewer, type ViewerAsk } from "./viewer/ask";
+import type { Place } from "./itemActions";
+import { lazyPart, loadTileMenuBody } from "./lazyParts";
 import { tileName } from "./screens/library/tileName";
 
-/**
- * The right-click menu of a library tile: the item's list (itemActions.tsx), the same as the viewer's, after what the
- * place does with the item (`first`, the open form's "Use in this draft", Select). Its keys show only where they act
- * (`place`). What needs the item's generation parameters (Reuse, Variation, the seed, ComfyUI) is offered once they
- * are read, which starts when the menu opens; until then those lines say "reading…". Trim, Compare and Details open
- * the viewer on the item with that tool.
- */
-export function useTileMenu({ onOpen, onSelect, into, first, subject, place = "grid", form = true, listed = true, seed }: {
+// the menu's list and what its lines do are a chunk of their own (lazyParts.ts), fetched once the page is idle: every
+// tile of the library has this hook, and none of it is needed to draw the grid
+const Body = lazyPart(loadTileMenuBody, (m) => m.TileMenuBody);
+
+/** What the place a tile's menu opens in says about it (see useTileMenu). */
+export interface TileMenuOptions {
   onOpen(asset: Asset): void;
-  /** The item the menu is for while it is not open at the pointer (the command bar lists its actions): its generation is read for it. */
-  subject?: Asset | null;
   /** Where the menu opens: which keys act there. */
   place?: Place;
   /** "Use in this draft" when a form is open: not where the open form is not the Studio's (the timeline's media shelf). */
@@ -35,54 +27,30 @@ export function useTileMenu({ onOpen, onSelect, into, first, subject, place = "g
   onSelect?(asset: Asset): void;
   /** Where a variation queued from here lands. */
   into?: { draft?: string; folder?: string };
-}) {
+}
+
+/**
+ * The right-click menu of a library tile: the item's list (itemActions.tsx), the same as the viewer's, after what the
+ * place does with the item (`first`, the open form's "Use in this draft", Select). Its keys show only where they act
+ * (`place`). What needs the item's generation parameters (Reuse, Variation, the seed, ComfyUI) is offered once they
+ * are read, which starts when the menu opens; until then those lines say "reading…". Trim, Compare and Details open
+ * the viewer on the item with that tool. The list itself is TileMenuBody.tsx.
+ */
+export function useTileMenu(options: TileMenuOptions) {
   const { menu, open, close } = useMenu<Asset>();
-  const formTarget = useFormTarget((st) => st.target);
-  const subjectOf = menu?.subject ?? subject ?? null;
   // the item last shown stays the actions' subject once the menu closes: a choice closes the menu first, and the
   // hooks that do it (Mirror, Inpaint, Edit, Outpaint, Image to video…) read their item when their request starts, a
   // moment later (the command bar keeps its last render for the same reason)
   const last = useRef<Asset | null>(null);
-  if (subjectOf) last.current = subjectOf;
-  const acting = subjectOf ?? last.current;
-  const detail = useAsset(acting?.id ?? null);
-  const acts = useItemActions({
-    asset: acting ?? NO_ASSET, detail, enabled: Boolean(acting), into, sayErrors: true,
-    // a frame, a sound, a mirrored copy made from here: shown in the viewer, as the place opens an item
-    onOpened: onOpen,
-    // A and N act in the viewer, on the item open in it: shown where the keys are named (the stage, the command bar)
-    timeline: { noKeys: place !== "stage" && place !== "command", noStartKey: place === "stage" },
-  });
-  const openWith = (asset: Asset, what: ViewerAsk) => {
-    askViewer(asset.id, what);
-    onOpen(asset);
-  };
-  const more: Partial<ItemFacts> = { compare: listed ? true : "open it from a list", ...(seed !== undefined && seed !== null && acts.seed === null ? { seed } : {}) };
-  const items = (asset: Asset): MenuItem[] => {
-    const item = acts.a.id === asset.id ? acts.a : asset;
-    const list = acts.list(more, {
-      open: () => onOpen(item),
-      trim: () => openWith(item, "trim"),
-      compare: () => openWith(item, "compare"),
-      details: () => openWith(item, "details"),
-      ...(seed !== undefined && seed !== null && acts.seed === null ? { "copy-seed": () => acts.mutations.copySeed(seed) } : {}),
-    }, { "save-frame": "the first frame" });
-    const places = form ? formPlaces(formTarget, item) : [];
-    const own: MenuItem[] = [
-      ...(first?.(item) ?? []),
-      ...(places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : []),
-      ...(onSelect ? [{ label: "Select", key: "Ctrl+click", icon: <SquareCheck size={14} />, run: () => onSelect(item) }] : []),
-    ];
-    return placeMenu(own, list, place);
-  };
-
-  const element = (
-    <>
-      {subjectOf && menu && <ContextMenu at={menu.at} label={`Actions on this ${subjectOf.kind === "audio" ? "sound" : subjectOf.kind === "image" ? "picture" : "video"}`} head={assetHead(subjectOf)} items={items(subjectOf)} onClose={close} />}
-      {acts.timeline.element}
-    </>
+  if (menu) last.current = menu.subject;
+  const acting = last.current;
+  // nothing is drawn, nor read, before the first opening
+  const element = acting && (
+    <Suspense fallback={null}>
+      <Body {...options} menu={menu} acting={acting} onClose={close} />
+    </Suspense>
   );
-  return { open, element, items, reading: detail.isLoading };
+  return { open, element };
 }
 
 const KIND_WORD = { image: "Picture", video: "Video", audio: "Sound" } as const;

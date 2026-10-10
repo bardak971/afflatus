@@ -5,7 +5,7 @@ import { Link, useLocation } from "wouter";
 import { api, type Job, type QueueStatus, type RunningJob } from "./api";
 import { useAsset, useProjects, useQueue, useSettings } from "./data";
 import { Keys } from "./Keys";
-import { BAR_DEFAULT } from "./keys/table";
+import { BAR_DEFAULT } from "./keys/barDefault";
 import { useDownloads } from "./useGetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";

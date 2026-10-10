@@ -39,8 +39,9 @@ export interface KeyPlace {
   groups: KeyGroup[];
 }
 
-/** The command bar's shortcut until the settings say another. */
-export const BAR_DEFAULT = "Ctrl+K";
+// its own file: the status bar names it, and is loaded with the app; the table is not
+import { BAR_DEFAULT } from "./barDefault";
+export { BAR_DEFAULT };
 
 export const PLACES: KeyPlace[] = [
   {

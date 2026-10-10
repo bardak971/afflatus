@@ -380,7 +380,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const prior = period !== "all" && since && Date.parse(since) <= priorFrom + Math.max(step, (end - start) / 10) ? await totals(db, priorFrom, start, step === DAY, keepDays, when) : null;
 
   return {
-    period: typeof period === "string" ? period : "window", from: start, to: end, step, times, keepDays, since, buckets,
+    period: typeof period === "string" ? period : ("window" as const), from: start, to: end, step, times, keepDays, since, buckets,
     upscale,
     /** The stretch of time the figures cover: the period, or since the first render when that is later. */
     spanMs: Math.max(step, Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)),
