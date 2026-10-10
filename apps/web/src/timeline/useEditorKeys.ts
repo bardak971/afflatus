@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { stepFrames } from "../frameStep";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
@@ -9,9 +9,10 @@ import type { TimeRange, TrackKeys } from "./Track";
  * the arrows step a frame (with Alt: move the selected clip one place), Escape clears, Delete removes the selected
  * clip, Ctrl+Enter renders it (a new take), [ and ] go to the clip before and after, Alt+[ and Alt+] play its take before and after,
  * S or Ctrl+B splits the clip under the playhead, Home and End go to the start and end, - and = zoom the track, Shift+Z fits it.
- * What changes often is read through refs, so the listener is only put back when an action it calls changes.
+ * What changes often is read through refs, so the listener is only put back when an action it calls changes. The editor
+ * fills the refs it returns for the keys whose actions it holds (render, jump, split, take, the track's zoom).
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic, renderNow, jumpNow, splitNow, takeNow, trackKeys }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
@@ -32,24 +33,33 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   totalRef: RefObject<number>;
   toggleLoopNow: RefObject<() => void>;
   /** One frame of the clip under the playhead, in ms. */
-  frameRef: RefObject<() => number>;
-  selectedNow: RefObject<string | null>;
+  frameMs(): number;
+  /** The clip selected (its panel open), if any. */
+  selected: string | null;
   setSelected: Dispatch<SetStateAction<string | null>>;
   setPicked: Dispatch<SetStateAction<Set<string>>>;
   /** The music's panel is open, and how to close it (Escape). */
-  musicOpenNow?: RefObject<boolean>;
+  musicOpen?: boolean;
   closeMusic?(): void;
-  /** Render the selected clip (a new take), as Generate does in the Studio's form: Ctrl+Enter, even from its prompt. */
-  renderNow?: RefObject<() => void>;
-  /** To the clip before (-1) or after (1), selecting it: [ and ]. */
-  jumpNow?: RefObject<(by: -1 | 1) => void>;
-  /** Split the clip under the playhead, at the playhead: S and Ctrl+B. */
-  splitNow?: RefObject<() => void>;
-  /** The selected clip plays its take before (-1) or after (1): Alt+[ and Alt+]. */
-  takeNow?: RefObject<(by: -1 | 1) => void>;
-  /** The track's zoom around the playhead and Fit all: - and =, Shift+Z. */
-  trackKeys?: RefObject<TrackKeys | null>;
 }) {
+  // what changes at every render, read by the listener through refs
+  const frameRef = useRef(frameMs);
+  frameRef.current = frameMs;
+  const selectedNow = useRef<string | null>(null);
+  selectedNow.current = selected;
+  const musicOpenNow = useRef(false);
+  musicOpenNow.current = Boolean(musicOpen);
+  // set by the editor once what they call exists (some of it only once the timeline is read)
+  /** Render the selected clip (a new take), as Generate does in the Studio's form: Ctrl+Enter, even from its prompt. */
+  const renderNow = useRef(() => {});
+  /** To the clip before (-1) or after (1), selecting it: [ and ]. */
+  const jumpNow = useRef<(by: -1 | 1) => void>(() => {});
+  /** Split the clip under the playhead, at the playhead (S and Ctrl+B); with `only` (the bar), when it is that clip. */
+  const splitNow = useRef<(only?: string | null) => void>(() => {});
+  /** The selected clip plays its take before (-1) or after (1): Alt+[ and Alt+]. */
+  const takeNow = useRef<(by: -1 | 1) => void>(() => {});
+  /** The track's zoom around the playhead and Fit all: - and =, Shift+Z (filled by the track). */
+  const trackKeys = useRef<TrackKeys | null>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // a key sent to the window itself (not to an element) reads as sent to the page
@@ -75,25 +85,25 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
       const held = open || Boolean(document.querySelector("[data-takes-escape]"));
       // not from the designer's box (Enter there sends the message), nor once something else took the key
       const designing = typing && Boolean(el.closest("[data-takes-escape]"));
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.repeat && !open && !designing && !e.defaultPrevented && renderNow) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.repeat && !open && !designing && !e.defaultPrevented) {
         e.preventDefault();
         renderNow.current();
       }
       const plain = !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open;
-      if (plain && jumpNow && (e.key === "[" || e.key === "]")) {
+      if (plain && (e.key === "[" || e.key === "]")) {
         e.preventDefault();
         jumpNow.current(e.key === "[" ? -1 : 1);
       }
       // Alt+[ and Alt+]: the selected clip's take before or after (by the key's place too: Alt changes what some keyboards type there)
       const bracket = e.key === "[" || e.code === "BracketLeft" ? -1 : e.key === "]" || e.code === "BracketRight" ? 1 : 0;
-      if (bracket && e.altKey && !e.ctrlKey && !e.metaKey && !typing && !held && takeNow) {
+      if (bracket && e.altKey && !e.ctrlKey && !e.metaKey && !typing && !held) {
         e.preventDefault();
         if (!e.repeat) takeNow.current(bracket);
         return;
       }
       // S or Ctrl+B: split the clip under the playhead (not held down: one split a press)
       const split = (plain && !e.shiftKey && e.key.toLowerCase() === "s") || ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b" && !typing && !open);
-      if (split && !held && splitNow) {
+      if (split && !held) {
         e.preventDefault();
         if (!e.repeat) splitNow.current();
         return;
@@ -105,7 +115,7 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         return;
       }
       // - and = zoom the track out and in around the playhead (+ as =, Shift on most keyboards); Shift+Z: the whole video
-      if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !held && trackKeys) {
+      if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !held) {
         const zoom = e.key === "-" ? -1 : e.key === "=" || e.key === "+" ? 1 : 0;
         if (zoom) {
           e.preventDefault();
@@ -157,7 +167,7 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
         return;
       }
       // the same from the music's panel
-      if (e.key === "Escape" && !typing && !held && musicOpenNow?.current) {
+      if (e.key === "Escape" && !typing && !held && musicOpenNow.current) {
         e.preventDefault();
         closeMusic?.();
         return;
@@ -195,4 +205,5 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, clock]);
+  return { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys };
 }

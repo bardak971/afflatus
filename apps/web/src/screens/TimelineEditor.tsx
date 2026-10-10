@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type Take, type Timeline } from "../api";
+import { api, type Asset, type Clip, type DesignerSession, type RecipeInfo, type Take } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../Designer";
 import { clock as mmss, notReady } from "../format";
 import { Picker } from "../PictureField";
 import { useNewClock } from "../timeline/clock";
-import { Inspector, MusicPanel } from "../timeline/Inspector";
-import { layout, moveAfter, otherShape, pinInputs, SHAPES, shapeOf, splitPoint, stamp, ZOOM, type Shape } from "../timeline/model";
+import { Inspector } from "../timeline/Inspector";
+import { MusicPanel } from "../timeline/inspector/music";
+import { layout, moveAfter, otherShape, pinInputs, ZOOM } from "../timeline/model";
 import { Player, type PlayerHandle } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
-import { Track, type TrackKeys } from "../timeline/Track";
+import { Track } from "../timeline/Track";
 import { ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../viewer/LazyViewer";
@@ -21,17 +22,21 @@ import { CastDialog } from "../timeline/CastDialog";
 import { ClipDesigner } from "../timeline/ClipDesigner";
 import { TimelineHeader, Transport } from "../timeline/EditorBars";
 import { ExportDialog, type ExportAsk } from "../timeline/ExportDialog";
-import { clipMenuItems, musicMenuItems, placeItems, soundMenuItems, type ClipMenuActions } from "../timeline/menus";
-import { AttentionNote, Overview, useAttention } from "../timeline/Overview";
-import { ColumnEdge, FoldButton, FoldedStrip } from "../timeline/column";
+import { clipMenuItems, placeItems, type ClipMenuActions } from "../timeline/menus";
+import { AttentionNote } from "../timeline/Overview";
+import { FoldedColumn, OverviewColumn, type Checks } from "../timeline/EditorColumns";
 import { RangeBar } from "../timeline/RangeBar";
-import { StartPanel } from "../timeline/StartPanel";
+import { SoundMenus } from "../timeline/SoundMenus";
 import { useClipEdits } from "../timeline/useClipEdits";
+import { useClipSteps } from "../timeline/useClipSteps";
+import { useBarRequests } from "../timeline/useBarRequests";
 import { useEditorKeys } from "../timeline/useEditorKeys";
+import { useErrorShown, useHeaderNote } from "../timeline/useHeaderNote";
+import { usePlayhead } from "../timeline/usePlayhead";
 import { useForecasts } from "../timeline/useForecasts";
 import { useRange } from "../timeline/useRange";
 import { useTimelineMutations } from "../timeline/useTimelineMutations";
-import { useSelectedClip, useTimelineRequest } from "../bar/bridge";
+import { useSelectedClip } from "../bar/bridge";
 import { useQueueOf } from "./studio/queueOf";
 
 const NONE: RecipeInfo[] = [];
@@ -56,9 +61,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** The clips picked with Ctrl + click on the track, to render together. */
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [musicOpen, setMusicOpen] = useState(false);
-  // for Escape, which closes it as it closes a clip's panel
-  const musicOpenNow = useRef(false);
-  musicOpenNow.current = musicOpen;
   const [playing, setPlaying] = useState(false);
   // the moment of what plays: not state, so that a tick redraws the track and the readout, not the whole editor
   const clock = useNewClock();
@@ -73,11 +75,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const [talks, setTalks] = useState<Record<string, DesignerTurn[]>>({});
   // the language model and instructions each clip's conversation is held with, as picked here before the timeline is read again
   const [sessions, setSessions] = useState<Record<string, DesignerSession>>({});
-  /** A line in the header, and what more there is to it (behind its "?"); `undo`: an Undo beside it, for what it says was done. */
-  const [note, setSaid] = useState<{ text: string; more?: string; undo?: boolean } | null>(null);
-  const setNote = useCallback((text: string | null, more?: string) => setSaid(text === null ? null : { text, more }), []);
-  /** The pointer rests on what the header says: it stays while it is read. */
-  const [held, setHeld] = useState(false);
+  const { note, setSaid, setNote, held, setHeld } = useHeaderNote();
   const [exp, setExp] = useState<ExportAsk | null>(null);
   const [fin, setFin] = useState(false);
   const [writing, setWriting] = useState<string | null>(null);
@@ -158,8 +156,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** Right-click on a clip's audio strip and on the music strip: what the clip panel's sound section and the music panel do, in place. */
   const soundMenu = useMenu<Clip>();
   const musicMenu = useMenu<true>();
-  const [soundPick, setSoundPick] = useState<Clip | null>(null);
-  const [musicPick, setMusicPick] = useState(false);
   /** Where the playhead stands on a clip, when it stands on this one. */
   const onClip = (c: Clip) => {
     const here = player.current?.where();
@@ -176,26 +172,10 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       sub: <>{c.kind === "still" ? "Still · " : ""}<span className="font-mono">{mmss(c.lengthMs)}</span>{take}</>,
     };
   };
-  /** The head of a clip's audio menu: what is heard, and how loud. */
-  const soundHead = (c: Clip): MenuHead => ({
-    title: `Audio of clip ${clips.findIndex((x) => x.id === c.id) + 1}`,
-    sub: `${c.sound === "own" ? "Own audio" : c.sound === "muted" ? "Muted" : "Audio file"} · ${c.volume} %`,
-  });
   // the latest that failed, the range's actions among the others (useTimelineMutations)
   const error = rangeAct.error && (!m.error || rangeAct.submittedAt >= m.errorAt) ? rangeAct.error : m.error;
-  // a note goes after a few seconds (longer with more to read behind its "?"), an error after a while: not while the pointer is on it
-  useEffect(() => {
-    if (!note || held) return;
-    const timer = setTimeout(() => setSaid(null), note.more ? 12_000 : 4000);
-    return () => clearTimeout(timer);
-  }, [note, held]);
-  const [errorGone, setErrorGone] = useState<Error | null>(null);
-  useEffect(() => {
-    if (!error || held) return;
-    const timer = setTimeout(() => setErrorGone(error), 10_000);
-    return () => clearTimeout(timer);
-  }, [error, held]);
-  const errorShown = error && error !== errorGone ? error : null;
+  // an error goes after a while, not while the pointer is on it (the note's own timer is useHeaderNote's)
+  const errorShown = useErrorShown(error, held);
 
   const hasRecipe = clips.some((c) => c.recipe);
   const newClip = (afterId?: string | null) => add.mutate({ after: afterId, recipe: hasRecipe ? undefined : firstRecipe() });
@@ -212,85 +192,14 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** About how long a clip takes to render: the server's forecast of its whole form, learned from past renders (as the timeline card's). */
   const takes = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
   const allMs = missing.reduce((sum, c) => sum + (takes(c) ?? 0), 0);
-  /**
-   * What Needs attention is worked out from, the same in the Overview, the folded column and the Export and Finish
-   * dialogs: which clips can render (known once the models, the setup and the settings have come) and why the others cannot.
-   */
-  const checks = {
+  /** What Needs attention is worked out from (EditorColumns' Checks). */
+  const checks: Checks = {
     renderable: (c: Clip) => c.kind === "video" && !c.job && Boolean(ready(c).input),
     msOf: takes,
     why: (c: Clip) => (c.kind === "video" ? ready(c).why : undefined),
     // settled, not succeeded: a list that failed to come must not hold the checks back for ever
     known: !recipes.isPending && !setup.isPending && !settings.isPending,
   };
-
-  // what the command bar asked of this timeline (render clips by number, render what is missing, export): done here, as
-  // the buttons do it, once the timeline and its forms are read
-  const openExport = useRef<(() => void) | null>(null);
-  const request = useTimelineRequest((r) => r.request);
-  useEffect(() => {
-    if (!request || request.timeline !== id || !t || !shown) return;
-    // Fix all is the overview's, which measures the joins: the clip's panel gives way to it, and it takes the request
-    if (request.do === "fix-all" && clips.length) return setSelected(null);
-    const asked = useTimelineRequest.getState().take();
-    if (request.do === "fix-all") {
-      asked?.reply(null);
-      return say({ id: `bar-fix:${Date.now()}`, tone: "good", title: `${t.name}: nothing to fix`, text: "It has no clip yet.", href: `/timelines/${id}`, go: "Open the timeline" });
-    }
-    if (request.do === "export") {
-      asked?.reply(null);
-      return openExport.current?.();
-    }
-    // the Finish dialog, as the Finish button opens it
-    if (request.do === "finish") {
-      asked?.reply(null);
-      return setFin(true);
-    }
-    // the selected clip split at the playhead, or playing its take before or after: as S and Alt+[ ] do it, said in the note
-    if (request.do === "split" || request.do === "take") {
-      asked?.reply(null);
-      if (request.do === "split") splitNow.current(selectedNow.current);
-      else takeNow.current(request.by);
-      return;
-    }
-    // the bar's `> undo`, as Ctrl+Z here: the header says what was undone, or that there is nothing to
-    if (request.do === "undo") {
-      asked?.reply(null);
-      if (!t.undo) return setNote("Nothing to undo");
-      if (!undo.isPending && !redo.isPending) undo.mutate();
-      return;
-    }
-    // the bar's `> clip 3`: the clip selected and the playhead on its start, as a click on it in the track
-    if (request.do === "select") {
-      asked?.reply(null);
-      const slot = slots[request.clip - 1];
-      if (!slot) return setNote(`${t.name} has no clip ${request.clip}`);
-      select(slot.clip.id);
-      player.current?.seek(slot.planned ? slot.startMs : slot.clip.atMs);
-      // a clip with nothing rendered: the playhead stands on its slot, as when it is clicked there
-      if (slot.planned) setCursor(slot.startMs);
-      return;
-    }
-    const list = request.do === "render-missing" ? missing : clips.filter((c, i) => request.clips.includes(i + 1) && c.kind === "video" && !c.job && ready(c).input);
-    if (!list.length) {
-      asked?.reply(null);
-      say({ id: `bar-render:${Date.now()}`, tone: "bad", title: request.do === "render-missing" ? `${t.name} has no clip left to render` : `Nothing to render in clip${request.clips.length > 1 ? "s" : ""} ${request.clips.join(", ")}`, text: request.do === "render" ? "A clip renders when it is a video clip with its form filled, and is not already in the queue." : undefined, href: `/timelines/${id}`, go: "Open the timeline" });
-      return;
-    }
-    // (the promise, not the mutation's own callbacks: those are dropped when the editor is left before the answer)
-    render.mutateAsync({ clips: list }).then(
-      (made) => {
-        asked?.reply(made.ids);
-        // sent to the top of the queue: the bar says so once they are there
-        if (!request.top) say({ id: `bar-render:${Date.now()}`, tone: "good", title: `${list.length} clip${list.length > 1 ? "s" : ""} of ${t.name} queued`, href: "/queue", go: "Open queue" });
-      },
-      (err: Error) => {
-        asked?.reply(null);
-        say({ id: `bar-render:${Date.now()}`, tone: "bad", title: `Clips of ${t.name} could not be rendered`, text: err.message, href: `/timelines/${id}`, go: "Open the timeline" });
-      },
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request, id, t, shown]);
 
   // the selected clip, for the command bar's `@name`: who is in it and the Inspector's own change of its cast
   const setLook = patch.mutateAsync;
@@ -305,117 +214,18 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   }, [current, t, id, castNumber, castRecipe, setLook]);
   useEffect(() => () => useSelectedClip.getState().set(null), []);
 
-  /** How loud the player plays here (0 to 1) and whether it is muted: this browser's, over the timeline's own mix. */
-  const [volume, setVolume] = useState(() => {
-    try {
-      const v = Number(localStorage.getItem("afflatus.player.volume"));
-      return Number.isFinite(v) && localStorage.getItem("afflatus.player.volume") !== null ? Math.max(0, Math.min(1, v)) : 1;
-    } catch {
-      return 1;
-    }
-  });
-  const [muted, setMuted] = useState(false);
-  useEffect(() => {
-    try {
-      localStorage.setItem("afflatus.player.volume", String(volume));
-    } catch {
-      /* a private window: not kept */
-    }
-  }, [volume]);
-  /** Where the playhead was put by hand on the track (it can stand on a clip that is not rendered yet); null while it follows what plays. */
-  const [cursor, setCursor] = useState<number | null>(null);
-  const cursorRef = useRef(cursor);
-  cursorRef.current = cursor;
-  const onTime = useCallback((ms: number) => {
-    clock.set(ms);
-    // (set only when it stands somewhere: fifteen times a second, a no-op set still costs a render)
-    if (cursorRef.current !== null) setCursor(null);
-    const r = rangeRef.current;
-    if (playingRange.current && r && ms >= r.outMs - 15) {
-      if (loopRef.current && r.outMs - r.inMs >= 40) player.current?.seek(r.inMs);
-      else {
-        playingRange.current = false;
-        setPlaying(false);
-      }
-    }
-  }, [clock]);
-  /** One frame of the clip under the playhead, in ms (24 a second when it is not known). */
-  const frameMs = () => {
-    const time = clock.get();
-    const c = clips.find((x) => x.lengthMs > 0 && time >= x.atMs && time < x.atMs + x.lengthMs);
-    return 1000 / Math.max(1, c?.take?.asset.fps ?? 24);
-  };
-  const frameRef = useRef(frameMs);
-  frameRef.current = frameMs;
-  const selectedNow = useRef<string | null>(null);
-  selectedNow.current = current?.id ?? null;
+  const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, frameMs } = usePlayhead({ clock, clips, player, rangeRef, loopRef, playingRange, setPlaying });
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
-  // Ctrl+Enter: the selected clip renders (set once the clip actions exist, below)
-  const renderNow = useRef(() => {});
-  // [ and ]: the clip before or after (set once jump exists, below)
-  const jumpNow = useRef<(by: -1 | 1) => void>(() => {});
-  // S and Ctrl+B: split at the playhead; Alt+[ and Alt+]: the selected clip's take before or after (set below)
-  const splitNow = useRef<(only?: string | null) => void>(() => {});
-  const takeNow = useRef<(by: -1 | 1) => void>(() => {});
-  // - and =, Shift+Z: the track's zoom and Fit all (filled by the track)
-  const trackKeys = useRef<TrackKeys | null>(null);
-  useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameRef, selectedNow, setSelected, setPicked, musicOpenNow, closeMusic: () => setMusicOpen(false), renderNow, jumpNow, splitNow, takeNow, trackKeys });
+  // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)
+  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen, closeMusic: () => setMusicOpen(false) });
+  // what the command bar asked of this timeline: done here, as the buttons and the keys do it
+  const openExport = useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow });
 
-  const jump = (by: -1 | 1) => {
-    const time = clock.get();
-    const playable = clips.filter((c) => c.lengthMs > 0);
-    const here = playable.findIndex((c) => time >= c.atMs && time < c.atMs + c.lengthMs);
-    // back: to the start of this clip, or of the one before when already there
-    const target = by === 1 ? playable[here + 1] : time - (playable[here]?.atMs ?? 0) > 400 ? playable[here] : playable[Math.max(0, here - 1)];
-    if (!target) return;
-    player.current?.seek(target.atMs);
-    select(target.id);
-  };
+  // the playhead's own steps: to the clip before or after, a split at it, the selected clip's take before or after
+  const { jump, splitAt, splitHere, stepTake } = useClipSteps({ clips, slots, clock, player, cursor, split, patch, select, setNote, setSaid, setPreview });
   jumpNow.current = jump;
-
-  /** A clip split at this moment of its video, said in the header once made ("Split clip 3 at 0:12.4", Undo beside it). */
-  const splitAt = (clip: Clip, atMs: number) => {
-    const n = clipsNow.current.findIndex((x) => x.id === clip.id) + 1;
-    const when = stamp(clock.get());
-    split.mutate({ clip: clip.id, atMs }, { onSuccess: () => setSaid({ text: `Split clip ${n} at ${when}`, undo: true }) });
-  };
-  /**
-   * S and Ctrl+B: the clip under the playhead split there; with `only` (the bar, for the selected clip) when it is that clip.
-   * Only inside what a clip plays, never on a cut: else the note says why and nothing changes.
-   */
-  splitNow.current = (only) => {
-    if (split.isPending) return;
-    const here = player.current?.where();
-    // the playhead put by hand on a clip with nothing rendered stands there, not on the clip the player shows
-    const by = cursor;
-    const slot = by !== null ? slots.find((x) => by >= x.startMs && by < x.startMs + x.lengthMs) : undefined;
-    const c = clips.find((x) => x.id === (slot?.planned ? slot.clip.id : here?.clip.id));
-    if (!c) return setNote("No clip under the playhead");
-    const n = clips.indexOf(c) + 1;
-    if (only && only !== c.id) return setNote(`The playhead is not on clip ${clips.findIndex((x) => x.id === only) + 1}`);
-    const cut = splitPoint(c, here && here.clip.id === c.id ? here.assetMs : -1);
-    if ("why" in cut) return setNote(`Clip ${n} not split: ${cut.why}`);
-    splitAt(c, cut.at);
-  };
-  // the take last asked from the keys, until the timeline read again plays it: a second press goes on from there
-  const askedTake = useRef<{ clip: string; take: string; at: number } | null>(null);
-  /** The selected clip plays its take before or after, as a click on it in the clip panel; at either end it stays, and says so. */
-  const stepTake = (clipId: string | null, by: -1 | 1) => {
-    const c = clips.find((x) => x.id === clipId);
-    if (!c) return setNote("No clip selected");
-    const n = clips.indexOf(c) + 1;
-    const a = askedTake.current;
-    const playing = a && a.clip === c.id && performance.now() - a.at < 3000 && c.takes.some((x) => x.id === a.take) ? a.take : c.take?.id;
-    const i = c.takes.findIndex((x) => x.id === playing);
-    if (c.takes.length < 2 || i < 0) return setNote(c.takes.length ? `Clip ${n} has one take` : `Clip ${n} has no take yet`);
-    const to = c.takes[i + by];
-    if (!to) return setNote(`Clip ${n} plays its ${by < 0 ? "first" : "last"} take already`);
-    askedTake.current = { clip: c.id, take: to.id, at: performance.now() };
-    setPreview(null);
-    patch.mutate({ clip: c.id, patch: { take: to.id } });
-    setNote(`Clip ${n} plays take ${i + by + 1} of ${c.takes.length}`);
-  };
+  splitNow.current = splitHere;
   takeNow.current = (by) => stepTake(selectedNow.current, by);
 
   // opened at a clip (?clip=N, from the viewer's "In … · clip N"): that clip selected, the playhead at its start
@@ -461,7 +271,6 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   if (!t || !shown) return <EditorSkeleton id={id} />;
 
   const why = current ? ready(current).why ?? null : null;
-  const shape: Shape | "own" | "first" = !t.width || !t.height ? "first" : (Object.keys(SHAPES) as Shape[]).find((k) => SHAPES[k].width === t.width && SHAPES[k].height === t.height) ?? "own";
   const misfits = clips.filter((c) => otherShape(c, t) && !c.fill).length;
   // the finished size: the timeline's shape with as many pixels as its largest take, when a take is larger than the frame
   const largest = Math.max(0, ...clips.map((c) => (c.take?.asset.width ?? 0) * (c.take?.asset.height ?? 0)));
@@ -547,7 +356,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         <MediaOverlay timeline={shown} placeItems={(a) => placeItems(a, placing)} />
 
         <main className="flex min-w-0 grow flex-col">
-            <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} master={muted ? 0 : volume} screen={{ clock, total, playing, volume, muted, onToggle: toggle, onSeek: (ms) => player.current?.seek(ms), onVolume: (v) => { setVolume(v); setMuted(false); }, onMute: () => { if (volume === 0) { setVolume(1); setMuted(false); } else setMuted((x) => !x); }, onJump: jump, loop: range ? { on: loopRange, toggle: toggleLoop } : undefined }} onPickPreview={(take) => { if (current) patch.mutate({ clip: current.id, patch: { take: take.id } }); setPreview(null); }} />
+            <Player ref={player} timeline={t.id} clips={clips} music={t.music} frame={t.width && t.height ? { width: t.width, height: t.height } : null} playing={playing} onPlaying={setPlaying} onTime={onTime} preview={preview} live={liveShown} onStop={(job) => stop.mutate(job)} master={muted ? 0 : volume} screen={{ clock, total, playing, volume, muted, onToggle: toggle, onSeek: (ms) => player.current?.seek(ms), onVolume, onMute, onJump: jump, loop: range ? { on: loopRange, toggle: toggleLoop } : undefined }} onPickPreview={(take) => { if (current) patch.mutate({ clip: current.id, patch: { take: take.id } }); setPreview(null); }} />
         </main>
         </div>
           {range && <RangeBar range={range} emptyRange={emptyRange} clips={clips} snapQuiet={snapQuiet} onSnapQuiet={toggleSnapQuiet} items={rangeItems()} />}
@@ -567,8 +376,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onJump={jump}
             onToggle={toggle}
             onToggleLoop={toggleLoop}
-            onVolume={(v) => { setVolume(v); setMuted(false); }}
-            onMute={() => { if (volume === 0) { setVolume(1); setMuted(false); } else setMuted((x) => !x); }}
+            onVolume={onVolume}
+            onMute={onMute}
             onFullscreen={() => player.current?.fullscreen()}
             onExtend={continueHere}
             onSaveFrame={() => {
@@ -697,51 +506,37 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onWriteBetween={() => writeBetween.mutate({ clip: current.id, force: true })}
           />
         ) : (
-          // as wide as the clip's panel, and widened the same way: the stage keeps its size from one to the other
-          <aside style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel text-ink-2">
-            <ColumnEdge />
-            {/* a container: the Overview's rows lay out by the column's width, which can go down to 320 px */}
-            <div className="@container/column flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
-            {/* its name is in the header's field: said here only as the start's invitation */}
-            {!clips.length && <span className="text-[17px] font-bold text-ink">Start your video</span>}
-            {clips.length ? (
-              <Overview
-                timeline={t}
-                aspect={{
-                  value: shape,
-                  onChange: (v) => edit.mutate(v === "first" ? { width: null, height: null } : v === "own" ? {} : { width: SHAPES[v as Shape].width, height: SHAPES[v as Shape].height }),
-                  options: [
-                    ...(Object.keys(SHAPES) as Shape[]).map((k) => ({ value: k as string, label: SHAPES[k].label, short: SHAPES[k].ratio, note: `${SHAPES[k].width} × ${SHAPES[k].height}` })),
-                    ...(shape === "own" ? [{ value: "own", label: SHAPES[shapeOf(t.width!, t.height!)].label, note: `${t.width} × ${t.height}` }] : []),
-                    { value: "first", label: "The first clip decides", detail: "The video takes the aspect ratio of the first clip that is rendered." },
-                  ],
-                }}
-                clips={clips}
-                {...checks}
-                onPick={(id) => select(id)}
-                onMusic={() => setMusicOpen(true)}
-                onCast={() => setCasting(true)}
-                onFolder={(folder) => edit.mutate({ folder })}
-                onFix={(f) => fix.mutate(f)}
-                picked={picked}
-                onRenderPicked={() => { render.mutate({ clips: clips.filter(renderable) }); setPicked(new Set()); }}
-                rendering={render.isPending || fix.isPending}
-                fold={<FoldButton words />}
-              />
-            ) : (
-              <StartPanel busy={add.isPending} planning={plan.isPending} onPickImage={() => setPicking(true)} onPlan={(idea, count) => plan.mutate({ idea, clips: count })} onNewClip={() => newClip()} />
-            )}
-            </div>
-          </aside>
+          <OverviewColumn
+            t={t}
+            clips={clips}
+            checks={checks}
+            width={panelWidth}
+            picked={picked}
+            rendering={render.isPending || fix.isPending}
+            onEdit={(p) => edit.mutate(p)}
+            onPick={(id) => select(id)}
+            onMusic={() => setMusicOpen(true)}
+            onCast={() => setCasting(true)}
+            onFix={(f) => fix.mutate(f)}
+            onRenderPicked={() => { render.mutate({ clips: clips.filter(renderable) }); setPicked(new Set()); }}
+            start={{ busy: add.isPending, planning: plan.isPending, onPickImage: () => setPicking(true), onPlan: (idea, count) => plan.mutate({ idea, clips: count }), onNewClip: () => newClip() }}
+          />
         )}
       </div>
 
       {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" head={clipHead(clipMenu.menu.subject)} items={clipMenuItems(clipMenu.menu.subject, clipActs)} onClose={clipMenu.close} />}
       {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" head={{ title: "Range", sub: <span className="font-mono">{mmss(range.inMs, { decimals: 1 })} – {mmss(range.outMs, { decimals: 1 })}</span> }} items={rangeItems()} onClose={rangeMenu.close} />}
-      {soundMenu.menu && <ContextMenu at={soundMenu.menu.at} label="The audio of this clip" head={soundHead(shown.clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject)} items={soundMenuItems(shown.clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject, { patch: (clip, p) => patch.mutate({ clip, patch: p }), pick: setSoundPick, select })} onClose={soundMenu.close} />}
-      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" head={{ title: "Music", sub: t.music ? t.music.asset.name || "Sound" : "None yet" }} items={musicMenuItems(t.music, { pick: () => setMusicPick(true), open: () => { setSelected(null); setMusicOpen(true); }, edit: (p) => edit.mutate(p) })} onClose={musicMenu.close} />}
-      {soundPick && <Picker title={`Audio of clip ${shown.clips.findIndex((x) => x.id === soundPick.id) + 1}`} kind="audio" onClose={() => setSoundPick(null)} onPick={(soundAsset) => { patch.mutate({ clip: soundPick.id, patch: { soundAsset } }); setSoundPick(null); }} />}
-      {musicPick && <Picker title="Music" kind="audio" onClose={() => setMusicPick(false)} onPick={(asset) => { edit.mutate({ music: { asset } }); setMusicPick(false); setMusicOpen(true); }} />}
+      <SoundMenus
+        t={t}
+        clips={shown.clips}
+        soundMenu={soundMenu}
+        musicMenu={musicMenu}
+        onPatch={(clip, p) => patch.mutate({ clip, patch: p })}
+        onEdit={(p) => edit.mutate(p)}
+        select={select}
+        openMusic={() => { setSelected(null); setMusicOpen(true); }}
+        showMusic={() => setMusicOpen(true)}
+      />
 
       {exp && (
         <ExportDialog
@@ -791,9 +586,3 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   );
 }
 
-/** The right column folded: its strip, with the count of what Needs attention lists (the Overview's rows, worked out the same way). */
-function FoldedColumn({ timeline, clips, label, renderable, msOf, why, known }: { timeline: Timeline; clips: Clip[]; label: string; renderable(c: Clip): boolean; msOf(c: Clip): number | null; why(c: Clip): string | undefined; known: boolean }) {
-  const { rows, checking } = useAttention(timeline, clips, renderable, msOf, { why, known });
-  // no count while the checks run: one that grows under the pointer reads as new trouble
-  return <FoldedStrip label={label} attention={checking ? 0 : rows.length} />;
-}
